@@ -1,6 +1,6 @@
 workspace "Luth"
    architecture "x86_64"
-   startproject "Luth"
+   startproject "Luthien"
 
    configurations
    {
@@ -9,7 +9,12 @@ workspace "Luth"
       "Dist"
    }
 
+   flags
+	{
+		"MultiProcessorCompile"
+	}
+
 outputdir = "%{cfg.system}-%{cfg.architecture}/%{cfg.buildcfg}"
 
-dofile("luth/premake5.lua");
-dofile("core/premake5.lua");
+include "Luth"
+include "Luthien"

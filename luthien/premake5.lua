@@ -1,21 +1,25 @@
-project "Core"
-   kind "StaticLib"
+project "Luthien"
+   kind "ConsoleApp"
    language "C++"
    cppdialect "C++20"
-
+   
    targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
-
-   pchheader "pch.h"
-   pchsource "source/pch.cpp"
 
    files
    {
       "source/**.h",
       "source/**.cpp"
    }
-   
-   includedirs { "source" }
+
+   includedirs
+   {
+      "source",
+      "%{wks.location}/luth/source"
+      "%{wks.location}/luth/extern"
+   }
+
+   links { "Luth" }
 
    filter "configurations:Debug"
       defines { "DEBUG" }
