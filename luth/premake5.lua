@@ -19,9 +19,10 @@ project "Luth"
 
    links
    {
-      "GLFW",
+      "Assimp",
       "Glad",
-      "Assimp"
+      "GLFW",
+      "GLM"
    }
 
    filter "configurations:Debug"
