@@ -15,11 +15,15 @@ project "Luthien"
    includedirs
    {
       "source",
-      "%{wks.location}/luth/source"
+      "%{wks.location}/luth/source",
       "%{wks.location}/luth/extern"
    }
 
-   links { "Luth" }
+   links
+   {
+      "Luth",
+      "ImGui"
+   }
 
    filter "configurations:Debug"
       defines { "DEBUG" }

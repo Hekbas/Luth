@@ -17,6 +17,13 @@ project "Luth"
    
    includedirs { "source" }
 
+   links
+   {
+      "GLFW",
+      "Glad",
+      "Assimp"
+   }
+
    filter "configurations:Debug"
       defines { "DEBUG" }
       runtime "Debug"

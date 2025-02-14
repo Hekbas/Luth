@@ -1,0 +1,12 @@
+[submodule "luth/extern/source/assimp"]
+	path = luth/extern/source/assimp
+	url = https://github.com/assimp/assimp.git
+[submodule "luth/extern/source/glfw"]
+	path = luth/extern/source/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "luthien/extern/source/imgui"]
+	path = luthien/extern/source/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "luth/extern/source/glm"]
+	path = luth/extern/source/glm
+	url = https://github.com/g-truc/glm.git
