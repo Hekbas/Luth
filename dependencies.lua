@@ -1,6 +1,7 @@
 IncludeDir = {}
-IncludeDir["Assimp"] = "%{wks.location}/luth/extern/source/assimp/include"
-IncludeDir["Glad"] = "%{wks.location}/luth/extern/source/Glad/include"
-IncludeDir["GLFW"] = "%{wks.location}/luth/extern/source/GLFW/include"
+IncludeDir["assimp"] = "%{wks.location}/luth/extern/source/assimp/include"
+IncludeDir["glad"] = "%{wks.location}/luth/extern/source/glad/include"
+IncludeDir["glfw"] = "%{wks.location}/luth/extern/source/glfw/include"
 IncludeDir["glm"] = "%{wks.location}/luth/extern/source/glm"
-IncludeDir["ImGui"] = "%{wks.location}/luthien/extern/source/imgui"
+IncludeDir["spdlog"] = "%{wks.location}/luth/extern/source/spdlog"
+IncludeDir["imgui"] = "%{wks.location}/luthien/extern/source/imgui"

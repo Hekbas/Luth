@@ -15,14 +15,22 @@ project "Luth"
       "source/**.cpp"
    }
    
-   includedirs { "source" }
+   includedirs
+   {
+      "source",
+      IncludeDir["assimp"],
+      IncludeDir["glad"],
+      IncludeDir["glfw"],
+      IncludeDir["glm"],
+      IncludeDir["spdlog"]
+   }
 
    links
    {
-      "Assimp",
-      "Glad",
-      "GLFW",
-      "GLM"
+      "assimp",
+      "glad",
+      "glfw",
+      "glm"
    }
 
    filter "configurations:Debug"
@@ -39,3 +47,4 @@ project "Luth"
       defines { "DIST" }
       runtime "Release"
       optimize "on"
+      

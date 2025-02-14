@@ -18,7 +18,6 @@ workspace "Luth"
 
 outputdir = "%{cfg.system}-%{cfg.architecture}/%{cfg.buildcfg}"
 
-
 group "Luth"
    include "Luth"
 group ""
@@ -33,4 +32,8 @@ group ""
 
 group "Luthien/Extern"
       include "luthien/extern"
+group ""
+
+group "Tools"
+   include "extern/premake"
 group ""

@@ -39,3 +39,4 @@ project "Luthien"
       defines { "DIST" }
       runtime "Release"
       optimize "on"
+      

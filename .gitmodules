@@ -10,3 +10,6 @@
 [submodule "luth/extern/source/glm"]
 	path = luth/extern/source/glm
 	url = https://github.com/g-truc/glm.git
+[submodule "luth/extern/source/spdlog"]
+	path = luth/extern/source/spdlog
+	url = https://github.com/gabime/spdlog.git

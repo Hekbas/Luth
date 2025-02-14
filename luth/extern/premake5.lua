@@ -1,130 +1,4 @@
-project "GLFW"
-	kind "StaticLib"
-	language "C"
-
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
-
-	files
-	{
-		"source/glfw/include/GLFW/glfw3.h",
-		"source/glfw/include/GLFW/glfw3native.h",
-		"source/glfw/src/glfw_config.h",
-		"source/glfw/src/context.c",
-		"source/glfw/src/init.c",
-		"source/glfw/src/input.c",
-		"source/glfw/src/monitor.c",
-		"source/glfw/src/vulkan.c",
-		"source/glfw/src/window.c"
-	}
-
-	filter "system:windows"
-		systemversion "latest"
-
-		files
-		{
-			"source/glfw/src/win32_init.c",
-			"source/glfw/src/win32_joystick.c",
-			"source/glfw/src/win32_monitor.c",
-			"source/glfw/src/win32_time.c",
-			"source/glfw/src/win32_thread.c",
-			"source/glfw/src/win32_window.c",
-			"source/glfw/src/wgl_context.c",
-			"source/glfw/src/egl_context.c",
-			"source/glfw/src/osmesa_context.c"
-		}
-
-		defines 
-		{ 
-			"_GLFW_WIN32",
-			"_CRT_SECURE_NO_WARNINGS"
-		}
-
-	filter "configurations:Debug"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		runtime "Release"
-		optimize "on"
-
-project "Glad"
-	kind "StaticLib"
-	language "C"
-	staticruntime "off"
-	
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
-
-	files
-	{
-		"source/glad/include/glad/glad.h",
-		"source/glad/include/KHR/khrplatform.h",
-		"source/glad/src/glad.c"
-	}
-
-	includedirs
-	{
-		"source/glad/include"
-	}
-	
-	filter "system:windows"
-		systemversion "latest"
-
-	filter "configurations:Debug"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		runtime "Release"
-		optimize "on"
-
-project "GLM"
-	kind "StaticLib"
-	language "C"
-	cppdialect "C++20"
-	architecture "x86_64"
-
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
-	
-	includedirs { "source/glm" } 
-
-	files
-	{
-		"source/glm/glm/**"
-	}
-	
-	filter "system:windows"
-		systemversion "latest"
-		staticruntime "On"
-
-		defines 
-		{ 
-			"_GLM_WIN32",
-			"_CRT_SECURE_NO_WARNINGS"
-		}
-
-	filter "system:linux"
-		pic "On"
-
-		systemversion "latest"
-		staticruntime "On"
-
-		defines
-		{
-			"_GLM_X11"
-		}	
-
-	filter "configurations:Debug"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		runtime "Release"
-		optimize "on"
-
-project "Assimp"
+project "assimp"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++17"
@@ -262,5 +136,139 @@ project "Assimp"
 		symbols "on"
 
 	filter  "configurations:Release"
+		runtime "Release"
+		optimize "on"
+	
+----------------------------------------------------------------------------------------------
+
+project "glad"
+	kind "StaticLib"
+	language "C"
+	staticruntime "off"
+	
+	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+
+	files
+	{
+		"source/glad/include/glad/glad.h",
+		"source/glad/include/KHR/khrplatform.h",
+		"source/glad/src/glad.c"
+	}
+
+	includedirs
+	{
+		"source/glad/include"
+	}
+	
+	filter "system:windows"
+		systemversion "latest"
+
+	filter "configurations:Debug"
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
+		runtime "Release"
+		optimize "on"
+
+----------------------------------------------------------------------------------------------
+
+project "glfw"
+	kind "StaticLib"
+	language "C"
+
+	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+
+	files
+	{
+		"source/glfw/include/GLFW/glfw3.h",
+		"source/glfw/include/GLFW/glfw3native.h",
+		"source/glfw/src/glfw_config.h",
+		"source/glfw/src/context.c",
+		"source/glfw/src/init.c",
+		"source/glfw/src/input.c",
+		"source/glfw/src/monitor.c",
+		"source/glfw/src/vulkan.c",
+		"source/glfw/src/window.c"
+	}
+
+	filter "system:windows"
+		systemversion "latest"
+
+		files
+		{
+			"source/glfw/src/win32_init.c",
+			"source/glfw/src/win32_joystick.c",
+			"source/glfw/src/win32_monitor.c",
+			"source/glfw/src/win32_time.c",
+			"source/glfw/src/win32_thread.c",
+			"source/glfw/src/win32_window.c",
+			"source/glfw/src/wgl_context.c",
+			"source/glfw/src/egl_context.c",
+			"source/glfw/src/osmesa_context.c"
+		}
+
+		defines 
+		{ 
+			"_GLFW_WIN32",
+			"_CRT_SECURE_NO_WARNINGS"
+		}
+
+	filter "configurations:Debug"
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
+		runtime "Release"
+		optimize "on"
+
+
+
+----------------------------------------------------------------------------------------------
+
+project "glm"
+	kind "StaticLib"
+	language "C"
+	cppdialect "C++20"
+	architecture "x86_64"
+
+	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+	
+	includedirs { "source/glm" } 
+
+	files
+	{
+		"source/glm/glm/**"
+	}
+	
+	filter "system:windows"
+		systemversion "latest"
+		staticruntime "On"
+
+		defines 
+		{ 
+			"_GLM_WIN32",
+			"_CRT_SECURE_NO_WARNINGS"
+		}
+
+	filter "system:linux"
+		pic "On"
+
+		systemversion "latest"
+		staticruntime "On"
+
+		defines
+		{
+			"_GLM_X11"
+		}	
+
+	filter "configurations:Debug"
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
 		runtime "Release"
 		optimize "on"
