@@ -6,6 +6,8 @@ project "Luthien"
    targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
 
+   buildoptions { "/utf-8" }
+
    files
    {
       "source/**.h",
@@ -16,7 +18,7 @@ project "Luthien"
    {
       "source",
       "%{wks.location}/luth/source",
-      "%{wks.location}/luth/extern"
+      IncludeDir["spdlog"]
    }
 
    links

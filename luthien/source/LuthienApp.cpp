@@ -1,4 +1,5 @@
 #include "luth/core/App.h"
+#include "luth/core/Log.h"
 
 namespace Luth
 {
@@ -25,6 +26,7 @@ namespace Luth
 
 int main()
 {
+    Luth::Log::Init();
     Luth::App* app = Luth::CreateApp();
     app->Run();
     delete app;

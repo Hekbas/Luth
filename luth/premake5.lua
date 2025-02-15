@@ -9,6 +9,8 @@ project "Luth"
    pchheader "luthpch.h"
    pchsource "source/luthpch.cpp"
 
+   buildoptions { "/utf-8" }
+
    files
    {
       "source/**.h",
@@ -18,6 +20,7 @@ project "Luth"
    includedirs
    {
       "source",
+      "extern/source",
       IncludeDir["assimp"],
       IncludeDir["glad"],
       IncludeDir["glfw"],
