@@ -18,6 +18,8 @@ project "Luthien"
    {
       "source",
       "%{wks.location}/luth/source",
+      IncludeDir["glfw"],
+      IncludeDir["glm"],
       IncludeDir["spdlog"]
    }
 

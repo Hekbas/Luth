@@ -1,5 +1,4 @@
-#include "luth/core/App.h"
-#include "luth/core/Log.h"
+#include "Luth.h"
 
 namespace Luth
 {
@@ -13,7 +12,7 @@ namespace Luth
     protected:
         void OnInit() override {}
 
-        void OnUpdate() override {}
+        void OnUpdate(f32 deltaTime) override {}
 
         void OnShutdown() override {}
     };

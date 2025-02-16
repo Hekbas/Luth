@@ -10,9 +10,13 @@
 // Disable NTTP (for pre-C++20)
 #define FMT_USE_NONTYPE_TEMPLATE_ARGS 0
 
-#include <memory>
+// Ignore warnings
+#pragma warning(push, 0)
 #include <spdlog/spdlog.h>
-#include <spdlog/fmt/ostr.h>    // For logging custom types
+#include <spdlog/fmt/ostr.h>
+#pragma warning(pop)
+
+#include <memory>
 
 namespace Luth
 {
