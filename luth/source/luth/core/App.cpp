@@ -1,8 +1,10 @@
 #include "luthpch.h"
 #include "luth/core/App.h"
 #include "luth/core/Log.h"
-#include "luth/core/Layer.h"
 #include "luth/core/Window.h"
+#include "luth/events/Event.h"
+#include "luth/events/AppEvent.h"
+#include "luth/events/KeyEvent.h"
 
 namespace Luth
 {
@@ -11,11 +13,15 @@ namespace Luth
         // Initialize window with event bus reference
         WindowSpec spec;
         spec.Title = "Luth Engine";
-        m_Window = std::make_unique<Window>(spec);
+        m_Window = std::make_unique<Window>(m_EventBus, spec);
+
+        // Subscribe to core events
+        m_EventBus.Subscribe<WindowCloseEvent>([this](Event& e) { Close(); });
     }
 
     App::~App()
     {
+
     }
 
     void App::Run()
@@ -26,7 +32,7 @@ namespace Luth
         {
             // Calculate timestep
             f32 time = static_cast<f32>(glfwGetTime());
-            f32 deltaTime = time - m_LastFrameTime;
+            f32 dt = time - m_LastFrameTime;
             m_LastFrameTime = time;
 
             // Update window first
@@ -36,20 +42,20 @@ namespace Luth
             ProcessEvents();
 
             // User-defined update
-            OnUpdate(deltaTime);
+            OnUpdate(dt);
         }
 
         OnShutdown();
     }
 
-    void App::ProcessEvents()
-    {
-        m_EventBus.ProcessEvents();
-    }
-
     void App::Close()
     {
         m_Running = false;
+    }
+
+    void App::ProcessEvents()
+    {
+        m_EventBus.ProcessEvents();
     }
 
     void App::OnEvent(Event& event)

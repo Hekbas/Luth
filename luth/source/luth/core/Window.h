@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/events/Event.h"
+#include "luth/events/EventBus.h"
 
 #include <GLFW/glfw3.h>
 #include <functional>
@@ -20,38 +21,23 @@ namespace Luth
     class Window
     {
     public:
-        using EventCallbackFn = std::function<void(Event&)>;
-
-        Window(const WindowSpec& spec = WindowSpec());
+        Window(EventBus& eventBus, const WindowSpec& spec = WindowSpec());
         ~Window();
 
         void OnUpdate();
-        void SetEventCallback(const EventCallbackFn& callback);
-
-        // Window attributes
-        u32 GetWidth() const { return m_Data.Width; }
-        u32 GetHeight() const { return m_Data.Height; }
-        void* GetNativeWindow() const { return m_Window; }
-
-        // Feature control
         void SetVSync(bool enabled);
-        bool IsVSync() const { return m_Data.VSync; }
         void ToggleFullscreen();
+
+        u32 GetWidth() const { return m_Spec.Width; }
+        u32 GetHeight() const { return m_Spec.Height; }
+        GLFWwindow* GetNativeWindow() const { return m_Window; }
 
     private:
         void Init();
         void Shutdown();
 
-        GLFWwindow* m_Window;
+        EventBus& m_EventBus;
         WindowSpec m_Spec;
-
-        struct WindowData
-        {
-            std::string Title;
-            u32 Width, Height;
-            bool VSync;
-            EventCallbackFn EventCallback;
-        };
-        WindowData m_Data;
+        GLFWwindow* m_Window = nullptr;
     };
 }

@@ -1,6 +1,9 @@
 #include "Luthpch.h"
 #include "luth/core/Window.h"
 #include "luth/core/Log.h"
+#include "luth/events/Event.h"
+#include "luth/events/AppEvent.h"
+#include "luth/events/KeyEvent.h"
 
 namespace Luth
 {
@@ -9,8 +12,8 @@ namespace Luth
         LH_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
     }
 
-    Window::Window(const WindowSpec& spec) : m_Spec(spec)
-    {
+    Window::Window(EventBus& eventBus, const WindowSpec& spec)
+        : m_EventBus(eventBus), m_Spec(spec) {
         Init();
     }
 
@@ -22,7 +25,7 @@ namespace Luth
     void Window::Init()
     {
         // Initialize GLFW
-        if (!glfwInit())
+        if (!glfwInit()) 
         {
             LH_CORE_CRITICAL("Could not initialize GLFW!");
             return;
@@ -32,7 +35,7 @@ namespace Luth
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_SAMPLES, 4);  // 4x MSAA
+        glfwWindowHint(GLFW_SAMPLES, 4);
 
         // Create window
         m_Window = glfwCreateWindow(
@@ -51,8 +54,32 @@ namespace Luth
         }
 
         // Set GLFW callbacks
-        glfwSetWindowUserPointer(m_Window, &m_Data);
+        glfwSetWindowUserPointer(m_Window, this);
         glfwSetErrorCallback(GLFWErrorCallback);
+
+        // Event Callbacks (Buffered)
+        glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
+            Window& win = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            win.m_Spec.Width = width;
+            win.m_Spec.Height = height;
+            win.m_EventBus.Enqueue<WindowResizeEvent>(width, height);
+        });
+
+        glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window) {
+            Window& win = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            win.m_EventBus.Enqueue<WindowCloseEvent>();
+        });
+
+        glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            Window& win = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+
+            switch (action)
+            {
+                case GLFW_PRESS:    win.m_EventBus.Enqueue<KeyPressedEvent>(key, 0);    break;
+                case GLFW_REPEAT:   win.m_EventBus.Enqueue<KeyPressedEvent>(key, 1);    break;
+                case GLFW_RELEASE:  win.m_EventBus.Enqueue<KeyReleasedEvent>(key);      break;
+            }
+        });
 
         // Set context and VSync
         glfwMakeContextCurrent(m_Window);
@@ -74,7 +101,7 @@ namespace Luth
     void Window::SetVSync(bool enabled)
     {
         glfwSwapInterval(enabled ? 1 : 0);
-        m_Data.VSync = enabled;
+        m_Spec.VSync = enabled;
     }
 
     void Window::ToggleFullscreen()
@@ -82,13 +109,11 @@ namespace Luth
         GLFWmonitor* monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
 
-        if (m_Spec.Fullscreen)
-        {
+        if (m_Spec.Fullscreen) {
             glfwSetWindowMonitor(m_Window, nullptr,
                 100, 100, m_Spec.Width, m_Spec.Height, mode->refreshRate);
         }
-        else
-        {
+        else {
             glfwSetWindowMonitor(m_Window, monitor,
                 0, 0, mode->width, mode->height, mode->refreshRate);
         }
