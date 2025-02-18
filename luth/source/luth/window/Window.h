@@ -1,8 +1,6 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/events/Event.h"
-#include "luth/events/EventBus.h"
 
 #include <GLFW/glfw3.h>
 #include <functional>
@@ -21,7 +19,7 @@ namespace Luth
     class Window
     {
     public:
-        Window(EventBus& eventBus, const WindowSpec& spec = WindowSpec());
+        Window(const WindowSpec& spec = WindowSpec());
         ~Window();
 
         void OnUpdate();
@@ -36,7 +34,6 @@ namespace Luth
         void Init();
         void Shutdown();
 
-        EventBus& m_EventBus;
         WindowSpec m_Spec;
         GLFWwindow* m_Window = nullptr;
     };

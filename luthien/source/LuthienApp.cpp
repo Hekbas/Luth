@@ -6,14 +6,11 @@ namespace Luth
     {
     public:
         LuthienApp() {}
-
         ~LuthienApp() override = default;
 
     protected:
         void OnInit() override {}
-
         void OnUpdate(f32 deltaTime) override {}
-
         void OnShutdown() override {}
     };
 

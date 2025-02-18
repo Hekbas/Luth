@@ -18,6 +18,7 @@ project "Luthien"
    {
       "source",
       "%{wks.location}/luth/source",
+      IncludeDir["imgui"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["spdlog"]
@@ -25,8 +26,7 @@ project "Luthien"
 
    links
    {
-      "Luth",
-      "ImGui"
+      "Luth"
    }
 
    filter "configurations:Debug"

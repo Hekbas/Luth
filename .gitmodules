@@ -5,7 +5,7 @@
 	path = luth/extern/source/glfw
 	url = https://github.com/glfw/glfw.git
 [submodule "luthien/extern/source/imgui"]
-	path = luthien/extern/source/imgui
+	path = luth/extern/source/imgui
 	url = https://github.com/ocornut/imgui.git
 [submodule "luth/extern/source/glm"]
 	path = luth/extern/source/glm
