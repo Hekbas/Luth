@@ -2,23 +2,42 @@
 
 #include "luth/core/LuthTypes.h"
 
-struct ImGuiContext;
+#include <glm/glm.hpp>
+#include <memory>
 
 namespace Luth
 {
-    class Editor
+    enum class RendererAPI
+    {
+        None = 0,
+        OpenGL,
+        Vulkan //TODO :')
+    };
+
+    class Renderer
     {
     public:
-        static void Init(void* window);
-        static void Shutdown();
+        virtual ~Renderer() = default;
 
-        static void BeginFrame();
-        static void EndFrame();
+        virtual void Init() = 0;
+        virtual void Shutdown() = 0;
 
-        static bool WantCaptureMouse();
-        static bool WantCaptureKeyboard();
+        virtual void SetClearColor(const glm::vec4& color) = 0;
+        virtual void Clear() = 0;
+        virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) = 0;
 
-    private:
-        static inline ImGuiContext* s_Context = nullptr;
+        virtual void EnableDepthTest(bool enable) = 0;
+        virtual bool IsDepthTestEnabled() const = 0;
+
+        virtual void EnableBlending(bool enable) = 0;
+        virtual void SetBlendFunction(u32 srcFactor, u32 dstFactor) = 0;
+
+        virtual void DrawIndexed(u32 count) = 0;
+
+        static RendererAPI GetAPI();
+        static std::unique_ptr<Renderer> Create();
+
+    protected:
+        static RendererAPI s_API;
     };
 }

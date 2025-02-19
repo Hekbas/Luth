@@ -1,9 +1,11 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/renderer/Renderer.h"
 
 #include <GLFW/glfw3.h>
 #include <functional>
+#include <memory>
 
 namespace Luth
 {
@@ -38,5 +40,6 @@ namespace Luth
 
         WindowSpec m_Spec;
         GLFWwindow* m_Window = nullptr;
+        std::unique_ptr<Renderer> m_Renderer;
     };
 }

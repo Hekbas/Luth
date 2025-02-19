@@ -17,6 +17,7 @@
 #pragma warning(pop)
 
 #include <memory>
+#include <cassert>
 
 namespace Luth
 {
@@ -37,3 +38,13 @@ namespace Luth
 #define LH_CORE_WARN(...)     ::Luth::Log::GetLogger()->warn(__VA_ARGS__)
 #define LH_CORE_ERROR(...)    ::Luth::Log::GetLogger()->error(__VA_ARGS__)
 #define LH_CORE_CRITICAL(...) ::Luth::Log::GetLogger()->critical(__VA_ARGS__)
+
+
+// Assert
+#define LH_CORE_ASSERT(condition, ...) \
+    do { \
+        if (!(condition)) { \
+            LH_CORE_CRITICAL("Assertion Failed: {0}", __VA_ARGS__); \
+            assert(false && #condition); \
+        } \
+    } while(0)
