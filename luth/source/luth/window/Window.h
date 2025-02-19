@@ -23,6 +23,8 @@ namespace Luth
         ~Window();
 
         void OnUpdate();
+        void SwapBuffers();
+
         void SetVSync(bool enabled);
         void ToggleFullscreen();
 

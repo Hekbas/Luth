@@ -6,7 +6,7 @@ struct ImGuiContext;
 
 namespace Luth
 {
-    class UI
+    class Editor
     {
     public:
         static void Init(void* window);

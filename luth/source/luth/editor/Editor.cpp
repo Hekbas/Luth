@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/ui/UI.h"
+#include "luth/editor/Editor.h"
 #include "luth/core/Log.h"
 
 #include <imgui.h>
@@ -8,7 +8,7 @@
 
 namespace Luth
 {
-    void UI::Init(void* window)
+    void Editor::Init(void* window)
     {
         IMGUI_CHECKVERSION();
         s_Context = ImGui::CreateContext();
@@ -19,7 +19,7 @@ namespace Luth
         LH_CORE_INFO("Initialized ImGui context");
     }
 
-    void UI::Shutdown()
+    void Editor::Shutdown()
     {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
@@ -28,26 +28,26 @@ namespace Luth
         LH_CORE_INFO("Shutdown ImGui context");
     }
 
-    void UI::BeginFrame()
+    void Editor::BeginFrame()
     {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }
 
-    void UI::EndFrame()
+    void Editor::EndFrame()
     {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     }
 
-    bool UI::WantCaptureMouse()
+    bool Editor::WantCaptureMouse()
     {
         return ImGui::GetIO().WantCaptureMouse;
         return true;
     }
 
-    bool UI::WantCaptureKeyboard()
+    bool Editor::WantCaptureKeyboard()
     {
         return ImGui::GetIO().WantCaptureKeyboard;
     }

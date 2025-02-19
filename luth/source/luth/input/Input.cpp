@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/input/Input.h"
-#include "luth/ui/UI.h"
+#include "luth/editor/Editor.h"
 
 #include <GLFW/glfw3.h>
 
@@ -13,13 +13,13 @@ namespace Luth
 
     bool Input::IsKeyPressed(int keycode)
     {
-        if (UI::WantCaptureKeyboard()) return false;
+        if (Editor::WantCaptureKeyboard()) return false;
         return glfwGetKey(static_cast<GLFWwindow*>(s_Window), keycode) == GLFW_PRESS;
     }
 
     bool Input::IsMouseButtonPressed(int button)
     {
-        if (UI::WantCaptureMouse()) return false;
+        if (Editor::WantCaptureMouse()) return false;
         return glfwGetMouseButton(static_cast<GLFWwindow*>(s_Window), button) == GLFW_PRESS;
     }
 

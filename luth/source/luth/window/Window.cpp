@@ -78,6 +78,11 @@ namespace Luth
         glfwPollEvents();
     }
 
+    void Window::SwapBuffers()
+    {
+        glfwSwapBuffers(m_Window);
+    }
+
     void Window::SetVSync(bool enabled)
     {
         glfwSwapInterval(enabled ? 1 : 0);
