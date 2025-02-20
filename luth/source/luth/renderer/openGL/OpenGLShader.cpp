@@ -52,7 +52,7 @@ namespace Luth
     void OpenGLShader::SetVec2(const std::string& name, const glm::vec2& vector)
     {
         GLint location = GetUniformLocation(name);
-        glUniform3fv(location, 1, glm::value_ptr(vector));
+        glUniform2fv(location, 1, glm::value_ptr(vector));
     }
 
     void OpenGLShader::SetVec3(const std::string& name, const glm::vec3& vector)
