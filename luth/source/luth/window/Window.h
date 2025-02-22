@@ -14,7 +14,7 @@ namespace Luth
         std::string Title = "Luth Engine";
         u32 Width = 1280;
         u32 Height = 720;
-        bool VSync = true;
+        bool VSync = false;
         bool Fullscreen = false;
     };
 

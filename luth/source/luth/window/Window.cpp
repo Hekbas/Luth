@@ -82,7 +82,7 @@ namespace Luth
 
     void Window::OnUpdate()
     {
-        m_Renderer.get()->Clear();
+        m_Renderer->Clear();
         glfwPollEvents();
     }
 

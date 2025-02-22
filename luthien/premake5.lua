@@ -8,6 +8,11 @@ project "Luthien"
 
    buildoptions { "/utf-8" }
 
+   defines
+   {
+      "GLFW_INCLUDE_NONE"
+   }
+
    files
    {
       "source/**.h",
@@ -18,9 +23,10 @@ project "Luthien"
    {
       "source",
       "%{wks.location}/luth/source",
-      IncludeDir["imgui"],
+      IncludeDir["glad"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
+      IncludeDir["imgui"],
       IncludeDir["spdlog"]
    }
 
