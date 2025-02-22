@@ -4,10 +4,10 @@
 
 namespace Luth
 {
-    class OpenGLRenderer : public Renderer
+    class GLRenderer : public Renderer
     {
     public:
-        OpenGLRenderer() = default;
+        GLRenderer() = default;
 
         void Init() override;
         void Shutdown() override;

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/OpenGL/OpenGLRenderer.h"
+#include "luth/renderer/OpenGL/GLRenderer.h"
 
 namespace Luth
 {
@@ -16,7 +16,7 @@ namespace Luth
         switch (s_API)
         {
             case RendererAPI::OpenGL:
-                return std::make_unique<OpenGLRenderer>();
+                return std::make_unique<GLRenderer>();
             case RendererAPI::None:
                 LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
                 return nullptr;

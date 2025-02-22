@@ -6,12 +6,12 @@
 
 namespace Luth
 {
-    class OpenGLShader : public Shader
+    class GLShader : public Shader
     {
     public:
-        OpenGLShader(const std::string& filePath);
-        OpenGLShader(const std::string& vertexSrc, const std::string& fragmentSrc);
-        ~OpenGLShader();
+        GLShader(const std::string& filePath);
+        GLShader(const std::string& vertexSrc, const std::string& fragmentSrc);
+        ~GLShader();
 
         void Bind() const override;
         void Unbind() const override;

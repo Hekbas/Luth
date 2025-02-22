@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/openGL/OpenGLShader.h"
+#include "luth/renderer/openGL/GLShader.h"
 
 #include <glm/gtc/type_ptr.hpp>
 #include <fstream>
@@ -7,14 +7,14 @@
 
 namespace Luth
 {
-    OpenGLShader::OpenGLShader(const std::string& filePath)
+    GLShader::GLShader(const std::string& filePath)
     {
         std::string source = Load(filePath);
         auto shaderSources = PreProcess(source);
         Compile(shaderSources);
     }
 
-    OpenGLShader::OpenGLShader(const std::string& vertexSrc, const std::string& fragmentSrc)
+    GLShader::GLShader(const std::string& vertexSrc, const std::string& fragmentSrc)
     {
         std::unordered_map<GLenum, std::string> sources;
         sources[GL_VERTEX_SHADER] = vertexSrc;
@@ -22,58 +22,58 @@ namespace Luth
         Compile(sources);
     }
 
-    OpenGLShader::~OpenGLShader()
+    GLShader::~GLShader()
     {
         glDeleteProgram(m_RendererID);
     }
 
-    void OpenGLShader::Bind() const
+    void GLShader::Bind() const
     {
         glUseProgram(m_RendererID);
     }
 
-    void OpenGLShader::Unbind() const
+    void GLShader::Unbind() const
     {
         glUseProgram(0);
     }
 
-    void OpenGLShader::SetInt(const std::string& name, int value)
+    void GLShader::SetInt(const std::string& name, int value)
     {
         GLint location = GetUniformLocation(name);
         glUniform1i(location, value);
     }
 
-    void OpenGLShader::SetFloat(const std::string& name, float value)
+    void GLShader::SetFloat(const std::string& name, float value)
     {
         GLint location = GetUniformLocation(name);
         glUniform1f(location, value);
     }
 
-    void OpenGLShader::SetVec2(const std::string& name, const glm::vec2& vector)
+    void GLShader::SetVec2(const std::string& name, const glm::vec2& vector)
     {
         GLint location = GetUniformLocation(name);
         glUniform2fv(location, 1, glm::value_ptr(vector));
     }
 
-    void OpenGLShader::SetVec3(const std::string& name, const glm::vec3& vector)
+    void GLShader::SetVec3(const std::string& name, const glm::vec3& vector)
     {
         GLint location = GetUniformLocation(name);
         glUniform3fv(location, 1, glm::value_ptr(vector));
     }
 
-    void OpenGLShader::SetVec4(const std::string& name, const glm::vec4& vector)
+    void GLShader::SetVec4(const std::string& name, const glm::vec4& vector)
     {
         GLint location = GetUniformLocation(name);
         glUniform4fv(location, 1, glm::value_ptr(vector));
     }
 
-    void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& matrix)
+    void GLShader::SetMat4(const std::string& name, const glm::mat4& matrix)
     {
         GLint location = GetUniformLocation(name);
         glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
     }
 
-    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(const std::string& source)
+    std::unordered_map<GLenum, std::string> GLShader::PreProcess(const std::string& source)
     {
         std::unordered_map<GLenum, std::string> shaderSources;
         const char* typeToken = "#type";
@@ -97,7 +97,7 @@ namespace Luth
         return shaderSources;
     }
 
-    void OpenGLShader::Compile(const std::unordered_map<GLenum, std::string>& shaderSources)
+    void GLShader::Compile(const std::unordered_map<GLenum, std::string>& shaderSources)
     {
         GLuint program = glCreateProgram();
         std::vector<GLuint> shaderIDs;
@@ -152,7 +152,7 @@ namespace Luth
         m_RendererID = program;
     }
 
-    GLenum OpenGLShader::ShaderTypeFromString(const std::string& type)
+    GLenum GLShader::ShaderTypeFromString(const std::string& type)
     {
         if (type == "vertex") return GL_VERTEX_SHADER;
         if (type == "fragment") return GL_FRAGMENT_SHADER;
@@ -162,7 +162,7 @@ namespace Luth
         return 0;
     }
 
-    GLint OpenGLShader::GetUniformLocation(const std::string& name)
+    GLint GLShader::GetUniformLocation(const std::string& name)
     {
         if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
             return m_UniformLocationCache[name];

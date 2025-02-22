@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/Shader.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/openGL/OpenGLShader.h"
+#include "luth/renderer/openGL/GLShader.h"
 
 namespace Luth
 {
@@ -10,7 +10,7 @@ namespace Luth
         switch (Renderer::GetAPI())
         {
             case RendererAPI::OpenGL:
-                return std::make_shared<OpenGLShader>(filePath);
+                return std::make_shared<GLShader>(filePath);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
                 return nullptr;
@@ -22,7 +22,7 @@ namespace Luth
         switch (Renderer::GetAPI())
         {
             case RendererAPI::OpenGL:
-                return std::make_shared<OpenGLShader>(vertexSrc, fragmentSrc);
+                return std::make_shared<GLShader>(vertexSrc, fragmentSrc);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
                 return nullptr;
