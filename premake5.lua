@@ -4,6 +4,8 @@ workspace "Luth"
    architecture "x86_64"
    startproject "Luthien"
 
+   buildoptions { "/utf-8" }
+
    configurations
    {
       "Debug",

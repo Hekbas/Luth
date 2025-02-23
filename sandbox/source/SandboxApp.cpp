@@ -25,6 +25,10 @@ namespace Luth
     protected:
         void OnInit() override
         {
+            // VULKAN
+            //CreateInstance();
+
+            // OPENGL
             //InitTestOpenGL();
         }
 
@@ -49,8 +53,12 @@ namespace Luth
             }
         }
 
-        void OnShutdown() override {}
+        void OnShutdown() override
+        {
+            //vkDestroyInstance(instance, nullptr);
+        }
 
+        // OPENGL
         GLuint quadVAO, quadVBO;
 
         void InitTestOpenGL()
