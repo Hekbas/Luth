@@ -27,7 +27,8 @@ project "Sandbox"
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
-      IncludeDir["spdlog"]
+      IncludeDir["spdlog"],
+      IncludeDir["vulkan"]
    }
 
    links

@@ -6,12 +6,13 @@
 #include "luth/resources/ShaderLibrary.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Shader.h"
+#include <memory>
 
-// TEST GL
+// TEST GL / VULKAN
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
-#include <memory>
 
 namespace Luth
 {
@@ -24,7 +25,7 @@ namespace Luth
     protected:
         void OnInit() override
         {
-            InitTestOpenGL();
+            //InitTestOpenGL();
         }
 
         void OnUpdate(f32 dt) override
@@ -32,7 +33,7 @@ namespace Luth
             static float time = 0;
             time += dt;
 
-            TestOpenGL(time);
+            //TestOpenGL(time);
         }
 
         void OnUIRender() override
