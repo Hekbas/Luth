@@ -41,10 +41,10 @@ namespace Luth
 
 
 // Assert
-#define LH_CORE_ASSERT(condition, ...) \
-    do { \
-        if (!(condition)) { \
+#define LH_CORE_ASSERT(condition, ...)                              \
+    do {                                                            \
+        if (!(condition)) {                                         \
             LH_CORE_CRITICAL("Assertion Failed: {0}", __VA_ARGS__); \
-            assert(false && #condition); \
-        } \
+            assert(false && #condition);                            \
+        }                                                           \
     } while(0)

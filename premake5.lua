@@ -35,7 +35,11 @@ group "Luthien"
 group ""
 
 group "Luthien/Extern"
-      include "luthien/extern"
+   include "luthien/extern"
+group ""
+
+group "Sandbox"
+   include "Sandbox"
 group ""
 
 group "Tools"

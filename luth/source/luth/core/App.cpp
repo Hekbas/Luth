@@ -14,17 +14,12 @@ namespace Luth
     App::App()
     {
         // TODO Luth + version - OS - renderAPI
-        WindowSpec spec;
-        spec.Title = "Luth Engine";
-
-        m_Window = std::make_unique<Window>(spec);
-        Input::SetWindow(m_Window->GetNativeWindow());
-        Editor::Init(m_Window->GetNativeWindow());
+        m_Window = Window::Create();
+        Input::SetWindow(m_Window->GetHandle());
+        Editor::Init(m_Window->GetHandle());
     }
 
-    App::~App()
-    {
-    }
+    App::~App() {}
 
     void App::Run()
     {
@@ -33,8 +28,7 @@ namespace Luth
         while (m_Running)
         {
             // Calculate timestep
-            f32 time = static_cast<f32>(glfwGetTime());
-            //Timestep dt(time - m_LastFrameTime);
+            f32 time = Timestep::GetTime();
             f32 dt = time - m_LastFrameTime;
             m_LastFrameTime = time;
 

@@ -3,7 +3,6 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/Renderer.h"
 
-#include <GLFW/glfw3.h>
 #include <functional>
 #include <memory>
 
@@ -21,25 +20,18 @@ namespace Luth
     class Window
     {
     public:
-        Window(const WindowSpec& spec = WindowSpec());
-        ~Window();
+        virtual ~Window() = default;
 
-        void OnUpdate();
-        void SwapBuffers();
+        virtual void OnUpdate() = 0;
+        virtual void SwapBuffers() = 0;
 
-        void SetVSync(bool enabled);
-        void ToggleFullscreen();
+        virtual void SetVSync(bool enabled) = 0;;
+        virtual void ToggleFullscreen() = 0;
 
-        u32 GetWidth() const { return m_Spec.Width; }
-        u32 GetHeight() const { return m_Spec.Height; }
-        GLFWwindow* GetNativeWindow() const { return m_Window; }
+        virtual u32 GetWidth() const = 0;
+        virtual u32 GetHeight() const = 0;
+        virtual void* GetHandle() const = 0;
 
-    private:
-        void Init();
-        void Shutdown();
-
-        WindowSpec m_Spec;
-        GLFWwindow* m_Window = nullptr;
-        std::unique_ptr<Renderer> m_Renderer;
+        static std::unique_ptr<Window> Create(const WindowSpec& spec = WindowSpec());
     };
 }
