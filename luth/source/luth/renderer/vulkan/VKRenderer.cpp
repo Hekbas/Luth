@@ -49,6 +49,11 @@ namespace Luth
             PrintExtensions();
             PrintLayers();
         }
+
+        m_PhysicalDevice = std::make_unique<VKPhysicalDevice>(m_Instance);
+        QueueFamilyIndices indices = m_PhysicalDevice->FindQueueFamilies();
+        m_LogicalDevice = std::make_unique<VKLogicalDevice>(m_PhysicalDevice->GetHandle(), indices);
+
         LH_CORE_INFO("Vulkan renderer initialized");
     }
 

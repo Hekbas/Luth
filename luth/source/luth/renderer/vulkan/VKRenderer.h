@@ -1,10 +1,13 @@
 #pragma once
 
-#include "luth/renderer/Renderer.h"
-#include "luth/core/Log.h"
-
 #include <vulkan/vulkan.h>
+
+#include "luth/core/Log.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/vulkan/VKDevice.h"
+
 #include <vector>
+#include <memory>
 
 namespace Luth
 {
@@ -43,6 +46,8 @@ namespace Luth
         // Core Vulkan objects
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
+        std::unique_ptr<VKPhysicalDevice> m_PhysicalDevice;
+        std::unique_ptr<VKLogicalDevice> m_LogicalDevice;
 
         // Configuration
         const std::vector<const char*> m_ValidationLayers = {
