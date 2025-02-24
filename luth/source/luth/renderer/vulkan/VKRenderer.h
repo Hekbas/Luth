@@ -17,6 +17,18 @@ namespace Luth
         void Init() override;
         void Shutdown() override;
 
+        void SetClearColor(const glm::vec4& color) override;
+        void Clear() override;
+        void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
+
+        void EnableDepthTest(bool enable) override;
+        bool IsDepthTestEnabled() const override { return true; }
+
+        void EnableBlending(bool enable) override;
+        void SetBlendFunction(u32 srcFactor, u32 dstFactor) override;
+
+        void DrawIndexed(u32 count) override;
+
         // Temporary for debugging
         VkInstance GetInstance() const { return m_Instance; }
 
@@ -25,6 +37,8 @@ namespace Luth
         void SetupDebugMessenger();
         void DestroyDebugMessenger();
         bool CheckValidationLayerSupport() const;
+        void PrintExtensions() const;
+        void PrintLayers() const;
 
         // Core Vulkan objects
         VkInstance m_Instance = VK_NULL_HANDLE;

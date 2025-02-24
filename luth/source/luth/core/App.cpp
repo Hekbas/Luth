@@ -17,6 +17,7 @@ namespace Luth
         m_Window = Window::Create();
         Input::SetWindow(m_Window->GetHandle());
         Editor::Init(m_Window->GetHandle());
+        m_Renderer = Renderer::Create(RendererAPI::Vulkan);
     }
 
     App::~App() {}

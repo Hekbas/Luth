@@ -17,6 +17,7 @@ namespace Luth
     class Renderer
     {
     public:
+        Renderer() = default;
         virtual ~Renderer() = default;
 
         virtual void Init() = 0;
@@ -35,7 +36,10 @@ namespace Luth
         virtual void DrawIndexed(u32 count) = 0;
 
         static RendererAPI GetAPI();
-        static std::unique_ptr<Renderer> Create();
+        static void SetAPI(RendererAPI API);
+        static std::string APIToString();
+
+        static std::unique_ptr<Renderer> Create(RendererAPI API);
 
     protected:
         static RendererAPI s_API;

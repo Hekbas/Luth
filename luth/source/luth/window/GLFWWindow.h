@@ -28,7 +28,6 @@ namespace Luth
         void Shutdown();
 
         GLFWwindow* m_Window = nullptr;
-        std::unique_ptr<Renderer> m_Renderer;
 
         struct WindowData
         {

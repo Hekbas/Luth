@@ -65,17 +65,10 @@ namespace Luth
         });
 
         LH_CORE_INFO("Created window '{0}' ({1}x{2})", spec.Title, spec.Width, spec.Height);
-
-        m_Renderer = Renderer::Create();
-        m_Renderer->Init();
     }
 
     void GLFWWindow::Shutdown()
     {
-        if (m_Renderer) {
-            m_Renderer->Shutdown();
-        }
-
         if (m_Window) {
             glfwDestroyWindow(m_Window);
             LH_CORE_INFO("Destroyed window '{0}'", m_Data.Title);
@@ -85,7 +78,6 @@ namespace Luth
 
     void GLFWWindow::OnUpdate()
     {
-        m_Renderer->Clear();
         glfwPollEvents();
     }
 

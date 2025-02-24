@@ -31,7 +31,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 
 namespace Luth
 {
-    VKRenderer::VKRenderer() = default;
+    VKRenderer::VKRenderer()
+    {
+        s_API = RendererAPI::Vulkan;
+        Init();
+    }
 
     VKRenderer::~VKRenderer() {
         Shutdown();
@@ -42,6 +46,8 @@ namespace Luth
         CreateInstance();
         if (m_EnableValidationLayers) {
             SetupDebugMessenger();
+            PrintExtensions();
+            PrintLayers();
         }
         LH_CORE_INFO("Vulkan renderer initialized");
     }
@@ -57,6 +63,20 @@ namespace Luth
             LH_CORE_INFO("Vulkan instance destroyed");
         }
     }
+
+    void VKRenderer::SetClearColor(const glm::vec4& color) {}
+
+    void VKRenderer::Clear() {}
+
+    void VKRenderer::SetViewport(u32 x, u32 y, u32 width, u32 height) {}
+
+    void VKRenderer::EnableDepthTest(bool enable) {}
+
+    void VKRenderer::EnableBlending(bool enable) {}
+
+    void VKRenderer::SetBlendFunction(u32 srcFactor, u32 dstFactor) {}
+
+    void VKRenderer::DrawIndexed(u32 count) {}
 
     void VKRenderer::CreateInstance()
     {
@@ -135,7 +155,34 @@ namespace Luth
         return true;
     }
 
-    // Debug messenger setup/teardown
+    void VKRenderer::PrintExtensions() const
+    {
+        uint32_t extensionCount = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+        std::vector<VkExtensionProperties> extensions(extensionCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+
+        LH_CORE_INFO("Available Vulkan Extensions:");
+        for (const auto& extension : extensions) {
+            LH_CORE_INFO("\t- {0}", extension.extensionName);
+        }
+    }
+
+    void VKRenderer::PrintLayers() const
+    {
+        uint32_t layerCount = 0;
+        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+        std::vector<VkLayerProperties> layers(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, layers.data());
+
+        LH_CORE_INFO("Available Vulkan Layers:");
+        for (const auto& layer : layers) {
+            LH_CORE_INFO("\t- {0} (v{1})",
+                layer.layerName,
+                VK_VERSION_MAJOR(layer.implementationVersion));
+        }
+    }
+
     void VKRenderer::SetupDebugMessenger()
     {
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)

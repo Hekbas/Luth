@@ -8,4 +8,4 @@
 		if (result != VK_SUCCESS) {														\
 			LH_CORE_ASSERT(false, "Vulkan Error: {0} (Code: {1})", message, result);	\
 		}																				\
-	} while (true);
+	} while (0);
