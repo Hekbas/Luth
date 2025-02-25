@@ -8,10 +8,10 @@
 
 namespace Luth
 {
-    class Shader
-    {
-    public:
-        virtual ~Shader() = default;
+	class Shader
+	{
+	public:
+		virtual ~Shader() = default;
 
         virtual void Bind() const = 0;
         virtual void Unbind() const = 0;
@@ -30,5 +30,5 @@ namespace Luth
 
     protected:
         virtual int GetUniformLocation(const std::string& name) = 0;
-    };
+	};
 }
