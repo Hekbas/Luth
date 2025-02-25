@@ -68,21 +68,49 @@ namespace Luth
         vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
         int score = 0;
+        bool suitable = true;
 
-        // Discrete GPUs have significant performance advantage
+        // 1. Mandatory requirements
+        // -----------------------------
+        const std::vector<const char*> requiredExtensions = {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        };
+
+        uint32_t extensionCount;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+        std::set<std::string> requiredSet(requiredExtensions.begin(), requiredExtensions.end());
+        for (const auto& ext : availableExtensions) {
+            requiredSet.erase(ext.extensionName);
+        }
+        if (!requiredSet.empty()) {
+            LH_CORE_TRACE("Device {0} is missing required extensions", deviceProperties.deviceName);
+            suitable = false;
+        }
+
+        if (!deviceFeatures.geometryShader) {
+            LH_CORE_TRACE("Device {0} lacks geometry shader support", deviceProperties.deviceName);
+            suitable = false;
+        }
+
+        if (!suitable) {
+            m_Score = 0;
+            return;
+        }
+
+        // 2. Score optional features
+        // -----------------------------
         if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             score += 1000;
         }
 
-        // Maximum possible size of textures affects graphics quality
         score += deviceProperties.limits.maxImageDimension2D;
 
-        // Application can't function without geometry shaders
-        if (!deviceFeatures.geometryShader) {
-            return;
-        }
-
         m_Score = score;
+
+        LH_CORE_INFO("Device {0} scored {1}", deviceProperties.deviceName, score);
     }
 
     VKLogicalDevice::VKLogicalDevice(VkPhysicalDevice physicalDevice, const QueueFamilyIndices& queueIndices)
@@ -107,7 +135,8 @@ namespace Luth
         createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
         createInfo.pQueueCreateInfos = queueCreateInfos.data();
         createInfo.pEnabledFeatures = &deviceFeatures;
-        createInfo.enabledExtensionCount = 0;
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(m_DeviceExtensions.size());
+        createInfo.ppEnabledExtensionNames = m_DeviceExtensions.data();
 
         VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &createInfo, nullptr, &m_Device),
             "Failed to create logical device!");
@@ -115,7 +144,8 @@ namespace Luth
         vkGetDeviceQueue(m_Device, queueIndices.graphicsFamily.value(), 0, &m_GraphicsQueue);
     }
 
-    VKLogicalDevice::~VKLogicalDevice() {
+    VKLogicalDevice::~VKLogicalDevice()
+    {
         if (m_Device) {
             vkDestroyDevice(m_Device, nullptr);
         }

@@ -4,6 +4,8 @@
 
 namespace Luth
 {
+    // TODO: Relocate OpenGL related implementations marked as OpenGL
+
     static void GLFW_ErrorCallback(int error, const char* description) {
         LH_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
     }
@@ -36,6 +38,7 @@ namespace Luth
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
+        // OpenGL
         //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -56,7 +59,7 @@ namespace Luth
             return;
         }
 
-        // TODO: Relocate OpenGL specific stuff
+        // OpenGL
         //glfwMakeContextCurrent(m_GLFWwindow);
         //SetVSync(spec.VSync);
 
@@ -86,11 +89,13 @@ namespace Luth
 
     void WinWindow::SwapBuffers()
     {
+        // OpenGL
         glfwSwapBuffers(m_GLFWwindow);
     }
 
     void WinWindow::SetVSync(bool enabled)
     {
+        // OpenGL
         glfwSwapInterval(enabled ? 1 : 0);
         m_Data.VSync = enabled;
         LH_CORE_INFO("VSync {0}", enabled ? "enabled" : "disabled");

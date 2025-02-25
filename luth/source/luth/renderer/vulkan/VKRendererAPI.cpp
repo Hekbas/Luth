@@ -141,6 +141,12 @@ namespace Luth
     void VKRendererAPI::CreateDevice()
     {
         m_PhysicalDevice = std::make_unique<VKPhysicalDevice>(m_Instance);
+
+        if (!m_PhysicalDevice->IsSuitable()) {
+            LH_CORE_CRITICAL("Physical device doesn't support required features!");
+            return;
+        }
+
         QueueFamilyIndices indices = m_PhysicalDevice->FindQueueFamilies();
         m_LogicalDevice = std::make_unique<VKLogicalDevice>(m_PhysicalDevice->GetHandle(), indices);
     }

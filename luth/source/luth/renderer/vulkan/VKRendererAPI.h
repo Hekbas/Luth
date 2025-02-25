@@ -45,8 +45,6 @@ namespace Luth
         void PrintExtensions() const;
         void PrintLayers() const;
 
-        //Window& m_Window;
-
         // Core Vulkan objects
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkSurfaceKHR m_Surface = VK_NULL_HANDLE;

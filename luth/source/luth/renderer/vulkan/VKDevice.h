@@ -32,8 +32,7 @@ namespace Luth
     class VKLogicalDevice
     {
     public:
-        VKLogicalDevice(VkPhysicalDevice physicalDevice,
-            const QueueFamilyIndices& queueIndices);
+        VKLogicalDevice(VkPhysicalDevice physicalDevice, const QueueFamilyIndices& queueIndices);
         ~VKLogicalDevice();
 
         VkDevice GetHandle() const { return m_Device; }
@@ -42,5 +41,9 @@ namespace Luth
     private:
         VkDevice m_Device = VK_NULL_HANDLE;
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+
+        const std::vector<const char*> m_DeviceExtensions = {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        };
     };
 }

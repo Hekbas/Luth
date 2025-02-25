@@ -16,7 +16,7 @@ namespace Luth
         // TODO Luth + version - OS - renderAPI
         m_Window = Window::Create();
         Input::SetWindow(m_Window->GetNativeWindow());
-        Editor::Init(m_Window->GetNativeWindow());
+        //Editor::Init(m_Window->GetNativeWindow());
         Renderer::Init(RendererAPI::API::Vulkan, m_Window->GetNativeWindow());
     }
 
@@ -40,11 +40,11 @@ namespace Luth
             OnUpdate(dt);
 
             // Render UI
-            Editor::BeginFrame();
-            OnUIRender();
-            Editor::EndFrame();
+            //Editor::BeginFrame();
+            //OnUIRender();
+            //Editor::EndFrame();
 
-            m_Window->SwapBuffers();
+            //m_Window->SwapBuffers();
         }
 
         OnShutdown();
