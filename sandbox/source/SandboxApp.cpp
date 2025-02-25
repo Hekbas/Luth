@@ -5,7 +5,7 @@
 // TEST
 #include "luth/resources/ShaderLibrary.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/vulkan/VKRenderer.h"
+#include "luth/renderer/vulkan/VKRendererAPI.h"
 #include "luth/renderer/Shader.h"
 #include <memory>
 
@@ -27,22 +27,7 @@ namespace Luth
     protected:
         void OnInit() override
         {
-            LH_CORE_INFO("=== Starting Vulkan Validation Test ===");
 
-            // Vulkan status checks
-            auto& renderer = GetRenderer();
-            LH_CORE_INFO("Renderer API: {0}", Renderer::APIToString());
-
-            // Vulkan-specific checks
-            if (auto vulkanRenderer = dynamic_cast<VKRenderer*>(&renderer)) {
-                VkInstance instance = vulkanRenderer->GetInstance();
-                LH_CORE_INFO("Vulkan Instance Created: {0}", (bool)instance);
-
-                // Other checks
-            }
-            else {
-                LH_CORE_ERROR("Renderer is not Vulkan implementation!");
-            }
         }
 
         void OnUpdate(f32 dt) override

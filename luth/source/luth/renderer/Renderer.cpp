@@ -1,43 +1,41 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/OpenGL/GLRenderer.h"
-#include "luth/renderer/vulkan/VKRenderer.h"
+#include "luth/renderer/OpenGL/GLRendererAPI.h"
+#include "luth/renderer/vulkan/VKRendererAPI.h"
 
 namespace Luth
 {
-    RendererAPI Renderer::s_API = RendererAPI::Vulkan;
+    std::unique_ptr<RendererAPI> Renderer::s_RendererAPI = nullptr;
 
-    RendererAPI Renderer::GetAPI() { return s_API; }
-    void Renderer::SetAPI(RendererAPI API) { s_API = API; }
-
-    std::string Renderer::APIToString()
+    void Renderer::Init(RendererAPI::API api, void* window)
     {
-        switch (s_API)
-        {
-            case Luth::RendererAPI::None:   return "None";
-            case Luth::RendererAPI::OpenGL: return "OpenGL";
-            case Luth::RendererAPI::Vulkan: return "Vulkan";
-            default: return "Unknown";
+        s_RendererAPI->SetWindow(window);
+        s_RendererAPI = RendererAPI::Create(api);
+        s_RendererAPI->Init();
+    }
+
+    void Renderer::Shutdown()
+    {
+        if (s_RendererAPI) {
+            s_RendererAPI->Shutdown();
+            s_RendererAPI.reset();
         }
     }
 
-    std::unique_ptr<Renderer> Renderer::Create(RendererAPI API)
-    {
-        switch (API)
-        {
-            case RendererAPI::OpenGL:
-                return std::make_unique<GLRenderer>();
+    // Forwarding commands
+    void Renderer::SetViewport(uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+        s_RendererAPI->SetViewport(x, y, w, h);
+    }
 
-            case RendererAPI::Vulkan:
-                return std::make_unique<VKRenderer>();
+    void Renderer::SetClearColor(const glm::vec4& color) {
+        s_RendererAPI->SetClearColor(color);
+    }
 
-            case RendererAPI::None:
-                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
-                return nullptr;
+    void Renderer::Clear() {
+        s_RendererAPI->Clear();
+    }
 
-            default:
-                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
-                return nullptr;
-        }
+    void Renderer::DrawIndexed(uint32_t count) {
+        s_RendererAPI->DrawIndexed(count);
     }
 }

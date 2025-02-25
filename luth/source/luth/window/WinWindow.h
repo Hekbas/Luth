@@ -7,27 +7,28 @@
 
 namespace Luth
 {
-    class GLFWWindow : public Window
+    class WinWindow : public Window
     {
     public:
-        GLFWWindow(const WindowSpec& spec);
-        virtual ~GLFWWindow();
+        WinWindow(const WindowSpec& spec);
+        virtual ~WinWindow();
 
         void OnUpdate() override;
         void SwapBuffers();
 
+        // TODO: Relocate OpenGL specific stuff
         void SetVSync(bool enabled) override;
         void ToggleFullscreen() override;
 
         u32 GetWidth() const override { return m_Data.Width; }
         u32 GetHeight() const override { return m_Data.Height; }
-        virtual void* GetHandle() const override { return m_Window; }
+        virtual void* GetNativeWindow() const override { return m_GLFWwindow; }
 
     private:
         void Init(const WindowSpec& spec);
         void Shutdown();
 
-        GLFWwindow* m_Window = nullptr;
+        GLFWwindow* m_GLFWwindow = nullptr;
 
         struct WindowData
         {

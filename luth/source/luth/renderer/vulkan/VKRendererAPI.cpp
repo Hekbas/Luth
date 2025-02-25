@@ -1,64 +1,61 @@
 #include "Luthpch.h"
-#include "luth/renderer/vulkan/VKRenderer.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/vulkan/VKRendererAPI.h"
 #include "luth/renderer/vulkan/VKCommon.h"
+#include "luth/renderer/vulkan/VKSwapchain.h"
 
 #include <GLFW/glfw3.h>
 
-// Debug callback integration with Luth logger
-static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-    void* pUserData)
-{
-    switch (messageSeverity)
-    {
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-            LH_CORE_TRACE("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-            LH_CORE_INFO("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-            LH_CORE_WARN("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-            LH_CORE_ERROR("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
-            break;
-    }
-    return VK_FALSE;
-}
-
 namespace Luth
 {
-    VKRenderer::VKRenderer()
+    // Debug callback integration with Luth logger
+    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData)
     {
-        s_API = RendererAPI::Vulkan;
-        Init();
+        switch (messageSeverity)
+        {
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+                LH_CORE_TRACE("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+                LH_CORE_INFO("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+                LH_CORE_WARN("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+                LH_CORE_ERROR("Vulkan Validation Layer: {0}", pCallbackData->pMessage);
+                break;
+        }
+        return VK_FALSE;
     }
 
-    VKRenderer::~VKRenderer() {
-        Shutdown();
-    }
-
-    void VKRenderer::Init()
+    void VKRendererAPI::Init()
     {
+        LH_CORE_INFO("Vulkan renderer init");
+
         CreateInstance();
+        CreateSurface();
+
         if (m_EnableValidationLayers) {
             SetupDebugMessenger();
             PrintExtensions();
             PrintLayers();
         }
 
-        m_PhysicalDevice = std::make_unique<VKPhysicalDevice>(m_Instance);
-        QueueFamilyIndices indices = m_PhysicalDevice->FindQueueFamilies();
-        m_LogicalDevice = std::make_unique<VKLogicalDevice>(m_PhysicalDevice->GetHandle(), indices);
-
-        LH_CORE_INFO("Vulkan renderer initialized");
+        CreateDevice();
+        CreateSwapChain();
     }
 
-    void VKRenderer::Shutdown()
+    void VKRendererAPI::Shutdown()
     {
+        if (m_Surface) {
+            vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+            LH_CORE_INFO("Vulkan surface destroyed");
+        }
         if (m_Instance) {
             if (m_EnableValidationLayers) {
                 DestroyDebugMessenger();
@@ -69,21 +66,15 @@ namespace Luth
         }
     }
 
-    void VKRenderer::SetClearColor(const glm::vec4& color) {}
+    void VKRendererAPI::SetViewport(u32 x, u32 y, u32 width, u32 height) {}
 
-    void VKRenderer::Clear() {}
+    void VKRendererAPI::SetClearColor(const glm::vec4& color) {}
 
-    void VKRenderer::SetViewport(u32 x, u32 y, u32 width, u32 height) {}
+    void VKRendererAPI::Clear() {}
 
-    void VKRenderer::EnableDepthTest(bool enable) {}
+    void VKRendererAPI::DrawIndexed(u32 count) {}
 
-    void VKRenderer::EnableBlending(bool enable) {}
-
-    void VKRenderer::SetBlendFunction(u32 srcFactor, u32 dstFactor) {}
-
-    void VKRenderer::DrawIndexed(u32 count) {}
-
-    void VKRenderer::CreateInstance()
+    void VKRendererAPI::CreateInstance()
     {
         if (m_EnableValidationLayers && !CheckValidationLayerSupport()) {
             LH_CORE_ASSERT(false, "Validation layers requested but not available!");
@@ -140,7 +131,41 @@ namespace Luth
             "Failed to create Vulkan instance!");
     }
 
-    bool VKRenderer::CheckValidationLayerSupport() const
+    void VKRendererAPI::CreateSurface()
+    {
+        GLFWwindow* glfwWindow = static_cast<GLFWwindow*>(s_Window);
+        VK_CHECK_RESULT(glfwCreateWindowSurface(m_Instance, glfwWindow, nullptr, &m_Surface),
+            "Failed to create window surface!");
+    }
+
+    void VKRendererAPI::CreateDevice()
+    {
+        m_PhysicalDevice = std::make_unique<VKPhysicalDevice>(m_Instance);
+        QueueFamilyIndices indices = m_PhysicalDevice->FindQueueFamilies();
+        m_LogicalDevice = std::make_unique<VKLogicalDevice>(m_PhysicalDevice->GetHandle(), indices);
+    }
+
+    void VKRendererAPI::CreateSwapChain()
+    {
+        int width, height;
+        glfwGetWindowSize(static_cast<GLFWwindow*>(s_Window), &width, &height);
+
+        VKSwapchain::CreateInfo createInfo
+        {
+            .physicalDevice = m_PhysicalDevice->GetHandle(),
+            .logicalDevice = m_LogicalDevice->GetHandle(),
+            .surface = m_Surface,
+            .width = (u32)width,
+            .height = (u32)height
+        };
+
+        m_Swapchain = std::make_unique<VKSwapchain>(createInfo);
+        
+        LH_CORE_INFO("Swapchain created with {0} images",
+            m_Swapchain->GetImageViews().size());
+    }
+
+    bool VKRendererAPI::CheckValidationLayerSupport() const
     {
         uint32_t layerCount;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -160,7 +185,7 @@ namespace Luth
         return true;
     }
 
-    void VKRenderer::PrintExtensions() const
+    void VKRendererAPI::PrintExtensions() const
     {
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -173,7 +198,7 @@ namespace Luth
         }
     }
 
-    void VKRenderer::PrintLayers() const
+    void VKRendererAPI::PrintLayers() const
     {
         uint32_t layerCount = 0;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -188,7 +213,7 @@ namespace Luth
         }
     }
 
-    void VKRenderer::SetupDebugMessenger()
+    void VKRendererAPI::SetupDebugMessenger()
     {
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)
             vkGetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");
@@ -212,7 +237,7 @@ namespace Luth
             "Failed to set up debug messenger!");
     }
 
-    void VKRenderer::DestroyDebugMessenger()
+    void VKRendererAPI::DestroyDebugMessenger()
     {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)
             vkGetInstanceProcAddr(m_Instance, "vkDestroyDebugUtilsMessengerEXT");

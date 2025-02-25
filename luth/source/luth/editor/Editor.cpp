@@ -14,6 +14,7 @@ namespace Luth
         s_Context = ImGui::CreateContext();
         ImGui::StyleColorsDark();
         
+        // TODO: Set Render specific Imgui Backends (GL/VK)
         ImGui_ImplGlfw_InitForOpenGL(static_cast<GLFWwindow*>(window), true);
         ImGui_ImplOpenGL3_Init("#version 460");
         LH_CORE_INFO("Initialized ImGui context");

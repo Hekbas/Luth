@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/window/GLFWWindow.h"
+#include "luth/window/WinWindow.h"
 
 
 namespace Luth
@@ -8,17 +8,17 @@ namespace Luth
         LH_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
     }
 
-    GLFWWindow::GLFWWindow(const WindowSpec& spec)
+    WinWindow::WinWindow(const WindowSpec& spec)
     {
         Init(spec);
     }
 
-    GLFWWindow::~GLFWWindow()
+    WinWindow::~WinWindow()
     {
         Shutdown();
     }
 
-    void GLFWWindow::Init(const WindowSpec& spec)
+    void WinWindow::Init(const WindowSpec& spec)
     {
         m_Data.Title = spec.Title;
         m_Data.Width = spec.Width;
@@ -36,11 +36,13 @@ namespace Luth
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+        //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-        m_Window = glfwCreateWindow(
+        m_GLFWwindow = glfwCreateWindow(
             (int)spec.Width,
             (int)spec.Height,
             spec.Title.c_str(),
@@ -48,17 +50,18 @@ namespace Luth
             nullptr
         );
 
-        if (!m_Window) {
+        if (!m_GLFWwindow) {
             LH_CORE_CRITICAL("Failed to create GLFW window!");
             glfwTerminate();
             return;
         }
 
-        glfwMakeContextCurrent(m_Window);
-        SetVSync(spec.VSync);
+        // TODO: Relocate OpenGL specific stuff
+        //glfwMakeContextCurrent(m_GLFWwindow);
+        //SetVSync(spec.VSync);
 
-        glfwSetWindowUserPointer(m_Window, this);
-        glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height) {
+        glfwSetWindowUserPointer(m_GLFWwindow, this);
+        glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {
             WindowData* win = static_cast<WindowData*>(glfwGetWindowUserPointer(window));
             win->Width = width;
             win->Height = height;
@@ -67,59 +70,43 @@ namespace Luth
         LH_CORE_INFO("Created window '{0}' ({1}x{2})", spec.Title, spec.Width, spec.Height);
     }
 
-    void GLFWWindow::Shutdown()
+    void WinWindow::Shutdown()
     {
-        if (m_Window) {
-            glfwDestroyWindow(m_Window);
+        if (m_GLFWwindow) {
+            glfwDestroyWindow(m_GLFWwindow);
             LH_CORE_INFO("Destroyed window '{0}'", m_Data.Title);
-            m_Window = nullptr;
+            m_GLFWwindow = nullptr;
         }
     }
 
-    void GLFWWindow::OnUpdate()
+    void WinWindow::OnUpdate()
     {
         glfwPollEvents();
     }
 
-    void GLFWWindow::SwapBuffers()
+    void WinWindow::SwapBuffers()
     {
-        glfwSwapBuffers(m_Window);
+        glfwSwapBuffers(m_GLFWwindow);
     }
 
-    void GLFWWindow::SetVSync(bool enabled)
+    void WinWindow::SetVSync(bool enabled)
     {
         glfwSwapInterval(enabled ? 1 : 0);
         m_Data.VSync = enabled;
         LH_CORE_INFO("VSync {0}", enabled ? "enabled" : "disabled");
     }
 
-    void GLFWWindow::ToggleFullscreen()
+    void WinWindow::ToggleFullscreen()
     {
         m_Data.Fullscreen = !m_Data.Fullscreen;
 
-        if (m_Data.Fullscreen)
-        {
+        if (m_Data.Fullscreen) {
             GLFWmonitor* monitor = glfwGetPrimaryMonitor();
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-            glfwSetWindowMonitor(
-                m_Window,
-                monitor,
-                0, 0,
-                mode->width,
-                mode->height,
-                mode->refreshRate
-            );
+            glfwSetWindowMonitor(m_GLFWwindow, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         }
-        else
-        {
-            glfwSetWindowMonitor(
-                m_Window,
-                nullptr,
-                100, 100, // Default position
-                (int)m_Data.Width,
-                (int)m_Data.Height,
-                0
-            );
+        else {
+            glfwSetWindowMonitor(m_GLFWwindow, nullptr, 100, 100, (int)m_Data.Width, (int)m_Data.Height, 0);
         }
     }
 }

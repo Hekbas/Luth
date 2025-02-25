@@ -9,7 +9,7 @@ namespace Luth
     {
         switch (Renderer::GetAPI())
         {
-            case RendererAPI::OpenGL:
+        case RendererAPI::API::OpenGL:
                 return std::make_shared<GLShader>(filePath);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -21,7 +21,7 @@ namespace Luth
     {
         switch (Renderer::GetAPI())
         {
-            case RendererAPI::OpenGL:
+            case RendererAPI::API::OpenGL:
                 return std::make_shared<GLShader>(vertexSrc, fragmentSrc);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");

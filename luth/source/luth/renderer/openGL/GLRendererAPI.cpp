@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/OpenGL/GLRenderer.h"
+#include "luth/renderer/OpenGL/GLRendererAPI.h"
 #include "luth/core/Log.h"
 
 #include <glad/glad.h>
@@ -8,7 +8,7 @@
 
 namespace Luth
 {
-    void GLRenderer::Init()
+    void GLRendererAPI::Init()
     {
         // Glad should already be initialized by Window class
         // Verify GLAD loaded properly
@@ -28,57 +28,57 @@ namespace Luth
         LH_CORE_INFO(" - Version: {:p}", fmt::ptr(glGetString(GL_VERSION)));
     }
 
-    void GLRenderer::Shutdown()
+    void GLRendererAPI::Shutdown()
     {
         // Cleanup OpenGL-specific resources
     }
 
-    void GLRenderer::SetClearColor(const glm::vec4& color)
+    void GLRendererAPI::SetClearColor(const glm::vec4& color)
     {
         m_ClearColor = color;
         glClearColor(color.r, color.g, color.b, color.a);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::Clear()
+    void GLRendererAPI::Clear()
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::SetViewport(u32 x, u32 y, u32 width, u32 height)
+    void GLRendererAPI::SetViewport(u32 x, u32 y, u32 width, u32 height)
     {
         glViewport(x, y, width, height);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::EnableDepthTest(bool enable)
+    void GLRendererAPI::EnableDepthTest(bool enable)
     {
         m_DepthTestEnabled = enable;
         enable ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::EnableBlending(bool enable)
+    void GLRendererAPI::EnableBlending(bool enable)
     {
         m_BlendingEnabled = enable;
         enable ? glEnable(GL_BLEND) : glDisable(GL_BLEND);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::SetBlendFunction(u32 srcFactor, u32 dstFactor)
+    void GLRendererAPI::SetBlendFunction(u32 srcFactor, u32 dstFactor)
     {
         glBlendFunc(srcFactor, dstFactor);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::DrawIndexed(u32 count)
+    void GLRendererAPI::DrawIndexed(u32 count)
     {
         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRenderer::CheckError(const char* file, int line)
+    void GLRendererAPI::CheckError(const char* file, int line)
     {
         while (GLenum error = glGetError())
         {

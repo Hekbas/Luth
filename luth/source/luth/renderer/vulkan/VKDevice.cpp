@@ -1,7 +1,6 @@
 #include "Luthpch.h"
 #include "luth/renderer/vulkan/VKDevice.h"
 #include "luth/renderer/vulkan/VKCommon.h"
-#include "luth/renderer/vulkan/VKRenderer.h"
 
 namespace Luth
 {
@@ -86,9 +85,7 @@ namespace Luth
         m_Score = score;
     }
 
-    VKLogicalDevice::VKLogicalDevice(
-        VkPhysicalDevice physicalDevice,
-        const QueueFamilyIndices& queueIndices)
+    VKLogicalDevice::VKLogicalDevice(VkPhysicalDevice physicalDevice, const QueueFamilyIndices& queueIndices)
     {
         // Queue create info
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -123,6 +120,4 @@ namespace Luth
             vkDestroyDevice(m_Device, nullptr);
         }
     }
-
-
 }
