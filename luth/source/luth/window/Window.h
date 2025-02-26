@@ -15,6 +15,7 @@ namespace Luth
         u32 Height = 720;
         bool VSync = false;
         bool Fullscreen = false;
+        RendererAPI::API rendererAPI = RendererAPI::API::OpenGL;
     };
 
     class Window

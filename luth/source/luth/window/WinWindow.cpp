@@ -4,8 +4,6 @@
 
 namespace Luth
 {
-    // TODO: Relocate OpenGL related implementations marked as OpenGL
-
     static void GLFW_ErrorCallback(int error, const char* description) {
         LH_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
     }
@@ -28,23 +26,24 @@ namespace Luth
 
         static bool s_GLFWInitialized = false;
         if (!s_GLFWInitialized) {
-            if (!glfwInit()) {
-                LH_CORE_CRITICAL("Failed to initialize GLFW!");
-                return;
-            }
+            bool init = glfwInit();
+            LH_CORE_ASSERT(init, "Failed to initialize GLFW!");
             glfwSetErrorCallback(GLFW_ErrorCallback);
             s_GLFWInitialized = true;
         }
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
-        // OpenGL
-        //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-        //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-
+        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        }
+        else if (spec.rendererAPI == RendererAPI::API::Vulkan) {
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        }
+        
         m_GLFWwindow = glfwCreateWindow(
             (int)spec.Width,
             (int)spec.Height,
@@ -57,11 +56,13 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create GLFW window!");
             glfwTerminate();
             return;
+        }     
+
+        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
+            glfwMakeContextCurrent(m_GLFWwindow);
         }
 
-        // OpenGL
-        //glfwMakeContextCurrent(m_GLFWwindow);
-        //SetVSync(spec.VSync);
+        SetVSync(spec.VSync);
 
         glfwSetWindowUserPointer(m_GLFWwindow, this);
         glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {
@@ -89,16 +90,24 @@ namespace Luth
 
     void WinWindow::SwapBuffers()
     {
-        // OpenGL
-        glfwSwapBuffers(m_GLFWwindow);
+        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
+            glfwSwapBuffers(m_GLFWwindow);
+        }
+        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+            //LH_CORE_WARN("SwapBuffers not yet implemented for Vulkan");
+        }
     }
 
     void WinWindow::SetVSync(bool enabled)
     {
-        // OpenGL
-        glfwSwapInterval(enabled ? 1 : 0);
-        m_Data.VSync = enabled;
-        LH_CORE_INFO("VSync {0}", enabled ? "enabled" : "disabled");
+        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
+            glfwSwapInterval(enabled ? 1 : 0);
+            m_Data.VSync = enabled;
+            LH_CORE_INFO("VSync {0}", enabled ? "enabled" : "disabled");
+        }
+        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+            LH_CORE_WARN("Vsync not yet implemented for Vulkan");
+        }
     }
 
     void WinWindow::ToggleFullscreen()

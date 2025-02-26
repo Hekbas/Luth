@@ -10,6 +10,9 @@ namespace Luth
 
     std::unique_ptr<RendererAPI> RendererAPI::Create(API api)
     {
+        LH_CORE_INFO("Initialized {0} renderer", APIToString(api));
+        s_API = api;
+
         switch (api)
         {
             case RendererAPI::API::None:
@@ -26,10 +29,6 @@ namespace Luth
                 LH_CORE_ASSERT(false, "{1} Unknown RendererAPI!", APIToString(api));
                 return nullptr;
         }
-
-        s_API = api;
-
-        LH_CORE_INFO("Initialized {0} renderer", APIToString(api));
     }
 
     const char* RendererAPI::APIToString(API api)

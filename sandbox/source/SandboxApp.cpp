@@ -21,13 +21,12 @@ namespace Luth
     {
     public:
         SandboxApp() {}
-
         ~SandboxApp() override = default;
 
     protected:
         void OnInit() override
         {
-
+            InitTestOpenGL();
         }
 
         void OnUpdate(f32 dt) override
@@ -35,7 +34,7 @@ namespace Luth
             static float time = 0;
             time += dt;
 
-            //TestOpenGL(time);
+            TestOpenGL(time);
         }
 
         void OnUIRender() override
@@ -93,10 +92,10 @@ namespace Luth
 
         void TestOpenGL(float time)
         {
-            auto shader = Shader::Create("C:/Users/Hekbas/CITM/5_TFG/Luth/luthien/resources/theMatrix.glsl");
+            auto shader = Shader::Create("C:/Users/Hekbas/CITM/5_TFG/Luth/luthien/resources/spaceInvaders.glsl");
 
             shader->Bind();
-            shader->SetFloat("u_time", time);
+            shader->SetFloat("u_Time", time);
             //shader->SetVec2("u_resolution",  glm::vec2(1280.0, 720.0));
             //shader->SetVec2("u_Resolution",  glm::vec2((f32)m_Window->GetWidth(), (f32)m_Window->GetHeight()));
             //shader->SetFloat("u_playerJump", Input::IsMouseButtonPressed(0));
