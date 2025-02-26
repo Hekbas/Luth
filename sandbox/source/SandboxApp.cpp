@@ -4,6 +4,8 @@
 
 // TEST
 #include "luth/resources/ShaderLibrary.h"
+#include "luth/resources/ResourceManager.h"
+
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/vulkan/VKRendererAPI.h"
 #include "luth/renderer/Shader.h"
@@ -57,6 +59,7 @@ namespace Luth
 
         // OPENGL
         GLuint quadVAO, quadVBO;
+        std::shared_ptr<Luth::Shader> shader;
 
         void InitTestOpenGL()
         {
@@ -88,20 +91,20 @@ namespace Luth
             glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
             glBindVertexArray(0);
+
+            const auto shaderPath = ResourceManager::GetPath(ResourceManager::ResourceType::Shader, "raycasting.glsl");
+            shader = Shader::Create(shaderPath.generic_string());
+            shader->Bind();
         }
 
         void TestOpenGL(float time)
         {
-            auto shader = Shader::Create("C:/Users/Hekbas/CITM/5_TFG/Luth/luthien/resources/spaceInvaders.glsl");
-
-            shader->Bind();
             shader->SetFloat("u_Time", time);
             //shader->SetVec2("u_resolution",  glm::vec2(1280.0, 720.0));
             //shader->SetVec2("u_Resolution",  glm::vec2((f32)m_Window->GetWidth(), (f32)m_Window->GetHeight()));
             //shader->SetFloat("u_playerJump", Input::IsMouseButtonPressed(0));
             glBindVertexArray(quadVAO);
             glDrawArrays(GL_TRIANGLES, 0, 6);
-            shader->Unbind();
         }
     };
 

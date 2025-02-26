@@ -2,9 +2,12 @@
 #include "luth/core/App.h"
 #include "luth/core/Log.h"
 #include "luth/core/Timestep.h"
+
 #include "luth/window/Window.h"
 #include "luth/input/Input.h"
 #include "luth/editor/Editor.h"
+#include "luth/resources/ResourceManager.h"
+
 #include "luth/events/Event.h"
 #include "luth/events/AppEvent.h"
 #include "luth/events/KeyEvent.h"
@@ -21,6 +24,7 @@ namespace Luth
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
         Editor::Init(m_Window->GetNativeWindow());
+        ResourceManager::Initialize();
     }
 
     App::~App() {}
