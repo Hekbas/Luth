@@ -32,6 +32,13 @@ struct HitInfo
     bool hit;
 };
 
+vec3 sphereList[] = 
+{
+    { 0.0, 0.0, 0.0 },
+    { 2.2, 0.0, 0.0 },
+    { -2.2, 0.0, 0.0 }
+};
+
 float PlaneIntersect(vec3 ro, vec3 rd, vec3 p, vec3 n)
 {
     float denom = dot(rd, n);
@@ -61,7 +68,7 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
     hit.hit = false;
 
     // Check floor plane
-    float tPlane = PlaneIntersect(ro, rd, vec3(0, -0.5, 0), vec3(0, 1, 0));
+    float tPlane = PlaneIntersect(ro, rd, vec3(0.0, -0.5, 0.0), vec3(0.0, 1.0, 0.0));
     if (tPlane > 0.0 && tPlane < hit.t) {
         hit.t = tPlane;
         hit.position = ro + rd * hit.t;
@@ -70,17 +77,27 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
         hit.hit = true;
     }
 
-    // Check sphere
-    float tSphere = SphereIntersect(ro, rd, vec3(0, 0, 0), 1.0);
-    if (tSphere > 0.0 && tSphere < hit.t) {
-        hit.t = tSphere;
-        hit.position = ro + rd * hit.t;
-        hit.normal = normalize(hit.position - vec3(0, 0, 0));
-        hit.color = vec3(0.4, 0.7, 0.9);
-        hit.hit = true;
+    // Check sphere list
+    for(int i = 0; i < sphereList.length; i++)
+    {
+        float tSphere = SphereIntersect(ro, rd, sphereList[i], 1.0);
+        if (tSphere > 0.0 && tSphere < hit.t) {
+            hit.t = tSphere;
+            hit.position = ro + rd * hit.t;
+            hit.normal = normalize(hit.position - sphereList[i]);
+            hit.color = vec3(0.4, 0.7, 0.9);
+            hit.hit = true;
+        }   
     }
 
     return hit;
+}
+
+// hard shadows? 2nd pass light as origin
+float ShadowTest(vec3 pos, vec3 lightDir)
+{
+    HitInfo shHit = SceneIntersect(pos + 0.001 * normalize(lightDir), normalize(lightDir));
+    return shHit.hit && shHit.t < length(lightDir) ? 0.0 : 1.0;
 }
 
 vec3 CalculateLighting(vec3 pos, vec3 normal, vec3 color)
@@ -89,8 +106,13 @@ vec3 CalculateLighting(vec3 pos, vec3 normal, vec3 color)
     vec3 lightDir = lightPos - pos;
     float lightDist = length(lightDir);
     lightDir /= lightDist;
+
+    float NdotL = max(dot(normal, lightDir), 0.0);
+    float shadow = ShadowTest(pos, lightDir);
+    float falloff = 1 / (lightDist * lightDist);
     
-    return color;
+    return color * NdotL * shadow * falloff * 50.0;
+    //return normal;
 }
 
 vec3 TraceRay(vec3 ro, vec3 rd)
@@ -107,6 +129,11 @@ vec3 TraceRay(vec3 ro, vec3 rd)
         
         // Direct lighting
         color += throughput * CalculateLighting(hit.position, hit.normal, hit.color);
+
+        // Reflection
+        ro = hit.position + hit.normal * 0.001;
+        rd = reflect(rd, hit.normal);
+        throughput *= 0.5;
     }
     return color;
 }
@@ -115,7 +142,7 @@ void main()
 {
     vec2 uv = (v_TexCoord - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
     
-    vec3 ro = vec3(0, 1, 5);
+    vec3 ro = vec3(0.0, 0.5, 5.0);
     vec3 rd = normalize(vec3(uv, -1.0));
     
     vec3 color = TraceRay(ro, rd);

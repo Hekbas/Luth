@@ -95,7 +95,7 @@ namespace Luth
 
         void TestOpenGL(float time)
         {
-            const auto shaderPath = ResourceManager::GetPath(ResourceManager::ResourceType::Shader, "raycasting.glsl");
+            const auto shaderPath = ResourceManager::GetPath(ResourceManager::ResourceType::Shader, "raytracing.glsl");
             shader = Shader::Create(shaderPath.generic_string());
             shader->Bind();
             //shader->SetFloat("u_Time", time);
