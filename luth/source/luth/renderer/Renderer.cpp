@@ -1,28 +1,41 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/OpenGL/GLRenderer.h"
+#include "luth/renderer/OpenGL/GLRendererAPI.h"
+#include "luth/renderer/vulkan/VKRendererAPI.h"
 
 namespace Luth
 {
-    RendererAPI Renderer::s_API = RendererAPI::OpenGL;
+    std::unique_ptr<RendererAPI> Renderer::s_RendererAPI = nullptr;
 
-    RendererAPI Renderer::GetAPI()
+    void Renderer::Init(RendererAPI::API api, void* window)
     {
-        return s_API;
+        s_RendererAPI->SetWindow(window);
+        s_RendererAPI = RendererAPI::Create(api);
+        s_RendererAPI->Init();
     }
 
-    std::unique_ptr<Renderer> Renderer::Create()
+    void Renderer::Shutdown()
     {
-        switch (s_API)
-        {
-            case RendererAPI::OpenGL:
-                return std::make_unique<GLRenderer>();
-            case RendererAPI::None:
-                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
-                return nullptr;
-            default:
-                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
-                return nullptr;
+        if (s_RendererAPI) {
+            s_RendererAPI->Shutdown();
+            s_RendererAPI.reset();
         }
+    }
+
+    // Forwarding commands
+    void Renderer::SetViewport(uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+        s_RendererAPI->SetViewport(x, y, w, h);
+    }
+
+    void Renderer::SetClearColor(const glm::vec4& color) {
+        s_RendererAPI->SetClearColor(color);
+    }
+
+    void Renderer::Clear() {
+        s_RendererAPI->Clear();
+    }
+
+    void Renderer::DrawIndexed(uint32_t count) {
+        s_RendererAPI->DrawIndexed(count);
     }
 }

@@ -15,6 +15,7 @@ namespace Luth
         u32 Height = 720;
         bool VSync = false;
         bool Fullscreen = false;
+        RendererAPI::API rendererAPI = RendererAPI::API::OpenGL;
     };
 
     class Window
@@ -30,7 +31,7 @@ namespace Luth
 
         virtual u32 GetWidth() const = 0;
         virtual u32 GetHeight() const = 0;
-        virtual void* GetHandle() const = 0;
+        virtual void* GetNativeWindow() const = 0;
 
         static std::unique_ptr<Window> Create(const WindowSpec& spec = WindowSpec());
     };

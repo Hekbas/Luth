@@ -14,9 +14,13 @@ namespace Luth
     App::App()
     {
         // TODO Luth + version - OS - renderAPI
-        m_Window = Window::Create();
-        Input::SetWindow(m_Window->GetHandle());
-        Editor::Init(m_Window->GetHandle());
+        WindowSpec ws;
+        ws.rendererAPI = RendererAPI::API::OpenGL;
+
+        m_Window = Window::Create(ws);
+        Input::SetWindow(m_Window->GetNativeWindow());
+        Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
+        Editor::Init(m_Window->GetNativeWindow());
     }
 
     App::~App() {}
@@ -44,6 +48,7 @@ namespace Luth
             Editor::EndFrame();
 
             m_Window->SwapBuffers();
+            Renderer::Clear();
         }
 
         OnShutdown();

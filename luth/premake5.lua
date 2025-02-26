@@ -31,7 +31,13 @@ project "Luth"
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
-      IncludeDir["spdlog"]
+      IncludeDir["spdlog"],
+      IncludeDir["vulkan"]
+   }
+
+   libdirs
+   {
+      "extern/source/vulkan/lib"
    }
 
    links
@@ -40,7 +46,8 @@ project "Luth"
       "glad",
       "glfw",
       "glm",
-      "imgui"
+      "imgui",
+      "vulkan-1"
    }
 
    filter "configurations:Debug"

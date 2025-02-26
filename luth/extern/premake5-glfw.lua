@@ -35,6 +35,11 @@ project "glfw"
 		"source/glfw/src/null_window.c"
 	}
 
+	includedirs
+	{
+		IncludeDir["vulkan"]
+	}
+
 	filter "system:windows"
 		systemversion "latest"
 
