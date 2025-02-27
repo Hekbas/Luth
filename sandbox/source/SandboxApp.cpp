@@ -189,8 +189,7 @@ namespace Luth
         {
             if (ImGui::Button(label))
             {
-                if (callback)
-                    callback();
+                if (callback) callback();
                 return true;
             }
             return false;
@@ -214,7 +213,8 @@ namespace Luth
                         "Albedo",
                         "Specular",
                         "Radiance",
-                        "Normals"
+                        "Normals",
+                        "World Position"
                     };
                     static int displayMode = 0;
                     if (ImGui::Combo("Display Mode", &displayMode, displayModes, IM_ARRAYSIZE(displayModes))) {

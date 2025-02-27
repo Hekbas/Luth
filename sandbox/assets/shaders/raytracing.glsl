@@ -204,21 +204,18 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
     
     for(int bounce = 0; bounce < u_maxBounces; bounce++) {
         HitInfo hit = SceneIntersect(ro, rd);
-        
-        if(bounce == 0) {
-            CalculateSurfaceData(dc, hit, rd);
-            if(hit.hit) CalculateLightingData(dc, hit, -rd);
-        }
 
-        if(!hit.hit) {
-            dc.finalColor += throughput * vec3(0.5, 0.7, 1.0);
+        CalculateSurfaceData(dc, hit, rd);
+        if(hit.hit) CalculateLightingData(dc, hit, -rd); // cherk rnfd for sky
+        else {
+            dc.finalColor += throughput * vec3(0.5, 0.7, 1.0); //dfr
             break;
         }
         
         dc.finalColor += throughput * (dc.radiance + dc.specular);
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
-        throughput *= 0.5;
+        throughput *= 0.1;
     }
     return dc;
 }
@@ -231,6 +228,7 @@ vec3 GetVisualizationColor(DisplayComponents dc)
         case 3: return dc.specular;
         case 4: return dc.radiance;
         case 5: return (dc.normal + 1.0) / 2.0;
+        case 6: return dc.worldPos;
         default: return dc.finalColor;
     }
 }
