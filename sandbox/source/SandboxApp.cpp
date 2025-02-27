@@ -60,7 +60,7 @@ namespace Luth
         std::filesystem::path shaderPath;
 
         // Application state
-        int currentDisplayMode = 0;
+        int displayMode = 0;
         #define MAX_LIGHTS 4
         #define MAX_SPHERES 32
 
@@ -70,7 +70,12 @@ namespace Luth
             float metallic;
         };
 
-        struct Light {
+        struct AmbientLight {
+            glm::vec3 color;
+            float intensity;
+        };
+
+        struct PointLight {
             glm::vec3 position;
             glm::vec3 color;
             float intensity;
@@ -80,7 +85,8 @@ namespace Luth
         Material floorMaterial;
         Material sphereMaterials[MAX_SPHERES];
         glm::vec3 spherePositions[MAX_SPHERES];
-        Light lights[MAX_LIGHTS];
+        AmbientLight ambientLight;
+        PointLight pointLights[MAX_LIGHTS];
         int numActiveLights = 1;
 
         // Rendering
@@ -89,7 +95,7 @@ namespace Luth
         float softShadowFactor = 0.2f;
 
         // Post-processing
-        bool applyTonemapping = true;
+        bool applyTonemap = true;
         bool applyGamma = true;
         float exposure = 1.0f;
         float gammaValue = 2.2f;
@@ -138,42 +144,53 @@ namespace Luth
         void InitUniforms()
         {
             // Display Mode
-            shader->SetInt("u_displayMode", 0);
+            shader->SetInt("u_displayMode", displayMode);
 
             // Floor Material
-            shader->SetVec3("u_floorMaterial.albedo", glm::vec3(0.9f, 0.3f, 0.2f));
-            shader->SetFloat("u_floorMaterial.roughness", 0.8f);
-            shader->SetFloat("u_floorMaterial.metallic", 0.0f);
+            floorMaterial.albedo = glm::vec3(0.9f, 0.3f, 0.2f);
+            floorMaterial.roughness = 0.8f;
+            floorMaterial.metallic = 0.0f;
+            shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
+            shader->SetFloat("u_floorMaterial.roughness", floorMaterial.roughness);
+            shader->SetFloat("u_floorMaterial.metallic", floorMaterial.metallic);
 
             // Sphere Materials
-            glm::vec3 spherePositions[3] = {
-                { 0.0f, 0.6f, 0.0f },
-                { 2.2f, 0.6f, 0.0f },
-                { -2.2f, 0.6f, 0.0f }
-            };
+            spherePositions[0] = { 0.0f, 0.6f, 0.0f };
+            spherePositions[1] = { 2.2f, 0.6f, 0.0f };
+            spherePositions[2] = { -2.2f, 0.6f, 0.0f };
+
             for (int i = 0; i < 3; i++) {
+                sphereMaterials[i].albedo = glm::vec3(0.9f);
+                sphereMaterials[i].metallic = 0.3f;
+                sphereMaterials[i].roughness = 1.0f;
                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
-                shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", glm::vec3(0.9f));
-                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", 0.3f);
-                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", 1.0f);
+                shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].metallic);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].roughness);
             }
 
             // Lighting
-            shader->SetInt("u_numLights", 1);
-            shader->SetVec3("u_lights[0].position", glm::vec3(0.0f, 5.0f, 0.0f));
-            shader->SetVec3("u_lights[0].color", glm::vec3(1.0f));
-            shader->SetFloat("u_lights[0].intensity", 2.0f);
+            ambientLight.color = glm::vec3(0.5, 0.7, 1.0);
+            ambientLight.intensity = 1.0f;
+            shader->SetVec3("u_ambientLight.color", ambientLight.color);
+            shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+
+
+            shader->SetInt("u_numPointLights", numActiveLights);
+            shader->SetVec3("u_pointLights[0].position", glm::vec3(0.0f, 5.0f, 0.0f));
+            shader->SetVec3("u_pointLights[0].color", glm::vec3(1.0f));
+            shader->SetFloat("u_pointLights[0].intensity", 2.0f);
 
             // Rendering Parameters
-            shader->SetInt("u_SSAA", 4);
-            shader->SetInt("u_maxBounces", 2);
-            shader->SetFloat("u_softShadowFactor", 0.2f);
+            shader->SetInt("u_SSAA", ssaaSamples);
+            shader->SetInt("u_maxBounces", maxBounces);
+            shader->SetFloat("u_softShadowFactor", softShadowFactor);
 
             // Post-Processing
-            shader->SetInt("u_applyTonemapping", 1);
-            shader->SetInt("u_applyGamma", 1);
-            shader->SetFloat("u_exposure", 1.0f);
-            shader->SetFloat("u_gamma", 2.2f);
+            shader->SetInt("u_applyTonemapping", applyTonemap);
+            shader->SetInt("u_applyGamma", applyGamma);
+            shader->SetFloat("u_exposure", exposure);
+            shader->SetFloat("u_gamma", gammaValue);
         }
 
         void UpdateUniforms(float time)
@@ -216,44 +233,28 @@ namespace Luth
                         "Normals",
                         "World Position"
                     };
-                    static int displayMode = 0;
                     if (ImGui::Combo("Display Mode", &displayMode, displayModes, IM_ARRAYSIZE(displayModes))) {
                         shader->SetInt("u_displayMode", displayMode);
                     }
                 }
 
-                // 2. Scene Configuration
-                if (ImGui::CollapsingHeader("Scene Configuration", nodeFlags))
+                // 2. Scene 
+                if (ImGui::CollapsingHeader("Scene", nodeFlags))
                 {
-                    static glm::vec3 floorAlbedo(0.9f, 0.3f, 0.2f);
-                    static float floorRoughness = 0.8f;
-                    static float floorMetallic = 0.0f;
-
                     if (ImGui::TreeNode("Floor Material")) {
-                        if (ImGui::ColorEdit3("Albedo", &floorAlbedo.x)) {
-                            shader->SetVec3("u_floorMaterial.albedo", floorAlbedo);
+                        if (ImGui::ColorEdit3("Albedo", &floorMaterial.albedo.x)) {
+                            shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
                         }
-                        if (ImGui::SliderFloat("Roughness", &floorRoughness, 0.0f, 1.0f)) {
-                            shader->SetFloat("u_floorMaterial.roughness", floorRoughness);
+                        if (ImGui::SliderFloat("Roughness", &floorMaterial.roughness, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_floorMaterial.roughness", floorMaterial.roughness);
                         }
-                        if (ImGui::SliderFloat("Metallic", &floorMetallic, 0.0f, 1.0f)) {
-                            shader->SetFloat("u_floorMaterial.metallic", floorMetallic);
+                        if (ImGui::SliderFloat("Metallic", &floorMaterial.metallic, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_floorMaterial.metallic", floorMaterial.metallic);
                         }
                         ImGui::TreePop();
                     }
 
                     // Sphere controls
-                    static glm::vec3 spherePositions[3] = {
-                        { 0.0f, -1.0f, 0.0f },
-                        { 2.2f, -1.0f, 0.0f },
-                        { -2.2f, -1.0f, 0.0f }
-                    };
-                    static Material sphereMaterials[3] = {
-                        { glm::vec3(0.1f), 0.2f, 0.2f },
-                        { glm::vec3(0.5f), 0.2f, 0.2f },
-                        { glm::vec3(0.9f), 0.2f, 0.2f }
-                    };
-
                     for (int i = 0; i < 3; i++) {
                         if (ImGui::TreeNode(("Sphere " + std::to_string(i)).c_str())) {
                             // Position
@@ -280,30 +281,43 @@ namespace Luth
                 }
 
                 // 3. Lighting Controls
-                if (ImGui::CollapsingHeader("Lighting", nodeFlags))
+                
+                // Ambient Light
+                if (ImGui::CollapsingHeader("Ambient Light", nodeFlags))
                 {
-                    static int numLights = 1;
-                    static Light lights[MAX_LIGHTS] = {
-                        {glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f), 2.0f}
-                    };
+                    // Color and intensity
+                    if (ImGui::ColorEdit3("Color", &ambientLight.color.x)) {
+                        shader->SetVec3("u_ambientLight.color", ambientLight.color);
+                    }
+                    if (ImGui::SliderFloat("Intensity", &ambientLight.intensity, 0.0f, 10.0f)) {
+                        shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+                    }
+                }
 
-                    if (ImGui::SliderInt("Active Lights", &numLights, 1, MAX_LIGHTS)) {
-                        shader->SetInt("u_numLights", numLights);
+                // Point Lights
+                if (ImGui::CollapsingHeader("Point Lights", nodeFlags))
+                {
+                    if (ImGui::SliderInt("Active Lights", &numActiveLights, 1, MAX_LIGHTS)) {
+                        shader->SetInt("u_numPointLights", numActiveLights);
                     }
 
-                    for (int i = 0; i < numLights; i++) {
+                    for (int i = 0; i < numActiveLights; i++) {
+                        pointLights[i].position = glm::vec3(0.0f, 5.0f, 0.0f);
+                        pointLights[i].color = glm::vec3(1.0f);
+                        pointLights[i].intensity = 2.0f;
+
                         if (ImGui::TreeNode(("Light " + std::to_string(i)).c_str())) {
                             // Position
-                            if (ImGui::SliderFloat3("Position", &lights[i].position.x, -10.0f, 10.0f)) {
-                                shader->SetVec3("u_lights[" + std::to_string(i) + "].position", lights[i].position);
+                            if (ImGui::SliderFloat3("Position", &pointLights[i].position.x, -10.0f, 10.0f)) {
+                                shader->SetVec3("u_pointLights[" + std::to_string(i) + "].position", pointLights[i].position);
                             }
 
                             // Color and intensity
-                            if (ImGui::ColorEdit3("Color", &lights[i].color.x)) {
-                                shader->SetVec3("u_lights[" + std::to_string(i) + "].color", lights[i].color);
+                            if (ImGui::ColorEdit3("Color", &pointLights[i].color.x)) {
+                                shader->SetVec3("u_pointLights[" + std::to_string(i) + "].color", pointLights[i].color);
                             }
-                            if (ImGui::SliderFloat("Intensity", &lights[i].intensity, 0.0f, 10.0f)) {
-                                shader->SetFloat("u_lights[" + std::to_string(i) + "].intensity", lights[i].intensity);
+                            if (ImGui::SliderFloat("Intensity", &pointLights[i].intensity, 0.0f, 10.0f)) {
+                                shader->SetFloat("u_pointLights[" + std::to_string(i) + "].intensity", pointLights[i].intensity);
                             }
                             ImGui::TreePop();
                         }
@@ -313,34 +327,26 @@ namespace Luth
                 // 4. Rendering Parameters
                 if (ImGui::CollapsingHeader("Rendering Settings", nodeFlags))
                 {
-                    static int ssaa = 4;
-                    static int bounces = 2;
-                    static float shadowSoftness = 0.2f;
 
-                    if (ImGui::SliderInt("SSAA Samples", &ssaa, 1, 16)) {
-                        shader->SetInt("u_SSAA", ssaa);
+                    if (ImGui::SliderInt("SSAA Samples", &ssaaSamples, 1, 16)) {
+                        shader->SetInt("u_SSAA", ssaaSamples);
                     }
-                    if (ImGui::SliderInt("Max Bounces", &bounces, 1, 8)) {
-                        shader->SetInt("u_maxBounces", bounces);
+                    if (ImGui::SliderInt("Max Bounces", &maxBounces, 0, 8)) {
+                        shader->SetInt("u_maxBounces", maxBounces);
                     }
-                    if (ImGui::SliderFloat("Shadow Softness", &shadowSoftness, 0.0f, 1.0f)) {
-                        shader->SetFloat("u_softShadowFactor", shadowSoftness);
+                    if (ImGui::SliderFloat("Shadow Softness", &softShadowFactor, 0.0f, 1.0f)) {
+                        shader->SetFloat("u_softShadowFactor", softShadowFactor);
                     }
                 }
 
                 // 5. Post-Processing
                 if (ImGui::CollapsingHeader("Post-Processing", nodeFlags))
                 {
-                    static bool tonemap = true;
-                    static bool gamma = true;
-                    static float exposure = 1.0f;
-                    static float gammaValue = 2.2f;
-
-                    if (ImGui::Checkbox("Tonemapping", &tonemap)) {
-                        shader->SetInt("u_applyTonemapping", tonemap ? 1 : 0);
+                    if (ImGui::Checkbox("Tonemapping", &applyTonemap)) {
+                        shader->SetInt("u_applyTonemapping", applyTonemap ? 1 : 0);
                     }
-                    if (ImGui::Checkbox("Gamma Correction", &gamma)) {
-                        shader->SetInt("u_applyGamma", gamma ? 1 : 0);
+                    if (ImGui::Checkbox("Gamma Correction", &applyGamma)) {
+                        shader->SetInt("u_applyGamma", applyGamma ? 1 : 0);
                     }
                     if (ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f)) {
                         shader->SetFloat("u_exposure", exposure);

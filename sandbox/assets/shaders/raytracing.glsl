@@ -22,10 +22,12 @@ out vec4 FragColor;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+
 uniform int u_displayMode;
 uniform int u_SSAA;
 uniform int u_maxBounces;
 uniform float u_softShadowFactor;
+
 uniform int u_applyTonemapping;
 uniform int u_applyGamma;
 uniform float u_exposure;
@@ -42,7 +44,12 @@ struct Material {
     vec3 emission;
 };
 
-struct Light {
+struct AmbientLight {
+    vec3 color;
+    float intensity;
+};
+
+struct PointLight {
     vec3 position;
     vec3 color;
     float intensity;
@@ -70,8 +77,9 @@ struct DisplayComponents {
 uniform Material u_floorMaterial;
 uniform Material u_sphereMaterials[3];
 uniform vec3 u_spherePositions[3];
-uniform Light u_lights[MAX_LIGHTS];
-uniform int u_numLights;
+uniform AmbientLight u_ambientLight;
+uniform PointLight u_pointLights[MAX_LIGHTS];
+uniform int u_numPointLights;
 
 
 vec3 pcg3d(vec3 v) {
@@ -147,10 +155,19 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
     return hit;
 }
 
+// Fresnel reflectance using Schlick's approximation
+// Part of Cook-Torrance BRDF for specular reflection
+// F = F0 + (1 - F0) * (1 - cosθ)^5
+// - F0: Base reflectivity at normal incidence
+// - cosθ: Dot product between view and half vectors
 vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
+// Normal Distribution Function (NDF) using Trowbridge-Reitz GGX
+// Models microsurface orientation for specular highlights
+// Part of Cook-Torrance BRDF
+// D(n,h,a) = a^2 / [π((n·h)^2(a^2-1)+1)^2]
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness*roughness;
     float a2 = a*a;
@@ -159,10 +176,25 @@ float DistributionGGX(vec3 N, vec3 H, float roughness) {
     return a2 / (PI * denom * denom);
 }
 
+// Geometry Shadowing using Schlick-GGX approximation
+// Models shadowing/masking of microsurface details
+// k = (a + 1)^2 / 8 (UE4 remapping for direct lighting)
+// G(n,v,a) = n·v / (n·v(1-k) + k)
 float GeometrySchlickGGX(float NdotV, float roughness) {
     float r = (roughness + 1.0);
     float k = (r*r) / 8.0;
     return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+// Smith's method for geometry shadowing
+// Combines view and light direction shadowing
+// G(n,v,l,a) = G1(n,v,a) * G1(n,l,a)
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx2 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
 }
 
 float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
@@ -188,41 +220,53 @@ float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
     return shadow / float(samples);
 }
 
+// Full PBR lighting calculation using Cook-Torrance BRDF
+// https://graphicscompendium.com/gamedev/15-pbr
+// Lo = (kD * albedo/π + (D*G*F)/(4(n·v)(n·l))) * L_i * (n·l)
+// Where:
+// - kD = (1 - F)(1 - metallic) - Diffuse reflection coefficient
+// - D = Normal Distribution Function (GGX)
+// - G = Geometric Attenuation Function (Smith)
+// - F = Fresnel Reflectance (Schlick)
+// Energy conserved through metallic workflow:
+// - Dielectrics (non-metals): Both diffuse and specular
+// - Metals: Specular only (kD=0 when metallic=1)
 void CalculateLighting(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
 {
     if(!hit.hit) return;
 
-    vec3 N = hit.normal;
-    vec3 V = viewDir;
+    vec3 N = normalize(hit.normal);
+    vec3 V = normalize(viewDir);
     vec3 albedo = hit.mat.albedo;
     vec3 F0 = mix(vec3(0.04), albedo, hit.mat.metallic);
 
     for(int i = 0; i < MAX_LIGHTS; i++) {
-        if(i >= u_numLights) break;
+        if(i >= u_numPointLights) break;
         
-        vec3 L = normalize(u_lights[i].position - hit.position);
+        vec3 L = normalize(u_pointLights[i].position - hit.position);
         vec3 H = normalize(V + L);
-        float distance = length(u_lights[i].position - hit.position);
+        float distance = length(u_pointLights[i].position - hit.position);
         float attenuation = 1.0 / (distance * distance);
-        float shadow = SoftShadow(hit.position, u_lights[i].position, u_softShadowFactor);
+        float shadow = SoftShadow(hit.position, u_pointLights[i].position, u_softShadowFactor);
         
-        vec3 radiance = u_lights[i].color * u_lights[i].intensity * shadow * attenuation;
         float NdotL = max(dot(N, L), 0.0);
-
-        // Fixed Fresnel
-        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-        
-        // Fixed Geometry
         float NdotV = max(dot(N, V), 0.0);
-        float G = GeometrySchlickGGX(NdotV, hit.mat.roughness);
+        float HdotV = max(dot(H, V), 0.0);
 
-        // Diffuse
+        vec3 radiance = u_pointLights[i].color * u_pointLights[i].intensity 
+                      * shadow * attenuation * NdotL;
+
+        // Fresnel
+        vec3 F = FresnelSchlick(HdotV, F0);
+        
+        // Diffuse (Lambert)
         vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
-        vec3 diffuse = kD * albedo * radiance * NdotL / PI;
+        vec3 diffuse = kD * albedo * radiance / PI;
 
-        // Specular
-        float NDF = DistributionGGX(N, H, hit.mat.roughness);
-        vec3 specular = (NDF * G * F) / (4.0 * NdotV * NdotL + 0.001) * radiance * NdotL;
+        // Specular (Cook-Torrance)
+        float D = DistributionGGX(N, H, hit.mat.roughness);
+        float G = GeometrySmith(N, V, L, hit.mat.roughness);
+        vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.001) * radiance;
 
         dc.radiance += diffuse;
         dc.specular += specular;
@@ -246,7 +290,7 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
     DisplayComponents dc = InitDisplayComponents();
     vec3 throughput = vec3(1.0);
     
-    for(int bounce = 0; bounce < u_maxBounces; bounce++) {
+    for(int bounce = 0; bounce <= u_maxBounces; bounce++) {
         HitInfo hit = SceneIntersect(ro, rd);
 
         if(bounce == 0) {
@@ -255,7 +299,7 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
 
         if(hit.hit) CalculateLighting(dc, hit, -rd);
         else {
-            dc.finalColor += throughput * vec3(0.5, 0.7, 1.0) * (bounce == 0 ? 1.0 : 0.2);
+            dc.finalColor += throughput * u_ambientLight.color * u_ambientLight.intensity * (bounce == 0 ? 1.0 : 0.2);
             break;
         }
         
