@@ -147,9 +147,9 @@ namespace Luth
 
             // Sphere Materials
             glm::vec3 spherePositions[3] = {
-                {0.0f, 0.0f, 0.0f},
-                {2.2f, 0.0f, 0.0f},
-                {-2.2f, 0.0f, 0.0f}
+                { 0.0f, 0.6f, 0.0f },
+                { 2.2f, 0.6f, 0.0f },
+                { -2.2f, 0.6f, 0.0f }
             };
             for (int i = 0; i < 3; i++) {
                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
@@ -244,14 +244,14 @@ namespace Luth
 
                     // Sphere controls
                     static glm::vec3 spherePositions[3] = {
-                        {0.0f, 0.0f, 0.0f},
-                        {2.2f, 0.0f, 0.0f},
-                        {-2.2f, 0.0f, 0.0f}
+                        { 0.0f, -1.0f, 0.0f },
+                        { 2.2f, -1.0f, 0.0f },
+                        { -2.2f, -1.0f, 0.0f }
                     };
                     static Material sphereMaterials[3] = {
-                        {glm::vec3(0.9f), 0.3f, 1.0f},
-                        {glm::vec3(0.9f), 0.3f, 1.0f},
-                        {glm::vec3(0.9f), 0.3f, 1.0f}
+                        { glm::vec3(0.1f), 0.2f, 0.2f },
+                        { glm::vec3(0.5f), 0.2f, 0.2f },
+                        { glm::vec3(0.9f), 0.2f, 0.2f }
                     };
 
                     for (int i = 0; i < 3; i++) {

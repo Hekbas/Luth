@@ -73,6 +73,14 @@ uniform vec3 u_spherePositions[3];
 uniform Light u_lights[MAX_LIGHTS];
 uniform int u_numLights;
 
+
+vec3 pcg3d(vec3 v) {
+    v = v * 114007.0 + vec3(1.0);
+    v = fract(v * vec3(0.1031, 0.1030, 0.0973));
+    v += dot(v, v.yzx + 19.19);
+    return fract((v.xxy + v.yzz) * v.zyx);
+}
+
 DisplayComponents InitDisplayComponents() {
     return DisplayComponents(
         vec3(0.0),
@@ -157,7 +165,71 @@ float GeometrySchlickGGX(float NdotV, float roughness) {
     return NdotV / (NdotV * (1.0 - k) + k);
 }
 
-void CalculateSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
+float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
+{
+    vec3 lightDir = lightPos - pos;
+    float lightDistance = length(lightDir);
+    vec3 dir = normalize(lightDir);
+    
+    float shadow = 0.0;
+    int samples = 16;
+    float radius = mix(0.1, 0.01, hardness);
+    
+    for(int i = 0; i < samples; i++) {
+        vec3 random = pcg3d(vec3(gl_FragCoord.xy, i));
+        vec3 jitter = random * radius;
+        vec3 samplePos = pos + jitter;
+        
+        HitInfo shHit = SceneIntersect(samplePos + dir * EPSILON, dir);
+        if(!shHit.hit || shHit.t > lightDistance) {
+            shadow += 1.0;
+        }
+    }
+    return shadow / float(samples);
+}
+
+void CalculateLighting(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
+{
+    if(!hit.hit) return;
+
+    vec3 N = hit.normal;
+    vec3 V = viewDir;
+    vec3 albedo = hit.mat.albedo;
+    vec3 F0 = mix(vec3(0.04), albedo, hit.mat.metallic);
+
+    for(int i = 0; i < MAX_LIGHTS; i++) {
+        if(i >= u_numLights) break;
+        
+        vec3 L = normalize(u_lights[i].position - hit.position);
+        vec3 H = normalize(V + L);
+        float distance = length(u_lights[i].position - hit.position);
+        float attenuation = 1.0 / (distance * distance);
+        float shadow = SoftShadow(hit.position, u_lights[i].position, u_softShadowFactor);
+        
+        vec3 radiance = u_lights[i].color * u_lights[i].intensity * shadow * attenuation;
+        float NdotL = max(dot(N, L), 0.0);
+
+        // Fixed Fresnel
+        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+        
+        // Fixed Geometry
+        float NdotV = max(dot(N, V), 0.0);
+        float G = GeometrySchlickGGX(NdotV, hit.mat.roughness);
+
+        // Diffuse
+        vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
+        vec3 diffuse = kD * albedo * radiance * NdotL / PI;
+
+        // Specular
+        float NDF = DistributionGGX(N, H, hit.mat.roughness);
+        vec3 specular = (NDF * G * F) / (4.0 * NdotV * NdotL + 0.001) * radiance * NdotL;
+
+        dc.radiance += diffuse;
+        dc.specular += specular;
+    }
+}
+
+void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
 {
     dc.rayDir = rd;
     if(hit.hit) {
@@ -169,34 +241,6 @@ void CalculateSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
     }
 }
 
-void CalculateLightingData(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
-{
-    if(!hit.hit) return;
-
-    vec3 N = hit.normal;
-    vec3 V = viewDir;
-    vec3 F0 = mix(vec3(0.04), hit.mat.albedo, hit.mat.metallic);
-
-    for(int i = 0; i < MAX_LIGHTS; i++) {
-        if(i >= u_numLights) break;
-        
-        vec3 L = normalize(u_lights[i].position - hit.position);
-        vec3 H = normalize(V + L);
-        float distance = length(u_lights[i].position - hit.position);
-        float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = u_lights[i].color * attenuation * u_lights[i].intensity;
-        float NdotL = max(dot(N, L), 0.0);
-
-        float NDF = DistributionGGX(N, H, hit.mat.roughness);
-        float G = GeometrySchlickGGX(max(dot(N, V), 0.0), hit.mat.roughness);
-        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-        vec3 specular = (NDF * G * F) / (4.0 * max(dot(N, V), 0.0) * NdotL + 0.001);
-
-        dc.specular += specular * radiance * NdotL;
-        dc.radiance += radiance * NdotL;
-    }
-}
-
 DisplayComponents TraceRay(vec3 ro, vec3 rd)
 {
     DisplayComponents dc = InitDisplayComponents();
@@ -205,17 +249,20 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
     for(int bounce = 0; bounce < u_maxBounces; bounce++) {
         HitInfo hit = SceneIntersect(ro, rd);
 
-        CalculateSurfaceData(dc, hit, rd);
-        if(hit.hit) CalculateLightingData(dc, hit, -rd); // cherk rnfd for sky
+        if(bounce == 0) {
+            GetSurfaceData(dc, hit, rd);
+        }
+
+        if(hit.hit) CalculateLighting(dc, hit, -rd);
         else {
-            dc.finalColor += throughput * vec3(0.5, 0.7, 1.0); //dfr
+            dc.finalColor += throughput * vec3(0.5, 0.7, 1.0) * (bounce == 0 ? 1.0 : 0.2);
             break;
         }
         
         dc.finalColor += throughput * (dc.radiance + dc.specular);
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
-        throughput *= 0.1;
+        throughput *= 0.2;
     }
     return dc;
 }
@@ -227,7 +274,8 @@ vec3 GetVisualizationColor(DisplayComponents dc)
         case 2: return dc.albedo;
         case 3: return dc.specular;
         case 4: return dc.radiance;
-        case 5: return (dc.normal + 1.0) / 2.0;
+        case 5: return (dc.normal + 1.0) / 2.0; //suave :3
+        //case 5: return dc.normal;
         case 6: return dc.worldPos;
         default: return dc.finalColor;
     }
