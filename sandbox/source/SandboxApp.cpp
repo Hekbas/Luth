@@ -175,11 +175,13 @@ namespace Luth
             shader->SetVec3("u_ambientLight.color", ambientLight.color);
             shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
 
-
+            pointLights[0].position = glm::vec3(0.0f, 5.0f, 0.0f);
+            pointLights[0].color = glm::vec3(1.0f);
+            pointLights[0].intensity = 2.0f;
             shader->SetInt("u_numPointLights", numActiveLights);
-            shader->SetVec3("u_pointLights[0].position", glm::vec3(0.0f, 5.0f, 0.0f));
-            shader->SetVec3("u_pointLights[0].color", glm::vec3(1.0f));
-            shader->SetFloat("u_pointLights[0].intensity", 2.0f);
+            shader->SetVec3("u_pointLights[0].position", pointLights[0].position);
+            shader->SetVec3("u_pointLights[0].color", pointLights[0].color);
+            shader->SetFloat("u_pointLights[0].intensity", pointLights[0].intensity);
 
             // Rendering Parameters
             shader->SetInt("u_SSAA", ssaaSamples);
@@ -302,10 +304,6 @@ namespace Luth
                     }
 
                     for (int i = 0; i < numActiveLights; i++) {
-                        pointLights[i].position = glm::vec3(0.0f, 5.0f, 0.0f);
-                        pointLights[i].color = glm::vec3(1.0f);
-                        pointLights[i].intensity = 2.0f;
-
                         if (ImGui::TreeNode(("Light " + std::to_string(i)).c_str())) {
                             // Position
                             if (ImGui::SliderFloat3("Position", &pointLights[i].position.x, -10.0f, 10.0f)) {
