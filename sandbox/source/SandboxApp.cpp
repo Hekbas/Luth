@@ -29,6 +29,7 @@ namespace Luth
         void OnInit() override
         {
             InitScreenQuad();
+            SetVariables();
             LoadShader();
         }
 
@@ -64,8 +65,16 @@ namespace Luth
         #define MAX_LIGHTS 4
         #define MAX_SPHERES 32
 
+        struct Camera {
+            Vec3 origin;
+            Vec3 direction;
+            Vec3 lookAt;
+            float fov;
+            bool useLookAt;
+        };
+
         struct Material {
-            glm::vec3 albedo;
+            Vec3 albedo;
             float roughness;
             float metallic;
         };
@@ -82,6 +91,7 @@ namespace Luth
         };
 
         // Scene config
+        Camera camera;
         Material floorMaterial;
         Material sphereMaterials[MAX_SPHERES];
         glm::vec3 spherePositions[MAX_SPHERES];
@@ -99,7 +109,7 @@ namespace Luth
         bool applyGamma = true;
         float exposure = 1.0f;
         float gammaValue = 2.2f;
-        // ==============================================
+        // ===============================================
 
         void InitScreenQuad()
         {
@@ -141,28 +151,59 @@ namespace Luth
             InitUniforms();
         }
 
+        void SetVariables()
+        {
+            // Camera
+            camera.origin = glm::vec3(0.0, 0.5, 8.0);
+            camera.direction = glm::vec3(0.0, 0.0, 10.0);
+            camera.lookAt = glm::vec3(0.0, 0.0, 0.0);
+            camera.fov = 60.0f;
+            camera.useLookAt = false;
+
+            // Floor
+            floorMaterial.albedo = glm::vec3(0.9f, 0.3f, 0.2f);
+            floorMaterial.roughness = 0.8f;
+            floorMaterial.metallic = 0.0f;
+
+            // Spheres
+            spherePositions[0] = { 0.0f, 0.6f, 0.0f };
+            spherePositions[1] = { 2.2f, 0.6f, 0.0f };
+            spherePositions[2] = { -2.2f, 0.6f, 0.0f };
+
+            // Sphere Materials
+            for (int i = 0; i < 3; i++) {
+                sphereMaterials[i].albedo = glm::vec3(0.9f);
+                sphereMaterials[i].metallic = 0.3f;
+                sphereMaterials[i].roughness = 1.0f;
+            }
+
+            // Lighting
+            ambientLight.color = glm::vec3(0.5, 0.7, 1.0);
+            ambientLight.intensity = 1.0f;
+
+            pointLights[0].position = glm::vec3(0.0f, 5.0f, 0.0f);
+            pointLights[0].color = glm::vec3(1.0f);
+            pointLights[0].intensity = 2.0f;
+        }
+
         void InitUniforms()
         {
             // Display Mode
             shader->SetInt("u_displayMode", displayMode);
 
+            // Camera
+            shader->SetVec3("u_camera.origin", camera.origin);
+            shader->SetVec3("u_camera.direction", camera.direction);
+            shader->SetVec3("u_camera.lookAt", camera.lookAt);
+            shader->SetFloat("u_camera.fov", camera.fov);
+
             // Floor Material
-            floorMaterial.albedo = glm::vec3(0.9f, 0.3f, 0.2f);
-            floorMaterial.roughness = 0.8f;
-            floorMaterial.metallic = 0.0f;
             shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
             shader->SetFloat("u_floorMaterial.roughness", floorMaterial.roughness);
             shader->SetFloat("u_floorMaterial.metallic", floorMaterial.metallic);
 
             // Sphere Materials
-            spherePositions[0] = { 0.0f, 0.6f, 0.0f };
-            spherePositions[1] = { 2.2f, 0.6f, 0.0f };
-            spherePositions[2] = { -2.2f, 0.6f, 0.0f };
-
             for (int i = 0; i < 3; i++) {
-                sphereMaterials[i].albedo = glm::vec3(0.9f);
-                sphereMaterials[i].metallic = 0.3f;
-                sphereMaterials[i].roughness = 1.0f;
                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
                 shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
                 shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].metallic);
@@ -170,14 +211,9 @@ namespace Luth
             }
 
             // Lighting
-            ambientLight.color = glm::vec3(0.5, 0.7, 1.0);
-            ambientLight.intensity = 1.0f;
             shader->SetVec3("u_ambientLight.color", ambientLight.color);
             shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
 
-            pointLights[0].position = glm::vec3(0.0f, 5.0f, 0.0f);
-            pointLights[0].color = glm::vec3(1.0f);
-            pointLights[0].intensity = 2.0f;
             shader->SetInt("u_numPointLights", numActiveLights);
             shader->SetVec3("u_pointLights[0].position", pointLights[0].position);
             shader->SetVec3("u_pointLights[0].color", pointLights[0].color);
@@ -243,6 +279,27 @@ namespace Luth
                 // 2. Scene 
                 if (ImGui::CollapsingHeader("Scene", nodeFlags))
                 {
+                    // Camera
+                    if (ImGui::TreeNode("Camera")) {
+                        if (ImGui::SliderFloat3("Position", &camera.origin.x, -10.0f, 10.0f)) {
+                            shader->SetVec3("u_camera.origin", camera.origin);
+                        }
+                        if (ImGui::SliderFloat3("Direction", &camera.direction.x, -50.0f, 50.0f)) {
+                            shader->SetVec3("u_camera.direction", camera.direction);
+                        }
+                        if (ImGui::SliderFloat3("Look At", &camera.lookAt.x, -50.0f, 50.0f)) {
+                            shader->SetVec3("u_camera.lookAt", camera.lookAt);
+                        }
+                        if (ImGui::SliderFloat("FOV", &camera.fov, 10.0f, 140.0f)) {
+                            shader->SetFloat("u_camera.fov", camera.fov);
+                        }
+                        if (ImGui::Checkbox("Use LookAt", &camera.useLookAt)) {
+                            shader->SetInt("u_camera.useLookAt", camera.useLookAt ? 1 : 0);
+                        }
+                        ImGui::TreePop();
+                    }
+
+                    //Floor
                     if (ImGui::TreeNode("Floor Material")) {
                         if (ImGui::ColorEdit3("Albedo", &floorMaterial.albedo.x)) {
                             shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
@@ -259,12 +316,9 @@ namespace Luth
                     // Sphere controls
                     for (int i = 0; i < 3; i++) {
                         if (ImGui::TreeNode(("Sphere " + std::to_string(i)).c_str())) {
-                            // Position
                             if (ImGui::SliderFloat3("Position", &spherePositions[i].x, -5.0f, 5.0f)) {
                                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
                             }
-
-                            // Material
                             if (ImGui::ColorEdit3("Albedo", &sphereMaterials[i].albedo.x)) {
                                 shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo",
                                     sphereMaterials[i].albedo);

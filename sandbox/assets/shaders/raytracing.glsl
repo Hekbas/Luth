@@ -37,6 +37,14 @@ uniform float u_gamma;
 #define PI 3.141592653589793
 #define EPSILON 0.001
 
+struct Camera {
+    vec3 origin;
+    vec3 direction;
+    vec3 lookAt;
+    float fov;
+    bool useLookAt;
+};
+
 struct Material {
     vec3 albedo;
     float roughness;
@@ -74,6 +82,7 @@ struct DisplayComponents {
 };
 
 // Scene uniforms
+uniform Camera u_camera;
 uniform Material u_floorMaterial;
 uniform Material u_sphereMaterials[3];
 uniform vec3 u_spherePositions[3];
@@ -325,15 +334,15 @@ vec3 GetVisualizationColor(DisplayComponents dc)
     }
 }
 
-vec3 TraceAndVisualize(vec2 uv)
+vec3 TraceAndVisualize(mat3 camBasis, vec2 uv)
 {
-    vec3 ro = vec3(0.0, 0.5, 5.0);
-    vec3 rd = normalize(vec3(uv, -1.0));
+    vec3 ro = u_camera.origin;
+    vec3 rd = normalize(camBasis * vec3(uv, -1.0));  
     DisplayComponents dc = TraceRay(ro, rd);
     return GetVisualizationColor(dc);
 }
 
-vec3 SampleWithSSAA()
+vec3 SampleWithSSAA(mat3 camBasis, float focalScale)
 {
     vec3 color = vec3(0);
     const int AA = u_SSAA;
@@ -342,8 +351,8 @@ vec3 SampleWithSSAA()
         for(int x = 0; x < AA; x++) {
             vec2 offset = vec2(x, y) / float(AA) - 0.5;
             vec2 uv = (v_TexCoord - 0.5 + offset/u_resolution) * 
-                     vec2(u_resolution.x/u_resolution.y, 1.0);
-            color += TraceAndVisualize(uv);
+                     vec2(u_resolution.x/u_resolution.y, 1.0) * focalScale;
+            color += TraceAndVisualize(camBasis, uv);
         }
     }
     return color / float(AA*AA);
@@ -362,15 +371,29 @@ vec3 PostProcessing(vec3 color)
     return color;
 }
 
+mat3 GetCameraBasis(vec3 forward) {
+    vec3 worldUp = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(forward, worldUp));
+    vec3 up = normalize(cross(right, forward));
+    return mat3(right, up, forward);
+}
+
 void main()
 {
     vec3 color;
+    float aspectRatio = u_resolution.x / u_resolution.y;
+
+    // Camera
+    vec3 camForward = u_camera.useLookAt == true ?
+        normalize(u_camera.lookAt - u_camera.origin) : normalize(u_camera.direction);
+    mat3 camBasis = GetCameraBasis(camForward); 
+    float focalScale = tan(radians(u_camera.fov) * 0.5);
     
     if(u_SSAA > 1) {
-        color = SampleWithSSAA();
+        color = SampleWithSSAA(camBasis, focalScale);
     } else {
-        vec2 uv = (v_TexCoord - 0.5) * vec2(u_resolution.x/u_resolution.y, 1.0);
-        color = TraceAndVisualize(uv);
+        vec2 uv = (v_TexCoord - 0.5) * vec2(aspectRatio, 1.0) * focalScale;
+        color = TraceAndVisualize(camBasis, uv);
     }
     
     FragColor = vec4(PostProcessing(color), 1.0);
