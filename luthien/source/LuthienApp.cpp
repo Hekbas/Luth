@@ -1,4 +1,5 @@
-#include "Luth.h"
+#include <Luth.h>
+#include <Luth/core/EntryPoint.h>
 
 #include <imgui.h>
 
@@ -39,13 +40,4 @@ namespace Luth
     {
         return new LuthienApp();
     }
-}
-
-int main()
-{
-    Luth::Log::Init();
-    Luth::App* app = Luth::CreateApp();
-    app->Run();
-    delete app;
-    return 0;
 }

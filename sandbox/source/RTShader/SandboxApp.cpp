@@ -1,14 +1,15 @@
-#include "Luth.h"
+#include <Luth.h>
+#include <Luth/core/EntryPoint.h>
 
 #include <imgui.h>
 
 // TEST
-#include "luth/resources/ShaderLibrary.h"
-#include "luth/resources/ResourceManager.h"
+#include <luth/resources/ShaderLibrary.h>
+#include <luth/resources/ResourceManager.h>
 
-#include "luth/renderer/Renderer.h"
-#include "luth/renderer/vulkan/VKRendererAPI.h"
-#include "luth/renderer/Shader.h"
+#include <luth/renderer/Renderer.h>
+#include <luth/renderer/vulkan/VKRendererAPI.h>
+#include <luth/renderer/Shader.h>
 #include <memory>
 
 // TEST GL / VULKAN
@@ -417,13 +418,4 @@ namespace Luth
     {
         return new SandboxApp();
     }
-}
-
-int main()
-{
-    Luth::Log::Init();
-    Luth::App* app = Luth::CreateApp();
-    app->Run();
-    delete app;
-    return 0;
 }

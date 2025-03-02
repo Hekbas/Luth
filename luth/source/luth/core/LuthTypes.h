@@ -4,6 +4,7 @@
 #include <limits>
 #include <glm/glm.hpp>
 #include <type_traits>
+#include <spdlog/fmt/ostr.h>
 
 namespace Luth
 {
@@ -26,7 +27,6 @@ namespace Luth
     // =============================================
     //              GLM Integrations
     // =============================================
-    // Alias GLM types for engine consistency
     using Vec2 = glm::vec2;
     using Vec3 = glm::vec3;
     using Vec4 = glm::vec4;
@@ -66,38 +66,35 @@ namespace Luth
     // =============================================
     //              Forward Declarations
     // =============================================
-    // Forward-declare common GLM functions
+    // Common GLM functions
     template<typename T>
     T Normalize(const T& v);
 
     template<typename T>
     T Cross(const T& a, const T& b);
 
-}
+    // =============================================
+    //          Static Assertions (Safety)
+    // =============================================
+    static_assert(sizeof(Luth::i32) == 4, "i32 must be 4 bytes!");
+    static_assert(sizeof(Luth::f32) == 4, "f32 must be 4 bytes!");
+    static_assert(sizeof(Luth::Vec3) == 12, "Vec3 must be 12 bytes!");
 
-// =============================================
-//          Static Assertions (Safety)
-// =============================================
-static_assert(sizeof(Luth::i32) == 4, "i32 must be 4 bytes!");
-static_assert(sizeof(Luth::f32) == 4, "f32 must be 4 bytes!");
-static_assert(sizeof(Luth::Vec3) == 12, "Vec3 must be 12 bytes!");
-
-// =============================================
-//           Custom Formatters (Logging)
-// =============================================
-#include <spdlog/fmt/ostr.h>  // For operator<< overloading
-
-// Format glm::vec3 for logging
-inline std::ostream& operator<<(std::ostream& os, const glm::vec3& v) {
-    return os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
-}
-
-// Format glm::mat4 for logging (simplified)
-inline std::ostream& operator<<(std::ostream& os, const glm::mat4& m) {
-    for (int i = 0; i < 4; ++i) {
-        os << "\n| ";
-        for (int j = 0; j < 4; ++j)
-            os << m[i][j] << " ";
+    // =============================================
+    //           Custom Formatters (Logging)
+    // =============================================   
+    // Format glm::vec3
+    inline std::ostream& operator<<(std::ostream& os, const glm::vec3& v) {
+        return os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
     }
-    return os << " |";
+
+    // Format glm::mat4
+    inline std::ostream& operator<<(std::ostream& os, const glm::mat4& m) {
+        for (int i = 0; i < 4; ++i) {
+            os << "\n| ";
+            for (int j = 0; j < 4; ++j)
+                os << m[i][j] << " ";
+        }
+        return os << " |";
+    }
 }
