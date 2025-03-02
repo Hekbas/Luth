@@ -1,5 +1,4 @@
 #include <Luth.h>
-#include <Luth/core/EntryPoint.h>
 
 #include <imgui.h>
 
@@ -8,23 +7,21 @@
 #include <luth/resources/ResourceManager.h>
 
 #include <luth/renderer/Renderer.h>
-#include <luth/renderer/vulkan/VKRendererAPI.h>
 #include <luth/renderer/Shader.h>
 #include <memory>
 
-// TEST GL / VULKAN
-#define GLFW_INCLUDE_VULKAN
+// TEST GL
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 
 namespace Luth
 {
-    class SandboxApp : public App
+    class RTShaderApp : public App
     {
     public:
-        SandboxApp() {}
-        ~SandboxApp() override = default;
+        RTShaderApp(int argc, char** argv) : App(argc, argv) {}
+        ~RTShaderApp() override = default;
 
     protected:
         void OnInit() override
@@ -413,9 +410,4 @@ namespace Luth
             ImGui::End();
         }
     };
-
-    App* CreateApp()
-    {
-        return new SandboxApp();
-    }
 }

@@ -8,7 +8,7 @@ namespace Luth
     class LuthienApp : public App
     {
     public:
-        LuthienApp() {}
+        LuthienApp(int argc, char** argv) : App(argc, argv) {}
         ~LuthienApp() override = default;
 
     protected:
@@ -36,8 +36,8 @@ namespace Luth
         void OnShutdown() override {}
     };
 
-    App* CreateApp()
+    App* CreateApp(int argc, char** argv)
     {
-        return new LuthienApp();
+        return new LuthienApp(argc, argv);
     }
 }

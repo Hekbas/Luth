@@ -10,14 +10,15 @@ namespace Luth
     class App
     {
     public:
-        App();
+        App(int argc, char** argv);
         virtual ~App();
 
         void Run();
         void Close();
 
+        WindowSpec ParseCommandLineArgs(int argc, char** argv);
+
         Window& GetWindow() { return *m_Window; }
-        Renderer& GetRenderer() { return *m_Renderer; }
 
     protected:
         virtual void OnInit() {}
@@ -27,11 +28,10 @@ namespace Luth
 
     private:
         std::unique_ptr<Window> m_Window;
-        std::unique_ptr<Renderer> m_Renderer;
 
         bool m_Running = true;
         f32 m_LastFrameTime = 0.0f;
     };
 
-    App* CreateApp();
+    App* CreateApp(int argc, char** argv);
 }
