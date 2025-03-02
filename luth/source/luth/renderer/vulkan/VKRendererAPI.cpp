@@ -48,6 +48,8 @@ namespace Luth
 
         CreateDevice();
         CreateSwapChain();
+        CreateRenderPass();
+        CreateGraphicsPipeline();
     }
 
     void VKRendererAPI::Shutdown()
@@ -169,6 +171,40 @@ namespace Luth
         
         LH_CORE_INFO("Swapchain created with {0} images",
             m_Swapchain->GetImageViews().size());
+    }
+
+    void VKRendererAPI::CreateRenderPass()
+    {
+        if (m_RenderPass) {
+            m_RenderPass.reset();
+        }
+
+        VkFormat swapchainFormat = m_Swapchain->GetImageFormat();
+        m_RenderPass = std::make_unique<VKRenderPass>(
+            m_LogicalDevice->GetHandle(),
+            swapchainFormat
+        );
+
+        LH_CORE_INFO("Created Vulkan render pass with format: {0}", (int)swapchainFormat);
+    }
+
+    void VKRendererAPI::CreateGraphicsPipeline()
+    {
+        if (m_GraphicsPipeline) {
+            m_GraphicsPipeline.reset();
+        }
+
+        VkExtent2D swapchainExtent = m_Swapchain->GetExtent();
+        VkRenderPass renderPass = m_RenderPass->GetHandle();
+
+        m_GraphicsPipeline = std::make_unique<VKGraphicsPipeline>(
+            m_LogicalDevice->GetHandle(),
+            swapchainExtent,
+            renderPass
+        );
+
+        LH_CORE_INFO("Created Vulkan graphics pipeline with extent: {0}x{1}",
+            swapchainExtent.width, swapchainExtent.height);
     }
 
     bool VKRendererAPI::CheckValidationLayerSupport() const

@@ -5,6 +5,8 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/vulkan/VKDevice.h"
 #include "luth/renderer/vulkan/VKSwapchain.h"
+#include "luth/renderer/vulkan/VKRenderPass.h"
+#include "luth/renderer/vulkan/VKGraphicsPipeline.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -38,6 +40,8 @@ namespace Luth
         void CreateSurface();
         void CreateDevice();
         void CreateSwapChain();
+        void CreateRenderPass();
+        void CreateGraphicsPipeline();
 
         void SetupDebugMessenger();
         void DestroyDebugMessenger();
@@ -53,6 +57,8 @@ namespace Luth
         std::unique_ptr<VKPhysicalDevice> m_PhysicalDevice;
         std::unique_ptr<VKLogicalDevice> m_LogicalDevice;
         std::unique_ptr<VKSwapchain> m_Swapchain;
+        std::unique_ptr<VKRenderPass> m_RenderPass;
+        std::unique_ptr<VKGraphicsPipeline> m_GraphicsPipeline;
 
         // Configuration
         const std::vector<const char*> m_ValidationLayers = {
@@ -62,10 +68,10 @@ namespace Luth
             VK_EXT_DEBUG_UTILS_EXTENSION_NAME
         };
 
-#ifdef NDEBUG
-        const bool m_EnableValidationLayers = false;
-#else
-        const bool m_EnableValidationLayers = true;
-#endif
+        #ifdef NDEBUG
+            const bool m_EnableValidationLayers = false;
+        #else
+            const bool m_EnableValidationLayers = true;
+        #endif
     };
 }
