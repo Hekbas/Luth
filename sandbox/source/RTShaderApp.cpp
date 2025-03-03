@@ -164,14 +164,17 @@ namespace Luth
             floorMaterial.metallic = 0.0f;
 
             // Spheres
-            spherePositions[0] = { 0.0f, 0.6f, 0.0f };
-            spherePositions[1] = { 2.2f, 0.6f, 0.0f };
+            spherePositions[0] = { 2.2f, 0.6f, 0.0f };
+            spherePositions[1] = { 0.0f, 0.6f, 0.0f };
             spherePositions[2] = { -2.2f, 0.6f, 0.0f };
 
             // Sphere Materials
+            sphereMaterials[0].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
+            sphereMaterials[1].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+            sphereMaterials[2].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+
             for (int i = 0; i < 3; i++) {
-                sphereMaterials[i].albedo = glm::vec3(0.9f);
-                sphereMaterials[i].metallic = 0.3f;
+                sphereMaterials[i].metallic = 0.25f;
                 sphereMaterials[i].roughness = 1.0f;
             }
 
@@ -204,8 +207,8 @@ namespace Luth
             for (int i = 0; i < 3; i++) {
                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
                 shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
-                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].metallic);
-                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].roughness);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].roughness);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].metallic);
             }
 
             // Lighting
@@ -297,7 +300,7 @@ namespace Luth
                         ImGui::TreePop();
                     }
 
-                    //Floor
+                    // Floor
                     if (ImGui::TreeNode("Floor Material")) {
                         if (ImGui::ColorEdit3("Albedo", &floorMaterial.albedo.x)) {
                             shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
