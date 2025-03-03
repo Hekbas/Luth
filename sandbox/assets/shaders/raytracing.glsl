@@ -94,6 +94,15 @@ uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
 
 // Random
+float pcg1d(float v) {
+    return fract(sin(v * 114007.0) * 43758.5453);
+}
+vec2 pcg2d(vec2 v) {
+    return fract(
+        sin(v.xyx * vec3(114007.0, 114007.0, 1.0)) * 
+        vec3(43758.5453, 43758.5453, 43758.5453)
+    ).xy;
+}
 vec3 pcg3d(vec3 v) {
     v = v * 114007.0 + vec3(1.0);
     v = fract(v * vec3(0.1031, 0.1030, 0.0973));
@@ -212,8 +221,8 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     return ggx1 * ggx2;
 }
 
-float SoftShadow(vec3 pos, vec3 normal, vec3 lightPos, float hardness)
-{
+// Too noisy :(
+float SoftShadow(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
     vec3 lightDir = lightPos - pos;
     float lightDistance = length(lightDir);
     vec3 dir = normalize(lightDir);
@@ -230,6 +239,56 @@ float SoftShadow(vec3 pos, vec3 normal, vec3 lightPos, float hardness)
         HitInfo shHit = SceneIntersect(samplePos + dir * EPSILON, dir);
         if(!shHit.hit || shHit.t > lightDistance) {
             shadow += 1.0;
+        }
+    }
+    return shadow / float(samples);
+}
+
+// Computes penumbra soft shadows by jittering ray origins across an area light,
+// using stratified sampling and adaptive penumbra scaling to reduce noise.
+// Traces multiple rays toward the light, blending visibility based on blocker distance.
+float SoftShadowSARS(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
+    vec3 toLight = lightPos - pos;
+    float lightDist = length(toLight);
+    vec3 lightDir = toLight / lightDist;
+    
+    // Adaptive radius: Penumbra scales with distance
+    float penumbraRadius = mix(0.1, 0.01, hardness) * lightDist;
+    
+    float shadow = 0.0;
+    int samples = 32;
+    
+    // Stratified grid + rotation to reduce banding
+    float angle = 30.0 * (pcg1d(gl_FragCoord.x + gl_FragCoord.y * 1920.0));
+    mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+    
+    for(int i = 0; i < samples; i++) {
+        // Stratified grid sample
+        vec2 grid = vec2(i % 4, i / 4) / 4.0; // 4x4 grid
+        vec2 jitter = (grid + 0.5 + pcg2d(vec2(i)) * 0.25); // Jitter within cell
+        
+        // Map to disk with concentric mapping (better than random)
+        vec2 offset = 2.0 * jitter - 1.0;
+        if (abs(offset.x) > abs(offset.y)) 
+            offset = vec2(offset.x > 0.0 ? 1.0 : -1.0, offset.y / abs(offset.x));
+        else 
+            offset = vec2(offset.x / abs(offset.y), offset.y > 0.0 ? 1.0 : -1.0);
+        
+        offset = rot * offset; // Apply rotation
+        vec3 samplePos = lightPos + penumbraRadius
+                        * (offset.x * cross(lightDir, normal)
+                        + offset.y * cross(lightDir, cross(lightDir, normal)));
+        
+        // Trace from surface to light sample
+        vec3 shadowRayDir = normalize(samplePos - pos);
+        HitInfo shHit = SceneIntersect(pos + normal * EPSILON, shadowRayDir);
+        
+        // Smooth visibility based on blocker distance
+        if(!shHit.hit) {
+            shadow += 1.0;
+        } else {
+            float t = shHit.t / lightDist;
+            shadow += smoothstep(0.0, 1.0, t * t); // Quadratic falloff
         }
     }
     return shadow / float(samples);
@@ -263,7 +322,8 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         vec3 H = normalize(V + L);
         float distance = length(u_pointLights[i].position - hit.position);
         float attenuation = 1.0 / (distance * distance);
-        float shadow = SoftShadow(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
+        //float shadow = SoftShadow(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
+        float shadow = SoftShadowSARS(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
         
         float NdotL = max(dot(N, L), 0.0);
         float NdotV = max(dot(N, V), 0.0);

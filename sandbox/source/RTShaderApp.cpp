@@ -153,8 +153,8 @@ namespace Luth
         void SetVariables()
         {
             // Camera
-            camera.origin = glm::vec3(0.0, 2.2, 4.0);
-            camera.direction = glm::vec3(0.0, 9.0, 16.5);
+            camera.origin = glm::vec3(0.0, 2.2, 5.3);
+            camera.direction = glm::vec3(0.0, 7.3, 34.0);
             camera.lookAt = glm::vec3(0.0, 0.0, 0.0);
             camera.fov = 110.0f;
             camera.useLookAt = false;
@@ -183,11 +183,11 @@ namespace Luth
             sphereMaterials[2].metallic = 0.05;
 
             // Lighting
-            ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.0);
-            ambientLight.groundColor = glm::vec3(0.0, 0.0, 0.0);
+            ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
+            ambientLight.groundColor = glm::vec3(1.0, 0.42, 0.0);
             ambientLight.intensity = 1.0f;
 
-            pointLights[0].position = glm::vec3(0.17f, 1.6f, 4.7f);
+            pointLights[0].position = glm::vec3(3.22f, 3.9f, 2.37f);
             pointLights[0].color = glm::vec3(1.0f);
             pointLights[0].intensity = 10.0f;
         }
