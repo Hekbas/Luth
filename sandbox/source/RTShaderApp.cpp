@@ -78,7 +78,8 @@ namespace Luth
         };
 
         struct AmbientLight {
-            glm::vec3 color;
+            glm::vec3 skyColor;
+            glm::vec3 groundColor;
             float intensity;
         };
 
@@ -152,16 +153,16 @@ namespace Luth
         void SetVariables()
         {
             // Camera
-            camera.origin = glm::vec3(0.0, 0.5, 8.0);
-            camera.direction = glm::vec3(0.0, 0.0, 10.0);
+            camera.origin = glm::vec3(0.0, 2.2, 4.0);
+            camera.direction = glm::vec3(0.0, 9.0, 16.5);
             camera.lookAt = glm::vec3(0.0, 0.0, 0.0);
-            camera.fov = 60.0f;
+            camera.fov = 110.0f;
             camera.useLookAt = false;
 
             // Floor
-            floorMaterial.albedo = glm::vec3(0.9f, 0.3f, 0.2f);
+            floorMaterial.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
             floorMaterial.roughness = 0.8f;
-            floorMaterial.metallic = 0.0f;
+            floorMaterial.metallic = 0.1f;
 
             // Spheres
             spherePositions[0] = { 2.2f, 0.6f, 0.0f };
@@ -170,21 +171,25 @@ namespace Luth
 
             // Sphere Materials
             sphereMaterials[0].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
-            sphereMaterials[1].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
-            sphereMaterials[2].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+            sphereMaterials[0].roughness = 0.05;
+            sphereMaterials[0].metallic = 0.05;
 
-            for (int i = 0; i < 3; i++) {
-                sphereMaterials[i].metallic = 0.25f;
-                sphereMaterials[i].roughness = 1.0f;
-            }
+            sphereMaterials[1].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+            sphereMaterials[1].roughness = 0.05;
+            sphereMaterials[1].metallic = 1.0;
+
+            sphereMaterials[2].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+            sphereMaterials[2].roughness = 1.0;
+            sphereMaterials[2].metallic = 0.05;
 
             // Lighting
-            ambientLight.color = glm::vec3(0.5, 0.7, 1.0);
+            ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.0);
+            ambientLight.groundColor = glm::vec3(0.0, 0.0, 0.0);
             ambientLight.intensity = 1.0f;
 
-            pointLights[0].position = glm::vec3(0.0f, 5.0f, 0.0f);
+            pointLights[0].position = glm::vec3(0.17f, 1.6f, 4.7f);
             pointLights[0].color = glm::vec3(1.0f);
-            pointLights[0].intensity = 2.0f;
+            pointLights[0].intensity = 10.0f;
         }
 
         void InitUniforms()
@@ -212,7 +217,8 @@ namespace Luth
             }
 
             // Lighting
-            shader->SetVec3("u_ambientLight.color", ambientLight.color);
+            shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
+            shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
             shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
 
             shader->SetInt("u_numPointLights", numActiveLights);
@@ -267,10 +273,12 @@ namespace Luth
                         "Final Render",
                         "Ray Directions",
                         "Albedo",
-                        "Specular",
-                        "Radiance",
+                        "World Position",
                         "Normals",
-                        "World Position"
+                        "Fressnel",
+                        "Radiance",
+                        "Diffuse",
+                        "Specular"
                     };
                     if (ImGui::Combo("Display Mode", &displayMode, displayModes, IM_ARRAYSIZE(displayModes))) {
                         shader->SetInt("u_displayMode", displayMode);
@@ -343,8 +351,11 @@ namespace Luth
                 if (ImGui::CollapsingHeader("Ambient Light", nodeFlags))
                 {
                     // Color and intensity
-                    if (ImGui::ColorEdit3("Color", &ambientLight.color.x)) {
-                        shader->SetVec3("u_ambientLight.color", ambientLight.color);
+                    if (ImGui::ColorEdit3("Sky Color", &ambientLight.skyColor.x)) {
+                        shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
+                    }
+                    if (ImGui::ColorEdit3("Ground Color", &ambientLight.groundColor.x)) {
+                        shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
                     }
                     if (ImGui::SliderFloat("Intensity", &ambientLight.intensity, 0.0f, 10.0f)) {
                         shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);

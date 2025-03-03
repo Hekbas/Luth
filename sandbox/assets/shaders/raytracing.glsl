@@ -53,7 +53,8 @@ struct Material {
 };
 
 struct AmbientLight {
-    vec3 color;
+    vec3 skyColor;
+    vec3 groundColor;
     float intensity;
 };
 
@@ -72,13 +73,15 @@ struct HitInfo {
 };
 
 struct DisplayComponents {
-    vec3 finalColor;
     vec3 rayDir;
     vec3 albedo;
-    vec3 specular;
-    vec3 radiance;
-    vec3 normal;
     vec3 worldPos;
+    vec3 normal;
+    vec3 fressnel;
+    vec3 radiance;
+    vec3 diffuse;
+    vec3 specular;
+    vec3 finalColor;
 };
 
 // Scene uniforms
@@ -90,7 +93,7 @@ uniform AmbientLight u_ambientLight;
 uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
 
-
+// Random
 vec3 pcg3d(vec3 v) {
     v = v * 114007.0 + vec3(1.0);
     v = fract(v * vec3(0.1031, 0.1030, 0.0973));
@@ -100,6 +103,8 @@ vec3 pcg3d(vec3 v) {
 
 DisplayComponents InitDisplayComponents() {
     return DisplayComponents(
+        vec3(0.0),
+        vec3(0.0),
         vec3(0.0),
         vec3(0.0),
         vec3(0.0),
@@ -169,8 +174,9 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
 // F = F0 + (1 - F0) * (1 - cosθ)^5
 // - F0: Base reflectivity at normal incidence
 // - cosθ: Dot product between view and half vectors
+// Info: https://odederell3d.blog/2018/09/18/fresnel-reflections/
 vec3 FresnelSchlick(float cosTheta, vec3 F0) {
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    return F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
 // Normal Distribution Function (NDF) using Trowbridge-Reitz GGX
@@ -206,7 +212,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     return ggx1 * ggx2;
 }
 
-float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
+float SoftShadow(vec3 pos, vec3 normal, vec3 lightPos, float hardness)
 {
     vec3 lightDir = lightPos - pos;
     float lightDistance = length(lightDir);
@@ -219,7 +225,7 @@ float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
     for(int i = 0; i < samples; i++) {
         vec3 random = pcg3d(vec3(gl_FragCoord.xy, i));
         vec3 jitter = random * radius;
-        vec3 samplePos = pos + jitter;
+        vec3 samplePos = pos + normal * EPSILON + jitter;
         
         HitInfo shHit = SceneIntersect(samplePos + dir * EPSILON, dir);
         if(!shHit.hit || shHit.t > lightDistance) {
@@ -240,14 +246,15 @@ float SoftShadow(vec3 pos, vec3 lightPos, float hardness)
 // Energy conserved through metallic workflow:
 // - Dielectrics (non-metals): Both diffuse and specular
 // - Metals: Specular only (kD=0 when metallic=1)
-void CalculateLighting(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
+void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInfo hit, vec3 viewDir)
 {
     if(!hit.hit) return;
 
     vec3 N = normalize(hit.normal);
     vec3 V = normalize(viewDir);
     vec3 albedo = hit.mat.albedo;
-    vec3 F0 = mix(vec3(0.04), albedo, hit.mat.metallic);
+    float roughness = hit.mat.roughness;
+    vec3 F0 = mix(vec3(0.04), hit.mat.albedo, hit.mat.metallic);
 
     for(int i = 0; i < MAX_LIGHTS; i++) {
         if(i >= u_numPointLights) break;
@@ -256,7 +263,7 @@ void CalculateLighting(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
         vec3 H = normalize(V + L);
         float distance = length(u_pointLights[i].position - hit.position);
         float attenuation = 1.0 / (distance * distance);
-        float shadow = SoftShadow(hit.position, u_pointLights[i].position, u_softShadowFactor);
+        float shadow = SoftShadow(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
         
         float NdotL = max(dot(N, L), 0.0);
         float NdotV = max(dot(N, V), 0.0);
@@ -266,26 +273,29 @@ void CalculateLighting(inout DisplayComponents dc, HitInfo hit, vec3 viewDir)
                       * shadow * attenuation * NdotL;
 
         // Fresnel
-        vec3 F = FresnelSchlick(HdotV, F0);
+        vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
         
         // Diffuse (Lambert)
         vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
         vec3 diffuse = kD * albedo * radiance / PI;
 
         // Specular (Cook-Torrance)
-        float D = DistributionGGX(N, H, hit.mat.roughness);
-        float G = GeometrySmith(N, V, L, hit.mat.roughness);
-        vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.001) * radiance;
+        float D = DistributionGGX(N, H, roughness);
+        float G = GeometrySmith(N, V, L, roughness);
+        vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        dc.radiance += diffuse;
-        dc.specular += specular;
+        dc.fressnel += F * throughput;
+        dc.radiance += radiance * throughput;
+        dc.diffuse += diffuse * throughput;
+        dc.specular += specular * throughput;
+        throughput *= F;
     }
 }
 
 void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
 {
-    dc.rayDir = rd;
     if(hit.hit) {
+        dc.rayDir = rd;
         dc.albedo = hit.mat.albedo;
         dc.normal = hit.normal;
         dc.worldPos = hit.position;
@@ -294,29 +304,37 @@ void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
     }
 }
 
+vec3 GetAmbientColor(vec3 rayDir)
+{
+    float horizonMix = smoothstep(-0.3, 0.3, rayDir.y);
+    vec3 skyColor = mix(
+        u_ambientLight.groundColor * u_ambientLight.intensity,
+        u_ambientLight.skyColor * u_ambientLight.intensity,
+        horizonMix
+    );
+    
+    return skyColor;
+}
+
 DisplayComponents TraceRay(vec3 ro, vec3 rd)
 {
     DisplayComponents dc = InitDisplayComponents();
     vec3 throughput = vec3(1.0);
-    
-    for(int bounce = 0; bounce <= u_maxBounces; bounce++) {
+
+    for(int bounce = 0; bounce <= u_maxBounces; bounce++) {        
         HitInfo hit = SceneIntersect(ro, rd);
-
-        if(bounce == 0) {
-            GetSurfaceData(dc, hit, rd);
-        }
-
-        if(hit.hit) CalculateLighting(dc, hit, -rd);
+        if(bounce == 0) GetSurfaceData(dc, hit, rd); // For visualization modes
+        if(hit.hit) CalculateLighting(dc, throughput, hit, -rd);
         else {
-            dc.finalColor += throughput * u_ambientLight.color * u_ambientLight.intensity * (bounce == 0 ? 1.0 : 0.2);
+            vec3 ambient = GetAmbientColor(rd);
+            dc.finalColor += throughput * ambient;
             break;
         }
         
-        dc.finalColor += throughput * (dc.radiance + dc.specular);
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
-        throughput *= 0.2;
     }
+    dc.finalColor += (dc.diffuse + dc.specular);
     return dc;
 }
 
@@ -325,12 +343,13 @@ vec3 GetVisualizationColor(DisplayComponents dc)
     switch(u_displayMode) {
         case 1: return dc.rayDir;
         case 2: return dc.albedo;
-        case 3: return dc.specular;
-        case 4: return dc.radiance;
-        case 5: return (dc.normal + 1.0) / 2.0; //suave :3
-        //case 5: return dc.normal;
-        case 6: return dc.worldPos;
-        default: return dc.finalColor;
+        case 3: return dc.worldPos;
+        case 4: return (dc.normal + 1.0) / 2.0; //suave :3
+        case 5: return dc.fressnel;
+        case 6: return dc.radiance;
+        case 7: return dc.diffuse;
+        case 8: return dc.specular;
+        default: return dc.finalColor; // 0
     }
 }
 
