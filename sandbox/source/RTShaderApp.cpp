@@ -73,8 +73,11 @@ namespace Luth
 
         struct Material {
             Vec3 albedo;
+            Vec3 emissive;
             float roughness;
             float metallic;
+            float ior;
+            float transparency;
         };
 
         struct AmbientLight {
@@ -163,6 +166,8 @@ namespace Luth
             floorMaterial.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
             floorMaterial.roughness = 0.8f;
             floorMaterial.metallic = 0.1f;
+            floorMaterial.ior = 1.0f;
+            floorMaterial.transparency = 0.0f;
 
             // Spheres
             spherePositions[0] = { 2.2f, 0.6f, 0.0f };
@@ -171,16 +176,25 @@ namespace Luth
 
             // Sphere Materials
             sphereMaterials[0].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
+            sphereMaterials[0].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
             sphereMaterials[0].roughness = 0.05;
             sphereMaterials[0].metallic = 0.05;
+            sphereMaterials[0].ior = 1.5;
+            sphereMaterials[0].transparency = 0.0;
 
             sphereMaterials[1].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+            sphereMaterials[1].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
             sphereMaterials[1].roughness = 0.05;
             sphereMaterials[1].metallic = 1.0;
+            sphereMaterials[1].ior = 1.5;
+            sphereMaterials[1].transparency = 0.95;
 
             sphereMaterials[2].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+            sphereMaterials[2].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
             sphereMaterials[2].roughness = 1.0;
             sphereMaterials[2].metallic = 0.05;
+            sphereMaterials[2].ior = 1.5;
+            sphereMaterials[2].transparency = 0.0;
 
             // Lighting
             ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
@@ -207,13 +221,18 @@ namespace Luth
             shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
             shader->SetFloat("u_floorMaterial.roughness", floorMaterial.roughness);
             shader->SetFloat("u_floorMaterial.metallic", floorMaterial.metallic);
+            shader->SetFloat("u_floorMaterial.ior", floorMaterial.ior);
+            shader->SetFloat("u_floorMaterial.transparency", floorMaterial.transparency);
 
             // Sphere Materials
             for (int i = 0; i < 3; i++) {
                 shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
                 shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
+                shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].emissive", sphereMaterials[i].emissive);
                 shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].roughness);
                 shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].metallic);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].ior", sphereMaterials[i].ior);
+                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].transparency", sphereMaterials[i].transparency);
             }
 
             // Lighting
@@ -319,6 +338,12 @@ namespace Luth
                         if (ImGui::SliderFloat("Metallic", &floorMaterial.metallic, 0.0f, 1.0f)) {
                             shader->SetFloat("u_floorMaterial.metallic", floorMaterial.metallic);
                         }
+                        if (ImGui::SliderFloat("IOR", &floorMaterial.ior, 0.0f, 5.0f)) {
+                            shader->SetFloat("u_floorMaterial.ior", floorMaterial.ior);
+                        }
+                        if (ImGui::SliderFloat("Transparency", &floorMaterial.transparency, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_floorMaterial.transparency", floorMaterial.transparency);
+                        }
                         ImGui::TreePop();
                     }
 
@@ -332,6 +357,10 @@ namespace Luth
                                 shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo",
                                     sphereMaterials[i].albedo);
                             }
+                            if (ImGui::ColorEdit3("Emissive", &sphereMaterials[i].emissive.x)) {
+                                shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].emissive",
+                                    sphereMaterials[i].emissive);
+                            }
                             if (ImGui::SliderFloat("Roughness", &sphereMaterials[i].roughness, 0.0f, 1.0f)) {
                                 shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness",
                                     sphereMaterials[i].roughness);
@@ -339,6 +368,14 @@ namespace Luth
                             if (ImGui::SliderFloat("Metallic", &sphereMaterials[i].metallic, 0.0f, 1.0f)) {
                                 shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic",
                                     sphereMaterials[i].metallic);
+                            }
+                            if (ImGui::SliderFloat("IOR", &sphereMaterials[i].ior, 0.0f, 5.0f)) {
+                                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].ior",
+                                    sphereMaterials[i].ior);
+                            }
+                            if (ImGui::SliderFloat("Transparency", &sphereMaterials[i].transparency, 0.0f, 1.0f)) {
+                                shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].transparency",
+                                    sphereMaterials[i].transparency);
                             }
                             ImGui::TreePop();
                         }

@@ -45,13 +45,6 @@ struct Camera {
     bool useLookAt;
 };
 
-struct Material {
-    vec3 albedo;
-    float roughness;
-    float metallic;
-    vec3 emission;
-};
-
 struct AmbientLight {
     vec3 skyColor;
     vec3 groundColor;
@@ -62,6 +55,15 @@ struct PointLight {
     vec3 position;
     vec3 color;
     float intensity;
+};
+
+struct Material {
+    vec3 albedo;
+    vec3 emissive;
+    float roughness;
+    float metallic;
+    float ior;
+    float transparency;
 };
 
 struct HitInfo {
@@ -77,7 +79,7 @@ struct DisplayComponents {
     vec3 albedo;
     vec3 worldPos;
     vec3 normal;
-    vec3 fressnel;
+    vec3 fresnel;
     vec3 radiance;
     vec3 diffuse;
     vec3 specular;
@@ -108,6 +110,16 @@ vec3 pcg3d(vec3 v) {
     v = fract(v * vec3(0.1031, 0.1030, 0.0973));
     v += dot(v, v.yzx + 19.19);
     return fract((v.xxy + v.yzz) * v.zyx);
+}
+float hash(float v) {
+    return fract(sin(v) * 43758.5453);
+}
+float hash(vec2 v) {
+    return fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
+}
+float getSeed(int v) {
+    vec2 fragCoord = gl_FragCoord.xy * (float(v + 1) * 0.618);
+    return hash(fragCoord + u_time);
 }
 
 DisplayComponents InitDisplayComponents() {
@@ -155,9 +167,11 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
         hit.position = ro + rd * hit.t;
         hit.normal = vec3(0, 1, 0);
         hit.mat.albedo = u_floorMaterial.albedo;
+        hit.mat.emissive = u_floorMaterial.emissive;
         hit.mat.roughness = u_floorMaterial.roughness;
         hit.mat.metallic = u_floorMaterial.metallic;
-        hit.mat.emission = vec3(0);
+        hit.mat.ior = u_floorMaterial.ior;
+        hit.mat.transparency = u_floorMaterial.transparency;
         hit.hit = true;
     }
 
@@ -169,9 +183,11 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
             hit.position = ro + rd * hit.t;
             hit.normal = normalize(hit.position - u_spherePositions[i]);
             hit.mat.albedo = u_sphereMaterials[i].albedo;
+            hit.mat.emissive = u_sphereMaterials[i].emissive;
             hit.mat.roughness = u_sphereMaterials[i].roughness;
             hit.mat.metallic = u_sphereMaterials[i].metallic;
-            hit.mat.emission = vec3(0);
+            hit.mat.ior = u_sphereMaterials[i].ior;
+            hit.mat.transparency = u_sphereMaterials[i].transparency;
             hit.hit = true;
         }
     }
@@ -294,6 +310,45 @@ float SoftShadowSARS(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
     return shadow / float(samples);
 }
 
+vec3 CalculateEmissiveGlow(vec3 ro, vec3 rd) {
+    vec3 glow = vec3(0.0);
+    const int glowSamples = 4;
+    const float glowRadius = 3.0;
+    const float glowStrength = 64.0;
+    const float glowFalloff = 8.0;
+    
+    for(int i = 0; i < 3; i++) {
+        if(length(u_sphereMaterials[i].emissive) > 0.0) {
+            // Sphere data
+            vec3 center = u_spherePositions[i];
+            float radius = 1.0;
+            vec3 emissive = u_sphereMaterials[i].emissive;
+            
+            // Calculate closest point on ray to sphere center
+            vec3 oc = ro - center;
+            float tca = dot(oc, rd);
+            float d2 = dot(oc, oc) - tca * tca;
+            float radius2 = radius * radius;
+            
+            // If ray passes near sphere
+            if(d2 < radius2 * glowRadius) {
+                // Estimate glow
+                float dist = sqrt(d2);
+                float glowIntensity = glowStrength * 
+                    pow(1.0 - smoothstep(0.0, radius * glowRadius, dist), glowFalloff);
+                
+                // Add jittered samples for softer look
+                for(int s = 0; s < glowSamples; s++) {
+                    vec3 jitter = normalize(pcg3d(vec3(s, glowIntensity, u_time)));
+                    glow += emissive * glowIntensity * 0.1 * 
+                        pow(1.0 - dist/(radius * glowRadius), 2.0);
+                }
+            }
+        }
+    }
+    return glow / float(glowSamples);
+}
+
 // Full PBR lighting calculation using Cook-Torrance BRDF
 // https://graphicscompendium.com/gamedev/15-pbr
 // Lo = (kD * albedo/π + (D*G*F)/(4(n·v)(n·l))) * L_i * (n·l)
@@ -322,15 +377,13 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         vec3 H = normalize(V + L);
         float distance = length(u_pointLights[i].position - hit.position);
         float attenuation = 1.0 / (distance * distance);
-        //float shadow = SoftShadow(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
         float shadow = SoftShadowSARS(hit.position, hit.normal, u_pointLights[i].position, u_softShadowFactor);
         
         float NdotL = max(dot(N, L), 0.0);
         float NdotV = max(dot(N, V), 0.0);
         float HdotV = max(dot(H, V), 0.0);
 
-        vec3 radiance = u_pointLights[i].color * u_pointLights[i].intensity 
-                      * shadow * attenuation * NdotL;
+        vec3 radiance = u_pointLights[i].color * u_pointLights[i].intensity * shadow * attenuation * NdotL;
 
         // Fresnel
         vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
@@ -344,7 +397,41 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        dc.fressnel += F * throughput;
+        dc.fresnel += F * throughput;
+        dc.radiance += radiance * throughput;
+        dc.diffuse += diffuse * throughput;
+        dc.specular += specular * throughput;
+        throughput *= F;
+    }
+
+    for(int i = 0; i < u_spherePositions.length(); i++) {       
+        if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
+
+        vec3 L = normalize(u_spherePositions[i] - hit.position);
+        vec3 H = normalize(V + L);
+        float distance = length(u_spherePositions[i] - hit.position);
+        float attenuation = 1.0 / (distance * distance);
+        float shadow = SoftShadowSARS(hit.position, hit.normal, u_spherePositions[i], u_softShadowFactor);
+        
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        float HdotV = max(dot(H, V), 0.0);
+
+        vec3 radiance = u_sphereMaterials[i].emissive * 400.0 * shadow * attenuation * NdotL;
+
+        // Fresnel
+        vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
+        
+        // Diffuse (Lambert)
+        vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
+        vec3 diffuse = kD * albedo * radiance / PI;
+
+        // Specular (Cook-Torrance)
+        float D = DistributionGGX(N, H, roughness);
+        float G = GeometrySmith(N, V, L, roughness);
+        vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
+
+        dc.fresnel += F * throughput;
         dc.radiance += radiance * throughput;
         dc.diffuse += diffuse * throughput;
         dc.specular += specular * throughput;
@@ -380,11 +467,20 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
 {
     DisplayComponents dc = InitDisplayComponents();
     vec3 throughput = vec3(1.0);
+    vec3 emissiveGlow = vec3(0.0);
 
     for(int bounce = 0; bounce <= u_maxBounces; bounce++) {        
         HitInfo hit = SceneIntersect(ro, rd);
-        if(bounce == 0) GetSurfaceData(dc, hit, rd); // For visualization modes
-        if(hit.hit) CalculateLighting(dc, throughput, hit, -rd);
+
+        if(bounce == 0) {
+            GetSurfaceData(dc, hit, rd); // For visualization modes
+            emissiveGlow += CalculateEmissiveGlow(ro, rd) * throughput;
+        }
+        
+        if(hit.hit) {
+            dc.finalColor += hit.mat.emissive * throughput;
+            CalculateLighting(dc, throughput, hit, -rd);
+        }
         else {
             vec3 ambient = GetAmbientColor(rd);
             dc.finalColor += throughput * ambient;
@@ -394,7 +490,7 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
     }
-    dc.finalColor += (dc.diffuse + dc.specular);
+    dc.finalColor += (dc.diffuse + dc.specular + emissiveGlow);
     return dc;
 }
 
@@ -405,7 +501,7 @@ vec3 GetVisualizationColor(DisplayComponents dc)
         case 2: return dc.albedo;
         case 3: return dc.worldPos;
         case 4: return (dc.normal + 1.0) / 2.0; //suave :3
-        case 5: return dc.fressnel;
+        case 5: return dc.fresnel;
         case 6: return dc.radiance;
         case 7: return dc.diffuse;
         case 8: return dc.specular;
