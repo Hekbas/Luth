@@ -1,8 +1,8 @@
 #include <Luth.h>
 #include <Luth/core/EntryPoint.h>
 
-#include "VulkanApp.cpp"
-#include "RTShaderApp.cpp"
+#include "VulkanApp.h"
+#include "RTShaderApp.h"
 
 #include <vector>
 #include <string>

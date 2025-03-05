@@ -14,6 +14,9 @@ void main()
 
 
 
+
+
+
 #type fragment
 #version 450 core
 
@@ -57,6 +60,13 @@ struct PointLight {
     float intensity;
 };
 
+struct Fog {
+    vec3 color;
+    float density;
+    float start;
+    float end;
+};
+
 struct Material {
     vec3 albedo;
     vec3 emissive;
@@ -83,17 +93,20 @@ struct DisplayComponents {
     vec3 radiance;
     vec3 diffuse;
     vec3 specular;
+    vec3 emissive;
+    float depth;
     vec3 finalColor;
 };
 
 // Scene uniforms
 uniform Camera u_camera;
-uniform Material u_floorMaterial;
-uniform Material u_sphereMaterials[3];
-uniform vec3 u_spherePositions[3];
 uniform AmbientLight u_ambientLight;
 uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
+uniform Fog u_fog;
+uniform Material u_floorMaterial;
+uniform vec3 u_spherePositions[3];
+uniform Material u_sphereMaterials[3];
 
 // Random
 float pcg1d(float v) {
@@ -132,6 +145,8 @@ DisplayComponents InitDisplayComponents() {
         vec3(0.0),
         vec3(0.0),
         vec3(0.0),
+        vec3(0.0),
+        0.0,
         vec3(0.0)
     );
 }
@@ -168,7 +183,7 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
         hit.normal = vec3(0, 1, 0);
 
         // Checkerboard
-        vec2 uv = hit.position.xz / 1.0;
+        vec2 uv = hit.position.xz * 1.0;
         ivec2 tile = ivec2(floor(uv));
         bool isEven = (tile.x + tile.y) % 2 == 0;
         hit.mat.albedo = u_floorMaterial.albedo * (isEven ? vec3(0) : vec3(1));
@@ -266,6 +281,8 @@ float SoftShadow(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
     return shadow / float(samples);
 }
 
+// Warning! Expensive, not recomended to set samples over 16.
+// I should really find another way to do soft shadows...
 // Computes penumbra soft shadows by jittering ray origins across an area light,
 // using stratified sampling and adaptive penumbra scaling to reduce noise.
 // Traces multiple rays toward the light, blending visibility based on blocker distance.
@@ -278,7 +295,7 @@ float SoftShadowSARS(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
     float penumbraRadius = mix(0.1, 0.01, hardness) * lightDist;
     
     float shadow = 0.0;
-    int samples = 32;
+    int samples = 16;
     
     // Stratified grid + rotation to reduce banding
     float angle = 30.0 * (pcg1d(gl_FragCoord.x + gl_FragCoord.y * 1920.0));
@@ -412,7 +429,7 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
     }
 
     // Emissive
-    for(int i = 0; i < u_spherePositions.length(); i++) {       
+    for(int i = 0; i < u_spherePositions.length(); i++) {
         if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
 
         vec3 L = normalize(u_spherePositions[i] - hit.position);
@@ -447,20 +464,20 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
     }
 }
 
-void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd)
-{
+void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd) {
     if(hit.hit) {
         dc.rayDir = rd;
         dc.albedo = hit.mat.albedo;
         dc.normal = hit.normal;
         dc.worldPos = hit.position;
+        dc.depth = length(u_camera.origin - dc.worldPos);
     } else {
         dc.rayDir = (rd + 1.0) / 2.0;
+        dc.depth = u_fog.end;
     }
 }
 
-vec3 GetAmbientColor(vec3 rayDir)
-{
+vec3 GetAmbientColor(vec3 rayDir) {
     float horizonMix = smoothstep(-0.3, 0.3, rayDir.y);
     vec3 skyColor = mix(
         u_ambientLight.groundColor * u_ambientLight.intensity,
@@ -469,6 +486,13 @@ vec3 GetAmbientColor(vec3 rayDir)
     );
     
     return skyColor;
+}
+
+vec3 ApplyFog(vec3 color, float depth) {
+    float fogFactor = clamp((u_fog.end - depth) / (u_fog.end - u_fog.start), 0.0, 1.0);
+    // exponential alternative
+    fogFactor = 1.0 - exp(-depth * u_fog.density);
+    return mix(color, u_fog.color, fogFactor);
 }
 
 DisplayComponents TraceRay(vec3 ro, vec3 rd)
@@ -485,8 +509,8 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
             emissiveGlow += CalculateEmissiveGlow(ro, rd) * throughput;
         }
         
-        if(hit.hit) {
-            dc.finalColor += hit.mat.emissive * throughput;
+        if(hit.hit) {           
+            dc.emissive += hit.mat.emissive * throughput;
             CalculateLighting(dc, throughput, hit, -rd);
         }
         else {
@@ -498,7 +522,9 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
     }
-    dc.finalColor += (dc.diffuse + dc.specular + emissiveGlow);
+    dc.finalColor += dc.diffuse + dc.specular + dc.emissive + emissiveGlow;
+    dc.finalColor = ApplyFog(dc.finalColor, dc.depth);
+
     return dc;
 }
 
@@ -513,6 +539,8 @@ vec3 GetVisualizationColor(DisplayComponents dc)
         case 6: return dc.radiance;
         case 7: return dc.diffuse;
         case 8: return dc.specular;
+        case 9: return dc.emissive;
+        case 10: return vec3(dc.depth);
         default: return dc.finalColor; // 0
     }
 }
