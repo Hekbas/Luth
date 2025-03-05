@@ -23,9 +23,9 @@ namespace Luth
 
         // TODO: Look into fmt GLubyte*
         LH_CORE_INFO("OpenGL Renderer initialized");
-        LH_CORE_INFO(" - Vendor: {:p}", fmt::ptr(glGetString(GL_VENDOR)));
-        LH_CORE_INFO(" - Renderer: {:p}", fmt::ptr(glGetString(GL_RENDERER)));
-        LH_CORE_INFO(" - Version: {:p}", fmt::ptr(glGetString(GL_VERSION)));
+        LH_CORE_INFO(" - Vendor: {0}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
+        LH_CORE_INFO(" - Renderer: {0}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+        LH_CORE_INFO(" - Version: {0}", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
     }
 
     void GLRendererAPI::Shutdown()

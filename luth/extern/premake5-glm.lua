@@ -16,7 +16,6 @@ project "glm"
 	
 	filter "system:windows"
 		systemversion "latest"
-		staticruntime "On"
 
 		defines 
 		{ 
@@ -25,10 +24,8 @@ project "glm"
 		}
 
 	filter "system:linux"
-		pic "On"
-
 		systemversion "latest"
-		staticruntime "On"
+		pic "On"
 
 		defines
 		{

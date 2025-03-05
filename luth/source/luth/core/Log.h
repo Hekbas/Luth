@@ -8,11 +8,13 @@
 #endif
 
 // Disable NTTP (for pre-C++20)
-#define FMT_USE_NONTYPE_TEMPLATE_ARGS 0
+//#define FMT_USE_NONTYPE_TEMPLATE_ARGS 0
+//#define FMT_HEADER_ONLY 1
 
 // Ignore warnings
 #pragma warning(push, 0)
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 #pragma warning(pop)
 
@@ -33,11 +35,13 @@ namespace Luth
 }
 
 // Core logging macros
-#define LH_CORE_TRACE(...)    ::Luth::Log::GetLogger()->trace(__VA_ARGS__)
-#define LH_CORE_INFO(...)     ::Luth::Log::GetLogger()->info(__VA_ARGS__)
-#define LH_CORE_WARN(...)     ::Luth::Log::GetLogger()->warn(__VA_ARGS__)
-#define LH_CORE_ERROR(...)    ::Luth::Log::GetLogger()->error(__VA_ARGS__)
-#define LH_CORE_CRITICAL(...) ::Luth::Log::GetLogger()->critical(__VA_ARGS__)
+#define FMT(...) fmt::format(__VA_ARGS__)
+
+#define LH_CORE_TRACE(...)    ::Luth::Log::GetLogger()->trace(FMT(__VA_ARGS__))
+#define LH_CORE_INFO(...)     ::Luth::Log::GetLogger()->info(FMT(__VA_ARGS__))
+#define LH_CORE_WARN(...)     ::Luth::Log::GetLogger()->warn(FMT(__VA_ARGS__))
+#define LH_CORE_ERROR(...)    ::Luth::Log::GetLogger()->error(FMT(__VA_ARGS__))
+#define LH_CORE_CRITICAL(...) ::Luth::Log::GetLogger()->critical(FMT(__VA_ARGS__))
 
 
 // Assert
