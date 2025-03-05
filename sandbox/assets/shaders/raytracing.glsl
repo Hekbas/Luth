@@ -166,7 +166,13 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
         hit.t = tPlane;
         hit.position = ro + rd * hit.t;
         hit.normal = vec3(0, 1, 0);
-        hit.mat.albedo = u_floorMaterial.albedo;
+
+        // Checkerboard
+        vec2 uv = hit.position.xz / 1.0;
+        ivec2 tile = ivec2(floor(uv));
+        bool isEven = (tile.x + tile.y) % 2 == 0;
+        hit.mat.albedo = u_floorMaterial.albedo * (isEven ? vec3(0) : vec3(1));
+
         hit.mat.emissive = u_floorMaterial.emissive;
         hit.mat.roughness = u_floorMaterial.roughness;
         hit.mat.metallic = u_floorMaterial.metallic;
@@ -313,9 +319,9 @@ float SoftShadowSARS(vec3 pos, vec3 normal, vec3 lightPos, float hardness) {
 vec3 CalculateEmissiveGlow(vec3 ro, vec3 rd) {
     vec3 glow = vec3(0.0);
     const int glowSamples = 4;
-    const float glowRadius = 3.0;
+    const float glowRadius = 2.8;
     const float glowStrength = 64.0;
-    const float glowFalloff = 8.0;
+    const float glowFalloff = 8.5;
     
     for(int i = 0; i < 3; i++) {
         if(length(u_sphereMaterials[i].emissive) > 0.0) {
@@ -370,6 +376,7 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
     float roughness = hit.mat.roughness;
     vec3 F0 = mix(vec3(0.04), hit.mat.albedo, hit.mat.metallic);
 
+    // Point Lights
     for(int i = 0; i < MAX_LIGHTS; i++) {
         if(i >= u_numPointLights) break;
         
@@ -404,6 +411,7 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         throughput *= F;
     }
 
+    // Emissive
     for(int i = 0; i < u_spherePositions.length(); i++) {       
         if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
 
