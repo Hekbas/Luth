@@ -16,6 +16,7 @@ namespace Luth
         void Bind() const override;
         void Unbind() const override;
 
+        void SetBool(const std::string& name, bool value) override;
         void SetInt(const std::string& name, int value) override;
         void SetFloat(const std::string& name, float value) override;
         void SetVec2(const std::string& name, const glm::vec2& vector) override;

@@ -61,6 +61,7 @@ struct PointLight {
 };
 
 struct Fog {
+    bool enabled;
     vec3 color;
     float density;
     float start;
@@ -84,7 +85,7 @@ struct HitInfo {
     bool hit;
 };
 
-struct DisplayComponents {
+struct ShadingData {
     vec3 rayDir;
     vec3 albedo;
     vec3 worldPos;
@@ -97,6 +98,23 @@ struct DisplayComponents {
     float depth;
     vec3 finalColor;
 };
+
+ShadingData sd;
+ShadingData GetDefaultShadingData() {
+    return ShadingData(
+        vec3(0.0),  // rayDir
+        vec3(0.0),  // albedo
+        vec3(0.0),  // worldPos
+        vec3(0.0),  // normal
+        vec3(0.0),  // fresnel
+        vec3(0.0),  // radiance
+        vec3(0.0),  // diffuse
+        vec3(0.0),  // specular
+        vec3(0.0),  // emissive
+        0.0,        // depth
+        vec3(0.0)   // finalColor
+    );
+}
 
 // Scene uniforms
 uniform Camera u_camera;
@@ -133,22 +151,6 @@ float hash(vec2 v) {
 float getSeed(int v) {
     vec2 fragCoord = gl_FragCoord.xy * (float(v + 1) * 0.618);
     return hash(fragCoord + u_time);
-}
-
-DisplayComponents InitDisplayComponents() {
-    return DisplayComponents(
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        0.0,
-        vec3(0.0)
-    );
 }
 
 float SphereIntersect(vec3 ro, vec3 rd, vec3 center, float radius)
@@ -383,7 +385,7 @@ vec3 CalculateEmissiveGlow(vec3 ro, vec3 rd) {
 // Energy conserved through metallic workflow:
 // - Dielectrics (non-metals): Both diffuse and specular
 // - Metals: Specular only (kD=0 when metallic=1)
-void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInfo hit, vec3 viewDir)
+void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
 {
     if(!hit.hit) return;
 
@@ -421,16 +423,16 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        dc.fresnel += F * throughput;
-        dc.radiance += radiance * throughput;
-        dc.diffuse += diffuse * throughput;
-        dc.specular += specular * throughput;
+        sd.fresnel += F * throughput;
+        sd.radiance += radiance * throughput;
+        sd.diffuse += diffuse * throughput;
+        sd.specular += specular * throughput;
         throughput *= F;
     }
 
     // Emissive
     for(int i = 0; i < u_spherePositions.length(); i++) {
-        if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
+        //if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
 
         vec3 L = normalize(u_spherePositions[i] - hit.position);
         vec3 H = normalize(V + L);
@@ -456,26 +458,33 @@ void CalculateLighting(inout DisplayComponents dc, inout vec3 throughput, HitInf
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        dc.fresnel += F * throughput;
-        dc.radiance += radiance * throughput;
-        dc.diffuse += diffuse * throughput;
-        dc.specular += specular * throughput;
+        sd.fresnel += F * throughput;
+        sd.radiance += radiance * throughput;
+        sd.diffuse += diffuse * throughput;
+        sd.specular += specular * throughput;
         throughput *= F;
     }
 }
 
-void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd) {
+void GetSurfaceData(HitInfo hit, vec3 rd) {
     if(hit.hit) {
-        dc.rayDir = rd;
-        dc.albedo = hit.mat.albedo;
-        dc.normal = hit.normal;
-        dc.worldPos = hit.position;
-        float distance = length(u_camera.origin - dc.worldPos);
-        dc.depth = (1/distance - 1/u_fog.start) / (1/u_fog.end - 1/u_fog.start);
+        sd.rayDir = rd;
+        sd.albedo = hit.mat.albedo;
+        sd.normal = hit.normal;
+        sd.worldPos = hit.position;
     } else {
-        dc.rayDir = (rd + 1.0) / 2.0;
-        dc.depth = u_fog.end;
+        sd.rayDir = (rd + 1.0) / 2.0;
     }
+}
+
+void CalculateDepth(HitInfo hit) {
+    if(hit.hit) {
+        float distance = length(sd.worldPos - u_camera.origin);
+        float distRatio = 4.0 * distance / u_fog.end;
+        sd.depth = 1 - exp(-distRatio*u_fog.density * distRatio*u_fog.density);
+    } else {
+        sd.depth = 1.0;
+    }    
 }
 
 vec3 GetAmbientColor(vec3 rayDir) {
@@ -489,16 +498,9 @@ vec3 GetAmbientColor(vec3 rayDir) {
     return skyColor;
 }
 
-vec3 ApplyFog(vec3 color, float depth) {
-    float fogFactor = clamp((u_fog.end - depth) / (u_fog.end - u_fog.start), 0.0, 1.0);
-    // exponential alternative
-    fogFactor = exp(-depth * u_fog.density);
-    return mix(color, u_fog.color, fogFactor);
-}
-
-DisplayComponents TraceRay(vec3 ro, vec3 rd)
+void TraceRay(vec3 ro, vec3 rd)
 {
-    DisplayComponents dc = InitDisplayComponents();
+    sd = GetDefaultShadingData();
     vec3 throughput = vec3(1.0);
     vec3 emissiveGlow = vec3(0.0);
 
@@ -506,43 +508,45 @@ DisplayComponents TraceRay(vec3 ro, vec3 rd)
         HitInfo hit = SceneIntersect(ro, rd);
 
         if(bounce == 0) {
-            GetSurfaceData(dc, hit, rd); // For visualization modes
+            GetSurfaceData(hit, rd); // For visualization modes
+            CalculateDepth(hit);
             emissiveGlow += CalculateEmissiveGlow(ro, rd) * throughput;
         }
         
         if(hit.hit) {           
-            dc.emissive += hit.mat.emissive * throughput;
-            CalculateLighting(dc, throughput, hit, -rd);
+            sd.emissive += hit.mat.emissive * throughput;
+            CalculateLighting(throughput, hit, -rd);
         }
         else {
             vec3 ambient = GetAmbientColor(rd);
-            dc.finalColor += throughput * ambient;
+            sd.finalColor += throughput * ambient;
             break;
         }
         
         ro = hit.position + hit.normal * EPSILON;
         rd = reflect(rd, hit.normal);
     }
-    dc.finalColor += dc.diffuse + dc.specular + dc.emissive + emissiveGlow;
-    dc.finalColor = ApplyFog(dc.finalColor, dc.depth);
+    sd.finalColor += sd.diffuse + sd.specular + sd.emissive + emissiveGlow;
 
-    return dc;
+    if (u_fog.enabled) {
+        sd.finalColor = mix(sd.finalColor, u_fog.color, sd.depth);
+    }
 }
 
-vec3 GetVisualizationColor(DisplayComponents dc)
+vec3 GetVisualizationColor()
 {
     switch(u_displayMode) {
-        case 1: return dc.rayDir;
-        case 2: return dc.albedo;
-        case 3: return dc.worldPos;
-        case 4: return (dc.normal + 1.0) / 2.0; //suave :3
-        case 5: return dc.fresnel;
-        case 6: return dc.radiance;
-        case 7: return dc.diffuse;
-        case 8: return dc.specular;
-        case 9: return dc.emissive;
-        case 10: return vec3(dc.depth);
-        default: return dc.finalColor; // 0
+        case 1: return sd.rayDir;
+        case 2: return sd.albedo;
+        case 3: return sd.worldPos;
+        case 4: return (sd.normal + 1.0) / 2.0; //suave :3
+        case 5: return sd.fresnel;
+        case 6: return sd.radiance;
+        case 7: return sd.diffuse;
+        case 8: return sd.specular;
+        case 9: return sd.emissive;
+        case 10: return vec3(sd.depth);
+        default: return sd.finalColor; // 0
     }
 }
 
@@ -550,8 +554,8 @@ vec3 TraceAndVisualize(mat3 camBasis, vec2 uv)
 {
     vec3 ro = u_camera.origin;
     vec3 rd = normalize(camBasis * vec3(uv, -1.0));  
-    DisplayComponents dc = TraceRay(ro, rd);
-    return GetVisualizationColor(dc);
+    TraceRay(ro, rd);
+    return GetVisualizationColor();
 }
 
 vec3 SampleWithSSAA(mat3 camBasis, float focalScale)

@@ -37,6 +37,12 @@ namespace Luth
         glUseProgram(0);
     }
 
+    void GLShader::SetBool(const std::string& name, bool value)
+    {
+        GLint location = GetUniformLocation(name);
+        glUniform1i(location, value ? 1 : 0);
+    }
+
     void GLShader::SetInt(const std::string& name, int value)
     {
         GLint location = GetUniformLocation(name);

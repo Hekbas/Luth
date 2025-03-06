@@ -62,6 +62,7 @@ namespace Luth
         };
         
         struct Fog {
+            bool enabled;
             Vec3 color;
             float density;
             float start;

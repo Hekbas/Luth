@@ -97,21 +97,6 @@ namespace Luth
         camera.fov = 110.0f;
         camera.useLookAt = false;
 
-        // Lighting
-        ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
-        ambientLight.groundColor = glm::vec3(1.0, 0.42, 0.0);
-        ambientLight.intensity = 1.0f;
-
-        pointLights[0].position = glm::vec3(3.22f, 3.9f, 2.37f);
-        pointLights[0].color = glm::vec3(1.0f);
-        pointLights[0].intensity = 10.0f;
-
-        // Fog
-        fog.color = glm::vec3(1.0f, 1.0f, 1.0f);
-        fog.density = 1.0;
-        fog.start = 5.0;
-        fog.end = 50.0;
-
         // Floor
         floorMaterial.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
         floorMaterial.roughness = 0.8f;
@@ -119,7 +104,7 @@ namespace Luth
         floorMaterial.ior = 1.0f;
         floorMaterial.transparency = 0.0f;
 
-        // Spheres
+        // Sphere Positions
         spherePositions[0] = { 2.2f, 0.6f, 0.0f };
         spherePositions[1] = { 0.0f, 0.6f, 0.0f };
         spherePositions[2] = { -2.2f, 0.6f, 0.0f };
@@ -145,6 +130,26 @@ namespace Luth
         sphereMaterials[2].metallic = 0.05;
         sphereMaterials[2].ior = 1.5;
         sphereMaterials[2].transparency = 0.0;
+
+        // Environment Light
+        ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
+        ambientLight.groundColor = glm::vec3(1.0, 0.42, 0.0);
+        ambientLight.intensity = 1.0f;
+
+        // Environment Fog
+        fog.enabled = false;
+        fog.color = glm::vec3(1.0f, 1.0f, 1.0f);
+        fog.density = 1.0;
+        fog.start = 5.0;
+        fog.end = 50.0;
+
+        // Point Lights
+        for (size_t i = 0; i < MAX_LIGHTS; i++)
+        {
+            pointLights[i].position = glm::vec3(3.22f, 3.9f, 2.37f);
+            pointLights[i].color = glm::vec3(1.0f);
+            pointLights[i].intensity = 10.0f;
+        }
     }
 
     void RTShaderApp::InitUniforms()
@@ -157,23 +162,6 @@ namespace Luth
         shader->SetVec3("u_camera.direction", camera.direction);
         shader->SetVec3("u_camera.lookAt", camera.lookAt);
         shader->SetFloat("u_camera.fov", camera.fov);
-
-        // Lighting
-        shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
-        shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
-        shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
-
-        shader->SetInt("u_numPointLights", numActiveLights);
-        shader->SetVec3("u_pointLights[0].position", pointLights[0].position);
-        shader->SetVec3("u_pointLights[0].color", pointLights[0].color);
-        shader->SetFloat("u_pointLights[0].intensity", pointLights[0].intensity);
-
-        // Fog
-        shader->SetVec3("u_fog.color", fog.color);
-        shader->SetFloat("u_fog.density", fog.density);
-        shader->SetFloat("u_fog.start", fog.start);
-        shader->SetFloat("u_fog.end", fog.end);
-
 
         // Floor Material
         shader->SetVec3("u_floorMaterial.albedo", floorMaterial.albedo);
@@ -191,6 +179,27 @@ namespace Luth
             shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].metallic);
             shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].ior", sphereMaterials[i].ior);
             shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].transparency", sphereMaterials[i].transparency);
+        }
+
+        // Environment Light
+        shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
+        shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
+        shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+
+        // Environment Fog
+        shader->SetBool("u_fog.enabled", fog.enabled);
+        shader->SetVec3("u_fog.color", fog.color);
+        shader->SetFloat("u_fog.density", fog.density);
+        shader->SetFloat("u_fog.start", fog.start);
+        shader->SetFloat("u_fog.end", fog.end);
+
+        // Point Lights
+        shader->SetInt("u_numPointLights", numActiveLights);
+        for (int i = 0; i < MAX_LIGHTS; i++)
+        {
+            shader->SetVec3("u_pointLights[" + std::to_string(i) + "].position", pointLights[i].position);
+            shader->SetVec3("u_pointLights[" + std::to_string(i) + "].color", pointLights[i].color);
+            shader->SetFloat("u_pointLights[" + std::to_string(i) + "].intensity", pointLights[i].intensity);
         }
 
         // Rendering Parameters
@@ -332,24 +341,47 @@ namespace Luth
                 }
             }
 
-            // 3. Lighting Controls
-
-            // Ambient Light
-            if (ImGui::CollapsingHeader("Ambient Light", nodeFlags))
+            // 3. Environment
+            if (ImGui::CollapsingHeader("Environment", nodeFlags))
             {
-                // Color and intensity
-                if (ImGui::ColorEdit3("Sky Color", &ambientLight.skyColor.x)) {
-                    shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
+                // Environment Light
+                if (ImGui::TreeNode("Environment Light"))
+                {
+                    if (ImGui::ColorEdit3("Sky Color", &ambientLight.skyColor.x)) {
+                        shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
+                    }
+                    if (ImGui::ColorEdit3("Ground Color", &ambientLight.groundColor.x)) {
+                        shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
+                    }
+                    if (ImGui::SliderFloat("Intensity", &ambientLight.intensity, 0.0f, 10.0f)) {
+                        shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+                    }
+                    ImGui::TreePop();
                 }
-                if (ImGui::ColorEdit3("Ground Color", &ambientLight.groundColor.x)) {
-                    shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
-                }
-                if (ImGui::SliderFloat("Intensity", &ambientLight.intensity, 0.0f, 10.0f)) {
-                    shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+
+                // Fog
+                if (ImGui::TreeNode("Fog"))
+                {
+                    if (ImGui::Checkbox("Enabled", &fog.enabled)) {
+                        shader->SetInt("u_fog.enabled", fog.enabled ? 1 : 0);
+                    }
+                    if (ImGui::ColorEdit3("Color", &fog.color.x)) {
+                        shader->SetVec3("u_fog.color", fog.color);
+                    }
+                    if (ImGui::SliderFloat("Density", &fog.density, 0.0f, 5.0f)) {
+                        shader->SetFloat("u_fog.density", fog.density);
+                    }
+                    if (ImGui::SliderFloat("Start", &fog.start, 0.0f, 10.0f)) {
+                        shader->SetFloat("u_fog.start", fog.start);
+                    }
+                    if (ImGui::SliderFloat("End", &fog.end, 0.0f, 100.0f)) {
+                        shader->SetFloat("u_fog.end", fog.end);
+                    }
+                    ImGui::TreePop();
                 }
             }
 
-            // Point Lights
+            // 4. Point Lights
             if (ImGui::CollapsingHeader("Point Lights", nodeFlags))
             {
                 if (ImGui::SliderInt("Active Lights", &numActiveLights, 1, MAX_LIGHTS)) {
@@ -375,7 +407,7 @@ namespace Luth
                 }
             }
 
-            // 4. Rendering Parameters
+            // 5. Rendering Parameters
             if (ImGui::CollapsingHeader("Rendering Settings", nodeFlags))
             {
 
@@ -390,7 +422,7 @@ namespace Luth
                 }
             }
 
-            // 5. Post-Processing
+            // 6. Post-Processing
             if (ImGui::CollapsingHeader("Post-Processing", nodeFlags))
             {
                 if (ImGui::Checkbox("Tonemapping", &applyTonemap)) {
