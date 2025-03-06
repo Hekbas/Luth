@@ -470,7 +470,8 @@ void GetSurfaceData(inout DisplayComponents dc, HitInfo hit, vec3 rd) {
         dc.albedo = hit.mat.albedo;
         dc.normal = hit.normal;
         dc.worldPos = hit.position;
-        dc.depth = length(u_camera.origin - dc.worldPos);
+        float distance = length(u_camera.origin - dc.worldPos);
+        dc.depth = (1/distance - 1/u_fog.start) / (1/u_fog.end - 1/u_fog.start);
     } else {
         dc.rayDir = (rd + 1.0) / 2.0;
         dc.depth = u_fog.end;
@@ -491,7 +492,7 @@ vec3 GetAmbientColor(vec3 rayDir) {
 vec3 ApplyFog(vec3 color, float depth) {
     float fogFactor = clamp((u_fog.end - depth) / (u_fog.end - u_fog.start), 0.0, 1.0);
     // exponential alternative
-    fogFactor = 1.0 - exp(-depth * u_fog.density);
+    fogFactor = exp(-depth * u_fog.density);
     return mix(color, u_fog.color, fogFactor);
 }
 

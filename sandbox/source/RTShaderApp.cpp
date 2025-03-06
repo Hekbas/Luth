@@ -110,7 +110,7 @@ namespace Luth
         fog.color = glm::vec3(1.0f, 1.0f, 1.0f);
         fog.density = 1.0;
         fog.start = 5.0;
-        fog.end = 25.0;
+        fog.end = 50.0;
 
         // Floor
         floorMaterial.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
