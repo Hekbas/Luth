@@ -45,6 +45,8 @@ namespace Luth
             // User-defined update
             OnUpdate(dt);
 
+            Renderer::DrawFrame();
+
             // Render UI (not yet implemented in vulkan)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {

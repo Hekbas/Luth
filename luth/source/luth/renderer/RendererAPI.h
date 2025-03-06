@@ -33,6 +33,7 @@ namespace Luth
         //virtual void SetBlendFunction(u32 srcFactor, u32 dstFactor) = 0;
 
         virtual void DrawIndexed(u32 count) = 0;
+        virtual void DrawFrame() = 0;
 
         static API GetAPI() { return s_API; }
         static const char* APIToString(RendererAPI::API api);

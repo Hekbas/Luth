@@ -78,6 +78,10 @@ namespace Luth
         LH_GL_CHECK_ERROR();
     }
 
+    void GLRendererAPI::DrawFrame()
+    {
+    }
+
     void GLRendererAPI::CheckError(const char* file, int line)
     {
         while (GLenum error = glGetError())

@@ -38,4 +38,8 @@ namespace Luth
     void Renderer::DrawIndexed(uint32_t count) {
         s_RendererAPI->DrawIndexed(count);
     }
+
+    void Renderer::DrawFrame() {
+        s_RendererAPI->DrawFrame();
+    }
 }

@@ -4,7 +4,7 @@
 
 namespace Luth
 {
-    QueueFamilyIndices VKPhysicalDevice::FindQueueFamilies() const
+    QueueFamilyIndices VKPhysicalDevice::FindQueueFamilies(VkSurfaceKHR surface) const
     {
         QueueFamilyIndices indices;
 
@@ -15,13 +15,23 @@ namespace Luth
 
         int i = 0;
         for (const auto& queueFamily : queueFamilies) {
+            // Graphics queue
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
+
+            // Present queue
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(m_PhysicalDevice, i, surface, &presentSupport);
+            if (presentSupport) {
+                indices.presentFamily = i;
+            }
+
             if (indices.IsComplete()) break;
             i++;
         }
 
+        LH_CORE_ASSERT(indices.IsComplete(), "Failed to find suitable queue families!");
         return indices;
     }
 
@@ -113,18 +123,26 @@ namespace Luth
         LH_CORE_INFO("Device {0} scored {1}", deviceProperties.deviceName, score);
     }
 
-    VKLogicalDevice::VKLogicalDevice(VkPhysicalDevice physicalDevice, const QueueFamilyIndices& queueIndices)
+    VKLogicalDevice::VKLogicalDevice(VkPhysicalDevice physicalDevice,
+        const QueueFamilyIndices& queueIndices,
+        const std::vector<const char*>& extensions)
     {
         // Queue create info
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        const float queuePriority = 1.0f;
+        std::set<uint32_t> uniqueQueueFamilies = {
+            queueIndices.graphicsFamily.value(),
+            queueIndices.presentFamily.value()
+        };
 
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = queueIndices.graphicsFamily.value();
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queueCreateInfos.push_back(queueCreateInfo);
+        const float queuePriority = 1.0f;
+        for (uint32_t queueFamily : uniqueQueueFamilies) {
+            VkDeviceQueueCreateInfo queueCreateInfo{};
+            queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex = queueFamily;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
 
         // Device features
         VkPhysicalDeviceFeatures deviceFeatures{};
@@ -142,6 +160,7 @@ namespace Luth
             "Failed to create logical device!");
 
         vkGetDeviceQueue(m_Device, queueIndices.graphicsFamily.value(), 0, &m_GraphicsQueue);
+        vkGetDeviceQueue(m_Device, queueIndices.presentFamily.value(), 0, &m_PresentQueue);
     }
 
     VKLogicalDevice::~VKLogicalDevice()

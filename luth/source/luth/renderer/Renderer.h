@@ -19,6 +19,7 @@ namespace Luth
         static void SetClearColor(const glm::vec4& color);
         static void Clear();
         static void DrawIndexed(uint32_t count);
+        static void DrawFrame();
 
         static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
 

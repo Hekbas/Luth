@@ -7,6 +7,9 @@
 #include "luth/renderer/vulkan/VKSwapchain.h"
 #include "luth/renderer/vulkan/VKRenderPass.h"
 #include "luth/renderer/vulkan/VKGraphicsPipeline.h"
+#include "luth/renderer/vulkan/VKFramebuffer.h"
+#include "luth/renderer/vulkan/VKCommandPool.h"
+#include "luth/renderer/vulkan/VKSync.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -31,42 +34,55 @@ namespace Luth
         //void SetBlendFunction(u32 srcFactor, u32 dstFactor) override;
 
         virtual void DrawIndexed(u32 count) override;
+        virtual void DrawFrame() override;
 
         // Temporary for debugging
         VkInstance GetInstance() const { return m_Instance; }
 
     private:
+        // Core Vulkan components
         void CreateInstance();
         void CreateSurface();
         void CreateDevice();
-        void CreateSwapChain();
+        void CreateSwapchain();
         void CreateRenderPass();
         void CreateGraphicsPipeline();
+        void CreateFramebuffers();
+        void CreateCommandPool();
+        void CreateCommandBuffers();
+        void CreateSyncObjects();
+        void RecreateSwapchain();
 
+        // Command recording
+        void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+        // Validation layers
         void SetupDebugMessenger();
         void DestroyDebugMessenger();
         bool CheckValidationLayerSupport() const;
         void PrintExtensions() const;
         void PrintLayers() const;
 
-        // Core Vulkan objects
+        // Vulkan objects
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
 
+        // Managed resources
         std::unique_ptr<VKPhysicalDevice> m_PhysicalDevice;
         std::unique_ptr<VKLogicalDevice> m_LogicalDevice;
         std::unique_ptr<VKSwapchain> m_Swapchain;
         std::unique_ptr<VKRenderPass> m_RenderPass;
         std::unique_ptr<VKGraphicsPipeline> m_GraphicsPipeline;
+        std::vector<std::unique_ptr<VKFramebuffer>> m_Framebuffers;
+        std::unique_ptr<VKCommandPool> m_CommandPool;
+        std::vector<VkCommandBuffer> m_CommandBuffers;
+        std::unique_ptr<VKSync> m_Sync;
 
         // Configuration
-        const std::vector<const char*> m_ValidationLayers = {
-            "VK_LAYER_KHRONOS_validation"
-        };
-        const std::vector<const char*> m_InstanceExtensions = {
-            VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-        };
+        const std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };
+        const std::vector<const char*> m_InstanceExtensions = { VK_EXT_DEBUG_UTILS_EXTENSION_NAME };
+        static constexpr size_t MAX_FRAMES_IN_FLIGHT = 2;
 
         #ifdef NDEBUG
             const bool m_EnableValidationLayers = false;

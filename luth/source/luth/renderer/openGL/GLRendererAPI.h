@@ -21,6 +21,7 @@ namespace Luth
         void SetBlendFunction(u32 srcFactor, u32 dstFactor);
         
         virtual void DrawIndexed(u32 count) override;
+        virtual void DrawFrame() override;
 
     private:
         void CheckError(const char* file, int line);
