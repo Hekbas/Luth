@@ -123,4 +123,9 @@ namespace Luth
             glfwSetWindowMonitor(m_GLFWwindow, nullptr, 100, 100, (int)m_Data.Width, (int)m_Data.Height, 0);
         }
     }
+
+    bool WinWindow::IsMinimized()
+    {
+        return glfwGetWindowAttrib(m_GLFWwindow, GLFW_ICONIFIED);
+    }
 }
