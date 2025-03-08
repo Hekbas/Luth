@@ -45,6 +45,11 @@ namespace Luth
             // User-defined update
             OnUpdate(dt);
 
+            // Draw Frame
+            if (!m_Window->IsMinimized()) {
+                Renderer::DrawFrame();
+            }
+
             // Render UI (not yet implemented in vulkan)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {

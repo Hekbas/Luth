@@ -7,6 +7,7 @@ namespace Luth
     struct QueueFamilyIndices
     {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
 
         bool IsComplete() const {
             return graphicsFamily.has_value();
@@ -19,7 +20,7 @@ namespace Luth
         VKPhysicalDevice(VkInstance instance);
 
         bool IsSuitable() const;
-        QueueFamilyIndices FindQueueFamilies() const;
+        QueueFamilyIndices FindQueueFamilies(VkSurfaceKHR surface) const;
         VkPhysicalDevice GetHandle() const { return m_PhysicalDevice; }
 
     private:
@@ -32,15 +33,19 @@ namespace Luth
     class VKLogicalDevice
     {
     public:
-        VKLogicalDevice(VkPhysicalDevice physicalDevice, const QueueFamilyIndices& queueIndices);
+        VKLogicalDevice(VkPhysicalDevice physicalDevice,
+            const QueueFamilyIndices& queueIndices,
+            const std::vector<const char*>& extensions);
         ~VKLogicalDevice();
 
         VkDevice GetHandle() const { return m_Device; }
         VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+        VkQueue GetPresentQueue() const { return m_PresentQueue; }
 
     private:
         VkDevice m_Device = VK_NULL_HANDLE;
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+        VkQueue m_PresentQueue = VK_NULL_HANDLE;
 
         const std::vector<const char*> m_DeviceExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
