@@ -1,8 +1,8 @@
 #include <Luth.h>
 #include <Luth/core/EntryPoint.h>
 
-#include "VulkanApp.cpp"
-#include "RTShaderApp.cpp"
+#include "VulkanApp.h"
+#include "RTShaderApp.h"
 
 #include <vector>
 #include <string>
@@ -40,7 +40,7 @@ namespace Luth
         char** testArgv = argv;
 
         if (argc < 2) { // No argument
-            std::vector<std::string> args = { "Sandbox", "--vulkan" };
+            std::vector<std::string> args = { "Sandbox", "--opengl" };
             LuthTest::CreateTestArgs(args, testArgc, testArgv);
 
             LH_CORE_WARN("No arguments provided");

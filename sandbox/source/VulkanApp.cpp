@@ -1,4 +1,5 @@
 #include <Luth.h>
+#include "VulkanApp.h"
 
 #include <imgui.h>
 
@@ -18,35 +19,29 @@
 
 namespace Luth
 {
-    class VulkanApp : public App
+    VulkanApp::VulkanApp(int argc, char** argv) : App(argc, argv) {}
+
+    void VulkanApp::OnInit()
     {
-    public:
-        VulkanApp(int argc, char** argv) : App(argc, argv) {}
-        ~VulkanApp() override = default;
 
-    protected:
-        void OnInit() override
-        {
+    }
 
-        }
+    void VulkanApp::OnUpdate(f32 dt)
+    {
+        static float time = 0;
+        time += dt;
 
-        void OnUpdate(f32 dt) override
-        {
-            static float time = 0;
-            time += dt;
+    }
 
-        }
+    void VulkanApp::OnUIRender()
+    {
+        // ImGui Demo
+        static bool showDemo = true;
+        if (showDemo) ImGui::ShowDemoWindow(&showDemo);
+    }
 
-        void OnUIRender() override
-        {
-            // ImGui Demo
-            static bool showDemo = true;
-            if (showDemo) ImGui::ShowDemoWindow(&showDemo);
-        }
-
-        void OnShutdown() override
-        {
-            //vkDestroyInstance(instance, nullptr);
-        }
-    };
+    void VulkanApp::OnShutdown()
+    {
+        //vkDestroyInstance(instance, nullptr);
+    }
 }
