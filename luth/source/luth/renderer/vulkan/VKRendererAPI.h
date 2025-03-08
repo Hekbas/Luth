@@ -36,8 +36,9 @@ namespace Luth
         virtual void DrawIndexed(u32 count) override;
         virtual void DrawFrame() override;
 
-        // Temporary for debugging
         VkInstance GetInstance() const { return m_Instance; }
+        VkDevice GetLogicalDevice() const { return m_LogicalDevice->GetHandle(); }
+        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice->GetHandle(); }
 
     private:
         // Core Vulkan components

@@ -22,6 +22,7 @@ namespace Luth
         static void DrawFrame();
 
         static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
+        static RendererAPI* GetRendererAPI() { return s_RendererAPI.get(); }
 
     private:
         static std::unique_ptr<RendererAPI> s_RendererAPI;
