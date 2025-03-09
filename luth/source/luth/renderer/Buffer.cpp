@@ -1,6 +1,12 @@
 #include "luthpch.h"
-#include "BufferLayout.h"
-#include "Renderer.h"
+#include "luth/renderer/Buffer.h"
+#include "luth/renderer/Renderer.h"
+
+#include "luth/renderer/openGL/GLBuffer.h"
+#include "luth/renderer/OpenGL/GLVertexArray.h"
+#include "luth/renderer/vulkan/VKRendererAPI.h"
+#include "luth/renderer/vulkan/VKBuffer.h"
+#include "luth/renderer/vulkan/VKVertexArray.h"
 
 #include <vulkan/vulkan.h>
 
@@ -114,5 +120,82 @@ namespace Luth
             descriptions.push_back(attributeDescription);
         }
         return descriptions;
+    }
+
+    std::unique_ptr<VertexBuffer> VertexBuffer::Create(uint32_t size)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
+                return nullptr;
+
+            case RendererAPI::API::OpenGL:
+                return std::make_unique<GLVertexBuffer>(size);
+
+            case RendererAPI::API::Vulkan:
+            {
+                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                return std::make_unique<VKVertexBuffer>(
+                    vkRenderer->GetLogicalDevice(),
+                    vkRenderer->GetPhysicalDevice(),
+                    size
+                );
+            }
+        }
+
+        LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
+
+    std::unique_ptr<VertexBuffer> VertexBuffer::Create(const void* data, uint32_t size)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
+                return nullptr;
+
+            case RendererAPI::API::OpenGL:
+                return std::make_unique<GLVertexBuffer>(data, size);
+
+            case RendererAPI::API::Vulkan:
+            {
+                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                return std::make_unique<VKVertexBuffer>(
+                    vkRenderer->GetLogicalDevice(),
+                    vkRenderer->GetPhysicalDevice(),
+                    data,
+                    size
+                );
+            }
+        }
+
+        LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
+
+    std::unique_ptr<IndexBuffer> IndexBuffer::Create(const uint32_t* indices, uint32_t count)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::OpenGL:
+                return std::make_unique<GLIndexBuffer>(indices, count);
+
+            case RendererAPI::API::Vulkan:
+            {
+                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                return std::make_unique<VKIndexBuffer>(
+                    vkRenderer->GetLogicalDevice(),
+                    vkRenderer->GetPhysicalDevice(),
+                    indices,
+                    count
+                );
+            }
+
+            default:
+                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+                return nullptr;
+        }
     }
 }

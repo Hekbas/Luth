@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/openGL/GLVertexArray.h"
-#include "luth/renderer/openGL/GLVertexBuffer.h"
+#include "luth/renderer/openGL/GLBuffer.h"
 
 #include <glad/glad.h>
 

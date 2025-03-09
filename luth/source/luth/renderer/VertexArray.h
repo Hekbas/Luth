@@ -1,7 +1,6 @@
 #pragma once
 
-#include "luth/renderer/VertexBuffer.h"
-#include "luth/renderer/IndexBuffer.h"
+#include "luth/renderer/Buffer.h"
 
 #include <memory>
 #include <vector>

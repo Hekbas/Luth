@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/vulkan/VKVertexArray.h"
-#include "luth/renderer/vulkan/VKVertexBuffer.h"
+#include "luth/renderer/vulkan/VKBuffer.h"
 
 namespace Luth
 {

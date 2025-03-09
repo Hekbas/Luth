@@ -9,8 +9,8 @@ namespace Luth
 
     void Renderer::Init(RendererAPI::API api, void* window)
     {
-        s_RendererAPI->SetWindow(window);
         s_RendererAPI = RendererAPI::Create(api);
+        s_RendererAPI->SetWindow(window);
         s_RendererAPI->Init();
     }
 
