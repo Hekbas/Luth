@@ -27,8 +27,25 @@ namespace Luth
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_Buffer, m_Memory);
 
+        m_Layout = BufferLayout();
+
         // Copy staging to device buffer
         // ... (Requires command buffer - implement in VKRendererAPI)
+    }
+
+    void VKVertexBuffer::Bind() const {
+        // Vulkan binding is handled in command buffers
+    }
+
+    void VKVertexBuffer::Unbind() const {
+        // Not applicable in Vulkan
+    }
+
+    void VKVertexBuffer::SetData(const void* data, uint32_t size) {
+        // Implement Vulkan-specific data update logic
+        if (m_MappedData) {
+            memcpy(m_MappedData, data, size);
+        }
     }
 
     void VKVertexBuffer::CreateBuffer(uint32_t size, VkBufferUsageFlags usage,

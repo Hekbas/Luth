@@ -18,6 +18,9 @@ namespace Luth
         void Unbind() const override;
         void SetData(const void* data, uint32_t size) override;
 
+        const BufferLayout& GetLayout() const override { return m_Layout; }
+        void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
+
         VkBuffer GetHandle() const { return m_Buffer; }
 
     private:
@@ -30,5 +33,6 @@ namespace Luth
         VkDeviceMemory m_Memory;
         void* m_MappedData = nullptr;
         uint32_t m_Size;
+        BufferLayout m_Layout;
     };
 }

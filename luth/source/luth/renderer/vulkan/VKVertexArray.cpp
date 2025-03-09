@@ -18,11 +18,26 @@ namespace Luth
         // Not applicable in Vulkan
     }
 
-    void VKVertexArray::AddVertexBuffer(const std::shared_ptr<VertexBuffer>& vb) {
+    void VKVertexArray::AddVertexBuffer(const std::shared_ptr<VertexBuffer>& vb)
+    {
         auto vkBuffer = std::static_pointer_cast<VKVertexBuffer>(vb);
 
-        // Generate binding and attribute descriptions
-        // This would parse the buffer layout and populate descriptions
+        // Get Vulkan-specific descriptions
+        auto bindingDesc = vb->GetLayout().GetBindingDescriptions();
+        auto attributeDesc = vb->GetLayout().GetAttributeDescriptions();
+
+        // Append to our lists
+        m_BindingDescriptions.insert(
+            m_BindingDescriptions.end(),
+            bindingDesc.begin(),
+            bindingDesc.end()
+        );
+
+        m_AttributeDescriptions.insert(
+            m_AttributeDescriptions.end(),
+            attributeDesc.begin(),
+            attributeDesc.end()
+        );
 
         m_VertexBuffers.push_back(vb);
     }
