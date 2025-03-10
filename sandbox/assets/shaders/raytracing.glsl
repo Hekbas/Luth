@@ -430,6 +430,8 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
         throughput *= F;
     }
 
+    throughput = vec3(1);   // Reset Throughput
+
     // Emissive
     for(int i = 0; i < u_spherePositions.length(); i++) {
         //if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
@@ -523,8 +525,19 @@ void TraceRay(vec3 ro, vec3 rd)
             break;
         }
         
-        ro = hit.position + hit.normal * EPSILON;
-        rd = reflect(rd, hit.normal);
+
+        if (hit.mat.transparency < 0.5) {
+            ro = hit.position + hit.normal * EPSILON;
+            rd = reflect(rd, hit.normal);
+        }
+        else {
+            // Check for sphere back hit
+            bool isBack = dot(rd, hit.normal) > 0.0 ? true : false;
+            vec3 N = isBack ? -hit.normal : hit.normal;
+            float eta = isBack ? hit.mat.ior : 1/hit.mat.ior;
+            ro = hit.position - N * EPSILON;
+            rd = refract(normalize(rd), normalize(N), eta);
+        }
     }
     sd.finalColor += sd.diffuse + sd.specular + sd.emissive + emissiveGlow;
 
