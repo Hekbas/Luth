@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/renderer/Mesh.h"
 
 #include <glm/glm.hpp>
 #include <memory>
@@ -31,6 +32,8 @@ namespace Luth
         // 
         //virtual void EnableBlending(bool enable) = 0;
         //virtual void SetBlendFunction(u32 srcFactor, u32 dstFactor) = 0;
+
+        virtual void SubmitMesh(const std::shared_ptr<Mesh>& mesh) = 0;
 
         virtual void DrawIndexed(u32 count) = 0;
         virtual void DrawFrame() = 0;

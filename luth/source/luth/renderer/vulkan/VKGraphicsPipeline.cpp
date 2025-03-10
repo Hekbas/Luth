@@ -20,9 +20,9 @@ namespace Luth
         return buffer;
     }
 
-    VKGraphicsPipeline::VKGraphicsPipeline(VkDevice device,
-        VkExtent2D swapchainExtent,
-        VkRenderPass renderPass)
+    VKGraphicsPipeline::VKGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass,
+        const std::vector<VkVertexInputBindingDescription>& bindingDescriptions,
+        const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions)
         : m_Device(device)
     {
         // 1. Load shader code
@@ -52,10 +52,10 @@ namespace Luth
         // 4. Vertex input state
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 0;
-        vertexInputInfo.pVertexBindingDescriptions = nullptr;
-        vertexInputInfo.vertexAttributeDescriptionCount = 0;
-        vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+        vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+        vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
         // 5. Input assembly state
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};

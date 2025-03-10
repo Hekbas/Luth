@@ -33,6 +33,24 @@ namespace Luth
         }
     }
 
+    static VkFormat ShaderDataTypeToVkFormat(ShaderDataType type)
+    {
+        switch (type) {
+            case ShaderDataType::Float:   return VK_FORMAT_R32_SFLOAT;
+            case ShaderDataType::Float2:  return VK_FORMAT_R32G32_SFLOAT;
+            case ShaderDataType::Float3:  return VK_FORMAT_R32G32B32_SFLOAT;
+            case ShaderDataType::Float4:  return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case ShaderDataType::Int:     return VK_FORMAT_R32_SINT;
+            case ShaderDataType::Int2:    return VK_FORMAT_R32G32_SINT;
+            case ShaderDataType::Int3:    return VK_FORMAT_R32G32B32_SINT;
+            case ShaderDataType::Int4:    return VK_FORMAT_R32G32B32A32_SINT;
+            case ShaderDataType::Bool:    return VK_FORMAT_R8_UINT;
+            default:
+                LH_CORE_ASSERT(false, "Unknown ShaderDataType!");
+                return VK_FORMAT_UNDEFINED;
+        }
+    }
+
     BufferElement::BufferElement(ShaderDataType type, const std::string& name, bool normalized)
         : Name(name), Type(type), Size(ShaderDataTypeSize(type)),
         Offset(0), Normalized(normalized) {}
@@ -58,6 +76,7 @@ namespace Luth
         }
     }
 
+    // Buffer Layout
     BufferLayout::BufferLayout(std::initializer_list<BufferElement> elements)
         : m_Elements(elements) {
         CalculateOffsetsAndStride();
@@ -74,7 +93,6 @@ namespace Luth
         }
     }
 
-    // Vulkan-specific implementations
     std::vector<VkVertexInputBindingDescription> BufferLayout::GetBindingDescriptions() const
     {
         std::vector<VkVertexInputBindingDescription> descriptions;
@@ -97,24 +115,7 @@ namespace Luth
             VkVertexInputAttributeDescription attributeDescription{};
             attributeDescription.binding = 0;
             attributeDescription.location = location++;
-            attributeDescription.format = [&]() {
-                switch (element.Type) {
-                    case ShaderDataType::Bool:   return VK_FORMAT_R8_UINT;
-                    case ShaderDataType::Int:    return VK_FORMAT_R32_SINT;
-                    case ShaderDataType::Int2:   return VK_FORMAT_R32G32_SINT;
-                    case ShaderDataType::Int3:   return VK_FORMAT_R32G32B32_SINT;
-                    case ShaderDataType::Int4:   return VK_FORMAT_R32G32B32A32_SINT;
-                    case ShaderDataType::Float:  return VK_FORMAT_R32_SFLOAT;
-                    case ShaderDataType::Float2: return VK_FORMAT_R32G32_SFLOAT;
-                    case ShaderDataType::Float3: return VK_FORMAT_R32G32B32_SFLOAT;
-                    case ShaderDataType::Float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-                    case ShaderDataType::Mat3:   return VK_FORMAT_R32G32B32_SFLOAT;
-                    case ShaderDataType::Mat4:   return VK_FORMAT_R32G32B32A32_SFLOAT;
-                    default:
-                        LH_CORE_ASSERT(false, "Unknown ShaderDataType!");
-                        return VK_FORMAT_UNDEFINED;
-                }
-            }();
+            attributeDescription.format = ShaderDataTypeToVkFormat(element.Type);
             attributeDescription.offset = element.Offset;
 
             descriptions.push_back(attributeDescription);
@@ -122,6 +123,7 @@ namespace Luth
         return descriptions;
     }
 
+    // Vertex Buffer
     std::unique_ptr<VertexBuffer> VertexBuffer::Create(uint32_t size)
     {
         switch (Renderer::GetAPI())
@@ -182,6 +184,7 @@ namespace Luth
         return nullptr;
     }
 
+    // Index Buffer
     std::unique_ptr<IndexBuffer> IndexBuffer::Create(const uint32_t* indices, uint32_t count)
     {
         switch (Renderer::GetAPI())

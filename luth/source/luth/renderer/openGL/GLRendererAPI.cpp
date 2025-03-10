@@ -72,6 +72,8 @@ namespace Luth
         LH_GL_CHECK_ERROR();
     }
 
+    void GLRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh) {}
+
     void GLRendererAPI::DrawIndexed(u32 count)
     {
         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);

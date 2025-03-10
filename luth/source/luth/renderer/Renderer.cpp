@@ -35,6 +35,10 @@ namespace Luth
         s_RendererAPI->Clear();
     }
 
+    void Renderer::SubmitMesh(const std::shared_ptr<Mesh>& mesh) {
+        s_RendererAPI->SubmitMesh(mesh);
+    }
+
     void Renderer::DrawIndexed(uint32_t count) {
         s_RendererAPI->DrawIndexed(count);
     }

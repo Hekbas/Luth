@@ -21,7 +21,8 @@ namespace Luth
         const BufferLayout& GetLayout() const override { return m_Layout; }
         void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
 
-        VkBuffer GetHandle() const { return m_Buffer; }
+        VkBuffer GetBuffer() const { return m_Buffer; }
+        uint32_t GetVertexCount() const { return m_Size / m_Layout.GetStride(); }
 
     private:
         VkDevice m_Device;
@@ -46,7 +47,7 @@ namespace Luth
         void Unbind() const override;
         uint32_t GetCount() const override { return m_Count; }
 
-        VkBuffer GetHandle() const { return m_Buffer; }
+        VkBuffer GetBuffer() const { return m_Buffer; }
 
     private:
         VkDevice m_Device;
