@@ -136,10 +136,14 @@ namespace Luth
             case RendererAPI::API::Vulkan:
             {
                 auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                const auto& device = vkRenderer->GetLogicalDevice();
                 return std::make_unique<VKVertexBuffer>(
-                    vkRenderer->GetLogicalDevice(),
-                    vkRenderer->GetPhysicalDevice(),
-                    size
+                    vkRenderer->GetLogicalDevice().GetHandle(),
+                    vkRenderer->GetPhysicalDevice().GetHandle(),
+                    nullptr,
+                    size,
+                    device.GetTransferQueue(),
+                    device.GetQueueFamilyIndices().transferFamily.value()
                 );
             }
         }
@@ -162,11 +166,14 @@ namespace Luth
             case RendererAPI::API::Vulkan:
             {
                 auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                const auto& device = vkRenderer->GetLogicalDevice();
                 return std::make_unique<VKVertexBuffer>(
-                    vkRenderer->GetLogicalDevice(),
-                    vkRenderer->GetPhysicalDevice(),
+                    vkRenderer->GetLogicalDevice().GetHandle(),
+                    vkRenderer->GetPhysicalDevice().GetHandle(),
                     data,
-                    size
+                    size,
+                    device.GetTransferQueue(),
+                    device.GetQueueFamilyIndices().transferFamily.value()
                 );
             }
         }
@@ -185,11 +192,14 @@ namespace Luth
             case RendererAPI::API::Vulkan:
             {
                 auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                const auto& device = vkRenderer->GetLogicalDevice();
                 return std::make_unique<VKIndexBuffer>(
-                    vkRenderer->GetLogicalDevice(),
-                    vkRenderer->GetPhysicalDevice(),
+                    vkRenderer->GetLogicalDevice().GetHandle(),
+                    vkRenderer->GetPhysicalDevice().GetHandle(),
                     indices,
-                    count
+                    count,
+                    device.GetTransferQueue(),
+                    device.GetQueueFamilyIndices().transferFamily.value()
                 );
             }
 

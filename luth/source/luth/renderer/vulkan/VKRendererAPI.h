@@ -37,8 +37,11 @@ namespace Luth
         virtual void DrawFrame() override;
 
         VkInstance GetInstance() const { return m_Instance; }
-        VkDevice GetLogicalDevice() const { return m_LogicalDevice->GetHandle(); }
-        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice->GetHandle(); }
+
+        const VKLogicalDevice& GetLogicalDevice() const { return *m_LogicalDevice; }
+        const VKPhysicalDevice& GetPhysicalDevice() const { return *m_PhysicalDevice; }
+        const VKSwapchain& GetSwapchain() const { return *m_Swapchain; }
+        const VKCommandPool& GetCommandPool() const { return *m_CommandPool; }
 
     private:
         // Core Vulkan components

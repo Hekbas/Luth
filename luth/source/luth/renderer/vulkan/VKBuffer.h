@@ -11,7 +11,7 @@ namespace Luth
     public:
         VKVertexBuffer(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t size);
         VKVertexBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
-            const void* data, uint32_t size);
+            const void* data, uint32_t size, VkQueue transferQueue, uint32_t transferQueueFamily);
         ~VKVertexBuffer();
 
         void Bind() const override;
@@ -24,22 +24,22 @@ namespace Luth
         VkBuffer GetHandle() const { return m_Buffer; }
 
     private:
-        void CreateBuffer(uint32_t size, VkBufferUsageFlags usage,
-            VkMemoryPropertyFlags properties,
-            VkBuffer& buffer, VkDeviceMemory& memory);
-
         VkDevice m_Device;
+        VkPhysicalDevice m_PhysicalDevice;
         VkBuffer m_Buffer;
         VkDeviceMemory m_Memory;
         void* m_MappedData = nullptr;
         uint32_t m_Size;
         BufferLayout m_Layout;
+        VkQueue m_TransferQueue;
+        uint32_t m_TransferQueueFamily;
     };
 
     class VKIndexBuffer : public IndexBuffer
     {
     public:
-        VKIndexBuffer(VkDevice device, VkPhysicalDevice physicalDevice, const uint32_t* indices, uint32_t count);
+        VKIndexBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
+            const uint32_t* indices, uint32_t count, VkQueue transferQueue, uint32_t transferQueueFamily);
         ~VKIndexBuffer();
 
         void Bind() const override;

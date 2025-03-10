@@ -15,4 +15,10 @@ namespace Luth::VKUtils
 	uint32_t FindMemoryType(VkPhysicalDevice physicalDevice,
 		uint32_t typeFilter,
 		VkMemoryPropertyFlags properties);
+
+	void CreateBuffer(uint32_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+		VkDevice device, VkPhysicalDevice physicalDevice, VkBuffer& buffer, VkDeviceMemory& memory);
+
+	void CopyBuffer(VkBuffer src, VkBuffer dst, VkDevice device, VkDeviceSize size,
+		VkQueue queue, uint32_t queueFamily);
 }
