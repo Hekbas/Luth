@@ -412,7 +412,7 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
         vec3 radiance = u_pointLights[i].color * u_pointLights[i].intensity * shadow * attenuation * NdotL;
 
         // Fresnel
-        vec3 F = FresnelSchlick(HdotV, F0);
+        vec3 F = FresnelSchlick(NdotV, F0);
         
         // Diffuse
         vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
@@ -423,7 +423,7 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        if(i == 0) sd.fresnel += F * throughput;
+        if(i == 0) sd.fresnel = F;
         sd.radiance += radiance * throughput;
         sd.diffuse += diffuse * throughput;
         sd.specular += specular * throughput;
