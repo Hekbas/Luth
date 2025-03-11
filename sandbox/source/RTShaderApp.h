@@ -11,6 +11,7 @@
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Shader.h>
 #include <memory>
+#include <random>
 
 // TEST GL
 #include <GLFW/glfw3.h>
@@ -39,7 +40,7 @@ namespace Luth
         // Application state
         int displayMode = 0;
         #define MAX_LIGHTS 4
-        #define MAX_SPHERES 32
+        #define MAX_SPHERES 8
 
         struct Camera {
             Vec3 origin;
@@ -105,6 +106,10 @@ namespace Luth
         void SetVariables();
         void InitUniforms();
         void UpdateUniforms(float time);
+
+        Vec3 CalculatePosition(int max, int i, float r, float y = 1.0);
+        float Rand(float min = 0.0f, float max = 1.0f);
+        Vec3 RandVec3(float min = 0.0f, float max = 1.0f);
 
         // ImGui
         bool ExecuteOnButtonPress(const char* label, std::function<void()> callback);

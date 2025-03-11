@@ -1,3 +1,7 @@
+//===================================
+// Raytracing Demo for Luth ~hekbas
+//===================================
+
 #type vertex
 #version 450 core
 
@@ -11,10 +15,6 @@ void main()
     gl_Position = a_Position;
     v_TexCoord = a_TexCoord;
 }
-
-
-
-
 
 
 #type fragment
@@ -123,8 +123,8 @@ uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
 uniform Fog u_fog;
 uniform Material u_floorMaterial;
-uniform vec3 u_spherePositions[3];
-uniform Material u_sphereMaterials[3];
+uniform vec3 u_spherePositions[8];
+uniform Material u_sphereMaterials[8];
 
 // Random
 float pcg1d(float v) {
@@ -199,7 +199,7 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
     }
 
     // Spheres
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < 8; i++) {
         float tSphere = SphereIntersect(ro, rd, u_spherePositions[i], 1.0);
         if (tSphere > 0.0 && tSphere < hit.t) {
             hit.t = tSphere;
@@ -224,7 +224,7 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
 // - cosθ: Dot product between view and half vectors
 // Info: https://odederell3d.blog/2018/09/18/fresnel-reflections/
 vec3 FresnelSchlick(float cosTheta, vec3 F0) {
-    return F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
+    return F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 // Normal Distribution Function (NDF) using Trowbridge-Reitz GGX
@@ -412,29 +412,26 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
         vec3 radiance = u_pointLights[i].color * u_pointLights[i].intensity * shadow * attenuation * NdotL;
 
         // Fresnel
-        vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
+        vec3 F = FresnelSchlick(HdotV, F0);
         
-        // Diffuse (Lambert)
+        // Diffuse
         vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
         vec3 diffuse = kD * albedo * radiance / PI;
 
-        // Specular (Cook-Torrance)
+        // Specular
         float D = DistributionGGX(N, H, roughness);
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        sd.fresnel += F * throughput;
+        if(i == 0) sd.fresnel += F * throughput;
         sd.radiance += radiance * throughput;
         sd.diffuse += diffuse * throughput;
         sd.specular += specular * throughput;
-        throughput *= F;
     }
-
-    throughput = vec3(1);   // Reset Throughput
 
     // Emissive
     for(int i = 0; i < u_spherePositions.length(); i++) {
-        //if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
+        if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
 
         vec3 L = normalize(u_spherePositions[i] - hit.position);
         vec3 H = normalize(V + L);
@@ -451,21 +448,21 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
         // Fresnel
         vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
         
-        // Diffuse (Lambert)
+        // Diffuse
         vec3 kD = (vec3(1.0) - F) * (1.0 - hit.mat.metallic);
         vec3 diffuse = kD * albedo * radiance / PI;
 
-        // Specular (Cook-Torrance)
+        // Specular
         float D = DistributionGGX(N, H, roughness);
         float G = GeometrySmith(N, V, L, roughness);
         vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + EPSILON) * radiance;
 
-        sd.fresnel += F * throughput;
         sd.radiance += radiance * throughput;
         sd.diffuse += diffuse * throughput;
         sd.specular += specular * throughput;
-        throughput *= F;
     }
+
+    throughput *= sd.fresnel;
 }
 
 void GetSurfaceData(HitInfo hit, vec3 rd) {
@@ -524,7 +521,6 @@ void TraceRay(vec3 ro, vec3 rd)
             sd.finalColor += throughput * ambient;
             break;
         }
-        
 
         if (hit.mat.transparency < 0.5) {
             ro = hit.position + hit.normal * EPSILON;

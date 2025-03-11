@@ -91,8 +91,8 @@ namespace Luth
     void RTShaderApp::SetVariables()
     {
         // Camera
-        camera.origin = glm::vec3(0.0, 2.2, 5.3);
-        camera.direction = glm::vec3(0.0, 7.3, 34.0);
+        camera.origin = glm::vec3(0.0, 5.6, 6.0);
+        camera.direction = glm::vec3(0.0, 15.5, 34.0);
         camera.lookAt = glm::vec3(0.0, 0.0, 0.0);
         camera.fov = 110.0f;
         camera.useLookAt = false;
@@ -105,9 +105,15 @@ namespace Luth
         floorMaterial.transparency = 0.0f;
 
         // Sphere Positions
-        spherePositions[0] = { 2.2f, 0.6f, 0.0f };
-        spherePositions[1] = { 0.0f, 0.6f, 0.0f };
-        spherePositions[2] = { -2.2f, 0.6f, 0.0f };
+        Vec3 c = Vec3(0.0, 1.0, 0.0);
+        spherePositions[0] = Vec3(c.x+0.5f, c.y+0.5f, c.z+0.5f) * 3.0f;
+        spherePositions[1] = Vec3(c.x-0.5f, c.y+0.5f, c.z+0.5f) * 3.0f;
+        spherePositions[2] = Vec3(c.x-0.5f, c.y-0.5f, c.z+0.5f) * 3.0f;
+        spherePositions[3] = Vec3(c.x+0.5f, c.y-0.5f, c.z+0.5f) * 3.0f;
+        spherePositions[4] = Vec3(c.x+0.5f, c.y+0.5f, c.z-0.5f) * 3.0f;
+        spherePositions[5] = Vec3(c.x-0.5f, c.y+0.5f, c.z-0.5f) * 3.0f;
+        spherePositions[6] = Vec3(c.x-0.5f, c.y-0.5f, c.z-0.5f) * 3.0f;
+        spherePositions[7] = Vec3(c.x+0.5f, c.y-0.5f, c.z-0.5f) * 3.0f;
 
         // Sphere Materials
         sphereMaterials[0].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
@@ -130,6 +136,41 @@ namespace Luth
         sphereMaterials[2].metallic = 0.05;
         sphereMaterials[2].ior = 1.5;
         sphereMaterials[2].transparency = 0.0;
+
+        sphereMaterials[3].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
+        sphereMaterials[3].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        sphereMaterials[3].roughness = 0.05;
+        sphereMaterials[3].metallic = 0.05;
+        sphereMaterials[3].ior = 1.5;
+        sphereMaterials[3].transparency = 0.0;
+
+        sphereMaterials[4].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+        sphereMaterials[4].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        sphereMaterials[4].roughness = 0.05;
+        sphereMaterials[4].metallic = 1.0;
+        sphereMaterials[4].ior = 1.5;
+        sphereMaterials[4].transparency = 0.95;
+
+        sphereMaterials[5].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+        sphereMaterials[5].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        sphereMaterials[5].roughness = 1.0;
+        sphereMaterials[5].metallic = 0.05;
+        sphereMaterials[5].ior = 1.5;
+        sphereMaterials[5].transparency = 0.0;
+
+        sphereMaterials[6].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+        sphereMaterials[6].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        sphereMaterials[6].roughness = 0.05;
+        sphereMaterials[6].metallic = 1.0;
+        sphereMaterials[6].ior = 1.5;
+        sphereMaterials[6].transparency = 0.95;
+
+        sphereMaterials[7].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+        sphereMaterials[7].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        sphereMaterials[7].roughness = 1.0;
+        sphereMaterials[7].metallic = 0.05;
+        sphereMaterials[7].ior = 1.5;
+        sphereMaterials[7].transparency = 0.0;
 
         // Environment Light
         ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
@@ -171,7 +212,7 @@ namespace Luth
         shader->SetFloat("u_floorMaterial.transparency", floorMaterial.transparency);
 
         // Sphere Positions + Materials
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < MAX_SPHERES; i++) {
             shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
             shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
             shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].emissive", sphereMaterials[i].emissive);
@@ -220,6 +261,35 @@ namespace Luth
         shader->SetVec2("u_resolution", glm::vec2(1280.0, 720.0));
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
+    
+    // Helpers
+    Vec3 RTShaderApp::CalculatePosition(int max, int i, float r, float y) {
+        const float pi = std::acos(-1.0f);
+        float angle = (2.0f * pi * static_cast<float>(i)) / static_cast<float>(max);
+        float x = r * std::cosf(angle);
+        float z = r * std::sinf(angle);
+        return { x, y, z };
+    }
+
+    float RTShaderApp::Rand(float min, float max) {
+        // Random number setup (Mersenne Twister engine)
+        static std::mt19937 engine(std::random_device{}());
+        std::uniform_real_distribution<float> distribution(min, max);
+
+        return distribution(engine);
+    }
+
+    Vec3 RTShaderApp::RandVec3(float min, float max) {
+        // Random number setup (Mersenne Twister engine)
+        static std::mt19937 engine(std::random_device{}());
+        std::uniform_real_distribution<float> distribution(min, max);
+
+        return glm::vec3(
+            distribution(engine),
+            distribution(engine),
+            distribution(engine)
+        );
     }
 
     // ImGui
@@ -307,7 +377,7 @@ namespace Luth
                 }
 
                 // Sphere controls
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < MAX_SPHERES; i++) {
                     if (ImGui::TreeNode(("Sphere " + std::to_string(i)).c_str())) {
                         if (ImGui::SliderFloat3("Position", &spherePositions[i].x, -5.0f, 5.0f)) {
                             shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
@@ -384,7 +454,7 @@ namespace Luth
             // 4. Point Lights
             if (ImGui::CollapsingHeader("Point Lights", nodeFlags))
             {
-                if (ImGui::SliderInt("Active Lights", &numActiveLights, 1, MAX_LIGHTS)) {
+                if (ImGui::SliderInt("Active Lights", &numActiveLights, 0, MAX_LIGHTS)) {
                     shader->SetInt("u_numPointLights", numActiveLights);
                 }
 
@@ -411,7 +481,7 @@ namespace Luth
             if (ImGui::CollapsingHeader("Rendering Settings", nodeFlags))
             {
 
-                if (ImGui::SliderInt("SSAA Samples", &ssaaSamples, 1, 16)) {
+                if (ImGui::SliderInt("SSAA Samples", &ssaaSamples, 1, 8)) {
                     shader->SetInt("u_SSAA", ssaaSamples);
                 }
                 if (ImGui::SliderInt("Max Bounces", &maxBounces, 0, 8)) {
