@@ -44,22 +44,23 @@ namespace Luth
 
         struct Camera {
             Vec3 position;
-            Vec3 rotation;
             Vec3 target;
             float fov;
-            bool useTarget;
-        };
-
-        struct PointLight {
-            Vec3 position;
-            Vec3 color;
-            float intensity;
+            float orbitRadius;
+            float orbitSpeed;
         };
 
         struct AmbientLight {
             Vec3 skyColor;
             Vec3 groundColor;
             float intensity;
+        };
+
+        struct Cloud {
+            Vec3 color;
+            float density;
+            float speed;
+            float scale;
         };
 
         struct Fog {
@@ -70,11 +71,10 @@ namespace Luth
             float end;
         };
 
-        struct Cloud {
+        struct PointLight {
+            Vec3 position;
             Vec3 color;
-            float density;
-            float speed;
-            float scale;
+            float intensity;
         };
 
         struct Material {
@@ -95,10 +95,10 @@ namespace Luth
         // Scene config
         Camera camera;
         AmbientLight ambientLight;
+        Cloud cloud;
+        Fog fog;
         PointLight pointLights[MAX_LIGHTS];
         int numActiveLights = 1;
-        Fog fog;
-        Cloud cloud;
         Material floorMaterial;
         Sphere spheres[MAX_SPHERES];
 

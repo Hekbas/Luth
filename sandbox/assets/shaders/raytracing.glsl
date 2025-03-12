@@ -43,22 +43,23 @@ uniform float u_gamma;
 
 struct Camera {
     vec3 position;
-    vec3 rotation;
     vec3 target;
     float fov;
-    bool useTarget;
-};
-
-struct PointLight {
-    vec3 position;
-    vec3 color;
-    float intensity;
+    float orbitRadius;
+    float orbitSpeed;
 };
 
 struct AmbientLight {
     vec3 skyColor;
     vec3 groundColor;
     float intensity;
+};
+
+struct Cloud {
+    vec3 color;
+    float density;
+    float speed;
+    float scale;
 };
 
 struct Fog {
@@ -69,11 +70,10 @@ struct Fog {
     float end;
 };
 
-struct Cloud {
+struct PointLight {
+    vec3 position;
     vec3 color;
-    float density;
-    float speed;
-    float scale;
+    float intensity;
 };
 
 struct Material {
@@ -133,10 +133,10 @@ ShadingData GetDefaultShadingData() {
 // Scene uniforms
 uniform Camera u_camera;
 uniform AmbientLight u_ambientLight;
+uniform Cloud u_cloud;
+uniform Fog u_fog;
 uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
-uniform Fog u_fog;
-uniform Cloud u_cloud;
 uniform Material u_floorMaterial;
 uniform Sphere u_spheres[MAX_SPHERES];
 
@@ -162,8 +162,8 @@ float hash(float v) {
 float hash(vec2 v) {
     return fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
 }
-float hash(vec3 p) {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+float hash(vec3 v) {
+    return fract(sin(dot(v, vec3(127.1, 311.7, 74.7))) * 43758.5453);
 }
 float getSeed(int v) {
     vec2 fragCoord = gl_FragCoord.xy * (float(v + 1) * 0.618);
@@ -381,32 +381,32 @@ vec3 CalculateEmissiveGlow(vec3 ro, vec3 rd) {
     const float glowStrength = 64.0;
     const float glowFalloff = 8.5;
     
-    for(int i = 0; i < 3; i++) {
-        if(length(u_spheres[i].mat.emissive) > 0.0) {
-            // Sphere data
-            vec3 center = u_spheres[i].position;
-            float radius = 1.0;
-            vec3 emissive = u_spheres[i].mat.emissive;
+    for(int i = 0; i < MAX_SPHERES; i++) {
+        if(length(u_spheres[i].mat.emissive) <= 0.0) continue;
+
+        // Sphere data
+        vec3 center = u_spheres[i].position;
+        float radius = 1.0;
+        vec3 emissive = u_spheres[i].mat.emissive;
+        
+        // Calculate closest point on ray to sphere center
+        vec3 oc = ro - center;
+        float tca = dot(oc, rd);
+        float d2 = dot(oc, oc) - tca * tca;
+        float radius2 = radius * radius;
+        
+        // If ray passes near sphere
+        if(d2 < radius2 * glowRadius) {
+            // Estimate glow
+            float dist = sqrt(d2);
+            float glowIntensity = glowStrength * 
+                pow(1.0 - smoothstep(0.0, radius * glowRadius, dist), glowFalloff);
             
-            // Calculate closest point on ray to sphere center
-            vec3 oc = ro - center;
-            float tca = dot(oc, rd);
-            float d2 = dot(oc, oc) - tca * tca;
-            float radius2 = radius * radius;
-            
-            // If ray passes near sphere
-            if(d2 < radius2 * glowRadius) {
-                // Estimate glow
-                float dist = sqrt(d2);
-                float glowIntensity = glowStrength * 
-                    pow(1.0 - smoothstep(0.0, radius * glowRadius, dist), glowFalloff);
-                
-                // Add jittered samples for softer look
-                for(int s = 0; s < glowSamples; s++) {
-                    vec3 jitter = normalize(pcg3d(vec3(s, glowIntensity, u_time)));
-                    glow += emissive * glowIntensity * 0.1 * 
-                        pow(1.0 - dist/(radius * glowRadius), 2.0);
-                }
+            // Add jittered samples for softer look
+            for(int s = 0; s < glowSamples; s++) {
+                vec3 jitter = normalize(pcg3d(vec3(s, glowIntensity, u_time)));
+                glow += emissive * glowIntensity * 0.1 * 
+                    pow(1.0 - dist/(radius * glowRadius), 2.0);
             }
         }
     }
@@ -525,6 +525,9 @@ void CalculateDepth(HitInfo hit) {
     }    
 }
 
+// Generates Fractal Brownian Motion noise by combining multiple noise octaves
+// - p: Input position/coordinate
+// - octaves: Number of noise layers to combine (more = finer detail)
 float fbm(vec3 p, int octaves) {
     float value = 0.0;
     float amplitude = 0.5;
@@ -618,20 +621,21 @@ vec3 GetVisualizationColor()
     switch(u_displayMode) {
         case 1: return sd.rayDir;
         case 2: return sd.albedo;
-        case 3: return sd.worldPos;
-        case 4: return (sd.normal + 1.0) / 2.0; //suave :3
+        case 3: return (sd.worldPos + 10.0) / 20.0; // Maps -10m to +10m to 0-1 range
+        case 4: return (sd.normal + 1.0) / 2.0;     // Suave :3
         case 5: return sd.fresnel;
         case 6: return sd.radiance;
         case 7: return sd.diffuse;
         case 8: return sd.specular;
         case 9: return sd.emissive;
         case 10: return vec3(sd.depth);
-        default: return sd.finalColor; // 0
+        default: return sd.finalColor; // case 0
     }
 }
 
 vec3 TraceAndVisualize(mat3 camBasis, vec2 uv, vec3 ro) {
-    vec3 rd = normalize(camBasis * vec3(uv, -1.0));
+    vec3 rd = normalize(camBasis * vec3(uv, 1.0));
+    vec3 worldRd = camBasis * rd;
     TraceRay(ro, rd);
     return GetVisualizationColor();
 }
@@ -664,37 +668,39 @@ vec3 PostProcessing(vec3 color)
     return color;
 }
 
-mat3 GetCameraBasis(vec3 cameraPos) {
-    vec3 forward = normalize(vec3(0.0, 3.0, 0.0) - cameraPos);
-    vec3 right = normalize(cross(forward, vec3(0.0, 1.0, 0.0)));
-    vec3 realUp = normalize(cross(right, forward));
-    return mat3(right, realUp, forward);
+mat3 GetCameraBasis(vec3 cameraPos, vec3 target) {
+    vec3 forward = normalize(target - cameraPos);
+    vec3 worldUp = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(worldUp, forward));
+    vec3 up = normalize(cross(forward, right));
+    return mat3(right, up, forward);
 }
 
 void main()
 {
-    // Camera animation parameters
-    float orbitRadius = 6.0;
-    float orbitHeight = 6.5;
-    float orbitSpeed = 0.25;
-    
-    // Calculate orbital position
-    float angle = u_time * orbitSpeed;
-    //vec3 orbitCenter = vec3(0.0, orbitHeight, 0.0); // Or use u_camera.target
-    
-    vec3 cameraPos = vec3(orbitRadius * cos(angle), orbitHeight, orbitRadius * sin(angle));
+    // Camera Orbit
+    float angle = u_time * u_camera.orbitSpeed;
+    vec3 cameraPos = vec3(
+        u_camera.orbitRadius * cos(angle),
+        u_camera.position.y,
+        u_camera.orbitRadius * sin(angle)
+    );
 
-    // Build camera basis
-    mat3 camBasis = GetCameraBasis(cameraPos);
-    
-    // Calculate ray directions
-    vec2 uv = (v_TexCoord - 0.5) * vec2(u_resolution.x/u_resolution.y, 1.0);
-    uv *= tan(radians(u_camera.fov * 0.5));
-    vec3 rayDir = normalize(camBasis * vec3(uv, 1.0));
+    // Camera Basis Matrix
+    mat3 camBasis = GetCameraBasis(cameraPos, u_camera.target);
+
+    // UV aspect/fov
+    float aspectRatio = u_resolution.x / u_resolution.y;
+    float focalScale = tan(radians(u_camera.fov) * 0.5);
 
     // Trace the ray
-    TraceRay(cameraPos, rayDir);
-    vec3 color = GetVisualizationColor();
+    vec3 color;
+    if(u_SSAA > 1) {
+        color = SampleWithSSAA(camBasis, focalScale, cameraPos);
+    } else {
+        vec2 uv = (v_TexCoord - 0.5) * vec2(aspectRatio, 1.0) * focalScale;
+        color = TraceAndVisualize(camBasis, uv, cameraPos);
+    }
     
     FragColor = vec4(PostProcessing(color), 1.0);
 }
