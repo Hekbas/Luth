@@ -40,7 +40,7 @@ namespace Luth
         // Application state
         int displayMode = 0;
         #define MAX_LIGHTS 4
-        #define MAX_SPHERES 8
+        #define MAX_SPHERES 6
 
         struct Camera {
             Vec3 origin;
@@ -79,6 +79,12 @@ namespace Luth
             float transparency;
         };
 
+        struct Sphere {
+            Vec3 position;
+            float r;
+            Material mat;
+        };
+
         // Scene config
         Camera camera;
         AmbientLight ambientLight;
@@ -86,19 +92,18 @@ namespace Luth
         int numActiveLights = 1;
         Fog fog;
         Material floorMaterial;
-        glm::vec3 spherePositions[MAX_SPHERES];
-        Material sphereMaterials[MAX_SPHERES];
+        Sphere spheres[MAX_SPHERES];
 
         // Rendering
         int ssaaSamples = 4;
-        int maxBounces = 2;
+        int maxBounces = 3;
         float softShadowFactor = 0.2f;
 
         // Post-processing
-        bool applyTonemap = true;
+        bool applyTonemap = false;
         bool applyGamma = true;
         float exposure = 1.0f;
-        float gammaValue = 2.2f;
+        float gammaValue = 1.8f;
         // ===============================================
 
         void InitScreenQuad();

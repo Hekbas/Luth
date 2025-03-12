@@ -37,6 +37,7 @@ uniform float u_exposure;
 uniform float u_gamma;
 
 #define MAX_LIGHTS 4
+#define MAX_SPHERES 6
 #define PI 3.141592653589793
 #define EPSILON 0.001
 
@@ -85,6 +86,12 @@ struct HitInfo {
     bool hit;
 };
 
+struct Sphere {
+    vec3 position;
+    float r;
+    Material mat;
+};
+
 struct ShadingData {
     vec3 rayDir;
     vec3 albedo;
@@ -123,8 +130,7 @@ uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
 uniform Fog u_fog;
 uniform Material u_floorMaterial;
-uniform vec3 u_spherePositions[8];
-uniform Material u_sphereMaterials[8];
+uniform Sphere u_spheres[MAX_SPHERES];
 
 // Random
 float pcg1d(float v) {
@@ -199,18 +205,18 @@ HitInfo SceneIntersect(vec3 ro, vec3 rd)
     }
 
     // Spheres
-    for(int i = 0; i < 8; i++) {
-        float tSphere = SphereIntersect(ro, rd, u_spherePositions[i], 1.0);
+    for(int i = 0; i < MAX_SPHERES; i++) {
+        float tSphere = SphereIntersect(ro, rd, u_spheres[i].position,  u_spheres[i].r);
         if (tSphere > 0.0 && tSphere < hit.t) {
             hit.t = tSphere;
             hit.position = ro + rd * hit.t;
-            hit.normal = normalize(hit.position - u_spherePositions[i]);
-            hit.mat.albedo = u_sphereMaterials[i].albedo;
-            hit.mat.emissive = u_sphereMaterials[i].emissive;
-            hit.mat.roughness = u_sphereMaterials[i].roughness;
-            hit.mat.metallic = u_sphereMaterials[i].metallic;
-            hit.mat.ior = u_sphereMaterials[i].ior;
-            hit.mat.transparency = u_sphereMaterials[i].transparency;
+            hit.normal = normalize(hit.position - u_spheres[i].position);
+            hit.mat.albedo = u_spheres[i].mat.albedo;
+            hit.mat.emissive = u_spheres[i].mat.emissive;
+            hit.mat.roughness = u_spheres[i].mat.roughness;
+            hit.mat.metallic = u_spheres[i].mat.metallic;
+            hit.mat.ior = u_spheres[i].mat.ior;
+            hit.mat.transparency = u_spheres[i].mat.transparency;
             hit.hit = true;
         }
     }
@@ -343,11 +349,11 @@ vec3 CalculateEmissiveGlow(vec3 ro, vec3 rd) {
     const float glowFalloff = 8.5;
     
     for(int i = 0; i < 3; i++) {
-        if(length(u_sphereMaterials[i].emissive) > 0.0) {
+        if(length(u_spheres[i].mat.emissive) > 0.0) {
             // Sphere data
-            vec3 center = u_spherePositions[i];
+            vec3 center = u_spheres[i].position;
             float radius = 1.0;
-            vec3 emissive = u_sphereMaterials[i].emissive;
+            vec3 emissive = u_spheres[i].mat.emissive;
             
             // Calculate closest point on ray to sphere center
             vec3 oc = ro - center;
@@ -430,20 +436,20 @@ void CalculateLighting(inout vec3 throughput, HitInfo hit, vec3 viewDir)
     }
 
     // Emissive
-    for(int i = 0; i < u_spherePositions.length(); i++) {
-        if(u_sphereMaterials[i].emissive == vec3(0.0)) continue;
+    for(int i = 0; i < u_spheres.length(); i++) {
+        if(u_spheres[i].mat.emissive == vec3(0.0)) continue;
 
-        vec3 L = normalize(u_spherePositions[i] - hit.position);
+        vec3 L = normalize(u_spheres[i].position - hit.position);
         vec3 H = normalize(V + L);
-        float distance = length(u_spherePositions[i] - hit.position);
+        float distance = length(u_spheres[i].position - hit.position);
         float attenuation = 1.0 / (distance * distance);
-        float shadow = SoftShadowSARS(hit.position, hit.normal, u_spherePositions[i], u_softShadowFactor);
+        float shadow = SoftShadowSARS(hit.position, hit.normal, u_spheres[i].position, u_softShadowFactor);
         
         float NdotL = max(dot(N, L), 0.0);
         float NdotV = max(dot(N, V), 0.0);
         float HdotV = max(dot(H, V), 0.0);
 
-        vec3 radiance = u_sphereMaterials[i].emissive * 400.0 * shadow * attenuation * NdotL;
+        vec3 radiance = u_spheres[i].mat.emissive * 400.0 * shadow * attenuation * NdotL;
 
         // Fresnel
         vec3 F = FresnelSchlick(max(dot(L, H), 0.0), F0);
@@ -486,18 +492,32 @@ void CalculateDepth(HitInfo hit) {
     }    
 }
 
-vec3 GetAmbientColor(vec3 rayDir) {
+float Clouds(vec2 uv)
+{
+    float total = 0.0;
+    float amp = 0.5;
+    float freq = 1.0;
+
+    for(int i=0; i<5; i++) {
+        total += hash(uv * freq) * amp;
+        freq *= 2.0;
+        amp *= 0.5;
+    }
+    return total;
+}
+
+vec3 GetAmbientColor(vec3 rayDir, vec2 uv) {
     float horizonMix = smoothstep(-0.3, 0.3, rayDir.y);
     vec3 skyColor = mix(
         u_ambientLight.groundColor * u_ambientLight.intensity,
         u_ambientLight.skyColor * u_ambientLight.intensity,
         horizonMix
     );
-    
-    return skyColor;
+
+    return skyColor = mix(skyColor, vec3(1.0), Clouds(uv));
 }
 
-void TraceRay(vec3 ro, vec3 rd)
+void TraceRay(vec3 ro, vec3 rd, vec2 uv)
 {
     sd = GetDefaultShadingData();
     vec3 throughput = vec3(1.0);
@@ -517,7 +537,7 @@ void TraceRay(vec3 ro, vec3 rd)
             CalculateLighting(throughput, hit, -rd);
         }
         else {
-            vec3 ambient = GetAmbientColor(rd);
+            vec3 ambient = GetAmbientColor(rd, uv);
             sd.finalColor += throughput * ambient;
             break;
         }
@@ -563,7 +583,7 @@ vec3 TraceAndVisualize(mat3 camBasis, vec2 uv)
 {
     vec3 ro = u_camera.origin;
     vec3 rd = normalize(camBasis * vec3(uv, -1.0));  
-    TraceRay(ro, rd);
+    TraceRay(ro, rd, uv);
     return GetVisualizationColor();
 }
 
@@ -610,10 +630,13 @@ void main()
 
     // Camera
     vec3 camForward = u_camera.useLookAt == true ?
-        normalize(u_camera.lookAt - u_camera.origin) : normalize(u_camera.direction);
-    mat3 camBasis = GetCameraBasis(camForward); 
+        u_camera.lookAt - u_camera.origin : u_camera.direction;
+    mat3 camBasis = GetCameraBasis(normalize(camForward)); 
     float focalScale = tan(radians(u_camera.fov) * 0.5);
     
+    // Auto cam rotation
+
+
     if(u_SSAA > 1) {
         color = SampleWithSSAA(camBasis, focalScale);
     } else {

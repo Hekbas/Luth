@@ -38,9 +38,14 @@ namespace Luth
     void RTShaderApp::OnUIRender()
     {
         // ImGui Demo
-        static bool showDemo = true;
+        static bool showDemo = false;
         ShaderControls();
         if (showDemo) ImGui::ShowDemoWindow(&showDemo);
+
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::Begin("Engine Dashboard");
+        ImGui::Text("App avg %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::End();
     }
 
     void RTShaderApp::OnShutdown()
@@ -105,72 +110,63 @@ namespace Luth
         floorMaterial.transparency = 0.0f;
 
         // Sphere Positions
-        Vec3 c = Vec3(0.0, 1.0, 0.0);
-        spherePositions[0] = Vec3(c.x+0.5f, c.y+0.5f, c.z+0.5f) * 3.0f;
-        spherePositions[1] = Vec3(c.x-0.5f, c.y+0.5f, c.z+0.5f) * 3.0f;
-        spherePositions[2] = Vec3(c.x-0.5f, c.y-0.5f, c.z+0.5f) * 3.0f;
-        spherePositions[3] = Vec3(c.x+0.5f, c.y-0.5f, c.z+0.5f) * 3.0f;
-        spherePositions[4] = Vec3(c.x+0.5f, c.y+0.5f, c.z-0.5f) * 3.0f;
-        spherePositions[5] = Vec3(c.x-0.5f, c.y+0.5f, c.z-0.5f) * 3.0f;
-        spherePositions[6] = Vec3(c.x-0.5f, c.y-0.5f, c.z-0.5f) * 3.0f;
-        spherePositions[7] = Vec3(c.x+0.5f, c.y-0.5f, c.z-0.5f) * 3.0f;
+        spheres[0].position = CalculatePosition(3, 0, 2.5, 2);
+        spheres[1].position = CalculatePosition(3, 1, 2.5, 2);
+        spheres[2].position = CalculatePosition(3, 2, 2.5, 2);
+        spheres[3].position = CalculatePosition(3, 3, 2.5, 5);
+        spheres[4].position = CalculatePosition(3, 4, 2.5, 5);
+        spheres[5].position = CalculatePosition(3, 5, 2.5, 5);
+
+        // Sphere Radius
+        spheres[0].r = 1.0f;
+        spheres[1].r = 0.8f;
+        spheres[2].r = 0.6f;
+        spheres[3].r = 1.2f;
+        spheres[4].r = 0.6f;
+        spheres[5].r = 0.8f;
 
         // Sphere Materials
-        sphereMaterials[0].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
-        sphereMaterials[0].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[0].roughness = 0.05;
-        sphereMaterials[0].metallic = 0.05;
-        sphereMaterials[0].ior = 1.5;
-        sphereMaterials[0].transparency = 0.0;
+        spheres[0].mat.albedo = glm::vec3(1.0f, 0.0f, 0.0f);
+        spheres[0].mat.emissive = glm::vec3(0.1f, 0.8f, 0.35f);
+        spheres[0].mat.roughness = 0.05;
+        spheres[0].mat.metallic = 0.05;
+        spheres[0].mat.ior = 1.5;
+        spheres[0].mat.transparency = 0.0;
 
-        sphereMaterials[1].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
-        sphereMaterials[1].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[1].roughness = 0.05;
-        sphereMaterials[1].metallic = 1.0;
-        sphereMaterials[1].ior = 1.5;
-        sphereMaterials[1].transparency = 0.95;
+        spheres[1].mat.albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+        spheres[1].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[1].mat.roughness = 0.05;
+        spheres[1].mat.metallic = 1.0;
+        spheres[1].mat.ior = 1.5;
+        spheres[1].mat.transparency = 0.95;
 
-        sphereMaterials[2].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
-        sphereMaterials[2].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[2].roughness = 1.0;
-        sphereMaterials[2].metallic = 0.05;
-        sphereMaterials[2].ior = 1.5;
-        sphereMaterials[2].transparency = 0.0;
+        spheres[2].mat.albedo = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[2].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[2].mat.roughness = 0.9;
+        spheres[2].mat.metallic = 0.5;
+        spheres[2].mat.ior = 1.5;
+        spheres[2].mat.transparency = 0.0;
 
-        sphereMaterials[3].albedo = glm::vec3(1.0f, 0.0f, 0.0f);
-        sphereMaterials[3].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[3].roughness = 0.05;
-        sphereMaterials[3].metallic = 0.05;
-        sphereMaterials[3].ior = 1.5;
-        sphereMaterials[3].transparency = 0.0;
+        spheres[3].mat.albedo = glm::vec3(0.87f, 0.06f, 0.06f);
+        spheres[3].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[3].mat.roughness = 0.05;
+        spheres[3].mat.metallic = 0.05;
+        spheres[3].mat.ior = 1.5;
+        spheres[3].mat.transparency = 0.0;
 
-        sphereMaterials[4].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
-        sphereMaterials[4].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[4].roughness = 0.05;
-        sphereMaterials[4].metallic = 1.0;
-        sphereMaterials[4].ior = 1.5;
-        sphereMaterials[4].transparency = 0.95;
+        spheres[4].mat.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
+        spheres[4].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[4].mat.roughness = 0.1;
+        spheres[4].mat.metallic = 1.0;
+        spheres[4].mat.ior = 1.8;
+        spheres[4].mat.transparency = 1.0;
 
-        sphereMaterials[5].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
-        sphereMaterials[5].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[5].roughness = 1.0;
-        sphereMaterials[5].metallic = 0.05;
-        sphereMaterials[5].ior = 1.5;
-        sphereMaterials[5].transparency = 0.0;
-
-        sphereMaterials[6].albedo = glm::vec3(0.0f, 1.0f, 0.0f);
-        sphereMaterials[6].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[6].roughness = 0.05;
-        sphereMaterials[6].metallic = 1.0;
-        sphereMaterials[6].ior = 1.5;
-        sphereMaterials[6].transparency = 0.95;
-
-        sphereMaterials[7].albedo = glm::vec3(0.0f, 0.0f, 1.0f);
-        sphereMaterials[7].emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        sphereMaterials[7].roughness = 1.0;
-        sphereMaterials[7].metallic = 0.05;
-        sphereMaterials[7].ior = 1.5;
-        sphereMaterials[7].transparency = 0.0;
+        spheres[5].mat.albedo = glm::vec3(0.0f, 0.0f, 1.0f);
+        spheres[5].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[5].mat.roughness = 0.035;
+        spheres[5].mat.metallic = 0.9;
+        spheres[5].mat.ior = 1.5;
+        spheres[5].mat.transparency = 0.0;
 
         // Environment Light
         ambientLight.skyColor = glm::vec3(0.0, 0.0, 0.36);
@@ -211,21 +207,25 @@ namespace Luth
         shader->SetFloat("u_floorMaterial.ior", floorMaterial.ior);
         shader->SetFloat("u_floorMaterial.transparency", floorMaterial.transparency);
 
-        // Sphere Positions + Materials
+        // Sphere Data
         for (int i = 0; i < MAX_SPHERES; i++) {
-            shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
-            shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo", sphereMaterials[i].albedo);
-            shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].emissive", sphereMaterials[i].emissive);
-            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness", sphereMaterials[i].roughness);
-            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic", sphereMaterials[i].metallic);
-            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].ior", sphereMaterials[i].ior);
-            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].transparency", sphereMaterials[i].transparency);
+            shader->SetVec3("u_spheres[" + std::to_string(i) + "].position", spheres[i].position);
+            shader->SetFloat("u_spheres[" + std::to_string(i) + "].r", spheres[i].r);
+            shader->SetVec3("u_spheres[" + std::to_string(i) + "].mat.albedo", spheres[i].mat.albedo);
+            shader->SetVec3("u_spheres[" + std::to_string(i) + "].mat.emissive", spheres[i].mat.emissive);
+            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.roughness", spheres[i].mat.roughness);
+            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.metallic", spheres[i].mat.metallic);
+            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.ior", spheres[i].mat.ior);
+            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.transparency", spheres[i].mat.transparency);
         }
 
         // Environment Light
         shader->SetVec3("u_ambientLight.skyColor", ambientLight.skyColor);
         shader->SetVec3("u_ambientLight.groundColor", ambientLight.groundColor);
         shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
+
+        // Environment Clouds
+        // TODO add cloud controls
 
         // Environment Fog
         shader->SetBool("u_fog.enabled", fog.enabled);
@@ -379,32 +379,36 @@ namespace Luth
                 // Sphere controls
                 for (int i = 0; i < MAX_SPHERES; i++) {
                     if (ImGui::TreeNode(("Sphere " + std::to_string(i)).c_str())) {
-                        if (ImGui::SliderFloat3("Position", &spherePositions[i].x, -5.0f, 5.0f)) {
-                            shader->SetVec3("u_spherePositions[" + std::to_string(i) + "]", spherePositions[i]);
+                        if (ImGui::SliderFloat3("Position", &spheres[i].position.x, -5.0f, 5.0f)) {
+                            shader->SetVec3("u_spheres[" + std::to_string(i) + "].position", spheres[i].position);
                         }
-                        if (ImGui::ColorEdit3("Albedo", &sphereMaterials[i].albedo.x)) {
-                            shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].albedo",
-                                sphereMaterials[i].albedo);
+                        if (ImGui::SliderFloat("Radius", &spheres[i].r, 0.1f, 2.0f)) {
+                            shader->SetFloat("u_spheres[" + std::to_string(i) + "].r",
+                                spheres[i].r);
                         }
-                        if (ImGui::ColorEdit3("Emissive", &sphereMaterials[i].emissive.x)) {
-                            shader->SetVec3("u_sphereMaterials[" + std::to_string(i) + "].emissive",
-                                sphereMaterials[i].emissive);
+                        if (ImGui::ColorEdit3("Albedo", &spheres[i].mat.albedo.x)) {
+                            shader->SetVec3("u_spheres[" + std::to_string(i) + "].mat.albedo",
+                                spheres[i].mat.albedo);
                         }
-                        if (ImGui::SliderFloat("Roughness", &sphereMaterials[i].roughness, 0.0f, 1.0f)) {
-                            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].roughness",
-                                sphereMaterials[i].roughness);
+                        if (ImGui::ColorEdit3("Emissive", &spheres[i].mat.emissive.x)) {
+                            shader->SetVec3("u_spheres[" + std::to_string(i) + "].mat.emissive",
+                                spheres[i].mat.emissive);
                         }
-                        if (ImGui::SliderFloat("Metallic", &sphereMaterials[i].metallic, 0.0f, 1.0f)) {
-                            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].metallic",
-                                sphereMaterials[i].metallic);
+                        if (ImGui::SliderFloat("Roughness", &spheres[i].mat.roughness, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.roughness",
+                                spheres[i].mat.roughness);
                         }
-                        if (ImGui::SliderFloat("IOR", &sphereMaterials[i].ior, 0.0f, 5.0f)) {
-                            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].ior",
-                                sphereMaterials[i].ior);
+                        if (ImGui::SliderFloat("Metallic", &spheres[i].mat.metallic, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.metallic",
+                                spheres[i].mat.metallic);
                         }
-                        if (ImGui::SliderFloat("Transparency", &sphereMaterials[i].transparency, 0.0f, 1.0f)) {
-                            shader->SetFloat("u_sphereMaterials[" + std::to_string(i) + "].transparency",
-                                sphereMaterials[i].transparency);
+                        if (ImGui::SliderFloat("IOR", &spheres[i].mat.ior, 0.0f, 5.0f)) {
+                            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.ior",
+                                spheres[i].mat.ior);
+                        }
+                        if (ImGui::SliderFloat("Transparency", &spheres[i].mat.transparency, 0.0f, 1.0f)) {
+                            shader->SetFloat("u_spheres[" + std::to_string(i) + "].mat.transparency",
+                                spheres[i].mat.transparency);
                         }
                         ImGui::TreePop();
                     }
