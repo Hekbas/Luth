@@ -96,11 +96,11 @@ namespace Luth
     void RTShaderApp::SetVariables()
     {
         // Camera
-        camera.origin = glm::vec3(0.0, 5.6, 6.0);
-        camera.direction = glm::vec3(0.0, 15.5, 34.0);
-        camera.lookAt = glm::vec3(0.0, 0.0, 0.0);
+        camera.position = glm::vec3(0.0, 5.0, 6.0);
+        camera.rotation = glm::vec3(0.0, 15.5, 34.0);
+        camera.target = glm::vec3(0.0, 0.0, 0.0);
         camera.fov = 110.0f;
-        camera.useLookAt = false;
+        camera.useTarget = false;
 
         // Floor
         floorMaterial.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -110,61 +110,61 @@ namespace Luth
         floorMaterial.transparency = 0.0f;
 
         // Sphere Positions
-        spheres[0].position = CalculatePosition(3, 0, 2.5, 2);
-        spheres[1].position = CalculatePosition(3, 1, 2.5, 2);
-        spheres[2].position = CalculatePosition(3, 2, 2.5, 2);
+        spheres[0].position = CalculatePosition(6, 1, 2.5, 2);
+        spheres[1].position = CalculatePosition(6, 3, 2.5, 2);
+        spheres[2].position = CalculatePosition(6, 5, 2.5, 2);
         spheres[3].position = CalculatePosition(3, 3, 2.5, 5);
         spheres[4].position = CalculatePosition(3, 4, 2.5, 5);
         spheres[5].position = CalculatePosition(3, 5, 2.5, 5);
 
         // Sphere Radius
         spheres[0].r = 1.0f;
-        spheres[1].r = 0.8f;
-        spheres[2].r = 0.6f;
+        spheres[1].r = 1.25f;
+        spheres[2].r = 0.8f;
         spheres[3].r = 1.2f;
-        spheres[4].r = 0.6f;
+        spheres[4].r = 0.9f;
         spheres[5].r = 0.8f;
 
         // Sphere Materials
-        spheres[0].mat.albedo = glm::vec3(1.0f, 0.0f, 0.0f);
-        spheres[0].mat.emissive = glm::vec3(0.1f, 0.8f, 0.35f);
-        spheres[0].mat.roughness = 0.05;
-        spheres[0].mat.metallic = 0.05;
+        spheres[0].mat.albedo = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[0].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[0].mat.roughness = 0.9;
+        spheres[0].mat.metallic = 0.5;
         spheres[0].mat.ior = 1.5;
         spheres[0].mat.transparency = 0.0;
 
-        spheres[1].mat.albedo = glm::vec3(0.0f, 1.0f, 0.0f);
+        spheres[1].mat.albedo = glm::vec3(0.0f, 0.0f, 1.0f);
         spheres[1].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        spheres[1].mat.roughness = 0.05;
-        spheres[1].mat.metallic = 1.0;
+        spheres[1].mat.roughness = 0.035;
+        spheres[1].mat.metallic = 0.9;
         spheres[1].mat.ior = 1.5;
-        spheres[1].mat.transparency = 0.95;
+        spheres[1].mat.transparency = 0.0;
 
-        spheres[2].mat.albedo = glm::vec3(0.0f, 0.0f, 0.0f);
+        spheres[2].mat.albedo = glm::vec3(0.87f, 0.06f, 0.06f);
         spheres[2].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        spheres[2].mat.roughness = 0.9;
-        spheres[2].mat.metallic = 0.5;
+        spheres[2].mat.roughness = 0.05;
+        spheres[2].mat.metallic = 0.05;
         spheres[2].mat.ior = 1.5;
         spheres[2].mat.transparency = 0.0;
 
-        spheres[3].mat.albedo = glm::vec3(0.87f, 0.06f, 0.06f);
+        spheres[3].mat.albedo = glm::vec3(0.0f, 1.0f, 0.0f);
         spheres[3].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
         spheres[3].mat.roughness = 0.05;
-        spheres[3].mat.metallic = 0.05;
+        spheres[3].mat.metallic = 1.0;
         spheres[3].mat.ior = 1.5;
-        spheres[3].mat.transparency = 0.0;
+        spheres[3].mat.transparency = 0.95;
 
         spheres[4].mat.albedo = glm::vec3(1.0f, 1.0f, 1.0f);
         spheres[4].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        spheres[4].mat.roughness = 0.1;
-        spheres[4].mat.metallic = 1.0;
-        spheres[4].mat.ior = 1.8;
+        spheres[4].mat.roughness = 0.05;
+        spheres[4].mat.metallic = 0.8;
+        spheres[4].mat.ior = 0.98;
         spheres[4].mat.transparency = 1.0;
 
-        spheres[5].mat.albedo = glm::vec3(0.0f, 0.0f, 1.0f);
-        spheres[5].mat.emissive = glm::vec3(0.0f, 0.0f, 0.0f);
-        spheres[5].mat.roughness = 0.035;
-        spheres[5].mat.metallic = 0.9;
+        spheres[5].mat.albedo = glm::vec3(1.0f, 0.0f, 0.0f);
+        spheres[5].mat.emissive = glm::vec3(0.1f, 0.8f, 0.35f);
+        spheres[5].mat.roughness = 0.05;
+        spheres[5].mat.metallic = 0.05;
         spheres[5].mat.ior = 1.5;
         spheres[5].mat.transparency = 0.0;
 
@@ -179,6 +179,12 @@ namespace Luth
         fog.density = 1.0;
         fog.start = 5.0;
         fog.end = 50.0;
+
+        // Environment Cloud
+        cloud.color = Vec3(0.75, 0.75, 0.75);
+        cloud.density = 1.0;
+        cloud.scale = 4.0;
+        cloud.speed = 0.15;
 
         // Point Lights
         for (size_t i = 0; i < MAX_LIGHTS; i++)
@@ -195,9 +201,9 @@ namespace Luth
         shader->SetInt("u_displayMode", displayMode);
 
         // Camera
-        shader->SetVec3("u_camera.origin", camera.origin);
-        shader->SetVec3("u_camera.direction", camera.direction);
-        shader->SetVec3("u_camera.lookAt", camera.lookAt);
+        shader->SetVec3("u_camera.position", camera.position);
+        shader->SetVec3("u_camera.rotation", camera.rotation);
+        shader->SetVec3("u_camera.target", camera.target);
         shader->SetFloat("u_camera.fov", camera.fov);
 
         // Floor Material
@@ -225,7 +231,10 @@ namespace Luth
         shader->SetFloat("u_ambientLight.intensity", ambientLight.intensity);
 
         // Environment Clouds
-        // TODO add cloud controls
+        shader->SetVec3("u_cloud.color", cloud.color);
+        shader->SetFloat("u_cloud.density", cloud.density);
+        shader->SetFloat("u_cloud.scale", cloud.scale);
+        shader->SetFloat("u_cloud.speed", cloud.speed);
 
         // Environment Fog
         shader->SetBool("u_fog.enabled", fog.enabled);
@@ -338,20 +347,20 @@ namespace Luth
             {
                 // Camera
                 if (ImGui::TreeNode("Camera")) {
-                    if (ImGui::SliderFloat3("Position", &camera.origin.x, -10.0f, 10.0f)) {
-                        shader->SetVec3("u_camera.origin", camera.origin);
+                    if (ImGui::SliderFloat3("Position", &camera.position.x, -10.0f, 10.0f)) {
+                        shader->SetVec3("u_camera.position", camera.position);
                     }
-                    if (ImGui::SliderFloat3("Direction", &camera.direction.x, -50.0f, 50.0f)) {
-                        shader->SetVec3("u_camera.direction", camera.direction);
+                    if (ImGui::SliderFloat3("Direction", &camera.rotation.x, -50.0f, 50.0f)) {
+                        shader->SetVec3("u_camera.rotation", camera.rotation);
                     }
-                    if (ImGui::SliderFloat3("Look At", &camera.lookAt.x, -50.0f, 50.0f)) {
-                        shader->SetVec3("u_camera.lookAt", camera.lookAt);
+                    if (ImGui::SliderFloat3("Look At", &camera.target.x, -50.0f, 50.0f)) {
+                        shader->SetVec3("u_camera.target", camera.target);
                     }
                     if (ImGui::SliderFloat("FOV", &camera.fov, 10.0f, 140.0f)) {
                         shader->SetFloat("u_camera.fov", camera.fov);
                     }
-                    if (ImGui::Checkbox("Use LookAt", &camera.useLookAt)) {
-                        shader->SetInt("u_camera.useLookAt", camera.useLookAt ? 1 : 0);
+                    if (ImGui::Checkbox("Use LookAt", &camera.useTarget)) {
+                        shader->SetInt("u_camera.useTarget", camera.useTarget ? 1 : 0);
                     }
                     ImGui::TreePop();
                 }
@@ -453,6 +462,24 @@ namespace Luth
                     }
                     ImGui::TreePop();
                 }
+
+                // Cloud
+                if (ImGui::TreeNode("Cloud"))
+                {
+                    if (ImGui::ColorEdit3("Color", &cloud.color.x)) {
+                        shader->SetVec3("u_cloud.color", cloud.color);
+                    }
+                    if (ImGui::SliderFloat("Density", &cloud.density, 0.0f, 5.0f)) {
+                        shader->SetFloat("u_cloud.density", cloud.density);
+                    }
+                    if (ImGui::SliderFloat("Scale", &cloud.scale, 0.0f, 10.0f)) {
+                        shader->SetFloat("u_cloud.scale", cloud.scale);
+                    }
+                    if (ImGui::SliderFloat("Speed", &cloud.speed, -5.0f, 5.0f)) {
+                        shader->SetFloat("u_cloud.speed", cloud.speed);
+                    }
+                    ImGui::TreePop();
+                }
             }
 
             // 4. Point Lights
@@ -499,17 +526,24 @@ namespace Luth
             // 6. Post-Processing
             if (ImGui::CollapsingHeader("Post-Processing", nodeFlags))
             {
-                if (ImGui::Checkbox("Tonemapping", &applyTonemap)) {
-                    shader->SetInt("u_applyTonemapping", applyTonemap ? 1 : 0);
-                }
-                if (ImGui::Checkbox("Gamma Correction", &applyGamma)) {
-                    shader->SetInt("u_applyGamma", applyGamma ? 1 : 0);
-                }
+                // Tonemapping row
+                ImGui::Checkbox("##Tonemapping", &applyTonemap);
+                ImGui::SameLine();
                 if (ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f)) {
                     shader->SetFloat("u_exposure", exposure);
                 }
-                if (ImGui::SliderFloat("Gamma Value", &gammaValue, 1.0f, 3.0f)) {
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    shader->SetInt("u_applyTonemapping", applyTonemap ? 1 : 0);
+                }
+
+                // Gamma row
+                ImGui::Checkbox("##Gamma Correction", &applyGamma);
+                ImGui::SameLine();
+                if (ImGui::SliderFloat("Gamma", &gammaValue, 1.0f, 3.0f)) {
                     shader->SetFloat("u_gamma", gammaValue);
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    shader->SetInt("u_applyGamma", applyGamma ? 1 : 0);
                 }
             }
         }

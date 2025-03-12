@@ -42,22 +42,22 @@ uniform float u_gamma;
 #define EPSILON 0.001
 
 struct Camera {
-    vec3 origin;
-    vec3 direction;
-    vec3 lookAt;
+    vec3 position;
+    vec3 rotation;
+    vec3 target;
     float fov;
-    bool useLookAt;
-};
-
-struct AmbientLight {
-    vec3 skyColor;
-    vec3 groundColor;
-    float intensity;
+    bool useTarget;
 };
 
 struct PointLight {
     vec3 position;
     vec3 color;
+    float intensity;
+};
+
+struct AmbientLight {
+    vec3 skyColor;
+    vec3 groundColor;
     float intensity;
 };
 
@@ -67,6 +67,13 @@ struct Fog {
     float density;
     float start;
     float end;
+};
+
+struct Cloud {
+    vec3 color;
+    float density;
+    float speed;
+    float scale;
 };
 
 struct Material {
@@ -129,6 +136,7 @@ uniform AmbientLight u_ambientLight;
 uniform PointLight u_pointLights[MAX_LIGHTS];
 uniform int u_numPointLights;
 uniform Fog u_fog;
+uniform Cloud u_cloud;
 uniform Material u_floorMaterial;
 uniform Sphere u_spheres[MAX_SPHERES];
 
@@ -154,9 +162,34 @@ float hash(float v) {
 float hash(vec2 v) {
     return fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
 }
+float hash(vec3 p) {
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
 float getSeed(int v) {
     vec2 fragCoord = gl_FragCoord.xy * (float(v + 1) * 0.618);
     return hash(fragCoord + u_time);
+}
+float CloudNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f*f*(3.0-2.0*f); // Smoothstep
+    
+    // Front face (z=0)
+    float frontZ0 = mix(
+        mix(hash(i+vec3(0,0,0)), hash(i+vec3(1,0,0)), f.x),
+        mix(hash(i+vec3(0,1,0)), hash(i+vec3(1,1,0)), f.x),
+        f.y
+    );
+    
+    // Back face (z=1)
+    float backZ1 = mix(
+        mix(hash(i+vec3(0,0,1)), hash(i+vec3(1,0,1)), f.x),
+        mix(hash(i+vec3(0,1,1)), hash(i+vec3(1,1,1)), f.x),
+        f.y
+    );
+    
+    // Interpolate between front and back faces
+    return mix(frontZ0, backZ1, f.z);
 }
 
 float SphereIntersect(vec3 ro, vec3 rd, vec3 center, float radius)
@@ -484,7 +517,7 @@ void GetSurfaceData(HitInfo hit, vec3 rd) {
 
 void CalculateDepth(HitInfo hit) {
     if(hit.hit) {
-        float distance = length(sd.worldPos - u_camera.origin);
+        float distance = length(sd.worldPos - u_camera.position);
         float distRatio = 4.0 * distance / u_fog.end;
         sd.depth = 1 - exp(-distRatio*u_fog.density * distRatio*u_fog.density);
     } else {
@@ -492,21 +525,20 @@ void CalculateDepth(HitInfo hit) {
     }    
 }
 
-float Clouds(vec2 uv)
-{
-    float total = 0.0;
-    float amp = 0.5;
-    float freq = 1.0;
-
-    for(int i=0; i<5; i++) {
-        total += hash(uv * freq) * amp;
-        freq *= 2.0;
-        amp *= 0.5;
+float fbm(vec3 p, int octaves) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+    
+    for(int i = 0; i < octaves; i++) {
+        value += amplitude * CloudNoise(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
     }
-    return total;
+    return value;
 }
 
-vec3 GetAmbientColor(vec3 rayDir, vec2 uv) {
+vec3 GetAmbientColor(vec3 rayDir) {
     float horizonMix = smoothstep(-0.3, 0.3, rayDir.y);
     vec3 skyColor = mix(
         u_ambientLight.groundColor * u_ambientLight.intensity,
@@ -514,10 +546,29 @@ vec3 GetAmbientColor(vec3 rayDir, vec2 uv) {
         horizonMix
     );
 
-    return skyColor = mix(skyColor, vec3(1.0), Clouds(uv));
+    // Cloud parameters
+    float cloudTime = u_time * u_cloud.speed;
+    vec3 cloudPos = rayDir * u_cloud.scale + vec3(cloudTime, 0, cloudTime*0.5);
+    
+    // Generate cloud pattern
+    float cloudPattern = fbm(cloudPos, 3);
+    cloudPattern = smoothstep(0.4, 0.6, cloudPattern);
+    
+    // Add turbulence
+    vec3 turbPos = cloudPos + vec3(cloudTime*0.2, cloudTime*0.1, 0);
+    float turbulence = fbm(turbPos * 2.0, 2);
+    cloudPattern *= mix(0.8, 1.2, turbulence);
+    
+    // Horizon fade and density control
+    float cloudFactor = cloudPattern * u_cloud.density * horizonMix;
+    cloudFactor = clamp(cloudFactor, 0.0, 1.0);
+    
+    // Final cloud color
+    vec3 cloudColor = mix(skyColor, u_cloud.color, 0.8);
+    return mix(skyColor, cloudColor, cloudFactor);
 }
 
-void TraceRay(vec3 ro, vec3 rd, vec2 uv)
+void TraceRay(vec3 ro, vec3 rd)
 {
     sd = GetDefaultShadingData();
     vec3 throughput = vec3(1.0);
@@ -537,7 +588,7 @@ void TraceRay(vec3 ro, vec3 rd, vec2 uv)
             CalculateLighting(throughput, hit, -rd);
         }
         else {
-            vec3 ambient = GetAmbientColor(rd, uv);
+            vec3 ambient = GetAmbientColor(rd);
             sd.finalColor += throughput * ambient;
             break;
         }
@@ -579,16 +630,13 @@ vec3 GetVisualizationColor()
     }
 }
 
-vec3 TraceAndVisualize(mat3 camBasis, vec2 uv)
-{
-    vec3 ro = u_camera.origin;
-    vec3 rd = normalize(camBasis * vec3(uv, -1.0));  
-    TraceRay(ro, rd, uv);
+vec3 TraceAndVisualize(mat3 camBasis, vec2 uv, vec3 ro) {
+    vec3 rd = normalize(camBasis * vec3(uv, -1.0));
+    TraceRay(ro, rd);
     return GetVisualizationColor();
 }
 
-vec3 SampleWithSSAA(mat3 camBasis, float focalScale)
-{
+vec3 SampleWithSSAA(mat3 camBasis, float focalScale, vec3 ro) {
     vec3 color = vec3(0);
     const int AA = u_SSAA;
     
@@ -597,7 +645,7 @@ vec3 SampleWithSSAA(mat3 camBasis, float focalScale)
             vec2 offset = vec2(x, y) / float(AA) - 0.5;
             vec2 uv = (v_TexCoord - 0.5 + offset/u_resolution) * 
                      vec2(u_resolution.x/u_resolution.y, 1.0) * focalScale;
-            color += TraceAndVisualize(camBasis, uv);
+            color += TraceAndVisualize(camBasis, uv, ro);
         }
     }
     return color / float(AA*AA);
@@ -616,33 +664,37 @@ vec3 PostProcessing(vec3 color)
     return color;
 }
 
-mat3 GetCameraBasis(vec3 forward) {
-    vec3 worldUp = vec3(0.0, 1.0, 0.0);
-    vec3 right = normalize(cross(forward, worldUp));
-    vec3 up = normalize(cross(right, forward));
-    return mat3(right, up, forward);
+mat3 GetCameraBasis(vec3 cameraPos) {
+    vec3 forward = normalize(vec3(0.0, 3.0, 0.0) - cameraPos);
+    vec3 right = normalize(cross(forward, vec3(0.0, 1.0, 0.0)));
+    vec3 realUp = normalize(cross(right, forward));
+    return mat3(right, realUp, forward);
 }
 
 void main()
 {
-    vec3 color;
-    float aspectRatio = u_resolution.x / u_resolution.y;
-
-    // Camera
-    vec3 camForward = u_camera.useLookAt == true ?
-        u_camera.lookAt - u_camera.origin : u_camera.direction;
-    mat3 camBasis = GetCameraBasis(normalize(camForward)); 
-    float focalScale = tan(radians(u_camera.fov) * 0.5);
+    // Camera animation parameters
+    float orbitRadius = 6.0;
+    float orbitHeight = 6.5;
+    float orbitSpeed = 0.25;
     
-    // Auto cam rotation
+    // Calculate orbital position
+    float angle = u_time * orbitSpeed;
+    //vec3 orbitCenter = vec3(0.0, orbitHeight, 0.0); // Or use u_camera.target
+    
+    vec3 cameraPos = vec3(orbitRadius * cos(angle), orbitHeight, orbitRadius * sin(angle));
 
+    // Build camera basis
+    mat3 camBasis = GetCameraBasis(cameraPos);
+    
+    // Calculate ray directions
+    vec2 uv = (v_TexCoord - 0.5) * vec2(u_resolution.x/u_resolution.y, 1.0);
+    uv *= tan(radians(u_camera.fov * 0.5));
+    vec3 rayDir = normalize(camBasis * vec3(uv, 1.0));
 
-    if(u_SSAA > 1) {
-        color = SampleWithSSAA(camBasis, focalScale);
-    } else {
-        vec2 uv = (v_TexCoord - 0.5) * vec2(aspectRatio, 1.0) * focalScale;
-        color = TraceAndVisualize(camBasis, uv);
-    }
+    // Trace the ray
+    TraceRay(cameraPos, rayDir);
+    vec3 color = GetVisualizationColor();
     
     FragColor = vec4(PostProcessing(color), 1.0);
 }

@@ -43,11 +43,17 @@ namespace Luth
         #define MAX_SPHERES 6
 
         struct Camera {
-            Vec3 origin;
-            Vec3 direction;
-            Vec3 lookAt;
+            Vec3 position;
+            Vec3 rotation;
+            Vec3 target;
             float fov;
-            bool useLookAt;
+            bool useTarget;
+        };
+
+        struct PointLight {
+            Vec3 position;
+            Vec3 color;
+            float intensity;
         };
 
         struct AmbientLight {
@@ -56,18 +62,19 @@ namespace Luth
             float intensity;
         };
 
-        struct PointLight {
-            Vec3 position;
-            Vec3 color;
-            float intensity;
-        };
-        
         struct Fog {
             bool enabled;
             Vec3 color;
             float density;
             float start;
             float end;
+        };
+
+        struct Cloud {
+            Vec3 color;
+            float density;
+            float speed;
+            float scale;
         };
 
         struct Material {
@@ -91,19 +98,20 @@ namespace Luth
         PointLight pointLights[MAX_LIGHTS];
         int numActiveLights = 1;
         Fog fog;
+        Cloud cloud;
         Material floorMaterial;
         Sphere spheres[MAX_SPHERES];
 
         // Rendering
         int ssaaSamples = 4;
-        int maxBounces = 3;
+        int maxBounces = 5;
         float softShadowFactor = 0.2f;
 
         // Post-processing
         bool applyTonemap = false;
         bool applyGamma = true;
         float exposure = 1.0f;
-        float gammaValue = 1.8f;
+        float gammaValue = 1.6f;
         // ===============================================
 
         void InitScreenQuad();
