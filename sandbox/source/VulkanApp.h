@@ -9,8 +9,10 @@
 #include <luth/resources/ResourceManager.h>
 
 #include <luth/renderer/Renderer.h>
-#include <luth/renderer/vulkan/VKRendererAPI.h>
+#include <luth/renderer/Buffer.h>
 #include <luth/renderer/Shader.h>
+#include <luth/renderer/vulkan/VKRendererAPI.h>
+#include <luth/renderer/vulkan/VKBuffer.h>
 #include <memory>
 
 // TEST VULKAN
@@ -20,6 +22,11 @@
 
 namespace Luth
 {
+    struct Vertex {
+        glm::vec2 pos;
+        glm::vec3 color;
+    };
+
     class VulkanApp : public App
     {
     public:

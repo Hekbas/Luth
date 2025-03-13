@@ -1,5 +1,6 @@
 #include "Luthpch.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/Buffer.h"
 #include "luth/renderer/vulkan/VKRendererAPI.h"
 #include "luth/renderer/vulkan/VKCommon.h"
 #include "luth/renderer/vulkan/VKSwapchain.h"
@@ -103,6 +104,11 @@ namespace Luth
 
     void VKRendererAPI::Clear() {}
 
+    void VKRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh)
+    {
+        m_CurrentMesh = std::dynamic_pointer_cast<VKMesh>(mesh);
+    }
+
     void VKRendererAPI::DrawIndexed(u32 count) {}
 
     void VKRendererAPI::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -126,7 +132,27 @@ namespace Luth
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline->GetHandle());
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0); // Draw triangle
+
+        if (m_CurrentMesh) {
+            auto vkMesh = std::static_pointer_cast<VKMesh>(m_CurrentMesh);
+
+            // Bind vertex buffer
+            VkBuffer vertexBuffers[] = { vkMesh->GetVertexBuffer() };
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+            // Draw command
+            if (vkMesh->GetIndexCount() > 0) {
+                vkCmdBindIndexBuffer(commandBuffer, vkMesh->GetIndexBuffer(),
+                    0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(commandBuffer, vkMesh->GetIndexCount(), 1, 0, 0, 0);
+            }
+            else {
+                vkCmdDraw(commandBuffer, vkMesh->GetVertexCount(), 1, 0, 0);
+            }
+        }
+
+        //vkCmdDraw(commandBuffer, 3, 1, 0, 0); // Draw triangle
         vkCmdEndRenderPass(commandBuffer);
 
         VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer),
@@ -329,13 +355,23 @@ namespace Luth
             m_GraphicsPipeline.reset();
         }
 
+        // Vertex layout expected by the shader
+        BufferLayout vertexLayout = {
+            { ShaderDataType::Float2, "inPosition" },
+            { ShaderDataType::Float3, "inColor" }
+        };
+        
         VkExtent2D swapchainExtent = m_Swapchain->GetExtent();
         VkRenderPass renderPass = m_RenderPass->GetHandle();
+        auto bindingDesc = vertexLayout.GetBindingDescriptions();
+        auto attributeDesc = vertexLayout.GetAttributeDescriptions();
 
         m_GraphicsPipeline = std::make_unique<VKGraphicsPipeline>(
             m_LogicalDevice->GetHandle(),
             swapchainExtent,
-            renderPass
+            renderPass,
+            bindingDesc,
+            attributeDesc
         );
 
         LH_CORE_INFO("Created Vulkan graphics pipeline with extent: {0}x{1}",

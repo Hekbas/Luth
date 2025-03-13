@@ -10,6 +10,7 @@
 #include "luth/renderer/vulkan/VKFramebuffer.h"
 #include "luth/renderer/vulkan/VKCommandPool.h"
 #include "luth/renderer/vulkan/VKSync.h"
+#include "luth/renderer/vulkan/VKMesh.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -33,11 +34,18 @@ namespace Luth
         //void EnableBlending(bool enable) override;
         //void SetBlendFunction(u32 srcFactor, u32 dstFactor) override;
 
+        virtual void SubmitMesh(const std::shared_ptr<Mesh>& mesh) override;
+
         virtual void DrawIndexed(u32 count) override;
         virtual void DrawFrame() override;
 
-        // Temporary for debugging
         VkInstance GetInstance() const { return m_Instance; }
+        VkSurfaceKHR GetSurface() const { return m_Surface; }
+
+        const VKLogicalDevice& GetLogicalDevice() const { return *m_LogicalDevice; }
+        const VKPhysicalDevice& GetPhysicalDevice() const { return *m_PhysicalDevice; }
+        const VKSwapchain& GetSwapchain() const { return *m_Swapchain; }
+        const VKCommandPool& GetCommandPool() const { return *m_CommandPool; }
 
     private:
         // Core Vulkan components
@@ -78,6 +86,7 @@ namespace Luth
         std::unique_ptr<VKCommandPool> m_CommandPool;
         std::vector<VkCommandBuffer> m_CommandBuffers;
         std::unique_ptr<VKSync> m_Sync;
+        std::shared_ptr<VKMesh> m_CurrentMesh;
 
         // Configuration
         const std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };

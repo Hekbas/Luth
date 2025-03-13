@@ -13,10 +13,9 @@ namespace Luth
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, queueFamilies.data());
 
-        int i = 0;
-        for (const auto& queueFamily : queueFamilies) {
+        for (uint32_t i = 0; i < queueFamilies.size(); i++) {
             // Graphics queue
-            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
 
@@ -27,8 +26,17 @@ namespace Luth
                 indices.presentFamily = i;
             }
 
-            if (indices.IsComplete()) break;
-            i++;
+            // Dedicated transfer queue (not graphics/compute)
+            if ((queueFamilies[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+                !(queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+                !(queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT)) {
+                indices.transferFamily = i;
+            }
+        }
+
+        // Fallback to graphics queue if no dedicated transfer
+        if (!indices.transferFamily.has_value()) {
+            indices.transferFamily = indices.graphicsFamily;
         }
 
         LH_CORE_ASSERT(indices.IsComplete(), "Failed to find suitable queue families!");
@@ -125,13 +133,15 @@ namespace Luth
 
     VKLogicalDevice::VKLogicalDevice(VkPhysicalDevice physicalDevice,
         const QueueFamilyIndices& queueIndices,
-        const std::vector<const char*>& extensions)
+        const std::vector<const char*>& extensions) 
+        : m_QueueIndices(queueIndices)
     {
         // Queue create info
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         std::set<uint32_t> uniqueQueueFamilies = {
             queueIndices.graphicsFamily.value(),
-            queueIndices.presentFamily.value()
+            queueIndices.presentFamily.value(),
+            queueIndices.transferFamily.value()
         };
 
         const float queuePriority = 1.0f;
@@ -161,6 +171,7 @@ namespace Luth
 
         vkGetDeviceQueue(m_Device, queueIndices.graphicsFamily.value(), 0, &m_GraphicsQueue);
         vkGetDeviceQueue(m_Device, queueIndices.presentFamily.value(), 0, &m_PresentQueue);
+        vkGetDeviceQueue(m_Device, queueIndices.transferFamily.value(), 0, &m_TransferQueue);
     }
 
     VKLogicalDevice::~VKLogicalDevice()

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/Mesh.h"
+
+#include <memory>
 
 namespace Luth
 {
@@ -20,6 +23,8 @@ namespace Luth
         void EnableBlending(bool enable);
         void SetBlendFunction(u32 srcFactor, u32 dstFactor);
         
+        virtual void SubmitMesh(const std::shared_ptr<Mesh>& mesh) override;
+
         virtual void DrawIndexed(u32 count) override;
         virtual void DrawFrame() override;
 

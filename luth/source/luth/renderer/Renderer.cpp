@@ -9,8 +9,8 @@ namespace Luth
 
     void Renderer::Init(RendererAPI::API api, void* window)
     {
-        s_RendererAPI->SetWindow(window);
         s_RendererAPI = RendererAPI::Create(api);
+        s_RendererAPI->SetWindow(window);
         s_RendererAPI->Init();
     }
 
@@ -33,6 +33,10 @@ namespace Luth
 
     void Renderer::Clear() {
         s_RendererAPI->Clear();
+    }
+
+    void Renderer::SubmitMesh(const std::shared_ptr<Mesh>& mesh) {
+        s_RendererAPI->SubmitMesh(mesh);
     }
 
     void Renderer::DrawIndexed(uint32_t count) {
