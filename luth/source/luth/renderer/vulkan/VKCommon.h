@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/Log.h"
-#include "luth/renderer/vulkan/VKFormat.h"
+#include "luth/utils/CustomFormatters.h"
 
 #define VK_CHECK_RESULT(result, message)												\
 	do {																				\
