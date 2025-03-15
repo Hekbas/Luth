@@ -12,4 +12,5 @@
 #include <algorithm>
 
 #include "luth/core/Log.h"
+#include "luth/core/Math.h"
 #include "luth/utils/CustomFormatters.h"

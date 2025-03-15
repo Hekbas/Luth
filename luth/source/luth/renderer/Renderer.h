@@ -1,10 +1,10 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/Math.h"
 #include "luth/renderer/RendererAPI.h"
 #include "luth/renderer/Mesh.h"
 
-#include <glm/glm.hpp>
 #include <memory>
 
 

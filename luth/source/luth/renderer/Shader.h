@@ -1,8 +1,8 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/Math.h"
 
-#include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 

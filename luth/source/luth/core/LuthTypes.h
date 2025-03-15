@@ -1,8 +1,9 @@
 ﻿#pragma once
 
+#include "luth/core/Math.h"
+
 #include <cstdint>
 #include <limits>
-#include <glm/glm.hpp>
 #include <type_traits>
 #include <spdlog/fmt/ostr.h>
 
