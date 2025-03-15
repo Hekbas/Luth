@@ -10,7 +10,8 @@ namespace Luth
     public:
         VKGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass,
             const std::vector<VkVertexInputBindingDescription>& bindingDescriptions,
-            const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions);
+            const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions,
+            VkDescriptorSetLayout descriptorSetLayout);
         ~VKGraphicsPipeline();
 
         VkPipeline GetHandle() const { return m_Pipeline; }

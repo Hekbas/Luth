@@ -21,6 +21,8 @@ namespace Luth
         FrameData& GetCurrentFrame() { return m_Frames[m_CurrentFrame]; }
         void AdvanceFrame() { m_CurrentFrame = (m_CurrentFrame + 1) % m_MaxFrames; }
 
+        uint32_t GetCurrentFrameIndex() const { return m_CurrentFrame; }
+
     private:
         VkDevice m_Device;
         std::vector<FrameData> m_Frames;

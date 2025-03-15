@@ -21,6 +21,12 @@ namespace Luth
     class VKRendererAPI : public RendererAPI
     {
     public:
+        struct UniformBufferObject {
+            glm::mat4 model;
+            glm::mat4 view;
+            glm::mat4 proj;
+        };
+
         virtual void Init() override;
         virtual void Shutdown() override;
 
@@ -54,9 +60,14 @@ namespace Luth
         void CreateDevice();
         void CreateSwapchain();
         void CreateRenderPass();
+        void CreateDescriptorSetLayout();
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
         void CreateCommandPool();
+        void CreateUniformBuffers();
+        void CreateDescriptorPool();
+        void AllocateDescriptorSets();
+        void UpdateDescriptorSets();
         void CreateCommandBuffers();
         void CreateSyncObjects();
         void RecreateSwapchain();
@@ -87,6 +98,13 @@ namespace Luth
         std::vector<VkCommandBuffer> m_CommandBuffers;
         std::unique_ptr<VKSync> m_Sync;
         std::shared_ptr<VKMesh> m_CurrentMesh;
+
+        // Uniform Resources
+        VkDescriptorSetLayout m_DescriptorSetLayout;
+        VkDescriptorPool m_DescriptorPool;
+        std::vector<VkBuffer> m_UniformBuffers;
+        std::vector<VkDeviceMemory> m_UniformBuffersMemory;
+        std::vector<VkDescriptorSet> m_DescriptorSets;
 
         // Configuration
         const std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };

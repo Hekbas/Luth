@@ -25,9 +25,14 @@ namespace Luth
     void VulkanApp::OnInit()
     {
         const std::vector<Vertex> vertices = {
-            { {0.0f, -0.5f}, {1.0f, 0.0f, 0.0f} },
-            { {0.5f, 0.5f }, {0.0f, 1.0f, 0.0f} },
-            { {-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f} }
+            { {-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f} },
+            { { 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f} },
+            { { 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f} },
+            { {-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f} }
+        };
+
+        const std::vector<uint32_t> indices = {
+            0, 1, 2, 2, 3, 0
         };
 
         BufferLayout layout = {
@@ -47,8 +52,16 @@ namespace Luth
 
         vb->SetLayout(layout);
 
-        //auto ib = std::make_shared<VKIndexBuffer>(...);
-        auto mesh = std::make_shared<VKMesh>(vb/*, ib*/);
+        auto ib = std::make_shared<VKIndexBuffer>(
+            vkRenderer->GetLogicalDevice().GetHandle(),
+            vkRenderer->GetPhysicalDevice().GetHandle(),
+            indices.data(),
+            indices.size(),
+            vkRenderer->GetLogicalDevice().GetTransferQueue(),
+            vkRenderer->GetPhysicalDevice().FindQueueFamilies(vkRenderer->GetSurface()).transferFamily.value()
+        );
+
+        auto mesh = std::make_shared<VKMesh>(vb, ib);
 
         Renderer::SubmitMesh(mesh);
     }

@@ -22,10 +22,12 @@ namespace Luth
 
     VKGraphicsPipeline::VKGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass,
         const std::vector<VkVertexInputBindingDescription>& bindingDescriptions,
-        const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions)
+        const std::vector<VkVertexInputAttributeDescription>& attributeDescriptions,
+        VkDescriptorSetLayout descriptorSetLayout)
         : m_Device(device)
     {
         // 1. Load shader code
+        // TODO: Remove hardcoded absolute path
         auto vertCode = ReadFile("C:/Users/Hekbas/CITM/5_TFG/Luth/sandbox/assets/shaders/bin/vert.spv");
         auto fragCode = ReadFile("C:/Users/Hekbas/CITM/5_TFG/Luth/sandbox/assets/shaders/bin/frag.spv");
 
@@ -118,8 +120,8 @@ namespace Luth
         // 10. Pipeline layout
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;
-        pipelineLayoutInfo.pSetLayouts = nullptr;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
         pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
