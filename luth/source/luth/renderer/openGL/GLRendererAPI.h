@@ -2,6 +2,7 @@
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Mesh.h"
+#include "luth/renderer/openGL/GLMesh.h"
 
 #include <memory>
 
@@ -34,5 +35,7 @@ namespace Luth
         bool m_DepthTestEnabled = true;
         bool m_BlendingEnabled = true;
         glm::vec4 m_ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f };
+
+        std::shared_ptr<GLMesh> m_CurrentMesh;
     };
 }

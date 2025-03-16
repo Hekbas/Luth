@@ -21,7 +21,6 @@ namespace Luth
         EnableBlending(true);
         SetBlendFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // TODO: Look into fmt GLubyte*
         LH_CORE_INFO("OpenGL Renderer initialized");
         LH_CORE_INFO(" - Vendor: {0}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
         LH_CORE_INFO(" - Renderer: {0}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
@@ -30,7 +29,11 @@ namespace Luth
 
     void GLRendererAPI::Shutdown()
     {
-        // Cleanup OpenGL-specific resources
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+        m_CurrentMesh.reset();
     }
 
     void GLRendererAPI::SetClearColor(const glm::vec4& color)
@@ -72,7 +75,13 @@ namespace Luth
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh) {}
+    void GLRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh)
+    {
+        m_CurrentMesh = std::dynamic_pointer_cast<GLMesh>(mesh);
+        if (!m_CurrentMesh) {
+            LH_CORE_WARN("GLRendererAPI::SubmitMesh - Invalid mesh type submitted!");
+        }
+    }
 
     void GLRendererAPI::DrawIndexed(u32 count)
     {
@@ -82,6 +91,8 @@ namespace Luth
 
     void GLRendererAPI::DrawFrame()
     {
+        m_CurrentMesh->Bind();
+        m_CurrentMesh->Draw();
     }
 
     void GLRendererAPI::CheckError(const char* file, int line)
