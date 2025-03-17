@@ -3,6 +3,7 @@
 #include "luth/core/Log.h"
 #include "luth/renderer/Mesh.h"
 #include "luth/renderer/openGL/GLBuffer.h"
+#include "luth/resources/GLTexture.h"
 
 #include <glad/glad.h>
 
@@ -12,9 +13,11 @@ namespace Luth
     {
     public:
         GLMesh(const std::shared_ptr<GLVertexBuffer>& vertexBuffer,
-            const std::shared_ptr<GLIndexBuffer>& indexBuffer)
+            const std::shared_ptr<GLIndexBuffer>& indexBuffer,
+            const std::shared_ptr<GLTexture>& texture)
             : m_VertexBuffer(vertexBuffer),
-            m_IndexBuffer(indexBuffer)
+            m_IndexBuffer(indexBuffer),
+            m_Texture(texture)
         {
             CreateVAO();
         }
@@ -24,8 +27,14 @@ namespace Luth
         }
 
         void Draw() const override {
-            Bind();
-            glDrawElements(GL_TRIANGLES, m_IndexBuffer->GetCount(), GL_UNSIGNED_INT, 0);
+            if (m_Texture) m_Texture->Bind(0);
+            glBindVertexArray(m_VAO);
+            if (m_IndexBuffer) {
+                glDrawElements(GL_TRIANGLES, m_IndexBuffer->GetCount(), GL_UNSIGNED_INT, nullptr);
+            }
+            else {
+                //glDrawArrays(GL_TRIANGLES, 0, m_VertexBuffer->GetVertexCount());
+            }
         }
 
     private:
@@ -82,5 +91,6 @@ namespace Luth
         GLuint m_VAO;
         std::shared_ptr<GLVertexBuffer> m_VertexBuffer;
         std::shared_ptr<GLIndexBuffer> m_IndexBuffer;
+        std::shared_ptr<GLTexture> m_Texture;
     };
 }

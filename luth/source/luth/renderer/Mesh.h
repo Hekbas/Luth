@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/renderer/Buffer.h"
+#include "luth/resources/Texture.h"
 
 #include <memory>
 
@@ -15,7 +16,8 @@ namespace Luth
 
         static std::shared_ptr<Mesh> Create(
             const std::shared_ptr<VertexBuffer>& vb,
-            const std::shared_ptr<IndexBuffer>& ib = nullptr
+            const std::shared_ptr<IndexBuffer>& ib = nullptr,
+            const std::shared_ptr<Texture>& texture = nullptr
         );
     };
 }

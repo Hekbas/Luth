@@ -1,0 +1,34 @@
+#pragma once
+
+#include "luth/resources/Texture.h"
+
+typedef unsigned int GLenum;
+
+namespace Luth
+{
+    class GLTexture : public Texture
+    {
+    public:
+        GLTexture(const fs::path& path);
+        GLTexture(uint32_t width, uint32_t height, TextureFormat format);
+        ~GLTexture();
+
+        void Bind(uint32_t slot = 0) const override;
+        //void SetData(void* data, uint32_t size) override;
+
+        uint32_t GetWidth() const override { return m_Width; }
+        uint32_t GetHeight() const override { return m_Height; }
+        uint32_t GetRendererID() const override { return m_RendererID; }
+        const fs::path& GetPath() const override { return m_Path; }
+
+    private:
+        void LoadFromFile();
+        void CreateInternal(GLenum internalFormat);
+
+        uint32_t m_RendererID = 0;
+        uint32_t m_Width = 0, m_Height = 0;
+        int m_MipLevels = 0;
+        TextureFormat m_Format = TextureFormat::RGBA8;
+        fs::path m_Path;
+    };
+}

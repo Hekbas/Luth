@@ -5,10 +5,15 @@
 #include "luth/core/Log.h"
 #include "luth/core/Timestep.h"
 
+#include "luth/utils/ImageUtils.h"
+
 #include "luth/input/Input.h"
 #include "luth/editor/Editor.h"
 
+#include "luth/resources/ResourceManager.h"
 #include "luth/resources/ShaderLibrary.h"
+#include "luth/resources/Texture.h"
 
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/Buffer.h"
 #include "luth/renderer/Shader.h"

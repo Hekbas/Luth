@@ -6,6 +6,7 @@
 // TEST
 #include <luth/resources/ShaderLibrary.h>
 #include <luth/resources/ResourceManager.h>
+#include <luth/resources/Texture.h>
 
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Buffer.h>
@@ -25,15 +26,15 @@ namespace Luth
 
     void OpenGLApp::OnInit()
     {
-        //InitScreenQuad();
         InitUniformBuffer();
         LoadShader();
 
-        const std::vector<GLVertex> vertices = {
-            { {-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f} },
-            { { 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f} },
-            { { 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f} },
-            { {-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f} }
+        std::vector<GLVertex> vertices = {
+            // Positions     // Colors           // UVs
+            {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},  // Bottom-left
+            {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},  // Bottom-right
+            {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},  // Top-right
+            {{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Top-left
         };
 
         const std::vector<uint32_t> indices = {
@@ -42,14 +43,16 @@ namespace Luth
 
         BufferLayout layout = {
             { ShaderDataType::Float2, "inPosition" },
-            { ShaderDataType::Float3, "inColor"    }
+            { ShaderDataType::Float3, "inColor"    },
+            { ShaderDataType::Float2, "inTexCoord" }
         };
 
+        auto texture = Texture::Create("container.jpg");
         auto vkRenderer = static_cast<GLRendererAPI*>(Renderer::GetRendererAPI());
         auto vb = std::make_shared<GLVertexBuffer>(vertices.data(), sizeof(GLVertex) * vertices.size());
         vb->SetLayout(layout);
         auto ib = std::make_shared<GLIndexBuffer>(indices.data(), indices.size());
-        auto mesh = std::make_shared<GLMesh>(vb, ib);
+        auto mesh = Mesh::Create(vb, ib, texture);
 
         Renderer::SubmitMesh(mesh);
     }
@@ -83,6 +86,11 @@ namespace Luth
         // ImGui Demo
         static bool showDemo = true;
         if (showDemo) ImGui::ShowDemoWindow(&showDemo);
+
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::Begin("Luth Metrics");
+        ImGui::Text("Frame time %.3f ms (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::End();
     }
 
     void OpenGLApp::OnShutdown()
@@ -143,5 +151,6 @@ namespace Luth
         std::filesystem::path shaderPath = ResourceManager::GetPath(Resource::Shader, "triangle.glsl");
         shader = Shader::Create(shaderPath.generic_string());
         shader->Bind();
+        shader->SetInt("u_Texture", 0);
     }
 }

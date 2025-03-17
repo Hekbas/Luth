@@ -24,6 +24,7 @@ project "Sandbox"
    {
       "source",
       "%{wks.location}/luth/source",
+      "%{wks.location}/luth/extern/source",
       IncludeDir["glad"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
