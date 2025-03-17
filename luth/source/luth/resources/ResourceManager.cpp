@@ -1,8 +1,14 @@
 #include "luthpch.h"
-#include "ResourceManager.h"
+#include "luth/resources/ResourceManager.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/RendererAPI.h"
+#include "luth/renderer/Material.h"
+#include "luth/renderer/openGL/GLMaterial.h"
 
-#include <fstream>
-#include <iostream>
+//#include "luth/renderer/openGL/GLMesh.h"
+//#include "luth/renderer/vulkan/VKMesh.h"
+
+#include <json/json.hpp>
 #include <regex>
 
 namespace Luth
@@ -114,6 +120,59 @@ namespace Luth
     fs::path ResourceManager::GetLogDirectory() {
         return GetProjectPath("Logs");
     }
+
+
+    // Resource Loading
+    //template<>
+    //std::shared_ptr<Shader> ResourceManager::Load(const fs::path& path);
+
+    //template<>
+    //std::shared_ptr<Texture> ResourceManager::Load(const fs::path& path);
+
+    //template<>
+    //std::shared_ptr<Material> ResourceManager::Load(const fs::path& path)
+    //{
+    //    const fs::path fullPath = GetPath(Resource::Material, path);
+
+    //    if (!ValidateResourcePath(fullPath)) {
+    //        LH_CORE_ERROR("Material loading failed: Invalid path {}", fullPath);
+    //        return nullptr;
+    //    }
+
+    //    try {
+    //        std::ifstream file(fullPath);
+    //        nlohmann::json json;
+    //        file >> json;
+
+    //        auto material = RendererAPI::GetAPI() == RendererAPI::API::OpenGL
+    //            ? std::make_shared<GLMaterial>() : nullptr;
+
+    //        if (!material) {
+    //            LH_CORE_ERROR("Unsupported renderer API for material");
+    //            return nullptr;
+    //        }
+
+    //        if (json.contains("shader")) {
+    //            material->SetShader(Load<Shader>(json["shader"]));
+    //        }
+    //        if (json.contains("textures")) {
+    //            for (const auto& [uniformName, texPath] : json["textures"].items()) {
+    //                material->SetTexture(uniformName, Load<Texture>(texPath));
+    //            }
+    //        }
+    //        if (json.contains("parameters")) {
+    //            const auto& params = json["parameters"];
+    //            // ... parameter loading logic same as before ...
+    //        }
+
+    //        return material;
+    //    }
+    //    catch (const std::exception& e) {
+    //        LH_CORE_ERROR("Material loading failed: {}", e.what());
+    //        return nullptr;
+    //    }
+    //}
+
 
     // Internal implementation
     const std::unordered_map<Resource, fs::path>& ResourceManager::GetResourceDirectories()

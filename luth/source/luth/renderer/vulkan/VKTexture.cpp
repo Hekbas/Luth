@@ -1,5 +1,5 @@
 #include "Luthpch.h"
-#include "luth/resources/VKTexture.h"
+#include "luth/renderer/vulkan/VKTexture.h"
 #include "luth/renderer/vulkan/VKCommon.h"
 #include "luth/renderer/vulkan/VKBuffer.h"
 #include "luth/renderer/vulkan/VKCommandPool.h"

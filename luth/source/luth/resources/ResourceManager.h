@@ -48,6 +48,10 @@ namespace Luth
         static fs::path GetSaveGameDirectory();
         static fs::path GetLogDirectory();
 
+        // Resource Loading
+        template<typename T>
+        static std::shared_ptr<T> Load(const fs::path& path);
+
     private:
         static fs::path s_EngineRoot;
         static fs::path s_ProjectRoot;
