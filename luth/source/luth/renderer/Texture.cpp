@@ -1,7 +1,7 @@
 #include "Luthpch.h"
-#include "luth/resources/Texture.h"
-#include "luth/resources/GLTexture.h"
-#include "luth/resources/VKTexture.h"
+#include "luth/renderer/Texture.h"
+#include "luth/renderer/openGL/GLTexture.h"
+#include "luth/renderer/vulkan/VKTexture.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RendererAPI.h"
 

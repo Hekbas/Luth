@@ -12,8 +12,8 @@
 
 #include "luth/resources/ResourceManager.h"
 #include "luth/resources/ShaderLibrary.h"
-#include "luth/resources/Texture.h"
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"
 #include "luth/renderer/Shader.h"
+#include "luth/renderer/Texture.h"

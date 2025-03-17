@@ -1,5 +1,5 @@
 #include "Luthpch.h"
-#include "luth/resources/GLTexture.h"
+#include "luth/renderer/openGL/GLTexture.h"
 #include "luth/utils/ImageUtils.h"
 
 #include <glad/glad.h>

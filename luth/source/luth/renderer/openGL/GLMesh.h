@@ -3,7 +3,7 @@
 #include "luth/core/Log.h"
 #include "luth/renderer/Mesh.h"
 #include "luth/renderer/openGL/GLBuffer.h"
-#include "luth/resources/GLTexture.h"
+#include "luth/renderer/openGL/GLTexture.h"
 
 #include <glad/glad.h>
 
@@ -71,20 +71,20 @@ namespace Luth
 
         static GLenum ShaderDataTypeToGLType(ShaderDataType type) {
             switch (type) {
-            case ShaderDataType::Float:    return GL_FLOAT;
-            case ShaderDataType::Float2:   return GL_FLOAT;
-            case ShaderDataType::Float3:   return GL_FLOAT;
-            case ShaderDataType::Float4:   return GL_FLOAT;
-            case ShaderDataType::Int:     return GL_INT;
-            case ShaderDataType::Int2:    return GL_INT;
-            case ShaderDataType::Int3:    return GL_INT;
-            case ShaderDataType::Int4:    return GL_INT;
-            case ShaderDataType::Mat3:    return GL_FLOAT;
-            case ShaderDataType::Mat4:    return GL_FLOAT;
-            case ShaderDataType::Bool:    return GL_BOOL;
-            default:
-                LH_CORE_ASSERT(false, "Unknown ShaderDataType!");
-                return 0;
+                case ShaderDataType::Float:     return GL_FLOAT;
+                case ShaderDataType::Float2:    return GL_FLOAT;
+                case ShaderDataType::Float3:    return GL_FLOAT;
+                case ShaderDataType::Float4:    return GL_FLOAT;
+                case ShaderDataType::Int:       return GL_INT;
+                case ShaderDataType::Int2:      return GL_INT;
+                case ShaderDataType::Int3:      return GL_INT;
+                case ShaderDataType::Int4:      return GL_INT;
+                case ShaderDataType::Mat3:      return GL_FLOAT;
+                case ShaderDataType::Mat4:      return GL_FLOAT;
+                case ShaderDataType::Bool:      return GL_BOOL;
+                default:
+                    LH_CORE_ASSERT(false, "Unknown ShaderDataType!");
+                    return 0;
             }
         }
 

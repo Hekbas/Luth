@@ -6,11 +6,11 @@
 // TEST
 #include <luth/resources/ShaderLibrary.h>
 #include <luth/resources/ResourceManager.h>
-#include <luth/resources/Texture.h>
 
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Buffer.h>
 #include <luth/renderer/Shader.h>
+#include <luth/renderer/Texture.h>
 #include <luth/renderer/openGL/GLRendererAPI.h>
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <luth/renderer/openGL/GLMesh.h>

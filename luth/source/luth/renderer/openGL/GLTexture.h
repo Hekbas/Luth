@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/resources/Texture.h"
+#include "luth/renderer/Texture.h"
 
 typedef unsigned int GLenum;
 
