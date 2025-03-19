@@ -3,7 +3,7 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/core/App.h"
 #include "luth/core/Log.h"
-#include "luth/core/Timestep.h"
+#include "luth/core/Time.h"
 
 #include "luth/utils/ImageUtils.h"
 
@@ -15,6 +15,6 @@
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"
-//#include "luth/renderer/Material.h"
 #include "luth/renderer/Shader.h"
 #include "luth/renderer/Texture.h"
+#include "luth/renderer/Model.h"

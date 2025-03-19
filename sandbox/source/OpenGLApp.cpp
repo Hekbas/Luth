@@ -11,11 +11,11 @@
 #include <luth/renderer/Buffer.h>
 #include <luth/renderer/Shader.h>
 #include <luth/renderer/Texture.h>
+#include <luth/renderer/Model.h>
+
 #include <luth/renderer/openGL/GLRendererAPI.h>
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <luth/renderer/openGL/GLMesh.h>
-
-#include <luth/scene/Model.h>
 
 #include <memory>
 
@@ -60,14 +60,11 @@ namespace Luth
         Renderer::SubmitMesh(meshes[0]);
     }
 
-    void OpenGLApp::OnUpdate(f32 dt)
+    void OpenGLApp::OnUpdate()
     {
-        static float time = 0;
-        time += dt;
-
         Mat4 model = glm::rotate(
             Mat4(1.0f),
-            time * glm::radians(45.0f),
+            Time::GetTime() * glm::radians(45.0f),
             Vec3(0.0f, 0.0f, 1.0f)
         );
         Mat4 view = glm::lookAt(

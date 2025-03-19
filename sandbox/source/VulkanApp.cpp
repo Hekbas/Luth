@@ -14,7 +14,6 @@
 #include <memory>
 
 // TEST VULKAN
-#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
@@ -24,7 +23,7 @@ namespace Luth
 
     void VulkanApp::OnInit()
     {
-        const std::vector<Vertex> vertices = {
+        const std::vector<VKVertex> vertices = {
             { {-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f} },
             { { 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f} },
             { { 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f} },
@@ -45,7 +44,7 @@ namespace Luth
             vkRenderer->GetLogicalDevice().GetHandle(),
             vkRenderer->GetPhysicalDevice().GetHandle(),
             vertices.data(),
-            sizeof(Vertex) * vertices.size(),
+            sizeof(VKVertex) * vertices.size(),
             vkRenderer->GetLogicalDevice().GetTransferQueue(),
             vkRenderer->GetPhysicalDevice().FindQueueFamilies(vkRenderer->GetSurface()).transferFamily.value()
         );
@@ -66,11 +65,8 @@ namespace Luth
         Renderer::SubmitMesh(mesh);
     }
 
-    void VulkanApp::OnUpdate(f32 dt)
+    void VulkanApp::OnUpdate()
     {
-        static float time = 0;
-        time += dt;
-
     }
 
     void VulkanApp::OnUIRender()

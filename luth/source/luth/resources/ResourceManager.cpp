@@ -3,7 +3,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RendererAPI.h"
 //#include "luth/renderer/Material.h"
-#include "luth/scene/Model.h"
+#include "luth/renderer/Model.h"
 //#include "luth/renderer/vulkan/VKMesh.h"
 
 #include <regex>

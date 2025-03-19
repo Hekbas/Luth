@@ -12,6 +12,9 @@
 #include <memory>
 #include <algorithm>
 
+#include "luth/core/LuthTypes.h"
 #include "luth/core/Log.h"
+#include "luth/core/Time.h"
 #include "luth/core/Math.h"
+
 #include "luth/utils/CustomFormatters.h"

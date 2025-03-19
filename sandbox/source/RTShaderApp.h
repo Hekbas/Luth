@@ -28,7 +28,7 @@ namespace Luth
 
     protected:
         void OnInit() override;
-        void OnUpdate(f32 dt) override;
+        void OnUpdate() override;
         void OnUIRender() override;
         void OnShutdown() override;
 

@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/scene/Model.h"
+#include "luth/renderer/Model.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -10,6 +10,8 @@ namespace Luth
 
     void Model::LoadModel(const fs::path& path)
     {
+        f32 ti = Time::GetTime();
+
         Assimp::Importer importer;
         const aiScene* scene = importer.ReadFile(path.string(),
             aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs);
@@ -22,7 +24,10 @@ namespace Luth
         m_Directory = path.parent_path();
         ProcessNode(scene->mRootNode, scene);
 
+        f32 tf = Time::GetTime();
+        float loadTime = tf - ti;
         LH_CORE_INFO("Imported Model: {0}", path.string());
+        LH_CORE_TRACE(" - In: {0}s", loadTime);
     }
 
     void Model::ProcessNode(aiNode* node, const aiScene* scene)
@@ -37,8 +42,8 @@ namespace Luth
     MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene)
     {
         MeshData data;
-        data.Vertices.reserve(mesh->mNumVertices * 2);
-        data.Indices.reserve(mesh->mNumFaces * 3);
+        data.Vertices.reserve(mesh->mNumVertices);
+        data.Indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
 
         // Process vertices
         for (uint32_t i = 0; i < mesh->mNumVertices; i++) {
@@ -82,9 +87,10 @@ namespace Luth
                 if (mat->GetTexture(aiType, i, &path) == AI_SUCCESS) {
                     TextureInfo::Type texType;
                     switch (aiType) {
-                        case aiTextureType_DIFFUSE:  texType = TextureInfo::Type::Diffuse;  break;
-                        case aiTextureType_SPECULAR: texType = TextureInfo::Type::Specular; break;
-                        case aiTextureType_NORMALS:  texType = TextureInfo::Type::Normal;   break;
+                        case aiTextureType_DIFFUSE:     texType = TextureInfo::Type::Diffuse;  break;
+                        case aiTextureType_SPECULAR:    texType = TextureInfo::Type::Specular; break;
+                        case aiTextureType_NORMALS:     texType = TextureInfo::Type::Normal;   break;
+                        case aiTextureType_BASE_COLOR:  texType = TextureInfo::Type::Diffuse;  break;
                         default: continue; // Skip unsupported types
                     }
                     material.Textures.push_back({ texType, directory / path.C_Str() });

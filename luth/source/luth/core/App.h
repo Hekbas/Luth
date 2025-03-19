@@ -22,7 +22,7 @@ namespace Luth
 
     protected:
         virtual void OnInit() {}
-        virtual void OnUpdate(f32 dt) {}
+        virtual void OnUpdate() {}
         virtual void OnUIRender() {}
         virtual void OnShutdown() {}
 
