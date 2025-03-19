@@ -7,30 +7,31 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 proj;
 } ubo;
 
-layout(location = 0) in vec2 inPosition;
-layout(location = 1) in vec3 inColor;
-layout(location = 2) in vec2 inTexCoord;
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord;
 
-layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 texCoord;
+layout(location = 0) out vec3 v_Normal;
+layout(location = 1) out vec2 v_TexCoord;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
-    fragColor = inColor;
-    texCoord = inTexCoord;
+    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(a_Position, 1.0);
+    v_Normal = a_Normal;
+    v_TexCoord = a_TexCoord;
 }
 
 
 #type fragment
 #version 450
 
-layout(location = 0) in vec3 fragColor;
-layout(location = 1) in vec2 texCoord;
+layout(location = 0) in vec3 v_Normal;
+layout(location = 1) in vec2 v_TexCoord;
 
-layout(location = 0) out vec4 outColor;
+layout(location = 0) out vec4 FragColor;
 
 uniform sampler2D u_Texture;
 
 void main() {
-    outColor = texture(u_Texture, texCoord) * vec4(fragColor, 1.0);
+    FragColor = texture(u_Texture, v_TexCoord);
+    //FragColor = vec4(v_Normal, 1.0);
 }

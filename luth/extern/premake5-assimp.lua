@@ -11,28 +11,28 @@ project "assimp"
 	files
 	{
 		-- Dependencies
-		"source/assimp/contrib/unzip/**",
 		"source/assimp/contrib/irrXML/**",
+		-- "source/assimp/contrib/rapidjson/**",
+		"source/assimp/contrib/unzip/**",
 		"source/assimp/contrib/zlib/*",
 		-- "source/assimp/contrib/poly2tri/poly2tri/**",
 
 		-- Common
-		"source/assimp/code/Common/**",
-		"source/assimp/code/PostProcessing/**",
-		"source/assimp/code/Material/**",
 		"source/assimp/code/CApi/**",
+		"source/assimp/code/Common/**",
 		"source/assimp/code/Geometry/**",
+		"source/assimp/code/Material/**",
+		"source/assimp/code/PostProcessing/**",
 
 		-- Importers
-		"source/assimp/code/AssetLib/IQM/**",
 		"source/assimp/code/AssetLib/Assbin/**",
 		"source/assimp/code/AssetLib/Collada/**",
-		"source/assimp/code/AssetLib/Obj/**",
-		-- "source/assimp/code/AssetLib/Blender/**",
+		"source/assimp/code/AssetLib/Blender/**",
 		"source/assimp/code/AssetLib/FBX/**",
-		-- "source/assimp/code/glTF2/**",
-		-- "source/assimp/code/glTF/**",
-		"source/assimp/code/Assbin/**" -- Very fast format to parse/write, useful for caching
+		-- "source/assimp/code/AssetLib/glTF/**",
+		-- "source/assimp/code/AssetLib/glTF2/**",
+		"source/assimp/code/AssetLib/IQM/**",
+		"source/assimp/code/AssetLib/Obj/**"
 	}
 
 	includedirs
@@ -64,7 +64,7 @@ project "assimp"
 		"ASSIMP_BUILD_NO_ASE_IMPORTER",
 		-- "ASSIMP_BUILD_NO_ASSBIN_IMPORTER",
 		"ASSIMP_BUILD_NO_B3D_IMPORTER",
-		"ASSIMP_BUILD_NO_BLEND_IMPORTER",
+		-- "ASSIMP_BUILD_NO_BLEND_IMPORTER",
 		"ASSIMP_BUILD_NO_BVH_IMPORTER",
 		"ASSIMP_BUILD_NO_C4D_IMPORTER",
 		"ASSIMP_BUILD_NO_COB_IMPORTER",
@@ -73,6 +73,7 @@ project "assimp"
 		"ASSIMP_BUILD_NO_DXF_IMPORTER",
 		-- "ASSIMP_BUILD_NO_FBX_IMPORTER",
 		"ASSIMP_BUILD_NO_GLTF_IMPORTER",
+		"ASSIMP_BUILD_NO_GLTF2_IMPORTER",
 		"ASSIMP_BUILD_NO_HMP_IMPORTER",
 		"ASSIMP_BUILD_NO_IFC_IMPORTER",
 		"ASSIMP_BUILD_NO_IRR_IMPORTER",

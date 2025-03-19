@@ -27,6 +27,7 @@ project "Luth"
    {
       "source",
       "extern/source",
+      "extern/config-headers",
       IncludeDir["assimp"],
       IncludeDir["glad"],
       IncludeDir["glfw"],

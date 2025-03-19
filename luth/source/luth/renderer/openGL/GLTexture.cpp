@@ -19,7 +19,7 @@ namespace Luth
     void GLTexture::LoadFromFile()
     {
         int width, height, channels;
-        stbi_set_flip_vertically_on_load(true);
+        stbi_set_flip_vertically_on_load(false);
         stbi_uc* data = stbi_load(m_Path.string().c_str(),
             &width, &height, &channels, 0);
 

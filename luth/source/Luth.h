@@ -15,6 +15,6 @@
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"
-#include "luth/renderer/Material.h"
+//#include "luth/renderer/Material.h"
 #include "luth/renderer/Shader.h"
 #include "luth/renderer/Texture.h"

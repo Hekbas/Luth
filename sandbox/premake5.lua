@@ -25,6 +25,8 @@ project "Sandbox"
       "source",
       "%{wks.location}/luth/source",
       "%{wks.location}/luth/extern/source",
+      "%{wks.location}/luth/extern/config-headers",
+      IncludeDir["assimp"],
       IncludeDir["glad"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
