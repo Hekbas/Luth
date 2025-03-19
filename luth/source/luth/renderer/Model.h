@@ -36,6 +36,7 @@ namespace Luth
     {
     public:
         Model(const fs::path& path);
+
         const std::vector<MeshData>& GetMeshes() const { return m_Meshes; }
         const std::vector<Material>& GetMaterials() const { return m_Materials; }
 

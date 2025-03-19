@@ -29,6 +29,7 @@ namespace Luth
             s_DeltaTime = s_UnscaledDeltaTime * s_TimeScale;
 
             s_LastFrameTime = now;
+            Tick();
         }
 
         // Time since engine start in seconds
@@ -55,6 +56,9 @@ namespace Luth
         static f32 GetTimeScale() { return s_TimeScale; }
         static void SetTimeScale(f32 scale) { s_TimeScale = scale; }
 
+        static u32 GetFrameCount() { return s_FrameCount; }
+        static void Tick() { s_FrameCount++; }
+
     private:
         inline static bool s_Initialized = false;
         inline static TimePoint s_StartTime;
@@ -62,5 +66,6 @@ namespace Luth
         inline static f32 s_TimeScale = 1.0f;
         inline static f32 s_DeltaTime = 0.0f;
         inline static f32 s_UnscaledDeltaTime = 0.0f;
+        static inline u32 s_FrameCount = 0;
     };
 }
