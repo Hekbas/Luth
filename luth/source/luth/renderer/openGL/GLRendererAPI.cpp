@@ -33,7 +33,7 @@ namespace Luth
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-        m_CurrentMesh.reset();
+        m_Meshes.clear();
     }
 
     void GLRendererAPI::SetClearColor(const glm::vec4& color)
@@ -77,10 +77,13 @@ namespace Luth
 
     void GLRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh)
     {
-        m_CurrentMesh = std::dynamic_pointer_cast<GLMesh>(mesh);
-        if (!m_CurrentMesh) {
+        auto glMesh = std::dynamic_pointer_cast<GLMesh>(mesh);
+        if (!glMesh) {
             LH_CORE_WARN("GLRendererAPI::SubmitMesh - Invalid mesh type submitted!");
+            return;
         }
+
+        m_Meshes.push_back(glMesh);
     }
 
     void GLRendererAPI::DrawIndexed(u32 count)
@@ -91,8 +94,11 @@ namespace Luth
 
     void GLRendererAPI::DrawFrame()
     {
-        m_CurrentMesh->Bind();
-        m_CurrentMesh->Draw();
+        for (auto mesh : m_Meshes)
+        {
+            mesh->Bind();
+            mesh->Draw();
+        }
     }
 
     void GLRendererAPI::CheckError(const char* file, int line)

@@ -5,12 +5,6 @@
 #include <imgui.h>
 
 // TEST
-#include <luth/resources/ShaderLibrary.h>
-#include <luth/resources/ResourceManager.h>
-
-#include <luth/renderer/Renderer.h>
-#include <luth/renderer/Buffer.h>
-#include <luth/renderer/Shader.h>
 #include <luth/renderer/openGL/GLRendererAPI.h>
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <memory>

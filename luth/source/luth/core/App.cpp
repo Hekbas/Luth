@@ -16,6 +16,7 @@ namespace Luth
     {
         // TODO Luth + version - OS - renderAPI
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
+        ws.VSync = false;
 
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());

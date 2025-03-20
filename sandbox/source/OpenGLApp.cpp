@@ -3,17 +3,6 @@
 
 #include <imgui.h>
 
-// TEST
-#include <luth/resources/ShaderLibrary.h>
-#include <luth/resources/ResourceManager.h>
-#include <luth/resources/Loaders.h>
-
-#include <luth/renderer/Renderer.h>
-#include <luth/renderer/Buffer.h>
-#include <luth/renderer/Shader.h>
-#include <luth/renderer/Texture.h>
-#include <luth/renderer/Model.h>
-
 #include <luth/renderer/openGL/GLRendererAPI.h>
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <luth/renderer/openGL/GLMesh.h>
@@ -33,8 +22,7 @@ namespace Luth
         InitUniformBuffer();
         LoadShader();
 
-        Model model(ResourceManager::GetPath(Resource::Model, "grimoire/MimicBook.fbx"));
-        std::vector<std::shared_ptr<GLMesh>> meshes;
+        Model model(ResourceManager::GetPath(Resource::Model, "mf/mf.fbx"));
 
         for (const auto& meshData : model.GetMeshes()) {
             const auto& material = model.GetMaterials()[meshData.MaterialIndex];
@@ -43,6 +31,7 @@ namespace Luth
             auto texture = material.Textures.empty()
                 ? std::make_shared<GLTexture>(ResourceManager::GetPath(Resource::Texture, "container.jpg"))
                 : std::make_shared<GLTexture>(material.Textures[0].path);
+            LH_CORE_TRACE(" - Loaded texture {0}", texture->GetPath().string());
 
             // Create buffers
             auto vb = std::make_shared<GLVertexBuffer>(meshData.Vertices.data(),
@@ -55,10 +44,8 @@ namespace Luth
             auto ib = std::make_shared<GLIndexBuffer>(meshData.Indices.data(),
                 meshData.Indices.size());
 
-            meshes.push_back(std::make_shared<GLMesh>(vb, ib, texture));
+            Renderer::SubmitMesh(Mesh::Create(vb, ib, texture));
         }
-
-        Renderer::SubmitMesh(meshes[0]);
     }
 
     void OpenGLApp::OnUpdate()
@@ -66,17 +53,17 @@ namespace Luth
         Mat4 model = glm::rotate(
             Mat4(1.0f),
             Time::GetTime() * glm::radians(45.0f),
-            Vec3(0.0f, 0.0f, 1.0f)
+            Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 view = glm::lookAt(
-            Vec3(2.5f, 2.5f, 2.5f),
+            Vec3(30.0f, 20.0f, 30.0f),
             Vec3(0.0f, 0.0f, 0.0f),
-            Vec3(0.0f, 0.0f, 1.0f)
+            Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 proj = glm::perspective(
             glm::radians(45.0f),
             16.0f / 9.0f,
-            0.1f, 10.0f
+            0.1f, 1000.0f
         );
 
         UpdateUniforms(model, view, proj);

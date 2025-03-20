@@ -60,9 +60,8 @@ namespace Luth
 
         if (spec.rendererAPI == RendererAPI::API::OpenGL) {
             glfwMakeContextCurrent(m_GLFWwindow);
+            glfwSwapInterval(spec.VSync ? 1 : 0);
         }
-
-        SetVSync(spec.VSync);
 
         glfwSetWindowUserPointer(m_GLFWwindow, this);
         glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {

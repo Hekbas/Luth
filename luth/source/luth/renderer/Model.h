@@ -23,9 +23,10 @@ namespace Luth
     };
 
     struct TextureInfo {
-        enum class Type { Diffuse, Specular, Normal, Height };
+        enum class Type { Diffuse, Normal, Emissive, Metalness, Roughness };
         Type type;
         fs::path path;
+        u32 id;
     };
 
     struct Material {
@@ -42,9 +43,11 @@ namespace Luth
 
     private:
         void LoadModel(const fs::path& path);
-        void ProcessNode(aiNode* node, const aiScene* scene);
-        MeshData ProcessMesh(aiMesh* mesh, const aiScene* scene);
+        void ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform = Mat4(1.0f));
+        MeshData ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform);
         Material ProcessMaterial(aiMaterial* material, const fs::path& directory);
+
+        Mat4 AxisCorrectionMatrix(const aiScene* scene);
 
         std::vector<MeshData> m_Meshes;
         std::vector<Material> m_Materials;

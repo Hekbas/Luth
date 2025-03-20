@@ -2,18 +2,9 @@
 
 #include <Luth.h>
 
-#include <imgui.h>
-
-// TEST
-#include <luth/resources/ShaderLibrary.h>
-#include <luth/resources/ResourceManager.h>
-
-#include <luth/renderer/Renderer.h>
-#include <luth/renderer/Shader.h>
 #include <memory>
 #include <random>
-
-// TEST GL
+#include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>

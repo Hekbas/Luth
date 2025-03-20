@@ -22,7 +22,7 @@ namespace Luth
         }
 
         m_Directory = path.parent_path();
-        ProcessNode(scene->mRootNode, scene);
+        ProcessNode(scene->mRootNode, scene, AxisCorrectionMatrix(scene));
 
         f32 tf = Time::GetTime();
         float loadTime = tf - ti;
@@ -30,28 +30,44 @@ namespace Luth
         LH_CORE_TRACE(" - In: {0}s", loadTime);
     }
 
-    void Model::ProcessNode(aiNode* node, const aiScene* scene)
+    void Model::ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform)
     {
-        for (uint32_t i = 0; i < node->mNumMeshes; i++)
-            m_Meshes.push_back(ProcessMesh(scene->mMeshes[node->mMeshes[i]], scene));
+        // Calculate current node transform
+        const Mat4 nodeTransform = parentTransform * AiMat4ToGLM(node->mTransformation);
 
-        for (uint32_t i = 0; i < node->mNumChildren; i++)
-            ProcessNode(node->mChildren[i], scene);
+        // Process meshes with current transform
+        for (uint32_t i = 0; i < node->mNumMeshes; i++) {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            m_Meshes.push_back(ProcessMesh(mesh, scene, nodeTransform));
+        }
+
+        // Process children recursively
+        for (uint32_t i = 0; i < node->mNumChildren; i++) {
+            ProcessNode(node->mChildren[i], scene, nodeTransform);
+        }
     }
 
-    MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene)
+    MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
     {
         MeshData data;
         data.Vertices.reserve(mesh->mNumVertices);
         data.Indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
 
-        // Process vertices
-        for (uint32_t i = 0; i < mesh->mNumVertices; i++) {
-            Vertex vertex{};
-            vertex.Position = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
+        const Mat3 normalMatrix = ConvertToNormalMatrix(transform);
 
-            if (mesh->mNormals)
-                vertex.Normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
+        // Process vertices with transform
+        for (uint32_t i = 0; i < mesh->mNumVertices; i++) {
+            Vertex vertex;
+            const aiVector3D& pos = mesh->mVertices[i];
+
+            const Vec4 transformedPos = transform * Vec4(pos.x, pos.y, pos.z, 1.0f);
+            vertex.Position = Vec3(transformedPos);
+
+            if (mesh->mNormals) {
+                const aiVector3D& norm = mesh->mNormals[i];
+                const Vec3 transformedNorm = normalMatrix * Vec3(norm.x, norm.y, norm.z);
+                vertex.Normal = glm::normalize(transformedNorm);
+            }
 
             if (mesh->mTextureCoords[0])
                 vertex.TexCoords = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
@@ -66,6 +82,8 @@ namespace Luth
                 data.Indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
             }
         }
+
+        aiString name = mesh->mName;
 
         // Process material
         if (mesh->mMaterialIndex >= 0 && static_cast<uint32_t>(mesh->mMaterialIndex) < scene->mNumMaterials) {
@@ -87,10 +105,12 @@ namespace Luth
                 if (mat->GetTexture(aiType, i, &path) == AI_SUCCESS) {
                     TextureInfo::Type texType;
                     switch (aiType) {
-                        case aiTextureType_DIFFUSE:     texType = TextureInfo::Type::Diffuse;  break;
-                        case aiTextureType_SPECULAR:    texType = TextureInfo::Type::Specular; break;
-                        case aiTextureType_NORMALS:     texType = TextureInfo::Type::Normal;   break;
-                        case aiTextureType_BASE_COLOR:  texType = TextureInfo::Type::Diffuse;  break;
+                        case aiTextureType_DIFFUSE:   texType = TextureInfo::Type::Diffuse;   break;
+                        case aiTextureType_NORMALS:   texType = TextureInfo::Type::Normal;    break;
+                        case aiTextureType_HEIGHT:    texType = TextureInfo::Type::Normal;    break;
+                        case aiTextureType_EMISSIVE:  texType = TextureInfo::Type::Emissive;  break;
+                        case aiTextureType_METALNESS: texType = TextureInfo::Type::Metalness; break;
+                        case aiTextureType_SHININESS: texType = TextureInfo::Type::Roughness; break;
                         default: continue; // Skip unsupported types
                     }
                     material.Textures.push_back({ texType, directory / path.C_Str() });
@@ -98,5 +118,57 @@ namespace Luth
             }
         }
         return material;
+    }
+
+    Mat4 Model::AxisCorrectionMatrix(const aiScene* scene)
+    {
+        Mat4 correction = Mat4(1.0f);
+
+        if (scene->mMetaData) {
+            int upAxis = 1, frontAxis = 1;
+            int upSign = 1, frontSign = 1;
+            bool hasUp = false, hasFront = false;
+
+            // Extract axis information from metadata
+            hasUp = scene->mMetaData->Get("UpAxis", upAxis);
+            hasFront = scene->mMetaData->Get("FrontAxis", frontAxis);
+
+            // Handle sign (assuming negative values indicate negative direction)
+            if (hasUp) {
+                upSign = upAxis >= 0 ? 1 : -1;
+                upAxis = abs(upAxis);
+            }
+            if (hasFront) {
+                frontSign = frontAxis >= 0 ? 1 : -1;
+                frontAxis = abs(frontAxis);
+            }
+
+            // Common case: Convert Z-up to Y-up
+            if (hasUp && upAxis == 2) {  // Z-up
+                correction = glm::rotate(correction, glm::radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
+
+                // Adjust front axis if needed (convert from Y-forward to -Z-forward)
+                if (hasFront && frontAxis == 1) {  // Y-front
+                    correction = glm::rotate(correction, glm::radians(90.0f), Vec3(0.0f, 0.0f, 1.0f));
+                }
+            }
+
+            // Handle coordinate system handedness if needed
+            if (scene->mMetaData->HasKey("AxisMode")) {
+                int axisMode;
+                if (scene->mMetaData->Get("AxisMode", axisMode)) {
+                    if (axisMode == 2) {  // Right-handed to left-handed
+                        correction = glm::scale(correction, Vec3(-1.0f, 1.0f, 1.0f));
+                    }
+                }
+            }
+        }
+
+        // Fallback for common Z-up to Y-up conversion
+        else {
+            correction = glm::rotate(Mat4(1.0f), glm::radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
+        }
+
+        return correction;
     }
 }
