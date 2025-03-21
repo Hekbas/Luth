@@ -5,10 +5,10 @@ namespace Luth
 {
     GLMesh::GLMesh(const std::shared_ptr<GLVertexBuffer>& vertexBuffer,
         const std::shared_ptr<GLIndexBuffer>& indexBuffer,
-        const std::shared_ptr<GLTexture>& texture)
+        const std::vector<std::shared_ptr<Texture>>* textures)
         : m_VertexBuffer(vertexBuffer),
         m_IndexBuffer(indexBuffer),
-        m_Texture(texture)
+        m_Textures(*textures)
     {
         CreateVAO();
     }
@@ -20,7 +20,12 @@ namespace Luth
 
     void GLMesh::Draw() const
     {
-        if (m_Texture) m_Texture->Bind(0);
+        int i = 0;
+        for (auto texture : m_Textures) {
+            texture->Bind(i);
+            i++;
+        }
+
         glBindVertexArray(m_VAO);
         if (m_IndexBuffer) {
             glDrawElements(GL_TRIANGLES, m_IndexBuffer->GetCount(), GL_UNSIGNED_INT, nullptr);

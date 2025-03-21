@@ -10,7 +10,7 @@ namespace Luth
 	class TextureCache
 	{
 	public:
-        static std::shared_ptr<Texture> GetTexture(const fs::path& path)
+        inline static std::shared_ptr<Texture> GetTexture(const fs::path& path)
         {
             static std::unordered_map<fs::path, std::weak_ptr<Texture>> cache;
 
@@ -21,8 +21,5 @@ namespace Luth
             weak = newTex;
             return newTex;
         }
-
-	private:
-
 	};
 }

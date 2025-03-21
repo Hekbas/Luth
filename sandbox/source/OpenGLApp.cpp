@@ -7,6 +7,8 @@
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <luth/renderer/openGL/GLMesh.h>
 
+#include <luth/resources/TextureCache.h>
+
 #include <memory>
 
 // TEST OPENGL
@@ -27,11 +29,17 @@ namespace Luth
         for (const auto& meshData : model.GetMeshes()) {
             const auto& material = model.GetMaterials()[meshData.MaterialIndex];
 
+            std::vector<std::shared_ptr<Texture>> textures;
+
             // Load texture
-            auto texture = material.Textures.empty()
+            for (auto texture : material.Textures) {
+                textures.push_back(TextureCache::GetTexture(texture.path));
+                LH_CORE_TRACE(" - Loaded texture {0}", texture.path.string());
+            }
+
+            /*auto texture = material.Textures.empty()
                 ? std::make_shared<GLTexture>(ResourceManager::GetPath(Resource::Texture, "container.jpg"))
-                : std::make_shared<GLTexture>(material.Textures[0].path);
-            LH_CORE_TRACE(" - Loaded texture {0}", texture->GetPath().string());
+                : std::make_shared<GLTexture>(material.Textures[0].path);*/
 
             // Create buffers
             auto vb = std::make_shared<GLVertexBuffer>(meshData.Vertices.data(),
@@ -44,7 +52,7 @@ namespace Luth
             auto ib = std::make_shared<GLIndexBuffer>(meshData.Indices.data(),
                 meshData.Indices.size());
 
-            Renderer::SubmitMesh(Mesh::Create(vb, ib, texture));
+            Renderer::SubmitMesh(Mesh::Create(vb, ib, &textures));
         }
     }
 
@@ -139,6 +147,8 @@ namespace Luth
         std::filesystem::path shaderPath = ResourceManager::GetPath(Resource::Shader, "triangle.glsl");
         shader = Shader::Create(shaderPath.generic_string());
         shader->Bind();
-        shader->SetInt("u_Texture", 0);
+        shader->SetInt("u_TexDiffuse", 0);
+        shader->SetInt("u_TexNormal", 1);
+        shader->SetInt("u_TexRough", 2);
     }
 }

@@ -17,7 +17,7 @@ namespace Luth
         static std::shared_ptr<Mesh> Create(
             const std::shared_ptr<VertexBuffer>& vb,
             const std::shared_ptr<IndexBuffer>& ib = nullptr,
-            const std::shared_ptr<Texture>& texture = nullptr
+            const std::vector<std::shared_ptr<Texture>>* textures = nullptr
         );
     };
 }

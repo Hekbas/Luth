@@ -29,9 +29,12 @@ layout(location = 1) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 FragColor;
 
-uniform sampler2D u_Texture;
+uniform sampler2D u_TexDiffuse;
+uniform sampler2D u_TexNormal;
+uniform sampler2D u_TexRough;
 
 void main() {
-    FragColor = texture(u_Texture, v_TexCoord);
-    //FragColor = vec4(v_Normal, 1.0);
+    //FragColor = texture(u_TexDiffuse, v_TexCoord);
+    FragColor = texture(u_TexNormal, v_TexCoord);
+    //FragColor = texture(u_TexRough, v_TexCoord);
 }
