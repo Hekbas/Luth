@@ -23,14 +23,14 @@ namespace Luth
     {
     public:
         // Initialize resource system
-        static void Initialize(const fs::path& engineRoot = "");
+        static void Init(const fs::path& engineRoot = "");
 
         // Path management
         static void SetBasePath(const fs::path& basePath);
         static const fs::path& GetBasePath();
 
         // Resource path resolution
-        static fs::path GetPath(Resource type, const fs::path& resourceName);
+        static fs::path GetPath(Resource type, const fs::path& resourceName, bool extension = true);
         static fs::path GetEnginePath(const fs::path& relativePath);
         static fs::path GetProjectPath(const fs::path& relativePath);
 
@@ -41,7 +41,8 @@ namespace Luth
 
         // Resource information
         static std::string GetResourceTypeName(Resource type);
-        static std::vector<fs::path> FindResources(Resource type, const std::string& pattern = "*");
+        static std::vector<fs::path> FindResources(Resource type, const std::string& pattern = "*", bool recursive = false);
+        static std::vector<fs::path> FindResourceByName(Resource type, const std::string& targetName);
 
         // Platform utilities
         static fs::path GetPlatformAssetPath();

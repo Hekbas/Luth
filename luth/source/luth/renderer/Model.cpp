@@ -3,6 +3,7 @@
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
+#include <string>
 
 namespace Luth
 {
@@ -14,7 +15,7 @@ namespace Luth
 
         Assimp::Importer importer;
         const aiScene* scene = importer.ReadFile(path.string(),
-            aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs);
+            aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             LH_CORE_ERROR("{0}", importer.GetErrorString());
@@ -50,36 +51,44 @@ namespace Luth
     MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
     {
         MeshData data;
-        data.Vertices.reserve(mesh->mNumVertices);
-        data.Indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
+        data.vertices.reserve(mesh->mNumVertices);
+        data.indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
 
         const Mat3 normalMatrix = ConvertToNormalMatrix(transform);
 
         // Process vertices with transform
         for (uint32_t i = 0; i < mesh->mNumVertices; i++) {
-            Vertex vertex;
+            Vertex vertex{};
             const aiVector3D& pos = mesh->mVertices[i];
 
             const Vec4 transformedPos = transform * Vec4(pos.x, pos.y, pos.z, 1.0f);
-            vertex.Position = Vec3(transformedPos);
+            vertex.position = Vec3(transformedPos);
 
             if (mesh->mNormals) {
                 const aiVector3D& norm = mesh->mNormals[i];
                 const Vec3 transformedNorm = normalMatrix * Vec3(norm.x, norm.y, norm.z);
-                vertex.Normal = glm::normalize(transformedNorm);
+                vertex.normal = glm::normalize(transformedNorm);
             }
 
             if (mesh->mTextureCoords[0])
-                vertex.TexCoords = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+                vertex.texCoord0 = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+            if (mesh->mTextureCoords[1])
+                vertex.texCoord1 = { mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y };
 
-            data.Vertices.push_back(vertex);
+            if (mesh->mTangents) {
+                const aiVector3D& tan = mesh->mTangents[i];
+                const Vec3 transformedTangent = normalMatrix * Vec3(tan.x, tan.y, tan.z);
+                vertex.tangent = glm::normalize(transformedTangent);
+            }
+
+            data.vertices.push_back(vertex);
         }
 
         // Process indices
         for (uint32_t i = 0; i < mesh->mNumFaces; i++) {
             const aiFace& face = mesh->mFaces[i];
             for (uint32_t j = 0; j < face.mNumIndices; j++) {
-                data.Indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
+                data.indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
             }
         }
 
@@ -87,7 +96,7 @@ namespace Luth
 
         // Process material
         if (mesh->mMaterialIndex >= 0 && static_cast<uint32_t>(mesh->mMaterialIndex) < scene->mNumMaterials) {
-            data.MaterialIndex = static_cast<uint32_t>(m_Materials.size());
+            data.materialIndex = static_cast<uint32_t>(m_Materials.size());
             m_Materials.push_back(ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex], m_Directory));
         }
 
@@ -97,23 +106,30 @@ namespace Luth
     Material Model::ProcessMaterial(aiMaterial* mat, const fs::path& directory)
     {
         Material material;
+        TextureInfo texInfo;
         aiString path;
-        for (uint32_t type = aiTextureType_DIFFUSE; type <= aiTextureType_UNKNOWN; type++) {
+        for (uint32_t type = aiTextureType_DIFFUSE; type <= aiTextureType_UNKNOWN; type++)
+        {
             aiTextureType aiType = static_cast<aiTextureType>(type);
-            uint32_t count = mat->GetTextureCount(aiType);
-            for (uint32_t i = 0; i < count; i++) {
-                if (mat->GetTexture(aiType, i, &path) == AI_SUCCESS) {
-                    TextureInfo::Type texType;
+            for (uint32_t i = 0; i < mat->GetTextureCount(aiType); i++)
+            {
+                if (mat->GetTexture(aiType, i, &path, nullptr, &texInfo.uvIndex) == AI_SUCCESS) {
                     switch (aiType) {
-                        case aiTextureType_DIFFUSE:   texType = TextureInfo::Type::Diffuse;   break;
-                        case aiTextureType_NORMALS:   texType = TextureInfo::Type::Normal;    break;
-                        case aiTextureType_HEIGHT:    texType = TextureInfo::Type::Normal;    break;
-                        case aiTextureType_EMISSIVE:  texType = TextureInfo::Type::Emissive;  break;
-                        case aiTextureType_METALNESS: texType = TextureInfo::Type::Metalness; break;
-                        case aiTextureType_SHININESS: texType = TextureInfo::Type::Roughness; break;
+                        case aiTextureType_DIFFUSE:         texInfo.type = TextureType::Diffuse;   break;
+                        case aiTextureType_BASE_COLOR:      texInfo.type = TextureType::Diffuse;   break;
+                        case aiTextureType_NORMALS:         texInfo.type = TextureType::Normal;    break;
+                        case aiTextureType_NORMAL_CAMERA:   texInfo.type = TextureType::Normal;    break;
+                        case aiTextureType_HEIGHT:          texInfo.type = TextureType::Normal;    break;
+                        case aiTextureType_EMISSIVE:        texInfo.type = TextureType::Emissive;  break;
+                        case aiTextureType_EMISSION_COLOR:  texInfo.type = TextureType::Emissive;  break;
+                        case aiTextureType_METALNESS:       texInfo.type = TextureType::Metalness; break;
+                        case aiTextureType_SHININESS:       texInfo.type = TextureType::Roughness; break;
                         default: continue; // Skip unsupported types
                     }
-                    material.Textures.push_back({ texType, directory / path.C_Str() });
+                    fs::path name = path.C_Str();
+                    auto result = ResourceManager::FindResources(Resource::Model, name.filename().stem().string() + ".*", true);
+                    if (!result.empty()) texInfo.path = result[0];
+                    material.AddTexture(texInfo);
                 }
             }
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/renderer/Material.h"
 #include "luth/renderer/Mesh.h"
 #include "luth/renderer/openGL/GLMesh.h"
 
@@ -11,26 +12,17 @@
 namespace Luth
 {
     struct Vertex {
-        glm::vec3 Position;
-        glm::vec3 Normal;
-        glm::vec2 TexCoords;
+        glm::vec3 position;
+        glm::vec3 normal;
+        glm::vec2 texCoord0;
+        glm::vec2 texCoord1;
+        glm::vec3 tangent;
     };
 
     struct MeshData {
-        std::vector<Vertex> Vertices;
-        std::vector<uint32_t> Indices;
-        uint32_t MaterialIndex = 0;
-    };
-
-    struct TextureInfo {
-        enum class Type { Diffuse, Normal, Emissive, Metalness, Roughness };
-        Type type;
-        fs::path path;
-        u32 id;
-    };
-
-    struct Material {
-        std::vector<TextureInfo> Textures;
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        uint32_t materialIndex = 0;
     };
 
     class Model
@@ -38,8 +30,8 @@ namespace Luth
     public:
         Model(const fs::path& path);
 
-        const std::vector<MeshData>& GetMeshes() const { return m_Meshes; }
-        const std::vector<Material>& GetMaterials() const { return m_Materials; }
+        std::vector<MeshData>& GetMeshes() { return m_Meshes; }
+        std::vector<Material>& GetMaterials() { return m_Materials; }
 
     private:
         void LoadModel(const fs::path& path);

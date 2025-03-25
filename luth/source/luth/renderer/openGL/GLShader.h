@@ -31,7 +31,7 @@ namespace Luth
         GLenum ShaderTypeFromString(const std::string& type);
         GLint GetUniformLocation(const std::string& name);
 
-        GLuint m_RendererID;
+        GLuint m_ShaderID;
         std::unordered_map<std::string, GLint> m_UniformLocationCache;
     };
 }

@@ -7,15 +7,15 @@
 namespace Luth
 {
     GLVertexArray::GLVertexArray() {
-        glGenVertexArrays(1, &m_RendererID);
+        glGenVertexArrays(1, &m_VertexArrayID);
     }
 
     GLVertexArray::~GLVertexArray() {
-        glDeleteVertexArrays(1, &m_RendererID);
+        glDeleteVertexArrays(1, &m_VertexArrayID);
     }
 
     void GLVertexArray::Bind() const {
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(m_VertexArrayID);
     }
 
     void GLVertexArray::Unbind() const {
@@ -24,7 +24,7 @@ namespace Luth
 
     void GLVertexArray::AddVertexBuffer(const std::shared_ptr<VertexBuffer>& vb)
     {
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(m_VertexArrayID);
         vb->Bind();
 
         const auto& layout = vb->GetLayout();
@@ -46,7 +46,7 @@ namespace Luth
 
     void GLVertexArray::SetIndexBuffer(const std::shared_ptr<IndexBuffer>& ib)
     {
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(m_VertexArrayID);
         ib->Bind();
         m_IndexBuffer = ib;
     }

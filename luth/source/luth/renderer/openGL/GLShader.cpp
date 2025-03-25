@@ -24,12 +24,12 @@ namespace Luth
 
     GLShader::~GLShader()
     {
-        glDeleteProgram(m_RendererID);
+        glDeleteProgram(m_ShaderID);
     }
 
     void GLShader::Bind() const
     {
-        glUseProgram(m_RendererID);
+        glUseProgram(m_ShaderID);
     }
 
     void GLShader::Unbind() const
@@ -155,7 +155,7 @@ namespace Luth
         for (auto id : shaderIDs)
             glDetachShader(program, id);
 
-        m_RendererID = program;
+        m_ShaderID = program;
     }
 
     GLenum GLShader::ShaderTypeFromString(const std::string& type)
@@ -173,7 +173,7 @@ namespace Luth
         if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
             return m_UniformLocationCache[name];
 
-        GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+        GLint location = glGetUniformLocation(m_ShaderID, name.c_str());
         if (location == -1)
             LH_CORE_WARN("Uniform '{0}' not found!", name);
 

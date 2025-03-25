@@ -20,6 +20,7 @@ namespace Luth
         EnableDepthTest(true);
         EnableBlending(true);
         SetBlendFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        SetClearColor({ 0.15, 0.15, 0.15, 1.0 });
 
         LH_CORE_INFO("OpenGL Renderer initialized");
         LH_CORE_INFO(" - Vendor: {0}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
@@ -96,8 +97,8 @@ namespace Luth
     {
         for (auto mesh : m_Meshes)
         {
-            mesh->Bind();
-            mesh->Draw();
+            mesh->Bind(); LH_GL_CHECK_ERROR();
+            mesh->Draw(); LH_GL_CHECK_ERROR();
         }
     }
 
@@ -108,11 +109,11 @@ namespace Luth
             std::string errorStr;
             switch (error)
             {
-                case GL_INVALID_ENUM:       errorStr = "INVALID_ENUM";  break;
-                case GL_INVALID_VALUE:      errorStr = "INVALID_VALUE"; break;
-                case GL_INVALID_OPERATION:  errorStr = "INVALID_OPERATION"; break;
-                case GL_OUT_OF_MEMORY:      errorStr = "OUT_OF_MEMORY"; break;
-                default:                    errorStr = "UNKNOWN_ERROR"; break;
+                case GL_INVALID_ENUM:      errorStr = "INVALID_ENUM";      break;
+                case GL_INVALID_VALUE:     errorStr = "INVALID_VALUE";     break;
+                case GL_INVALID_OPERATION: errorStr = "INVALID_OPERATION"; break;
+                case GL_OUT_OF_MEMORY:     errorStr = "OUT_OF_MEMORY";     break;
+                default:                   errorStr = "UNKNOWN_ERROR";     break;
             }
             LH_CORE_ERROR("OpenGL Error ({0}) at {1}:{2}", errorStr, file, line);
         }

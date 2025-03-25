@@ -1,8 +1,11 @@
 #include "luthpch.h"
 #include "luth/resources/ResourceManager.h"
+#include "luth/resources/ModelLibrary.h"
+#include "luth/resources/MaterialLibrary.h"
+#include "luth/resources/ShaderLibrary.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RendererAPI.h"
-//#include "luth/renderer/Material.h"
+#include "luth/renderer/Material.h"
 #include "luth/renderer/Model.h"
 //#include "luth/renderer/vulkan/VKMesh.h"
 
@@ -14,13 +17,17 @@ namespace Luth
     fs::path ResourceManager::s_ProjectRoot;
     fs::path ResourceManager::s_AssetBasePath;
 
-    void ResourceManager::Initialize(const fs::path& engineRoot)
+    void ResourceManager::Init(const fs::path& engineRoot)
     {
         s_EngineRoot = engineRoot.empty() ? fs::current_path() : engineRoot;
         s_ProjectRoot = fs::current_path();
         s_AssetBasePath = s_ProjectRoot / "assets";
 
         CreateDefaultDirectoryStructure();
+
+        ModelLibrary::Init();
+        MaterialLibrary::Init();
+        ShaderLibrary::Init();
     }
 
     void ResourceManager::SetBasePath(const fs::path& basePath) {
@@ -31,7 +38,7 @@ namespace Luth
         return s_AssetBasePath;
     }
 
-    fs::path ResourceManager::GetPath(Resource type, const fs::path& resourceName)
+    fs::path ResourceManager::GetPath(Resource type, const fs::path& resourceName, bool extension)
     {
         const auto& directories = GetResourceDirectories();
         const auto& extensions = GetDefaultExtensions();
@@ -39,7 +46,7 @@ namespace Luth
         fs::path finalPath = s_AssetBasePath / directories.at(type) / resourceName;
 
         // Add default extension if missing
-        if (!resourceName.has_extension() && extensions.count(type)) {
+        if (extension && !resourceName.has_extension() && extensions.count(type)) {
             finalPath += extensions.at(type);
         }
 
@@ -74,20 +81,48 @@ namespace Luth
             { Resource::Material,   "Material"  },
             { Resource::Shader,     "Shader"    },
             { Resource::Font,       "Font"      },
-            { Resource::Config,     "Configuration" }
+            { Resource::Config,     "Config"    }
         };
         return typeNames.at(type);
     }
 
-    std::vector<fs::path> ResourceManager::FindResources(Resource type, const std::string& pattern)
+    std::vector<fs::path> ResourceManager::FindResources(Resource type, const std::string& pattern, bool recursive)
     {
         std::vector<fs::path> results;
-        const fs::path searchDir = GetPath(type, "");
+        const fs::path searchDir = GetPath(type, "", false);
         const std::regex re(pattern);
 
+        if (recursive) {
+            for (const auto& entry : fs::recursive_directory_iterator(searchDir)) {
+                if (entry.is_regular_file() &&
+                    std::regex_match(entry.path().filename().string(), re)) {
+                    results.push_back(entry.path());
+                }
+            }
+        }
+        else {
+            for (const auto& entry : fs::directory_iterator(searchDir)) {
+                if (entry.is_regular_file() &&
+                    std::regex_match(entry.path().filename().string(), re)) {
+                    results.push_back(entry.path());
+                }
+            }
+        }
+
+        return results;
+    }
+
+    std::vector<fs::path> ResourceManager::FindResourceByName(Resource type, const std::string& targetName)
+    {
+        std::vector<fs::path> results;
+        const fs::path searchDir = GetPath(type, "", false);
+
         for (const auto& entry : fs::directory_iterator(searchDir)) {
-            if (std::regex_match(entry.path().filename().string(), re)) {
-                results.push_back(entry.path());
+            if (entry.is_regular_file()) {
+                // Compare filename stem (without extension) to target name
+                if (entry.path().stem() == targetName) {
+                    results.push_back(entry.path());
+                }
             }
         }
 

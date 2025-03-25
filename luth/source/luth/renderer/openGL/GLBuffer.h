@@ -19,7 +19,7 @@ namespace Luth
         const BufferLayout& GetLayout() const { return m_Layout; }
 
     private:
-        uint32_t m_RendererID;
+        uint32_t m_BufferID;
         BufferLayout m_Layout;
     };
 
@@ -34,7 +34,7 @@ namespace Luth
         uint32_t GetCount() const override { return m_Count; }
 
     private:
-        uint32_t m_RendererID;
+        uint32_t m_BufferID;
         uint32_t m_Count;
     };
 }
