@@ -46,6 +46,7 @@ namespace Luth
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
                 Editor::BeginFrame();
+                Editor::Render();
                 OnUIRender();
                 Editor::EndFrame();
             }
