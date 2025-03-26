@@ -47,6 +47,11 @@ namespace Luth
                 internalFormat = GL_RGB8;
                 dataFormat = GL_RGB;
             }
+            else if (channels == 1)
+            {
+                internalFormat = GL_R8;
+                dataFormat = GL_RED;
+            }
 
             if (internalFormat == 0)
             {
