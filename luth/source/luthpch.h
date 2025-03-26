@@ -11,6 +11,7 @@
 #include <fstream>
 #include <memory>
 #include <algorithm>
+#include <regex>
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/Log.h"

@@ -4,6 +4,7 @@
 #include "luth/window/WinWindow.h"
 
 #include "luth/editor/panels/InspectorPanel.h"
+#include "luth/editor/panels/HierarchyPanel.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -37,6 +38,7 @@ namespace Luth
 
         // Set Panels
         AddPanel(new InspectorPanel());
+        AddPanel(new HierarchyPanel(new Scene));
     }
 
     void Editor::Shutdown()
