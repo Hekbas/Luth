@@ -41,7 +41,7 @@ namespace Luth
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY")) {
                     Entity droppedEntity = *(Entity*)payload->Data;
-                    LH_CORE_INFO("Dropped entity {} onto hierarchy root", droppedEntity.GetName());
+                    LH_CORE_INFO("Dropped entity {0} onto hierarchy root", droppedEntity.GetName());
                     droppedEntity.RemoveParent();
                 }
                 ImGui::EndDragDropTarget();

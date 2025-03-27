@@ -25,6 +25,8 @@ namespace Luth
         LH_CORE_TRACE(" - Enabled ImGui multi-viewport support");
         
         SetCustomStyle();
+        //SetupBubblegumStyle();
+        //SetRandomStyle();
         
         // TODO: Set Render specific Imgui Backends (GL/VK)
         if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
@@ -238,5 +240,143 @@ namespace Luth
         style.IndentSpacing = 20;
         style.ScrollbarSize = 14;
         style.GrabMinSize = 12;
+    }
+
+    void Editor::SetupBubblegumStyle()
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+    
+        // Rounded corners
+        style.WindowRounding = 12.0f;
+        style.ChildRounding = 12.0f;
+        style.FrameRounding = 12.0f;
+        style.PopupRounding = 8.0f;
+        style.ScrollbarRounding = 12.0f;
+        style.GrabRounding = 12.0f;
+        style.TabRounding = 8.0f;
+
+        // Colors (RGBA - 0-1 floats)
+        ImVec4* colors = style.Colors;
+        colors[ImGuiCol_Text]                   = ImVec4(0.29f, 0.14f, 0.35f, 1.00f);  // Deep purple
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.75f, 0.75f, 0.75f, 1.00f);
+        colors[ImGuiCol_WindowBg]               = ImVec4(1.00f, 0.89f, 0.93f, 1.00f);  // Pale pink
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.98f, 0.95f, 0.97f, 1.00f);
+        colors[ImGuiCol_PopupBg]                = ImVec4(1.00f, 0.95f, 0.98f, 1.00f);
+        colors[ImGuiCol_Border]                 = ImVec4(1.00f, 0.70f, 0.82f, 0.50f);  // Pink border
+        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        colors[ImGuiCol_FrameBg]                = ImVec4(1.00f, 0.96f, 0.98f, 1.00f);
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(1.00f, 0.89f, 0.93f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(1.00f, 0.82f, 0.89f, 1.00f);
+        colors[ImGuiCol_TitleBg]                = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);  // Bright pink
+        colors[ImGuiCol_TitleBgActive]          = ImVec4(1.00f, 0.60f, 0.75f, 1.00f);
+        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(1.00f, 0.89f, 0.93f, 1.00f);
+        colors[ImGuiCol_MenuBarBg]              = ImVec4(1.00f, 0.89f, 0.93f, 1.00f);
+        colors[ImGuiCol_ScrollbarBg]            = ImVec4(1.00f, 0.95f, 0.97f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrab]          = ImVec4(1.00f, 0.70f, 0.82f, 0.50f);
+        colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(1.00f, 0.60f, 0.75f, 0.50f);
+        colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(1.00f, 0.50f, 0.65f, 0.50f);
+        colors[ImGuiCol_CheckMark]              = ImVec4(0.47f, 0.87f, 0.63f, 1.00f);  // Mint green
+        colors[ImGuiCol_SliderGrab]             = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);
+        colors[ImGuiCol_SliderGrabActive]       = ImVec4(1.00f, 0.60f, 0.75f, 1.00f);
+        colors[ImGuiCol_Button]                 = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);  // Bubblegum pink
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(1.00f, 0.80f, 0.89f, 1.00f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(1.00f, 0.60f, 0.75f, 1.00f);
+        colors[ImGuiCol_Header]                 = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);
+        colors[ImGuiCol_HeaderHovered]          = ImVec4(1.00f, 0.80f, 0.89f, 1.00f);
+        colors[ImGuiCol_HeaderActive]           = ImVec4(1.00f, 0.60f, 0.75f, 1.00f);
+        colors[ImGuiCol_Separator]              = ImVec4(1.00f, 0.70f, 0.82f, 0.50f);
+        colors[ImGuiCol_SeparatorHovered]       = ImVec4(1.00f, 0.60f, 0.75f, 0.50f);
+        colors[ImGuiCol_SeparatorActive]        = ImVec4(1.00f, 0.50f, 0.65f, 0.50f);
+        colors[ImGuiCol_ResizeGrip]             = ImVec4(1.00f, 0.70f, 0.82f, 0.20f);
+        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(1.00f, 0.60f, 0.75f, 0.67f);
+        colors[ImGuiCol_ResizeGripActive]       = ImVec4(1.00f, 0.50f, 0.65f, 0.95f);
+        colors[ImGuiCol_DockingEmptyBg]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        colors[ImGuiCol_Tab]                    = ImVec4(1.00f, 0.85f, 0.92f, 1.00f);  // Lightened pink
+        colors[ImGuiCol_TabHovered]             = ImVec4(1.00f, 0.92f, 0.96f, 1.00f);  // Even lighter pink
+        colors[ImGuiCol_TabActive]              = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);  // Original bubblegum 
+        colors[ImGuiCol_PlotLines]              = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);
+        colors[ImGuiCol_PlotLinesHovered]       = ImVec4(1.00f, 0.60f, 0.75f, 1.00f);
+        colors[ImGuiCol_PlotHistogram]          = ImVec4(0.47f, 0.87f, 0.63f, 1.00f);
+        colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(0.40f, 0.80f, 0.55f, 1.00f);
+        colors[ImGuiCol_TableHeaderBg]          = ImVec4(1.00f, 0.89f, 0.93f, 1.00f);
+        colors[ImGuiCol_TableBorderStrong]      = ImVec4(1.00f, 0.70f, 0.82f, 1.00f);
+        colors[ImGuiCol_TableBorderLight]       = ImVec4(1.00f, 0.80f, 0.89f, 1.00f);
+        colors[ImGuiCol_TextSelectedBg]         = ImVec4(1.00f, 0.70f, 0.82f, 0.35f);
+        colors[ImGuiCol_DragDropTarget]         = ImVec4(0.47f, 0.87f, 0.63f, 1.00f);
+        colors[ImGuiCol_NavHighlight]           = ImVec4(0.47f, 0.87f, 0.63f, 1.00f);
+        colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
+        colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+        colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+
+        // Spacing and sizing
+        style.WindowPadding = ImVec2(12, 12);
+        style.FramePadding = ImVec2(12, 6);
+        style.ItemSpacing = ImVec2(10, 8);
+        style.ScrollbarSize = 16.0f;
+        style.GrabMinSize = 12.0f;
+
+        // Font (you'll need to load your own font)
+        // ImGuiIO& io = ImGui::GetIO();
+        // io.Fonts->AddFontFromFileTTF("fonts/RoundedFont.ttf", 16.0f);
+    }
+
+    void Editor::SetRandomStyle()
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec4* colors = style.Colors;
+    
+        // Seed with current time
+        static std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        std::uniform_real_distribution<float> colorDist(0.2f, 0.8f);
+        std::uniform_real_distribution<float> propDist(0.5f, 3.0f);
+
+        // Generate random base hue
+        float hue = dist(rng);
+        ImVec4 baseColor = ImColor::HSV(hue, 0.7f, 0.7f);
+    
+        // Random style properties
+        style.WindowRounding = propDist(rng);
+        style.ChildRounding = propDist(rng);
+        style.FrameRounding = propDist(rng);
+        style.GrabRounding = propDist(rng);
+        style.PopupRounding = propDist(rng);
+        style.ScrollbarRounding = propDist(rng);
+    
+        style.WindowBorderSize = dist(rng) > 0.5f ? 1.0f : 0.0f;
+        style.FrameBorderSize = dist(rng) > 0.3f ? 1.0f : 0.0f;
+    
+        // Random color scheme
+        colors[ImGuiCol_Text]             = ImVec4(dist(rng), dist(rng), dist(rng), 1.00f);
+        colors[ImGuiCol_WindowBg]         = ImColor::HSV(hue, 0.2f, 0.2f);
+        colors[ImGuiCol_ChildBg]          = ImColor::HSV(hue, 0.25f, 0.25f);
+        colors[ImGuiCol_PopupBg]          = ImColor::HSV(hue, 0.2f, 0.3f);
+        colors[ImGuiCol_Border]           = ImColor::HSV(hue, 0.4f, 0.6f);
+        colors[ImGuiCol_FrameBg]          = ImColor::HSV(hue, 0.3f, 0.3f);
+        colors[ImGuiCol_FrameBgHovered]   = ImColor::HSV(hue, 0.4f, 0.4f);
+        colors[ImGuiCol_FrameBgActive]    = ImColor::HSV(hue, 0.5f, 0.5f);
+        colors[ImGuiCol_TitleBg]          = ImColor::HSV(hue, 0.6f, 0.3f);
+        colors[ImGuiCol_TitleBgActive]    = ImColor::HSV(hue, 0.7f, 0.4f);
+        colors[ImGuiCol_CheckMark]        = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        colors[ImGuiCol_SliderGrab]       = ImColor::HSV(hue, 0.8f, 0.8f);
+        colors[ImGuiCol_SliderGrabActive] = ImColor::HSV(hue, 0.9f, 0.9f);
+        colors[ImGuiCol_Button]           = ImColor::HSV(hue, 0.6f, 0.4f);
+        colors[ImGuiCol_ButtonHovered]    = ImColor::HSV(hue, 0.7f, 0.5f);
+        colors[ImGuiCol_ButtonActive]     = ImColor::HSV(hue, 0.8f, 0.6f);
+        colors[ImGuiCol_Header]           = ImColor::HSV(hue, 0.5f, 0.3f);
+        colors[ImGuiCol_HeaderHovered]    = ImColor::HSV(hue, 0.6f, 0.4f);
+        colors[ImGuiCol_HeaderActive]     = ImColor::HSV(hue, 0.7f, 0.5f);
+    
+        // Random spacing/padding
+        style.WindowPadding = ImVec2(propDist(rng), propDist(rng));
+        style.FramePadding = ImVec2(propDist(rng), propDist(rng));
+        style.ItemSpacing = ImVec2(propDist(rng), propDist(rng));
+        style.ItemInnerSpacing = ImVec2(propDist(rng), propDist(rng));
+
+        // Random window transparency
+        style.Alpha = 0.8f + dist(rng) * 0.2f;
+
+        LH_CORE_INFO("Applied random style - Hue: {0}, WindowRounding: {1}", 
+                    hue, style.WindowRounding);
     }
 }

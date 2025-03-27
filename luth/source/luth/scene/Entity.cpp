@@ -77,4 +77,11 @@ namespace Luth
         }
         return false;
     }
+
+    bool Entity::IsAncestorOf(Entity potentialDescendant) const
+    {
+        Entity current = *this;
+
+        return true;
+    }
 }

@@ -55,6 +55,7 @@ namespace Luth
         void RemoveParent() { SetParent({}); }
         bool HasParent() const { return GetParent().operator bool(); }
         bool IsDescendantOf(Entity potentialAncestor) const;
+        bool IsAncestorOf(Entity potentialDescendant) const;
 
         std::vector<Entity> GetChildren() const;
 

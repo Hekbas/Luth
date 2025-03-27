@@ -31,6 +31,8 @@ namespace Luth
 
         static void AddPanel(Panel* panel);
         static void SetCustomStyle();
+        static void SetupBubblegumStyle();
+        static void SetRandomStyle();
 
     private:
         static inline ImGuiContext* s_Context = nullptr;
