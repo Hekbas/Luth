@@ -26,128 +26,147 @@ namespace Luth
 
     void Scene::DestroyEntity(Entity entity)
     {
-        if (!entity) return;
+        if (!entity.IsValid()) return;
 
-        // Clear parent reference in children
+        // Destroy all children first (recursively)
         if (entity.HasComponent<Children>()) {
-            for (auto child : entity.GetComponent<Children>().m_Children) {
-                if (child.HasComponent<Parent>()) {
-                    child.RemoveComponent<Parent>();
-                }
+            auto children = entity.GetComponent<Children>().m_Children;
+            for (auto child : children) {
+                DestroyEntity(child);
             }
         }
 
         // Remove from parent's children list
         if (entity.HasComponent<Parent>()) {
             Entity parent = entity.GetComponent<Parent>().m_Parent;
-            if (parent && parent.HasComponent<Children>()) {
+            if (parent.IsValid() && parent.HasComponent<Children>()) {
                 auto& siblings = parent.GetComponent<Children>().m_Children;
                 siblings.erase(std::remove(siblings.begin(), siblings.end(), entity), siblings.end());
             }
         }
 
+        // Finally destroy the entity itself
         m_Registry.destroy(entity);
         LH_CORE_INFO("Destroyed entity: {0}", entity.GetName());
     }
 
-    Entity Scene::DuplicateEntity(Entity original)
+    Entity Scene::DuplicateEntity(Entity original, bool skipParentAddition)
     {
         if (!original.IsValid()) return {};
 
-        std::string newName = GenerateUniqueName(original.GetName());
+        std::string newName = GenerateUniqueName(original);
         Entity duplicate = CreateEntity(newName);
 
-        // Copy components
-        /*if (original.HasComponent<Transform>()) {
-            duplicate.AddComponent<Transform>(
-                original.GetComponent<Transform>()
-            );
-        }*/
+        // Copy all components except hierarchy-related ones
+        //original.CopyComponentIfExists<Tag>(duplicate);
+        //original.CopyComponentIfExists<Transform>(duplicate);
+        // Add other component copies here...
 
-        LH_CORE_INFO("Duplicated entity {0} to {1}", original.GetName(), newName);
+        // Handle parent relationship if not skipped
+        if (!skipParentAddition && original.HasComponent<Parent>()) {
+            Entity parent = original.GetComponent<Parent>().m_Parent;
+
+            if (parent.IsValid()) {
+                // Add duplicate to parent's children list
+                if (parent.HasComponent<Children>()) {
+                    auto& parentChildren = parent.GetComponent<Children>().m_Children;
+                    parentChildren.push_back(duplicate);
+                }
+                else {
+                    auto& parentChildren = parent.AddComponent<Children>().m_Children;
+                    parentChildren.push_back(duplicate);
+                }
+
+                // Set duplicate's parent
+                duplicate.AddComponent<Parent>().m_Parent = parent;
+            }
+        }
+
+        // Recursively duplicate children
+        if (original.HasComponent<Children>()) {
+            auto& originalChildren = original.GetComponent<Children>().m_Children;
+            auto& duplicateChildren = duplicate.AddComponent<Children>().m_Children;
+
+            for (Entity child : originalChildren) {
+                // Pass 'true' to skip adding the child duplicate to the original parent's children
+                Entity duplicatedChild = DuplicateEntity(child, true);
+                duplicatedChild.AddOrReplaceComponent<Parent>().m_Parent = duplicate;
+                duplicateChildren.push_back(duplicatedChild);
+            }
+        }
+
+        LH_CORE_INFO("Duplicated {0} '{1}'",
+            original.HasComponent<Children>() ? "hierarchy" : "entity",
+            original.GetName());
         return duplicate;
     }
 
-    std::string Scene::GenerateUniqueName(const std::string& originalName)
+    std::string Scene::GenerateUniqueName(Entity entity)
     {
-        std::string baseName = originalName;
-        int currentNumber = 0;
+        if (!entity.IsValid()) return "";
 
-        // Check if original name ends with "(X)" pattern
-        size_t openParen = originalName.rfind(" (");
-        size_t closeParen = originalName.rfind(')');
-
-        if (openParen != std::string::npos &&
-            closeParen == originalName.size() - 1 &&
-            closeParen > openParen + 2) {
-
-            std::string numberStr = originalName.substr(openParen + 2,
-                closeParen - openParen - 2);
-            try {
-                currentNumber = std::stoi(numberStr);
-                baseName = originalName.substr(0, openParen);
-            }
-            catch (...) {
-                // Not a valid number, keep original name
-            }
+        // Get the parent of the entity
+        Entity parent;
+        if (entity.HasComponent<Parent>()) {
+            parent = entity.GetComponent<Parent>().m_Parent;
         }
 
-        // Find existing numbers for this base name
-        std::vector<int> existingNumbers;
-        auto view = m_Registry.view<Tag>();
-
-        for (auto entity : view) {
-            Entity e{ entity, this };
-            std::string name = e.GetName();
-
-            if (name.find(baseName) != 0) continue; // Doesn't start with base name
-
-            size_t pos = baseName.size();
-            if (name.size() > pos &&
-                name[pos] == ' ' &&
-                name[pos + 1] == '(' &&
-                name.back() == ')') {
-
-                size_t numStart = pos + 2;
-                size_t numEnd = name.size() - 1;
-                if (numStart >= numEnd) continue;
-
-                try {
-                    int num = std::stoi(name.substr(numStart, numEnd - numStart));
-                    existingNumbers.push_back(num);
-                }
-                catch (...) {
-                    // Not a valid number, skip
-                }
+        // Get all siblings (children of the parent or root entities)
+        std::vector<Entity> siblings;
+        if (parent.IsValid()) {
+            if (parent.HasComponent<Children>()) {
+                siblings = parent.GetComponent<Children>().m_Children;
             }
         }
-
-        // Calculate next available number
-        int nextNumber = currentNumber + 1;
-        if (!existingNumbers.empty()) {
-            auto maxIt = std::max_element(existingNumbers.begin(), existingNumbers.end());
-            nextNumber = std::max(nextNumber, *maxIt + 1);
+        else {
+            // Assuming GetRootEntities() retrieves all root entities
+            //siblings = GetRootEntities();
         }
 
-        // Generate unique name
-        std::string newName;
-        int attempt = nextNumber;
-        while (true) {
-            newName = fmt::format("{0} ({1})", baseName, attempt);
-            bool exists = false;
+        // Extract base name and original number from the entity's name
+        std::string name = entity.GetName();
+        std::string base = name;
+        int originalNumber = 0;
 
-            for (auto entity : view) {
-                Entity e{ entity, this };
-                if (e.GetName() == newName) {
-                    exists = true;
-                    break;
+        std::regex pattern(R"(^(.*?)\s\((\d+)\)$)");
+        std::smatch matches;
+        if (std::regex_match(name, matches, pattern)) {
+            base = matches[1].str();
+            originalNumber = std::stoi(matches[2].str());
+        }
+
+        // Collect all numbers from siblings' names matching the base
+        std::vector<int> numbers;
+        numbers.push_back(originalNumber); // Include the entity's own number
+
+        std::regex siblingPattern(R"(^(.*?)\s\((\d+)\)$)");
+        for (Entity sibling : siblings) {
+            // Skip the entity itself
+            if (sibling == entity)
+                continue;
+
+            std::string siblingName = sibling.GetName();
+
+            if (siblingName == base) {
+                numbers.push_back(0);
+            }
+            else {
+                std::smatch siblingMatches;
+                if (std::regex_match(siblingName, siblingMatches, siblingPattern)) {
+                    std::string siblingBase = siblingMatches[1].str();
+                    if (siblingBase == base) {
+                        int num = std::stoi(siblingMatches[2].str());
+                        numbers.push_back(num);
+                    }
                 }
             }
-
-            if (!exists) break;
-            attempt++;
         }
 
-        return newName;
+        // Determine the new number
+        int maxNumber = numbers.empty() ? -1 : *std::max_element(numbers.begin(), numbers.end());
+        int newNumber = maxNumber + 1;
+
+        // Generate the new name
+        return base + " (" + std::to_string(newNumber) + ")";
     }
 }

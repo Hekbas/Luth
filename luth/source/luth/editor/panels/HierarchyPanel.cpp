@@ -13,6 +13,8 @@ namespace Luth
         LH_CORE_INFO("Created Hierarchy panel");
     }
 
+    void HierarchyPanel::OnInit() {}
+
     void HierarchyPanel::OnRender()
     {
         if (ImGui::Begin("Hierarchy"))
@@ -20,8 +22,11 @@ namespace Luth
             // Header with search and create button
             ImGui::AlignTextToFramePadding();
 
-            if (ImGui::Button("+"))
+            ImVec2 buttonPos;
+            if (ImGui::Button("+")) {
+                buttonPos = { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y + ImGui::GetFrameHeight() };
                 m_ShowCreateMenu = true;
+            }
 
             ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -29,24 +34,24 @@ namespace Luth
 
             // Entity list
             ImGui::Separator();
-            ImGui::BeginChild("EntityList");
+            if (ImGui::BeginChild("EntityList"))
+            {
+                m_Context->EachEntity([&](Entity entity) {
+                    if (!entity.HasParent() && EntityMatchesFilter(entity)) {
+                        DrawEntityNode(entity);
+                    }
+                });
 
-            m_Context->EachEntity([&](Entity entity) {
-                if (!entity.HasParent() && EntityMatchesFilter(entity)) {
-                    DrawEntityNode(entity);
+                // Handle drag drop target
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY")) {
+                        Entity droppedEntity = *(Entity*)payload->Data;
+                        LH_CORE_INFO("Dropped entity {0} onto hierarchy root", droppedEntity.GetName());
+                        droppedEntity.RemoveParent();
+                    }
+                    ImGui::EndDragDropTarget();
                 }
-            });
-
-            // Handle drag drop target
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY")) {
-                    Entity droppedEntity = *(Entity*)payload->Data;
-                    LH_CORE_INFO("Dropped entity {0} onto hierarchy root", droppedEntity.GetName());
-                    droppedEntity.RemoveParent();
-                }
-                ImGui::EndDragDropTarget();
             }
-
             ImGui::EndChild();
 
             // Context menus
@@ -56,6 +61,7 @@ namespace Luth
             }
 
             if (m_ShowCreateMenu) {
+                ImGui::SetNextWindowPos(buttonPos);
                 ImGui::OpenPopup("CreateEntityMenu");
                 m_ShowCreateMenu = false;
             }
@@ -95,58 +101,104 @@ namespace Luth
 
     void HierarchyPanel::DrawEntityNode(Entity entity)
     {
-        auto name = entity.GetName();
+        if (!entity.IsValid()) return;
+        const std::string name = entity.GetName();
+        bool isRenaming = (m_RenamingEntity == entity);
+
         ImGuiTreeNodeFlags flags =
+            ImGuiTreeNodeFlags_DefaultOpen |
             ImGuiTreeNodeFlags_OpenOnArrow |
-            ImGuiTreeNodeFlags_SpanAvailWidth |
             (m_Selection == entity ? ImGuiTreeNodeFlags_Selected : 0) |
             (entity.GetChildren().empty() ? ImGuiTreeNodeFlags_Leaf : 0);
 
-        ImGui::PushID(entity.GetComponent<ID>().m_ID);
-        bool isOpen = ImGui::TreeNodeEx((void*)(uint64_t)entity, flags, "%s", name.c_str());
-        ImGui::PopID();
+        ImGui::PushID(static_cast<int>(entity.GetComponent<ID>().m_ID));
 
-        // Handle selection
-        if (ImGui::IsItemClicked()) {
+        // Split arrow and text into separate interactable areas
+        bool isOpen = ImGui::TreeNodeEx("##TreeNodeArrow", flags);
+
+        // Handle arrow interactions
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
             SetSelectedEntity(entity);
         }
 
-        // Drag and drop
-        if (ImGui::BeginDragDropSource()) {
-            ImGui::SetDragDropPayload("ENTITY", &entity, sizeof(Entity));
-            ImGui::Text("Move %s", name.c_str());
-            m_DraggedEntity = entity;
-            ImGui::EndDragDropSource();
-        }
+        // Text label (separate interactable area)
+        ImGui::SameLine();
 
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY")) {
-                Entity child = *(Entity*)payload->Data;
-                child.SetParent(entity);
+        if (isRenaming) {
+            // Rename input field
+            bool finish = false;
+            bool cancel = false;
+            ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll;
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer), flags)) {
+                finish = true;
             }
-            ImGui::EndDragDropTarget();
+
+            // Handle Escape key
+            if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                cancel = true;
+            }
+
+            // Finalize renaming
+            if (finish || cancel) {
+                if (finish && !cancel) {
+                    // Validate and apply new name
+                    std::string newName(m_RenameBuffer);
+                    if (newName.empty()) newName = m_OriginalName;
+                    entity.GetComponent<Tag>().m_Tag = newName;
+                }
+                else if (cancel) {
+                    // Restore original name
+                    entity.GetComponent<Tag>().m_Tag = m_OriginalName;
+                }
+                m_RenamingEntity = {};
+                m_OriginalName.clear();
+            }
+        }
+        else {
+            // Clickable text label
+            ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 25.0f));
+            if (ImGui::Selectable(name.c_str(), m_Selection == entity,
+                ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_SpanAllColumns))
+            {
+                SetSelectedEntity(entity);
+
+                // Handle double-click on text only
+                if (ImGui::IsMouseDoubleClicked(0)) {
+                    m_RenamingEntity = entity;
+                    strncpy_s(m_RenameBuffer, name.c_str(), sizeof(m_RenameBuffer));
+                }
+            }
+            ImGui::PopStyleVar();
+
+            // Drag and drop on text area
+            HandleDragDrop(entity, name);
         }
 
-        // Context menu
+        // Context menu (works on both areas)
         if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem("Rename")) {
+                m_RenamingEntity = entity;
+                strncpy_s(m_RenameBuffer, name.c_str(), sizeof(m_RenameBuffer));
+            }
             DrawEntityContextMenu(entity);
             ImGui::EndPopup();
         }
 
-        // Children recursion
+        // Child nodes
         if (isOpen) {
-            for (const auto &child : entity.GetChildren()) {
+            for (auto child : entity.GetChildren()) {
                 DrawEntityNode(child);
             }
             ImGui::TreePop();
         }
+
+        ImGui::PopID();
     }
 
     void HierarchyPanel::DrawEntityContextMenu(Entity entity)
     {
-        if (ImGui::MenuItem("Rename"))
-            entity.BeginRename();
-
         if (ImGui::MenuItem("Delete")) {
             if (m_Selection == entity)
                 SetSelectedEntity({});
@@ -187,21 +239,39 @@ namespace Luth
         }
     }
 
+    void HierarchyPanel::HandleDragDrop(Entity entity, const std::string& name)
+    {
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload("ENTITY", &entity, sizeof(Entity));
+            ImGui::Text("Move %s", name.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY")) {
+                Entity child = *(Entity*)payload->Data;
+                if (!child.IsAncestorOf(entity)) {
+                    child.SetParent(entity);
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+
     void HierarchyPanel::ProcessKeyboardShortcuts()
     {
-        if (ImGui::IsWindowFocused()) {
-            // Delete key
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+            // [SUPR] Delete
             if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_Selection) {
                 m_Context->DestroyEntity(m_Selection);
                 SetSelectedEntity({});
                 LH_CORE_INFO("Deleted selected entity");
             }
 
-            // Ctrl+D for duplicate
+            // [Ctrl+D] Duplicate
             if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_D)) {
                 if (m_Selection) {
                     auto duplicate = m_Context->DuplicateEntity(m_Selection);
-                    LH_CORE_INFO("Duplicated entity {0}", duplicate.GetName());
                 }
             }
         }

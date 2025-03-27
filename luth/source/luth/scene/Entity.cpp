@@ -24,7 +24,7 @@ namespace Luth
     void Entity::SetParent(Entity parent)
     {
         // Prevent invalid parenting
-        if (!parent || parent == *this || IsDescendantOf(parent)) {
+        if (!parent || parent == *this || IsAncestorOf(parent)) {
             LH_CORE_WARN("Invalid parenting operation");
             return;
         }
@@ -38,18 +38,14 @@ namespace Luth
             }
         }
 
-        // Add to new parent
-        if (parent) {
-            // Get or create children component
-            auto& parentChildren = parent.AddComponent<Children>().m_Children;
-            parentChildren.push_back(*this);
+        // Add to new parent (without overwriting children)
+        auto& childrenComp = parent.HasComponent<Children>() ?
+            parent.GetComponent<Children>() :
+            parent.AddComponent<Children>();
+        childrenComp.m_Children.push_back(*this);
 
-            // Set parent component
-            AddComponent<Parent>().m_Parent = parent;
-        }
-        else {
-            RemoveComponent<Parent>();
-        }
+        // Set new parent
+        AddOrReplaceComponent<Parent>().m_Parent = parent;
 
         LH_CORE_INFO("Reparented {0} to {1}", GetName(), parent.GetName());
     }
@@ -80,8 +76,14 @@ namespace Luth
 
     bool Entity::IsAncestorOf(Entity potentialDescendant) const
     {
-        Entity current = *this;
+        if (!IsValid() || !potentialDescendant.IsValid()) return false;
 
-        return true;
+        Entity current = potentialDescendant;
+        while (current.HasParent()) {
+            current = current.GetParent();
+            if (current == *this) return true;
+        }
+
+        return false;
     }
 }

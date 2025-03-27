@@ -41,6 +41,10 @@ namespace Luth
         // Set Panels
         AddPanel(new InspectorPanel());
         AddPanel(new HierarchyPanel(new Scene));
+
+        // Init all panels
+        for (auto& panel : s_Panels)
+            panel->OnInit();
     }
 
     void Editor::Shutdown()

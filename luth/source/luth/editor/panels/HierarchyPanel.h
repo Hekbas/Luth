@@ -10,8 +10,11 @@ namespace Luth
     {
     public:
         HierarchyPanel(Scene* context);
-        void SetContext(Scene* scene);
+
+        void OnInit() override;
         void OnRender() override;
+
+        void SetContext(Scene* scene);
 
         Entity GetSelectedEntity() const { return m_Selection; }
         void SetSelectedEntity(Entity entity);
@@ -20,13 +23,19 @@ namespace Luth
         void DrawEntityNode(Entity entity);
         void DrawEntityContextMenu(Entity entity);
         void DrawEntityCreateMenu();
+        void HandleDragDrop(Entity entity, const std::string& name);
         void ProcessKeyboardShortcuts();
         bool EntityMatchesFilter(Entity entity);
 
         Scene* m_Context = nullptr;
         Entity m_Selection;
-        char m_SearchFilter[256] = "";
-        bool m_ShowCreateMenu = false;
         Entity m_DraggedEntity;
+        Entity m_RenamingEntity;
+
+        char m_SearchFilter[256] = "";
+        char m_RenameBuffer[256];
+        std::string m_OriginalName;
+
+        bool m_ShowCreateMenu = false;
     };
 }

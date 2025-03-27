@@ -26,10 +26,18 @@ namespace Luth::Component
 
     struct Parent {
         Entity m_Parent;
+
+        Parent() = default;
+        Parent(const Parent&) = default;
+        Parent(const Entity& parent) : m_Parent(parent) {}
     };
 
     struct Children {
         std::vector<Entity> m_Children;
+
+        Children() = default;
+        Children(const Children&) = default;
+        Children(const std::vector<Entity>& children) : m_Children(children) {}
     };
 }
 

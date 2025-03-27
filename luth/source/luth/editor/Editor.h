@@ -13,6 +13,7 @@ namespace Luth
     {
     public:
         virtual ~Panel() = default;
+        virtual void OnInit() = 0;
         virtual void OnRender() = 0;
     };
 

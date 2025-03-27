@@ -7,12 +7,7 @@ namespace Luth
     class InspectorPanel : public Panel
     {
     public:
-        void OnRender() override
-        {
-            ImGui::Begin("Inspector");
-            // Add stuff here
-            ImGui::Text("Such empty, very wow.");
-            ImGui::End();
-        }
+        void OnInit() override;
+        void OnRender() override;
     };
 }
