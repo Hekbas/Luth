@@ -21,8 +21,8 @@ namespace Luth
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
-        Editor::Init(m_Window->GetNativeWindow());
         ResourceManager::Init();
+        Editor::Init(m_Window->GetNativeWindow()); 
     }
 
     App::~App() {}

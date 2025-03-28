@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/Math.h"
 #include "luth/scene/Entity.h"
 #include "luth/core/UUID.h"
 
@@ -38,6 +39,35 @@ namespace Luth::Component
         Children() = default;
         Children(const Children&) = default;
         Children(const std::vector<Entity>& children) : m_Children(children) {}
+    };
+
+    struct Transform {
+        glm::vec3 m_Position = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 m_Rotation = { 0.0f, 0.0f, 0.0f }; // Euler angles (degrees)
+        glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
+
+        glm::mat4 GetTransform() const {
+            glm::mat4 rotation = glm::toMat4(
+                glm::quat(glm::radians(m_Rotation))
+            );
+
+            return glm::translate(glm::mat4(1.0f), m_Position)
+                * rotation
+                * glm::scale(glm::mat4(1.0f), m_Scale);
+        }
+
+        /*glm::mat4 GetWorldTransform() const {
+            auto& transform = GetComponent<Transform>();
+            glm::mat4 result = transform.GetTransform();
+
+            if (HasComponent<Parent>()) {
+                Entity parent = GetComponent<Parent>().m_Parent;
+                if (parent) {
+                    result = parent.GetWorldTransform() * result;
+                }
+            }
+            return result;
+        }*/
     };
 }
 

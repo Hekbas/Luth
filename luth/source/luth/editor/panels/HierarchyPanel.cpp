@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/scene/Components.h"
+#include "luth/utils/CustomImGui.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -22,11 +23,7 @@ namespace Luth
             // Header with search and create button
             ImGui::AlignTextToFramePadding();
 
-            ImVec2 buttonPos;
-            if (ImGui::Button("+")) {
-                buttonPos = { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y + ImGui::GetFrameHeight() };
-                m_ShowCreateMenu = true;
-            }
+            ButtonDropdown("+", "hierarchy_+", [this]() { DrawEntityCreateMenu(); });
 
             ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -60,17 +57,6 @@ namespace Luth
                 ImGui::EndPopup();
             }
 
-            if (m_ShowCreateMenu) {
-                ImGui::SetNextWindowPos(buttonPos);
-                ImGui::OpenPopup("CreateEntityMenu");
-                m_ShowCreateMenu = false;
-            }
-
-            if (ImGui::BeginPopup("CreateEntityMenu")) {
-                DrawEntityCreateMenu();
-                ImGui::EndPopup();
-            }
-
             ProcessKeyboardShortcuts();
         }
         
@@ -82,7 +68,7 @@ namespace Luth
         if (m_Selection != entity) {
             // Clear selection if entity is invalid
             if (!entity) {
-                LH_CORE_TRACE("Cleared selection");
+                //LH_CORE_TRACE("Cleared selection");
                 m_Selection = {};
                 return;
             }
@@ -94,7 +80,7 @@ namespace Luth
                 return;
             }
 
-            LH_CORE_TRACE("Changed selection to {0}", entity.GetName());
+            //LH_CORE_TRACE("Changed selection to {0}", entity.GetName());
             m_Selection = entity;
             if (auto* inspector = Editor::GetPanel<InspectorPanel>()) {
                 inspector->SetSelectedEntity(entity);
@@ -214,12 +200,10 @@ namespace Luth
         if (ImGui::MenuItem("Create Child")) {
             auto child = m_Context->CreateEntity("Child Entity");
             child.SetParent(entity);
-            LH_CORE_INFO("Created child entity {0}", child.GetName());
         }
 
         if (ImGui::MenuItem("Duplicate")) {
             auto duplicate = m_Context->DuplicateEntity(entity);
-            LH_CORE_INFO("Duplicated entity {0}", duplicate.GetName());
         }
     }
 
@@ -237,7 +221,7 @@ namespace Luth
 
         if (ImGui::MenuItem("Camera")) {
             auto camera = m_Context->CreateEntity("Camera");
-            //camera.AddComponent<CameraComponent>();
+            //camera.AddComponent<Camera>();
             LH_CORE_INFO("Created camera entity");
         }
     }

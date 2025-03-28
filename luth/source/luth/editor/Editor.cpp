@@ -153,7 +153,6 @@ namespace Luth
     {
         LH_CORE_ASSERT(panel, "Tried to add null panel");
         s_Panels.emplace_back(panel);
-        LH_CORE_INFO("Added new panel (total: {})", s_Panels.size());
     }
 
     void Editor::SetCustomStyle()

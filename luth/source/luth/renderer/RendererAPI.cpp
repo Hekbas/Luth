@@ -10,7 +10,7 @@ namespace Luth
 
     std::unique_ptr<RendererAPI> RendererAPI::Create(API api)
     {
-        LH_CORE_INFO("Initialized {0} renderer", APIToString(api));
+        LH_CORE_INFO("Initializing {0} renderer...", APIToString(api));
         s_API = api;
 
         switch (api)

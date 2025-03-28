@@ -8,6 +8,8 @@ namespace Luth
     class InspectorPanel : public Panel
     {
     public:
+        InspectorPanel();
+
         void OnInit() override;
         void OnRender() override;
 

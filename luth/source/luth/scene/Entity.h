@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/Math.h"
 #include "luth/scene/Scene.h"
 
 #include <entt/entt.hpp>
@@ -73,10 +74,13 @@ namespace Luth
         Entity GetParent() const;
         void RemoveParent() { SetParent({}); }
         bool HasParent() const { return GetParent().operator bool(); }
+        std::vector<Entity> GetChildren() const;
+
         bool IsDescendantOf(Entity potentialAncestor) const;
         bool IsAncestorOf(Entity potentialDescendant) const;
 
-        std::vector<Entity> GetChildren() const;
+        void SetActive(bool active) { isActive = active; }
+        bool IsActive() const { return isActive; }
 
         bool operator==(const Entity& other) const {
             return m_EntityHandle == other.m_EntityHandle && m_Scene == other.m_Scene;

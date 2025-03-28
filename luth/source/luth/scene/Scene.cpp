@@ -20,7 +20,8 @@ namespace Luth
         Entity entity = { m_Registry.create(), this };
         entity.AddComponent<ID>();
         entity.AddComponent<Tag>(name);
-        LH_CORE_INFO("Created entity: {0}", name);
+        entity.AddComponent<Transform>();
+        LH_CORE_TRACE("Created entity: {0}", name);
         return entity;
     }
 
@@ -47,7 +48,7 @@ namespace Luth
 
         // Finally destroy the entity itself
         m_Registry.destroy(entity);
-        LH_CORE_INFO("Destroyed entity: {0}", entity.GetName());
+        LH_CORE_TRACE("Destroyed entity: {0}", entity.GetName());
     }
 
     Entity Scene::DuplicateEntity(Entity original, bool skipParentAddition)
@@ -59,7 +60,7 @@ namespace Luth
 
         // Copy all components except hierarchy-related ones
         //original.CopyComponentIfExists<Tag>(duplicate);
-        //original.CopyComponentIfExists<Transform>(duplicate);
+        original.CopyComponentIfExists<Transform>(duplicate);
         // Add other component copies here...
 
         // Handle parent relationship if not skipped
@@ -95,7 +96,7 @@ namespace Luth
             }
         }
 
-        LH_CORE_INFO("Duplicated {0} '{1}'",
+        LH_CORE_TRACE("Duplicated {0} '{1}'",
             original.HasComponent<Children>() ? "hierarchy" : "entity",
             original.GetName());
         return duplicate;
