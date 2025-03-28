@@ -31,9 +31,20 @@ namespace Luth
         static bool WantCaptureKeyboard();
 
         static void AddPanel(Panel* panel);
+
+        template<typename T>
+        static T* GetPanel() {
+            for (auto& panel : s_Panels) {
+                if (auto found = dynamic_cast<T*>(panel.get()))
+                    return found;
+            }
+            return nullptr;
+        }
+
         static void SetCustomStyle();
-        static void SetupBubblegumStyle();
+        static void SetBubblegumStyle();
         static void SetRandomStyle();
+
 
     private:
         static inline ImGuiContext* s_Context = nullptr;

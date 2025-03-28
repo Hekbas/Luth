@@ -39,8 +39,8 @@ namespace Luth
         }
 
         // Set Panels
-        AddPanel(new InspectorPanel());
         AddPanel(new HierarchyPanel(new Scene));
+        AddPanel(new InspectorPanel());
 
         // Init all panels
         for (auto& panel : s_Panels)
@@ -246,7 +246,7 @@ namespace Luth
         style.GrabMinSize = 12;
     }
 
-    void Editor::SetupBubblegumStyle()
+    void Editor::SetBubblegumStyle()
     {
         ImGuiStyle& style = ImGui::GetStyle();
     

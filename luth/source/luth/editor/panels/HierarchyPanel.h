@@ -3,6 +3,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/Scene.h"
+#include "luth/editor/panels/InspectorPanel.h"
 
 namespace Luth
 {
@@ -17,6 +18,7 @@ namespace Luth
         void SetContext(Scene* scene);
 
         Entity GetSelectedEntity() const { return m_Selection; }
+        Entity* GetSelectedEntity() { return &m_Selection; }
         void SetSelectedEntity(Entity entity);
 
     private:
@@ -27,6 +29,7 @@ namespace Luth
         void ProcessKeyboardShortcuts();
         bool EntityMatchesFilter(Entity entity);
 
+    private:
         Scene* m_Context = nullptr;
         Entity m_Selection;
         Entity m_DraggedEntity;
