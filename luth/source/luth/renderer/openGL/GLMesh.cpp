@@ -44,6 +44,8 @@ namespace Luth
 
         glBindVertexArray(m_VAO);
         if (m_IndexBuffer) {
+            //glLineWidth(0.1f);
+            //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glDrawElements(GL_TRIANGLES, m_IndexBuffer->GetCount(), GL_UNSIGNED_INT, nullptr);
         }
         else {

@@ -69,6 +69,74 @@ namespace Luth::Component
             return result;
         }*/
     };
+
+    struct Camera {
+        enum class ProjectionType { Perspective = 0, Orthographic = 1 };
+
+        ProjectionType Projection = ProjectionType::Perspective;
+
+        // Perspective properties
+        float VerticalFOV = 45.0f;
+        float NearClip = 0.01f;
+        float FarClip = 1000.0f;
+
+        // Orthographic properties
+        float OrthographicSize = 10.0f;
+        float OrthographicNear = -1.0f;
+        float OrthographicFar = 1.0f;
+
+        float AspectRatio = 16.0f / 9.0f;
+
+        glm::mat4 ViewMatrix;
+        glm::mat4 ProjectionMatrix;
+
+        Camera() = default;
+        Camera(const Camera&) = default;
+
+        void SetPerspective(float verticalFOV, float nearClip, float farClip) {
+            Projection = ProjectionType::Perspective;
+            VerticalFOV = verticalFOV;
+            NearClip = nearClip;
+            FarClip = farClip;
+            RecalculateProjection();
+        }
+
+        void SetOrthographic(float size, float nearClip, float farClip) {
+            Projection = ProjectionType::Orthographic;
+            OrthographicSize = size;
+            OrthographicNear = nearClip;
+            OrthographicFar = farClip;
+            RecalculateProjection();
+        }
+
+        void RecalculateProjection() {
+            if (Projection == ProjectionType::Perspective) {
+                ProjectionMatrix = glm::perspective(
+                    glm::radians(VerticalFOV),
+                    AspectRatio,
+                    NearClip,
+                    FarClip
+                );
+            }
+            else {
+                float orthoLeft = -OrthographicSize * AspectRatio * 0.5f;
+                float orthoRight = OrthographicSize * AspectRatio * 0.5f;
+                float orthoBottom = -OrthographicSize * 0.5f;
+                float orthoTop = OrthographicSize * 0.5f;
+
+                ProjectionMatrix = glm::ortho(
+                    orthoLeft, orthoRight,
+                    orthoBottom, orthoTop,
+                    OrthographicNear,
+                    OrthographicFar
+                );
+            }
+        }
+
+        glm::mat4 GetViewProjection(const glm::mat4& transform) const {
+            return ProjectionMatrix * glm::inverse(transform);
+        }
+    };
 }
 
 namespace Luth { using namespace Luth::Component; }

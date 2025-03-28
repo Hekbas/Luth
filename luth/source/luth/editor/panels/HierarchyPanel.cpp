@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/scene/Components.h"
-#include "luth/utils/CustomImGui.h"
+#include "luth/utils/ImGuiUtils.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>

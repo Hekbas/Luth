@@ -1,9 +1,28 @@
 #pragma once
 
+#include "luth/core/Log.h"
+
+#include <functional>
+#include <glm/glm.hpp>
 #include <imgui.h>
 
 namespace Luth
 {
+    // Conversion from ImVec2 to glm::vec2
+    inline glm::vec2 ToGlmVec2(const ImVec2& vec) {
+        return { vec.x, vec.y };
+    }
+
+    // Conversion from glm::vec2 to ImVec2  
+    inline ImVec2 ToImVec2(const glm::vec2& vec) {
+        return { vec.x, vec.y };
+    }
+
+    // Optional: Operator overloads for convenience
+    inline glm::vec2 operator*(const glm::vec2& lhs, const ImVec2& rhs) {
+        return { lhs.x * rhs.x, lhs.y * rhs.y };
+    }
+
     // Center-aligns the next widget in the remaining horizontal space
     inline void AlignItemToCenter(float itemWidth = 0.0f)
     {

@@ -4,6 +4,7 @@
 #include "luth/window/Window.h"
 #include "luth/input/Input.h"
 #include "luth/editor/Editor.h"
+#include "luth/editor/panels/ScenePanel.h"
 #include "luth/resources/ResourceManager.h"
 
 #include "luth/events/Event.h"
@@ -40,7 +41,13 @@ namespace Luth
             OnUpdate();
 
             if (!m_Window->IsMinimized())
+            {
+                auto sceneFb = Editor::GetPanel<ScenePanel>()->GetFramebuffer();
+                Renderer::BindFramebuffer(sceneFb);
+                Renderer::Clear();
                 Renderer::DrawFrame();
+                Renderer::BindFramebuffer(nullptr);
+            }
 
             // Render UI (not yet implemented in vulkan)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)

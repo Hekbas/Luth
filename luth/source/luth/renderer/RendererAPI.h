@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/Math.h"
+#include "luth/renderer/Framebuffer.h"
 #include "luth/renderer/Mesh.h"
 
 #include <memory>
@@ -22,6 +23,8 @@ namespace Luth
 
         virtual void Init() = 0;
         virtual void Shutdown() = 0;
+
+        virtual void BindFramebuffer(const std::shared_ptr<Framebuffer>& framebuffer) = 0;
 
         virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) = 0;
         virtual void SetClearColor(const glm::vec4& color) = 0;

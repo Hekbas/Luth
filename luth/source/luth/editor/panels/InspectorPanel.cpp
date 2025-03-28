@@ -2,7 +2,7 @@
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/scene/Components.h"
-#include "luth/utils/CustomImGui.h"
+#include "luth/utils/ImGuiUtils.h"
 
 namespace Luth
 {
@@ -108,6 +108,48 @@ namespace Luth
                 }
             });
 
+            DrawComponent<Component::Camera>("Camera", m_SelectedEntity, [](Entity e, Component::Camera& camera) {
+                // Projection type combo box
+                const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
+                const char* currentProjectionType = projectionTypeStrings[(int)camera.Projection];
+
+                if (ImGui::BeginCombo("Projection", currentProjectionType)) {
+                    for (int i = 0; i < 2; i++) {
+                        bool isSelected = currentProjectionType == projectionTypeStrings[i];
+                        if (ImGui::Selectable(projectionTypeStrings[i], isSelected)) {
+                            camera.Projection = (Component::Camera::ProjectionType)i;
+                            camera.RecalculateProjection();
+                        }
+                        if (isSelected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+
+                // Perspective settings
+                if (camera.Projection == Component::Camera::ProjectionType::Perspective) {
+                    bool changed = false;
+                    changed |= ImGui::DragFloat("Vertical FOV", &camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
+                    changed |= ImGui::DragFloat("Near Clip", &camera.NearClip, 0.01f, 0.01f, camera.FarClip);
+                    changed |= ImGui::DragFloat("Far Clip", &camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
+
+                    if (changed) camera.RecalculateProjection();
+                }
+                // Orthographic settings
+                else {
+                    bool changed = false;
+                    changed |= ImGui::DragFloat("Size", &camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
+                    changed |= ImGui::DragFloat("Near", &camera.OrthographicNear, 0.01f);
+                    changed |= ImGui::DragFloat("Far", &camera.OrthographicFar, 0.01f);
+
+                    if (changed) camera.RecalculateProjection();
+                }
+
+                // Aspect ratio (could be auto-calculated from viewport)
+                ImGui::DragFloat("Aspect Ratio", &camera.AspectRatio, 0.01f, 0.1f, 10.0f);
+            });
+
             // Add Component button
             ImGui::Separator();
             ImGui::Dummy({ 0, 4 });
@@ -123,6 +165,10 @@ namespace Luth
                 }
                 if (!m_SelectedEntity.HasComponent<Children>() && ImGui::MenuItem("Children")) {
                     m_SelectedEntity.AddOrReplaceComponent<Children>();
+                    ImGui::CloseCurrentPopup();
+                }
+                if (!m_SelectedEntity.HasComponent<Camera>() && ImGui::MenuItem("Camera")) {
+                    m_SelectedEntity.AddOrReplaceComponent<Camera>();
                     ImGui::CloseCurrentPopup();
                 }
                 // Add more components here as needed
