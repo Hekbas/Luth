@@ -25,8 +25,10 @@ namespace Luth
         InitUniformBuffer();
         //LoadShader();
         
-        std::shared_ptr model = Resources::Load<Model>("mf/mf_f2.fbx");
+        //std::shared_ptr model = Resources::Load<Model>("mf/mf_f2.fbx");
         //std::shared_ptr model = Resources::Load<Model>("xeno/XenoRaven.fbx");
+        //std::shared_ptr model = Resources::Load<Model>("lagiacrus/LagiacrusHead.fbx");
+        std::shared_ptr model = Resources::Load<Model>("AK/RAINIER_AK.fbx");
 
         std::shared_ptr shader = Resources::Load<Shader>("triangle.glsl");
         shader->Bind();
@@ -76,8 +78,9 @@ namespace Luth
             Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 view = glm::lookAt(
-            Vec3(250.0f, 200.0f, 250.0f),
-            Vec3(0.0f, 0.0f, 0.0f),
+            Vec3(1200.0f, 800.0f, 1200.0f),
+            //Vec3(3.0f, 2.0f, 3.0f),
+            Vec3(0.0f, 200.0f, 0.0f),
             Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 proj = glm::perspective(
