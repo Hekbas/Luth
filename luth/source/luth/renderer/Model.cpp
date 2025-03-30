@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/Model.h"
+#include "luth/resources/Resources.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -127,7 +128,7 @@ namespace Luth
                         default: continue; // Skip unsupported types
                     }
                     fs::path name = path.C_Str();
-                    auto result = ResourceManager::FindResources(Resource::Model, name.filename().stem().string() + ".*", true);
+                    auto result = Resources::Find<Model>(name.filename().stem().string() + ".*", true);
                     if (!result.empty()) texInfo.path = result[0];
                     material.AddTexture(texInfo);
                 }

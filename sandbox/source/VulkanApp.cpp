@@ -5,7 +5,7 @@
 
 // TEST
 #include <luth/resources/ShaderLibrary.h>
-#include <luth/resources/ResourceManager.h>
+#include <luth/resources/FileSystem.h>
 
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Buffer.h>

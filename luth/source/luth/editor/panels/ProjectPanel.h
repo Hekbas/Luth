@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
-#include "luth/resources/ResourceManager.h"
+#include "luth/resources/FileSystem.h"
 
 namespace Luth
 {

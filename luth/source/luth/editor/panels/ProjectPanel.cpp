@@ -10,7 +10,7 @@ namespace Luth
 
     void ProjectPanel::OnInit()
     {
-        m_AssetsPath = ResourceManager::GetBasePath().string();
+        m_AssetsPath = FileSystem::AssetsPath().string();
         m_CurrentDirectory = m_AssetsPath;
     }
 

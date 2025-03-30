@@ -3,7 +3,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/window/WinWindow.h"
 
-#include "luth/resources/ResourceManager.h"
+#include "luth/resources/FileSystem.h"
 
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
@@ -255,7 +255,7 @@ namespace Luth
     {
         // Font
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF(ResourceManager::GetPath(Resource::Font, "BubbleGum.ttf").string().c_str(), 16.0f);
+        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(Resource::Font, "BubbleGum.ttf").string().c_str(), 16.0f);
 
         ImGuiStyle& style = ImGui::GetStyle();
     

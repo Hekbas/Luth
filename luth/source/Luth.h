@@ -11,8 +11,11 @@
 #include "luth/input/Input.h"
 #include "luth/editor/Editor.h"
 
-#include "luth/resources/ResourceManager.h"
+#include "luth/resources/FileSystem.h"
+#include "luth/resources/MaterialLibrary.h"
+#include "luth/resources/ModelLibrary.h"
 #include "luth/resources/ShaderLibrary.h"
+#include "luth/resources/TextureCache.h"
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"

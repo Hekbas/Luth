@@ -4,9 +4,8 @@
 #include "luth/window/Window.h"
 #include "luth/input/Input.h"
 #include "luth/events/Event.h"
-#include "luth/events/AppEvent.h"
-#include "luth/events/FileDropEvent.h"
-#include "luth/resources/ResourceManager.h"
+#include "luth/resources/FileSystem.h"
+#include "luth/resources/Resources.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 
@@ -22,7 +21,8 @@ namespace Luth
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
-        ResourceManager::Init();
+        FileSystem::Init();
+        Resources::InitLibraries();
         Editor::Init(m_Window->GetNativeWindow());
 
         // Subscribe to events
@@ -123,6 +123,6 @@ namespace Luth
 
     void App::OnFileDrop(FileDropEvent& e)
     {
-        
+        //Resources::ImportAsset(e.GetPaths());
     }
 }

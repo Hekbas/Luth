@@ -77,7 +77,7 @@ namespace Luth
 
     void RTShaderApp::LoadShader()
     {
-        std::filesystem::path shaderPath = ResourceManager::GetPath(Resource::Shader, "raytracing.glsl");
+        std::filesystem::path shaderPath = FileSystem::GetPath(Resource::Shader, "raytracing.glsl");
         shader = Shader::Create(shaderPath.generic_string());
         shader->Bind();
         InitUniforms();
