@@ -1,6 +1,10 @@
 #include "luthpch.h"
 #include "luth/window/WinWindow.h"
-
+#include "luth/events/EventBus.h"
+#include "luth/events/AppEvent.h"
+#include "luth/events/KeyEvent.h"
+#include "luth/events/MouseEvent.h"
+#include "luth/events/FileDropEvent.h"
 
 namespace Luth
 {
@@ -23,6 +27,7 @@ namespace Luth
         m_Data.Title = spec.Title;
         m_Data.Width = spec.Width;
         m_Data.Height = spec.Height;
+        m_Data.EventBus = spec.EventBus;
 
         static bool s_GLFWInitialized = false;
         if (!s_GLFWInitialized) {
@@ -63,11 +68,24 @@ namespace Luth
             glfwSwapInterval(spec.VSync ? 1 : 0);
         }
 
-        glfwSetWindowUserPointer(m_GLFWwindow, this);
+        glfwSetWindowUserPointer(m_GLFWwindow, &m_Data);
         glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {
-            WindowData* win = static_cast<WindowData*>(glfwGetWindowUserPointer(window));
-            win->Width = width;
-            win->Height = height;
+            WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+            data.Width = width;
+            data.Height = height;
+            data.EventBus->Enqueue<WindowResizeEvent>(width, height);
+        });
+
+        glfwSetWindowCloseCallback(m_GLFWwindow, [](GLFWwindow* window) {
+            WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+            data.EventBus->Enqueue<WindowCloseEvent>();
+        });
+
+        glfwSetDropCallback(m_GLFWwindow, [](GLFWwindow* window, int count, const char** paths) {
+            WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+            std::vector<std::filesystem::path> files;
+            for (int i = 0; i < count; i++) files.emplace_back(paths[i]);
+            data.EventBus->Enqueue<FileDropEvent>(std::move(files));
         });
 
         LH_CORE_INFO("Created window '{0}' ({1}x{2})", spec.Title, spec.Width, spec.Height);

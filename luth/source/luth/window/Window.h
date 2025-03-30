@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/events/EventBus.h"
 
 #include <functional>
 #include <memory>
@@ -16,6 +17,7 @@ namespace Luth
         bool VSync = false;
         bool Fullscreen = false;
         RendererAPI::API rendererAPI = RendererAPI::API::OpenGL;
+        std::shared_ptr<EventBus> EventBus;
     };
 
     class Window

@@ -3,7 +3,10 @@
 
 namespace Luth
 {
-    ProjectPanel::ProjectPanel() {}
+    ProjectPanel::ProjectPanel()
+    {
+        LH_CORE_INFO("Created Project panel");
+    }
 
     void ProjectPanel::OnInit()
     {

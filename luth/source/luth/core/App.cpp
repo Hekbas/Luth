@@ -3,27 +3,40 @@
 
 #include "luth/window/Window.h"
 #include "luth/input/Input.h"
-#include "luth/editor/Editor.h"
-#include "luth/editor/panels/ScenePanel.h"
-#include "luth/resources/ResourceManager.h"
-
 #include "luth/events/Event.h"
 #include "luth/events/AppEvent.h"
-#include "luth/events/KeyEvent.h"
+#include "luth/events/FileDropEvent.h"
+#include "luth/resources/ResourceManager.h"
+#include "luth/editor/Editor.h"
+#include "luth/editor/panels/ScenePanel.h"
 
 namespace Luth
 {
-    App::App(int argc, char** argv)
+    App::App(int argc, char** argv) : m_MainThreadEventBus(std::make_unique<EventBus>())
     {
         // TODO Luth + version - OS - renderAPI
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         ws.VSync = false;
+        ws.EventBus = m_MainThreadEventBus;
 
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
         ResourceManager::Init();
-        Editor::Init(m_Window->GetNativeWindow()); 
+        Editor::Init(m_Window->GetNativeWindow());
+
+        // Subscribe to events
+        m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Luth::Event& e) {
+            OnWindowResize(static_cast<WindowResizeEvent&>(e));
+        });
+
+        m_MainThreadEventBus->Subscribe<WindowCloseEvent>([this](Luth::Event& e) {
+            OnWindowClose(static_cast<WindowCloseEvent&>(e));
+        });
+
+        m_MainThreadEventBus->Subscribe<FileDropEvent>([this](Luth::Event& e) {
+            OnFileDrop(static_cast<FileDropEvent&>(e));
+        });
     }
 
     App::~App() {}
@@ -35,8 +48,8 @@ namespace Luth
         while (m_Running)
         {
             Time::Update();
-
             m_Window->OnUpdate();
+            m_MainThreadEventBus->ProcessEvents();
 
             OnUpdate();
 
@@ -96,5 +109,20 @@ namespace Luth
             }
         }
         return spec;
+    }
+
+    void App::OnWindowResize(WindowResizeEvent& e)
+    {
+
+    }
+
+    void App::OnWindowClose(WindowCloseEvent& e)
+    {
+        m_Running = false;
+    }
+
+    void App::OnFileDrop(FileDropEvent& e)
+    {
+        
     }
 }

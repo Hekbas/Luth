@@ -23,6 +23,8 @@ namespace Luth
     }
 
     // Forwarding commands
+    //===========================================
+
     void Renderer::BindFramebuffer(const std::shared_ptr<Framebuffer>& framebuffer) {
         s_RendererAPI->BindFramebuffer(framebuffer);
     }
