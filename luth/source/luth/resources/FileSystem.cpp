@@ -1,13 +1,9 @@
 #include "luthpch.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/ModelLibrary.h"
-#include "luth/resources/MaterialLibrary.h"
-#include "luth/resources/ShaderLibrary.h"
-#include "luth/renderer/Renderer.h"
-#include "luth/renderer/RendererAPI.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Model.h"
-//#include "luth/renderer/vulkan/VKMesh.h"
+#include "luth/resources/MetaFile.h"
+#include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/libraries/ShaderLibrary.h"
 
 #include <regex>
 
@@ -25,7 +21,7 @@ namespace Luth
         EnsureBaseStructure();
     }
 
-    fs::path FileSystem::GetPath(Resource type, const fs::path& name, bool addExtension)
+    fs::path FileSystem::GetPath(ResourceType type, const fs::path& name, bool addExtension)
     {
         const auto& info = GetTypeInfo().at(type);
         fs::path path = s_ProjectRoot / "assets" / info.directory / name;
@@ -53,11 +49,11 @@ namespace Luth
     fs::path FileSystem::PlatformAssetsPath()
     {
         #if defined(_WIN32)
-            return GetPath(Resource::Config, "windows");
+            return GetPath(ResourceType::Config, "windows");
         #elif defined(__APPLE__)
-            return GetPath(Resource::Config, "macos");
+            return GetPath(ResourceType::Config, "macos");
         #else
-            return GetPath(Resource::Config, "linux");
+            return GetPath(ResourceType::Config, "linux");
         #endif
     }
 
@@ -86,6 +82,29 @@ namespace Luth
         return Exists(path) && path.extension() != ".tmp";
     }
 
+    ResourceType FileSystem::ClassifyFileType(const fs::path& path)
+    {
+        static const std::unordered_map<std::string, ResourceType> extensionMap = {
+            { ".fbx",  ResourceType::Model    },
+            { ".obj",  ResourceType::Model    },
+            { ".gltf", ResourceType::Model    },
+            { ".png",  ResourceType::Texture  },
+            { ".jpg",  ResourceType::Texture  },
+            { ".tga",  ResourceType::Texture  },
+            { ".mat",  ResourceType::Material },
+            { ".glsl", ResourceType::Shader   },
+            { ".ttf",  ResourceType::Font     },
+            { ".ini",  ResourceType::Config   }
+        };
+
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+
+        auto it = extensionMap.find(ext);
+        return (it != extensionMap.end()) ? it->second : ResourceType::Unknown;
+    }
+
     void FileSystem::CreateDirectories(const fs::path& path) {
         fs::create_directories(path);
     }
@@ -99,15 +118,38 @@ namespace Luth
         CreateDirectories(LogPath());
     }
 
-    const std::unordered_map<Resource, FileSystem::ResourceTypeInfo>& FileSystem::GetTypeInfo()
+    /*fs::path FileSystem::GetMetaPath(const fs::path& assetPath) {
+        return assetPath.parent_path() / (assetPath.filename().string() + ".meta");
+    }*/
+
+    /*MetaFile FileSystem::GetOrCreateMeta(const fs::path& assetPath)
     {
-        static const std::unordered_map<Resource, ResourceTypeInfo> typeInfo = {
-            {Resource::Model,    {"models",    ".fbx"}},
-            {Resource::Texture,  {"textures",  ".png"}},
-            {Resource::Material, {"materials", ".mat"}},
-            {Resource::Shader,   {"shaders",   ".glsl"}},
-            {Resource::Font,     {"fonts",     ".ttf"}},
-            {Resource::Config,   {"config",    ".json"}}
+        fs::path metaPath = GetMetaPath(assetPath);
+
+        if (!fs::exists(metaPath)) {
+            Resource resType = ClassifyFileType(assetPath);
+            MetaFile meta;
+            meta.CreateNew(assetPath, resType);
+            meta.Save();
+            return meta;
+        }
+
+        return MetaFile(assetPath);
+    }*/
+
+    //void FileSystem::SyncMetaFiles() {
+    //    // TODO: Scan Assets directory and ensure every file has a valid .meta
+    //}
+
+    const std::unordered_map<ResourceType, FileSystem::ResourceTypeInfo>& FileSystem::GetTypeInfo()
+    {
+        static const std::unordered_map<ResourceType, ResourceTypeInfo> typeInfo = {
+            { ResourceType::Model,    { "models",    ".fbx"  } },
+            { ResourceType::Texture,  { "textures",  ".png"  } },
+            { ResourceType::Material, { "materials", ".mat"  } },
+            { ResourceType::Shader,   { "shaders",   ".glsl" } },
+            { ResourceType::Font,     { "fonts",     ".ttf"  } },
+            { ResourceType::Config,   { "config",    ".json" } }
         };
         return typeInfo;
     }

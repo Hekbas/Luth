@@ -12,10 +12,10 @@
 #include "luth/editor/Editor.h"
 
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/MaterialLibrary.h"
-#include "luth/resources/ModelLibrary.h"
-#include "luth/resources/ShaderLibrary.h"
-#include "luth/resources/TextureCache.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/resources/libraries/ShaderLibrary.h"
+#include "luth/resources/libraries/TextureCache.h"
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"

@@ -14,4 +14,31 @@ namespace Luth
     }
 
     UUID::UUID(uint64_t uuid) : m_UUID(uuid) {}
+
+    std::string UUID::ToString() const
+    {
+        std::stringstream ss;
+        ss << std::hex << std::setw(16) << std::setfill('0') << m_UUID;
+        return ss.str();
+    }
+
+    bool UUID::FromString(const std::string& uuidString, UUID& outUUID)
+    {
+        if (uuidString.length() != 16) return false;
+
+        try {
+            std::stringstream ss;
+            ss << std::hex << uuidString;
+
+            uint64_t result;
+            if (ss >> result) {
+                outUUID = UUID(result);
+                return true;
+            }
+            return false;
+        }
+        catch (...) {
+            return false;
+        }
+    }
 }

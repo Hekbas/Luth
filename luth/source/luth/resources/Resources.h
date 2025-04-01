@@ -1,30 +1,34 @@
 #pragma once
 
+#include "luth/core/UUID.h"
+#include "luth/resources/MetaFile.h"
+#include "luth/resources/Resource.h"
+#include "luth/resources/ResourceDB.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/ModelLibrary.h"
-#include "luth/resources/MaterialLibrary.h"
-#include "luth/resources/ShaderLibrary.h"
-#include "luth/resources/TextureCache.h"
-#include "luth/renderer/Mesh.h"
-#include "luth/renderer/Model.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Shader.h"
-#include "luth/renderer/Texture.h"
+#include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/libraries/ShaderLibrary.h"
+#include "luth/resources/libraries/TextureCache.h"
 
 #include <regex>
 
 namespace Luth
 {
+    class Model;
+    class Material;
+    class Shader;
+    class Texture;
+
     class Resources
     {
     public:
         // Primary template for resource loading
         template<typename T>
-        static std::shared_ptr<T> Load(const std::string& path) {
+        static std::shared_ptr<T> Load(const fs::path& path) {
             return Loader<T>::Load(FileSystem::GetPath(GetType<T>(), path));
         }
 
-        // Resource discovery
+        // Resource search
         template<typename T>
         static std::vector<fs::path> Find(const std::string& pattern = "*", bool recursive = false) {
             const fs::path searchDir = FileSystem::GetPath(GetType<T>(), "", false);
@@ -49,7 +53,7 @@ namespace Luth
         template<typename T> struct TypeMap;
 
         template<typename T>
-        static Resource GetType() { return TypeMap<T>::value; }
+        static ResourceType GetType() { return TypeMap<T>::value; }
 
         // Resource loader implementations
         template<typename T>
@@ -57,7 +61,7 @@ namespace Luth
             static std::shared_ptr<T> Load(const fs::path& path) = delete;
         };
 
-        // Resource discovery implementation
+        // Resource search implementation
         static std::vector<fs::path> FindResources(const fs::path& directory,
             const std::string& pattern,
             bool recursive) {
@@ -87,22 +91,22 @@ namespace Luth
     // Template specializations ---------------------------------------------------
     template<>
     struct Resources::TypeMap<Model> {
-        static constexpr Resource value = Resource::Model;
+        static constexpr ResourceType value = ResourceType::Model;
     };
 
     template<>
     struct Resources::TypeMap<Material> {
-        static constexpr Resource value = Resource::Material;
+        static constexpr ResourceType value = ResourceType::Material;
     };
 
     template<>
     struct Resources::TypeMap<Shader> {
-        static constexpr Resource value = Resource::Shader;
+        static constexpr ResourceType value = ResourceType::Shader;
     };
 
     template<>
     struct Resources::TypeMap<Texture> {
-        static constexpr Resource value = Resource::Texture;
+        static constexpr ResourceType value = ResourceType::Texture;
     };
 
     template<>

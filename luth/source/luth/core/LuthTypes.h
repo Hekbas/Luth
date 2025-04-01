@@ -3,11 +3,17 @@
 #include <cstdint>
 #include <limits>
 #include <type_traits>
+#include <filesystem>
 #include <spdlog/fmt/ostr.h>
 #include <glm/glm.hpp>
 
 namespace Luth
 {
+    // =============================================
+    //                   Alias
+    // =============================================
+    namespace fs = std::filesystem;
+
     // =============================================
     //            Primitive Types
     // =============================================

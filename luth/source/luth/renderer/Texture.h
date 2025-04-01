@@ -1,7 +1,6 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/resources/FileSystem.h"
 #include "luth/utils/ImageUtils.h"
 
 #include <memory>

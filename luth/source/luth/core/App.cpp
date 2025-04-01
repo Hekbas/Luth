@@ -22,19 +22,20 @@ namespace Luth
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
         FileSystem::Init();
+        ResourceDB::Init(FileSystem::AssetsPath());
         Resources::InitLibraries();
         Editor::Init(m_Window->GetNativeWindow());
 
         // Subscribe to events
-        m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Luth::Event& e) {
+        m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Event& e) {
             OnWindowResize(static_cast<WindowResizeEvent&>(e));
         });
 
-        m_MainThreadEventBus->Subscribe<WindowCloseEvent>([this](Luth::Event& e) {
+        m_MainThreadEventBus->Subscribe<WindowCloseEvent>([this](Event& e) {
             OnWindowClose(static_cast<WindowCloseEvent&>(e));
         });
 
-        m_MainThreadEventBus->Subscribe<FileDropEvent>([this](Luth::Event& e) {
+        m_MainThreadEventBus->Subscribe<FileDropEvent>([this](Event& e) {
             OnFileDrop(static_cast<FileDropEvent&>(e));
         });
     }
@@ -123,6 +124,42 @@ namespace Luth
 
     void App::OnFileDrop(FileDropEvent& e)
     {
-        //Resources::ImportAsset(e.GetPaths());
+        for (const auto& srcPath : e.GetPaths()) {
+            try {
+                // 1. Validate file
+                if (!fs::exists(srcPath)) {
+                    LH_CORE_ERROR("Dropped file not found: {0}", srcPath.string());
+                    continue;
+                }
+
+                // 2. Classify resource type
+                ResourceType resType = FileSystem::ClassifyFileType(srcPath);
+                if (resType == ResourceType::Unknown) {
+                    LH_CORE_WARN("Unsupported file type: {0}", srcPath.string());
+                    continue;
+                }
+
+                // 3. Determine destination path
+                fs::path destPath = FileSystem::GetPath(resType, srcPath.stem().string(), true);
+
+                // Create target directory if needed
+                FileSystem::CreateDirectories(destPath.parent_path());
+
+                // 4. Copy file to project
+                fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing);
+                LH_CORE_INFO("Imported {0} to {1}", srcPath.filename().string(), destPath.string());
+
+                // 5. Generate meta file
+                UUID newUuid = MetaFile::Create(destPath, resType);
+
+                LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
+            }
+            catch (const fs::filesystem_error& err) {
+                LH_CORE_ERROR("Import failed: {0} - {1}", srcPath.string(), err.what());
+            }
+            catch (const std::exception& ex) {
+                LH_CORE_ERROR("Asset processing error: {0} - {1}", srcPath.string(), ex.what());
+            }
+        }
     }
 }

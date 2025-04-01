@@ -8,7 +8,7 @@
 #include <luth/renderer/openGL/GLMesh.h>
 
 #include <luth/resources/Resources.h>
-#include <luth/resources/TextureCache.h>
+#include <luth/resources/libraries/TextureCache.h>
 
 #include <memory>
 
@@ -127,14 +127,14 @@ namespace Luth
 
     void OpenGLApp::LoadShader()
     {
-        std::filesystem::path shaderPath = ResourceManager::GetPath(Resource::Shader, "triangle.glsl");
+        /*std::filesystem::path shaderPath = FileSystem::GetPath(ResourceType::Shader, "triangle.glsl");
         shader = Shader::Create(shaderPath.generic_string());
         shader->Bind();
         shader->SetInt("u_TexDiffuse",   0);
         shader->SetInt("u_TexNormal",    1);
         shader->SetInt("u_TexMetallic",  2);
         shader->SetInt("u_TexRoughness", 3);
-        shader->SetInt("u_TexSpecular",  4);
+        shader->SetInt("u_TexSpecular",  4);*/
     }
 
     void OpenGLApp::InitScreenQuad()

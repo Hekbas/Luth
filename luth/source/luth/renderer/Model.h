@@ -3,6 +3,7 @@
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Mesh.h"
 #include "luth/renderer/openGL/GLMesh.h"
+#include "luth/resources/Resource.h"
 
 #include <memory>
 #include <vector>
@@ -25,7 +26,7 @@ namespace Luth
         uint32_t materialIndex = 0;
     };
 
-    class Model
+    class Model : public Resource
     {
     public:
         Model(const fs::path& path);

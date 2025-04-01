@@ -1,5 +1,6 @@
 #include "Luthpch.h"
 #include "luth/renderer/openGL/GLTexture.h"
+#include "luth/resources/FileSystem.h"
 #include "luth/utils/ImageUtils.h"
 
 #include <glad/glad.h>
@@ -7,7 +8,7 @@
 namespace Luth
 {
     GLTexture::GLTexture(const fs::path& path)
-        : m_Path(FileSystem::GetPath(Resource::Texture, path))
+        : m_Path(FileSystem::GetPath(ResourceType::Texture, path))
     {
         LH_CORE_INFO("Creating texture from path: {0}", m_Path.string());
         LoadFromFile();

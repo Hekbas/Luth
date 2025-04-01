@@ -1,7 +1,7 @@
 #include "luthpch.h"
-#include "luth/resources/MaterialLibrary.h"
-#include "luth/resources/ShaderLibrary.h"
-#include "luth/resources/MaterialLibrary.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/libraries/ShaderLibrary.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
 
 namespace Luth
 {

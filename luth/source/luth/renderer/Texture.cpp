@@ -9,20 +9,12 @@ namespace Luth
 {
     std::shared_ptr<Texture> Texture::Create(const fs::path& path)
     {
-        // Validate path through ResourceManager
-        const fs::path fullPath = FileSystem::GetPath(Resource::Model, path);
-
-        if (!FileSystem::Validate(fullPath)) {
-            LH_CORE_ERROR("Texture creation failed: Invalid path {}", fullPath);
-            return nullptr;
-        }
-
         switch (Renderer::GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLTexture>(fullPath);
+                return std::make_shared<GLTexture>(path);
             case RendererAPI::API::Vulkan:
-                return std::make_shared<VKTexture>(fullPath);
+                return std::make_shared<VKTexture>(path);
             default:
                 LH_CORE_ASSERT(false, "Unknown renderer API!");
                 return nullptr;
@@ -32,7 +24,7 @@ namespace Luth
     std::shared_ptr<Texture> Texture::Create(uint32_t width, uint32_t height, TextureFormat format)
     {
         if (width == 0 || height == 0) {
-            LH_CORE_ERROR("Texture creation failed: Invalid dimensions {}x{}", width, height);
+            LH_CORE_ERROR("Texture creation failed: Invalid dimensions {0}x{1}", width, height);
             return nullptr;
         }
 

@@ -3,12 +3,13 @@
 #include "luth/renderer/vulkan/VKCommon.h"
 #include "luth/renderer/vulkan/VKBuffer.h"
 #include "luth/renderer/vulkan/VKCommandPool.h"
+#include "luth/resources/Resource.h"
 #include "luth/resources/FileSystem.h"
 
 namespace Luth
 {
     VKTexture::VKTexture(const fs::path& path)
-        : m_Path(FileSystem::GetPath(Resource::Texture, path))
+        : m_Path(FileSystem::GetPath(ResourceType::Texture, path))
     {
         /*int width, height, channels;
         stbi_uc* pixels = stbi_load(m_Path.string().c_str(),

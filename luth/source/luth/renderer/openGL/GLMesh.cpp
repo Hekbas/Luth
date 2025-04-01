@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/openGL/GLMesh.h"
-#include "luth/resources/TextureCache.h"
+#include "luth/resources/libraries/TextureCache.h"
 
 namespace Luth
 {

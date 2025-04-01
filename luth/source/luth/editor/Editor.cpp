@@ -8,6 +8,7 @@
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
+#include "luth/editor/panels/ResourcePanel.h"
 #include "luth/editor/panels/ScenePanel.h"
 
 #include <imgui.h>
@@ -46,6 +47,7 @@ namespace Luth
         AddPanel(new HierarchyPanel(new Scene));
         AddPanel(new InspectorPanel());
         AddPanel(new ProjectPanel());
+        AddPanel(new ResourcePanel());
         AddPanel(new ScenePanel());
 
         // Init all panels
@@ -255,7 +257,7 @@ namespace Luth
     {
         // Font
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(Resource::Font, "BubbleGum.ttf").string().c_str(), 16.0f);
+        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "BubbleGum.ttf").string().c_str(), 16.0f);
 
         ImGuiStyle& style = ImGui::GetStyle();
     
