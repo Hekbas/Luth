@@ -11,6 +11,7 @@ namespace Luth
         Shader,
         Font,
         Config,
+        Directory,
         Unknown
     };
 

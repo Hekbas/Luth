@@ -222,7 +222,6 @@ namespace Luth
         if (ImGui::MenuItem("Camera")) {
             auto camera = m_Context->CreateEntity("Camera");
             camera.AddComponent<Camera>();
-            LH_CORE_INFO("Created camera entity");
         }
     }
 

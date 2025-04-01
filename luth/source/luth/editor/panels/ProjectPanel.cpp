@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
+#include "luth/resources/resourceDB.h"
 
 namespace Luth
 {
@@ -11,7 +12,9 @@ namespace Luth
     void ProjectPanel::OnInit()
     {
         m_AssetsPath = FileSystem::AssetsPath().string();
-        m_CurrentDirectory = m_AssetsPath;
+
+        m_RootNode = BuildDirectoryTree(m_AssetsPath);
+        m_CurrentDirectoryUuid = m_RootNode.Uuid;;
     }
 
     void ProjectPanel::OnRender()
@@ -20,7 +23,8 @@ namespace Luth
         {
             // Left panel - directory tree
             ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_ResizeX);
-            DrawDirectoryTree(m_AssetsPath);
+            ImGui::SetNextItemOpen(true);
+            DrawDirectoryNode(m_RootNode);
             ImGui::EndChild();
 
             ImGui::SameLine();
@@ -33,7 +37,7 @@ namespace Luth
 
             // Directory contents
             ImGui::BeginChild("##ProjectContent", ImVec2(0, 0), true);
-            DrawDirectoryContents();
+            DrawDirectoryContent();
             ImGui::EndChild();
 
             ImGui::EndChild();
@@ -41,18 +45,70 @@ namespace Luth
         ImGui::End();
     }
 
-    void ProjectPanel::DrawPathBar()
+    DirectoryNode ProjectPanel::BuildDirectoryTree(const fs::path& path)
     {
-        ImGui::BeginChild("##PathBar", ImVec2(0, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
+        DirectoryNode node;
+        node.Uuid = ResourceDB::GetUuidForPath(path);
+        node.Name = path.filename().string();
+        node.Type = ResourceType::Directory;
 
-        fs::path relativePath = fs::relative(m_CurrentDirectory, m_AssetsPath);
-        fs::path accumulatedPath = m_AssetsPath;
+        if (node.Name.empty())
+            node.Name = "Assets";
 
-        if (ImGui::Button("Assets")) {
-            m_CurrentDirectory = m_AssetsPath;
+        try {
+            for (const auto& entry : fs::directory_iterator(path)) {
+                if (entry.is_directory()) {
+                    node.Children.push_back(BuildDirectoryTree(entry.path()));
+                }
+                else {
+                    node.Type = FileSystem::ClassifyFileType(entry.path());
+                    if (node.Type != ResourceType::Unknown)
+                        node.Children.push_back(node);
+                }
+            }
+        }
+        catch (...) {
+            // TODO: Handle directory errors
         }
 
-        // Iterate through each component of the relative path
+        return node;
+    }
+
+    void ProjectPanel::DrawDirectoryNode(DirectoryNode& node)
+    {
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+        if (node.Children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (node.Uuid == m_CurrentDirectoryUuid) flags |= ImGuiTreeNodeFlags_Selected;
+
+        bool isOpen = ImGui::TreeNodeEx(node.Name.c_str(), flags);
+
+        if (ImGui::IsItemClicked()) {
+            m_CurrentDirectoryUuid = node.Uuid;
+        }
+
+        if (isOpen) {
+            for (auto& child : node.Children) {
+                DrawDirectoryNode(child);
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    void ProjectPanel::DrawPathBar()
+    {
+        const fs::path currentPath = ResourceDB::ResolveUuid(m_CurrentDirectoryUuid);
+        const fs::path rootPath = ResourceDB::ResolveUuid(m_RootNode.Uuid);
+        const fs::path relativePath = fs::relative(currentPath, rootPath);
+
+        ImGui::BeginChild("##PathBar", ImVec2(0, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
+
+        // Start building from the root
+        fs::path accumulatedPath = rootPath;
+
+        if (ImGui::Button("Assets")) {
+            m_CurrentDirectoryUuid = m_RootNode.Uuid;
+        }
+
         for (const auto& part : relativePath) {
             if (part.empty() || part == ".") continue;
 
@@ -60,10 +116,12 @@ namespace Luth
             ImGui::Text(">");
             ImGui::SameLine();
 
+            // Store the path before appending the part
+            const fs::path previousPath = accumulatedPath;
             accumulatedPath /= part;
 
             if (ImGui::Button(part.string().c_str())) {
-                m_CurrentDirectory = accumulatedPath.string();
+                m_CurrentDirectoryUuid = ResourceDB::GetUuidForPath(accumulatedPath);
                 break;
             }
         }
@@ -71,106 +129,81 @@ namespace Luth
         ImGui::EndChild();
     }
 
-    void ProjectPanel::DrawDirectoryTree(const std::string& path)
+    void ProjectPanel::DrawDirectoryContent()
     {
-        fs::path rootPath(path);
-        DrawDirectoryNode(rootPath, true);
-    }
+        // Find current directory node
+        const DirectoryNode* currentDir = FindNodeByUuid(m_RootNode, m_CurrentDirectoryUuid);
+        if (!currentDir) return;
 
-    void ProjectPanel::DrawDirectoryNode(const fs::path& path, bool isRoot)
-    {
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        if (!fs::exists(path)) return;
-
-        bool isDirectory = fs::is_directory(path);
-        bool isSelected = (fs::equivalent(path, m_CurrentDirectory));
-
-        if (isSelected) {
-            flags |= ImGuiTreeNodeFlags_Selected;
-        }
-
-        if (!isDirectory) return;
-
-        std::string name = path.filename().string();
-        if (name.empty() && isRoot) {
-            name = "Assets";
-        }
-
-        bool hasChildren = false;
-        for (const auto& entry : fs::directory_iterator(path)) {
-            if (fs::is_directory(entry.path())) {
-                hasChildren = true;
-                break;
-            }
-        }
-
-        if (!hasChildren) {
-            flags |= ImGuiTreeNodeFlags_Leaf;
-        }
-
-        bool isOpen = ImGui::TreeNodeEx(name.c_str(), flags);
-
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-            m_CurrentDirectory = path.string();
-        }
-
-        if (isOpen) {
-            // Sort directories alphabetically
-            std::vector<fs::path> directories;
-            for (const auto& entry : fs::directory_iterator(path)) {
-                if (fs::is_directory(entry.path())) {
-                    directories.push_back(entry.path());
-                }
-            }
-            std::sort(directories.begin(), directories.end());
-
-            for (const auto& dir : directories) {
-                DrawDirectoryNode(dir);
-            }
-
-            ImGui::TreePop();
-        }
-    }
-
-    void ProjectPanel::DrawDirectoryContents()
-    {
-        static float padding = 16.0f;
-        static float thumbnailSize = 64.0f;
-        float cellSize = thumbnailSize + padding;
-
-        float panelWidth = ImGui::GetContentRegionAvail().x;
-        int columnCount = (int)(panelWidth / cellSize);
-        if (columnCount < 1) columnCount = 1;
+        // Grid layout settings
+        const float padding = 16.0f;
+        const float thumbnailSize = 64.0f;
+        const float cellSize = thumbnailSize + padding;
+        const float panelWidth = ImGui::GetContentRegionAvail().x;
+        const int columnCount = std::max(1, (int)(panelWidth / cellSize));
 
         ImGui::Columns(columnCount, 0, false);
 
-        for (const auto& entry : fs::directory_iterator(m_CurrentDirectory)) {
-            const auto& path = entry.path();
-            std::string filename = path.filename().string();
+        // Display directory contents
+        for (const auto& child : currentDir->Children) {
+            ImGui::PushID(child.Uuid.ToString().c_str());
 
-            ImGui::PushID(filename.c_str());
-
+            // Icon button
             ImGui::BeginGroup();
+            /*ImGui::Button(child.Type == ResourceType::Directory ?
+                ICON_FA_FOLDER "##dir" : ICON_FA_FILE "##file",
+                ImVec2(thumbnailSize, thumbnailSize));*/
 
-            // Draw icon (placeholder)
-            ImGui::Button("", ImVec2(thumbnailSize, thumbnailSize));
+            ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
 
-            // Draw filename
-            ImGui::TextWrapped("%s", filename.c_str());
+            // Double-click handling
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                if (child.Type == ResourceType::Directory) {
+                    m_CurrentDirectoryUuid = child.Uuid;
+                }
+                else {
+                    // Handle file double-click
+                }
+            }
 
+            // Drag handling
+            if (child.Type == ResourceType::Model) {
+                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                    ImGui::SetDragDropPayload("ASSET_UUID", &child.Uuid, sizeof(Luth::UUID));
+                    ImGui::Text("%s", child.Name.c_str()); // Preview during drag
+                    ImGui::EndDragDropSource();
+                }
+            }
+
+            // Name label
+            ImGui::TextWrapped("%s", child.Name.c_str());
             ImGui::EndGroup();
 
-            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                if (fs::is_directory(path)) {
-                    m_CurrentDirectory = path.string();
-                }
-                // else: handle file opening
-            }
+            // Context menu
+            //if (ImGui::BeginPopupContextItem()) {
+            //    if (ImGui::MenuItem("Rename")) { /* ... */ }
+            //    if (ImGui::MenuItem("Delete")) { /* ... */ }
+            //    ImGui::EndPopup();
+            //}
 
             ImGui::NextColumn();
             ImGui::PopID();
         }
 
+        
+
         ImGui::Columns(1);
+    }
+
+    const DirectoryNode* ProjectPanel::FindNodeByUuid(const DirectoryNode& node, const UUID& uuid)
+    {
+        if (node.Uuid == uuid) return &node;
+
+        for (const auto& child : node.Children) {
+            if (const auto* found = FindNodeByUuid(child, uuid)) {
+                return found;
+            }
+        }
+        return nullptr;
     }
 }

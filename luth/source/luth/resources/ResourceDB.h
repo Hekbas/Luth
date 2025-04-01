@@ -26,8 +26,6 @@ namespace Luth
 
     private:
         static void ProcessMetaFile(const fs::path& root);
-        static void CreateMissingMetaFile();
-        static void SetDefaultTypeSettings(ResourceType type, MetaFile& meta);
 
     private:
         static std::unordered_map<UUID, fs::path, UUIDHash> s_UuidToPath;

@@ -4,6 +4,7 @@
 #include "luth/resources/libraries/ModelLibrary.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/resources/libraries/TextureCache.h"
+#include "luth/utils/ImGuiUtils.h"
 
 namespace Luth
 {
@@ -37,21 +38,23 @@ namespace Luth
         ImGui::End();
     }
 
-    void ResourcePanel::DrawFilterControls() {
+    void ResourcePanel::DrawFilterControls()
+    {
         ImGui::SetNextItemWidth(200);
         ImGui::InputTextWithHint("##Search", "Search...", m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer));
 
         ImGui::SameLine();
-        ImGui::Checkbox("Models", &m_ShowModels);
-        ImGui::SameLine();
-        ImGui::Checkbox("Textures", &m_ShowTextures);
-        ImGui::SameLine();
-        ImGui::Checkbox("Materials", &m_ShowMaterials);
-        ImGui::SameLine();
-        ImGui::Checkbox("Shaders", &m_ShowShaders);
+
+        ButtonDropdown("Type Filter", "type_filter", [this]() {
+            ImGui::Checkbox("Models", &m_ShowModels);
+            ImGui::Checkbox("Textures", &m_ShowTextures);
+            ImGui::Checkbox("Materials", &m_ShowMaterials);
+            ImGui::Checkbox("Shaders", &m_ShowShaders);
+        });
     }
 
-    void ResourcePanel::SetupColumns() {
+    void ResourcePanel::SetupColumns()
+    {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 200);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 100);
         ImGui::TableSetupColumn("UUID", ImGuiTableColumnFlags_WidthStretch);
@@ -60,7 +63,8 @@ namespace Luth
         ImGui::TableHeadersRow();
     }
 
-    void ResourcePanel::PopulateData() {
+    void ResourcePanel::PopulateData()
+    {
         m_FilteredResources.clear();
 
         // Collect resources from libraries
@@ -105,7 +109,8 @@ namespace Luth
         }
     }
 
-    void ResourcePanel::AddModelEntries() {
+    void ResourcePanel::AddModelEntries()
+    {
         for (const auto& model : ModelLibrary::GetAllModels()) {
             m_FilteredResources.push_back({
                 /*model->GetName()*/"TODO_GET_NAME",
@@ -149,7 +154,8 @@ namespace Luth
         }
     }*/
 
-    ImVec4 ResourcePanel::GetTypeColor(const std::string& type) const {
+    ImVec4 ResourcePanel::GetTypeColor(const std::string& type) const
+    {
         static const std::unordered_map<std::string, ImVec4> colors = {
             {"Model",    ImVec4(0.4f, 0.8f, 1.0f, 1.0f)},
             {"Texture",  ImVec4(0.8f, 0.6f, 0.2f, 1.0f)},

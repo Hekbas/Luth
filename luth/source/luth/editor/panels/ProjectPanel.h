@@ -5,6 +5,13 @@
 
 namespace Luth
 {
+    struct DirectoryNode {
+        UUID Uuid;
+        std::string Name;
+        ResourceType Type;
+        std::vector<DirectoryNode> Children;
+    };
+
     class ProjectPanel : public Panel
     {
     public:
@@ -14,13 +21,15 @@ namespace Luth
         void OnRender() override;
 
     private:
+        DirectoryNode BuildDirectoryTree(const fs::path& path);
+        void DrawDirectoryNode(DirectoryNode& node);
         void DrawPathBar();
-        void DrawDirectoryTree(const std::string& path);
-        void DrawDirectoryContents();
-        void DrawDirectoryNode(const fs::path& path, bool isRoot = false);
+        void DrawDirectoryContent();
 
-    private:
+        const DirectoryNode* FindNodeByUuid(const DirectoryNode& node, const UUID& uuid);
+
         std::string m_AssetsPath;
-        std::string m_CurrentDirectory;
+        DirectoryNode m_RootNode;
+        UUID m_CurrentDirectoryUuid;
     };
 }
