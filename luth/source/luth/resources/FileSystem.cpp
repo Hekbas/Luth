@@ -118,29 +118,6 @@ namespace Luth
         CreateDirectories(LogPath());
     }
 
-    /*fs::path FileSystem::GetMetaPath(const fs::path& assetPath) {
-        return assetPath.parent_path() / (assetPath.filename().string() + ".meta");
-    }*/
-
-    /*MetaFile FileSystem::GetOrCreateMeta(const fs::path& assetPath)
-    {
-        fs::path metaPath = GetMetaPath(assetPath);
-
-        if (!fs::exists(metaPath)) {
-            Resource resType = ClassifyFileType(assetPath);
-            MetaFile meta;
-            meta.CreateNew(assetPath, resType);
-            meta.Save();
-            return meta;
-        }
-
-        return MetaFile(assetPath);
-    }*/
-
-    //void FileSystem::SyncMetaFiles() {
-    //    // TODO: Scan Assets directory and ensure every file has a valid .meta
-    //}
-
     const std::unordered_map<ResourceType, FileSystem::ResourceTypeInfo>& FileSystem::GetTypeInfo()
     {
         static const std::unordered_map<ResourceType, ResourceTypeInfo> typeInfo = {

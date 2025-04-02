@@ -12,7 +12,8 @@ namespace Luth
         UUID Uuid;
         std::string Name;
         ResourceType Type;
-        std::vector<DirectoryNode> Children;
+        std::vector<DirectoryNode> Directories;
+        std::vector<DirectoryNode> Contents;
     };
 
     class ProjectPanel : public Panel

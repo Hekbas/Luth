@@ -61,12 +61,14 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create GLFW window!");
             glfwTerminate();
             return;
-        }     
+        }
 
         if (spec.rendererAPI == RendererAPI::API::OpenGL) {
             glfwMakeContextCurrent(m_GLFWwindow);
             glfwSwapInterval(spec.VSync ? 1 : 0);
         }
+
+        glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);
 
         glfwSetWindowUserPointer(m_GLFWwindow, &m_Data);
         glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {

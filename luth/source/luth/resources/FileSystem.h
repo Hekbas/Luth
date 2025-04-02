@@ -36,11 +36,6 @@ namespace Luth
         static void CreateDirectories(const fs::path& path);
         static void EnsureBaseStructure();
 
-        // Meta Files
-        //static fs::path GetMetaPath(const fs::path& assetPath);
-        //static MetaFile GetOrCreateMeta(const fs::path& assetPath);
-        //static void SyncMetaFiles();
-
     private:
         static fs::path s_EngineRoot;
         static fs::path s_ProjectRoot;

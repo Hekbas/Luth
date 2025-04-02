@@ -67,7 +67,7 @@ namespace Luth
             for (const auto& entry : entries) {
                 if (entry.is_directory()) {
                     DirectoryNode child = BuildDirectoryTree(entry.path());
-                    node.Children.push_back(child);
+                    node.Directories.push_back(child);
                 }
             }
 
@@ -80,7 +80,7 @@ namespace Luth
                         fileNode.Uuid = ResourceDB::GetUuidForPath(entry.path());
                         fileNode.Name = entry.path().filename().string();
                         fileNode.Type = fileType;
-                        node.Children.push_back(fileNode);
+                        node.Contents.push_back(fileNode);
                     }
                 }
             }
@@ -95,7 +95,7 @@ namespace Luth
     void ProjectPanel::DrawDirectoryNode(DirectoryNode& node)
     {
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        if (node.Children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (node.Directories.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
         if (node.Uuid == m_CurrentDirectoryUuid) flags |= ImGuiTreeNodeFlags_Selected;
 
         bool isOpen = ImGui::TreeNodeEx(node.Name.c_str(), flags);
@@ -105,7 +105,7 @@ namespace Luth
         }
 
         if (isOpen) {
-            for (auto& child : node.Children) {
+            for (auto& child : node.Directories) {
                 DrawDirectoryNode(child);
             }
             ImGui::TreePop();
@@ -162,8 +162,40 @@ namespace Luth
 
         ImGui::Columns(columnCount, 0, false);
 
+        // Display subdirectories
+        for (const auto& child : currentDir->Directories) {
+            ImGui::PushID(child.Uuid.ToString().c_str());
+
+            // Icon button
+            ImGui::BeginGroup();
+            /*ImGui::Button(child.Type == ResourceType::Directory ?
+                ICON_FA_FOLDER "##dir" : ICON_FA_FILE "##file",
+                ImVec2(thumbnailSize, thumbnailSize));*/
+
+            ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
+
+            // Double-click handling
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                m_CurrentDirectoryUuid = child.Uuid;
+            }
+
+            // Name label
+            ImGui::TextWrapped("%s", child.Name.c_str());
+            ImGui::EndGroup();
+
+            // Context menu
+            //if (ImGui::BeginPopupContextItem()) {
+            //    if (ImGui::MenuItem("Rename")) { /* ... */ }
+            //    if (ImGui::MenuItem("Delete")) { /* ... */ }
+            //    ImGui::EndPopup();
+            //}
+
+            ImGui::NextColumn();
+            ImGui::PopID();
+        }
+
         // Display directory contents
-        for (const auto& child : currentDir->Children) {
+        for (const auto& child : currentDir->Contents) {
             ImGui::PushID(child.Uuid.ToString().c_str());
 
             // Icon button
@@ -208,8 +240,6 @@ namespace Luth
             ImGui::PopID();
         }
 
-        
-
         ImGui::Columns(1);
     }
 
@@ -217,7 +247,7 @@ namespace Luth
     {
         if (node.Uuid == uuid) return &node;
 
-        for (const auto& child : node.Children) {
+        for (const auto& child : node.Directories) {
             if (const auto* found = FindNodeByUuid(child, uuid)) {
                 return found;
             }
