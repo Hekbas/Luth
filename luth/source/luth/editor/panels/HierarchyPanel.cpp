@@ -65,39 +65,7 @@ namespace Luth
             ProcessKeyboardShortcuts();
 
             // Create Entities from dropped stuff
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ASSET_UUID)) {
-                    const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
-                    auto path = ResourceDB::ResolveUuid(assetUuid);
-                    auto assetType = FileSystem::ClassifyFileType(path);
-                    std::shared_ptr<Model> model;
-
-                    switch (assetType)
-                    {
-                        case Luth::ResourceType::Model:
-                            model = Resources::Load<Model>(path);
-                            m_Context->CreateEntity("TODO_GET_NAME");
-                            break;
-                        case Luth::ResourceType::Texture:
-                            break;
-                        case Luth::ResourceType::Material:
-                            break;
-                        case Luth::ResourceType::Shader:
-                            break;
-                        case Luth::ResourceType::Font:
-                            break;
-                        case Luth::ResourceType::Config:
-                            break;
-                        case Luth::ResourceType::Directory:
-                            break;
-                        case Luth::ResourceType::Unknown:
-                            break;
-                        default:
-                            break;
-                    }
-                }
-                ImGui::EndDragDropTarget();
-            }
+            ProcessDropResource();
         }
         
         ImGui::End();
@@ -315,5 +283,39 @@ namespace Luth
         std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
 
         return entityName.find(filter) != std::string::npos;
+    }
+
+    void HierarchyPanel::ProcessDropResource()
+    {
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ASSET_UUID)) {
+                const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
+                auto path = ResourceDB::ResolveUuid(assetUuid);
+                auto assetType = FileSystem::ClassifyFileType(path);
+                std::shared_ptr<Model> model;
+
+                switch (assetType)
+                {
+                    case Luth::ResourceType::Model: {
+                        model = Resources::Load<Model>(path);
+                        model->SetName(path.filename().stem().string());
+                        auto parent = m_Context->CreateEntity(model->GetName());
+                        parent.AddComponent<Children>();
+
+                        for (const auto& mesh : model->GetMeshes()) {
+                            auto child = m_Context->CreateEntity(mesh.name);
+                            child.AddComponent<Parent>();
+                            child.SetParent(parent);
+                            parent.GetChildren().push_back(child);
+
+                            child.AddComponent<MeshRenderer>();
+                        }
+                        break;
+                    }
+                    default: break;
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
     }
 }

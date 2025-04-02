@@ -23,7 +23,11 @@ namespace Luth
         const UUID& GetUUID() const { return m_UUID; }
         void SetUUID(const UUID& uuid) { m_UUID = uuid; }
 
+        const std::string& GetName() const { return m_Name; }
+        void SetName(const std::string& name) { m_Name = name; }
+
     private:
         UUID m_UUID;
+        std::string m_Name;
     };
 }

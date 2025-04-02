@@ -78,9 +78,9 @@ namespace Luth
             Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 view = glm::lookAt(
-            Vec3(1200.0f, 800.0f, 1200.0f),
-            //Vec3(3.0f, 2.0f, 3.0f),
-            Vec3(0.0f, 200.0f, 0.0f),
+            //Vec3(1200.0f, 800.0f, 1200.0f),
+            Vec3(12.0f, 10.0f, 12.0f),
+            Vec3(0.0f, 0.0f, 0.0f),
             Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 proj = glm::perspective(

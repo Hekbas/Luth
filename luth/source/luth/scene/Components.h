@@ -137,6 +137,11 @@ namespace Luth::Component
             return ProjectionMatrix * glm::inverse(transform);
         }
     };
+
+    struct MeshRenderer {
+        std::string name;
+        
+    };
 }
 
 namespace Luth { using namespace Luth::Component; }

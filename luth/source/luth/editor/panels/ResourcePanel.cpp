@@ -113,7 +113,7 @@ namespace Luth
     {
         for (const auto& model : ModelLibrary::GetAllModels()) {
             m_FilteredResources.push_back({
-                /*model->GetName()*/"TODO_GET_NAME",
+                model->GetName(),
                 model->GetUUID(),
                 "Model",
                 model.use_count() - 1 // Subtract library's own reference

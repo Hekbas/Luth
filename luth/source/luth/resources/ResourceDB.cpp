@@ -27,7 +27,7 @@ namespace Luth
             }
             else {
                 auto type = FileSystem::ClassifyFileType(path);
-                if (type != ResourceType::Unknown) continue;
+                if (type == ResourceType::Unknown) continue;
 
                 MetaFile::Create(path, type);
                 ProcessMetaFile(path);

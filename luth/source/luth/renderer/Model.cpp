@@ -52,6 +52,8 @@ namespace Luth
     MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
     {
         MeshData data;
+        data.name = mesh->mName.C_Str();
+
         data.vertices.reserve(mesh->mNumVertices);
         data.indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
 
