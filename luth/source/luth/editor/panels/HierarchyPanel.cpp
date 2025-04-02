@@ -1,6 +1,11 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
+#include "luth/editor/panels/ProjectPanel.h"
 #include "luth/scene/Components.h"
+#include "luth/resources/Resources.h"
+#include "luth/resources/FileSystem.h"
+#include "luth/resources/ResourceDB.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/utils/ImGuiUtils.h"
 
 #include <imgui.h>
@@ -58,6 +63,41 @@ namespace Luth
             }
 
             ProcessKeyboardShortcuts();
+
+            // Create Entities from dropped stuff
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ASSET_UUID)) {
+                    const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
+                    auto path = ResourceDB::ResolveUuid(assetUuid);
+                    auto assetType = FileSystem::ClassifyFileType(path);
+                    std::shared_ptr<Model> model;
+
+                    switch (assetType)
+                    {
+                        case Luth::ResourceType::Model:
+                            model = Resources::Load<Model>(path);
+                            m_Context->CreateEntity("TODO_GET_NAME");
+                            break;
+                        case Luth::ResourceType::Texture:
+                            break;
+                        case Luth::ResourceType::Material:
+                            break;
+                        case Luth::ResourceType::Shader:
+                            break;
+                        case Luth::ResourceType::Font:
+                            break;
+                        case Luth::ResourceType::Config:
+                            break;
+                        case Luth::ResourceType::Directory:
+                            break;
+                        case Luth::ResourceType::Unknown:
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
         }
         
         ImGui::End();

@@ -5,6 +5,9 @@
 
 namespace Luth
 {
+    constexpr const char* ASSET_UUID = "ASSET_UUID";
+    constexpr const char* ENTITY_UUID = "ENTITY_UUID";
+
     struct DirectoryNode {
         UUID Uuid;
         std::string Name;

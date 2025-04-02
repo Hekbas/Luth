@@ -56,14 +56,32 @@ namespace Luth
             node.Name = "Assets";
 
         try {
+            std::vector<fs::directory_entry> entries;
+
+            // Collect all entries
             for (const auto& entry : fs::directory_iterator(path)) {
+                entries.push_back(entry);
+            }
+
+            // Process directories first
+            for (const auto& entry : entries) {
                 if (entry.is_directory()) {
-                    node.Children.push_back(BuildDirectoryTree(entry.path()));
+                    DirectoryNode child = BuildDirectoryTree(entry.path());
+                    node.Children.push_back(child);
                 }
-                else {
-                    node.Type = FileSystem::ClassifyFileType(entry.path());
-                    if (node.Type != ResourceType::Unknown)
-                        node.Children.push_back(node);
+            }
+
+            // Then process files
+            for (const auto& entry : entries) {
+                if (!entry.is_directory()) {
+                    ResourceType fileType = FileSystem::ClassifyFileType(entry.path());
+                    if (fileType != ResourceType::Unknown) {
+                        DirectoryNode fileNode;
+                        fileNode.Uuid = ResourceDB::GetUuidForPath(entry.path());
+                        fileNode.Name = entry.path().filename().string();
+                        fileNode.Type = fileType;
+                        node.Children.push_back(fileNode);
+                    }
                 }
             }
         }
