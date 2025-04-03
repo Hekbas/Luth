@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/resources/ResourceDB.h"
+#include "luth/resources/Resources.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 
@@ -12,25 +13,37 @@ namespace Luth
 
     void ResourceDB::Init(const fs::path& projectRoot)
     {
+        LH_CORE_INFO("Initializing Resource DataBase...");
         s_UuidToPath.clear();
         s_PathToUuid.clear();
 
         for (const auto& entry : fs::recursive_directory_iterator(projectRoot)) {
-            auto path = entry.path();
-            if (path.extension() == ".meta") {
-                if (exists(path)) {
-                    ProcessMetaFile(path);
-                }
-                else {
-                    // Orphan .meta, delete?
+            fs::path path = entry.path();
+            fs::path extension = path.extension();
+
+            // Orphan .meta, could delete here
+            if (extension == ".meta") {
+                fs::path assetPath = path;
+                if (!exists(assetPath.replace_extension(""))) {
+                    fs::remove(path);
+                    continue;
                 }
             }
-            else {
-                auto type = FileSystem::ClassifyFileType(path);
-                if (type == ResourceType::Unknown) continue;
 
-                MetaFile::Create(path, type);
-                ProcessMetaFile(path);
+            // Handle .meta files
+            if (extension != ".meta") {
+                if (!ProcessMetaFile(path)) {
+                    continue;
+                }
+            }
+
+            // Load to Database
+            switch (FileSystem::ClassifyFileType(path)) {
+                case Luth::ResourceType::Model:     Resources::Load<Model>(path);   break;
+                case Luth::ResourceType::Texture:   Resources::Load<Texture>(path); break;
+                case Luth::ResourceType::Material:  break;
+                case Luth::ResourceType::Shader:    break;
+                default: break;
             }
         }
     }
@@ -98,25 +111,28 @@ namespace Luth
         return dependencies;
     }
 
-    void ResourceDB::ProcessMetaFile(const fs::path& metaPath)
+    bool ResourceDB::ProcessMetaFile(const fs::path& path)
     {
         try {
-            // Get corresponding asset path
-            fs::path assetPath = metaPath;
-            assetPath.replace_extension("");
+            // Get corresponding meta path
+            fs::path metaPath = path.string() + ".meta";
 
-            if (!exists(assetPath)) {
-                // Orphaned meta file
-                return;
+            // Resource without .meta
+            if (!exists(metaPath)) {
+                const auto type = FileSystem::ClassifyFileType(path);
+                if (type == ResourceType::Unknown) return false;
+                MetaFile::Create(path, type);
             }
 
             MetaFile meta(UUID(0));
             if (meta.Load(metaPath)) {
-                RegisterAsset(assetPath, meta.GetUUID());
+                RegisterAsset(metaPath, meta.GetUUID());
+                return true;
             }
         }
         catch (...) {
             // Invalid meta file
+            return false;
         }
     }
 }

@@ -165,6 +165,9 @@ namespace Luth
 
     void Editor::SetCustomStyle()
     {
+        ImGuiIO& io = ImGui::GetIO();
+        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "OxygenMono-Regular.ttf").string().c_str(), 16.0f);
+
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
 
@@ -257,7 +260,7 @@ namespace Luth
     {
         // Font
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "BubbleGum.ttf").string().c_str(), 16.0f);
+        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "HoneySalt.otf").string().c_str(), 20.0f);
 
         ImGuiStyle& style = ImGui::GetStyle();
     

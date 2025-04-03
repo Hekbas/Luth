@@ -1,6 +1,5 @@
 #include "luthpch.h"
 #include "luth/resources/MetaFile.h"
-#include "luth/resources/ResourceDB.h"
 
 namespace Luth
 {
@@ -16,7 +15,6 @@ namespace Luth
             throw std::runtime_error("Failed to create .meta file");
         }
 
-        ResourceDB::RegisterAsset(path, newUuid);
         return newUuid;
     }
 

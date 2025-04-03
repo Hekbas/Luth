@@ -22,7 +22,7 @@ namespace Luth
         void SetupColumns();
         void PopulateData();
         void AddModelEntries();
-        //void AddTextureEntries();
+        void AddTextureEntries();
         //void AddMaterialEntries();
         //void AddShaderEntries();
         ImVec4 GetTypeColor(const std::string& type) const;

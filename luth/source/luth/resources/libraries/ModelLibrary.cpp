@@ -57,16 +57,9 @@ namespace Luth
         return it != s_Models.end() ? it->second.Model : nullptr;
     }
 
-    std::vector<std::shared_ptr<Model>> ModelLibrary::GetAllModels()
+    std::unordered_map<UUID, ModelLibrary::ModelRecord, UUIDHash> ModelLibrary::GetAllModels()
     {
-        std::vector<std::shared_ptr<Model>> models;
-        models.reserve(s_Models.size());
-
-        for (const auto& [uuid, modelRecord] : s_Models) {
-            models.push_back(modelRecord.Model);
-        }
-
-        return models;
+        return s_Models;
     }
 
     std::vector<UUID> ModelLibrary::GetAllUuids()

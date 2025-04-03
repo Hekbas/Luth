@@ -36,16 +36,18 @@ namespace Luth
         }
 
         // Library management
-        static void InitLibraries() {
+        static void Init() {
             ModelLibrary::Init();
             MaterialLibrary::Init();
             ShaderLibrary::Init();
+            TextureCache::Init();
         }
 
-        static void ShutdownLibraries() {
+        static void Shutdown() {
             ModelLibrary::Shutdown();
             MaterialLibrary::Shutdown();
             ShaderLibrary::Shutdown();
+            TextureCache::Shutdown();
         }
 
     private:
@@ -133,7 +135,7 @@ namespace Luth
     template<>
     struct Resources::Loader<Texture> {
         static std::shared_ptr<Texture> Load(const fs::path& path) {
-            return TextureCache::GetTexture(path);
+            return TextureCache::LoadOrGet(path);
         }
     };
 }

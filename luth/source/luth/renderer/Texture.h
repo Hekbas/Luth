@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/resources/Resource.h"
 #include "luth/utils/ImageUtils.h"
 
 #include <memory>
@@ -21,7 +22,7 @@ namespace Luth
         LinearMipmapLinear, NearestMipmapNearest
     };
 
-    class Texture
+    class Texture : public Resource
     {
     public:
         virtual ~Texture() = default;

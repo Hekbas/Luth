@@ -7,6 +7,7 @@
 #include <luth/renderer/openGL/GLBuffer.h>
 #include <luth/renderer/openGL/GLMesh.h>
 
+#include <luth/resources/Resource.h>
 #include <luth/resources/Resources.h>
 #include <luth/resources/libraries/TextureCache.h>
 
@@ -48,7 +49,7 @@ namespace Luth
             std::vector<std::shared_ptr<Texture>> textures;
 
             for (auto texture : material.GetTextures()) {
-                textures.push_back(Resources::Load<Texture>(texture.path.string()));
+                textures.push_back(Resources::Load<Texture>(texture.path));
             }
 
             //MaterialLibrary::Add("", material);

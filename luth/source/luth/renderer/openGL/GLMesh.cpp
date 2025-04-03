@@ -36,7 +36,7 @@ namespace Luth
                     LH_CORE_ERROR("TextureType not supported!");
             }
 
-            if (const auto texture = TextureCache::GetTexture(texInfo.path)) {
+            if (const auto texture = TextureCache::LoadOrGet(texInfo.path)) {
                 texture->Bind(slot);
             }
             m_Material->GetShader()->SetInt(texType, texInfo.uvIndex);

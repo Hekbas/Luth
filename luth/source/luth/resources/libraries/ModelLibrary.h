@@ -25,7 +25,7 @@ namespace Luth
         static bool Contains(const UUID& uuid);
 
         static std::shared_ptr<Model> Get(const UUID& uuid);
-        static std::vector<std::shared_ptr<Model>> GetAllModels();
+        static std::unordered_map<UUID, ModelRecord, UUIDHash> GetAllModels();
         static std::vector<UUID> GetAllUuids();
 
         static std::shared_ptr<Model> Load(const std::filesystem::path& path);

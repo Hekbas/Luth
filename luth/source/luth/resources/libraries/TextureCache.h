@@ -1,39 +1,44 @@
 #pragma once
 
+#include "luth/core/UUID.h"
 #include "luth/renderer/Texture.h"
-#include "luth/renderer/openGL/GLTexture.h"
 
 #include <memory>
+#include <shared_mutex>
+#include <unordered_map>
 
 namespace Luth
 {
 	class TextureCache
 	{
 	public:
-        /*inline static std::shared_ptr<Texture> GetTexture(const fs::path& path)
-        {
-            static std::unordered_map<fs::path, std::weak_ptr<Texture>> cache;
+        struct TextureRecord {
+            std::shared_ptr<Texture> Texture;
+            fs::file_time_type LastModified;
+        };
 
-            auto& weak = cache[path];
-            if (auto tex = weak.lock()) return tex;
+        static void Init();
+        static void Shutdown();
 
-            auto newTex = Texture::Create(path);
-            weak = newTex;
-            return newTex;
-        }*/
+        static bool Add(std::shared_ptr<Texture> texture);
+        static bool Remove(const UUID& uuid);
+        static bool Contains(const UUID& uuid);
 
-        inline static std::shared_ptr<Texture> GetTexture(const fs::path& path)
-        {
-            static std::unordered_map<fs::path, std::shared_ptr<Texture>> cache;
+        static std::shared_ptr<Texture> Get(const UUID& uuid);
+        static std::unordered_map<UUID, TextureRecord, UUIDHash> GetAllTextures();
+        static std::vector<UUID> GetAllUuids();
 
-            auto& weak = cache[path];
-            if (weak) return weak;
+        static std::shared_ptr<Texture> Load(const fs::path& path);
+        static std::shared_ptr<Texture> LoadOrGet(const fs::path& path);
 
-            auto newTex = Texture::Create(path);
-            if (!newTex) return nullptr;
+        static bool Reload(const UUID& uuid);
+        static void ReloadAll();
 
-            weak = newTex;
-            return newTex;
-        }
+    private:
+        static std::shared_ptr<Texture> Create(const fs::path& path);
+        static std::shared_ptr<Texture> Create(uint32_t width, uint32_t height, TextureFormat format);
+
+        static std::shared_mutex s_Mutex;
+        static std::unordered_map<UUID, TextureRecord, UUIDHash> s_Textures;
 	};
 }

@@ -22,8 +22,8 @@ namespace Luth
         Input::SetWindow(m_Window->GetNativeWindow());
         Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
         FileSystem::Init();
+        Resources::Init();
         ResourceDB::Init(FileSystem::AssetsPath());
-        Resources::InitLibraries();
         Editor::Init(m_Window->GetNativeWindow());
 
         // Subscribe to events
