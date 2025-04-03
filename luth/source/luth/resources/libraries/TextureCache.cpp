@@ -96,7 +96,7 @@ namespace Luth
 
         std::unique_lock lock(s_Mutex);
         s_Textures[uuid] = { texture, modTime };
-        LH_CORE_INFO("Loaded texture {0} from {1}", uuid.ToString(), path.string());
+        LH_CORE_TRACE("Loaded texture as {0}", uuid.ToString());
         return texture;
     }
 

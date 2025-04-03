@@ -5,11 +5,11 @@
 
 namespace Luth
 {
-    std::shared_ptr<Shader> Shader::Create(const std::string& filePath)
+    std::shared_ptr<Shader> Shader::Create(const fs::path& filePath)
     {
         switch (Renderer::GetAPI())
         {
-        case RendererAPI::API::OpenGL:
+            case RendererAPI::API::OpenGL:
                 return std::make_shared<GLShader>(filePath);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -29,12 +29,11 @@ namespace Luth
         }
     }
 
-    std::string Shader::Load(const std::string& filePath)
+    std::string Shader::Load(const fs::path& filePath)
     {
         std::ifstream in(filePath, std::ios::in | std::ios::binary);
-        if (!in)
-        {
-            LH_CORE_ERROR("Could not open shader file: {0}", filePath);
+        if (!in) {
+            LH_CORE_ERROR("Could not open shader file: {0}", filePath.string());
             return "";
         }
 

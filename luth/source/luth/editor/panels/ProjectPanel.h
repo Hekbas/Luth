@@ -29,6 +29,9 @@ namespace Luth
         void DrawDirectoryNode(DirectoryNode& node);
         void DrawPathBar();
         void DrawDirectoryContent();
+        void DrawCreateMenu();
+
+        void CreateNewMaterial();
 
         const DirectoryNode* FindNodeByUuid(const DirectoryNode& node, const UUID& uuid);
 

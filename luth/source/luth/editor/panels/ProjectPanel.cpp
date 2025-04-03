@@ -153,6 +153,12 @@ namespace Luth
         const DirectoryNode* currentDir = FindNodeByUuid(m_RootNode, m_CurrentDirectoryUuid);
         if (!currentDir) return;
 
+        // Handle right-click context menu
+        if (ImGui::BeginPopupContextWindow("ProjectContextMenu")) {
+            DrawCreateMenu();
+            ImGui::EndPopup();
+        }
+
         // Grid layout settings
         const float padding = 16.0f;
         const float thumbnailSize = 64.0f;
@@ -241,6 +247,65 @@ namespace Luth
         }
 
         ImGui::Columns(1);
+    }
+
+    void ProjectPanel::DrawCreateMenu()
+    {
+        if (ImGui::BeginMenu("Create")) {
+            if (ImGui::MenuItem("Material")) {
+                CreateNewMaterial();
+            }
+            // TODO: Add other create options here...
+            ImGui::EndMenu();
+        }
+    }
+
+    void ProjectPanel::CreateNewMaterial()
+    {
+        // Current directory
+        fs::path currDir = ResourceDB::ResolveUuid(m_CurrentDirectoryUuid);
+
+        // Default material path
+        fs::path newMaterialPath = currDir / "NewMaterial.mat";
+
+        // Ensure unique filename
+        int counter = 1;
+        while (fs::exists(newMaterialPath)) {
+            newMaterialPath = currDir /
+                ("NewMaterial_" + std::to_string(counter++) + ".mat");
+        }
+
+        // Create the material file
+        std::ofstream file(newMaterialPath);
+        if (!file.is_open()) {
+            LH_CORE_ERROR("Failed to create material file: {0}", newMaterialPath.string());
+            return;
+        }
+
+        // Create default material content
+        nlohmann::json materialData;
+        materialData["shader"] = ""; // Empty shader by default
+        materialData["textures"] = nlohmann::json::object();
+        file << materialData.dump(4);
+        file.close();
+
+        // Create .meta file
+        fs::path metaPath = newMaterialPath;
+        metaPath += ".meta";
+
+        UUID uuid;
+        MetaFile meta(uuid); // New random UUID
+        meta.Save(metaPath);
+
+        // Register with resource database
+        ResourceDB::RegisterAsset(newMaterialPath, meta.GetUUID());
+
+        // Notify listeners
+        /*if (OnMaterialCreated) {
+            OnMaterialCreated(newMaterialPath);
+        }*/
+
+        LH_CORE_INFO("Created new material: {0}", newMaterialPath.string());
     }
 
     const DirectoryNode* ProjectPanel::FindNodeByUuid(const DirectoryNode& node, const UUID& uuid)

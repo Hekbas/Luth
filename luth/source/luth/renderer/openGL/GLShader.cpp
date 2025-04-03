@@ -7,7 +7,7 @@
 
 namespace Luth
 {
-    GLShader::GLShader(const std::string& filePath)
+    GLShader::GLShader(const fs::path& filePath)
     {
         std::string source = Load(filePath);
         auto shaderSources = PreProcess(source);

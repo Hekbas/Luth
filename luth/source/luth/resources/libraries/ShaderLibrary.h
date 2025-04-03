@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/UUID.h"
 #include "luth/renderer/Shader.h"
 
 #include <unordered_map>
@@ -13,35 +14,34 @@ namespace Luth
     class ShaderLibrary
     {
     public:
+        struct ShaderRecord {
+            std::shared_ptr<Shader> Shader;
+            fs::path SourcePath;
+            fs::file_time_type LastModified;
+        };
+
         static void Init();
         static void Shutdown();
 
         // Basic operations
-        static bool Add(const std::string& name, std::shared_ptr<Shader> shader);
-        static bool Remove(const std::string& name);
-        static std::shared_ptr<Shader> Get(const std::string& name);
-        static bool Contains(const std::string& name);
-        static std::vector<std::string> GetShaderNames();
+        static bool Add(std::shared_ptr<Shader> shader);
+        static bool Remove(const UUID& uuid);
+        static bool Contains(const UUID& uuid);
+
+        static std::shared_ptr<Shader> Get(const UUID& uuid);
+        static std::vector<UUID> GetAllUuids();
+        static std::unordered_map<UUID, ShaderRecord, UUIDHash> GetAllShaders();
 
         // Smart loading
-        static std::shared_ptr<Shader> Load(const std::string& filePath);
-        static std::shared_ptr<Shader> Load(const std::string& name, const std::string& filePath);
-        static std::shared_ptr<Shader> LoadOrGet(const std::string& filePath);
-        static std::shared_ptr<Shader> LoadOrGet(const std::string& name, const std::string& filePath);
+        static std::shared_ptr<Shader> Load(const fs::path& filePath);
+        static std::shared_ptr<Shader> LoadOrGet(const fs::path& filePath);
 
         // Reload functionality
-        static bool Reload(const std::string& name);
+        static bool Reload(const UUID& uuid);
         static void ReloadAll();
 
     private:
-        struct ShaderRecord
-        {
-            std::shared_ptr<Shader> shader;
-            std::filesystem::path sourcePath;
-            std::chrono::file_clock::time_point lastModified;
-        };
-
-        static inline std::shared_mutex s_Mutex;
-        static inline std::unordered_map<std::string, ShaderRecord> s_Shaders;
+        static std::shared_mutex s_Mutex;
+        static std::unordered_map<UUID, ShaderRecord, UUIDHash> s_Shaders;
     };
 }

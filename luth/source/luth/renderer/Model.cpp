@@ -98,10 +98,10 @@ namespace Luth
         aiString name = mesh->mName;
 
         // Process material
-        if (mesh->mMaterialIndex >= 0 && static_cast<uint32_t>(mesh->mMaterialIndex) < scene->mNumMaterials) {
+        /*if (mesh->mMaterialIndex >= 0 && static_cast<uint32_t>(mesh->mMaterialIndex) < scene->mNumMaterials) {
             data.materialIndex = static_cast<uint32_t>(m_Materials.size());
             m_Materials.push_back(ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex], m_Directory));
-        }
+        }*/
 
         return data;
     }
@@ -109,33 +109,33 @@ namespace Luth
     Material Model::ProcessMaterial(aiMaterial* mat, const fs::path& directory)
     {
         Material material;
-        TextureInfo texInfo;
-        aiString path;
-        for (uint32_t type = aiTextureType_DIFFUSE; type <= aiTextureType_UNKNOWN; type++)
-        {
-            aiTextureType aiType = static_cast<aiTextureType>(type);
-            for (uint32_t i = 0; i < mat->GetTextureCount(aiType); i++)
-            {
-                if (mat->GetTexture(aiType, i, &path, nullptr, &texInfo.uvIndex) == AI_SUCCESS) {
-                    switch (aiType) {
-                        case aiTextureType_DIFFUSE:         texInfo.type = TextureType::Diffuse;   break;
-                        case aiTextureType_BASE_COLOR:      texInfo.type = TextureType::Diffuse;   break;
-                        case aiTextureType_NORMALS:         texInfo.type = TextureType::Normal;    break;
-                        case aiTextureType_NORMAL_CAMERA:   texInfo.type = TextureType::Normal;    break;
-                        case aiTextureType_HEIGHT:          texInfo.type = TextureType::Normal;    break;
-                        case aiTextureType_EMISSIVE:        texInfo.type = TextureType::Emissive;  break;
-                        case aiTextureType_EMISSION_COLOR:  texInfo.type = TextureType::Emissive;  break;
-                        case aiTextureType_METALNESS:       texInfo.type = TextureType::Metalness; break;
-                        case aiTextureType_SHININESS:       texInfo.type = TextureType::Roughness; break;
-                        default: continue; // Skip unsupported types
-                    }
-                    fs::path name = path.C_Str();
-                    auto result = Resources::Find<Model>(name.filename().stem().string() + ".*", true);
-                    if (!result.empty()) texInfo.path = result[0];
-                    material.AddTexture(texInfo);
-                }
-            }
-        }
+        //TextureInfo texInfo;
+        //aiString path;
+        //for (uint32_t type = aiTextureType_DIFFUSE; type <= aiTextureType_UNKNOWN; type++)
+        //{
+        //    aiTextureType aiType = static_cast<aiTextureType>(type);
+        //    for (uint32_t i = 0; i < mat->GetTextureCount(aiType); i++)
+        //    {
+        //        if (mat->GetTexture(aiType, i, &path, nullptr, &texInfo.uvIndex) == AI_SUCCESS) {
+        //            switch (aiType) {
+        //                case aiTextureType_DIFFUSE:         texInfo.type = TextureType::Diffuse;   break;
+        //                case aiTextureType_BASE_COLOR:      texInfo.type = TextureType::Diffuse;   break;
+        //                case aiTextureType_NORMALS:         texInfo.type = TextureType::Normal;    break;
+        //                case aiTextureType_NORMAL_CAMERA:   texInfo.type = TextureType::Normal;    break;
+        //                case aiTextureType_HEIGHT:          texInfo.type = TextureType::Normal;    break;
+        //                case aiTextureType_EMISSIVE:        texInfo.type = TextureType::Emissive;  break;
+        //                case aiTextureType_EMISSION_COLOR:  texInfo.type = TextureType::Emissive;  break;
+        //                case aiTextureType_METALNESS:       texInfo.type = TextureType::Metalness; break;
+        //                case aiTextureType_SHININESS:       texInfo.type = TextureType::Roughness; break;
+        //                default: continue; // Skip unsupported types
+        //            }
+        //            fs::path name = path.C_Str();
+        //            auto result = Resources::Find<Model>(name.filename().stem().string() + ".*", true);
+        //            if (!result.empty()) texInfo.path = result[0];
+        //            material.AddTexture(texInfo);
+        //        }
+        //    }
+        //}
         return material;
     }
 

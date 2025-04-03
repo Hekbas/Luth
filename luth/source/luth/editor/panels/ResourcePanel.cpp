@@ -71,7 +71,7 @@ namespace Luth
         if (m_ShowModels) AddModelEntries();
         if (m_ShowTextures) AddTextureEntries();
         //if (m_ShowMaterials) AddMaterialEntries();
-        //if (m_ShowShaders) AddShaderEntries();
+        if (m_ShowShaders) AddShaderEntries();
 
         // Apply search filter
         //std::string searchLower = StringUtils::ToLower(m_SearchBuffer);
@@ -133,27 +133,27 @@ namespace Luth
         }
     }
 
-    /*void ResourcePanel::AddMaterialEntries() {
-        for (const auto& [uuid, material] : MaterialLibrary::GetMaterials()) {
+    void ResourcePanel::AddMaterialEntries() {
+        for (const auto& [uuid, material] : MaterialLibrary::GetAllMaterials()) {
             m_FilteredResources.push_back({
-                material->GetName(),
-                uuid.str(),
+                material.lock()->GetName(),
+                uuid,
                 "Material",
                 material.use_count() - 1
             });
         }
-    }*/
+    }
 
-    /*void ResourcePanel::AddShaderEntries() {
-        for (const auto& [uuid, shader] : ShaderLibrary::GetShaders()) {
+    void ResourcePanel::AddShaderEntries() {
+        for (const auto& [uuid, shader] : ShaderLibrary::GetAllShaders()) {
             m_FilteredResources.push_back({
-                shader->GetName(),
-                uuid.str(),
+                shader.Shader->GetName(),
+                uuid,
                 "Shader",
-                shader.use_count() - 1
+                shader.Shader.use_count() - 1
             });
         }
-    }*/
+    }
 
     ImVec4 ResourcePanel::GetTypeColor(const std::string& type) const
     {

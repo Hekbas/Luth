@@ -2,6 +2,8 @@
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/scene/Components.h"
+#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/libraries/ModelLibrary.h"
 #include "luth/utils/ImGuiUtils.h"
 
 namespace Luth
@@ -151,15 +153,61 @@ namespace Luth
             });
 
             DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [](Entity entity, MeshRenderer& meshRenderer) {
-                // Mesh
+                // Model Selection
                 ImGui::Text("Mesh");
                 ImGui::SameLine();
-                ImGui::Text("TODO_MESH_REF");
 
-                // Material
+                // Model UUID drag target
+                if (ImGui::Button(meshRenderer.modelNamePreview.empty() ?
+                    "Drop Model Here" : meshRenderer.modelNamePreview.c_str()))
+                {
+                    // TODO: Open model selection window
+                }
+
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                        const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                        if (auto model = ModelLibrary::Get(*droppedUUID)) {
+                            meshRenderer.ModelUUID = *droppedUUID;
+                            meshRenderer.modelNamePreview = model->GetName();
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::SameLine();
+
+                // Mesh Index Selection
+                if (true/*!meshRenderer.ModelUUID.IsNull()*/) {
+                    if (auto model = ModelLibrary::Get(meshRenderer.ModelUUID)) {
+                        const uint32_t meshCount = model->GetMeshes().size();
+                        ImGui::Text("#");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(20);
+                        ImGui::DragInt("##MeshIndex", reinterpret_cast<int*>(&meshRenderer.MeshIndex), 1.0f, 0, meshCount - 1);
+                    }
+                }
+
+                // Material Selection
+                ImGui::Separator();
                 ImGui::Text("Material");
                 ImGui::SameLine();
-                ImGui::Text("TODO_MATERIAL_SELECT");
+
+                if (ImGui::Button(meshRenderer.materialNamePreview.empty() ?
+                    "Drop Material Here" : meshRenderer.materialNamePreview.c_str()))
+                {
+                    // TODO: Open material selection window
+                }
+
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                        const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                        if (auto material = MaterialLibrary::Get(*droppedUUID)) {
+                            meshRenderer.MaterialUUID = *droppedUUID;
+                            meshRenderer.materialNamePreview = material->GetName();
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
             });
 
             // Add Component button

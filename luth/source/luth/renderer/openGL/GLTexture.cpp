@@ -10,13 +10,13 @@ namespace Luth
     GLTexture::GLTexture(const fs::path& path)
         : m_Path(FileSystem::GetPath(ResourceType::Texture, path))
     {
-        LH_CORE_INFO("Creating texture from path: {0}", m_Path.string());
+        LH_CORE_INFO("Creating GLTexture: {0}", m_Path.string());
         LoadFromFile();
     }
 
     GLTexture::GLTexture(uint32_t width, uint32_t height, TextureFormat format)
     {
-        LH_CORE_INFO("Creating empty texture ({0}x{1}, format {2})", width, height, static_cast<int>(format));
+        LH_CORE_INFO("Creating empty GLTexture ({0}x{1}, format {2})", width, height, static_cast<int>(format));
         // TODO: Implementation for empty texture creation should be added here
     }
 
@@ -66,7 +66,8 @@ namespace Luth
             glTextureSubImage2D(m_TextureID, 0, 0, 0, m_Width, m_Height, dataFormat, GL_UNSIGNED_BYTE, data);
             glGenerateTextureMipmap(m_TextureID);
 
-            LH_CORE_INFO("Successfully loaded texture '{0}' ({1}x{2}, {3} channels)", m_Path.filename().string(), width, height, channels);
+            LH_CORE_TRACE("Created GLTexture '{0}' (ID: {1}, {2}x{3}, {4} channels, Mip levels: {5})",
+                m_Path.filename().string(), m_TextureID, width, height, channels, m_MipLevels);
             stbi_image_free(data);
         }
         else
@@ -78,19 +79,14 @@ namespace Luth
     void GLTexture::CreateInternal(GLenum internalFormat)
     {
         glCreateTextures(GL_TEXTURE_2D, 1, &m_TextureID);
-        LH_CORE_TRACE("Created OpenGL texture with ID: {0}", m_TextureID);
 
         m_MipLevels = static_cast<int>(std::floor(std::log2(std::max(m_Width, m_Height)))) + 1;
-
         glTextureStorage2D(m_TextureID, m_MipLevels, internalFormat, m_Width, m_Height);
-        LH_CORE_TRACE("Allocated texture storage for ID {0}: {1}x{2}, format {3}, mip levels {4}",
-            m_TextureID, m_Width, m_Height, internalFormat, m_MipLevels);
 
         glTextureParameteri(m_TextureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTextureParameteri(m_TextureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        LH_CORE_TRACE("Set texture parameters for ID {0}: min/mag filter, wrap S/T", m_TextureID);
     }
 
     void GLTexture::Bind(uint32_t slot) const

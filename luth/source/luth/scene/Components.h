@@ -139,8 +139,13 @@ namespace Luth::Component
     };
 
     struct MeshRenderer {
-        std::string m_Name;
-        
+        UUID ModelUUID;
+        uint32_t MeshIndex = 0;
+        UUID MaterialUUID;
+
+        // Tmp state for ImGui
+        std::string modelNamePreview;
+        std::string materialNamePreview;
     };
 }
 

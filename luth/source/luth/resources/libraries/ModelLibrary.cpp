@@ -23,7 +23,7 @@ namespace Luth
     bool ModelLibrary::Add(std::shared_ptr<Model> model)
     {
         if (!model) {
-            LH_CORE_ERROR("Attempted to add null model");
+            LH_CORE_ERROR("Attempted to add null Model");
             return false;
         }
 
@@ -87,7 +87,7 @@ namespace Luth
 
         auto model = std::make_shared<Model>(path);
         if (!model || model->GetMeshes().empty()) {
-            LH_CORE_ERROR("Failed to load model from {0}", path.string());
+            LH_CORE_ERROR("Failed to load Model from {0}", path.string());
             return nullptr;
         }
 
@@ -96,7 +96,7 @@ namespace Luth
 
         std::unique_lock lock(s_Mutex);
         s_Models[uuid] = { model, modTime };
-        LH_CORE_INFO("Loaded model {0} from {1}", uuid.ToString(), path.string());
+        LH_CORE_TRACE("Loaded Model as {0}", uuid.ToString());
         return model;
     }
 
@@ -114,13 +114,13 @@ namespace Luth
         std::unique_lock lock(s_Mutex);
         auto it = s_Models.find(uuid);
         if (it == s_Models.end()) {
-            LH_CORE_WARN("Cannot reload non-existent model {0}", uuid.ToString());
+            LH_CORE_WARN("Cannot reload non-existent Model {0}", uuid.ToString());
             return false;
         }
 
         auto path = ResourceDB::ResolveUuid(uuid);
         if (path.empty()) {
-            LH_CORE_ERROR("No source path for model {0}", uuid.ToString());
+            LH_CORE_ERROR("No source path for Model {0}", uuid.ToString());
             return false;
         }
 
@@ -141,11 +141,11 @@ namespace Luth
 
             newModel->SetUUID(uuid);
             it->second = { newModel, newTime };
-            LH_CORE_INFO("Successfully reloaded model {0}", uuid.ToString());
+            LH_CORE_INFO("Successfully reloaded Model {0}", uuid.ToString());
             return true;
         }
         catch (const std::exception& e) {
-            LH_CORE_ERROR("Failed to reload model {0}: {1}", uuid.ToString(), e.what());
+            LH_CORE_ERROR("Failed to reload Model {0}: {1}", uuid.ToString(), e.what());
             return false;
         }
     }
@@ -153,7 +153,7 @@ namespace Luth
     void ModelLibrary::ReloadAll()
     {
         std::unique_lock lock(s_Mutex);
-        LH_CORE_INFO("Reloading all models...");
+        LH_CORE_INFO("Reloading all Models...");
 
         size_t successCount = 0;
         size_t failCount = 0;
@@ -161,7 +161,7 @@ namespace Luth
         for (auto& [uuid, record] : s_Models) {
             auto path = ResourceDB::ResolveUuid(uuid);
             if (path.empty()) {
-                LH_CORE_WARN("Skipping model {0} with invalid path", uuid.ToString());
+                LH_CORE_WARN("Skipping Model {0} with invalid path", uuid.ToString());
                 failCount++;
                 continue;
             }
@@ -179,7 +179,7 @@ namespace Luth
             try {
                 auto newModel = std::make_shared<Model>(path);
                 if (!newModel || newModel->GetMeshes().empty()) {
-                    throw std::runtime_error("Empty model");
+                    throw std::runtime_error("Empty Model");
                 }
 
                 newModel->SetUUID(uuid);
@@ -192,6 +192,6 @@ namespace Luth
             }
         }
 
-        LH_CORE_INFO("Reloaded models: {0} succeeded, {1} failed", successCount, failCount);
+        LH_CORE_INFO("Reloaded Models: {0} succeeded, {1} failed", successCount, failCount);
     }
 }

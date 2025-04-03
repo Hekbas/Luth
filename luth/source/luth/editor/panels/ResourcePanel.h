@@ -23,8 +23,8 @@ namespace Luth
         void PopulateData();
         void AddModelEntries();
         void AddTextureEntries();
-        //void AddMaterialEntries();
-        //void AddShaderEntries();
+        void AddMaterialEntries();
+        void AddShaderEntries();
         ImVec4 GetTypeColor(const std::string& type) const;
 
         struct ResourceEntry

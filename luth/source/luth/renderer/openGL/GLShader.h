@@ -9,7 +9,7 @@ namespace Luth
     class GLShader : public Shader
     {
     public:
-        GLShader(const std::string& filePath);
+        GLShader(const fs::path& filePath);
         GLShader(const std::string& vertexSrc, const std::string& fragmentSrc);
         ~GLShader();
 

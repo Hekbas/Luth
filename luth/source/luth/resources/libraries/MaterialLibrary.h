@@ -14,31 +14,16 @@ namespace Luth
         static void Init();
         static void Shutdown();
 
-        static bool Add(const std::string& name, std::shared_ptr<Material> material);
-        static bool Remove(const std::string& name);
-        static std::shared_ptr<Material> Get(const std::string& name);
-        static bool Contains(const std::string& name);
-        static std::vector<std::string> GetMaterialNames();
+        static std::shared_ptr<Material> CreateNew();
+        static std::shared_ptr<Material> LoadOrGet(const fs::path& path);
+        static std::shared_ptr<Material> Get(const UUID& uuid);
+        static std::unordered_map<UUID, std::weak_ptr<Material>, UUIDHash> GetAllMaterials();
 
-        static std::shared_ptr<Material> Load(const std::filesystem::path& path);
-        static std::shared_ptr<Material> Load(const std::string& name, const std::filesystem::path& path);
-        static std::shared_ptr<Material> LoadOrGet(const std::filesystem::path& path);
-        static std::shared_ptr<Material> LoadOrGet(const std::string& name, const std::filesystem::path& path);
-
-        static bool Reload(const std::string& name);
-        static void ReloadAll();
+        static bool Save(const UUID& materialUUID);
+        static void Reload(const UUID& materialUUID);
 
     private:
-        struct MaterialRecord {
-            std::shared_ptr<Material> material;
-            std::filesystem::path sourcePath;
-            std::filesystem::file_time_type lastModified;
-            std::unordered_set<std::string> dependencies; // Shaders/textures
-        };
-
-        static inline std::shared_mutex s_Mutex;
-        static inline std::unordered_map<std::string, MaterialRecord> s_Materials;
+        static std::shared_mutex s_Mutex;
+        static std::unordered_map<UUID, std::weak_ptr<Material>, UUIDHash> s_Materials;
     };
 }
-
-//Resurces::Load<T>(...)
