@@ -30,4 +30,16 @@ namespace Luth
             m_Textures.push_back(tex);
         }
     }
+
+    const char* Material::ToString(TextureType type) {
+        switch (type) {
+            case TextureType::Diffuse:   return "Diffuse";
+            case TextureType::Normal:    return "Normal";
+            case TextureType::Emissive:  return "Emissive";
+            case TextureType::Metalness: return "Metalness";
+            case TextureType::Roughness: return "Roughness";
+            case TextureType::Specular:  return "Specular";
+            default: return "Unknown";
+        }
+    }
 }

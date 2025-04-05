@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
+#include "luth/editor/panels/InspectorPanel.h"
 #include "luth/resources/resourceDB.h"
 
 namespace Luth
@@ -180,6 +181,13 @@ namespace Luth
 
             ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
 
+            // Click handling
+            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                if (auto* inspector = Editor::GetPanel<InspectorPanel>()) {
+                    inspector->SetSelectedResource(child.Uuid);
+                }
+            }
+
             // Double-click handling
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                 m_CurrentDirectoryUuid = child.Uuid;
@@ -212,6 +220,13 @@ namespace Luth
 
             ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
 
+            // Click handling
+            if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(0)) {
+                if (auto* inspector = Editor::GetPanel<InspectorPanel>()) {
+                    inspector->SetSelectedResource(child.Uuid);
+                }
+            }
+
             // Double-click handling
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                 if (child.Type == ResourceType::Directory) {
@@ -223,7 +238,7 @@ namespace Luth
             }
 
             // Drag handling
-            if (child.Type == ResourceType::Model) {
+            if (child.Type == ResourceType::Model || child.Type == ResourceType::Material) {
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                     ImGui::SetDragDropPayload("ASSET_UUID", &child.Uuid, sizeof(Luth::UUID));
                     ImGui::Text("%s", child.Name.c_str()); // Preview during drag

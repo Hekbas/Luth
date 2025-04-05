@@ -9,27 +9,28 @@
 #include <nlohmann/json.hpp>
 #include <vector>
 #include <filesystem>
+#include <iostream>
 
 namespace Luth
 {
-    enum class TextureType {
-        Diffuse,
-        Normal,
-        Emissive,
-        Metalness,
-        Roughness,
-        Specular
-    };
-
-    struct TextureInfo {
-        UUID Uuid;
-        TextureType type;
-        u32 uvIndex = 0;
-    };
-
     class Material : public Resource
     {
     public:
+        enum class TextureType {
+            Diffuse,
+            Normal,
+            Emissive,
+            Metalness,
+            Roughness,
+            Specular
+        };
+
+        struct TextureInfo {
+            UUID Uuid;
+            TextureType type;
+            u32 uvIndex = 0;
+        };
+
         // Shader management
         void SetShaderUUID(const UUID& uuid) { m_ShaderUUID = uuid; }
         UUID GetShaderUUID() const { return m_ShaderUUID; }
@@ -60,8 +61,14 @@ namespace Luth
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
 
+        static const char* ToString(TextureType type);
+
     private:
         UUID m_ShaderUUID;
         std::vector<TextureInfo> m_Textures;
     };
+
+    inline std::ostream& operator<<(std::ostream& os, const Material::TextureType type) {
+        return os << Material::ToString(type);
+    }
 }

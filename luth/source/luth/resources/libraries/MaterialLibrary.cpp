@@ -6,7 +6,7 @@
 namespace Luth
 {
     std::shared_mutex MaterialLibrary::s_Mutex;
-    std::unordered_map<UUID, std::weak_ptr<Material>, UUIDHash> MaterialLibrary::s_Materials;
+    std::unordered_map<UUID, std::shared_ptr<Material>, UUIDHash> MaterialLibrary::s_Materials;
 
     void MaterialLibrary::Init()
     {
@@ -39,6 +39,7 @@ namespace Luth
         // Load from file
         auto material = std::make_shared<Material>();
         material->SetUUID(materialUUID);
+        material->SetName(path.filename().stem().string());
 
         // Load serialized data
         std::ifstream file(path);
@@ -58,14 +59,14 @@ namespace Luth
         std::shared_lock lock(s_Mutex);
         auto it = s_Materials.find(uuid);
         if (it != s_Materials.end()) {
-            if (auto material = it->second.lock()) {
+            if (auto material = it->second) {
                 return material;
             }
         }
         return nullptr;
     }
 
-    std::unordered_map<UUID, std::weak_ptr<Material>, UUIDHash> MaterialLibrary::GetAllMaterials()
+    std::unordered_map<UUID, std::shared_ptr<Material>, UUIDHash> MaterialLibrary::GetAllMaterials()
     {
         return s_Materials;
     }

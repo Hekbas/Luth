@@ -99,6 +99,7 @@ namespace Luth
         std::unique_lock lock(s_Mutex);
         s_Shaders[uuid] = { shader, filePath, modTime };
         shader->SetUUID(uuid);
+        shader->SetName(filePath.filename().stem().string());
 
         LH_CORE_INFO("Loaded Shader {0} from {1}", uuid.ToString(), filePath.string());
         return shader;

@@ -23,7 +23,8 @@ namespace Luth
             DrawFilterControls();
 
             // Main table
-            constexpr ImGuiTableFlags flags = ImGuiTableFlags_Resizable |
+            constexpr ImGuiTableFlags flags =
+                ImGuiTableFlags_Resizable |
                 ImGuiTableFlags_Borders |
                 ImGuiTableFlags_Sortable |
                 ImGuiTableFlags_RowBg |
@@ -70,10 +71,10 @@ namespace Luth
         // Collect resources from libraries
         if (m_ShowModels) AddModelEntries();
         if (m_ShowTextures) AddTextureEntries();
-        //if (m_ShowMaterials) AddMaterialEntries();
+        if (m_ShowMaterials) AddMaterialEntries();
         if (m_ShowShaders) AddShaderEntries();
 
-        // Apply search filter
+        // TODO: Apply search filter
         //std::string searchLower = StringUtils::ToLower(m_SearchBuffer);
         /*std::string searchLower = "";
         auto filtered = m_FilteredResources | std::views::filter([&](const auto& entry) {
@@ -133,10 +134,11 @@ namespace Luth
         }
     }
 
-    void ResourcePanel::AddMaterialEntries() {
+    void ResourcePanel::AddMaterialEntries()
+    {
         for (const auto& [uuid, material] : MaterialLibrary::GetAllMaterials()) {
             m_FilteredResources.push_back({
-                material.lock()->GetName(),
+                material->GetName(),
                 uuid,
                 "Material",
                 material.use_count() - 1
@@ -144,7 +146,8 @@ namespace Luth
         }
     }
 
-    void ResourcePanel::AddShaderEntries() {
+    void ResourcePanel::AddShaderEntries()
+    {
         for (const auto& [uuid, shader] : ShaderLibrary::GetAllShaders()) {
             m_FilteredResources.push_back({
                 shader.Shader->GetName(),

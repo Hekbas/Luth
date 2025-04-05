@@ -92,6 +92,7 @@ namespace Luth
         }
 
         texture->SetUUID(uuid);
+        texture->SetName(path.filename().stem().string());
         auto modTime = fs::last_write_time(path);
 
         std::unique_lock lock(s_Mutex);

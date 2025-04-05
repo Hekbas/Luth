@@ -294,21 +294,24 @@ namespace Luth
                 auto assetType = FileSystem::ClassifyFileType(path);
                 std::shared_ptr<Model> model;
 
-                switch (assetType)
-                {
+                switch (assetType) {
                     case Luth::ResourceType::Model: {
                         model = Resources::Load<Model>(path);
-                        model->SetName(path.filename().stem().string());
                         auto parent = m_Context->CreateEntity(model->GetName());
                         parent.AddComponent<Children>();
 
+                        int meshIndex = 0;
                         for (const auto& mesh : model->GetMeshes()) {
                             auto child = m_Context->CreateEntity(mesh.name);
+
                             child.AddComponent<Parent>();
                             child.SetParent(parent);
                             parent.GetChildren().push_back(child);
 
-                            child.AddComponent<MeshRenderer>();
+                            auto& meshRend = child.AddComponent<MeshRenderer>();
+                            meshRend.ModelUUID = assetUuid;
+                            meshRend.modelNamePreview = model->GetName();
+                            meshRend.MeshIndex = meshIndex++;
                         }
                         break;
                     }
