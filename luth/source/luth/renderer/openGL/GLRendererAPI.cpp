@@ -107,8 +107,7 @@ namespace Luth
 
     void GLRendererAPI::DrawFrame()
     {
-        for (auto mesh : m_Meshes)
-        {
+        for (auto mesh : m_Meshes) {
             mesh->Bind(); LH_GL_CHECK_ERROR();
             mesh->Draw(); LH_GL_CHECK_ERROR();
         }
@@ -116,11 +115,9 @@ namespace Luth
 
     void GLRendererAPI::CheckError(const char* file, int line)
     {
-        while (GLenum error = glGetError())
-        {
+        while (GLenum error = glGetError()) {
             std::string errorStr;
-            switch (error)
-            {
+            switch (error) {
                 case GL_INVALID_ENUM:      errorStr = "INVALID_ENUM";      break;
                 case GL_INVALID_VALUE:     errorStr = "INVALID_VALUE";     break;
                 case GL_INVALID_OPERATION: errorStr = "INVALID_OPERATION"; break;

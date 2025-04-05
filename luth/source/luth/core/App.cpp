@@ -8,6 +8,7 @@
 #include "luth/resources/Resources.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
+#include "luth/scene/Systems.h"
 
 namespace Luth
 {
@@ -25,6 +26,7 @@ namespace Luth
         Resources::Init();
         ResourceDB::Init(FileSystem::AssetsPath());
         Editor::Init(m_Window->GetNativeWindow());
+        Systems::Init();
 
         // Subscribe to events
         m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Event& e) {
@@ -51,6 +53,7 @@ namespace Luth
             Time::Update();
             m_Window->OnUpdate();
             m_MainThreadEventBus->ProcessEvents();
+            Systems::Update();
 
             OnUpdate();
 

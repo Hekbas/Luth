@@ -1,0 +1,24 @@
+#include "luthpch.h"
+#include "luth/scene/Systems.h"
+
+namespace Luth
+{
+    // Static member definitions
+    std::vector<std::unique_ptr<System>> Systems::s_Systems;
+    std::shared_ptr<entt::registry> Systems::s_Registry;
+
+    void Systems::Init() {
+        s_Registry = std::make_shared<entt::registry>();
+    }
+
+    void Systems::Shutdown() {
+        s_Systems.clear();
+        s_Registry.reset();
+    }
+
+    void Systems::Update() {
+        for (auto& system : s_Systems) {
+            system->Update(*s_Registry);
+        }
+    }
+}
