@@ -7,10 +7,17 @@ namespace Luth
     std::shared_mutex TextureCache::s_Mutex;
     std::unordered_map<UUID, TextureCache::TextureRecord, UUIDHash> TextureCache::s_Textures;
 
+    std::shared_ptr<Texture> TextureCache::s_White;
+    std::shared_ptr<Texture> TextureCache::s_Black;
+    std::shared_ptr<Texture> TextureCache::s_Normal;
+    std::shared_ptr<Texture> TextureCache::s_Missing;
+
     void TextureCache::Init()
     {
         std::unique_lock lock(s_Mutex);
         LH_CORE_INFO("Initialized Texture Cache");
+
+        CreateDefaultTextures();
     }
 
     void TextureCache::Shutdown()
@@ -53,8 +60,21 @@ namespace Luth
     std::shared_ptr<Texture> TextureCache::Get(const UUID& uuid)
     {
         std::shared_lock lock(s_Mutex);
+
+        // First try to find in cache
         auto it = s_Textures.find(uuid);
-        return it != s_Textures.end() ? it->second.Texture : nullptr;
+        if (it != s_Textures.end()) {
+            it->second.Texture;
+        }
+
+        // Fallback to defaults
+        switch (uuid) {
+            case 0000000000000000: return s_White;
+            case 0000000000000001: return s_Black;
+            case 0000000000000002: return s_Normal;
+            case 0000000000000003: return s_Missing;
+            default: return s_Missing;
+        }
     }
 
     std::unordered_map<UUID, TextureCache::TextureRecord, UUIDHash> TextureCache::GetAllTextures()
@@ -115,9 +135,10 @@ namespace Luth
         return Texture::Create(path);
     }
 
-    std::shared_ptr<Texture> TextureCache::Create(uint32_t width, uint32_t height, TextureFormat format)
+    std::shared_ptr<Texture> TextureCache::Create(u32 width, u32 height,
+        u32 format, const unsigned char* data, const std::string& name)
     {
-        return Texture::Create(width, height, format);
+        return Texture::Create(width, height, format, data, name);
     }
 
     bool TextureCache::Reload(const UUID& uuid)
@@ -204,5 +225,31 @@ namespace Luth
         }
 
         LH_CORE_INFO("Reloaded textures: {0} succeeded, {1} failed", successCount, failCount);
+    }
+
+    void TextureCache::CreateDefaultTextures()
+    {
+        unsigned char whiteData[] = { 255, 255, 255, 255 };
+        s_White = Create(1, 1, 4, whiteData, "DefaultWhite");
+        s_White->SetUUID(UUID(0));
+
+        unsigned char blackData[] = { 0, 0, 0, 255 };
+        s_Black = Create(1, 1, 4, blackData, "DefaultBlack");
+        s_Black->SetUUID(UUID(1));
+
+        unsigned char normalData[] = { 128, 128, 128, 255 };
+        s_Normal = Create(1, 1, 4, normalData, "DefaultNormal");
+        s_Normal->SetUUID(UUID(2));
+
+        // Checkerboard missing texture
+        unsigned char missingData[16 * 16 * 4];
+        for (int i = 0; i < 16 * 16; i++) {
+            missingData[i * 4 + 0] = (i % 2 + (i / 16) % 2) % 2 ? 255 : 0;
+            missingData[i * 4 + 1] = 0;
+            missingData[i * 4 + 2] = 255;
+            missingData[i * 4 + 3] = 255;
+        }
+        s_Missing = Create(16, 16, 4, missingData, "MissingTexture");
+        s_Missing->SetUUID(UUID(3));
     }
 }

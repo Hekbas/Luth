@@ -10,7 +10,7 @@ namespace Luth
     {
     public:
         GLTexture(const fs::path& path);
-        GLTexture(uint32_t width, uint32_t height, TextureFormat format);
+        GLTexture(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name);
         ~GLTexture();
 
         void Bind(uint32_t slot = 0) const override;
@@ -24,6 +24,9 @@ namespace Luth
     private:
         void LoadFromFile();
         void CreateInternal(GLenum internalFormat);
+
+        void CreateFromData(uint32_t width, uint32_t height,
+            uint32_t channels, const unsigned char* data);
 
         uint32_t m_TextureID = 0;
         uint32_t m_Width = 0, m_Height = 0;

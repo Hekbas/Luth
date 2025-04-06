@@ -10,7 +10,7 @@ namespace Luth
 {
     enum class TextureFormat {
         None = 0,
-        RGB8, RGBA8, RGBA32F,
+        R8, RGB8, RGBA8, RGBA32F,
     };
 
     enum class TextureWrapMode {
@@ -36,6 +36,7 @@ namespace Luth
         virtual const fs::path& GetPath() const = 0;
 
         static std::shared_ptr<Texture> Create(const fs::path& path);
-        static std::shared_ptr<Texture> Create(u32 width, u32 height, TextureFormat format = TextureFormat::RGBA8);
+        static std::shared_ptr<Texture> Create(u32 width, u32 height,
+            u32 format, const unsigned char* data, const std::string& name);
     };
 }

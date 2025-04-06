@@ -28,6 +28,11 @@ namespace Luth
         static std::unordered_map<UUID, TextureRecord, UUIDHash> GetAllTextures();
         static std::vector<UUID> GetAllUuids();
 
+        static std::shared_ptr<Texture> GetDefaultWhite() { return s_White; }
+        static std::shared_ptr<Texture> GetDefaultBlack() { return s_Black; }
+        static std::shared_ptr<Texture> GetDefaultNormal() { return s_Normal; }
+        static std::shared_ptr<Texture> GetDefaultMissing() { return s_Missing; }
+
         static std::shared_ptr<Texture> Load(const fs::path& path);
         static std::shared_ptr<Texture> LoadOrGet(const fs::path& path);
 
@@ -36,9 +41,18 @@ namespace Luth
 
     private:
         static std::shared_ptr<Texture> Create(const fs::path& path);
-        static std::shared_ptr<Texture> Create(uint32_t width, uint32_t height, TextureFormat format);
+        static std::shared_ptr<Texture> Create(u32 width, u32 height,
+            u32 format, const unsigned char* data, const std::string& name);
+
+        static void CreateDefaultTextures();
 
         static std::shared_mutex s_Mutex;
         static std::unordered_map<UUID, TextureRecord, UUIDHash> s_Textures;
+
+        // Default Textures
+        static std::shared_ptr<Texture> s_White;
+        static std::shared_ptr<Texture> s_Black;
+        static std::shared_ptr<Texture> s_Normal;
+        static std::shared_ptr<Texture> s_Missing;
 	};
 }

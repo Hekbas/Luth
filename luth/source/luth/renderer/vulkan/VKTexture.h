@@ -10,15 +10,15 @@ namespace Luth
     {
     public:
         VKTexture(const fs::path& path);
-        VKTexture(uint32_t width, uint32_t height, TextureFormat format);
+        VKTexture(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name);
         ~VKTexture();
 
-        void Bind(uint32_t slot = 0) const override;
-        //void SetData(void* data, uint32_t size) override;
+        void Bind(u32 slot = 0) const override;
+        //void SetData(void* data, u32 size) override;
 
-        uint32_t GetWidth() const override { return m_Width; }
-        uint32_t GetHeight() const override { return m_Height; }
-        uint32_t GetRendererID() const override { return 0; } // Vulkan doesn't use IDs
+        u32 GetWidth() const override { return m_Width; }
+        u32 GetHeight() const override { return m_Height; }
+        u32 GetRendererID() const override { return 0; } // Vulkan doesn't use IDs
         const fs::path& GetPath() const override { return m_Path; }
 
         VkImageView GetImageView() const { return m_ImageView; }
@@ -37,7 +37,7 @@ namespace Luth
         VkImageView m_ImageView = VK_NULL_HANDLE;
         VkSampler m_Sampler = VK_NULL_HANDLE;
 
-        uint32_t m_Width = 0, m_Height = 0;
+        u32 m_Width = 0, m_Height = 0;
         fs::path m_Path;
     };
 }

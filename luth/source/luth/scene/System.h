@@ -27,8 +27,8 @@ namespace Luth
                 auto model = ModelLibrary::Get(meshRend.ModelUUID);
                 auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
 
-                if (!model || !material) {
-                    //LH_CORE_WARN("Missing resources for MeshRenderer");
+                if (!model) {
+                    LH_CORE_WARN("MeshRenderer missing model reference");
                     return;
                 }
 
@@ -37,6 +37,10 @@ namespace Luth
                 if (meshRend.MeshIndex >= meshes.size()) {
                     LH_CORE_ERROR("Invalid mesh index: {0}", meshRend.MeshIndex);
                     return;
+                }
+
+                if (!material) {
+                    material = MaterialLibrary::Get(UUID(7));
                 }
 
                 // Get shader and setup transform

@@ -26,6 +26,10 @@ namespace Luth
     {
         if (uuidString.length() != 16) return false;
 
+        for (char c : uuidString) {
+            if (!std::isxdigit(c)) return false;
+        }
+
         try {
             std::stringstream ss;
             ss << std::hex << uuidString;
