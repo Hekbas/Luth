@@ -61,6 +61,8 @@ namespace Luth
         // Copy all components except hierarchy-related ones
         //original.CopyComponentIfExists<Tag>(duplicate);
         original.CopyComponentIfExists<Transform>(duplicate);
+        original.CopyComponentIfExists<Camera>(duplicate);
+        original.CopyComponentIfExists<MeshRenderer>(duplicate);
         // Add other component copies here...
 
         // Handle parent relationship if not skipped

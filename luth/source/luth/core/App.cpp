@@ -53,7 +53,6 @@ namespace Luth
             Time::Update();
             m_Window->OnUpdate();
             m_MainThreadEventBus->ProcessEvents();
-            Systems::Update();
 
             OnUpdate();
 
@@ -62,6 +61,7 @@ namespace Luth
                 auto sceneFb = Editor::GetPanel<ScenePanel>()->GetFramebuffer();
                 Renderer::BindFramebuffer(sceneFb);
                 Renderer::Clear();
+                Systems::Update();
                 Renderer::DrawFrame();
                 Renderer::BindFramebuffer(nullptr);
             }

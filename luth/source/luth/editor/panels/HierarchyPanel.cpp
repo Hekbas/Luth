@@ -13,10 +13,10 @@
 
 namespace Luth
 {
-    HierarchyPanel::HierarchyPanel(Scene* context)
-        : m_Context(context)
+    HierarchyPanel::HierarchyPanel()
     {
         LH_CORE_INFO("Created Hierarchy panel");
+        m_Context = std::make_shared<Scene>();
     }
 
     void HierarchyPanel::OnInit() {}
@@ -222,8 +222,8 @@ namespace Luth
         }
 
         if (ImGui::BeginMenu("3D Objects")) {
-            if (ImGui::MenuItem("Cube")) { /* Create mesh entity */ }
-            if (ImGui::MenuItem("Sphere")) { /* Create mesh entity */ }
+            if (ImGui::MenuItem("Cube")) { /* TODO: Create mesh entity */ }
+            if (ImGui::MenuItem("Sphere")) { /* TODO: Create mesh entity */ }
             ImGui::EndMenu();
         }
 
@@ -301,7 +301,7 @@ namespace Luth
                         parent.AddComponent<Children>();
 
                         int meshIndex = 0;
-                        for (const auto& mesh : model->GetMeshes()) {
+                        for (const auto& mesh : model->GetMeshesData()) {
                             auto child = m_Context->CreateEntity(mesh.name);
 
                             child.AddComponent<Parent>();

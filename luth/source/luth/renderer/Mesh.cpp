@@ -8,9 +8,9 @@
 
 namespace Luth
 {
-    std::shared_ptr<Mesh> Mesh::Create(const std::shared_ptr<VertexBuffer>& vb,
-        const std::shared_ptr<IndexBuffer>& ib,
-        const std::shared_ptr<Material> material)
+    std::shared_ptr<Mesh> Mesh::Create(
+        const std::shared_ptr<VertexBuffer>& vb,
+        const std::shared_ptr<IndexBuffer>& ib)
     {
         switch (Renderer::GetAPI())
         {
@@ -22,7 +22,7 @@ namespace Luth
                 LH_CORE_ASSERT(glVB, "VertexBuffer is not a GLVertexBuffer!");
                 LH_CORE_ASSERT(glIB, "IndexBuffer is not a GLIndexBuffer!");
 
-                return std::make_shared<GLMesh>(glVB, glIB, material);
+                return std::make_shared<GLMesh>(glVB, glIB);
             }
 
             case RendererAPI::API::Vulkan:

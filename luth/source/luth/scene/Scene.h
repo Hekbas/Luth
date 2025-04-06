@@ -19,6 +19,9 @@ namespace Luth
 
         entt::registry& Registry() { return m_Registry; }
         const entt::registry& Registry() const { return m_Registry; }
+        std::shared_ptr<entt::registry> RegistryPtr() {
+            return std::shared_ptr<entt::registry>(&m_Registry, [](entt::registry*) {});
+        }
 
         template<typename Func>
         void EachEntity(Func func) {

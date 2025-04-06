@@ -15,8 +15,7 @@ namespace Luth
     {
     public:
         GLMesh(const std::shared_ptr<GLVertexBuffer>& vertexBuffer,
-            const std::shared_ptr<GLIndexBuffer>& indexBuffer,
-            const std::shared_ptr<Material> material);
+            const std::shared_ptr<GLIndexBuffer>& indexBuffer);
 
         void Bind() const override;
         void Draw() const override;
@@ -28,6 +27,5 @@ namespace Luth
         GLuint m_VAO;
         std::shared_ptr<GLVertexBuffer> m_VertexBuffer;
         std::shared_ptr<GLIndexBuffer> m_IndexBuffer;
-        std::shared_ptr<Material> m_Material;
     };
 }

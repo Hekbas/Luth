@@ -1,0 +1,35 @@
+{
+  "shader": "f73c5648588ad74f",
+  "textures": [
+    {
+      "type": 0,
+      "uuid": "26fcf36f94f8e662",
+      "uv": 0
+    },
+    {
+      "type": 1,
+      "uuid": "5afe9204734a3a4e",
+      "uv": 0
+    },
+    {
+      "type": 2,
+      "uuid": "",
+      "uv": 0
+    },
+    {
+      "type": 3,
+      "uuid": "78fc21dfe1f0d89a",
+      "uv": 0
+    },
+    {
+      "type": 4,
+      "uuid": "0809e8e7830e62e7",
+      "uv": 0
+    },
+    {
+      "type": 5,
+      "uuid": "18464fb1facfa772",
+      "uv": 0
+    }
+  ]
+}

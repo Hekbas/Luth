@@ -1,5 +1,7 @@
 #include "luthpch.h"
 #include "luth/scene/Systems.h"
+#include "luth/editor/Editor.h"
+#include "luth/editor/panels/HierarchyPanel.h"
 
 namespace Luth
 {
@@ -8,7 +10,8 @@ namespace Luth
     std::shared_ptr<entt::registry> Systems::s_Registry;
 
     void Systems::Init() {
-        s_Registry = std::make_shared<entt::registry>();
+        s_Registry = Editor::GetPanel<HierarchyPanel>()->GetContext()->RegistryPtr();
+        AddSystem<RenderingSystem>();
     }
 
     void Systems::Shutdown() {
