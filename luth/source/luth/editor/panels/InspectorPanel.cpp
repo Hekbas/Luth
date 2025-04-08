@@ -64,7 +64,7 @@ namespace Luth
         }
 
         // Draw each component with a collapsible UI section
-#if defined(DEBUG)
+        #if defined(DEBUG)
         DrawComponent<ID>("ID", m_SelectedEntity, [](Entity entity, ID& component) {
             ImGui::Text("ID: %llu", component.m_ID);
         });
@@ -92,7 +92,7 @@ namespace Luth
                 }
             }
         });
-#endif
+        #endif
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             // Position control
@@ -223,6 +223,7 @@ namespace Luth
         ImGui::Dummy({ 0, 4 });
         AlignItemToCenter(100);
         ButtonDropdown("Add Component", "inspector_addcomponent", [this]() {
+            #if defined(DEBUG)
             if (!m_SelectedEntity.HasComponent<Tag>() && ImGui::MenuItem("Tag")) {
                 m_SelectedEntity.AddOrReplaceComponent<Tag>();
                 ImGui::CloseCurrentPopup();
@@ -235,6 +236,7 @@ namespace Luth
                 m_SelectedEntity.AddOrReplaceComponent<Children>();
                 ImGui::CloseCurrentPopup();
             }
+            #endif
             if (!m_SelectedEntity.HasComponent<Camera>() && ImGui::MenuItem("Camera")) {
                 m_SelectedEntity.AddOrReplaceComponent<Camera>();
                 ImGui::CloseCurrentPopup();
@@ -263,7 +265,12 @@ namespace Luth
             if (auto shader = material->GetShader()) {
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
-                    // TODO: show available shaders
+                    for (const auto& [uuid, s] : ShaderLibrary::GetAllShaders()) {
+                        bool selected;
+                        if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
+                            material->SetShaderUUID(uuid);
+                        }
+                    }
                     ImGui::EndCombo();
                 }
             }

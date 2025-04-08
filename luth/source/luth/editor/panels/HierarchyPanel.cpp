@@ -6,6 +6,7 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/ResourceDB.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/scene/Systems.h"
 #include "luth/utils/ImGuiUtils.h"
 
 #include <imgui.h>
@@ -19,7 +20,10 @@ namespace Luth
         m_Context = std::make_shared<Scene>();
     }
 
-    void HierarchyPanel::OnInit() {}
+    void HierarchyPanel::OnInit()
+    {
+        Systems::SetRegistry(m_Context->RegistryPtr());
+    }
 
     void HierarchyPanel::OnRender()
     {

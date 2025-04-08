@@ -10,6 +10,7 @@
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/editor/panels/ResourcePanel.h"
 #include "luth/editor/panels/ScenePanel.h"
+#include "luth/editor/panels/RenderPanel.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -49,6 +50,7 @@ namespace Luth
         AddPanel(new ProjectPanel());
         AddPanel(new ResourcePanel());
         AddPanel(new ScenePanel());
+        AddPanel(new RenderPanel());
 
         // Init all panels
         for (auto& panel : s_Panels)

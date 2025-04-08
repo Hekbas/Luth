@@ -25,8 +25,8 @@ namespace Luth
         FileSystem::Init();
         Resources::Init();
         ResourceDB::Init(FileSystem::AssetsPath());
-        Editor::Init(m_Window->GetNativeWindow());
         Systems::Init();
+        Editor::Init(m_Window->GetNativeWindow());
 
         // Subscribe to events
         m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Event& e) {
