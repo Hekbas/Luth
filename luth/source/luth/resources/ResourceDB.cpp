@@ -8,6 +8,7 @@
 
 namespace Luth
 {
+    std::unordered_map<UUID, ResourceType, UUIDHash> ResourceDB::s_UuidToType;
     std::unordered_map<UUID, fs::path, UUIDHash> ResourceDB::s_UuidToPath;
     std::unordered_map<fs::path, UUID> ResourceDB::s_PathToUuid;
 
@@ -16,6 +17,7 @@ namespace Luth
         LH_CORE_INFO("Initializing Resource DataBase...");
         s_UuidToPath.clear();
         s_PathToUuid.clear();
+        s_UuidToType.clear();
 
         for (const auto& entry : fs::recursive_directory_iterator(projectRoot)) {
             fs::path path = entry.path();
@@ -48,13 +50,13 @@ namespace Luth
         }
     }
 
-    fs::path ResourceDB::ResolveUuid(const UUID& uuid)
+    fs::path ResourceDB::UuidToPath(const UUID& uuid)
     {
         auto it = s_UuidToPath.find(uuid);
         return (it != s_UuidToPath.end()) ? it->second : fs::path();
     }
 
-    UUID ResourceDB::GetUuidForPath(const fs::path& assetPath)
+    UUID ResourceDB::PathToUuid(const fs::path& assetPath)
     {
         auto it = s_PathToUuid.find(assetPath);
         if (it != s_PathToUuid.end()) {
@@ -81,6 +83,7 @@ namespace Luth
 
     void ResourceDB::RegisterAsset(const fs::path& path, const UUID& uuid)
     {
+        s_UuidToType[uuid] = FileSystem::ClassifyFileType(path);
         s_UuidToPath[uuid] = path;
         s_PathToUuid[path] = uuid;
     }
@@ -88,6 +91,7 @@ namespace Luth
     void ResourceDB::UnregisterAsset(const fs::path& path)
     {
         if (auto it = s_PathToUuid.find(path); it != s_PathToUuid.end()) {
+            s_UuidToType.erase(it->second);
             s_UuidToPath.erase(it->second);
             s_PathToUuid.erase(it);
         }
@@ -96,7 +100,7 @@ namespace Luth
     std::vector<UUID> ResourceDB::GetAllDependencies(const UUID& uuid)
     {
         std::vector<UUID> dependencies;
-        fs::path assetPath = ResolveUuid(uuid);
+        fs::path assetPath = UuidToPath(uuid);
 
         if (!assetPath.empty()) {
             fs::path metaPath = assetPath;

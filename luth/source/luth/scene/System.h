@@ -39,9 +39,7 @@ namespace Luth
                     return;
                 }
 
-                if (!material) {
-                    material = MaterialLibrary::Get(UUID(7));
-                }
+                if (!material) material = MaterialLibrary::Get(UUID(7));
 
                 // Get shader and setup transform
                 auto shader = material->GetShader();
@@ -67,55 +65,46 @@ namespace Luth
         void BindMaterialTextures(const std::shared_ptr<Material>& material,
             const std::shared_ptr<Shader>& shader) {
 
-            shader->SetInt("u_HasDiffuse",   0);
-            shader->SetInt("u_HasNormal",    0);
-            shader->SetInt("u_HasEmissive",  0);
-            shader->SetInt("u_HasMetallic",  0);
-            shader->SetInt("u_HasRoughness", 0);
-            shader->SetInt("u_HasSpecular",  0);
-
             int slot = 0;
             for (const auto& texInfo : material->GetTextures()) {
                 auto texture = TextureCache::Get(texInfo.Uuid);
-                if (!texture) continue;
-
-                texture->Bind(slot);
 
                 // Set texture uniforms based on type
                 switch (texInfo.type) {
                     case TextureType::Diffuse:
-                        shader->SetInt("u_HasDiffuse", 1);
+                        if (!texture) texture = TextureCache::GetDefaultWhite();
                         shader->SetInt("u_TexDiffuse", slot);
                         shader->SetInt("u_UVIndexDiffuse", texInfo.uvIndex);
                         break;
                     case TextureType::Normal:
-                        shader->SetInt("u_HasNormal", 1);
+                        if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexNormal", slot);
                         shader->SetInt("u_UVIndexNormal", texInfo.uvIndex);
                         break;
                     case TextureType::Emissive:
-                        shader->SetInt("u_HasEmissive", 1);
+                        if (!texture) texture = TextureCache::GetDefaultBlack();
                         shader->SetInt("u_TexEmissive", slot);
                         shader->SetInt("u_UVIndexEmissive", texInfo.uvIndex);
                         break;
                     case TextureType::Metalness:
-                        shader->SetInt("u_HasMetallic", 1);
+                        if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexMetallic", slot);
                         shader->SetInt("u_UVIndexMetallic", texInfo.uvIndex);
                         break;
                     case TextureType::Roughness:
-                        shader->SetInt("u_HasRoughness", 1);
+                        if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexRoughness", slot);
                         shader->SetInt("u_UVIndexRoughness", texInfo.uvIndex);
                         break;
                     case TextureType::Specular:
-                        shader->SetInt("u_HasSpecular", 1);
+                        if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexSpecular", slot);
                         shader->SetInt("u_UVIndexSpecular", texInfo.uvIndex);
                         break;
                     default: LH_CORE_ERROR("TextureType not supported!");
                 }
 
+                texture->Bind(slot);
                 slot++;
             }
         }

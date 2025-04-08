@@ -64,6 +64,7 @@ namespace Luth
         }
 
         // Draw each component with a collapsible UI section
+#if defined(DEBUG)
         DrawComponent<ID>("ID", m_SelectedEntity, [](Entity entity, ID& component) {
             ImGui::Text("ID: %llu", component.m_ID);
         });
@@ -91,6 +92,7 @@ namespace Luth
                 }
             }
         });
+#endif
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             // Position control
@@ -117,7 +119,7 @@ namespace Luth
             }
         });
 
-        DrawComponent<Component::Camera>("Camera", m_SelectedEntity, [](Entity e, Component::Camera& camera) {
+        DrawComponent<Camera>("Camera", m_SelectedEntity, [](Entity e, Camera& camera) {
             // Projection type combo box
             const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
             const char* currentProjectionType = projectionTypeStrings[(int)camera.Projection];
@@ -126,7 +128,7 @@ namespace Luth
                 for (int i = 0; i < 2; i++) {
                     bool isSelected = currentProjectionType == projectionTypeStrings[i];
                     if (ImGui::Selectable(projectionTypeStrings[i], isSelected)) {
-                        camera.Projection = (Component::Camera::ProjectionType)i;
+                        camera.Projection = (Camera::ProjectionType)i;
                         camera.RecalculateProjection();
                     }
                     if (isSelected) {
@@ -137,7 +139,7 @@ namespace Luth
             }
 
             // Perspective settings
-            if (camera.Projection == Component::Camera::ProjectionType::Perspective) {
+            if (camera.Projection == Camera::ProjectionType::Perspective) {
                 bool changed = false;
                 changed |= ImGui::DragFloat("Vertical FOV", &camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
                 changed |= ImGui::DragFloat("Near Clip", &camera.NearClip, 0.01f, 0.01f, camera.FarClip);
@@ -195,7 +197,6 @@ namespace Luth
             }
 
             // Material Selection
-            ImGui::Separator();
             ImGui::Text("Material");
             ImGui::SameLine();
 
@@ -252,7 +253,9 @@ namespace Luth
         if (auto material = MaterialLibrary::Get(m_SelectedResource)) {
             // Material header with name and type
             ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "%s (Material)", material->GetName().c_str());
+            ImGui::Dummy({ 0, 4 });
             ImGui::Separator();
+            ImGui::Dummy({ 0, 4 });
 
             // Shader selection
             ImGui::Text("Shader");
@@ -268,8 +271,6 @@ namespace Luth
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Missing Shader");
             }
 
-            ImGui::Separator();
-
             // Render mode
             const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
             static int currentRenderMode = 0;
@@ -278,68 +279,60 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             ImGui::Combo("##RenderMode", &currentRenderMode, renderModes, IM_ARRAYSIZE(renderModes));
 
-            ImGui::Separator();
+            ImGui::Dummy({ 0, 4 });
 
             // Texture properties with toggle buttons
             const auto& textures = material->GetTextures();
 
             auto DrawTextureProperty = [&](TextureType type, const char* label) {
+                std::shared_ptr<Texture> texture;
                 bool hasTexture = false;
                 for (const auto& texInfo : textures) {
                     if (texInfo.type == type) {
-                        hasTexture = true;
-                        break;
+                        if (texture = TextureCache::Get(texInfo.Uuid)) {
+                            hasTexture = true;
+                            break;
+                        }
                     }
                 }
 
                 // Toggle button
-                std::string toggleId = "##Toggle_" + std::string(label);
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                std::string toggleId = "##Toggle_" + std::string(label);
                 ImGui::Checkbox(toggleId.c_str(), &hasTexture);
-                ImGui::PopStyleVar();
-
                 ImGui::SameLine();
                 ImGui::Text(label);
 
+                ImGui::Indent();
+
+                // Texture slot with drag-drop support
                 if (hasTexture) {
-                    ImGui::Indent();
-
-                    bool found = false;
-                    for (const auto& texInfo : textures) {
-                        if (texInfo.type != type) continue;
-
-                        found = true;
-                        if (auto texture = TextureCache::Get(texInfo.Uuid)) {
-                            // Texture slot with drag-drop support
-                            ImGui::ImageButton(label, (ImTextureID)texture->GetRendererID(),
-                                ImVec2(64, 64), ImVec2(0, 1), ImVec2(1, 0));
-
-                            if (ImGui::BeginDragDropTarget()) {
-                                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                                    const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                                    // TODO: Set material Texture OnDrop
-                                    // material->SetTexture(type, *droppedUUID);
-                                }
-                                ImGui::EndDragDropTarget();
-                            }
-
-                            // Texture properties
-                            ImGui::SameLine();
-                            ImGui::BeginGroup();
-                            ImGui::Text("%s", texture->GetName().c_str());
-                            ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
-                            ImGui::EndGroup();
-                        }
-                        break;
-                        
-                    }
-
-                    if (!found) {
-                        ImGui::Button("None", ImVec2(64, 64));
-                    }
-
-                    ImGui::Unindent();
+                    ImGui::ImageButton(label, (ImTextureID)texture->GetRendererID(), { 32, 32 }, { 0, 1 }, { 1, 0 });
                 }
+                else {
+                    std::string buttonId = "##Button_" + std::string(label);
+                    ImGui::Button(buttonId.c_str(), { 32, 32 });
+                }
+                ImGui::PopStyleVar();
+
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                        const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                        material->SetTexture({ *droppedUUID, type, 0 });
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                // Texture properties
+                if (hasTexture) {
+                    ImGui::SameLine();
+                    ImGui::BeginGroup();
+                    ImGui::Text("%s", texture->GetName().c_str());
+                    ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
+                    ImGui::EndGroup();
+                }
+                ImGui::Unindent();
+                ImGui::Spacing();
             };
 
             DrawTextureProperty(TextureType::Diffuse,   "Albedo");
@@ -360,15 +353,15 @@ namespace Luth
             | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding;
 
         if (entity.HasComponent<T>()) {
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
             bool open = ImGui::TreeNodeEx(name.c_str(), treeNodeFlags);
-            ImGui::PopStyleVar();
 
-            // Right-click to open context menu for component removal
-            bool removeComponent = false;
-            if (ImGui::BeginPopupContextItem()) {
+            // Right-click to open context menu
+            std::string popId = "##Pop_" + name;
+            if (ImGui::BeginPopupContextItem(popId.c_str())) {
                 constexpr bool enabled = (std::is_same_v<T, Transform> || std::is_same_v<T, ID>) ? false : true;
-                removeComponent = ImGui::MenuItem("Remove component", nullptr, nullptr, enabled);
+                if (ImGui::MenuItem("Remove component", nullptr, nullptr, enabled)) {
+                    entity.RemoveComponent<T>();
+                }
                 ImGui::EndPopup();
             }
 
@@ -376,12 +369,8 @@ namespace Luth
                 uiFunction(entity, entity.GetComponent<T>());
                 ImGui::TreePop();
             }
-
-            if (removeComponent) {
-                entity.RemoveComponent<T>();
-            }
-
-            ImGui::Dummy({0, 4});
+            
+            ImGui::Dummy({ 0, 4 });
         }
     }
 }

@@ -47,7 +47,7 @@ namespace Luth
     }
 
     VKTexture::VKTexture(u32 width, u32 height, u32 format,
-        const unsigned char* data, const std::string& name) {}
+        const unsigned char* data) {}
 
     VKTexture::~VKTexture() {}
 

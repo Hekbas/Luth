@@ -9,7 +9,7 @@ namespace Luth
 
     std::shared_ptr<Texture> TextureCache::s_White;
     std::shared_ptr<Texture> TextureCache::s_Black;
-    std::shared_ptr<Texture> TextureCache::s_Normal;
+    std::shared_ptr<Texture> TextureCache::s_Grey;
     std::shared_ptr<Texture> TextureCache::s_Missing;
 
     void TextureCache::Init()
@@ -60,21 +60,8 @@ namespace Luth
     std::shared_ptr<Texture> TextureCache::Get(const UUID& uuid)
     {
         std::shared_lock lock(s_Mutex);
-
-        // First try to find in cache
         auto it = s_Textures.find(uuid);
-        if (it != s_Textures.end()) {
-            it->second.Texture;
-        }
-
-        // Fallback to defaults
-        switch (uuid) {
-            case 0000000000000000: return s_White;
-            case 0000000000000001: return s_Black;
-            case 0000000000000002: return s_Normal;
-            case 0000000000000003: return s_Missing;
-            default: return s_Missing;
-        }
+        return it != s_Textures.end() ? it->second.Texture : nullptr;
     }
 
     std::unordered_map<UUID, TextureCache::TextureRecord, UUIDHash> TextureCache::GetAllTextures()
@@ -99,7 +86,7 @@ namespace Luth
             return nullptr;
         }
 
-        UUID uuid = ResourceDB::GetUuidForPath(path);
+        UUID uuid = ResourceDB::PathToUuid(path);
         if (auto existing = Get(uuid)) {
             LH_CORE_INFO("Texture already loaded: {0}", uuid.ToString());
             return existing;
@@ -123,7 +110,7 @@ namespace Luth
 
     std::shared_ptr<Texture> TextureCache::LoadOrGet(const fs::path& path)
     {
-        UUID uuid = ResourceDB::GetUuidForPath(path);
+        UUID uuid = ResourceDB::PathToUuid(path);
         if (auto texture = Get(uuid)) {
             return texture;
         }
@@ -136,9 +123,9 @@ namespace Luth
     }
 
     std::shared_ptr<Texture> TextureCache::Create(u32 width, u32 height,
-        u32 format, const unsigned char* data, const std::string& name)
+        u32 format, const unsigned char* data)
     {
-        return Texture::Create(width, height, format, data, name);
+        return Texture::Create(width, height, format, data);
     }
 
     bool TextureCache::Reload(const UUID& uuid)
@@ -150,7 +137,7 @@ namespace Luth
             return false;
         }
 
-        auto path = ResourceDB::ResolveUuid(uuid);
+        auto path = ResourceDB::UuidToPath(uuid);
         if (path.empty()) {
             LH_CORE_ERROR("No source path for texture {0}", uuid.ToString());
             return false;
@@ -191,7 +178,7 @@ namespace Luth
         size_t failCount = 0;
 
         for (auto& [uuid, record] : s_Textures) {
-            auto path = ResourceDB::ResolveUuid(uuid);
+            auto path = ResourceDB::UuidToPath(uuid);
             if (path.empty()) {
                 LH_CORE_WARN("Skipping texture {0} with invalid path", uuid.ToString());
                 failCount++;
@@ -229,17 +216,20 @@ namespace Luth
 
     void TextureCache::CreateDefaultTextures()
     {
-        unsigned char whiteData[] = { 255, 255, 255, 255 };
-        s_White = Create(1, 1, 4, whiteData, "DefaultWhite");
-        s_White->SetUUID(UUID(0));
-
         unsigned char blackData[] = { 0, 0, 0, 255 };
-        s_Black = Create(1, 1, 4, blackData, "DefaultBlack");
-        s_Black->SetUUID(UUID(1));
+        s_Black = Create(1, 1, 4, blackData);
+        s_Black->SetUUID(UUID(0));
+        s_Black->SetName("DefaultBlack");
 
-        unsigned char normalData[] = { 128, 128, 128, 255 };
-        s_Normal = Create(1, 1, 4, normalData, "DefaultNormal");
-        s_Normal->SetUUID(UUID(2));
+        unsigned char whiteData[] = { 255, 255, 255, 255 };
+        s_White = Create(1, 1, 4, whiteData);
+        s_White->SetUUID(UUID(1));
+        s_White->SetName("DefaultWhite");
+
+        unsigned char greyData[] = { 128, 128, 128, 255 };
+        s_Grey = Create(1, 1, 4, greyData);
+        s_Grey->SetUUID(UUID(2));
+        s_Grey->SetName("DefaultGrey");
 
         // Checkerboard missing texture
         unsigned char missingData[16 * 16 * 4];
@@ -249,7 +239,8 @@ namespace Luth
             missingData[i * 4 + 2] = 255;
             missingData[i * 4 + 3] = 255;
         }
-        s_Missing = Create(16, 16, 4, missingData, "MissingTexture");
+        s_Missing = Create(16, 16, 4, missingData);
         s_Missing->SetUUID(UUID(3));
+        s_Missing->SetName("MissingTexture");
     }
 }

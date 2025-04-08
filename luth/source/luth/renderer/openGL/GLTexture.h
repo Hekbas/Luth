@@ -10,7 +10,7 @@ namespace Luth
     {
     public:
         GLTexture(const fs::path& path);
-        GLTexture(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name);
+        GLTexture(u32 width, u32 height, u32 format, const unsigned char* data);
         ~GLTexture();
 
         void Bind(uint32_t slot = 0) const override;

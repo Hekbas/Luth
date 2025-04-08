@@ -14,8 +14,8 @@ namespace Luth
         static void Init(const fs::path& projectRoot);
 
         // UUID <-> Path mapping
-        static fs::path ResolveUuid(const UUID& uuid);
-        static UUID GetUuidForPath(const fs::path& path);
+        static fs::path UuidToPath(const UUID& uuid);
+        static UUID PathToUuid(const fs::path& path);
 
         // Update operations
         static void RegisterAsset(const fs::path& path, const UUID& uuid);
@@ -28,7 +28,9 @@ namespace Luth
         static bool ProcessMetaFile(const fs::path& path);
 
     private:
+        static std::unordered_map<UUID, ResourceType, UUIDHash> s_UuidToType;
         static std::unordered_map<UUID, fs::path, UUIDHash> s_UuidToPath;
         static std::unordered_map<fs::path, UUID> s_PathToUuid;
+
     };
 }

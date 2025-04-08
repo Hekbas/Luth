@@ -79,7 +79,7 @@ namespace Luth
             return nullptr;
         }
 
-        UUID uuid = ResourceDB::GetUuidForPath(path);
+        UUID uuid = ResourceDB::PathToUuid(path);
         if (auto existing = Get(uuid)) {
             LH_CORE_INFO("Model already loaded: {0}", uuid.ToString());
             return existing;
@@ -103,7 +103,7 @@ namespace Luth
 
     std::shared_ptr<Model> ModelLibrary::LoadOrGet(const fs::path& path)
     {
-        UUID uuid = ResourceDB::GetUuidForPath(path);
+        UUID uuid = ResourceDB::PathToUuid(path);
         if (auto model = Get(uuid)) {
             return model;
         }
@@ -119,7 +119,7 @@ namespace Luth
             return false;
         }
 
-        auto path = ResourceDB::ResolveUuid(uuid);
+        auto path = ResourceDB::UuidToPath(uuid);
         if (path.empty()) {
             LH_CORE_ERROR("No source path for Model {0}", uuid.ToString());
             return false;
@@ -160,7 +160,7 @@ namespace Luth
         size_t failCount = 0;
 
         for (auto& [uuid, record] : s_Models) {
-            auto path = ResourceDB::ResolveUuid(uuid);
+            auto path = ResourceDB::UuidToPath(uuid);
             if (path.empty()) {
                 LH_CORE_WARN("Skipping Model {0} with invalid path", uuid.ToString());
                 failCount++;

@@ -18,7 +18,7 @@ namespace Luth
         }
     }
 
-    std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name)
+    std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, u32 format, const unsigned char* data)
     {
         if (width == 0 || height == 0) {
             LH_CORE_ERROR("Texture creation failed: Invalid dimensions {0}x{1}", width, height);
@@ -26,8 +26,8 @@ namespace Luth
         }
 
         switch (Renderer::GetAPI()) {
-            case RendererAPI::API::OpenGL: return std::make_shared<GLTexture>(width, height, format, data, name);
-            case RendererAPI::API::Vulkan: return std::make_shared<VKTexture>(width, height, format, data, name);
+            case RendererAPI::API::OpenGL: return std::make_shared<GLTexture>(width, height, format, data);
+            case RendererAPI::API::Vulkan: return std::make_shared<VKTexture>(width, height, format, data);
             default:
                 LH_CORE_ASSERT(false, "Unknown renderer API!");
                 return nullptr;

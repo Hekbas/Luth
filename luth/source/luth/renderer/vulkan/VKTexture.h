@@ -10,7 +10,7 @@ namespace Luth
     {
     public:
         VKTexture(const fs::path& path);
-        VKTexture(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name);
+        VKTexture(u32 width, u32 height, u32 format, const unsigned char* data);
         ~VKTexture();
 
         void Bind(u32 slot = 0) const override;

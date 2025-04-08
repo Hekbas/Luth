@@ -14,7 +14,7 @@ namespace Luth
         LoadFromFile();
     }
 
-    GLTexture::GLTexture(u32 width, u32 height, u32 format, const unsigned char* data, const std::string& name)
+    GLTexture::GLTexture(u32 width, u32 height, u32 format, const unsigned char* data)
     {
         LH_CORE_INFO("Creating empty GLTexture ({0}x{1}, format {2})", width, height, static_cast<int>(format));
         CreateFromData(width, height, format, data);
@@ -83,8 +83,7 @@ namespace Luth
         glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
-    void GLTexture::CreateFromData(u32 width, u32 height,
-        u32 channels, const unsigned char* data)
+    void GLTexture::CreateFromData(u32 width, u32 height, u32 channels, const unsigned char* data)
     {
         // Determine OpenGL format
         GLenum internalFormat = GL_RGBA8;

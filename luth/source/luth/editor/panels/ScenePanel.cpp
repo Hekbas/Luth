@@ -19,8 +19,6 @@ namespace Luth
 		spec.Width = 1280;
 		spec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(spec);
-
-        Renderer::BindFramebuffer(m_Framebuffer);
 	}
 
 	void ScenePanel::OnRender()
@@ -30,8 +28,18 @@ namespace Luth
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
             ImGui::Begin("Scene");
 
-            // Store viewport size for later use
-            m_ViewportSize = ToGlmVec2(ImGui::GetContentRegionAvail());
+            // Viewport / Framebuffer resizing
+            glm::vec2 newViewportSize = ToGlmVec2(ImGui::GetContentRegionAvail());
+            if (newViewportSize != m_ViewportSize && newViewportSize.x > 0 && newViewportSize.y > 0) {
+                m_ViewportSize = newViewportSize;
+
+                if (m_Framebuffer) {
+                    m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+                    // TODO: Update camera
+                    // m_Camera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+                }
+            }
 
             // Render framebuffer to viewport
             uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
