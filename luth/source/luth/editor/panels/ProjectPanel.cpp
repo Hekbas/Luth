@@ -2,6 +2,7 @@
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/resources/resourceDB.h"
+#include "luth/utils/LuthIcons.h"
 
 namespace Luth
 {
@@ -175,11 +176,12 @@ namespace Luth
 
             // Icon button
             ImGui::BeginGroup();
-            /*ImGui::Button(child.Type == ResourceType::Directory ?
-                ICON_FA_FOLDER "##dir" : ICON_FA_FILE "##file",
-                ImVec2(thumbnailSize, thumbnailSize));*/
-
-            ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
+            ImGui::PushFont(Editor::GetIconFont());
+            ImGui::PushStyleColor(ImGuiCol_Text, { 0.5, 0.5, 0.5, 1.0 });
+            ImGui::Button(child.Directories.empty() && child.Contents.empty() ?
+                ICON_FOLDER_E : ICON_FOLDER, ImVec2(thumbnailSize, thumbnailSize));
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
 
             // Double-click handling
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -207,11 +209,23 @@ namespace Luth
 
             // Icon button
             ImGui::BeginGroup();
-            /*ImGui::Button(child.Type == ResourceType::Directory ?
-                ICON_FA_FOLDER "##dir" : ICON_FA_FILE "##file",
-                ImVec2(thumbnailSize, thumbnailSize));*/
-
-            ImGui::Button("##file", ImVec2(thumbnailSize, thumbnailSize));
+            const char* icon;
+            ImVec4 iconColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            switch (child.Type) {
+                case ResourceType::Model:    icon = ICON_MODEL;    break;
+                case ResourceType::Texture:  icon = ICON_TEXTURE;  break;
+                case ResourceType::Material: icon = ICON_MATERIAL; break;
+                case ResourceType::Shader:   icon = ICON_FILE;     break;
+                case ResourceType::Font:     icon = ICON_FILE;     break;
+                case ResourceType::Config:   icon = ICON_FILE;     break;
+                case ResourceType::Unknown:  icon = ICON_FILE;     break;
+            }
+            ImGui::PushFont(Editor::GetIconFont());
+            Vec4 color = FileSystem::GetTypeInfo().at(child.Type).color;
+            ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
+            ImGui::Button(icon, ImVec2(thumbnailSize, thumbnailSize));
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
 
             // Drag handling (priority)
             if (child.Type == ResourceType::Model || child.Type == ResourceType::Material || child.Type == ResourceType::Texture) {

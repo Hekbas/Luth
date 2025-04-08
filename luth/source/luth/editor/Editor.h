@@ -45,9 +45,11 @@ namespace Luth
         static void SetBubblegumStyle();
         static void SetRandomStyle();
 
+        static ImFont* GetIconFont() { return m_IconFont; }
 
     private:
         static inline ImGuiContext* s_Context = nullptr;
         static inline std::vector<std::unique_ptr<Panel>> s_Panels;
+        static inline ImFont* m_IconFont;
     };
 }
