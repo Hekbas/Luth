@@ -12,6 +12,83 @@ namespace Luth
     {
         LoadModel(path);
         ProcessMeshData();
+
+        // Deserialize materials
+        fs::path metaPath = path;
+        metaPath += ".meta";
+        std::ifstream file(metaPath);
+        nlohmann::json json;
+        file >> json;
+        Deserialize(json);
+    }
+
+    void Model::Serialize(nlohmann::json& json) const
+    {
+        nlohmann::json materials_json;
+        for (size_t i = 0; i < m_Materials.size(); ++i) {
+            if (m_Materials[i]) {
+                materials_json[std::to_string(i)] = m_Materials[i].ToString();
+            }
+        }
+        json["dependencies"] = materials_json;
+    }
+
+    void Model::Deserialize(const nlohmann::json& json)
+    {
+        m_Materials.clear();
+
+        if (!json.contains("dependencies")) {
+            LH_CORE_WARN("Missing Dependencies section");
+            return;
+        }
+
+        const auto& dependencies = json["dependencies"];
+        if (!dependencies.is_object()) {
+            LH_CORE_WARN("Dependencies section is not an object");
+            return;
+        }
+
+        u32 max_index = 0;
+        std::unordered_map<u32, UUID> temp_map;
+
+        // First pass: parse all indices and find maximum
+        for (const auto& [key_str, value] : dependencies.items()) {
+            try {
+                u32 index = static_cast<u32>(std::stoul(key_str));
+
+                // Handle UUID value
+                UUID uuid;
+                if (value.is_null()) {
+                    uuid = UUID();
+                }
+                else if (value.is_string()) {
+                    if (!UUID::FromString(value.get<std::string>(), uuid)) {
+                        LH_CORE_WARN("Invalid UUID format at index {0}", index);
+                        uuid = UUID();
+                    }
+                }
+                else {
+                    LH_CORE_WARN("Invalid type at index {0}", index);
+                    uuid = UUID();
+                }
+
+                temp_map[index] = uuid;
+                max_index = std::max(max_index, index);
+            }
+            catch (const std::exception& e) {
+                LH_CORE_WARN("Invalid index format: {0}", key_str);
+            }
+        }
+
+        // Create properly sized array
+        m_Materials.resize(max_index + 1);
+
+        // Second pass: fill the materials array
+        for (const auto& [index, uuid] : temp_map) {
+            if (index < m_Materials.size()) {
+                m_Materials[index] = uuid;
+            }
+        }
     }
 
     void Model::LoadModel(const fs::path& path)
@@ -27,8 +104,10 @@ namespace Luth
             return;
         }
 
-        m_Directory = path.parent_path();
         ProcessNode(scene->mRootNode, scene, AxisCorrectionMatrix(scene));
+
+        // New material system :3
+        LoadMaterials(path);
 
         f32 tf = Time::GetTime();
         float loadTime = tf - ti;
@@ -101,7 +180,7 @@ namespace Luth
 
         aiString name = mesh->mName;
 
-        // Process material
+        // Process material (deprecated)
         /*if (mesh->mMaterialIndex >= 0 && static_cast<uint32_t>(mesh->mMaterialIndex) < scene->mNumMaterials) {
             data.materialIndex = static_cast<uint32_t>(m_Materials.size());
             m_Materials.push_back(ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex], m_Directory));
@@ -141,6 +220,78 @@ namespace Luth
         //    }
         //}
         return material;
+    }
+
+    void Model::LoadMaterials(const fs::path& path)
+    {
+        fs::path metaPath = path;
+        metaPath += ".meta";
+
+        std::ifstream file(metaPath);
+        if (!file.is_open()) {
+            LH_CORE_ERROR("Failed to Load Materials. Could not find file: {0}", metaPath.string());
+            return;
+        }
+
+        try {
+            nlohmann::json j;
+            file >> j;
+
+            const auto& materials_json = j["materials"];
+            std::unordered_map<int, UUID> temp_materials;
+            int max_index = -1;
+
+            // First pass: collect all materials and validate
+            for (const auto& element : materials_json.items()) {
+                int index;
+                try {
+                    index = std::stoi(element.key());
+                }
+                catch (const std::exception&) {
+                    LH_CORE_ERROR("Invalid index format: {0}", element.key());
+                    continue;
+                }
+
+                if (index < 0) {
+                    LH_CORE_ERROR("Negative material index: {0}", std::to_string(index));
+                    continue;
+                }
+
+                if (temp_materials.find(index) != temp_materials.end()) {
+                    LH_CORE_ERROR("Duplicate material index: {0}", std::to_string(index));
+                    continue;
+                }
+
+                std::string uuidString = element.value().get<std::string>();
+                UUID uuid;
+                if (!UUID::FromString(uuidString, uuid)) {
+                    LH_CORE_ERROR("Error getting UUID from string: {0}", uuidString);
+                    continue;
+                }
+                temp_materials[index] = uuid;
+
+                if (index > max_index) {
+                    max_index = index;
+                }
+            }
+
+            // Create vector with appropriate size, initialized with empty strings
+            std::vector<UUID> new_materials;
+            if (max_index >= 0) {
+                new_materials.resize(max_index + 1);
+            }
+
+            // Fill the vector with collected materials
+            for (const auto& [index, uuid] : temp_materials) {
+                new_materials[index] = uuid;
+            }
+
+            // Swap into member variable after successful parsing
+            m_Materials.swap(new_materials);
+        }
+        catch (const std::exception& e) {
+            LH_CORE_ERROR("Failed to parse materials JSON: {0}", std::string(e.what()));
+        }
     }
 
     Mat4 Model::AxisCorrectionMatrix(const aiScene* scene)

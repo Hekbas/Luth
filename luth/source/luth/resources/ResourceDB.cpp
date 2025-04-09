@@ -39,10 +39,10 @@ namespace Luth
 
             // Load to Database
             switch (FileSystem::ClassifyFileType(path)) {
-                case Luth::ResourceType::Model:    Resources::Load<Model>(path);    break;
-                case Luth::ResourceType::Texture:  Resources::Load<Texture>(path);  break;
-                case Luth::ResourceType::Material: Resources::Load<Material>(path); break;
-                case Luth::ResourceType::Shader:   Resources::Load<Shader>(path);   break;
+                case ResourceType::Model:    Resources::Load<Model>(path);    break;
+                case ResourceType::Texture:  Resources::Load<Texture>(path);  break;
+                case ResourceType::Material: Resources::Load<Material>(path); break;
+                case ResourceType::Shader:   Resources::Load<Shader>(path);   break;
                 default: break;
             }
         }
@@ -124,7 +124,7 @@ namespace Luth
         for (auto& [uuid, info] : s_UuidToInfo) {
             if (info.Dirty) {
                 switch (info.Type) {
-                    //case ResourceType::Model:    ModelLibrary::Save(uuid);    break;
+                    case ResourceType::Model:    ModelLibrary::Save(uuid);    break;
                     case ResourceType::Material: MaterialLibrary::Save(uuid); break;
                     //case ResourceType::Texture:  SaveTexture(info.Path);  break;
                     default: LH_CORE_ERROR("Unable to save Unknown ResourceType"); break;

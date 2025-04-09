@@ -1,5 +1,17 @@
 {
-    "dependencies": [],
+    "dependencies": {
+        "0": "bc944da9abe31adf",
+        "1": "c04d17203a649515",
+        "10": "561012de9264bb77",
+        "2": "7f3cdcdeeed3a212",
+        "3": "85cabccbb7541176",
+        "4": "3bd16744fb5ba5d2",
+        "5": "31e22a2fd687c567",
+        "6": "0fcf2fe9f4faef95",
+        "7": "9f582acdfaafc80c",
+        "8": "b6ecbe86e16acdd2",
+        "9": "c8a8ec8e2c04136c"
+    },
     "type_settings": {
         "import_normals": true,
         "import_tangents": false,

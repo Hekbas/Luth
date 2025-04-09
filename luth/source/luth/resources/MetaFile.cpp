@@ -123,7 +123,7 @@ namespace Luth
         return true;
     }
 
-    void MetaFile::AddDependency(const UUID& dependency)
+    void MetaFile::AddDependency(const UUID& dependency) 
     {
         if (std::find(m_Dependencies.begin(), m_Dependencies.end(), dependency) == m_Dependencies.end()) {
             m_Dependencies.push_back(dependency);

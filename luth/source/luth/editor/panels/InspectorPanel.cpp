@@ -179,7 +179,6 @@ namespace Luth
                     if (auto model = ModelLibrary::Get(*droppedUUID)) {
                         meshRenderer.ModelUUID = *droppedUUID;
                         meshRenderer.modelNamePreview = model->GetName();
-                        ResourceDB::SetDirty(model->GetUUID());
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -207,10 +206,12 @@ namespace Luth
 
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                    const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                    if (auto material = MaterialLibrary::Get(*droppedUUID)) {
-                        meshRenderer.MaterialUUID = *droppedUUID;
+                    const UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
+                    if (auto material = MaterialLibrary::Get(droppedUUID)) {
+                        meshRenderer.MaterialUUID = droppedUUID;
                         meshRenderer.materialNamePreview = material->GetName();
+                        ResourceDB::SetDirty(meshRenderer.ModelUUID);
+                        ModelLibrary::Get(meshRenderer.ModelUUID)->AddMaterial(droppedUUID, meshRenderer.MeshIndex);
                     }
                 }
                 ImGui::EndDragDropTarget();

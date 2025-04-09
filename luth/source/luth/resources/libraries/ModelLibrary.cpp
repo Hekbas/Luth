@@ -195,4 +195,43 @@ namespace Luth
 
         LH_CORE_INFO("Reloaded Models: {0} succeeded, {1} failed", successCount, failCount);
     }
+
+    bool ModelLibrary::Save(const UUID& modelUUID)
+    {
+        if (auto model = Get(modelUUID)) {
+            auto path = ResourceDB::UuidToInfo(modelUUID).Path;
+            if (path.empty()) return false;
+
+            fs::path metaPath = path;
+            metaPath += ".meta";
+            nlohmann::json json;
+
+            std::ifstream inFile(metaPath);
+            if (inFile.good()) {
+                try {
+                    inFile >> json;
+                }
+                catch (...) {
+                    return false; // Failed to parse existing JSON
+                }
+            }
+            else {
+                // Initialize new JSON with required fields
+                json["uuid"] = modelUUID.ToString();
+                json["version"] = 1;
+                json["type_settings"] = {
+                    {"import_normals", true},
+                    {"import_tangents", false},
+                    {"optimize_mesh", true}
+                };
+            }
+
+            model->Serialize(json);
+
+            std::ofstream file(metaPath);
+            file << json.dump(4);
+            return true;
+        }
+        return false;
+    }
 }

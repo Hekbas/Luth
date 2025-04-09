@@ -19,8 +19,8 @@ namespace Luth
         static std::shared_ptr<Material> Get(const UUID& uuid);
         static std::unordered_map<UUID, std::shared_ptr<Material>, UUIDHash> GetAllMaterials();
 
-        static bool Save(const UUID& materialUUID);
         static void Reload(const UUID& materialUUID);
+        static bool Save(const UUID& materialUUID);
 
     private:
         static std::shared_mutex s_Mutex;

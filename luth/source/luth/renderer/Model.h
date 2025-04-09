@@ -34,20 +34,30 @@ namespace Luth
 
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
         std::vector<std::shared_ptr<Mesh>>& GetMeshes() { return m_Meshes; }
-        std::vector<Material>& GetMaterials() { return m_Materials; }
+
+        void AddMaterial(UUID uuid, u32 index) {
+            if (index >= m_Materials.size()) {
+                m_Materials.resize(index + 1);
+            }
+            m_Materials[index] = uuid;
+        }
+        std::vector<UUID>& GetMaterials() { return m_Materials; }
+
+        void Serialize(nlohmann::json& json) const;
+        void Deserialize(const nlohmann::json& json);
 
     private:
         void LoadModel(const fs::path& path);
         void ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform = Mat4(1.0f));
         MeshData ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform);
         Material ProcessMaterial(aiMaterial* material, const fs::path& directory);
+        void LoadMaterials(const fs::path& path);
         Mat4 AxisCorrectionMatrix(const aiScene* scene);
 
         void ProcessMeshData();
 
         std::vector<MeshData> m_MeshesData;
         std::vector<std::shared_ptr<Mesh>> m_Meshes;
-        std::vector<Material> m_Materials;
-        fs::path m_Directory;
+        std::vector<UUID> m_Materials;
     };
 }
