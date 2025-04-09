@@ -116,8 +116,8 @@ namespace Luth
 
     void ProjectPanel::DrawPathBar()
     {
-        const fs::path currentPath = ResourceDB::UuidToPath(m_CurrentDirectoryUuid);
-        const fs::path rootPath = ResourceDB::UuidToPath(m_RootNode.Uuid);
+        const fs::path currentPath = ResourceDB::UuidToInfo(m_CurrentDirectoryUuid).Path;
+        const fs::path rootPath = ResourceDB::UuidToInfo(m_RootNode.Uuid).Path;
         const fs::path relativePath = fs::relative(currentPath, rootPath);
 
         ImGui::BeginChild("##PathBar", ImVec2(0, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
@@ -280,7 +280,7 @@ namespace Luth
     void ProjectPanel::CreateNewMaterial()
     {
         // Current directory
-        fs::path currDir = ResourceDB::UuidToPath(m_CurrentDirectoryUuid);
+        fs::path currDir = ResourceDB::UuidToInfo(m_CurrentDirectoryUuid).Path;
 
         // Default material path
         fs::path newMaterialPath = currDir / "NewMaterial.mat";

@@ -294,8 +294,7 @@ namespace Luth
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ASSET_UUID)) {
                 const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
-                auto path = ResourceDB::UuidToPath(assetUuid);
-                auto assetType = FileSystem::ClassifyFileType(path);
+                auto assetType = ResourceDB::UuidToInfo(assetUuid).Type;
 
                 switch (assetType) {
                     case ResourceType::Model: {

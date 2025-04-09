@@ -11,10 +11,17 @@ namespace Luth
     class ResourceDB
     {
     public:
+
+        struct ResourceInfo {
+            fs::path Path;
+            ResourceType Type;
+            bool Dirty;
+        };
+
         static void Init(const fs::path& projectRoot);
 
-        // UUID <-> Path mapping
-        static fs::path UuidToPath(const UUID& uuid);
+        // UUID <-> Info mapping
+        static ResourceInfo UuidToInfo(const UUID& uuid);
         static UUID PathToUuid(const fs::path& path);
 
         // Update operations
@@ -24,12 +31,15 @@ namespace Luth
         // Dependency resolution
         static std::vector<UUID> GetAllDependencies(const UUID& uuid);
 
+        // Set dirty
+        static void SetDirty(UUID uuid);
+        static void SaveDirty();
+
     private:
         static bool ProcessMetaFile(const fs::path& path);
 
     private:
-        static std::unordered_map<UUID, ResourceType, UUIDHash> s_UuidToType;
-        static std::unordered_map<UUID, fs::path, UUIDHash> s_UuidToPath;
+        static std::unordered_map<UUID, ResourceInfo, UUIDHash> s_UuidToInfo;
         static std::unordered_map<fs::path, UUID> s_PathToUuid;
 
     };

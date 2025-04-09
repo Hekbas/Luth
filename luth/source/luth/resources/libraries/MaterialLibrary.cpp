@@ -74,7 +74,7 @@ namespace Luth
     bool MaterialLibrary::Save(const UUID& materialUUID)
     {
         if (auto material = Get(materialUUID)) {
-            auto path = ResourceDB::UuidToPath(materialUUID);
+            auto path = ResourceDB::UuidToInfo(materialUUID).Path;
             if (path.empty()) return false;
 
             nlohmann::json json;
@@ -89,7 +89,7 @@ namespace Luth
 
     void MaterialLibrary::Reload(const UUID& materialUUID)
     {
-        auto path = ResourceDB::UuidToPath(materialUUID);
+        auto path = ResourceDB::UuidToInfo(materialUUID).Path;
         if (path.empty()) return;
 
         if (auto material = Get(materialUUID)) {

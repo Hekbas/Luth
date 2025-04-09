@@ -119,7 +119,7 @@ namespace Luth
             return false;
         }
 
-        auto path = ResourceDB::UuidToPath(uuid);
+        auto path = ResourceDB::UuidToInfo(uuid).Path;
         if (path.empty()) {
             LH_CORE_ERROR("No source path for Model {0}", uuid.ToString());
             return false;
@@ -160,7 +160,7 @@ namespace Luth
         size_t failCount = 0;
 
         for (auto& [uuid, record] : s_Models) {
-            auto path = ResourceDB::UuidToPath(uuid);
+            auto path = ResourceDB::UuidToInfo(uuid).Path;
             if (path.empty()) {
                 LH_CORE_WARN("Skipping Model {0} with invalid path", uuid.ToString());
                 failCount++;

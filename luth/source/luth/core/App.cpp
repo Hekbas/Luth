@@ -80,11 +80,12 @@ namespace Luth
         }
 
         OnShutdown();
+        Close();
     }
 
     void App::Close()
     {
-        m_Running = false;
+        ResourceDB::SaveDirty();
     }
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)

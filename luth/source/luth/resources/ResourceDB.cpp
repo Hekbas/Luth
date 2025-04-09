@@ -8,16 +8,14 @@
 
 namespace Luth
 {
-    std::unordered_map<UUID, ResourceType, UUIDHash> ResourceDB::s_UuidToType;
-    std::unordered_map<UUID, fs::path, UUIDHash> ResourceDB::s_UuidToPath;
+    std::unordered_map<UUID, ResourceDB::ResourceInfo, UUIDHash> ResourceDB::s_UuidToInfo;
     std::unordered_map<fs::path, UUID> ResourceDB::s_PathToUuid;
 
     void ResourceDB::Init(const fs::path& projectRoot)
     {
         LH_CORE_INFO("Initializing Resource DataBase...");
-        s_UuidToPath.clear();
+        s_UuidToInfo.clear();
         s_PathToUuid.clear();
-        s_UuidToType.clear();
 
         for (const auto& entry : fs::recursive_directory_iterator(projectRoot)) {
             fs::path path = entry.path();
@@ -50,10 +48,10 @@ namespace Luth
         }
     }
 
-    fs::path ResourceDB::UuidToPath(const UUID& uuid)
+    ResourceDB::ResourceInfo ResourceDB::UuidToInfo(const UUID& uuid)
     {
-        auto it = s_UuidToPath.find(uuid);
-        return (it != s_UuidToPath.end()) ? it->second : fs::path();
+        auto it = s_UuidToInfo.find(uuid);
+        return (it != s_UuidToInfo.end()) ? it->second : ResourceInfo();
     }
 
     UUID ResourceDB::PathToUuid(const fs::path& assetPath)
@@ -83,16 +81,14 @@ namespace Luth
 
     void ResourceDB::RegisterAsset(const fs::path& path, const UUID& uuid)
     {
-        s_UuidToType[uuid] = FileSystem::ClassifyFileType(path);
-        s_UuidToPath[uuid] = path;
+        s_UuidToInfo[uuid] = { path, FileSystem::ClassifyFileType(path), false };
         s_PathToUuid[path] = uuid;
     }
 
     void ResourceDB::UnregisterAsset(const fs::path& path)
     {
         if (auto it = s_PathToUuid.find(path); it != s_PathToUuid.end()) {
-            s_UuidToType.erase(it->second);
-            s_UuidToPath.erase(it->second);
+            s_UuidToInfo.erase(it->second);
             s_PathToUuid.erase(it);
         }
     }
@@ -100,7 +96,7 @@ namespace Luth
     std::vector<UUID> ResourceDB::GetAllDependencies(const UUID& uuid)
     {
         std::vector<UUID> dependencies;
-        fs::path assetPath = UuidToPath(uuid);
+        fs::path assetPath = UuidToInfo(uuid).Path;
 
         if (!assetPath.empty()) {
             fs::path metaPath = assetPath;
@@ -113,6 +109,30 @@ namespace Luth
         }
 
         return dependencies;
+    }
+
+    void ResourceDB::SetDirty(UUID uuid)
+    {
+        auto it = s_UuidToInfo.find(uuid);
+        if (it != s_UuidToInfo.end()) {
+            it->second.Dirty = true;
+        }
+    }
+
+    void ResourceDB::SaveDirty()
+    {
+        for (auto& [uuid, info] : s_UuidToInfo) {
+            if (info.Dirty) {
+                switch (info.Type) {
+                    //case ResourceType::Model:    ModelLibrary::Save(uuid);    break;
+                    case ResourceType::Material: MaterialLibrary::Save(uuid); break;
+                    //case ResourceType::Texture:  SaveTexture(info.Path);  break;
+                    default: LH_CORE_ERROR("Unable to save Unknown ResourceType"); break;
+                }
+
+                info.Dirty = false;
+            }
+        }
     }
 
     bool ResourceDB::ProcessMetaFile(const fs::path& path)
