@@ -314,8 +314,10 @@ namespace Luth
                             meshRend.modelNamePreview = model->GetName();
                             meshRend.ModelUUID = assetUuid;
                             meshRend.MeshIndex = meshIndex;
-                            meshRend.MaterialUUID = model->GetMaterials()[meshIndex];
-                            meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
+                            if (!model->GetMaterials().empty()) {
+                                meshRend.MaterialUUID = model->GetMaterials()[meshIndex];
+                                meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
+                            }
                             meshIndex++;
                         }
                         break;

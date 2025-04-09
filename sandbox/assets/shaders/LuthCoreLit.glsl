@@ -97,12 +97,12 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 
 void main()
 {
-    vec3 albedo = texture(u_TexDiffuse, u_UVIndexDiffuse == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
-    vec3 normal = texture(u_TexNormal, u_UVIndexNormal == 0 ? v_TexCoord0 : v_TexCoord1).xyz;
-    vec3 emissive = texture(u_TexEmissive, u_UVIndexEmissive == 0 ? v_TexCoord0 : v_TexCoord1).xyz;
-    float metallic = texture(u_TexMetallic, u_UVIndexMetallic == 0 ? v_TexCoord0 : v_TexCoord1).r;
+    vec3 albedo     = texture(u_TexDiffuse,   u_UVIndexDiffuse   == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
+    vec3 normal     = texture(u_TexNormal,    u_UVIndexNormal    == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
+    vec3 emissive   = texture(u_TexEmissive,  u_UVIndexEmissive  == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
+    float metallic  = texture(u_TexMetallic,  u_UVIndexMetallic  == 0 ? v_TexCoord0 : v_TexCoord1).r;
     float roughness = texture(u_TexRoughness, u_UVIndexRoughness == 0 ? v_TexCoord0 : v_TexCoord1).r;
-    float ao = texture(u_TexSpecular, u_UVIndexSpecular == 0 ? v_TexCoord0 : v_TexCoord1).r;
+    float ao        = texture(u_TexSpecular,  u_UVIndexSpecular  == 0 ? v_TexCoord0 : v_TexCoord1).r;
 
     // Compute world normal from normal map
     mat3 TBN = mat3(normalize(v_Tangent), normalize(v_Bitangent), normalize(v_Normal));
@@ -134,9 +134,9 @@ void main()
     // Combine
     vec3 Lo = (diffuse + specular) * lightColor * max(dot(N, L), 0.0);
     vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 color = ambient + Lo;
+    vec3 color = ambient + Lo + emissive;
 
     // Gamma correction
-    color = pow(color + emissive, vec3(1.0 / 2.2));
+    color = pow(color, vec3(1.0 / 2.2));
     FragColor = vec4(color, 1.0);
 }
