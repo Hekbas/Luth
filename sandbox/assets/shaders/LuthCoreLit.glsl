@@ -57,19 +57,23 @@ layout(binding = 0) uniform UniformBufferObject {
 
 // Texture samplers
 uniform sampler2D u_TexDiffuse;
+uniform sampler2D u_TexAlpha;
 uniform sampler2D u_TexNormal;
 uniform sampler2D u_TexEmissive;
 uniform sampler2D u_TexMetallic;
 uniform sampler2D u_TexRoughness;
 uniform sampler2D u_TexSpecular;
+uniform sampler2D u_TexOclusion;
 
 // Per texture UV Set selection
 uniform int u_UVIndexDiffuse;
+uniform int u_UVIndexAlpha;
 uniform int u_UVIndexNormal;
 uniform int u_UVIndexEmissive;
 uniform int u_UVIndexMetallic;
 uniform int u_UVIndexRoughness;
 uniform int u_UVIndexSpecular;
+uniform int u_UVIndexOclusion;
 
 const float PI = 3.14159265359;
 
@@ -98,11 +102,18 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 void main()
 {
     vec3 albedo     = texture(u_TexDiffuse,   u_UVIndexDiffuse   == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
+    float alpha     = texture(u_TexAlpha,     u_UVIndexAlpha     == 0 ? v_TexCoord0 : v_TexCoord1).r;
     vec3 normal     = texture(u_TexNormal,    u_UVIndexNormal    == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
     vec3 emissive   = texture(u_TexEmissive,  u_UVIndexEmissive  == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
     float metallic  = texture(u_TexMetallic,  u_UVIndexMetallic  == 0 ? v_TexCoord0 : v_TexCoord1).r;
     float roughness = texture(u_TexRoughness, u_UVIndexRoughness == 0 ? v_TexCoord0 : v_TexCoord1).r;
-    float ao        = texture(u_TexSpecular,  u_UVIndexSpecular  == 0 ? v_TexCoord0 : v_TexCoord1).r;
+    //float specular  = texture(u_TexSpecular,  u_UVIndexSpecular  == 0 ? v_TexCoord0 : v_TexCoord1).r;
+    float ao        = texture(u_TexOclusion,  u_UVIndexOclusion  == 0 ? v_TexCoord0 : v_TexCoord1).r;
+
+    // Discard fragment bellow alpha threshold
+    if (alpha < 0.05) {
+        discard;
+    }
 
     // Compute world normal from normal map
     mat3 TBN = mat3(normalize(v_Tangent), normalize(v_Bitangent), normalize(v_Normal));
@@ -115,11 +126,11 @@ void main()
 
     // Example light (directional)
     vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
-    vec3 lightColor = vec3(1.0);
+    vec3 lightColor = vec3(0.4);
     vec3 L = normalize(lightDir);
     vec3 H = normalize(V + L);
 
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic); // specular map as ab metakllic refl calc.
     vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
     // BRDF components

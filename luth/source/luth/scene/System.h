@@ -81,6 +81,11 @@ namespace Luth
                         shader->SetInt("u_TexDiffuse", slot);
                         shader->SetInt("u_UVIndexDiffuse", texInfo.uvIndex);
                         break;
+                    case TextureType::Alpha:
+                        if (!texture) texture = TextureCache::GetDefaultWhite();
+                        shader->SetInt("u_TexAlpha", slot);
+                        shader->SetInt("u_UVIndexAlpha", texInfo.uvIndex);
+                        break;
                     case TextureType::Normal:
                         if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexNormal", slot);
@@ -105,6 +110,11 @@ namespace Luth
                         if (!texture) texture = TextureCache::GetDefaultGrey();
                         shader->SetInt("u_TexSpecular", slot);
                         shader->SetInt("u_UVIndexSpecular", texInfo.uvIndex);
+                        break;
+                    case TextureType::Oclusion:
+                        if (!texture) texture = TextureCache::GetDefaultWhite();
+                        shader->SetInt("u_TexOclusion", slot);
+                        shader->SetInt("u_UVIndexOclusion", texInfo.uvIndex);
                         break;
                     default: LH_CORE_ERROR("TextureType not supported!");
                 }

@@ -344,11 +344,13 @@ namespace Luth
             };
 
             DrawTextureProperty(TextureType::Diffuse,   "Albedo");
+            DrawTextureProperty(TextureType::Alpha,     "Alpha");
             DrawTextureProperty(TextureType::Normal,    "Normal");
             DrawTextureProperty(TextureType::Metalness, "Metallic");
             DrawTextureProperty(TextureType::Roughness, "Roughness");
-            DrawTextureProperty(TextureType::Specular,  "AO");
+            DrawTextureProperty(TextureType::Specular,  "Specular");
             DrawTextureProperty(TextureType::Emissive,  "Emissive");
+            DrawTextureProperty(TextureType::Oclusion,  "Oclusion");
 
             // TODO: Could add color properties, sliders, etc. for each texture channel (too lazy :3)
         }

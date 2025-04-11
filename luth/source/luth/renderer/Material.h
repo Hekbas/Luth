@@ -15,11 +15,13 @@ namespace Luth
 {
     enum class TextureType {
         Diffuse,
+        Alpha,
         Normal,
         Emissive,
         Metalness,
         Roughness,
-        Specular
+        Specular,
+        Oclusion
     };
 
     struct TextureInfo {

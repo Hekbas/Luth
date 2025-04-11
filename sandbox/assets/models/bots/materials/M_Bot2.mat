@@ -8,26 +8,36 @@
         },
         {
             "type": 1,
-            "uuid": "9a4dad30267c1ee9",
+            "uuid": "13fcba904d65e045",
             "uv": 0
         },
         {
             "type": 2,
-            "uuid": "ba5b0c6d0115195d",
+            "uuid": "9a4dad30267c1ee9",
             "uv": 0
         },
         {
             "type": 3,
-            "uuid": "c891d3889438c8d3",
+            "uuid": "ba5b0c6d0115195d",
             "uv": 0
         },
         {
             "type": 4,
-            "uuid": "6bb78f9726d43c45",
+            "uuid": "c891d3889438c8d3",
             "uv": 0
         },
         {
             "type": 5,
+            "uuid": "6bb78f9726d43c45",
+            "uv": 0
+        },
+        {
+            "type": 6,
+            "uuid": "d11a4be78e331d61",
+            "uv": 0
+        },
+        {
+            "type": 7,
             "uuid": "05c05a13d7c8394c",
             "uv": 0
         }

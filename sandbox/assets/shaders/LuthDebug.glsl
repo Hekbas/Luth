@@ -43,7 +43,7 @@ layout(binding = 0) uniform UniformBufferObject {
 layout(triangles) in;
 layout(line_strip, max_vertices = 6) out;
 
-uniform float u_NormalLength = 0.1;
+uniform float u_NormalLength = 0.5;
 
 layout(location = 0) in vec3 v_ViewSpaceNormal[];
 layout(location = 1) in vec3 v_ViewSpacePosition[];
