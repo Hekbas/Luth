@@ -1,35 +1,49 @@
 {
-  "shader": "0000000000000064",
-  "textures": [
-    {
-      "type": 0,
-      "uuid": "6f563f7eec87e21d",
-      "uv": 0
-    },
-    {
-      "type": 1,
-      "uuid": "9815e2798380537b",
-      "uv": 0
-    },
-    {
-      "type": 2,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 3,
-      "uuid": "f2eac889d3b3c61d",
-      "uv": 0
-    },
-    {
-      "type": 4,
-      "uuid": "c5d46f509b724674",
-      "uv": 0
-    },
-    {
-      "type": 5,
-      "uuid": "8f6ae49bc3d1c9aa",
-      "uv": 0
-    }
-  ]
+    "alpha_cutoff": 0.5,
+    "blend_dst": 3,
+    "blend_src": 2,
+    "render_mode": 0,
+    "shader": "0000000000000064",
+    "textures": [
+        {
+            "type": 0,
+            "uuid": "547e66eec16878c9",
+            "uv": 0
+        },
+        {
+            "type": 1,
+            "uuid": "0000000000000003",
+            "uv": 0
+        },
+        {
+            "type": 2,
+            "uuid": "36138e7a97c73c9e",
+            "uv": 0
+        },
+        {
+            "type": 3,
+            "uuid": "0e07d2dc7b4addbf",
+            "uv": 0
+        },
+        {
+            "type": 4,
+            "uuid": "24dc5efa436dd19d",
+            "uv": 0
+        },
+        {
+            "type": 5,
+            "uuid": "0000000000000003",
+            "uv": 0
+        },
+        {
+            "type": 6,
+            "uuid": "78cf57fb5b0ac034",
+            "uv": 0
+        },
+        {
+            "type": 7,
+            "uuid": "0000000000000003",
+            "uv": 0
+        }
+    ]
 }

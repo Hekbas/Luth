@@ -362,6 +362,12 @@ namespace Luth
                     ImGui::EndDragDropTarget();
                 }
 
+                // [SUPR] Handle texture deletion
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                    material->SetTexture({ UUID(3), type, 0});
+                    ResourceDB::SetDirty(material->GetUUID());
+                }
+
                 // Texture properties
                 if (hasTexture) {
                     ImGui::SameLine();
@@ -380,8 +386,8 @@ namespace Luth
             DrawTextureProperty(TextureType::Metalness, "Metallic");
             DrawTextureProperty(TextureType::Roughness, "Roughness");
             DrawTextureProperty(TextureType::Specular,  "Specular");
-            DrawTextureProperty(TextureType::Emissive,  "Emissive");
             DrawTextureProperty(TextureType::Oclusion,  "Oclusion");
+            DrawTextureProperty(TextureType::Emissive,  "Emissive");
 
             // TODO: Could add color properties, sliders, etc. for each texture channel (too lazy :3)
         }

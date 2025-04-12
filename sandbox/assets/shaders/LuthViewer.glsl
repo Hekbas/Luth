@@ -92,7 +92,7 @@ void main()
         case 2: color = emissive;           break;  // Emissive
         case 3: color = vec3(metallic);     break;  // Metallic
         case 4: color = vec3(roughness);    break;  // Roughness
-        case 5: color = vec3(ao);           break;  // Specular/AO
+        case 5: color = vec3(ao);           break;  // AO
         default:color = vec3(0.0);                  // Fallback
     }
     

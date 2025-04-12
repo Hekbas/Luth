@@ -1,5 +1,5 @@
 {
-    "alpha_cutoff": 0.5,
+    "alpha_cutoff": 0.3779999911785126,
     "blend_dst": 3,
     "blend_src": 2,
     "render_mode": 2,
@@ -7,42 +7,42 @@
     "textures": [
         {
             "type": 0,
-            "uuid": "00097f170102efa2",
+            "uuid": "4157bf8f1512a79b",
             "uv": 0
         },
         {
             "type": 1,
-            "uuid": "093398b9db5b41ae",
+            "uuid": "75626ea62c2bfc1b",
             "uv": 0
         },
         {
             "type": 2,
-            "uuid": "dbd22faf2b768f9c",
+            "uuid": "8b904a7a655f3656",
             "uv": 0
         },
         {
             "type": 3,
-            "uuid": "fdf332c0e9d41a24",
+            "uuid": "318997c82e969836",
             "uv": 0
         },
         {
             "type": 4,
-            "uuid": "d55c5886ffd5505c",
+            "uuid": "ba3a5f380b0011f6",
             "uv": 0
         },
         {
             "type": 5,
-            "uuid": "a762b27d9374174a",
+            "uuid": "0000000000000003",
             "uv": 0
         },
         {
             "type": 6,
-            "uuid": "f5c4e6b6460d6ea3",
+            "uuid": "7089058fa3632bfb",
             "uv": 0
         },
         {
             "type": 7,
-            "uuid": "ec6745b392b302fa",
+            "uuid": "0000000000000003",
             "uv": 0
         }
     ]

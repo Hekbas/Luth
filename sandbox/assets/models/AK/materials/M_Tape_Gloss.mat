@@ -1,35 +1,49 @@
 {
-  "shader": "0000000000000064",
-  "textures": [
-    {
-      "type": 0,
-      "uuid": "9c5c545623b613fa",
-      "uv": 0
-    },
-    {
-      "type": 1,
-      "uuid": "3bc267cb1b9748db",
-      "uv": 0
-    },
-    {
-      "type": 2,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 3,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 4,
-      "uuid": "4054e1e246b18cbc",
-      "uv": 0
-    },
-    {
-      "type": 5,
-      "uuid": "",
-      "uv": 0
-    }
-  ]
+    "alpha_cutoff": 0.5,
+    "blend_dst": 2,
+    "blend_src": 2,
+    "render_mode": 2,
+    "shader": "0000000000000064",
+    "textures": [
+        {
+            "type": 0,
+            "uuid": "ba27d0eadc5b33a2",
+            "uv": 0
+        },
+        {
+            "type": 1,
+            "uuid": "0000000000000003",
+            "uv": 0
+        },
+        {
+            "type": 2,
+            "uuid": "8e31b33b2626dc60",
+            "uv": 0
+        },
+        {
+            "type": 3,
+            "uuid": "3c5271131b64c422",
+            "uv": 0
+        },
+        {
+            "type": 4,
+            "uuid": "bc6330ad6f04d3ee",
+            "uv": 0
+        },
+        {
+            "type": 5,
+            "uuid": "0000000000000003",
+            "uv": 0
+        },
+        {
+            "type": 6,
+            "uuid": "3aaf23af475ac1ab",
+            "uv": 0
+        },
+        {
+            "type": 7,
+            "uuid": "0000000000000003",
+            "uv": 0
+        }
+    ]
 }

@@ -15,14 +15,14 @@
 namespace Luth
 {
     enum class TextureType {
-        Diffuse,
-        Alpha,
-        Normal,
-        Emissive,
-        Metalness,
-        Roughness,
-        Specular,
-        Oclusion
+        Diffuse     = 0,
+        Alpha       = 1,
+        Normal      = 2,
+        Metalness   = 3,
+        Roughness   = 4,
+        Specular    = 5,
+        Oclusion    = 6,
+        Emissive    = 7
     };
 
     struct TextureInfo {
@@ -43,7 +43,11 @@ namespace Luth
 
         // Texture management
         void AddTexture(const TextureInfo& texture) { m_Textures.push_back(texture); }
-        void SetTexture(const TextureInfo& texture) { m_Textures[(int)texture.type] = texture; }
+        void SetTexture(const TextureInfo& texture) {
+            int index = static_cast<int>(texture.type);
+            if (index >= m_Textures.size()) AddTexture(texture);
+            else m_Textures[index] = texture;
+        }
         const std::vector<TextureInfo>& GetTextures() const { return m_Textures; }
 
         std::optional<u32> GetUVIndex(TextureType type) const {
@@ -65,7 +69,7 @@ namespace Luth
         RendererAPI::RenderMode GetRenderMode() const { return m_RenderMode; }
         void SetRenderMode(RendererAPI::RenderMode mode) { m_RenderMode = mode; }
 
-        // Alpha cutoff for Cutout
+        // Alpha cutoff for RenderMode::Cutout
         float GetAlphaCutoff() const { return m_AlphaCutoff; }
         void SetAlphaCutoff(float cutoff) { m_AlphaCutoff = cutoff; }
 

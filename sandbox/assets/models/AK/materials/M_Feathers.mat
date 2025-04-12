@@ -1,35 +1,24 @@
 {
-  "shader": "0000000000000064",
-  "textures": [
-    {
-      "type": 0,
-      "uuid": "940e234ed75703fd",
-      "uv": 0
-    },
-    {
-      "type": 1,
-      "uuid": "cfb4b94f9b221a4b",
-      "uv": 0
-    },
-    {
-      "type": 2,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 3,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 4,
-      "uuid": "",
-      "uv": 0
-    },
-    {
-      "type": 5,
-      "uuid": "f9b8a2cf661784fb",
-      "uv": 0
-    }
-  ]
+    "alpha_cutoff": 0.48500001430511475,
+    "blend_dst": 3,
+    "blend_src": 0,
+    "render_mode": 2,
+    "shader": "0000000000000064",
+    "textures": [
+        {
+            "type": 0,
+            "uuid": "ac15f3c3da5ec3e5",
+            "uv": 0
+        },
+        {
+            "type": 2,
+            "uuid": "769b75c3bf93bb9c",
+            "uv": 0
+        },
+        {
+            "type": 6,
+            "uuid": "89a845f81a9c1f37",
+            "uv": 0
+        }
+    ]
 }
