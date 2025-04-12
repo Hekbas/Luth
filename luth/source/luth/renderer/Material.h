@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/resources/Resource.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/resources/libraries/TextureCache.h"
@@ -60,6 +61,21 @@ namespace Luth
             return nullptr;
         }
 
+        // Render mode
+        RendererAPI::RenderMode GetRenderMode() const { return m_RenderMode; }
+        void SetRenderMode(RendererAPI::RenderMode mode) { m_RenderMode = mode; }
+
+        // Alpha cutoff for Cutout
+        float GetAlphaCutoff() const { return m_AlphaCutoff; }
+        void SetAlphaCutoff(float cutoff) { m_AlphaCutoff = cutoff; }
+
+        // Blend factors
+        void SetBlendSrc(RendererAPI::BlendFactor factor) { m_BlendSrc = factor; }
+        RendererAPI::BlendFactor GetBlendSrc() const { return m_BlendSrc; }
+
+        void SetBlendDst(RendererAPI::BlendFactor factor) { m_BlendDst = factor; }
+        RendererAPI::BlendFactor GetBlendDst() const { return m_BlendDst; }
+
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
@@ -69,6 +85,11 @@ namespace Luth
     private:
         UUID m_ShaderUUID;
         std::vector<TextureInfo> m_Textures;
+
+        RendererAPI::RenderMode m_RenderMode = RendererAPI::RenderMode::Opaque;
+        float m_AlphaCutoff = 0.5f;
+        RendererAPI::BlendFactor m_BlendSrc = RendererAPI::BlendFactor::SrcAlpha;
+        RendererAPI::BlendFactor m_BlendDst = RendererAPI::BlendFactor::OneMinusSrcAlpha;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const TextureType type) {

@@ -111,6 +111,16 @@ namespace Luth
 
     void VKRendererAPI::Clear() {}
 
+    void VKRendererAPI::EnableDepthMask(bool enable) {}
+
+    bool VKRendererAPI::IsDepthMaskEnabled() { return true; }
+
+    void VKRendererAPI::EnableDepthTest(bool enable) {}
+
+    void VKRendererAPI::EnableBlending(bool enable) {}
+
+    void VKRendererAPI::SetBlendFunction(BlendFactor srcFactor, BlendFactor dstFactor) {}
+
     void VKRendererAPI::SubmitMesh(const std::shared_ptr<Mesh>& mesh)
     {
         m_CurrentMesh = std::dynamic_pointer_cast<VKMesh>(mesh);

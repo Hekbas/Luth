@@ -36,11 +36,14 @@ namespace Luth
         virtual void SetClearColor(const glm::vec4& color) override;
         virtual void Clear() override;
 
-        //void EnableDepthTest(bool enable) override;
-        //bool IsDepthTestEnabled() const override { return true; }
-        //
-        //void EnableBlending(bool enable) override;
-        //void SetBlendFunction(u32 srcFactor, u32 dstFactor) override;
+        virtual void EnableDepthMask(bool enable) override;
+        virtual bool IsDepthMaskEnabled() override;
+
+        virtual void EnableDepthTest(bool enable) override;
+        virtual bool IsDepthTestEnabled() const override { return true; }
+
+        virtual void EnableBlending(bool enable) override;
+        virtual void SetBlendFunction(BlendFactor srcFactor, BlendFactor dstFactor) override;
 
         virtual void SubmitMesh(const std::shared_ptr<Mesh>& mesh) override;
 

@@ -3,12 +3,13 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/core/Math.h"
 #include "luth/renderer/Framebuffer.h"
-#include "luth/renderer/Mesh.h"
 
 #include <memory>
 
 namespace Luth
 {
+    class Mesh;
+
     class RendererAPI
     {
     public:
@@ -18,6 +19,9 @@ namespace Luth
             OpenGL,
             Vulkan //TODO :')
         };
+
+        enum class RenderMode { Opaque, Cutout, Transparent, Fade };
+        enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
 
         virtual ~RendererAPI() = default;
 
@@ -30,11 +34,14 @@ namespace Luth
         virtual void SetClearColor(const glm::vec4& color) = 0;
         virtual void Clear() = 0;
 
-        //virtual void EnableDepthTest(bool enable) = 0;
-        //virtual bool IsDepthTestEnabled() const = 0;
-        // 
-        //virtual void EnableBlending(bool enable) = 0;
-        //virtual void SetBlendFunction(u32 srcFactor, u32 dstFactor) = 0;
+        virtual void EnableDepthMask(bool enable) = 0;
+        virtual bool IsDepthMaskEnabled() = 0;
+
+        virtual void EnableDepthTest(bool enable) = 0;
+        virtual bool IsDepthTestEnabled() const = 0;
+         
+        virtual void EnableBlending(bool enable) = 0;
+        virtual void SetBlendFunction(BlendFactor srcFactor, BlendFactor dstFactor) = 0;
 
         virtual void SubmitMesh(const std::shared_ptr<Mesh>& mesh) = 0;
 

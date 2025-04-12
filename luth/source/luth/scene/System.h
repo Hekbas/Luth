@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/scene/Components.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/renderer/Material.h"
 #include "luth/resources/libraries/ModelLibrary.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
@@ -20,44 +21,104 @@ namespace Luth
     {
     public:
         void Update(entt::registry& registry) override {
+            struct RenderCommand {
+                entt::entity entity;
+                Transform* transform;
+                MeshRenderer* meshRend;
+                float distance;
+            };
+
+            // TODO: Implement actual camera position
+            //auto cameraPos = GetActiveCameraPosition();
+            auto cameraPos = Vec3(40.0f, 20.0f, 40.0f);
+
+            std::vector<RenderCommand> opaqueCommands, transparentCommands;
+
+            // Collect entities
             auto view = registry.view<Transform, MeshRenderer>();
 
-            view.each([this](auto entity, Transform& transform, MeshRenderer& meshRend) {
-                // Get resources from UUIDs
-                auto model = ModelLibrary::Get(meshRend.ModelUUID);
+            for (auto [entity, transform, meshRend] : view.each()) {
                 auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
-
-                if (!model) {
-                    LH_CORE_WARN("MeshRenderer missing model reference");
-                    return;
-                }
-
-                // Validate mesh index
-                const auto& meshes = model->GetMeshes();
-                if (meshRend.MeshIndex >= meshes.size()) {
-                    LH_CORE_ERROR("Invalid mesh index: {0}", meshRend.MeshIndex);
-                    return;
-                }
-
                 if (!material) material = MaterialLibrary::Get(UUID(7));
 
-                // Get shader and setup transform
-                auto shader = m_Override ? m_ShaderOverride : material->GetShader();
-                if (!shader) {
-                    LH_CORE_WARN("Invalid shader for material");
-                    return;
+                RenderCommand cmd{ entity, &transform, &meshRend };
+
+                if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
+                    material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
+                    opaqueCommands.push_back(cmd);
                 }
+                else {
+                    // Calculate distance from camera
+                    //Vec3 pos = transform.GetWorldPosition();
+                    Vec3 pos = Vec3(0.0f, 0.0f, 0.0f);
+                    cmd.distance = glm::distance(cameraPos, pos);
+                    transparentCommands.push_back(cmd);
+                }
+            }
 
-                //const glm::mat4 modelMatrix = CalculateModelMatrix(transform);
-                shader->Bind();
-                //shader->SetMat4("u_Model", transform.GetTransform());
+            // Sort transparent commands back-to-front
+            std::sort(transparentCommands.begin(), transparentCommands.end(),
+                [](const auto& a, const auto& b) { return a.distance > b.distance; });
 
-                // Bind material properties
-                BindMaterialTextures(material, shader);
+            // Render opaque objects
+            for (const auto& cmd : opaqueCommands) {
+                RenderMesh(*cmd.transform, *cmd.meshRend, true);
+            }
 
-                // Draw the mesh
-                meshes[meshRend.MeshIndex]->Draw();
-            });
+            // Render transparent objects
+            for (const auto& cmd : transparentCommands) {
+                RenderMesh(*cmd.transform, *cmd.meshRend, false);
+            }
+        }
+
+        void RenderMesh(Transform& transform, MeshRenderer& meshRend, bool isOpaque) {
+            // Get resources from UUIDs
+            auto model = ModelLibrary::Get(meshRend.ModelUUID);
+            auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
+
+            if (!model) {
+                LH_CORE_WARN("MeshRenderer missing model reference");
+                return;
+            }
+
+            // Validate mesh index
+            const auto& meshes = model->GetMeshes();
+            if (meshRend.MeshIndex >= meshes.size()) {
+                LH_CORE_ERROR("Invalid mesh index: {0}", meshRend.MeshIndex);
+                return;
+            }
+
+            if (!material) material = MaterialLibrary::Get(UUID(7));
+
+            // Get shader and setup transform
+            auto shader = m_Override ? m_ShaderOverride : material->GetShader();
+            if (!shader) {
+                LH_CORE_WARN("Invalid shader for material");
+                return;
+            }
+
+            // Set shader uniforms
+            shader->Bind();
+            //shader->SetMat4("u_Model", transform.GetTransform());
+            shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));
+
+            // Handle Cutoff
+            if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
+                shader->SetFloat("u_AlphaCutoff", material->GetAlphaCutoff());
+            }
+
+            // Configure render states
+            if (isOpaque) {
+                Renderer::EnableBlending(false);
+            }
+            else {
+                Renderer::EnableBlending(true);
+                Renderer::SetBlendFunction(material->GetBlendSrc(), material->GetBlendDst());
+            }
+
+            // Bind textures and draw
+            BindMaterialTextures(material, shader);
+            meshes[meshRend.MeshIndex]->Draw();
         }
 
         void SetShaderOverride(bool override, UUID uuid) { 

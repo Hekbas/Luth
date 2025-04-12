@@ -269,6 +269,7 @@ namespace Luth
                         bool selected;
                         if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
                             material->SetShaderUUID(uuid);
+                            ResourceDB::SetDirty(material->GetUUID());
                         }
                     }
                     ImGui::EndCombo();
@@ -279,12 +280,42 @@ namespace Luth
             }
 
             // Render mode
-            const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
-            static int currentRenderMode = 0;
+            RendererAPI::RenderMode currentMode = material->GetRenderMode();
+            int modeIndex = static_cast<int>(currentMode);
+
             ImGui::Text("Render Mode");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            ImGui::Combo("##RenderMode", &currentRenderMode, renderModes, IM_ARRAYSIZE(renderModes));
+            const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
+            if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
+                material->SetRenderMode(static_cast<RendererAPI::RenderMode>(modeIndex));
+                ResourceDB::SetDirty(material->GetUUID());
+            }
+
+            if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
+                float cutoff = material->GetAlphaCutoff();
+                if (ImGui::SliderFloat("Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
+                    material->SetAlphaCutoff(cutoff);
+                }
+            }
+
+            if (material->GetRenderMode() == RendererAPI::RenderMode::Transparent ||
+                material->GetRenderMode() == RendererAPI::RenderMode::Fade)
+            {
+                int srcFactor = static_cast<int>(material->GetBlendSrc());
+                int dstFactor = static_cast<int>(material->GetBlendDst());
+
+                const char* blendFactors[] = { "Zero", "One", "SrcAlpha", "OneMinusSrcAlpha" };
+
+                if (ImGui::Combo("Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                    material->SetBlendSrc(static_cast<RendererAPI::BlendFactor>(srcFactor));
+                    ResourceDB::SetDirty(material->GetUUID());
+                }
+
+                if (ImGui::Combo("Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                    material->SetBlendDst(static_cast<RendererAPI::BlendFactor>(dstFactor));
+                    ResourceDB::SetDirty(material->GetUUID());
+                }
+            }
 
             ImGui::Dummy({ 0, 4 });
 

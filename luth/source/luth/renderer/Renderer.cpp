@@ -41,6 +41,26 @@ namespace Luth
         s_RendererAPI->Clear();
     }
 
+    void Renderer::EnableDepthMask(bool enable) {
+        s_RendererAPI->EnableDepthMask(enable);
+    }
+
+    bool Renderer::IsDepthMaskEnabled() {
+        return s_RendererAPI->IsDepthMaskEnabled();
+    }
+
+    void Renderer::EnableDepthTest(bool enable) {
+        s_RendererAPI->EnableDepthTest(enable);
+    }
+
+    void Renderer::EnableBlending(bool enable) {
+        s_RendererAPI->EnableBlending(enable);
+    }
+
+    void Renderer::SetBlendFunction(RendererAPI::BlendFactor srcFactor, RendererAPI::BlendFactor dstFactor) {
+        s_RendererAPI->SetBlendFunction(srcFactor, dstFactor);
+    }
+
     void Renderer::SubmitMesh(const std::shared_ptr<Mesh>& mesh) {
         s_RendererAPI->SubmitMesh(mesh);
     }

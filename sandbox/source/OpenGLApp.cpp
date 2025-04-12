@@ -24,51 +24,6 @@ namespace Luth
     void OpenGLApp::OnInit()
     {
         InitUniformBuffer();
-        //LoadShader();
-        
-        //std::shared_ptr model = Resources::Load<Model>("mf/mf_f2.fbx");
-        //std::shared_ptr model = Resources::Load<Model>("xeno/XenoRaven.fbx");
-        //std::shared_ptr model = Resources::Load<Model>("lagiacrus/LagiacrusHead.fbx");
-        //std::shared_ptr model = Resources::Load<Model>("AK/RAINIER_AK.fbx");
-
-        //std::shared_ptr shader = Resources::Load<Shader>("triangle.glsl");
-        //shader->Bind();
-        //shader->SetInt("u_TexDiffuse",   0);
-        //shader->SetInt("u_TexNormal",    1);
-        //shader->SetInt("u_TexEmissive",  2);
-        //shader->SetInt("u_TexMetallic",  3);
-        //shader->SetInt("u_TexRoughness", 4);
-        //shader->SetInt("u_TexSpecular",  5);
-
-        //for (auto& meshData : model->GetMeshes()) {
-
-        //    // Create Material
-        //    auto& material = model->GetMaterials()[meshData.materialIndex];
-
-        //    material.SetShader(shader);
-        //    std::vector<std::shared_ptr<Texture>> textures;
-
-        //    for (auto texture : material.GetTextures()) {
-        //        textures.push_back(Resources::Load<Texture>(texture.path));
-        //    }
-
-        //    //MaterialLibrary::Add("", material);
-
-        //    // Create buffers
-        //    auto vb = std::make_shared<GLVertexBuffer>(meshData.vertices.data(),
-        //        meshData.vertices.size() * sizeof(Vertex));
-        //    vb->SetLayout({ { ShaderDataType::Float3, "a_Position"  },
-        //                    { ShaderDataType::Float3, "a_Normal"    },
-        //                    { ShaderDataType::Float2, "a_TexCoord0" },
-        //                    { ShaderDataType::Float2, "a_TexCoord1" },
-        //                    { ShaderDataType::Float3, "a_Tangent"   } }
-        //    );
-
-        //    auto ib = std::make_shared<GLIndexBuffer>(meshData.indices.data(),
-        //        meshData.indices.size());
-
-        //    Renderer::SubmitMesh(Mesh::Create(vb, ib, std::make_shared<Material>(material)));
-        //}
     }
 
     void OpenGLApp::OnUpdate()
@@ -79,9 +34,10 @@ namespace Luth
             Vec3(0.0f, 1.0f, 0.0f)
         );
         Mat4 view = glm::lookAt(
-            //Vec3(1200.0f, 800.0f, 1200.0f),
-            Vec3(40.0f, 20.0f, 40.0f),
+            //Vec3(1200.0f, 800.0f, 1200.0f),   
+            Vec3(40.0f, 20.0f, 40.0f),        // robots
             //Vec3(12.0f, 10.0f, 12.0f),
+            //Vec3(250.0f, 200.0f, 250.0f),       // mf 
             Vec3(0.0f, 10.0f, 0.0f),
             Vec3(0.0f, 1.0f, 0.0f)
         );

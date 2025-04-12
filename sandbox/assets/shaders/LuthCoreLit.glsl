@@ -75,6 +75,9 @@ uniform int u_UVIndexRoughness;
 uniform int u_UVIndexSpecular;
 uniform int u_UVIndexOclusion;
 
+uniform int u_RenderMode;       // 0 = Opaque, 1 = Cutout, 2 = Transparent, 3 = Fade
+uniform float u_AlphaCutoff;    // For cutout mode
+
 const float PI = 3.14159265359;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -110,14 +113,13 @@ void main()
     //float specular  = texture(u_TexSpecular,  u_UVIndexSpecular  == 0 ? v_TexCoord0 : v_TexCoord1).r;
     float ao        = texture(u_TexOclusion,  u_UVIndexOclusion  == 0 ? v_TexCoord0 : v_TexCoord1).r;
 
-    // Discard fragment bellow alpha threshold
-    if (alpha < 0.05) {
-        discard;
-    }
+    // Handle render modes
+    if (u_RenderMode == 1 && alpha < u_AlphaCutoff) discard;
+    if (u_RenderMode == 0) alpha = 1.0;
 
     // Compute world normal from normal map
     mat3 TBN = mat3(normalize(v_Tangent), normalize(v_Bitangent), normalize(v_Normal));
-    vec3 N = normalize(TBN * normal);
+    vec3 N = normalize(TBN * (normal * 2.0 - 1.0));
 
     // View direction
     mat4 invView = inverse(ubo.view);
@@ -130,7 +132,7 @@ void main()
     vec3 L = normalize(lightDir);
     vec3 H = normalize(V + L);
 
-    vec3 F0 = mix(vec3(0.04), albedo, metallic); // specular map as ab metakllic refl calc.
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
     // BRDF components
@@ -149,5 +151,5 @@ void main()
 
     // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(color, alpha);
 }

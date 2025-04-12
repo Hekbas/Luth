@@ -22,6 +22,15 @@ namespace Luth
         static void SetClearColor(const glm::vec4& color);
         static void Clear();
 
+        static void EnableDepthMask(bool enable);
+        static bool IsDepthMaskEnabled();
+
+        static void EnableDepthTest(bool enable);
+        static bool IsDepthTestEnabled() { return true; }
+         
+        static void EnableBlending(bool enable);
+        static void SetBlendFunction(RendererAPI::BlendFactor srcFactor, RendererAPI::BlendFactor dstFactor) ;
+
         static void SubmitMesh(const std::shared_ptr<Mesh>& mesh);
 
         static void DrawIndexed(uint32_t count);
