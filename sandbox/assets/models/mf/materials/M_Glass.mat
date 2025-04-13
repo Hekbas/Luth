@@ -1,7 +1,14 @@
 {
+    "alpha": 0.75,
     "alpha_cutoff": 0.7630000114440918,
-    "blend_dst": 1,
-    "blend_src": 1,
+    "blend_dst": 3,
+    "blend_src": 2,
+    "color": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+    ],
     "render_mode": 2,
     "shader": "0000000000000064",
     "textures": [

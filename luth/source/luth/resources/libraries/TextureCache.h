@@ -31,6 +31,7 @@ namespace Luth
         static std::shared_ptr<Texture> GetDefaultWhite() { return s_White; }
         static std::shared_ptr<Texture> GetDefaultBlack() { return s_Black; }
         static std::shared_ptr<Texture> GetDefaultGrey() { return s_Grey; }
+        static std::shared_ptr<Texture> GetDefaultNormal() { return s_Normal; }
         static std::shared_ptr<Texture> GetDefaultMissing() { return s_Missing; }
 
         static std::shared_ptr<Texture> Load(const fs::path& path);
@@ -53,6 +54,7 @@ namespace Luth
         static std::shared_ptr<Texture> s_White;
         static std::shared_ptr<Texture> s_Black;
         static std::shared_ptr<Texture> s_Grey;
+        static std::shared_ptr<Texture> s_Normal;
         static std::shared_ptr<Texture> s_Missing;
 	};
 }

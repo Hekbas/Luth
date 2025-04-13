@@ -12,6 +12,9 @@ namespace Luth
         json["blend_src"] = static_cast<int>(m_BlendSrc);
         json["blend_dst"] = static_cast<int>(m_BlendDst);
 
+        json["color"] = { m_Color.r, m_Color.g, m_Color.b, m_Color.a };
+        json["alpha"] = m_Alpha;
+
         json["textures"] = nlohmann::json::array();
         for (const auto& tex : m_Textures) {
             nlohmann::json texJson;
@@ -32,6 +35,13 @@ namespace Luth
             static_cast<int>(RendererAPI::BlendFactor::SrcAlpha)));
         m_BlendDst = static_cast<RendererAPI::BlendFactor>(json.value("blend_dst",
             static_cast<int>(RendererAPI::BlendFactor::OneMinusSrcAlpha)));
+
+        if (json.contains("color")) {
+            auto& jc = json["color"];
+            m_Color = glm::vec4( jc[0].get<float>(), jc[1].get<float>(),
+                jc[2].get<float>(), jc[3].get<float>());
+        }
+        m_Alpha = json.value("alpha", 1.0f);
 
         m_Textures.clear();
         for (const auto& texJson : json["textures"]) {

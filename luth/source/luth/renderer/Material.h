@@ -80,6 +80,15 @@ namespace Luth
         void SetBlendDst(RendererAPI::BlendFactor factor) { m_BlendDst = factor; }
         RendererAPI::BlendFactor GetBlendDst() const { return m_BlendDst; }
 
+        void EnableAlphaFromDiffuse(bool enable) { m_AlphaFromDiffuse = enable; }
+        bool IsAlphaFromDiffuseEnabled() const { return m_AlphaFromDiffuse; }
+
+        Vec4 GetColor() const { return m_Color; }
+        void SetColor(Vec4 color) { m_Color = color; }
+
+        float GetAlpha() const { return m_Alpha; }
+        void SetAlpha(float alpha) { m_Alpha = alpha; }
+
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
@@ -94,6 +103,10 @@ namespace Luth
         float m_AlphaCutoff = 0.5f;
         RendererAPI::BlendFactor m_BlendSrc = RendererAPI::BlendFactor::SrcAlpha;
         RendererAPI::BlendFactor m_BlendDst = RendererAPI::BlendFactor::OneMinusSrcAlpha;
+        bool m_AlphaFromDiffuse = false;
+
+        Vec4 m_Color = Vec4(1);
+        float m_Alpha = 1.0;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const TextureType type) {

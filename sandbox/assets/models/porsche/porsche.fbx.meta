@@ -1,0 +1,24 @@
+{
+    "dependencies": {
+        "0": "f6e179d168643165",
+        "1": "3807aed4a21702c3",
+        "10": "f33124febd5a120f",
+        "11": "71ba134b1f8d3e0b",
+        "12": "e25ed6283d6abcdc",
+        "2": "7d590bbca20b0798",
+        "3": "35f32bacbc39fb3e",
+        "4": "73d05807d94dfffd",
+        "5": "c64fe050d9e37654",
+        "6": "867f0bf4b2657b8f",
+        "7": "42dc57feba3e44b8",
+        "8": "68e4b2202baccdf7",
+        "9": "5613d767a39c0a21"
+    },
+    "type_settings": {
+        "import_normals": true,
+        "import_tangents": false,
+        "optimize_mesh": true
+    },
+    "uuid": "5f338f0a6814c21e",
+    "version": 1
+}

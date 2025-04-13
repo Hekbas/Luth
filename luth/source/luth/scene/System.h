@@ -102,10 +102,14 @@ namespace Luth
             //shader->SetMat4("u_Model", transform.GetTransform());
             shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));
 
-            // Handle Cutoff
             if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
                 shader->SetFloat("u_AlphaCutoff", material->GetAlphaCutoff());
             }
+            if (material->GetRenderMode() == RendererAPI::RenderMode::Transparent) {
+                shader->SetBool("u_AlphaFromDiffuse", material->IsAlphaFromDiffuseEnabled());
+                shader->SetFloat("u_Alpha", material->GetAlpha());
+            }
+            shader->SetVec4("u_Color", material->GetColor());
 
             // Configure render states
             if (isOpaque) {
@@ -148,7 +152,7 @@ namespace Luth
                         shader->SetInt("u_UVIndexAlpha", texInfo.uvIndex);
                         break;
                     case TextureType::Normal:
-                        if (!texture) texture = TextureCache::GetDefaultGrey();
+                        if (!texture) texture = TextureCache::GetDefaultNormal();
                         shader->SetInt("u_TexNormal", slot);
                         shader->SetInt("u_UVIndexNormal", texInfo.uvIndex);
                         break;

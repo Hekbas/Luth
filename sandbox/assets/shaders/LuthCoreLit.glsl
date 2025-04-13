@@ -77,6 +77,9 @@ uniform int u_UVIndexOclusion;
 
 uniform int u_RenderMode;       // 0 = Opaque, 1 = Cutout, 2 = Transparent, 3 = Fade
 uniform float u_AlphaCutoff;    // For cutout mode
+uniform int u_AlphaFromDiffuse;
+uniform vec4 u_Color;
+uniform float u_Alpha;
 
 const float PI = 3.14159265359;
 
@@ -104,8 +107,9 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 
 void main()
 {
-    vec3 albedo     = texture(u_TexDiffuse,   u_UVIndexDiffuse   == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
-    float alpha     = texture(u_TexAlpha,     u_UVIndexAlpha     == 0 ? v_TexCoord0 : v_TexCoord1).r;
+    vec4 albedoRGBA = texture(u_TexDiffuse,   u_UVIndexDiffuse   == 0 ? v_TexCoord0 : v_TexCoord1).rgba;
+    vec3 albedo = albedoRGBA.rgb * u_Color.rgb;
+    float alpha = u_AlphaFromDiffuse == 1 ? albedoRGBA.a : texture(u_TexAlpha, u_UVIndexAlpha == 0 ? v_TexCoord0 : v_TexCoord1).r * u_Alpha;    
     vec3 normal     = texture(u_TexNormal,    u_UVIndexNormal    == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
     vec3 emissive   = texture(u_TexEmissive,  u_UVIndexEmissive  == 0 ? v_TexCoord0 : v_TexCoord1).rgb;
     float metallic  = texture(u_TexMetallic,  u_UVIndexMetallic  == 0 ? v_TexCoord0 : v_TexCoord1).r;

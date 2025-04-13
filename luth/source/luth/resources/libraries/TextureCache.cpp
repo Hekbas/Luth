@@ -10,6 +10,7 @@ namespace Luth
     std::shared_ptr<Texture> TextureCache::s_White;
     std::shared_ptr<Texture> TextureCache::s_Black;
     std::shared_ptr<Texture> TextureCache::s_Grey;
+    std::shared_ptr<Texture> TextureCache::s_Normal;
     std::shared_ptr<Texture> TextureCache::s_Missing;
 
     void TextureCache::Init()
@@ -230,6 +231,11 @@ namespace Luth
         s_Grey = Create(1, 1, 4, greyData);
         s_Grey->SetUUID(UUID(2));
         s_Grey->SetName("DefaultGrey");
+
+        unsigned char normalData[] = { 128, 128, 255, 255 };
+        s_Normal = Create(1, 1, 4, normalData);
+        s_Normal->SetUUID(UUID(4));
+        s_Normal->SetName("DefaultNormal");
 
         // Checkerboard missing texture
         unsigned char missingData[16 * 16 * 4];
