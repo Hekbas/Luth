@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
-#include "luth/scene/Systems.h"
+#include "luth/ECS/Systems.h"
 
 namespace Luth
 {
@@ -23,7 +23,7 @@ namespace Luth
         // Shader override section
         ImGui::SeparatorText("Shader Override");
         if (ImGui::Checkbox("##Override Shader", &m_IsShaderOverride)) {
-            m_RenderingSystem.lock()->SetShaderOverride(m_IsShaderOverride, m_ShaderOverride);
+            //m_RenderingSystem.lock()->SetShaderOverride(m_IsShaderOverride, m_ShaderOverride);
         }
         ImGui::SameLine();
         if (auto shader = ShaderLibrary::Get(m_ShaderOverride)) {
@@ -33,7 +33,7 @@ namespace Luth
                     bool selected;
                     if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
                         m_ShaderOverride = uuid;
-                        m_RenderingSystem.lock()->SetShaderOverride(m_IsShaderOverride, m_ShaderOverride);
+                        //m_RenderingSystem.lock()->SetShaderOverride(m_IsShaderOverride, m_ShaderOverride);
                     }
                 }
                 ImGui::EndCombo();

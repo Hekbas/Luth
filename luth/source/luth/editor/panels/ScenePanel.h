@@ -1,7 +1,8 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
-#include "luth/scene/Entity.h"
+#include "luth/ECS/Entity.h"
+#include "luth/ECS/systems/RenderingSystem.h"
 
 namespace Luth
 {
@@ -53,24 +54,22 @@ namespace Luth
     class ScenePanel : public Panel
     {
     public:
-        ScenePanel();
+        ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem);
 
         void OnInit() override;
         void OnRender() override;
 
         void SetContext(const std::shared_ptr<Scene>& context) { m_Context = context; }
 
-        std::shared_ptr<Framebuffer> GetFramebuffer() { return m_Framebuffer; }
-
         bool IsViewportFocused() const { return m_IsFocused; }
         bool IsViewportHovered() const { return m_IsHovered; }
 
     private:
         std::shared_ptr<Scene> m_Context;
-        std::shared_ptr<Framebuffer> m_Framebuffer;
-        EditorCamera m_EditorCamera;
+        std::shared_ptr<RenderingSystem> m_RenderingSystem;
+        Camera m_EditorCamera;
 
-        glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
+        Vec2 m_ViewportSize = { 0.0f, 0.0f };
         bool m_IsFocused = false;
         bool m_IsHovered = false;
 

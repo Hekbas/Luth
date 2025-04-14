@@ -42,7 +42,8 @@ namespace Luth
     {
         if (framebuffer) {
             glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->GetRendererID());
-            Renderer::SetViewport(0, 0, framebuffer->GetWidth(), framebuffer->GetHeight());
+            auto spec = framebuffer->GetSpecification();
+            Renderer::SetViewport(0, 0, spec.Width, spec.Height);
         }
         else {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -78,6 +79,7 @@ namespace Luth
     {
         GLboolean currentState;
         glGetBooleanv(GL_DEPTH_WRITEMASK, &currentState);
+        LH_GL_CHECK_ERROR();
         return currentState == GL_TRUE;
     }
 

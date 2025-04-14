@@ -1,7 +1,6 @@
 #include "luthpch.h"
-#include "luth/scene/Systems.h"
-#include "luth/editor/Editor.h"
-#include "luth/editor/panels/HierarchyPanel.h"
+#include "luth/ECS/Systems.h"
+#include "luth/ECS/systems/RenderingSystem.h"
 
 namespace Luth
 {

@@ -1,12 +1,12 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
-#include "luth/scene/Components.h"
+#include "luth/ECS/Components.h"
 #include "luth/resources/Resources.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/ResourceDB.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/scene/Systems.h"
+#include "luth/ECS/Systems.h"
 #include "luth/utils/ImGuiUtils.h"
 
 #include <imgui.h>

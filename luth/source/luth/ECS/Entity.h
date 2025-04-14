@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/Math.h"
-#include "luth/scene/Scene.h"
+#include "luth/ECS/Scene.h"
 
 #include <entt/entt.hpp>
 

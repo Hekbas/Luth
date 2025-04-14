@@ -1,8 +1,8 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
-#include "luth/scene/Entity.h"
-#include "luth/scene/Scene.h"
+#include "luth/ECS/Entity.h"
+#include "luth/ECS/Scene.h"
 #include "luth/editor/panels/InspectorPanel.h"
 
 namespace Luth

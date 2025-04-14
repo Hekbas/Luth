@@ -1,8 +1,9 @@
 #include "luthpch.h"
 #include "luth/editor/Editor.h"
-#include "luth/renderer/Renderer.h"
 #include "luth/window/WinWindow.h"
-
+#include "luth/ECS/Systems.h"
+#include "luth/ECS/systems/RenderingSystem.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/resources/FileSystem.h"
 
 #include "luth/editor/panels/HierarchyPanel.h"
@@ -44,12 +45,14 @@ namespace Luth
             LH_CORE_WARN("ImGui not yet implemented for Vulkan");
         }
 
+        auto technique = Systems::GetSystem<RenderingSystem>();
+
         // Set Panels
         AddPanel(new HierarchyPanel());
         AddPanel(new InspectorPanel());
         AddPanel(new ProjectPanel());
         AddPanel(new ResourcePanel());
-        AddPanel(new ScenePanel());
+        AddPanel(new ScenePanel(technique));
         AddPanel(new RenderPanel());
 
         // Init all panels

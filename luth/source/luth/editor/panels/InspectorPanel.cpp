@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
-#include "luth/scene/Components.h"
+#include "luth/ECS/Components.h"
 #include "luth/resources/ResourceDB.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
 #include "luth/resources/libraries/ModelLibrary.h"

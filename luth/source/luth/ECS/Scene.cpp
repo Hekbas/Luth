@@ -1,6 +1,6 @@
 #include "luthpch.h"
-#include "luth/scene/Scene.h"
-#include "luth/scene/Components.h"
+#include "luth/ECS/Scene.h"
+#include "luth/ECS/Components.h"
 
 namespace Luth
 {

@@ -1,62 +1,62 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ScenePanel.h"
-#include "luth/scene/Components.h"
+#include "luth/ECS/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Framebuffer.h"
 #include "luth/utils/ImGuiUtils.h"
 
 namespace Luth
 {
-	ScenePanel::ScenePanel()
+    ScenePanel::ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem)
+        : m_RenderingSystem(renderingSystem)
     {
         LH_CORE_INFO("Created Scene panel");
     }
 
-	void ScenePanel::OnInit()
-	{
-		// Create framebuffer for scene rendering
-		Framebuffer::Spec spec;
-		spec.Width = 1280;
-		spec.Height = 720;
-		m_Framebuffer = Framebuffer::Create(spec);
-	}
+    void ScenePanel::OnInit() {}
 
-	void ScenePanel::OnRender()
-	{
-		if (ImGui::Begin("Scene"))
-		{
+    void ScenePanel::OnRender()
+    {
+        if (ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoScrollbar)) {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-            ImGui::Begin("Scene");
 
-            // Viewport / Framebuffer resizing
-            glm::vec2 newViewportSize = ToGlmVec2(ImGui::GetContentRegionAvail());
-            if (newViewportSize != m_ViewportSize && newViewportSize.x > 0 && newViewportSize.y > 0) {
-                m_ViewportSize = newViewportSize;
+            // Viewport sizing
+            const glm::vec2 newSize = ToGlmVec2(ImGui::GetContentRegionAvail());
+            if (newSize != m_ViewportSize && newSize.x > 0 && newSize.y > 0) {
+                m_ViewportSize = newSize;
 
-                if (m_Framebuffer) {
-                    m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+                // Update rendering system and camera
+                m_RenderingSystem->Resize((u32)m_ViewportSize.x, (u32)m_ViewportSize.y);
 
-                    // TODO: Update camera
-                    // m_Camera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-                }
+                /*if (m_ViewportCamera) {
+                    m_ViewportCamera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+                }*/
             }
 
-            // Render framebuffer to viewport
-            uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-            ImGui::Image(textureID, ToImVec2(m_ViewportSize), ImVec2(0, 1), ImVec2(1, 0));
+            // Get final output from active rendering technique
+            if (auto technique = m_RenderingSystem->GetActiveTechnique()) {
+                const uint32_t textureID = technique->GetFinalColorAttachment();
+                ImGui::Image(textureID, ToImVec2(m_ViewportSize), { 0, 1 }, { 1, 0 });
+            }
 
-            // Handle viewport focus
+            // Interaction states
             m_IsFocused = ImGui::IsWindowFocused();
             m_IsHovered = ImGui::IsWindowHovered();
 
             // Handle gizmos
             //DrawGizmos();
 
-            ImGui::End();
             ImGui::PopStyleVar();
-		}
-		ImGui::End();
-	}
+        }
+        ImGui::End();
+    }
+
+    /*void ScenePanel::SetViewportCamera(const std::shared_ptr<Camera>& camera) {
+        m_ViewportCamera = camera;
+        if (m_ViewportCamera) {
+            m_ViewportCamera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+        }
+    }*/
 
 
     // Editor Camera

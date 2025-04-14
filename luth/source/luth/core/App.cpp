@@ -8,7 +8,7 @@
 #include "luth/resources/Resources.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
-#include "luth/scene/Systems.h"
+#include "luth/ECS/Systems.h"
 
 namespace Luth
 {
@@ -58,21 +58,16 @@ namespace Luth
 
             if (!m_Window->IsMinimized())
             {
-                auto sceneFb = Editor::GetPanel<ScenePanel>()->GetFramebuffer();
-                Renderer::BindFramebuffer(sceneFb);
-                Renderer::Clear();
-                Systems::Update();
-                Renderer::DrawFrame();
-                Renderer::BindFramebuffer(nullptr);
-            }
+                Systems::Update<RenderingSystem>();
 
-            // Render UI (not yet implemented in vulkan)
-            if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-            {
-                Editor::BeginFrame();
-                Editor::Render();
-                OnUIRender();
-                Editor::EndFrame();
+                // Render UI (not yet implemented in vulkan)
+                if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
+                {
+                    Editor::BeginFrame();
+                    Editor::Render();
+                    OnUIRender();
+                    Editor::EndFrame();
+                }
             }
 
             m_Window->SwapBuffers();
