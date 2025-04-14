@@ -4,6 +4,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Framebuffer.h"
 #include "luth/utils/ImGuiUtils.h"
+#include "luth/events/RenderEvent.h"
 
 namespace Luth
 {
@@ -11,6 +12,10 @@ namespace Luth
         : m_RenderingSystem(renderingSystem)
     {
         LH_CORE_INFO("Created Scene panel");
+
+        EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) { 
+            HandleRenderResize(e);
+        });
     }
 
     void ScenePanel::OnInit() {}
@@ -21,12 +26,12 @@ namespace Luth
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
             // Viewport sizing
-            const glm::vec2 newSize = ToGlmVec2(ImGui::GetContentRegionAvail());
+            const Vec2 newSize = ToGlmVec2(ImGui::GetContentRegionAvail());
             if (newSize != m_ViewportSize && newSize.x > 0 && newSize.y > 0) {
                 m_ViewportSize = newSize;
 
                 // Update rendering system and camera
-                m_RenderingSystem->Resize((u32)m_ViewportSize.x, (u32)m_ViewportSize.y);
+                EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newSize.x, newSize.y);
 
                 /*if (m_ViewportCamera) {
                     m_ViewportCamera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
@@ -57,6 +62,17 @@ namespace Luth
             m_ViewportCamera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
         }
     }*/
+
+    void ScenePanel::HandleRenderResize(Event& e)
+    {
+        if (e.IsInCategory(EventCategoryRender)) {
+            auto& resizeEvent = static_cast<RenderResizeEvent&>(e);
+            m_RenderingSystem->Resize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
+            m_EditorCamera.SetViewportSize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
+            m_ViewportSize = { resizeEvent.GetWidth(), resizeEvent.GetHeight() };
+            e.m_Handled = true;
+        }
+    }
 
 
     // Editor Camera

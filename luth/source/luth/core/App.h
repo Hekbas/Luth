@@ -33,12 +33,9 @@ namespace Luth
         void OnWindowClose(WindowCloseEvent& e);
         void OnFileDrop(FileDropEvent& e);
 
-    private:
         std::unique_ptr<Window> m_Window;
-        std::shared_ptr<EventBus> m_MainThreadEventBus;
 
         bool m_Running = true;
-        f32 m_LastFrameTime = 0.0f;
     };
 
     App* CreateApp(int argc, char** argv);

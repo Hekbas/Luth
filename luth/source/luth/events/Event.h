@@ -12,7 +12,8 @@ namespace Luth
         EventCategoryKeyboard       = 1 << 2,
         EventCategoryMouse          = 1 << 3,
         EventCategoryMouseButton    = 1 << 4,
-        EventCategoryFileDrop       = 1 << 5
+        EventCategoryFileDrop       = 1 << 5,
+        EventCategoryRender         = 1 << 6
     };
 
     class Event

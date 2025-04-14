@@ -3,6 +3,8 @@
 #include "luth/editor/Editor.h"
 #include "luth/ECS/Entity.h"
 #include "luth/ECS/systems/RenderingSystem.h"
+#include "luth/events/Event.h"
+#include "luth/events/EventBus.h"
 
 namespace Luth
 {
@@ -65,9 +67,11 @@ namespace Luth
         bool IsViewportHovered() const { return m_IsHovered; }
 
     private:
+        void HandleRenderResize(Event& e);
+
         std::shared_ptr<Scene> m_Context;
         std::shared_ptr<RenderingSystem> m_RenderingSystem;
-        Camera m_EditorCamera;
+        EditorCamera m_EditorCamera;
 
         Vec2 m_ViewportSize = { 0.0f, 0.0f };
         bool m_IsFocused = false;

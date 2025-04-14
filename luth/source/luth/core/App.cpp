@@ -12,12 +12,11 @@
 
 namespace Luth
 {
-    App::App(int argc, char** argv) : m_MainThreadEventBus(std::make_unique<EventBus>())
+    App::App(int argc, char** argv)
     {
         // TODO Luth + version - OS - renderAPI
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         ws.VSync = false;
-        ws.EventBus = m_MainThreadEventBus;
 
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
@@ -29,15 +28,15 @@ namespace Luth
         Editor::Init(m_Window->GetNativeWindow());
 
         // Subscribe to events
-        m_MainThreadEventBus->Subscribe<WindowResizeEvent>([this](Event& e) {
+        EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
             OnWindowResize(static_cast<WindowResizeEvent&>(e));
         });
 
-        m_MainThreadEventBus->Subscribe<WindowCloseEvent>([this](Event& e) {
+        EventBus::Subscribe<WindowCloseEvent>(BusType::MainThread, [this](Event& e) {
             OnWindowClose(static_cast<WindowCloseEvent&>(e));
         });
 
-        m_MainThreadEventBus->Subscribe<FileDropEvent>([this](Event& e) {
+        EventBus::Subscribe<FileDropEvent>(BusType::MainThread, [this](Event& e) {
             OnFileDrop(static_cast<FileDropEvent&>(e));
         });
     }
@@ -52,7 +51,7 @@ namespace Luth
         {
             Time::Update();
             m_Window->OnUpdate();
-            m_MainThreadEventBus->ProcessEvents();
+            EventBus::ProcessEvents(BusType::MainThread);
 
             OnUpdate();
 

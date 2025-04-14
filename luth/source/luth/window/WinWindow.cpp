@@ -27,7 +27,6 @@ namespace Luth
         m_Data.Title = spec.Title;
         m_Data.Width = spec.Width;
         m_Data.Height = spec.Height;
-        m_Data.EventBus = spec.EventBus;
 
         static bool s_GLFWInitialized = false;
         if (!s_GLFWInitialized) {
@@ -75,19 +74,19 @@ namespace Luth
             WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
             data.Width = width;
             data.Height = height;
-            data.EventBus->Enqueue<WindowResizeEvent>(width, height);
+            EventBus::Enqueue<WindowResizeEvent>(BusType::MainThread, width, height);
         });
 
         glfwSetWindowCloseCallback(m_GLFWwindow, [](GLFWwindow* window) {
             WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-            data.EventBus->Enqueue<WindowCloseEvent>();
+            EventBus::Enqueue<WindowCloseEvent>(BusType::MainThread);
         });
 
         glfwSetDropCallback(m_GLFWwindow, [](GLFWwindow* window, int count, const char** paths) {
             WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
             std::vector<std::filesystem::path> files;
             for (int i = 0; i < count; i++) files.emplace_back(paths[i]);
-            data.EventBus->Enqueue<FileDropEvent>(std::move(files));
+            EventBus::Enqueue<FileDropEvent>(BusType::MainThread, std::move(files));
         });
 
         LH_CORE_INFO("Created window '{0}' ({1}x{2})", spec.Title, spec.Width, spec.Height);
