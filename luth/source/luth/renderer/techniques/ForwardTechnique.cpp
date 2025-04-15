@@ -54,10 +54,26 @@ namespace Luth
 
         auto model = ModelLibrary::Get(meshRend.ModelUUID);
         auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
-        if (!model || !material) return;
+
+        if (!model) {
+            LH_CORE_WARN("MeshRenderer missing model reference");
+            return;
+        }
+
+        // Validate mesh index
+        const auto& meshes = model->GetMeshes();
+        if (meshRend.MeshIndex >= meshes.size()) {
+            LH_CORE_ERROR("Invalid mesh index: {0}", meshRend.MeshIndex);
+            return;
+        }
+
+        if (!material) material = MaterialLibrary::Get(UUID(7));
 
         auto shader = material->GetShader();
-        if (!shader) return;
+        if (!shader) {
+            LH_CORE_WARN("Invalid shader for material");
+            return;
+        }
 
         shader->Bind();
         shader->SetMat4("u_ViewProjection", m_ViewProjection);
@@ -71,6 +87,7 @@ namespace Luth
             shader->SetFloat("u_AlphaCutoff", material->GetAlphaCutoff());
         }
         else if (material->GetRenderMode() == RendererAPI::RenderMode::Transparent) {
+            shader->SetBool("u_AlphaFromDiffuse", material->IsAlphaFromDiffuseEnabled());
             shader->SetFloat("u_Alpha", material->GetAlpha());
         }
 
