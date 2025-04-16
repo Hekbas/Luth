@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/renderer/techniques/ForwardTechnique.h"
+#include "luth/renderer/techniques/DeferredTechnique.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
 
 #include <entt/entt.hpp>
@@ -10,7 +11,7 @@ namespace Luth
     RenderingSystem::RenderingSystem()
     {
         // Default to forward rendering
-        m_ActiveTechnique = std::make_shared<ForwardTechnique>();
+        m_ActiveTechnique = std::make_shared<DeferredTechnique>();
         m_ActiveTechnique->Init(1280, 720);
     }
 

@@ -48,6 +48,9 @@ namespace Luth
         virtual void DrawIndexed(u32 count) = 0;
         virtual void DrawFrame() = 0;
 
+        virtual void InitFullscreenQuad() = 0;
+        virtual void DrawFullscreenQuad() = 0;
+
         static API GetAPI() { return s_API; }
         static const char* APIToString(RendererAPI::API api);
         static void SetWindow(void* window);

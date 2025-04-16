@@ -20,7 +20,10 @@ namespace Luth
         m_MainFBO = Framebuffer::Create(spec);
     }
 
-    void ForwardTechnique::Shutdown() {}
+    void ForwardTechnique::Shutdown()
+    {
+        m_MainFBO.reset();
+    }
 
     void ForwardTechnique::Render(entt::registry& registry,
         const Vec3& cameraPos,

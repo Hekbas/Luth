@@ -105,6 +105,15 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
+vec3 ACESFilm(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x + b))/(x*(c*x + d) + e), 0.0, 1.0);
+}
+
 void main()
 {
     vec4 albedoRGBA = texture(u_TexDiffuse,   u_UVIndexDiffuse   == 0 ? v_TexCoord0 : v_TexCoord1).rgba;
@@ -132,7 +141,7 @@ void main()
 
     // Example light (directional)
     vec3 lightDir = normalize(vec3(1.0, 1.0, 0.5));
-    vec3 lightColor = vec3(0.4);
+    vec3 lightColor = vec3(1.0);
     vec3 L = normalize(lightDir);
     vec3 H = normalize(V + L);
 
@@ -150,10 +159,12 @@ void main()
 
     // Combine
     vec3 Lo = (diffuse + specular) * lightColor * max(dot(N, L), 0.0);
-    vec3 ambient = vec3(0.03) * albedo * ao;
+    vec3 ambient = vec3(0.04) * albedo * ao;
     vec3 color = ambient + Lo + emissive;
 
-    // Gamma correction
-    color = pow(color, vec3(1.0 / 2.2));
+    // Tonemapping and gamma correction
+    color = ACESFilm(color);
+    color = pow(color, vec3(1.0/2.2));
+    
     FragColor = vec4(color, alpha);
 }

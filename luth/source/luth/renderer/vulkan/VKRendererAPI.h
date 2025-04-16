@@ -50,6 +50,9 @@ namespace Luth
         virtual void DrawIndexed(u32 count) override;
         virtual void DrawFrame() override;
 
+        virtual void InitFullscreenQuad() override;
+        virtual void DrawFullscreenQuad() override;
+
         VkInstance GetInstance() const { return m_Instance; }
         VkSurfaceKHR GetSurface() const { return m_Surface; }
 

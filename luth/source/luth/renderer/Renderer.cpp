@@ -12,6 +12,7 @@ namespace Luth
         s_RendererAPI = RendererAPI::Create(api);
         s_RendererAPI->SetWindow(window);
         s_RendererAPI->Init();
+        s_RendererAPI->InitFullscreenQuad();
     }
 
     void Renderer::Shutdown()
@@ -71,5 +72,13 @@ namespace Luth
 
     void Renderer::DrawFrame() {
         s_RendererAPI->DrawFrame();
+    }
+
+    void Renderer::InitFullscreenQuad() {
+        s_RendererAPI->InitFullscreenQuad();
+    }
+
+    void Renderer::DrawFullscreenQuad() {
+        s_RendererAPI->DrawFullscreenQuad();
     }
 }

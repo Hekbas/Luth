@@ -279,6 +279,10 @@ namespace Luth
         }
     }
 
+    void VKRendererAPI::InitFullscreenQuad() {}
+
+    void VKRendererAPI::DrawFullscreenQuad() {}
+
 
     void VKRendererAPI::CreateInstance()
     {
