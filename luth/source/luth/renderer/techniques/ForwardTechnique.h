@@ -8,6 +8,8 @@ namespace Luth
     class ForwardTechnique : public RenderTechnique
     {
     public:
+        ForwardTechnique() : RenderTechnique("Forward") { Init(1280, 720); }
+
         void Init(u32 width, u32 height) override;
         void Shutdown() override;
 

@@ -10,7 +10,7 @@ namespace Luth
     class DeferredTechnique : public RenderTechnique
     {
     public:
-        DeferredTechnique() = default;
+        DeferredTechnique() : RenderTechnique("Deferred") { Init(1280, 720); }
 
         void Init(uint32_t width, uint32_t height) override;
         void Shutdown() override;

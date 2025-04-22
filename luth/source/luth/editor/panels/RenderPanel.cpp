@@ -20,6 +20,29 @@ namespace Luth
     {
         ImGui::Begin("Render Settings");
 
+        // Rendering Technique section
+        ImGui::SeparatorText("Rendering Technique");
+
+        if (auto rs = Systems::GetSystem<RenderingSystem>()) {
+            const auto& techniques = rs->GetAvailableTechniques();
+            const auto currentTech = rs->GetActiveTechnique();
+
+            if (ImGui::BeginCombo("##Technique", currentTech ? currentTech->GetName().c_str() : "None"))
+            {
+                for (const auto& [name, tech] : techniques)
+                {
+                    bool isSelected = (tech == currentTech);
+                    if (ImGui::Selectable(name.c_str(), isSelected)) {
+                        rs->SetTechnique(name);
+                    }
+                    if (isSelected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+
         // Shader override section
         ImGui::SeparatorText("Shader Override");
         if (ImGui::Checkbox("##Override Shader", &m_IsShaderOverride)) {

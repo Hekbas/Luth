@@ -10,9 +10,8 @@ namespace Luth
 {
     RenderingSystem::RenderingSystem()
     {
-        // Default to forward rendering
-        m_ActiveTechnique = std::make_shared<DeferredTechnique>();
-        m_ActiveTechnique->Init(1280, 720);
+        RegisterMainTechnique("Forward", std::make_shared<ForwardTechnique>());
+        RegisterMainTechnique("Deferred", std::make_shared<DeferredTechnique>());
     }
 
     void RenderingSystem::Update(entt::registry& registry)
@@ -24,21 +23,38 @@ namespace Luth
         }
     }
 
-    void RenderingSystem::SetTechnique(std::shared_ptr<RenderTechnique> technique)
-    {
-        if (m_ActiveTechnique) m_ActiveTechnique->Shutdown();
-        m_ActiveTechnique = technique;
-        if (m_ActiveTechnique) {
-            m_ActiveTechnique->Init(m_ActiveTechnique->GetWidth(),
-                m_ActiveTechnique->GetHeight());
-        }
-    }
-
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         if (m_ActiveTechnique) {
             m_ActiveTechnique->Resize(width, height);
         }
+    }
+
+    void RenderingSystem::RegisterMainTechnique(const std::string& name, std::shared_ptr<RenderTechnique> technique)
+    {
+        m_MainTechniques[name] = technique;
+        if (!m_ActiveTechnique) { // Auto-select first technique
+            m_ActiveTechnique = technique;
+        }
+    }
+
+    void RenderingSystem::SetTechnique(const std::string& name)
+    {
+        if (auto it = m_MainTechniques.find(name); it != m_MainTechniques.end()) {
+            u32 width = m_ActiveTechnique->GetWidth();
+            u32 height = m_ActiveTechnique->GetHeight();
+            m_ActiveTechnique = it->second;
+            m_ActiveTechnique->Resize(width, height);
+            //m_ActiveTechnique->SetViewProjection(m_ViewProjection);
+        }
+    }
+
+    void RenderingSystem::SetViewProjection(const glm::mat4& vp)
+    {
+        /*m_ViewProjection = vp;
+        if (m_ActiveTechnique) {
+            m_ActiveTechnique->SetViewProjection(vp);
+        }*/
     }
 
     std::pair<std::vector<RenderCommand>, std::vector<RenderCommand>>
@@ -79,52 +95,6 @@ namespace Luth
 
         return { opaqueCommands, transparentCommands };
     }
-
-
-    //void Update(entt::registry& registry) override {
-
-    //    // TODO: Implement actual camera position
-    //    //auto cameraPos = GetActiveCameraPosition();
-    //    auto cameraPos = Vec3(40.0f, 20.0f, 40.0f);
-
-    //    std::vector<RenderCommand> opaqueCommands, transparentCommands;
-
-    //    // Collect entities
-    //    auto view = registry.view<Transform, MeshRenderer>();
-
-    //    for (auto [entity, transform, meshRend] : view.each()) {
-    //        auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
-    //        if (!material) material = MaterialLibrary::Get(UUID(7));
-
-    //        RenderCommand cmd{ entity, &transform, &meshRend };
-
-    //        if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
-    //            material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
-    //            opaqueCommands.push_back(cmd);
-    //        }
-    //        else {
-    //            // TODO: Calculate actual distance from camera
-    //            //Vec3 pos = transform.GetWorldPosition();
-    //            Vec3 pos = Vec3(0.0f, 0.0f, 0.0f);
-    //            cmd.distance = glm::distance(cameraPos, pos);
-    //            transparentCommands.push_back(cmd);
-    //        }
-    //    }
-
-    //    // Sort transparent commands back-to-front
-    //    std::sort(transparentCommands.begin(), transparentCommands.end(),
-    //        [](const auto& a, const auto& b) { return a.distance > b.distance; });
-
-    //    // Render opaque objects
-    //    for (const auto& cmd : opaqueCommands) {
-    //        RenderMesh(*cmd.transform, *cmd.meshRend, true);
-    //    }
-
-    //    // Render transparent objects
-    //    for (const auto& cmd : transparentCommands) {
-    //        RenderMesh(*cmd.transform, *cmd.meshRend, false);
-    //    }
-    //}
 
     //void RenderMesh(Transform& transform, MeshRenderer& meshRend, bool isOpaque) {
     //    // Get resources from UUIDs

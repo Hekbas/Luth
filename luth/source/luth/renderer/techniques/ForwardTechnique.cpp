@@ -7,6 +7,9 @@ namespace Luth
 {
     void ForwardTechnique::Init(u32 width, u32 height)
     {
+        m_Width = width;
+        m_Height = height;
+
         Framebuffer::Spec spec{
             .Width = width,
             .Height = height,
@@ -154,6 +157,8 @@ namespace Luth
 
     void ForwardTechnique::Resize(u32 width, u32 height)
     {
+        m_Width = width;
+        m_Height = height;
         m_MainFBO->Resize(width, height);
     }
 }
