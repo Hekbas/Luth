@@ -63,7 +63,8 @@ namespace Luth
         original.CopyComponentIfExists<Transform>(duplicate);
         original.CopyComponentIfExists<Camera>(duplicate);
         original.CopyComponentIfExists<MeshRenderer>(duplicate);
-        // Add other component copies here...
+        original.CopyComponentIfExists<DirectionalLight>(duplicate);
+        original.CopyComponentIfExists<PointLight>(duplicate);
 
         // Handle parent relationship if not skipped
         if (!skipParentAddition && original.HasComponent<Parent>()) {
