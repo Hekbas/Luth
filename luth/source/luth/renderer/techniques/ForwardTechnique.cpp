@@ -83,12 +83,8 @@ namespace Luth
             return;
         }
 
-        //EditorCamera cam = Editor::GetPanel<ScenePanel>()->GetEditorCamera();
-
         shader->Bind();
         //shader->SetMat4("u_Model", transform.GetTransform());
-        //shader->SetMat4("u_View", cam.GetViewMatrix());
-        //shader->SetMat4("u_Projection", cam.GetProjectionMatrix());
 
         // Material properties
         shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));

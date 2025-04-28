@@ -111,20 +111,6 @@ namespace Luth
         m_GBuffer->BindColorAsTexture(GBufferColorIndex::Albedo,    2);
         m_GBuffer->BindColorAsTexture(GBufferColorIndex::MRAO,      3);
 
-        // Set camera position
-        //m_LightingShader->SetVec3("u_CameraPos", m_CameraPos);
-
-        // Set lights (example: directional light)
-        /*auto view = registry.view<Transform, DirectionalLight>();
-        int lightIndex = 0;
-        for (auto [entity, trans, light] : view.each()) {
-            m_LightingShader->SetVec3("u_DirLights[" + std::to_string(lightIndex) + "].Direction",
-                glm::normalize(trans.GetForward()));
-            m_LightingShader->SetVec3("u_DirLights[" + std::to_string(lightIndex) + "].Color",
-                light.Color);
-            lightIndex++;
-        }*/
-
         Renderer::DrawFullscreenQuad();
 
         m_LightBuffer->Unbind();
