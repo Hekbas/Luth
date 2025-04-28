@@ -235,6 +235,18 @@ namespace Luth
             auto camera = m_Context->CreateEntity("Camera");
             camera.AddComponent<Camera>();
         }
+
+        if (ImGui::BeginMenu("Light")) {
+            if (ImGui::MenuItem("Directional Light")) {
+                auto camera = m_Context->CreateEntity("Directional Light");
+                camera.AddComponent<DirectionalLight>();
+            }
+            if (ImGui::MenuItem("Point Light")) {
+                auto camera = m_Context->CreateEntity("Point Light");
+                camera.AddComponent<PointLight>();
+            }
+            ImGui::EndMenu();
+        }
     }
 
     void HierarchyPanel::HandleDragDrop(Entity entity, const std::string& name)

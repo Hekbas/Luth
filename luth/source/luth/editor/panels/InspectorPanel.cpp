@@ -115,7 +115,7 @@ namespace Luth
             if (ImGui::Button("Reset Transform")) {
                 transform.m_Position = { 0,0,0 };
                 transform.m_Rotation = { 0,0,0 };
-                transform.m_Scale = { 1,1,1 };
+                transform.m_Scale    = { 1,1,1 };
             }
         });
 
@@ -218,6 +218,17 @@ namespace Luth
             }
         });
 
+        DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
+            ImGui::ColorEdit3("Color", &dirLight.Color.x);
+            ImGui::DragFloat("Intensity", &dirLight.Intensity, 0.01f, 0.0f, 1000.0f);
+        });
+
+        DrawComponent<PointLight>("Point Light", m_SelectedEntity, [](Entity entity, PointLight& pointLight) {
+            ImGui::ColorEdit3("Color", &pointLight.Color.x);
+            ImGui::DragFloat("Intensity", &pointLight.Intensity, 0.01f, 0.0f, 1000.0f);
+            ImGui::DragFloat("Range", &pointLight.Range, 0.1f, 0.0f, 10000.0f);
+        });
+
         // Add Component button
         ImGui::Separator();
         ImGui::Dummy({ 0, 4 });
@@ -241,8 +252,12 @@ namespace Luth
                 m_SelectedEntity.AddOrReplaceComponent<Camera>();
                 ImGui::CloseCurrentPopup();
             }
-            if (!m_SelectedEntity.HasComponent<MeshRenderer>() && ImGui::MenuItem("Mesh Renderer")) {
-                m_SelectedEntity.AddOrReplaceComponent<MeshRenderer>();
+            if (!m_SelectedEntity.HasComponent<DirectionalLight>() && ImGui::MenuItem("Directional Light")) {
+                m_SelectedEntity.AddOrReplaceComponent<DirectionalLight>();
+                ImGui::CloseCurrentPopup();
+            }
+            if (!m_SelectedEntity.HasComponent<PointLight>() && ImGui::MenuItem("Point Light")) {
+                m_SelectedEntity.AddOrReplaceComponent<PointLight>();
                 ImGui::CloseCurrentPopup();
             }
             // Add more components here as needed

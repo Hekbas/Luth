@@ -3,6 +3,8 @@
 #include "luth/renderer/techniques/ForwardTechnique.h"
 #include "luth/renderer/techniques/DeferredTechnique.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/editor/Editor.h"
+#include "luth/editor/panels/ScenePanel.h"
 
 #include <entt/entt.hpp>
 
@@ -12,6 +14,19 @@ namespace Luth
     {
         RegisterMainTechnique("Forward", std::make_shared<ForwardTechnique>());
         RegisterMainTechnique("Deferred", std::make_shared<DeferredTechnique>());
+
+        // TODO: Manage UBOs through Renderer, make agnostic
+        glGenBuffers(1, &m_TransformUBO);
+        glBindBuffer(GL_UNIFORM_BUFFER, m_TransformUBO);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(TransformUBO), nullptr, GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_TransformUBO);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+        glGenBuffers(1, &m_LightsUBO);
+        glBindBuffer(GL_UNIFORM_BUFFER, m_LightsUBO);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(LightsUBO), nullptr, GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_LightsUBO);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
 
     void RenderingSystem::Update(entt::registry& registry)
@@ -19,6 +34,9 @@ namespace Luth
         auto [opaque, transparent] = CollectCommands(registry);
 
         if (m_ActiveTechnique) {
+            EditorCamera cam = Editor::GetPanel<ScenePanel>()->GetEditorCamera();
+            UpdateTransformUBO(cam.GetViewMatrix(), cam.GetProjectionMatrix(), Mat4(1.0f));
+            UpdateLightsUBO(registry);
             m_ActiveTechnique->Render(registry, m_CameraPos, opaque, transparent);
         }
     }
@@ -49,7 +67,7 @@ namespace Luth
         }
     }
 
-    void RenderingSystem::SetViewProjection(const glm::mat4& vp)
+    void RenderingSystem::SetViewProjection(const Mat4& vp)
     {
         /*m_ViewProjection = vp;
         if (m_ActiveTechnique) {
@@ -94,6 +112,58 @@ namespace Luth
             [](const auto& a, const auto& b) { return a.distance > b.distance; });
 
         return { opaqueCommands, transparentCommands };
+    }
+
+    void RenderingSystem::UpdateTransformUBO(const Mat4& view, const Mat4& projection, const Mat4& model)
+    {
+        TransformUBO data;
+        data.view = view;
+        data.projection = projection;
+        data.model = model;
+
+        glBindBuffer(GL_UNIFORM_BUFFER, m_TransformUBO);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(TransformUBO), &data);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+
+    void RenderingSystem::UpdateLightsUBO(entt::registry& registry)
+    {
+        LightsUBO ubo{};
+        ubo.dirLightCount = 0;
+        ubo.pointLightCount = 0;
+
+        // Process directional lights
+        auto dirLightsView = registry.view<DirectionalLight, Transform>();
+        for (auto [entity, dirLight, transform] : dirLightsView.each()) {
+            if (ubo.dirLightCount >= MAX_DIR_LIGHTS) break;
+
+            ubo.dirLights[ubo.dirLightCount] = {
+                .color = dirLight.Color,
+                .intensity = dirLight.Intensity,
+                .direction = transform.m_Rotation,
+                .padding = 0.0f
+            };
+            ubo.dirLightCount++;
+        }
+
+        // Process point lights with their transforms
+        auto pointLightsView = registry.view<PointLight, Transform>();
+        for (auto [entity, pointLight, transform] : pointLightsView.each()) {
+            if (ubo.pointLightCount >= MAX_POINT_LIGHTS) break;
+
+            ubo.pointLights[ubo.pointLightCount] = {
+                .color = pointLight.Color,
+                .intensity = pointLight.Intensity,
+                .position = transform.m_Position,
+                .range = pointLight.Range
+            };
+            ubo.pointLightCount++;
+        }
+
+        // Update GPU buffer
+        glBindBuffer(GL_UNIFORM_BUFFER, m_LightsUBO);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(LightsUBO), &ubo);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
 
     //void RenderMesh(Transform& transform, MeshRenderer& meshRend, bool isOpaque) {

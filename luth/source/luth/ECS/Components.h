@@ -44,7 +44,7 @@ namespace Luth::Component
     struct Transform {
         glm::vec3 m_Position = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Rotation = { 0.0f, 0.0f, 0.0f }; // Euler angles (degrees)
-        glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
+        glm::vec3 m_Scale    = { 1.0f, 1.0f, 1.0f };
 
         glm::mat4 GetTransform() const {
             glm::mat4 rotation = glm::toMat4(
@@ -146,6 +146,17 @@ namespace Luth::Component
         // Tmp state for ImGui
         std::string modelNamePreview;
         std::string materialNamePreview;
+    };
+
+    struct DirectionalLight {
+        Vec3 Color = Vec3(1.0f);
+        float Intensity = 1.0f;
+    };
+    
+    struct PointLight {
+        Vec3 Color = Vec3(1.0f);;
+        float Intensity = 1.0f;
+        float Range = 10.0f;
     };
 }
 

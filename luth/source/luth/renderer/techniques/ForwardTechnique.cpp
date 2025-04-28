@@ -2,6 +2,8 @@
 #include "luth/renderer/techniques/ForwardTechnique.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
 #include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/editor/Editor.h"
+#include "luth/editor/panels/ScenePanel.h"
 
 namespace Luth
 {
@@ -81,9 +83,12 @@ namespace Luth
             return;
         }
 
+        //EditorCamera cam = Editor::GetPanel<ScenePanel>()->GetEditorCamera();
+
         shader->Bind();
-        shader->SetMat4("u_ViewProjection", m_ViewProjection);
-        shader->SetMat4("u_Model", transform.GetTransform());
+        //shader->SetMat4("u_Model", transform.GetTransform());
+        //shader->SetMat4("u_View", cam.GetViewMatrix());
+        //shader->SetMat4("u_Projection", cam.GetProjectionMatrix());
 
         // Material properties
         shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));
