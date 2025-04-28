@@ -14,18 +14,18 @@ layout(location = 3) out vec3 v_Tangent;
 layout(location = 4) out vec3 v_Bitangent;
 layout(location = 5) out vec3 v_WorldPos;
 
-layout(binding = 0) uniform UniformBufferObject {
-    mat4 model;
+layout(std140, binding = 0) uniform TransformUBO {
     mat4 view;
-    mat4 proj;
-} ubo;
+    mat4 projection;
+    mat4 model;
+};
 
 void main()
 {
-    v_WorldPos = vec3(ubo.model * vec4(a_Position, 1.0));
-    gl_Position = ubo.proj * ubo.view * vec4(v_WorldPos, 1.0);
+    v_WorldPos = vec3(model * vec4(a_Position, 1.0));
+    gl_Position = projection * view * vec4(v_WorldPos, 1.0);
     
-    mat3 normalMatrix = transpose(inverse(mat3(ubo.model)));
+    mat3 normalMatrix = transpose(inverse(mat3(model)));
     v_Normal = normalize(normalMatrix * a_Normal);
     v_Tangent = normalize(normalMatrix * a_Tangent);
     
@@ -52,11 +52,11 @@ layout(location = 1) out vec3 gNormal;
 layout(location = 2) out vec4 gAlbedo;
 layout(location = 3) out vec3 gMRAO;
 
-layout(binding = 0) uniform UniformBufferObject {
-    mat4 model;
+layout(std140, binding = 0) uniform TransformUBO {
     mat4 view;
-    mat4 proj;
-} ubo;
+    mat4 projection;
+    mat4 model;
+};
 
 // Texture samplers
 uniform sampler2D u_TexDiffuse;

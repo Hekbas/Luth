@@ -18,6 +18,7 @@ void main()
 #type fragment
 #version 460 core
 
+// ========== Input/Output ==========
 layout(location = 0) in vec2 v_TexCoord;
 
 // G-Buffer Inputs
@@ -28,27 +29,39 @@ layout(binding = 3) uniform sampler2D gMRAO;
 
 layout(location = 0) out vec4 o_Color;
 
-// Lighting Uniforms
-struct DirectionalLight {
-    vec3 direction;
-    vec3 color;
-    float intensity;
-};
-
-// layout(binding = 4) uniform LightingUBO {
-//     vec3 viewPos;
-//     DirectionalLight dirLight;
-//     vec3 ambientColor;
-//     float ambientIntensity;
-// } ubo;
-
-layout(binding = 0) uniform UniformBufferObject {
-    mat4 model;
+// ========== UBO Definitions ==========
+layout(std140, binding = 0) uniform TransformUBO {
     mat4 view;
-    mat4 proj;
+    mat4 projection;
+    mat4 model;
 } ubo;
 
-// PBR Functions
+#define MAX_DIR_LIGHTS 4
+#define MAX_POINT_LIGHTS 16
+
+struct DirLight {
+    vec3 color;
+    float intensity;
+    vec3 direction;
+    float padding;
+};
+
+struct PointLight {
+    vec3 color;
+    float intensity;
+    vec3 position;
+    float range;
+};
+
+layout(std140, binding = 1) uniform LightsUBO {
+    int dirLightCount;
+    DirLight dirLights[MAX_DIR_LIGHTS];
+    
+    int pointLightCount;
+    PointLight pointLights[MAX_POINT_LIGHTS];
+} lights;
+
+// ========== PBR Functions ==========
 const float PI = 3.14159265359;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -73,15 +86,36 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-// Test values
-vec3 testViewPos = vec3(0.0, 0.0, 5.0);
-vec3 testLightDir = normalize(vec3(1.0, 1.0, 0.5));
-vec3 testLightColor = vec3(1.0, 1.0, 1.0);
-float testLightIntensity = 1.0;
-vec3 testAmbient = vec3(1.0, 1.0, 1.0);
-float testAmbientIntensity = 0.04;
+vec3 ACESFilm(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x + b))/(x*(c*x + d) + e), 0.0, 1.0);
+}
 
+// ========== Light Calculation ==========
+vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
+    vec3 H = normalize(V + L);
+    
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    
+    float NDF = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+    
+    vec3 numerator = NDF * G * F;
+    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    vec3 specular = numerator / denominator;
+    
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+    
+    return (diffuse + specular) * radiance * max(dot(N, L), 0.0);
+}
 
+// ========== Main Shader ==========
 void main()
 {
     // Retrieve G-Buffer data
@@ -101,41 +135,34 @@ void main()
     vec3 viewPos = invView[3].xyz;
     vec3 V = normalize(viewPos - WorldPos);
     
-    // Calculate F0 for Fresnel
-    vec3 F0 = vec3(0.04); 
-    F0 = mix(F0, albedo, metallic);
+    // Initialize lighting
+    vec3 Lo = vec3(0.0);
 
-    // Directional Light calculation
-    vec3 L = normalize(testLightDir);
-    vec3 H = normalize(V + L);
-    
-    // Radiance
-    vec3 radiance = testLightColor * testLightIntensity;
+    // Calculate directional lights
+    for(int i = 0; i < lights.dirLightCount; i++) {
+        DirLight light = lights.dirLights[i];
+        vec3 L = normalize(-light.direction); // Direction from light to surface
+        vec3 radiance = light.color * light.intensity;
+        Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+    }
 
-    // Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-    
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
-    vec3 specular = numerator / max(denominator, 0.001);
-
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-
-    float NdotL = max(dot(N, L), 0.0);
-    
-    // Combine lighting
-    vec3 Lo = (kD * albedo / PI + specular) * radiance * NdotL;
+    // Calculate point lights
+    for(int i = 0; i < lights.pointLightCount; i++) {
+        PointLight light = lights.pointLights[i];
+        vec3 L = normalize(light.position - WorldPos);
+        float distance = length(light.position - WorldPos);
+        float attenuation = 1.0 / (distance * distance);
+        vec3 radiance = light.color * light.intensity * attenuation;
+        Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+    }
 
     // Ambient lighting
-    vec3 ambient = testAmbient * testAmbientIntensity * albedo * ao;
+    vec3 ambient = vec3(0.03) * albedo * ao;
     
     vec3 color = ambient + Lo;
 
-    // Apply simple tonemapping and gamma correction
-    color = color / (color + vec3(1.0));
+    // Apply tonemapping and gamma correction
+    color = ACESFilm(color);
     color = pow(color, vec3(1.0/2.2));
 
     o_Color = vec4(color, alpha);
