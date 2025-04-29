@@ -17,19 +17,21 @@ namespace Luth
         EditorCamera() = default;
         EditorCamera(float fov, float aspectRatio, float nearClip, float farClip);
 
-        void OnUpdate(float ts);
-        //void OnEvent(Event& e);
-
+        void OnUpdate(bool rotate, bool pan);
         const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
         const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
         glm::mat4 GetViewProjection() const { return m_ProjectionMatrix * m_ViewMatrix; }
 
         void SetViewportSize(float width, float height);
+        void SetFocalPoint(glm::vec3 focalPoint);
+
+        glm::vec3 GetForwardDirection() const;
+        glm::vec3 GetRightDirection() const;
+        glm::vec3 GetUpDirection() const;
 
     private:
         void UpdateProjection();
         void UpdateView();
-
         glm::vec3 CalculatePosition() const;
         glm::quat GetOrientation() const;
 
@@ -51,6 +53,12 @@ namespace Luth
 
         float m_ViewportWidth = 1280;
         float m_ViewportHeight = 720;
+
+        // Camera controls
+        float m_RotationSpeed = 20000.0f;
+        float m_PanSpeed = 200.0f;
+        float m_ZoomSpeed = 100.0f;
+        glm::vec2 m_LastMousePosition = { 0.0f, 0.0f };
     };
 
     class ScenePanel : public Panel
@@ -80,7 +88,7 @@ namespace Luth
         bool m_IsHovered = false;
 
         // Gizmo state
-        Entity m_SelectedEntity;
+        Entity* m_SelectedEntity;
         //ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
     };
 }
