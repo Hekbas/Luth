@@ -1,6 +1,7 @@
 {
     "alpha": 0.8500000238418579,
     "alpha_cutoff": 0.5,
+    "alpha_from_diffuse": 0,
     "blend_dst": 3,
     "blend_src": 2,
     "color": [

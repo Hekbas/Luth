@@ -11,6 +11,7 @@ namespace Luth
         json["alpha_cutoff"] = m_AlphaCutoff;
         json["blend_src"] = static_cast<int>(m_BlendSrc);
         json["blend_dst"] = static_cast<int>(m_BlendDst);
+        json["alpha_from_diffuse"] = static_cast<int>(m_AlphaFromDiffuse);
 
         json["color"] = { m_Color.r, m_Color.g, m_Color.b, m_Color.a };
         json["alpha"] = m_Alpha;
@@ -35,6 +36,7 @@ namespace Luth
             static_cast<int>(RendererAPI::BlendFactor::SrcAlpha)));
         m_BlendDst = static_cast<RendererAPI::BlendFactor>(json.value("blend_dst",
             static_cast<int>(RendererAPI::BlendFactor::OneMinusSrcAlpha)));
+        m_AlphaFromDiffuse = static_cast<bool>(json.value("alpha_from_diffuse", 0));
 
         if (json.contains("color")) {
             auto& jc = json["color"];

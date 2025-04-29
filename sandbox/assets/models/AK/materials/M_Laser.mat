@@ -1,18 +1,26 @@
 {
+    "alpha": 1.0,
     "alpha_cutoff": 0.2590000033378601,
+    "alpha_from_diffuse": 1,
     "blend_dst": 3,
     "blend_src": 2,
+    "color": [
+        1.0,
+        0.0,
+        0.0,
+        1.0
+    ],
     "render_mode": 2,
     "shader": "0000000000000064",
     "textures": [
         {
             "type": 0,
-            "uuid": "0000000000000003",
+            "uuid": "ddcf6c45ee5eadf3",
             "uv": 0
         },
         {
             "type": 1,
-            "uuid": "ddcf6c45ee5eadf3",
+            "uuid": "0000000000000003",
             "uv": 0
         },
         {
