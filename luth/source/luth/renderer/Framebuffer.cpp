@@ -66,6 +66,27 @@ namespace Luth
         glBindTextureUnit(slot, m_DepthAttachment);
     }
 
+    std::vector<std::pair<std::string, u32>> Framebuffer::GetAllAttachments() const
+    {
+        std::vector<std::pair<std::string, u32>> attachments;
+
+        for (size_t i = 0; i < m_ColorAttachments.size(); i++) {
+            std::string name = m_Spec.ColorAttachments[i].Name;
+            if (name.empty())
+                name = "Color" + std::to_string(i);
+            attachments.emplace_back(name, m_ColorAttachments[i]);
+        }
+
+        if (m_DepthAttachment != 0) {
+            std::string name = "Depth";
+            if (m_Spec.DepthStencilAttachment.has_value() && !m_Spec.DepthStencilAttachment->Name.empty())
+                name = m_Spec.DepthStencilAttachment->Name;
+            attachments.emplace_back(name, m_DepthAttachment);
+        }
+
+        return attachments;
+    }
+
     u32 Framebuffer::GetColorAttachmentID(u32 index) const
     {
         if (index >= m_ColorAttachments.size()) {

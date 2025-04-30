@@ -34,12 +34,46 @@ namespace Luth
                     bool isSelected = (tech == currentTech);
                     if (ImGui::Selectable(name.c_str(), isSelected)) {
                         rs->SetTechnique(name);
+                        m_SelectedAttachment = rs->GetActiveTechnique()->GetFinalColorAttachment();
                     }
                     if (isSelected) {
                         ImGui::SetItemDefaultFocus();
                     }
                 }
                 ImGui::EndCombo();
+            }
+
+            // Framebuffer attachment selection
+            auto attachments = currentTech->GetAllAttachments();
+            if (!attachments.empty())
+            {
+                static std::string currentAttachment = "Final";
+
+                if (ImGui::BeginCombo("Framebuffer Attachment", currentAttachment.c_str()))
+                {
+                    bool isSelected = (currentAttachment == "Final");
+                    if (ImGui::Selectable("Final", isSelected)) {
+                        currentAttachment = "Final";
+                        m_SelectedAttachment = currentTech->GetFinalColorAttachment();
+                    }
+                    if (isSelected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+
+                    // Add all available attachments
+                    for (const auto& [name, id] : attachments)
+                    {
+                        bool isSelected = (name == currentAttachment);
+                        if (ImGui::Selectable(name.c_str(), isSelected)) {
+                            currentAttachment = name;
+                            m_SelectedAttachment = id;
+                        }
+                        if (isSelected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
             }
         }
 

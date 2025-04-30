@@ -18,6 +18,8 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
+        u32 GetSelectedAttachment() { return m_SelectedAttachment; }
+
         // Shader management
         void SetShaderOverride(bool override) { m_IsShaderOverride = override; }
         bool IsShaderOverriden() const { return m_IsShaderOverride; }
@@ -32,6 +34,9 @@ namespace Luth
 
         // Rendering system reference
         std::weak_ptr<RenderingSystem> m_RenderingSystem;
+
+        // Selected Framebuffer attachment
+        i32 m_SelectedAttachment = -1;
 
         // Shader controls
         UUID m_ShaderOverride;

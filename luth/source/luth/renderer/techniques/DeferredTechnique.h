@@ -12,16 +12,17 @@ namespace Luth
     public:
         DeferredTechnique() : RenderTechnique("Deferred") { Init(1280, 720); }
 
-        void Init(uint32_t width, uint32_t height) override;
+        void Init(u32 width, u32 height) override;
         void Shutdown() override;
 
         void Render(entt::registry& registry,
             const glm::vec3& cameraPos,
             const std::vector<RenderCommand>& opaque,
             const std::vector<RenderCommand>& transparent) override;
-        void Resize(uint32_t width, uint32_t height) override;
+        void Resize(u32 width, u32 height) override;
         void SetViewProjection(const glm::mat4& vp);
-        uint32_t GetFinalColorAttachment() const override;
+        u32 GetFinalColorAttachment() const override;
+        std::vector<std::pair<std::string, u32>> GetAllAttachments() const override;
 
     private:
         enum GBufferColorIndex {

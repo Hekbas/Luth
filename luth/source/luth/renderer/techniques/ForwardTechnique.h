@@ -20,6 +20,7 @@ namespace Luth
         void Resize(u32 width, u32 height) override;
 
         u32 GetFinalColorAttachment() const { return m_MainFBO->GetColorAttachmentID(); }
+        std::vector<std::pair<std::string, u32>> GetAllAttachments() const override;
 
     private:
         void RenderMesh(const RenderCommand& cmd, bool isOpaque);

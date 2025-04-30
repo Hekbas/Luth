@@ -29,6 +29,7 @@ namespace Luth
             const std::vector<RenderCommand>& transparent) = 0;
         virtual void Resize(u32 width, u32 height) = 0;
         virtual u32 GetFinalColorAttachment() const = 0;
+        virtual std::vector<std::pair<std::string, u32>> GetAllAttachments() const = 0;
 
         const std::string& GetName() const { return m_Name; }
 
