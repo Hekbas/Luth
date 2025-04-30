@@ -156,7 +156,7 @@ namespace Luth::Component
     struct PointLight {
         Vec3 Color = Vec3(1.0f);;
         float Intensity = 1.0f;
-        float Range = 10.0f;
+        float Range = 350.0f;
     };
 }
 

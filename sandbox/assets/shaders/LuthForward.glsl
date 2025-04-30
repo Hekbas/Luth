@@ -210,7 +210,7 @@ void main()
         
         // Physically based attenuation
         float attenuation = 1.0 / (distance * distance);
-        attenuation *= clamp(1.0 - pow(scaledDistance, 4.0), 0.0, 1.0);
+        attenuation = clamp(1.0 - pow(scaledDistance, 4.0), 0.0, 1.0);
         
         vec3 L = normalize(toLight);
         vec3 radiance = pointLights[i].color * pointLights[i].intensity * attenuation;

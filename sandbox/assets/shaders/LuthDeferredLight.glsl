@@ -151,7 +151,14 @@ void main()
         PointLight light = lights.pointLights[i];
         vec3 L = normalize(light.position - WorldPos);
         float distance = length(light.position - WorldPos);
+        float scaledDistance = distance / light.range;
+        
+        if(scaledDistance > 1.0) continue;
+
+        // Physically based attenuation
         float attenuation = 1.0 / (distance * distance);
+        attenuation = clamp(1.0 - pow(scaledDistance, 4.0), 0.0, 1.0);
+
         vec3 radiance = light.color * light.intensity * attenuation;
         Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
     }
