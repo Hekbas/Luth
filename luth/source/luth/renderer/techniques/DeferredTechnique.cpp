@@ -154,45 +154,45 @@ namespace Luth
     {
         int slot = 0;
         for (const auto& texInfo : material.GetTextures()) {
-            auto texture = TextureCache::Get(texInfo.Uuid);
+            auto texture = TextureCache::Get(texInfo.TextureUuid);
 
             switch (texInfo.type) {
-                case TextureType::Diffuse:
+                case MapType::Diffuse:
                     if (!texture) texture = TextureCache::GetDefaultWhite();
                     shader.SetInt("u_TexDiffuse", slot);
                     shader.SetInt("u_UVIndexDiffuse", texInfo.uvIndex);
                     break;
-                case TextureType::Alpha:
+                case MapType::Alpha:
                     if (!texture) texture = TextureCache::GetDefaultWhite();
                     shader.SetInt("u_TexAlpha", slot);
                     shader.SetInt("u_UVIndexAlpha", texInfo.uvIndex);
                     break;
-                case TextureType::Normal:
+                case MapType::Normal:
                     if (!texture) texture = TextureCache::GetDefaultNormal();
                     shader.SetInt("u_TexNormal", slot);
                     shader.SetInt("u_UVIndexNormal", texInfo.uvIndex);
                     break;
-                case TextureType::Emissive:
+                case MapType::Emissive:
                     if (!texture) texture = TextureCache::GetDefaultBlack();
                     shader.SetInt("u_TexEmissive", slot);
                     shader.SetInt("u_UVIndexEmissive", texInfo.uvIndex);
                     break;
-                case TextureType::Metalness:
+                case MapType::Metalness:
                     if (!texture) texture = TextureCache::GetDefaultGrey();
                     shader.SetInt("u_TexMetallic", slot);
                     shader.SetInt("u_UVIndexMetallic", texInfo.uvIndex);
                     break;
-                case TextureType::Roughness:
+                case MapType::Roughness:
                     if (!texture) texture = TextureCache::GetDefaultGrey();
                     shader.SetInt("u_TexRoughness", slot);
                     shader.SetInt("u_UVIndexRoughness", texInfo.uvIndex);
                     break;
-                case TextureType::Specular:
+                case MapType::Specular:
                     if (!texture) texture = TextureCache::GetDefaultGrey();
                     shader.SetInt("u_TexSpecular", slot);
                     shader.SetInt("u_UVIndexSpecular", texInfo.uvIndex);
                     break;
-                case TextureType::Oclusion:
+                case MapType::Oclusion:
                     if (!texture) texture = TextureCache::GetDefaultWhite();
                     shader.SetInt("u_TexOclusion", slot);
                     shader.SetInt("u_UVIndexOclusion", texInfo.uvIndex);

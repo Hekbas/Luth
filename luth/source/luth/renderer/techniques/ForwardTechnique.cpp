@@ -46,11 +46,11 @@ namespace Luth
 
         // Transparent objects
         Renderer::EnableBlending(true);
-        //Renderer::EnableDepthTest(false);
+        Renderer::EnableDepthMask(false);
         for (const auto& cmd : transparent) {
             RenderMesh(cmd, false);
         }
-        //Renderer::EnableDepthTest(true);
+        Renderer::EnableDepthMask(true);
 
         m_MainFBO->Unbind();
     }
@@ -88,7 +88,6 @@ namespace Luth
 
         // Material properties
         shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));
-        shader->SetVec4("u_Color", material->GetColor());
 
         if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
             shader->SetFloat("u_AlphaCutoff", material->GetAlphaCutoff());
@@ -107,53 +106,43 @@ namespace Luth
     {
         int slot = 0;
         for (const auto& texInfo : material->GetTextures()) {
-            auto texture = TextureCache::Get(texInfo.Uuid);
+            auto texture = TextureCache::Get(texInfo.TextureUuid);
+            const int mapIndex = static_cast<int>(texInfo.type);
 
-            switch (texInfo.type) {
-                case TextureType::Diffuse:
-                    if (!texture) texture = TextureCache::GetDefaultWhite();
-                    shader->SetInt("u_TexDiffuse", slot);
-                    shader->SetInt("u_UVIndexDiffuse", texInfo.uvIndex);
-                    break;
-                case TextureType::Alpha:
-                    if (!texture) texture = TextureCache::GetDefaultWhite();
-                    shader->SetInt("u_TexAlpha", slot);
-                    shader->SetInt("u_UVIndexAlpha", texInfo.uvIndex);
-                    break;
-                case TextureType::Normal:
-                    if (!texture) texture = TextureCache::GetDefaultNormal();
-                    shader->SetInt("u_TexNormal", slot);
-                    shader->SetInt("u_UVIndexNormal", texInfo.uvIndex);
-                    break;
-                case TextureType::Emissive:
-                    if (!texture) texture = TextureCache::GetDefaultBlack();
-                    shader->SetInt("u_TexEmissive", slot);
-                    shader->SetInt("u_UVIndexEmissive", texInfo.uvIndex);
-                    break;
-                case TextureType::Metalness:
-                    if (!texture) texture = TextureCache::GetDefaultGrey();
-                    shader->SetInt("u_TexMetallic", slot);
-                    shader->SetInt("u_UVIndexMetallic", texInfo.uvIndex);
-                    break;
-                case TextureType::Roughness:
-                    if (!texture) texture = TextureCache::GetDefaultGrey();
-                    shader->SetInt("u_TexRoughness", slot);
-                    shader->SetInt("u_UVIndexRoughness", texInfo.uvIndex);
-                    break;
-                case TextureType::Specular:
-                    if (!texture) texture = TextureCache::GetDefaultGrey();
-                    shader->SetInt("u_TexSpecular", slot);
-                    shader->SetInt("u_UVIndexSpecular", texInfo.uvIndex);
-                    break;
-                case TextureType::Oclusion:
-                    if (!texture) texture = TextureCache::GetDefaultWhite();
-                    shader->SetInt("u_TexOclusion", slot);
-                    shader->SetInt("u_UVIndexOclusion", texInfo.uvIndex);
-                    break;
+            // Get appropriate default texture if needed
+            if (!texture) {
+                switch (texInfo.type) {
+                    case MapType::Diffuse:      texture = TextureCache::GetDefaultWhite();  break;
+                    case MapType::Alpha:        texture = TextureCache::GetDefaultWhite();  break;
+                    case MapType::Normal:       texture = TextureCache::GetDefaultNormal(); break;
+                    case MapType::Metalness:    texture = TextureCache::GetDefaultGrey();   break;
+                    case MapType::Roughness:    texture = TextureCache::GetDefaultGrey();   break;
+                    case MapType::Specular:     texture = TextureCache::GetDefaultGrey();   break;
+                    case MapType::Oclusion:     texture = TextureCache::GetDefaultWhite();  break;
+                    case MapType::Emissive:     texture = TextureCache::GetDefaultBlack();  break;
+                }
             }
 
-            texture->Bind(slot++);
+            // Bind texture to slot
+            texture->Bind(slot);
+
+            // Set struct properties
+            const std::string prefix = "u_Maps[" + std::to_string(mapIndex) + "]";
+            shader->SetBool(prefix + ".useTexture", texInfo.useTexture);
+            shader->SetInt(prefix + ".uvIndex", texInfo.uvIndex);
+            shader->SetInt(prefix + ".texture", slot);
+
+            slot++;
         }
+
+        // Set material uniforms
+        shader->SetVec4("u_Color", material->GetColor());
+        shader->SetFloat("u_Alpha", material->GetAlpha());
+        shader->SetFloat("u_Metalness", material->GetMetal());
+        shader->SetFloat("u_Roughness", material->GetRough());
+        shader->SetVec3("u_Emissive", material->GetEmissive());
+        shader->SetBool("u_IsGloss", material->IsGloss());
+        shader->SetBool("u_IsSingleChannel", material->IsSingleChannel());
     }
 
     void ForwardTechnique::Resize(u32 width, u32 height)

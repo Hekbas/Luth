@@ -90,10 +90,10 @@ namespace Luth
 
             // UUID column
             ImGui::TableSetColumnIndex(2);
-            ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
+            ImGui::TextDisabled("%s", entry.TextureUuid.ToString().c_str());
             if (ImGui::IsItemHovered()) {
                 ImGui::BeginTooltip();
-                ImGui::Text("UUID: %s", entry.Uuid.ToString().c_str());
+                ImGui::Text("UUID: %s", entry.TextureUuid.ToString().c_str());
                 ImGui::EndTooltip();
             }
 
@@ -157,7 +157,7 @@ namespace Luth
 
         // Case-insensitive search
         std::string name = entry.Name;
-        std::string uuid = entry.Uuid.ToString();
+        std::string uuid = entry.TextureUuid.ToString();
         std::string filter = m_SearchBuffer;
 
         std::transform(name.begin(), name.end(), name.begin(), ::tolower);

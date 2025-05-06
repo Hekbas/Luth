@@ -315,6 +315,8 @@ namespace Luth
                         auto parent = m_Context->CreateEntity(model->GetName());
                         parent.AddComponent<Children>();
 
+                        auto materials = model->GetMaterials();
+
                         int meshIndex = 0;
                         for (const auto& mesh : model->GetMeshesData()) {
                             auto child = m_Context->CreateEntity(mesh.name);
@@ -327,8 +329,8 @@ namespace Luth
                             meshRend.modelNamePreview = model->GetName();
                             meshRend.ModelUUID = assetUuid;
                             meshRend.MeshIndex = meshIndex;
-                            if (!model->GetMaterials().empty()) {
-                                meshRend.MaterialUUID = model->GetMaterials()[meshIndex];
+                            if (!model->GetMaterials().empty() && meshIndex < materials.size()) {
+                                meshRend.MaterialUUID = materials[meshIndex];
                                 meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
                             }
                             meshIndex++;

@@ -124,7 +124,8 @@ namespace Luth
             const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
             const char* currentProjectionType = projectionTypeStrings[(int)camera.Projection];
 
-            if (ImGui::BeginCombo("Projection", currentProjectionType)) {
+            ImGui::Text("Projection"); ImGui::SameLine();
+            if (ImGui::BeginCombo("##Projection", currentProjectionType)) {
                 for (int i = 0; i < 2; i++) {
                     bool isSelected = currentProjectionType == projectionTypeStrings[i];
                     if (ImGui::Selectable(projectionTypeStrings[i], isSelected)) {
@@ -141,24 +142,31 @@ namespace Luth
             // Perspective settings
             if (camera.Projection == Camera::ProjectionType::Perspective) {
                 bool changed = false;
-                changed |= ImGui::DragFloat("Vertical FOV", &camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
-                changed |= ImGui::DragFloat("Near Clip", &camera.NearClip, 0.01f, 0.01f, camera.FarClip);
-                changed |= ImGui::DragFloat("Far Clip", &camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
+                ImGui::Text("FOV "); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##FOV", &camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
+                ImGui::Text("Near"); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##Near", &camera.NearClip, 0.01f, 0.01f, camera.FarClip);
+                ImGui::Text("Far "); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##Far", &camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
 
                 if (changed) camera.RecalculateProjection();
             }
             // Orthographic settings
             else {
                 bool changed = false;
-                changed |= ImGui::DragFloat("Size", &camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
-                changed |= ImGui::DragFloat("Near", &camera.OrthographicNear, 0.01f);
-                changed |= ImGui::DragFloat("Far", &camera.OrthographicFar, 0.01f);
+                ImGui::Text("Size"); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
+                ImGui::Text("Near"); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##Near", &camera.OrthographicNear, 0.01f);
+                ImGui::Text("Far "); ImGui::SameLine();
+                changed |= ImGui::DragFloat("##Far", &camera.OrthographicFar, 0.01f);
 
                 if (changed) camera.RecalculateProjection();
             }
 
             // Aspect ratio (could be auto-calculated from viewport)
-            ImGui::DragFloat("Aspect Ratio", &camera.AspectRatio, 0.01f, 0.1f, 10.0f);
+            ImGui::Text("Aspect"); ImGui::SameLine();
+            ImGui::DragFloat("##Aspect", &camera.AspectRatio, 0.01f, 0.1f, 10.0f);
         });
 
         DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [](Entity entity, MeshRenderer& meshRenderer) {
@@ -219,14 +227,19 @@ namespace Luth
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
-            ImGui::ColorEdit3("Color", &dirLight.Color.x);
-            ImGui::DragFloat("Intensity", &dirLight.Intensity, 0.01f, 0.0f, 1000.0f);
+            ImGui::Text("Color"); ImGui::SameLine();
+            ImGui::ColorEdit3("##Color", &dirLight.Color.x);
+            ImGui::Text("Intensity"); ImGui::SameLine();
+            ImGui::DragFloat("##Intensity", &dirLight.Intensity, 0.01f, 0.0f, 1000.0f);
         });
 
         DrawComponent<PointLight>("Point Light", m_SelectedEntity, [](Entity entity, PointLight& pointLight) {
-            ImGui::ColorEdit3("Color", &pointLight.Color.x);
-            ImGui::DragFloat("Intensity", &pointLight.Intensity, 0.01f, 0.0f, 1000.0f);
-            ImGui::DragFloat("Range", &pointLight.Range, 0.1f, 0.0f, 10000.0f);
+            ImGui::Text("Color"); ImGui::SameLine();
+            ImGui::ColorEdit3("##Color", &pointLight.Color.x);
+            ImGui::Text("Intensity"); ImGui::SameLine();
+            ImGui::DragFloat("##Intensity", &pointLight.Intensity, 0.01f, 0.0f, 1000.0f);
+            ImGui::Text("Range"); ImGui::SameLine();
+            ImGui::DragFloat("##Range", &pointLight.Range, 0.1f, 0.0f, 10000.0f);
         });
 
         // Add Component button
@@ -275,7 +288,7 @@ namespace Luth
             ImGui::Dummy({ 0, 4 });
 
             // Shader selection
-            ImGui::Text("Shader");
+            ImGui::Text("Shader     ");
             ImGui::SameLine();
             if (auto shader = material->GetShader()) {
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -298,8 +311,8 @@ namespace Luth
             RendererAPI::RenderMode currentMode = material->GetRenderMode();
             int modeIndex = static_cast<int>(currentMode);
 
-            ImGui::Text("Render Mode");
-            ImGui::SameLine();
+            ImGui::Text("Render Mode"); ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
             if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
                 material->SetRenderMode(static_cast<RendererAPI::RenderMode>(modeIndex));
@@ -308,7 +321,9 @@ namespace Luth
 
             if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
                 float cutoff = material->GetAlphaCutoff();
-                if (ImGui::SliderFloat("Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
+                ImGui::Text("Alpha Cutoff"); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
                     material->SetAlphaCutoff(cutoff);
                     ResourceDB::SetDirty(material->GetUUID());
                 }
@@ -322,12 +337,16 @@ namespace Luth
 
                 const char* blendFactors[] = { "Zero", "One", "SrcAlpha", "OneMinusSrcAlpha" };
 
-                if (ImGui::Combo("Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                ImGui::Text("Blend Src  "); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                     material->SetBlendSrc(static_cast<RendererAPI::BlendFactor>(srcFactor));
                     ResourceDB::SetDirty(material->GetUUID());
                 }
 
-                if (ImGui::Combo("Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                ImGui::Text("Blend Dst  "); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                     material->SetBlendDst(static_cast<RendererAPI::BlendFactor>(dstFactor));
                     ResourceDB::SetDirty(material->GetUUID());
                 }
@@ -341,104 +360,156 @@ namespace Luth
 
             ImGui::Dummy({ 0, 4 });
 
-            // Texture properties with toggle buttons
+            // Texture properties with collapsable headers
             const auto& textures = material->GetTextures();
 
-            auto DrawTextureProperty = [&](TextureType type, const char* label) {
+            auto DrawTextureProperty = [&](MapType type, const char* label) {
                 std::shared_ptr<Texture> texture;
                 bool hasTexture = false;
                 for (const auto& texInfo : textures) {
                     if (texInfo.type == type) {
-                        if (texture = TextureCache::Get(texInfo.Uuid)) {
+                        if (texture = TextureCache::Get(texInfo.TextureUuid)) {
                             hasTexture = true;
                             break;
                         }
                     }
                 }
 
-                // Toggle button
-                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                // Header setup
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed |
+                    ImGuiTreeNodeFlags_AllowItemOverlap |
+                    ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                    ImGuiTreeNodeFlags_DefaultOpen;
+
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
+                bool headerOpen = ImGui::CollapsingHeader(label, flags);
+
+                // Checkbox control
+                ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 12);
                 std::string toggleId = "##Toggle_" + std::string(label);
-                ImGui::Checkbox(toggleId.c_str(), &hasTexture);
-                ImGui::SameLine();
-                ImGui::Text(label);
-
-                ImGui::Indent();
-
-                // Texture slot with drag-drop support
-                if (hasTexture) {
-                    ImGui::ImageButton(label, (ImTextureID)texture->GetRendererID(), { 32, 32 }, { 0, 1 }, { 1, 0 });
+                bool enabled = material->IsUseMapEnabled(type);
+                if (ImGui::Checkbox(toggleId.c_str(), &enabled)) {
+                    material->EnableUseMap(type, enabled);
                 }
-                else {
-                    std::string buttonId = "##Button_" + std::string(label);
-                    ImGui::Button(buttonId.c_str(), { 32, 32 });
-                }
+
                 ImGui::PopStyleVar();
 
-                if (ImGui::BeginDragDropTarget()) {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                        const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                        material->SetTexture({ *droppedUUID, type, 0 });
+                if (headerOpen) {
+                    ImGui::BeginDisabled(!enabled);
+                    ImGui::Indent();
+
+                    // Texture slot with drag-drop support
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                    std::string textureId = "##Texture_" + std::string(label);
+                    if (hasTexture) {
+                        ImGui::ImageButton(textureId.c_str(), (ImTextureID)texture->GetRendererID(), { 32, 32 }, { 0, 1 }, { 1, 0 });
+                    }
+                    else {
+                        ImGui::Button(textureId.c_str(), { 32, 32 });
+                    }
+                    ImGui::PopStyleVar();
+
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                            const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                            material->SetTexture({ *droppedUUID, type, 0 });
+                            material->EnableUseTexture(type, true);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+
+                    // [SUPR] Handle texture deletion
+                    if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                        material->SetTexture({ UUID(3), type, 0 });
+                        material->EnableUseTexture(type, false);
                         ResourceDB::SetDirty(material->GetUUID());
                     }
-                    ImGui::EndDragDropTarget();
-                }
 
-                // Texture speciffic
-                if (type == TextureType::Diffuse) {
-                    ImGui::SameLine();
-
-                    Vec4 color = material->GetColor();
-                    if (ImGui::ColorEdit4("##DiffuseColor", &color.r,
-                        ImGuiColorEditFlags_NoInputs | 
-                        ImGuiColorEditFlags_AlphaBar | 
-                        ImGuiColorEditFlags_AlphaPreview))
-                    {
-                        material->SetColor(color);
-                        ResourceDB::SetDirty(material->GetUUID());
+                    // Texture properties
+                    if (hasTexture) {
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Text("%s", texture->GetName().c_str());
+                        ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
+                        ImGui::EndGroup();
                     }
 
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Diffuse Color");
-                    }
-                }
-                else if (type == TextureType::Alpha) {
-                    ImGui::SameLine();
-                    float alpha = material->GetAlpha();
-                    if (ImGui::SliderFloat("##Alpha Value", &alpha, 0.0f, 1.0f)) {
-                        material->SetAlpha(alpha);
-                        ResourceDB::SetDirty(material->GetUUID());
-                    }
-                }
+                    // Texture specific properties
+                    if (type == MapType::Diffuse) {
+                        ImGui::SameLine();
 
-                // [SUPR] Handle texture deletion
-                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                    material->SetTexture({ UUID(3), type, 0});
-                    ResourceDB::SetDirty(material->GetUUID());
-                }
+                        Vec4 color = material->GetColor();
+                        if (ImGui::ColorEdit4("##DiffuseColor", &color.r, ImGuiColorEditFlags_NoInputs |
+                            ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview)) {
+                            material->SetColor(color);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
 
-                // Texture properties
-                if (hasTexture) {
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Text("%s", texture->GetName().c_str());
-                    ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
-                    ImGui::EndGroup();
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Diffuse Color");
+                        }
+                    }
+                    else if (type == MapType::Alpha) {
+                        float alpha = material->GetAlpha();
+                        if (ImGui::SliderFloat("##Alpha", &alpha, 0.0f, 1.0f)) {
+                            material->SetAlpha(alpha);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                    }
+                    else if (type == MapType::Metalness) {
+                        float metal = material->GetMetal();
+                        if (ImGui::SliderFloat("##Metalness", &metal, 0.0f, 1.0f)) {
+                            material->SetMetal(metal);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                    }
+                    else if (type == MapType::Roughness) {
+                        float rough = material->GetRough();
+                        if (ImGui::SliderFloat("##Roughness", &rough, 0.0f, 1.0f)) {
+                            material->SetRough(rough);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                        bool isGloss = material->IsGloss();
+                        if (ImGui::Checkbox("Is Gloss", &isGloss)) {
+                            material->SetGloss(isGloss);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                    }
+                    else if (type == MapType::Emissive) {
+                        ImGui::SameLine();
+
+                        Vec3 emissive = material->GetEmissive();
+                        if (ImGui::ColorEdit3("##EmissiveColor", &emissive.r, ImGuiColorEditFlags_NoInputs)) {
+                            material->SetEmissive(emissive);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Emissive Color");
+                        }
+
+                        bool isSingle = material->IsSingleChannel();
+                        if (ImGui::Checkbox("Single Channel", &isSingle)) {
+                            material->SetSingleChannel(isSingle);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                    }
+
+                    ImGui::Unindent();
+                    ImGui::EndDisabled();
                 }
-                ImGui::Unindent();
                 ImGui::Spacing();
             };
 
-            DrawTextureProperty(TextureType::Diffuse,   "Albedo");
-            DrawTextureProperty(TextureType::Alpha,     "Alpha");
-            DrawTextureProperty(TextureType::Normal,    "Normal");
-            DrawTextureProperty(TextureType::Metalness, "Metallic");
-            DrawTextureProperty(TextureType::Roughness, "Roughness");
-            DrawTextureProperty(TextureType::Specular,  "Specular");
-            DrawTextureProperty(TextureType::Oclusion,  "Oclusion");
-            DrawTextureProperty(TextureType::Emissive,  "Emissive");
-
-            // TODO: Could add color properties, sliders, etc. for each texture channel (too lazy :3)
+            DrawTextureProperty(MapType::Diffuse,   "Albedo");
+            DrawTextureProperty(MapType::Alpha,     "Alpha");
+            DrawTextureProperty(MapType::Normal,    "Normal");
+            DrawTextureProperty(MapType::Metalness, "Metallic");
+            DrawTextureProperty(MapType::Roughness, "Roughness");
+            DrawTextureProperty(MapType::Specular,  "Specular");
+            DrawTextureProperty(MapType::Oclusion,  "Oclusion");
+            DrawTextureProperty(MapType::Emissive,  "Emissive");
         }
     }
 

@@ -193,7 +193,7 @@ namespace Luth
     Material Model::ProcessMaterial(aiMaterial* mat, const fs::path& directory)
     {
         Material material;
-        //TextureInfo texInfo;
+        //MapInfo texInfo;
         //aiString path;
         //for (uint32_t type = aiTextureType_DIFFUSE; type <= aiTextureType_UNKNOWN; type++)
         //{
@@ -202,15 +202,15 @@ namespace Luth
         //    {
         //        if (mat->GetTexture(aiType, i, &path, nullptr, &texInfo.uvIndex) == AI_SUCCESS) {
         //            switch (aiType) {
-        //                case aiTextureType_DIFFUSE:         texInfo.type = TextureType::Diffuse;   break;
-        //                case aiTextureType_BASE_COLOR:      texInfo.type = TextureType::Diffuse;   break;
-        //                case aiTextureType_NORMALS:         texInfo.type = TextureType::Normal;    break;
-        //                case aiTextureType_NORMAL_CAMERA:   texInfo.type = TextureType::Normal;    break;
-        //                case aiTextureType_HEIGHT:          texInfo.type = TextureType::Normal;    break;
-        //                case aiTextureType_EMISSIVE:        texInfo.type = TextureType::Emissive;  break;
-        //                case aiTextureType_EMISSION_COLOR:  texInfo.type = TextureType::Emissive;  break;
-        //                case aiTextureType_METALNESS:       texInfo.type = TextureType::Metalness; break;
-        //                case aiTextureType_SHININESS:       texInfo.type = TextureType::Roughness; break;
+        //                case aiTextureType_DIFFUSE:         texInfo.type = MapType::Diffuse;   break;
+        //                case aiTextureType_BASE_COLOR:      texInfo.type = MapType::Diffuse;   break;
+        //                case aiTextureType_NORMALS:         texInfo.type = MapType::Normal;    break;
+        //                case aiTextureType_NORMAL_CAMERA:   texInfo.type = MapType::Normal;    break;
+        //                case aiTextureType_HEIGHT:          texInfo.type = MapType::Normal;    break;
+        //                case aiTextureType_EMISSIVE:        texInfo.type = MapType::Emissive;  break;
+        //                case aiTextureType_EMISSION_COLOR:  texInfo.type = MapType::Emissive;  break;
+        //                case aiTextureType_METALNESS:       texInfo.type = MapType::Metalness; break;
+        //                case aiTextureType_SHININESS:       texInfo.type = MapType::Roughness; break;
         //                default: continue; // Skip unsupported types
         //            }
         //            fs::path name = path.C_Str();

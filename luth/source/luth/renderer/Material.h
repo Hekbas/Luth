@@ -14,7 +14,7 @@
 
 namespace Luth
 {
-    enum class TextureType {
+    enum class MapType {
         Diffuse     = 0,
         Alpha       = 1,
         Normal      = 2,
@@ -25,10 +25,12 @@ namespace Luth
         Emissive    = 7
     };
 
-    struct TextureInfo {
-        UUID Uuid;
-        TextureType type;
+    struct MapInfo {
+        UUID TextureUuid;
+        MapType type;
         u32 uvIndex = 0;
+        bool useMap = true;
+        bool useTexture;
     };
 
     class Material : public Resource
@@ -41,26 +43,48 @@ namespace Luth
             return ShaderLibrary::Get(m_ShaderUUID);
         }
 
-        // Texture management
-        void AddTexture(const TextureInfo& texture) { m_Textures.push_back(texture); }
-        void SetTexture(const TextureInfo& texture) {
+        // Map management
+        void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
+        void SetTexture(const MapInfo& texture) {
             int index = static_cast<int>(texture.type);
-            if (index >= m_Textures.size()) AddTexture(texture);
-            else m_Textures[index] = texture;
+            if (index >= m_Maps.size()) AddTexture(texture);
+            else m_Maps[index] = texture;
         }
-        const std::vector<TextureInfo>& GetTextures() const { return m_Textures; }
+        const std::vector<MapInfo>& GetTextures() const { return m_Maps; }
 
-        std::optional<u32> GetUVIndex(TextureType type) const {
-            for (const auto& tex : m_Textures) {
+        std::optional<u32> GetUVIndex(MapType type) const {
+            for (const auto& tex : m_Maps) {
                 if (tex.type == type) return tex.uvIndex;
             }
             return std::nullopt;
         }
 
+        void EnableUseMap(MapType type, bool enable) {
+            for (auto& tex : m_Maps) {
+                if (tex.type == type) tex.useMap = enable;
+            }
+        }
+        bool IsUseMapEnabled(MapType type) const {
+            for (const auto& tex : m_Maps) {
+                if (tex.type == type) return tex.useMap;
+            }
+        }
+
+        void EnableUseTexture(MapType type, bool enable) {
+            for (auto& tex : m_Maps) {
+                if (tex.type == type) tex.useTexture = enable;
+            }
+        }
+        bool IsUseTextureEnabled(MapType type) const {
+            for (const auto& tex : m_Maps) {
+                if (tex.type == type) return tex.useTexture;
+            }
+        }
+
         // Runtime texture access
-        std::shared_ptr<Texture> GetTextureByType(TextureType type) const {
-            for (const auto& tex : m_Textures) {
-                if (tex.type == type) return TextureCache::Get(tex.Uuid);
+        std::shared_ptr<Texture> GetTextureByType(MapType type) const {
+            for (const auto& tex : m_Maps) {
+                if (tex.type == type) return TextureCache::Get(tex.TextureUuid);
             }
             return nullptr;
         }
@@ -83,33 +107,54 @@ namespace Luth
         void EnableAlphaFromDiffuse(bool enable) { m_AlphaFromDiffuse = enable; }
         bool IsAlphaFromDiffuseEnabled() const { return m_AlphaFromDiffuse; }
 
+        // Properties
         Vec4 GetColor() const { return m_Color; }
         void SetColor(Vec4 color) { m_Color = color; }
 
         float GetAlpha() const { return m_Alpha; }
         void SetAlpha(float alpha) { m_Alpha = alpha; }
 
+        float GetMetal() const { return m_Metal; }
+        void SetMetal(float metal) { m_Metal = metal; }
+
+        float GetRough() const { return m_Rough; }
+        void SetRough(float rough) { m_Rough = rough; }
+
+        Vec3 GetEmissive() const { return m_Emissive; }
+        void SetEmissive(Vec3 emissive) { m_Emissive = emissive; }
+
+        bool IsGloss() const { return m_IsGloss; }
+        void SetGloss(bool gloss) { m_IsGloss = gloss; }
+
+        bool IsSingleChannel() const { return m_IsSingleChannel; }
+        void SetSingleChannel(bool singleChannel) { m_IsSingleChannel = singleChannel; }
+
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
 
-        static const char* ToString(TextureType type);
+        static const char* ToString(MapType type);
 
     private:
         UUID m_ShaderUUID;
-        std::vector<TextureInfo> m_Textures;
+        std::vector<MapInfo> m_Maps;
 
         RendererAPI::RenderMode m_RenderMode = RendererAPI::RenderMode::Opaque;
-        float m_AlphaCutoff = 0.5f;
         RendererAPI::BlendFactor m_BlendSrc = RendererAPI::BlendFactor::SrcAlpha;
         RendererAPI::BlendFactor m_BlendDst = RendererAPI::BlendFactor::OneMinusSrcAlpha;
+        float m_AlphaCutoff = 0.5f;
         bool m_AlphaFromDiffuse = false;
+        bool m_IsGloss = false;
+        bool m_IsSingleChannel = false;
 
-        Vec4 m_Color = Vec4(1);
-        float m_Alpha = 1.0;
+        Vec4 m_Color = Vec4(1.0f);
+        float m_Alpha = 1.0f;
+        float m_Metal = 0.5f;
+        float m_Rough = 0.5f;
+        Vec3 m_Emissive = Vec3(0.0f);
     };
 
-    inline std::ostream& operator<<(std::ostream& os, const TextureType type) {
+    inline std::ostream& operator<<(std::ostream& os, const MapType type) {
         return os << Material::ToString(type);
     }
 }

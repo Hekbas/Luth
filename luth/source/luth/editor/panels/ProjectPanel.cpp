@@ -16,7 +16,7 @@ namespace Luth
         m_AssetsPath = FileSystem::AssetsPath().string();
 
         m_RootNode = BuildDirectoryTree(m_AssetsPath);
-        m_CurrentDirectoryUuid = m_RootNode.Uuid;;
+        m_CurrentDirectoryUuid = m_RootNode.TextureUuid;;
     }
 
     void ProjectPanel::OnRender()
@@ -50,7 +50,7 @@ namespace Luth
     DirectoryNode ProjectPanel::BuildDirectoryTree(const fs::path& path)
     {
         DirectoryNode node;
-        node.Uuid = ResourceDB::PathToUuid(path);
+        node.TextureUuid = ResourceDB::PathToUuid(path);
         node.Name = path.filename().string();
         node.Type = ResourceType::Directory;
 
@@ -79,7 +79,7 @@ namespace Luth
                     ResourceType fileType = FileSystem::ClassifyFileType(entry.path());
                     if (fileType != ResourceType::Unknown) {
                         DirectoryNode fileNode;
-                        fileNode.Uuid = ResourceDB::PathToUuid(entry.path());
+                        fileNode.TextureUuid = ResourceDB::PathToUuid(entry.path());
                         fileNode.Name = entry.path().filename().string();
                         fileNode.Type = fileType;
                         node.Contents.push_back(fileNode);
@@ -98,12 +98,12 @@ namespace Luth
     {
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
         if (node.Directories.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
-        if (node.Uuid == m_CurrentDirectoryUuid) flags |= ImGuiTreeNodeFlags_Selected;
+        if (node.TextureUuid == m_CurrentDirectoryUuid) flags |= ImGuiTreeNodeFlags_Selected;
 
         bool isOpen = ImGui::TreeNodeEx(node.Name.c_str(), flags);
 
         if (ImGui::IsItemClicked()) {
-            m_CurrentDirectoryUuid = node.Uuid;
+            m_CurrentDirectoryUuid = node.TextureUuid;
         }
 
         if (isOpen) {
@@ -117,7 +117,7 @@ namespace Luth
     void ProjectPanel::DrawPathBar()
     {
         const fs::path currentPath = ResourceDB::UuidToInfo(m_CurrentDirectoryUuid).Path;
-        const fs::path rootPath = ResourceDB::UuidToInfo(m_RootNode.Uuid).Path;
+        const fs::path rootPath = ResourceDB::UuidToInfo(m_RootNode.TextureUuid).Path;
         const fs::path relativePath = fs::relative(currentPath, rootPath);
 
         ImGui::BeginChild("##PathBar", ImVec2(0, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
@@ -126,7 +126,7 @@ namespace Luth
         fs::path accumulatedPath = rootPath;
 
         if (ImGui::Button("Assets")) {
-            m_CurrentDirectoryUuid = m_RootNode.Uuid;
+            m_CurrentDirectoryUuid = m_RootNode.TextureUuid;
         }
 
         for (const auto& part : relativePath) {
@@ -172,7 +172,7 @@ namespace Luth
 
         // Display subdirectories
         for (const auto& child : currentDir->Directories) {
-            ImGui::PushID(child.Uuid.ToString().c_str());
+            ImGui::PushID(child.TextureUuid.ToString().c_str());
 
             // Icon button
             ImGui::BeginGroup();
@@ -185,7 +185,7 @@ namespace Luth
 
             // Double-click handling
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                m_CurrentDirectoryUuid = child.Uuid;
+                m_CurrentDirectoryUuid = child.TextureUuid;
             }
 
             // Name label
@@ -205,7 +205,7 @@ namespace Luth
 
         // Display directory contents
         for (const auto& child : currentDir->Contents) {
-            ImGui::PushID(child.Uuid.ToString().c_str());
+            ImGui::PushID(child.TextureUuid.ToString().c_str());
 
             // Icon button
             ImGui::BeginGroup();
@@ -230,7 +230,7 @@ namespace Luth
             // Drag handling (priority)
             if (child.Type == ResourceType::Model || child.Type == ResourceType::Material || child.Type == ResourceType::Texture) {
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                    ImGui::SetDragDropPayload("ASSET_UUID", &child.Uuid, sizeof(Luth::UUID));
+                    ImGui::SetDragDropPayload("ASSET_UUID", &child.TextureUuid, sizeof(Luth::UUID));
                     ImGui::Text("%s", child.Name.c_str());
                     ImGui::EndDragDropSource();
                 }
@@ -239,7 +239,7 @@ namespace Luth
             // Click handling (only if pressed AND released on the same item)
             if (ImGui::IsItemDeactivated() && ImGui::IsMouseReleased(0) && ImGui::IsItemHovered()) {
                 if (auto* inspector = Editor::GetPanel<InspectorPanel>()) {
-                    inspector->SetSelectedResource(child.Uuid);
+                    inspector->SetSelectedResource(child.TextureUuid);
                 }
             }
 
@@ -327,7 +327,7 @@ namespace Luth
 
     const DirectoryNode* ProjectPanel::FindNodeByUuid(const DirectoryNode& node, const UUID& uuid)
     {
-        if (node.Uuid == uuid) return &node;
+        if (node.TextureUuid == uuid) return &node;
 
         for (const auto& child : node.Directories) {
             if (const auto* found = FindNodeByUuid(child, uuid)) {

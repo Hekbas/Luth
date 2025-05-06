@@ -1,0 +1,28 @@
+{
+    "dependencies": {
+        "0": "ea14baaacf3f8bf4",
+        "1": "ea14baaacf3f8bf4",
+        "10": "7abb1bf066c06da8",
+        "11": "ad099c153b20406d",
+        "12": "d2712bd7c7f10392",
+        "13": "d2712bd7c7f10392",
+        "14": "d2712bd7c7f10392",
+        "15": "d2712bd7c7f10392",
+        "16": "fda8f71e8260d738",
+        "2": "ea14baaacf3f8bf4",
+        "3": "ea14baaacf3f8bf4",
+        "4": "d0c5da0040e7356a",
+        "5": "3e6144fe1fe83657",
+        "6": "d0c5da0040e7356a",
+        "7": "3e6144fe1fe83657",
+        "8": "2937f0bb73e49c80",
+        "9": "2937f0bb73e49c80"
+    },
+    "type_settings": {
+        "import_normals": true,
+        "import_tangents": false,
+        "optimize_mesh": true
+    },
+    "uuid": "2059b59b10f271bc",
+    "version": 1
+}

@@ -9,7 +9,7 @@ namespace Luth
     constexpr const char* ENTITY_UUID = "ENTITY_UUID";
 
     struct DirectoryNode {
-        UUID Uuid;
+        UUID TextureUuid;
         std::string Name;
         ResourceType Type;
         std::vector<DirectoryNode> Directories;
