@@ -19,8 +19,17 @@
     "is_single_channel": 0,
     "metal": 0.0,
     "render_mode": 2,
-    "rough": 0.10899999737739563,
+    "rough": 0.15199999511241913,
     "shader": "0000000000000064",
+    "subsurface": {
+        "color": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "strength": 1.0,
+        "thickness_scale": 1.0
+    },
     "textures": [
         {
             "type": 0,
@@ -36,8 +45,8 @@
         },
         {
             "type": 2,
-            "useTexture": false,
-            "uuid": "c3d84feb41590c26",
+            "useTexture": true,
+            "uuid": "3151e41962d1e074",
             "uv": 0
         },
         {

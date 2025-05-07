@@ -51,6 +51,8 @@ layout(location = 4) in vec3 v_Bitangent;
 layout(location = 5) in vec3 v_WorldPos;
 
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out vec4 gPosition;
+layout(location = 2) out vec3 gNormal;
 
 // ========== UBO Definitions ==========
 layout(std140, binding = 0) uniform TransformUBO {
@@ -318,4 +320,6 @@ void main()
     color = pow(color, vec3(1.0/2.2));
 
     FragColor = vec4(color, alpha);
+    gPosition = vec4(v_WorldPos, 1.0);
+    gNormal = normalize(N);
 }

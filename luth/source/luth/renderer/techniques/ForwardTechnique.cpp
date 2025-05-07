@@ -16,7 +16,9 @@ namespace Luth
             .Width = width,
             .Height = height,
             .ColorAttachments = {
-                {.InternalFormat = GL_RGBA16F},
+                {.InternalFormat = GL_RGBA16F},     // Final Color
+                {.InternalFormat = GL_RGB16F},      // Position
+                {.InternalFormat = GL_RGB16F},      // Normal
             },
             .DepthStencilAttachment = {
                 {.InternalFormat = GL_DEPTH24_STENCIL8, .IsTexture = false}

@@ -1,6 +1,6 @@
 {
-    "alpha": 1.0,
-    "alpha_cutoff": 0.5,
+    "alpha": 0.8040000200271606,
+    "alpha_cutoff": 0.0,
     "alpha_from_diffuse": 0,
     "blend_dst": 3,
     "blend_src": 2,
@@ -21,6 +21,15 @@
     "render_mode": 2,
     "rough": 0.0,
     "shader": "0000000000000064",
+    "subsurface": {
+        "color": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "strength": 1.0,
+        "thickness_scale": 1.0
+    },
     "textures": [
         {
             "type": 0,

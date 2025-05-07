@@ -1,13 +1,13 @@
 {
     "alpha": 1.0,
-    "alpha_cutoff": 0.4959999918937683,
+    "alpha_cutoff": 0.6050000190734863,
     "alpha_from_diffuse": 0,
     "blend_dst": 3,
     "blend_src": 2,
     "color": [
         1.0,
-        0.9131209850311279,
-        0.8507462739944458,
+        0.8496324419975281,
+        0.7761194109916687,
         1.0
     ],
     "emissive": [
@@ -17,15 +17,15 @@
     ],
     "is_gloss": 0,
     "is_single_channel": 0,
-    "metal": 0.0,
+    "metal": 0.6010000109672546,
     "render_mode": 1,
-    "rough": 0.25,
+    "rough": 0.5820000171661377,
     "shader": "0000000000000064",
     "subsurface": {
         "color": [
-            1.0,
-            1.0,
-            1.0
+            0.0,
+            0.0,
+            0.0
         ],
         "strength": 1.0,
         "thickness_scale": 1.0
