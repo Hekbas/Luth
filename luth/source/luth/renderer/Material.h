@@ -22,7 +22,8 @@ namespace Luth
         Roughness   = 4,
         Specular    = 5,
         Oclusion    = 6,
-        Emissive    = 7
+        Emissive    = 7,
+        Thickness   = 8
     };
 
     struct MapInfo {
@@ -31,6 +32,12 @@ namespace Luth
         u32 uvIndex = 0;
         bool useMap = true;
         bool useTexture;
+    };
+
+    struct Subsurface {
+        Vec3 color = Vec3(0.0f);
+        float strength = 1.0f;
+        float thicknessScale = 1.0f;
     };
 
     class Material : public Resource
@@ -123,6 +130,16 @@ namespace Luth
         Vec3 GetEmissive() const { return m_Emissive; }
         void SetEmissive(Vec3 emissive) { m_Emissive = emissive; }
 
+        Subsurface GetSubsurface() const { return m_Subsurface; }
+        void SetSubsurfaceParams(const Vec3& color, float strength, float thickness) {
+            m_Subsurface.color = color;
+            m_Subsurface.strength = strength;
+            m_Subsurface.thicknessScale = thickness;
+        }
+        void SetSubsurfaceColor(const Vec3& color) { m_Subsurface.color = color; }
+        void SetSubsurfaceStrength(float strength) { m_Subsurface.strength = strength; }
+        void SetSubsurfaceThicknessScale(float thickness) { m_Subsurface.thicknessScale = thickness; }
+
         bool IsGloss() const { return m_IsGloss; }
         void SetGloss(bool gloss) { m_IsGloss = gloss; }
 
@@ -152,6 +169,7 @@ namespace Luth
         float m_Metal = 0.5f;
         float m_Rough = 0.5f;
         Vec3 m_Emissive = Vec3(0.0f);
+        Subsurface m_Subsurface;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const MapType type) {

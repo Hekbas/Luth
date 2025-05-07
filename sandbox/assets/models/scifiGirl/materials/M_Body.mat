@@ -21,6 +21,15 @@
     "render_mode": 0,
     "rough": 1.0,
     "shader": "0000000000000064",
+    "subsurface": {
+        "color": [
+            1.0,
+            0.0,
+            0.0
+        ],
+        "strength": 0.41100001335144043,
+        "thickness_scale": 1.0
+    },
     "textures": [
         {
             "type": 0,
@@ -68,6 +77,12 @@
             "type": 7,
             "useTexture": true,
             "uuid": "7ddde6a8e0963470",
+            "uv": 0
+        },
+        {
+            "type": 8,
+            "useTexture": true,
+            "uuid": "afe4d38d1eb20915",
             "uv": 0
         }
     ]

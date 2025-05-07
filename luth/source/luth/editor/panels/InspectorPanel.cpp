@@ -495,6 +495,27 @@ namespace Luth
                             ResourceDB::SetDirty(material->GetUUID());
                         }
                     }
+                    else if (type == MapType::Thickness) {
+                        ImGui::SameLine();
+
+                        Vec3 thick = material->GetSubsurface().color;
+                        if (ImGui::ColorEdit3("##ThicknessColor", &thick.r, ImGuiColorEditFlags_NoInputs)) {
+                            material->SetSubsurfaceColor(thick);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+
+                        float strength = material->GetSubsurface().strength;
+                        if (ImGui::SliderFloat("##ThicknessStrength", &strength, 0.0f, 1.0f)) {
+                            material->SetSubsurfaceStrength(strength);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+
+                        float scale = material->GetSubsurface().thicknessScale;
+                        if (ImGui::SliderFloat("##ThicknessScale", &scale, 0.0f, 1.0f)) {
+                            material->SetSubsurfaceThicknessScale(scale);
+                            ResourceDB::SetDirty(material->GetUUID());
+                        }
+                    }
 
                     ImGui::Unindent();
                     ImGui::EndDisabled();
@@ -510,6 +531,7 @@ namespace Luth
             DrawTextureProperty(MapType::Specular,  "Specular");
             DrawTextureProperty(MapType::Oclusion,  "Oclusion");
             DrawTextureProperty(MapType::Emissive,  "Emissive");
+            DrawTextureProperty(MapType::Thickness, "Thickness");
         }
     }
 

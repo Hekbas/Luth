@@ -93,6 +93,7 @@ layout(std140, binding = 1) uniform LightsUBO {
 #define Specular  5
 #define Oclusion  6
 #define Emissive  7
+#define Thickness 8
 
 struct Map {
     bool useMap;
@@ -101,7 +102,13 @@ struct Map {
     int uvIndex;
 };
 
-uniform Map u_Maps[8];
+struct Subsurface {
+    vec3 color;
+    float strength;
+    float thicknessScale;
+};
+
+uniform Map u_Maps[9];
 
 uniform int u_RenderMode;       // 0 = Opaque, 1 = Cutout, 2 = Transparent, 3 = Fade
 uniform float u_AlphaCutoff;    // For cutout mode
@@ -114,6 +121,7 @@ uniform float u_Alpha;
 uniform float u_Metalness;
 uniform float u_Roughness;
 uniform vec3 u_Emissive;
+uniform Subsurface u_Subsurface;
 
 // ========== PBR Functions ==========
 const float PI = 3.14159265359;
@@ -167,6 +175,21 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
     vec3 diffuse = kD * albedo / PI;
     
     return (diffuse + specular) * radiance * max(dot(N, L), 0.0);
+}
+
+vec3 CalculateSubsurface(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float thickness) {
+    if (!u_Maps[Thickness].useTexture) return vec3(0.0);
+    
+    vec3 transL = -L;
+    float wrap = 0.5; // Wrapped lighting factor
+    float transDot = max(0.0, dot(N, transL) + wrap) / (1.0 + wrap);
+    float transView = max(0.0, dot(V, transL));
+    
+    // Combine factors with thickness
+    float trans = transDot * transView * thickness * u_Subsurface.strength;
+    
+    // Apply subsurface color and energy conservation
+    return mix(u_Subsurface.color, albedo, 0.5) *  radiance *  trans * (1.0 - metallic);
 }
 
 // ========== Main Shader ==========
@@ -231,6 +254,13 @@ void main()
         emissive *= texEmissive;
     }
 
+    // Thickness
+    float thickness = u_Subsurface.thicknessScale;
+    if (u_Maps[Thickness].useTexture) {
+        vec2 uv = u_Maps[Thickness].uvIndex == 0 ? v_TexCoord0 : v_TexCoord1;
+        thickness *= texture(u_Maps[Thickness].texture, uv).r;
+    }
+
     // Handle render modes
     if (u_RenderMode == 1 && alpha < u_AlphaCutoff) discard;
     if (u_RenderMode == 0) alpha = 1.0;
@@ -247,7 +277,13 @@ void main()
     for(int i = 0; i < dirLightCount && i < MAX_DIR_LIGHTS; i++) {
         vec3 L = normalize(-dirLights[i].direction);
         vec3 radiance = dirLights[i].color * dirLights[i].intensity;
-        Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+        float NdotL = dot(N, L);
+    
+        if (NdotL > 0.0) {
+            Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+        } else {
+            Lo += CalculateSubsurface(L, radiance, V, N, albedo, metallic, thickness);
+        }
     }
 
     // Point lights
@@ -261,14 +297,20 @@ void main()
         // Physically based attenuation
         float attenuation = 1.0 / (distance * distance);
         attenuation = clamp(1.0 - pow(scaledDistance, 4.0), 0.0, 1.0);
-        
         vec3 L = normalize(toLight);
         vec3 radiance = pointLights[i].color * pointLights[i].intensity * attenuation;
-        Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+
+        float NdotL = dot(N, L);
+    
+        if(NdotL > 0.0) {
+            Lo += CalculateLight(L, radiance, V, N, albedo, metallic, roughness);
+        } else {
+            Lo += CalculateSubsurface(L, radiance, V, N, albedo, metallic, thickness);
+        }
     }
 
     // Combine lighting
-    vec3 ambient = vec3(0.1) * albedo * ao;
+    vec3 ambient = vec3(0.1) * albedo * ao;// * mix(1.0, thickness, u_Subsurface.strength);
     vec3 color = ambient + Lo + emissive;
 
     // Tone mapping and gamma correction

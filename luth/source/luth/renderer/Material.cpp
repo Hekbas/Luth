@@ -21,6 +21,12 @@ namespace Luth
         json["is_gloss"] = static_cast<int>(m_IsGloss);
         json["is_single_channel"] = static_cast<int>(m_IsSingleChannel);
 
+        json["subsurface"] = {
+            {"color", {m_Subsurface.color.r, m_Subsurface.color.g, m_Subsurface.color.b}},
+            {"strength", m_Subsurface.strength},
+            {"thickness_scale", m_Subsurface.thicknessScale}
+        };
+
         json["textures"] = nlohmann::json::array();
         for (const auto& tex : m_Maps) {
             nlohmann::json texJson;
@@ -64,6 +70,20 @@ namespace Luth
 
         m_IsGloss = static_cast<bool>(json.value("is_gloss", 0));
         m_IsSingleChannel = static_cast<bool>(json.value("is_single_channel", 0));
+
+        if (json.contains("subsurface")) {
+            const auto& subsurfaceJson = json["subsurface"];
+
+            if (subsurfaceJson.contains("color")) {
+                auto& jc = subsurfaceJson["color"];
+                m_Subsurface.color = glm::vec3(jc[0].get<float>(), jc[1].get<float>(), jc[2].get<float>());
+            }
+            m_Subsurface.strength = subsurfaceJson.value("strength", 1.0f);
+            m_Subsurface.thicknessScale = subsurfaceJson.value("thickness_scale", 1.0f);
+        }
+        else {
+            m_Subsurface = Subsurface{};
+        }
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

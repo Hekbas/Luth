@@ -120,6 +120,7 @@ namespace Luth
                     case MapType::Specular:     texture = TextureCache::GetDefaultGrey();   break;
                     case MapType::Oclusion:     texture = TextureCache::GetDefaultWhite();  break;
                     case MapType::Emissive:     texture = TextureCache::GetDefaultBlack();  break;
+                    case MapType::Thickness:    texture = TextureCache::GetDefaultBlack();  break;
                 }
             }
 
@@ -143,6 +144,9 @@ namespace Luth
         shader->SetVec3("u_Emissive", material->GetEmissive());
         shader->SetBool("u_IsGloss", material->IsGloss());
         shader->SetBool("u_IsSingleChannel", material->IsSingleChannel());
+        shader->SetVec3("u_Subsurface.color", material->GetSubsurface().color);
+        shader->SetFloat("u_Subsurface.strength", material->GetSubsurface().strength);
+        shader->SetFloat("u_Subsurface.thicknessScale", material->GetSubsurface().thicknessScale);
     }
 
     void ForwardTechnique::Resize(u32 width, u32 height)
