@@ -19,7 +19,7 @@ namespace Luth
 
         virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
         virtual void SetClearColor(const glm::vec4& color) override;
-        virtual void Clear() override;
+        virtual void Clear(BufferBit bits) override;
 
         virtual void EnableDepthMask(bool enable) override;
         virtual bool IsDepthMaskEnabled() override;

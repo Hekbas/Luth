@@ -109,7 +109,7 @@ namespace Luth
 
     void VKRendererAPI::SetClearColor(const glm::vec4& color) {}
 
-    void VKRendererAPI::Clear() {}
+    void VKRendererAPI::Clear(BufferBit bits) {}
 
     void VKRendererAPI::EnableDepthMask(bool enable) {}
 

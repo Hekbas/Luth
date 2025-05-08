@@ -63,9 +63,21 @@ namespace Luth
         LH_GL_CHECK_ERROR();
     }
 
-    void GLRendererAPI::Clear()
+    void GLRendererAPI::Clear(BufferBit bits)
     {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        using Underlying = std::underlying_type_t<BufferBit>;
+        Underlying bitsValue = static_cast<Underlying>(bits);
+
+        GLbitfield clearMask = 0;
+
+        if (bitsValue & static_cast<Underlying>(BufferBit::Color))
+            clearMask |= GL_COLOR_BUFFER_BIT;
+        if (bitsValue & static_cast<Underlying>(BufferBit::Depth))
+            clearMask |= GL_DEPTH_BUFFER_BIT;
+        if (bitsValue & static_cast<Underlying>(BufferBit::Stencil))
+            clearMask |= GL_STENCIL_BUFFER_BIT;
+
+        glClear(clearMask);
         LH_GL_CHECK_ERROR();
     }
 

@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
-#include "luth/renderer/Renderer.h"
+#include "luth/renderer/RendererAPI.h"
 #include "luth/resources/Resource.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/resources/libraries/TextureCache.h"

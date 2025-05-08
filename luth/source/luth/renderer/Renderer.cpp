@@ -38,8 +38,8 @@ namespace Luth
         s_RendererAPI->SetClearColor(color);
     }
 
-    void Renderer::Clear() {
-        s_RendererAPI->Clear();
+    void Renderer::Clear(BufferBit bits) {
+        s_RendererAPI->Clear(bits);
     }
 
     void Renderer::EnableDepthMask(bool enable) {

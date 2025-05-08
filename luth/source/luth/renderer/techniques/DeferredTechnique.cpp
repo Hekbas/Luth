@@ -79,7 +79,7 @@ namespace Luth
     void DeferredTechnique::GeometryPass(const std::vector<RenderCommand>& commands)
     {
         m_GBuffer->Bind();
-        Renderer::Clear(/*GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT*/);
+        Renderer::Clear(BufferBit::Color | BufferBit::Depth);
 
         m_GeometryShader->Bind();
         m_GeometryShader->SetMat4("u_ViewProjection", m_ViewProjection);
@@ -107,7 +107,7 @@ namespace Luth
     void DeferredTechnique::LightingPass(entt::registry& registry)
     {
         m_LightBuffer->Bind();
-        Renderer::Clear(/*GL_COLOR_BUFFER_BIT*/);
+        Renderer::Clear(BufferBit::Color);
 
         m_LightingShader->Bind();
 

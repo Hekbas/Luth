@@ -10,6 +10,14 @@ namespace Luth
 {
     class Mesh;
 
+    enum class BufferBit
+    {
+        None = 0,
+        Color = 1 << 0,
+        Depth = 1 << 1,
+        Stencil = 1 << 2
+    };
+
     class RendererAPI
     {
     public:
@@ -32,7 +40,7 @@ namespace Luth
 
         virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) = 0;
         virtual void SetClearColor(const glm::vec4& color) = 0;
-        virtual void Clear() = 0;
+        virtual void Clear(BufferBit bits) = 0;
 
         virtual void EnableDepthMask(bool enable) = 0;
         virtual bool IsDepthMaskEnabled() = 0;
@@ -61,4 +69,10 @@ namespace Luth
         static API s_API;
         static inline void* s_Window = nullptr;
     };
+
+    inline BufferBit operator|(BufferBit lhs, BufferBit rhs)
+    {
+        return static_cast<BufferBit>(
+            static_cast<unsigned int>(lhs) | static_cast<unsigned int>(rhs));
+    }
 }
