@@ -12,9 +12,9 @@ namespace Luth
 
     enum class BufferBit
     {
-        None = 0,
-        Color = 1 << 0,
-        Depth = 1 << 1,
+        None    = 0,
+        Color   = 1 << 0,
+        Depth   = 1 << 1,
         Stencil = 1 << 2
     };
 

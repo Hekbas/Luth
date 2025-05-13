@@ -148,15 +148,6 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-vec3 ACESFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x*(a*x + b))/(x*(c*x + d) + e), 0.0, 1.0);
-}
-
 // ========== Light Calculation ==========
 vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
     vec3 H = normalize(V + L);
@@ -312,10 +303,6 @@ void main()
     // Combine lighting
     vec3 ambient = vec3(0.1) * albedo * ao;// * mix(1.0, thickness, u_Subsurface.strength);
     vec3 color = ambient + Lo + emissive;
-
-    // Tone mapping and gamma correction
-    color = ACESFilm(color);
-    color = pow(color, vec3(1.0/2.2));
 
     FragColor = vec4(color, alpha);
 }

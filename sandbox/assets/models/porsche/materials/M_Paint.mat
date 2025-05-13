@@ -6,8 +6,8 @@
     "blend_src": 2,
     "color": [
         1.0,
-        0.20895522832870483,
-        0.0,
+        1.0,
+        1.0,
         1.0
     ],
     "emissive": [
@@ -21,6 +21,15 @@
     "render_mode": 0,
     "rough": 1.0,
     "shader": "0000000000000064",
+    "subsurface": {
+        "color": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "strength": 1.0,
+        "thickness_scale": 1.0
+    },
     "textures": [
         {
             "type": 0,

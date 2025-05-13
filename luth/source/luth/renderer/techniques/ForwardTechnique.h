@@ -23,9 +23,8 @@ namespace Luth
 
     private:
         void RenderGeometryPrepass(const std::vector<RenderCommand>& commands);
-        void RenderForwardPass(const std::vector<RenderCommand>& commands,
-            const Vec3& cameraPos, bool isOpaque);
-        void RenderMesh(const RenderCommand& cmd, bool isOpaque);
+        void RenderForwardPass(const std::vector<RenderCommand>& commands, const Vec3& cameraPos);
+        void RenderMesh(const RenderCommand& cmd, Shader& shader);
         void BindMaterialTextures(const std::shared_ptr<Material>& material,
             const std::shared_ptr<Shader>& shader);
         void RenderSSAOPass();
@@ -35,12 +34,13 @@ namespace Luth
         void InitNoiseTexture();
 
         // Framebuffers
-        std::shared_ptr<Framebuffer> m_MainFBO;
         std::shared_ptr<Framebuffer> m_GeometryFBO;
+        std::shared_ptr<Framebuffer> m_MainFBO;
         std::shared_ptr<Framebuffer> m_SSAOFBO;
         std::shared_ptr<Framebuffer> m_SSAOBlurFBO;
         std::shared_ptr<Framebuffer> m_BrightnessFBO;
         std::array<std::shared_ptr<Framebuffer>, 2> m_PingPongFBO;
+        std::shared_ptr<Framebuffer> m_CompositeFBO;
 
         // Shaders
         std::shared_ptr<Shader> m_GeoShader;
