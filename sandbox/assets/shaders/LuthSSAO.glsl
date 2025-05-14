@@ -15,10 +15,13 @@ void main()
 #type fragment
 #version 460 core
 
+layout(std430, binding = 0) readonly buffer Kernel {
+    vec3 u_Samples[64];
+};
+
 uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D u_Noise;
-uniform vec3 u_Samples[64];
 
 uniform mat4 u_Projection;
 uniform vec2 u_NoiseScale;

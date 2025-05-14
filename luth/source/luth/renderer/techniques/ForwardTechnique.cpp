@@ -266,9 +266,10 @@ namespace Luth
         Renderer::Clear(BufferBit::Color);
         m_SSAOShader->Bind();
 
-        m_GeometryFBO->BindColorAsTexture(0, 0); // Position
-        m_GeometryFBO->BindColorAsTexture(1, 1); // Normal
-        //m_NoiseTexture->Bind(2);
+        m_GeometryFBO->BindColorAsTexture(0, 0);    // Position
+        m_GeometryFBO->BindColorAsTexture(1, 1);    // Normal
+        m_NoiseTexture->Bind(2);                    // Noise
+        m_SSAOShader->SetInt("u_Noise", 2);
 
         //m_SSAOShader->SetMat4("u_Projection", camera.GetProjectionMatrix());
         //m_SSAOShader->SetUniform("u_Samples", m_SSAOKernel.data(), m_SSAOKernel.size());
@@ -366,20 +367,27 @@ namespace Luth
 
     void ForwardTechnique::InitNoiseTexture()
     {
+        constexpr int NOISE_SIZE = 4; // 4x4 texture
         std::vector<Vec3> noise;
-        std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0);
+        std::uniform_real_distribution<GLfloat> randomFloats(-1.0, 1.0);
         std::default_random_engine generator;
 
-        for (unsigned int i = 0; i < 16; i++) {
-            noise.push_back(Vec3(
-                randomFloats(generator) * 2.0 - 1.0,
-                randomFloats(generator) * 2.0 - 1.0,
+        // Generate 4x4 noise data (16 pixels)
+        noise.reserve(NOISE_SIZE * NOISE_SIZE);
+        for (int i = 0; i < NOISE_SIZE * NOISE_SIZE; i++) {
+            noise.emplace_back(
+                randomFloats(generator),
+                randomFloats(generator),
                 0.0f
-            ));
+            );
         }
 
-        //m_NoiseTexture = Texture2D::Create();
-        //m_NoiseTexture->SetData(4, 4, noise.data());
-        //m_NoiseTexture->SetFilter(GL_NEAREST);
+        // Create texture with matching size
+        m_NoiseTexture = Luth::Texture::Create(
+            NOISE_SIZE,    // width
+            NOISE_SIZE,    // height
+            3,             // channels (R, G, B)
+            reinterpret_cast<const unsigned char*>(noise.data())
+        );
     }
 }
