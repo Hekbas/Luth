@@ -46,10 +46,11 @@ namespace Luth
         }*/
     }
 
-    VKTexture::VKTexture(u32 width, u32 height, u32 format,
-        const unsigned char* data) {}
+    VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, const void* data) {}
 
     VKTexture::~VKTexture() {}
+
+    void VKTexture::Bind(u32 slot) const {}
 
     void VKTexture::CreateImage()
     {
@@ -88,5 +89,9 @@ namespace Luth
         //    "Failed to Bind Image Memory!");
     }
 
-    void VKTexture::Bind(u32 slot) const {}
+    void VKTexture::SetWrapMode(TextureWrapMode mode) {}
+
+    void VKTexture::SetFilterMode(TextureFilterMode min, TextureFilterMode mag) {}
+
+    void VKTexture::GenerateMipmaps() {}
 }

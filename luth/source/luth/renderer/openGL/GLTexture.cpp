@@ -14,7 +14,7 @@ namespace Luth
         LoadFromFile();
     }
 
-    GLTexture::GLTexture(u32 width, u32 height, u32 format, const unsigned char* data)
+    GLTexture::GLTexture(u32 width, u32 height, TextureFormat format, const void* data)
     {
         LH_CORE_INFO("Creating empty GLTexture ({0}x{1}, format {2})", width, height, static_cast<int>(format));
         CreateFromData(width, height, format, data);
@@ -24,6 +24,58 @@ namespace Luth
     {
         LH_CORE_TRACE("Destroying GLTexture (ID: {0}, '{1}')", m_TextureID, m_Path.filename().string());
         glDeleteTextures(1, &m_TextureID);
+    }
+
+    void GLTexture::Bind(uint32_t slot) const
+    {
+        //LH_CORE_TRACE("Binding texture ID {0} to slot {1}", m_TextureID, slot);
+        glActiveTexture(GL_TEXTURE0 + slot);
+        glBindTexture(GL_TEXTURE_2D, m_TextureID);
+    }
+
+    void GLTexture::SetWrapMode(TextureWrapMode mode)
+    {
+        m_WrapMode = mode;
+        GLenum glWrap = GL_REPEAT;
+        switch (mode) {
+            case TextureWrapMode::Repeat:         glWrap = GL_REPEAT;          break;
+            case TextureWrapMode::ClampToEdge:    glWrap = GL_CLAMP_TO_EDGE;   break;
+            case TextureWrapMode::MirroredRepeat: glWrap = GL_MIRRORED_REPEAT; break;
+        }
+
+        glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_S, glWrap);
+        glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_T, glWrap);
+    }
+
+    void GLTexture::SetFilterMode(TextureFilterMode min, TextureFilterMode mag)
+    {
+        m_MinFilter = min;
+        m_MagFilter = mag;
+
+        GLenum glMin = GL_LINEAR;
+        switch (min) {
+            case TextureFilterMode::Linear:               glMin = GL_LINEAR;                 break;
+            case TextureFilterMode::Nearest:              glMin = GL_NEAREST;                break;
+            case TextureFilterMode::LinearMipmapLinear:   glMin = GL_LINEAR_MIPMAP_LINEAR;   break;
+            case TextureFilterMode::NearestMipmapNearest: glMin = GL_NEAREST_MIPMAP_NEAREST; break;
+        }
+
+        GLenum glMag = GL_LINEAR;
+        switch (mag) {
+            case TextureFilterMode::Linear:  glMag = GL_LINEAR;  break;
+            case TextureFilterMode::Nearest: glMag = GL_NEAREST; break;
+            default: break; // Mipmap filters not applicable for mag
+        }
+
+        glTextureParameteri(m_TextureID, GL_TEXTURE_MIN_FILTER, glMin);
+        glTextureParameteri(m_TextureID, GL_TEXTURE_MAG_FILTER, glMag);
+    }
+
+    void GLTexture::GenerateMipmaps()
+    {
+        if (m_MipLevels > 1) {
+            glGenerateTextureMipmap(m_TextureID);
+        }
     }
 
     void GLTexture::LoadFromFile()
@@ -37,17 +89,12 @@ namespace Luth
             m_Height = height;
 
             GLenum internalFormat = 0, dataFormat = 0;
-            if (channels == 4) {
-                internalFormat = GL_RGBA8;
-                dataFormat = GL_RGBA;
-            }
-            else if (channels == 3) {
-                internalFormat = GL_RGB8;
-                dataFormat = GL_RGB;
-            }
-            else if (channels == 1) {
-                internalFormat = GL_R8;
-                dataFormat = GL_RED;
+            switch (channels) {
+			    case 1: internalFormat = GL_R8;      dataFormat = GL_RED;  break;
+			    case 2: internalFormat = GL_RG8;     dataFormat = GL_RG;   break;
+			    case 3: internalFormat = GL_RGB8;    dataFormat = GL_RGB;  break;
+			    case 4: internalFormat = GL_RGBA8;   dataFormat = GL_RGBA; break;
+                default: break;
             }
 
             if (internalFormat == 0) {
@@ -83,40 +130,34 @@ namespace Luth
         glTextureParameteri(m_TextureID, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
-    void GLTexture::CreateFromData(u32 width, u32 height, u32 channels, const unsigned char* data)
+    void GLTexture::CreateFromData(u32 width, u32 height, TextureFormat format, const void* data)
     {
-        // Determine OpenGL format
-        GLenum internalFormat = GL_RGBA8;
-        GLenum format = GL_RGBA;
+        m_Width = width;
+        m_Height = height;
+        m_Format = format;
 
-        switch (channels) {
-            case 1: internalFormat = GL_R8;    format = GL_RED;  break;
-            case 3: internalFormat = GL_RGB8;  format = GL_RGB;  break;
-            case 4: internalFormat = GL_RGBA8; format = GL_RGBA; break;
-            default: LH_CORE_ASSERT(false, "Unsupported number of channels: {0}", channels);
+        GLenum internalFormat, dataFormat;
+        GLenum dataType = GL_UNSIGNED_BYTE;
+
+        switch (format) {
+            case TextureFormat::R8:      internalFormat = GL_R8;      dataFormat = GL_RED;  break;
+            case TextureFormat::RGB8:    internalFormat = GL_RGB8;    dataFormat = GL_RGB;  break;
+            case TextureFormat::RGBA8:   internalFormat = GL_RGBA8;   dataFormat = GL_RGBA; break;
+            case TextureFormat::RGBA32F: internalFormat = GL_RGBA32F; dataFormat = GL_RGBA; break;
+            default: LH_CORE_ASSERT(false, "Unsupported texture format!"); return;
         }
 
-        // Create and configure texture
-        glGenTextures(1, &m_TextureID);
-        glBindTexture(GL_TEXTURE_2D, m_TextureID);
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_TextureID);
+        m_MipLevels = 1; // Default, can generate later
 
-        // Set texture parameters
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureStorage2D(m_TextureID, m_MipLevels, internalFormat, m_Width, m_Height);
 
-        // Allocate storage and upload data
-        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        if (data) {
+            glTextureSubImage2D(m_TextureID, 0, 0, 0, m_Width, m_Height, dataFormat, dataType, data);
+        }
 
-        // Unbind texture
-        glBindTexture(GL_TEXTURE_2D, 0);
-    }
-
-    void GLTexture::Bind(uint32_t slot) const
-    {
-        //LH_CORE_TRACE("Binding texture ID {0} to slot {1}", m_TextureID, slot);
-        glActiveTexture(GL_TEXTURE0 + slot);
-        glBindTexture(GL_TEXTURE_2D, m_TextureID);
+        // Apply default parameters
+        SetWrapMode(m_WrapMode);
+        SetFilterMode(m_MinFilter, m_MagFilter);
     }
 }

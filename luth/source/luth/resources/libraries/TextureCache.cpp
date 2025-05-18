@@ -124,7 +124,7 @@ namespace Luth
     }
 
     std::shared_ptr<Texture> TextureCache::Create(u32 width, u32 height,
-        u32 format, const unsigned char* data)
+        TextureFormat format, const void* data)
     {
         return Texture::Create(width, height, format, data);
     }
@@ -218,22 +218,22 @@ namespace Luth
     void TextureCache::CreateDefaultTextures()
     {
         unsigned char blackData[] = { 0, 0, 0, 255 };
-        s_Black = Create(1, 1, 4, blackData);
+        s_Black = Create(1, 1, TextureFormat::RGBA8, blackData);
         s_Black->SetUUID(UUID(0));
         s_Black->SetName("DefaultBlack");
 
         unsigned char whiteData[] = { 255, 255, 255, 255 };
-        s_White = Create(1, 1, 4, whiteData);
+        s_White = Create(1, 1, TextureFormat::RGBA8, whiteData);
         s_White->SetUUID(UUID(1));
         s_White->SetName("DefaultWhite");
 
         unsigned char greyData[] = { 128, 128, 128, 255 };
-        s_Grey = Create(1, 1, 4, greyData);
+        s_Grey = Create(1, 1, TextureFormat::RGBA8, greyData);
         s_Grey->SetUUID(UUID(2));
         s_Grey->SetName("DefaultGrey");
 
         unsigned char normalData[] = { 128, 128, 255, 255 };
-        s_Normal = Create(1, 1, 4, normalData);
+        s_Normal = Create(1, 1, TextureFormat::RGBA8, normalData);
         s_Normal->SetUUID(UUID(4));
         s_Normal->SetName("DefaultNormal");
 
@@ -245,7 +245,7 @@ namespace Luth
             missingData[i * 4 + 2] = 255;
             missingData[i * 4 + 3] = 255;
         }
-        s_Missing = Create(16, 16, 4, missingData);
+        s_Missing = Create(16, 16, TextureFormat::RGBA8, missingData);
         s_Missing->SetUUID(UUID(3));
         s_Missing->SetName("MissingTexture");
     }

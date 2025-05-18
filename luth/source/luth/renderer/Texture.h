@@ -35,8 +35,12 @@ namespace Luth
         virtual u32 GetRendererID() const = 0;
         virtual const fs::path& GetPath() const = 0;
 
+        virtual void SetWrapMode(TextureWrapMode mode) = 0;
+        virtual void SetFilterMode(TextureFilterMode min, TextureFilterMode mag) = 0;
+        virtual void GenerateMipmaps() = 0;
+
         static std::shared_ptr<Texture> Create(const fs::path& path);
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
-            u32 format, const unsigned char* data);
+            TextureFormat format, const void* data = nullptr);
     };
 }

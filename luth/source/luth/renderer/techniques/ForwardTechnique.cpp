@@ -104,8 +104,10 @@ namespace Luth
         Renderer::Clear(BufferBit::Color | BufferBit::Depth);
         RenderForwardPass(opaque, cameraPos);
         Renderer::EnableBlending(true);
+		Renderer::EnableDepthMask(false);
         RenderForwardPass(transparent, cameraPos);
         Renderer::EnableBlending(false);
+        Renderer::EnableDepthMask(true);
 
         // Post-Processing
         RenderSSAOPass();
@@ -271,9 +273,9 @@ namespace Luth
         m_NoiseTexture->Bind(2);                    // Noise
         m_SSAOShader->SetInt("u_Noise", 2);
 
-        //m_SSAOShader->SetMat4("u_Projection", camera.GetProjectionMatrix());
-        //m_SSAOShader->SetUniform("u_Samples", m_SSAOKernel.data(), m_SSAOKernel.size());
-        //m_SSAOShader->SetFloat("u_Radius", m_SSAORadius);
+        m_SSAOShader->SetVec2("u_NoiseScale", { m_Width / 4, m_Height / 4 });
+        m_SSAOShader->SetFloat("u_Radius", m_SSAORadius);
+        m_SSAOShader->SetFloat("u_Bias", m_SSAOBias);
         Renderer::DrawFullscreenQuad();
 
         // Blur SSAO
@@ -304,12 +306,12 @@ namespace Luth
         // Gaussian blur passes (ping-pong between two buffers)
         bool horizontal = true;
         bool firstIteration = true;
-        const float blurStrength = 1.0f; // Adjust based on resolution
+        const float blurStrength = 2.0f; // Adjust based on resolution
 
         for (int i = 0; i < m_BloomBlurPasses * 2; i++)
         {
             m_PingPongFBO[horizontal]->Bind();
-            Renderer::Clear(BufferBit::Color);
+            //Renderer::Clear(BufferBit::Color);
             m_BloomBlurShader->Bind();
 
             // Bind input texture
@@ -343,7 +345,8 @@ namespace Luth
         m_PingPongFBO[0]->BindColorAsTexture(0, 2); // Bloom
 
         m_CompositeShader->SetFloat("u_Exposure", 1.0f);
-        m_CompositeShader->SetFloat("u_BloomStrength", 0.04f);
+        m_CompositeShader->SetFloat("u_BloomStrength", 1.5f);
+        m_CompositeShader->SetFloat("u_SSAOStrength", 1.0f);
         Renderer::DrawFullscreenQuad();
 		m_CompositeFBO->Unbind();
     }
@@ -363,6 +366,12 @@ namespace Luth
             sample *= randomFloats(generator);
             m_SSAOKernel.push_back(sample);
         }
+
+        glGenBuffers(1, &m_SSBOKernel);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_SSBOKernel);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, m_SSAOKernel.size() * sizeof(Vec3), m_SSAOKernel.data(), GL_STATIC_READ);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_SSBOKernel);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 
     void ForwardTechnique::InitNoiseTexture()
@@ -376,18 +385,19 @@ namespace Luth
         noise.reserve(NOISE_SIZE * NOISE_SIZE);
         for (int i = 0; i < NOISE_SIZE * NOISE_SIZE; i++) {
             noise.emplace_back(
-                randomFloats(generator),
-                randomFloats(generator),
+                randomFloats(generator) * 2.0 - 1.0,
+                randomFloats(generator) * 2.0 - 1.0,
                 0.0f
             );
         }
 
-        // Create texture with matching size
         m_NoiseTexture = Luth::Texture::Create(
-            NOISE_SIZE,    // width
-            NOISE_SIZE,    // height
-            3,             // channels (R, G, B)
-            reinterpret_cast<const unsigned char*>(noise.data())
+            NOISE_SIZE, NOISE_SIZE,
+            TextureFormat::RGB8,
+            reinterpret_cast<const float*>(noise.data())
         );
+
+        m_NoiseTexture->SetWrapMode(TextureWrapMode::Repeat);
+        m_NoiseTexture->SetFilterMode(TextureFilterMode::Nearest, TextureFilterMode::Nearest);
     }
 }

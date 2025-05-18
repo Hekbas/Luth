@@ -51,12 +51,14 @@ namespace Luth
         std::shared_ptr<Shader> m_CompositeShader;
 
         // SSAO resources
+        u32 m_SSBOKernel;
         std::vector<Vec3> m_SSAOKernel;
         std::shared_ptr<Texture> m_NoiseTexture;
 
         // Configuration
         u32 m_Width, m_Height;
         float m_SSAORadius = 0.5f;
+        float m_SSAOBias = 0.025f;
         float m_BloomThreshold = 1.0f;
         int m_BloomBlurPasses = 8;
     };

@@ -10,7 +10,7 @@ namespace Luth
     {
     public:
         GLTexture(const fs::path& path);
-        GLTexture(u32 width, u32 height, u32 format, const unsigned char* data);
+        GLTexture(u32 width, u32 height, TextureFormat format, const void* data);
         ~GLTexture();
 
         void Bind(uint32_t slot = 0) const override;
@@ -21,17 +21,23 @@ namespace Luth
         uint32_t GetRendererID() const override { return m_TextureID; }
         const fs::path& GetPath() const override { return m_Path; }
 
+        void SetWrapMode(TextureWrapMode mode) override;
+        void SetFilterMode(TextureFilterMode min, TextureFilterMode mag) override;
+        void GenerateMipmaps() override;
+
     private:
         void LoadFromFile();
         void CreateInternal(GLenum internalFormat);
 
-        void CreateFromData(uint32_t width, uint32_t height,
-            uint32_t channels, const unsigned char* data);
+        void CreateFromData(u32 width, u32 height, TextureFormat format, const void* data);
 
         uint32_t m_TextureID = 0;
         uint32_t m_Width = 0, m_Height = 0;
         int m_MipLevels = 0;
         TextureFormat m_Format = TextureFormat::RGBA8;
+        TextureWrapMode m_WrapMode = TextureWrapMode::Repeat;
+        TextureFilterMode m_MinFilter = TextureFilterMode::Linear;
+        TextureFilterMode m_MagFilter = TextureFilterMode::Linear;
         fs::path m_Path;
     };
 }

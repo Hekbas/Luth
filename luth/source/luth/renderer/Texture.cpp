@@ -18,7 +18,7 @@ namespace Luth
         }
     }
 
-    std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, u32 format, const unsigned char* data)
+    std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, TextureFormat format, const void* data)
     {
         if (width == 0 || height == 0) {
             LH_CORE_ERROR("Texture creation failed: Invalid dimensions {0}x{1}", width, height);

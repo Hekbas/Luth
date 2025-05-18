@@ -10,7 +10,7 @@ namespace Luth
     {
     public:
         VKTexture(const fs::path& path);
-        VKTexture(u32 width, u32 height, u32 format, const unsigned char* data);
+        VKTexture(u32 width, u32 height, TextureFormat format, const void* data);
         ~VKTexture();
 
         void Bind(u32 slot = 0) const override;
@@ -20,6 +20,10 @@ namespace Luth
         u32 GetHeight() const override { return m_Height; }
         u32 GetRendererID() const override { return 0; } // Vulkan doesn't use IDs
         const fs::path& GetPath() const override { return m_Path; }
+
+        void SetWrapMode(TextureWrapMode mode) override;
+        void SetFilterMode(TextureFilterMode min, TextureFilterMode mag) override;
+        void GenerateMipmaps() override;
 
         VkImageView GetImageView() const { return m_ImageView; }
         VkSampler GetSampler() const { return m_Sampler; }
