@@ -18,6 +18,7 @@ void main()
 uniform sampler2D u_Scene;
 uniform sampler2D u_SSAO;
 uniform sampler2D u_Bloom;
+
 uniform float u_Exposure;
 uniform float u_BloomStrength;
 uniform float u_SSAOStrength;

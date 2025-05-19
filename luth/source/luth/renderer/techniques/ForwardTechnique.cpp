@@ -271,7 +271,9 @@ namespace Luth
         m_GeometryFBO->BindColorAsTexture(0, 0);    // Position
         m_GeometryFBO->BindColorAsTexture(1, 1);    // Normal
         m_NoiseTexture->Bind(2);                    // Noise
-        m_SSAOShader->SetInt("u_Noise", 2);
+        m_SSAOShader->SetInt("gPosition", 0);
+        m_SSAOShader->SetInt("gNormal",   1);
+        m_SSAOShader->SetInt("u_Noise",   2);
 
         m_SSAOShader->SetVec2("u_NoiseScale", { m_Width / 4, m_Height / 4 });
         m_SSAOShader->SetFloat("u_Radius", m_SSAORadius);
@@ -283,6 +285,7 @@ namespace Luth
         Renderer::Clear(BufferBit::Color);
         m_SSAOBlurShader->Bind();
         m_SSAOFBO->BindColorAsTexture(0, 0);
+        m_SSAOBlurShader->SetVec2("u_BlurScale", { 1.0f, 1.0f });
         Renderer::DrawFullscreenQuad();
         m_SSAOBlurFBO->Unbind();
     }
@@ -343,6 +346,10 @@ namespace Luth
         m_MainFBO->BindColorAsTexture(0, 0);        // Main color
         m_SSAOBlurFBO->BindColorAsTexture(0, 1);    // SSAO
         m_PingPongFBO[0]->BindColorAsTexture(0, 2); // Bloom
+
+        m_CompositeShader->SetInt("u_Scene", 0);
+        m_CompositeShader->SetInt("u_SSAO",  1);
+        m_CompositeShader->SetInt("u_Bloom", 2);
 
         m_CompositeShader->SetFloat("u_Exposure", 1.0f);
         m_CompositeShader->SetFloat("u_BloomStrength", 1.5f);
