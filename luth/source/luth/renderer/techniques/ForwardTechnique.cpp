@@ -104,10 +104,10 @@ namespace Luth
         Renderer::Clear(BufferBit::Color | BufferBit::Depth);
         RenderForwardPass(opaque, cameraPos);
         Renderer::EnableBlending(true);
-		Renderer::EnableDepthMask(false);
+		//Renderer::EnableDepthMask(false);
         RenderForwardPass(transparent, cameraPos);
         Renderer::EnableBlending(false);
-        Renderer::EnableDepthMask(true);
+        //Renderer::EnableDepthMask(true);
 
         // Post-Processing
         RenderSSAOPass();

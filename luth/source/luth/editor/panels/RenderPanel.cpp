@@ -2,6 +2,8 @@
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/ECS/Systems.h"
+#include "luth/ECS/Systems/RenderingSystem.h"
+#include "luth/renderer/techniques/ForwardTechnique.h"
 
 namespace Luth
 {
@@ -27,10 +29,8 @@ namespace Luth
             const auto& techniques = rs->GetAvailableTechniques();
             const auto currentTech = rs->GetActiveTechnique();
 
-            if (ImGui::BeginCombo("##Technique", currentTech ? currentTech->GetName().c_str() : "None"))
-            {
-                for (const auto& [name, tech] : techniques)
-                {
+            if (ImGui::BeginCombo("##Technique", currentTech ? currentTech->GetName().c_str() : "None")) {
+                for (const auto& [name, tech] : techniques) {
                     bool isSelected = (tech == currentTech);
                     if (ImGui::Selectable(name.c_str(), isSelected)) {
                         rs->SetTechnique(name);
@@ -45,12 +45,10 @@ namespace Luth
 
             // Framebuffer attachment selection
             auto attachments = currentTech->GetAllAttachments();
-            if (!attachments.empty())
-            {
+            if (!attachments.empty()) {
                 static std::string currentAttachment = "Final";
 
-                if (ImGui::BeginCombo("Framebuffer Attachment", currentAttachment.c_str()))
-                {
+                if (ImGui::BeginCombo("Framebuffer Attachment", currentAttachment.c_str())) {
                     bool isSelected = (currentAttachment == "Final");
                     if (ImGui::Selectable("Final", isSelected)) {
                         currentAttachment = "Final";
@@ -61,8 +59,7 @@ namespace Luth
                     }
 
                     // Add all available attachments
-                    for (const auto& [name, id] : attachments)
-                    {
+                    for (const auto& [name, id] : attachments) {
                         bool isSelected = (name == currentAttachment);
                         if (ImGui::Selectable(name.c_str(), isSelected)) {
                             currentAttachment = name;
@@ -74,6 +71,14 @@ namespace Luth
                     }
                     ImGui::EndCombo();
                 }
+            }
+
+            if (currentTech->GetName() == "Forward") {
+                ForwardTechnique ft = static_cast<ForwardTechnique>(*currentTech);
+                // Rendeing Settings
+                if (ImGui::SliderFloat("SSAO Radius",   &ft.m_SSAORadius,   0.0f, 10.0f));
+                if (ImGui::SliderFloat("SSAO Bias",     &ft.m_SSAOBias,     0.0f, 0.5f));
+                if (ImGui::SliderFloat("SSAO Strength", &ft.m_SSAOStrength, 0.0f, 10.0f));
             }
         }
 

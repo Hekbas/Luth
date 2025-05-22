@@ -55,12 +55,13 @@ namespace Luth
         std::vector<Vec3> m_SSAOKernel;
         std::shared_ptr<Texture> m_NoiseTexture;
 
+    public:
         // Configuration
         u32 m_Width, m_Height;
-        float m_SSAORadius = 0.5f;
-        float m_SSAOBias = 0.025f;
-        float m_SSAOStrength = 1.0f;
-        float m_BloomThreshold = 1.0f;
-        int m_BloomBlurPasses = 8;
+        float m_SSAORadius      = 0.5f;
+        float m_SSAOBias        = 0.025f;
+        float m_SSAOStrength    = 1.0f;
+        float m_BloomThreshold  = 1.0f;
+        int m_BloomBlurPasses   = 8;
     };
 }
