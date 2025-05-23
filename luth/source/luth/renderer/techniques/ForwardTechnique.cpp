@@ -146,7 +146,8 @@ namespace Luth
             { "Normal",     m_GeometryFBO->GetColorAttachmentID(1)    },
             { "SSAO Raw",   m_SSAOFBO->GetColorAttachmentID(0)        },
             { "SSAO Blur",  m_SSAOBlurFBO->GetColorAttachmentID(0)    },
-			{ "Bloom",      m_PingPongFBO[0]->GetColorAttachmentID(0) }
+			{ "Bloom Ext",  m_BrightnessFBO->GetColorAttachmentID(0)  },
+			{ "Bloom Blur", m_PingPongFBO[0]->GetColorAttachmentID(0) }
         };
     }
 
@@ -295,7 +296,9 @@ namespace Luth
         // Brightness extraction
         {
             m_BrightnessFBO->Bind();
+            //Renderer::SetClearColor({ 0.0, 1.0, 0.0, 1.0 });
             Renderer::Clear(BufferBit::Color);
+            //Renderer::SetClearColor({ 0.0, 1.0, 0.0, 1.0 });
             m_BloomExtShader->Bind();
 
             // Bind main color texture at full resolution
@@ -314,7 +317,7 @@ namespace Luth
         for (int i = 0; i < m_BloomBlurPasses * 2; i++)
         {
             m_PingPongFBO[horizontal]->Bind();
-            //Renderer::Clear(BufferBit::Color);
+            Renderer::Clear(BufferBit::Color);
             m_BloomBlurShader->Bind();
 
             // Bind input texture
@@ -328,7 +331,7 @@ namespace Luth
 
             // Set blur parameters
             m_BloomBlurShader->SetFloat("u_Horizontal", horizontal);
-            m_BloomBlurShader->SetFloat("u_BlurStrength", blurStrength);
+            m_BloomBlurShader->SetFloat("u_BlurStrength", m_BloomStrength);
 
             Renderer::DrawFullscreenQuad();
             m_PingPongFBO[horizontal]->Unbind();
@@ -351,9 +354,9 @@ namespace Luth
         m_CompositeShader->SetInt("u_SSAO",  1);
         m_CompositeShader->SetInt("u_Bloom", 2);
 
-        m_CompositeShader->SetFloat("u_Exposure", 1.0f);
-        m_CompositeShader->SetFloat("u_BloomStrength", 1.5f);
-        m_CompositeShader->SetFloat("u_SSAOStrength", 1.0f);
+        m_CompositeShader->SetFloat("u_Exposure", m_Exposure);
+        m_CompositeShader->SetFloat("u_BloomStrength", m_BloomStrength);
+        m_CompositeShader->SetFloat("u_SSAOStrength", m_SSAOStrength);
         Renderer::DrawFullscreenQuad();
 		m_CompositeFBO->Unbind();
     }
