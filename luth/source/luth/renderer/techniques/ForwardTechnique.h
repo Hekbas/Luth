@@ -58,11 +58,11 @@ namespace Luth
     public:
         // Configuration
         u32 m_Width, m_Height;
-        float m_SSAORadius      = 0.15f;
-        float m_SSAOBias        = 0.02f;
+        float m_SSAORadius      = 1.0f;
+        float m_SSAOBias        = 0.03f;
 
         float m_BloomThreshold  = 1.0f;
-        int m_BloomBlurPasses   = 10;
+        int m_BloomBlurPasses   = 8;
 
         float m_Exposure        = 1.0f;
         float m_BloomStrength   = 1.5f;

@@ -296,9 +296,9 @@ namespace Luth
         // Brightness extraction
         {
             m_BrightnessFBO->Bind();
-            //Renderer::SetClearColor({ 0.0, 1.0, 0.0, 1.0 });
+            Renderer::SetClearColor({ 0.0, 0.0, 0.0, 1.0 });
             Renderer::Clear(BufferBit::Color);
-            //Renderer::SetClearColor({ 0.0, 1.0, 0.0, 1.0 });
+            Renderer::SetClearColor({ 0.15, 0.15, 0.15, 1.0 });
             m_BloomExtShader->Bind();
 
             // Bind main color texture at full resolution

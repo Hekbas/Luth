@@ -25,5 +25,7 @@ void main()
 {
     vec3 color = texture(u_Source, v_TexCoord).rgb;
     float brightness = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    FragColor = vec4(color * smoothstep(u_Threshold, u_Threshold + 0.1, brightness), 1.0);
+    float m = smoothstep(u_Threshold, u_Threshold + 0.1, brightness);
+    if (m == 0.0) discard;
+    FragColor = vec4(color * m, 1.0);
 }
