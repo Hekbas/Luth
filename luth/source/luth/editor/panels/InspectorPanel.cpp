@@ -226,6 +226,10 @@ namespace Luth
             }
         });
 
+        DrawComponent<Animation>("Animation", m_SelectedEntity, [](Entity entity, Animation& animation) {
+			// TODO: Implement animation component properties
+        });
+
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
             ImGui::Text("Color"); ImGui::SameLine();
             ImGui::ColorEdit3("##Color", &dirLight.Color.x);

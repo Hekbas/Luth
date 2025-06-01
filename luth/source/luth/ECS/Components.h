@@ -148,6 +148,12 @@ namespace Luth::Component
         std::string materialNamePreview;
     };
 
+    struct Animation {
+        Animation() = default;
+        Animation(UUID uuid) : ModelUUID(uuid) {}
+        UUID ModelUUID;
+    };
+
     struct DirectionalLight {
         Vec3 Color = Vec3(1.0f);
         float Intensity = 1.0f;

@@ -315,6 +315,8 @@ namespace Luth
                         auto parent = m_Context->CreateEntity(model->GetName());
                         parent.AddComponent<Children>();
 
+                        if (model->IsSkinned()) parent.AddComponent<Animation>(assetUuid);
+
                         auto materials = model->GetMaterials();
 
                         int meshIndex = 0;

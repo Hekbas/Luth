@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/resources/libraries/ModelLibrary.h"
 #include "luth/resources/ResourceDB.h"
+#include "luth/resources/ModelLoader.h"
 
 namespace Luth
 {
@@ -85,7 +86,7 @@ namespace Luth
             return existing;
         }
 
-        auto model = std::make_shared<Model>(path);
+        auto model = ModelLoader::Load(path);
         if (!model || model->GetMeshes().empty()) {
             LH_CORE_ERROR("Failed to load Model from {0}", path.string());
             return nullptr;

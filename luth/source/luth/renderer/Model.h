@@ -43,6 +43,9 @@ namespace Luth
         }
         std::vector<UUID>& GetMaterials() { return m_Materials; }
 
+        bool IsSkinned() const { return m_IsSkinned; }
+        void SetIsSkinned(bool value) { m_IsSkinned = value; }
+
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
 
@@ -59,5 +62,8 @@ namespace Luth
         std::vector<MeshData> m_MeshesData;
         std::vector<std::shared_ptr<Mesh>> m_Meshes;
         std::vector<UUID> m_Materials;
+
+    protected:
+        bool m_IsSkinned = false;
     };
 }
