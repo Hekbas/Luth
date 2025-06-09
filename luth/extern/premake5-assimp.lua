@@ -32,7 +32,8 @@ project "assimp"
 		-- "source/assimp/code/AssetLib/glTF/**",
 		-- "source/assimp/code/AssetLib/glTF2/**",
 		"source/assimp/code/AssetLib/IQM/**",
-		"source/assimp/code/AssetLib/Obj/**"
+		"source/assimp/code/AssetLib/Obj/**",
+		"source/assimp/code/AssetLib/MD5/**"
 	}
 
 	includedirs
@@ -83,7 +84,7 @@ project "assimp"
 		"ASSIMP_BUILD_NO_M3D_IMPORTER",
 		"ASSIMP_BUILD_NO_MD2_IMPORTER",
 		"ASSIMP_BUILD_NO_MD3_IMPORTER",
-		"ASSIMP_BUILD_NO_MD5_IMPORTER",
+		-- "ASSIMP_BUILD_NO_MD5_IMPORTER",
 		"ASSIMP_BUILD_NO_MDC_IMPORTER",
 		"ASSIMP_BUILD_NO_MDL_IMPORTER",
 		"ASSIMP_BUILD_NO_MMD_IMPORTER",

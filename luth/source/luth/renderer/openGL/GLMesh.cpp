@@ -32,29 +32,48 @@ namespace Luth
     void GLMesh::CreateVAO()
     {
         glGenVertexArrays(1, &m_VAO);
+        LH_CORE_TRACE("Generated VAO with ID: {}", m_VAO);
+
         glBindVertexArray(m_VAO);
+        LH_CORE_TRACE("Bound VAO {}", m_VAO);
 
         m_VertexBuffer->Bind();
+        //LH_CORE_TRACE("Bound vertex buffer with ID: {}", m_VertexBuffer->GetID());
 
         const auto& layout = m_VertexBuffer->GetLayout();
         uint32_t index = 0;
         uint32_t stride = layout.GetStride();
+        LH_CORE_INFO("Processing vertex buffer layout with stride: {}", stride);
 
         for (const auto& element : layout.GetElements()) {
             glEnableVertexAttribArray(index);
-            glVertexAttribPointer(
-                index,
-                element.GetComponentCount(),
-                ShaderDataTypeToGLType(element.Type),
-                element.Normalized ? GL_TRUE : GL_FALSE,
-                stride,
-                (const void*)(intptr_t)element.Offset);
+            GLenum glType = ShaderDataTypeToGLType(element.Type);
+            if (glType == GL_INT || glType == GL_UNSIGNED_INT) {
+                glVertexAttribIPointer(
+                    index,
+                    element.GetComponentCount(),
+                    glType,
+                    stride,
+                    (const void*)(intptr_t)element.Offset);
+            }
+            else {
+                glVertexAttribPointer(
+                    index,
+                    element.GetComponentCount(),
+                    glType,
+                    element.Normalized ? GL_TRUE : GL_FALSE,
+                    stride,
+                    (const void*)(intptr_t)element.Offset);
+            }
+
             index++;
         }
 
         m_IndexBuffer->Bind();
+        //LH_CORE_TRACE("Bound index buffer with ID: {}", m_IndexBuffer->GetID());
 
         glBindVertexArray(0);
+        LH_CORE_TRACE("Unbound VAO {}", m_VAO);
     }
 
     GLenum GLMesh::ShaderDataTypeToGLType(ShaderDataType type)

@@ -1,40 +1,70 @@
 #type vertex
 #version 460 core
 
+// Vertex Attributes
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord0;
 layout(location = 3) in vec2 a_TexCoord1;
 layout(location = 4) in vec3 a_Tangent;
+layout(location = 5) in ivec4 a_BoneIDs;
+layout(location = 6) in vec4 a_BoneWeights;
 
-layout(location = 0) out vec3 v_Normal;
-layout(location = 1) out vec2 v_TexCoord0;
-layout(location = 2) out vec2 v_TexCoord1;
-layout(location = 3) out vec3 v_Tangent;
-layout(location = 4) out vec3 v_Bitangent;
-layout(location = 5) out vec3 v_WorldPos;
+// Outputs to Fragment Shader
+layout(location = 0) out vec3 v_WorldPos;
+layout(location = 1) out vec3 v_Normal;
+layout(location = 2) out vec2 v_TexCoord0;
+layout(location = 3) out vec2 v_TexCoord1;
+layout(location = 4) out vec3 v_Tangent;
+layout(location = 5) out vec3 v_Bitangent;
+layout(location = 6) flat out ivec4 v_BoneIDs;
+layout(location = 7) out vec4 v_BoneWeights;
 
+// Uniform Buffers
 layout(std140, binding = 0) uniform TransformUBO {
     mat4 view;
     mat4 projection;
     mat4 model;
 };
 
+// Bone Transformations
+const int MAX_BONES = 512;
+const int MAX_BONE_INFLUENCE = 4;
+
+layout(std140, binding = 2) uniform BonesUBO {
+    mat4 u_BoneMatrices[MAX_BONES];
+};
+
 void main()
 {
-    v_WorldPos = vec3(model * vec4(a_Position, 1.0));
+    // Bone transform
+    mat4 boneTransform = mat4(0.0);
+    boneTransform += u_BoneMatrices[a_BoneIDs.x] * a_BoneWeights.x;
+    boneTransform += u_BoneMatrices[a_BoneIDs.y] * a_BoneWeights.y;
+    boneTransform += u_BoneMatrices[a_BoneIDs.z] * a_BoneWeights.z;
+    boneTransform += u_BoneMatrices[a_BoneIDs.w] * a_BoneWeights.w;
+
+    // Position transformation
+    vec4 skinnedPosition = boneTransform * vec4(a_Position, 1.0);
+    v_WorldPos = vec3(model * skinnedPosition);
     gl_Position = projection * view * vec4(v_WorldPos, 1.0);
     
-    mat3 normalMatrix = transpose(inverse(mat3(model)));
-    v_Normal = normalize(normalMatrix * a_Normal);
-    v_Tangent = normalize(normalMatrix * a_Tangent);
+    // Normal/tangent transformation
+    mat3 boneRotation = mat3(boneTransform);
+    vec3 skinnedNormal = boneRotation * a_Normal;
+    vec3 skinnedTangent = boneRotation * a_Tangent;
     
-    // Calculate bitangent using cross product with handedness
-    v_Bitangent = cross(v_Normal, v_Tangent);
+    mat3 modelNormalMatrix = transpose(inverse(mat3(model)));
+    v_Normal = normalize(modelNormalMatrix * skinnedNormal);
+    v_Tangent = normalize(modelNormalMatrix * skinnedTangent);
+    v_Bitangent = normalize(cross(v_Normal, v_Tangent));
+    
+    // Pass through other data
     v_TexCoord0 = a_TexCoord0;
     v_TexCoord1 = a_TexCoord1;
+    v_BoneIDs = a_BoneIDs;
+    v_BoneWeights = a_BoneWeights;
 }
-
 
 
 
@@ -43,12 +73,14 @@ void main()
 #version 460 core
 
 // ========== Input/Output ==========
-layout(location = 0) in vec3 v_Normal;
-layout(location = 1) in vec2 v_TexCoord0;
-layout(location = 2) in vec2 v_TexCoord1;
-layout(location = 3) in vec3 v_Tangent;
-layout(location = 4) in vec3 v_Bitangent;
-layout(location = 5) in vec3 v_WorldPos;
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord0;
+layout(location = 3) in vec2 v_TexCoord1;
+layout(location = 4) in vec3 v_Tangent;
+layout(location = 5) in vec3 v_Bitangent;
+layout(location = 6) flat in ivec4 v_BoneIDs;
+layout(location = 7) in vec4 v_BoneWeights;
 
 layout(location = 0) out vec4 FragColor;
 
@@ -83,6 +115,14 @@ layout(std140, binding = 1) uniform LightsUBO {
     int pointLightCount;
     PointLight pointLights[MAX_POINT_LIGHTS];
 };
+
+// Bone Transformations
+const int MAX_BONES = 512;
+const int MAX_BONE_INFLUENCE = 4;
+
+// layout(std140, binding = 2) uniform BonesUBO {
+//     mat4 u_BoneMatrices[MAX_BONES];
+// };
 
 // ========== Material Uniforms =========
 #define Diffuse   0
@@ -181,6 +221,15 @@ vec3 CalculateSubsurface(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, flo
     
     // Apply subsurface color and energy conservation
     return mix(u_Subsurface.color, albedo, 0.5) *  radiance *  trans * (1.0 - metallic);
+}
+
+vec3 BoneIdToColor(int boneId) {
+    int seed = boneId * 7919; // Large prime
+    return vec3(
+        float(seed % 255) / 255.0,
+        float((seed / 255) % 255) / 255.0,
+        float((seed / 65025) % 255) / 255.0
+    );
 }
 
 // ========== Main Shader ==========
@@ -305,4 +354,48 @@ void main()
     vec3 color = ambient + Lo + emissive;
 
     FragColor = vec4(color, alpha);
+
+
+    // BONE WEIGTHS v1
+    //vec3 color = vec3(0.0);
+    // for (int i = 0; i < 4; i++) {
+    //     if (0 == v_BoneIDs[i]) {
+    //         if (v_BoneWeights[i] >= 0.7) {
+    //             color.x = v_BoneWeights[i];
+    //         }
+    //         else if (v_BoneWeights[i] >= 0.4) {
+    //             color.y = v_BoneWeights[i];
+    //         }
+    //         else if (v_BoneWeights[i] >= 0.1) {
+    //             color.z = v_BoneWeights[i];
+    //         }
+    //     }
+    // }
+    // FragColor = vec4(color, 1.0);
+
+
+    // BONE WEIGTHS v2
+    // vec3 finalColor = vec3(0.0);
+    // float totalWeight = 0.0;
+    // bool hasValidBones = false;
+
+    // // Blend all influencing bone colors
+    // for (int i = 0; i < 4; i++) {
+    //     if (v_BoneIDs[i] >= 0 && v_BoneWeights[i] > 0.0) {
+    //         vec3 boneColor = BoneIdToColor(v_BoneIDs[i]);
+    //         finalColor += boneColor * v_BoneWeights[i];
+    //         totalWeight += v_BoneWeights[i];
+    //         hasValidBones = true;
+    //     }
+    // }
+
+    // if (hasValidBones) {
+    //     // Normalize and enhance contrast
+    //     finalColor /= totalWeight;
+    //     finalColor = pow(finalColor, vec3(1.5)); // Gamma correction
+    //     FragColor = vec4(finalColor, 1.0);
+    // } else {
+    //     // No bone influence (error color)
+    //     FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta
+    // }
 }

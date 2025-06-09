@@ -11,15 +11,27 @@ namespace Luth
     Model::Model(const fs::path& path)
     {
         LoadModel(path);
+    }
+
+    void Model::Init()
+    {
         ProcessMeshData();
 
         // Deserialize materials
-        fs::path metaPath = path;
+        fs::path metaPath = m_Path;
         metaPath += ".meta";
-        std::ifstream file(metaPath);
-        nlohmann::json json;
-        file >> json;
-        Deserialize(json);
+
+        if (fs::exists(metaPath)) {
+            std::ifstream file(metaPath);
+            if (file.good()) {
+                nlohmann::json json;
+                file >> json;
+                Deserialize(json);
+            }
+        }
+        else {
+            LH_CORE_WARN("No meta file found for model: {0}", m_Path.string());
+        }
     }
 
     void Model::Serialize(nlohmann::json& json) const
@@ -93,6 +105,8 @@ namespace Luth
 
     void Model::LoadModel(const fs::path& path)
     {
+		m_Path = path;
+
         f32 ti = Time::GetTime();
 
         Assimp::Importer importer;
@@ -136,10 +150,10 @@ namespace Luth
     MeshData Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
     {
         MeshData data;
-        data.name = mesh->mName.C_Str();
+        data.Name = mesh->mName.C_Str();
 
-        data.vertices.reserve(mesh->mNumVertices);
-        data.indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
+        data.Vertices.reserve(mesh->mNumVertices);
+        data.Indices.reserve(mesh->mNumFaces * 3);  // Assuming triangulation
 
         const Mat3 normalMatrix = ConvertToNormalMatrix(transform);
 
@@ -149,33 +163,33 @@ namespace Luth
             const aiVector3D& pos = mesh->mVertices[i];
 
             const Vec4 transformedPos = transform * Vec4(pos.x, pos.y, pos.z, 1.0f);
-            vertex.position = Vec3(transformedPos);
+            vertex.Position = Vec3(transformedPos);
 
             if (mesh->mNormals) {
                 const aiVector3D& norm = mesh->mNormals[i];
                 const Vec3 transformedNorm = normalMatrix * Vec3(norm.x, norm.y, norm.z);
-                vertex.normal = glm::normalize(transformedNorm);
+                vertex.Normal = glm::normalize(transformedNorm);
             }
 
             if (mesh->mTextureCoords[0])
-                vertex.texCoord0 = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+                vertex.TexCoord0 = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
             if (mesh->mTextureCoords[1])
-                vertex.texCoord1 = { mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y };
+                vertex.TexCoord1 = { mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y };
 
             if (mesh->mTangents) {
                 const aiVector3D& tan = mesh->mTangents[i];
                 const Vec3 transformedTangent = normalMatrix * Vec3(tan.x, tan.y, tan.z);
-                vertex.tangent = glm::normalize(transformedTangent);
+                vertex.Tangent = glm::normalize(transformedTangent);
             }
 
-            data.vertices.push_back(vertex);
+            data.Vertices.push_back(vertex);
         }
 
         // Process indices
         for (uint32_t i = 0; i < mesh->mNumFaces; i++) {
             const aiFace& face = mesh->mFaces[i];
             for (uint32_t j = 0; j < face.mNumIndices; j++) {
-                data.indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
+                data.Indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
             }
         }
 
@@ -350,7 +364,7 @@ namespace Luth
     void Model::ProcessMeshData()
     {
         for (auto& meshData : m_MeshesData) {
-            auto vb = VertexBuffer::Create(meshData.vertices.data(), meshData.vertices.size() * sizeof(Vertex));
+            auto vb = VertexBuffer::Create(meshData.Vertices.data(), meshData.Vertices.size() * sizeof(Vertex));
             vb->SetLayout({
                 { ShaderDataType::Float3, "a_Position"  },
                 { ShaderDataType::Float3, "a_Normal"    },
@@ -358,7 +372,7 @@ namespace Luth
                 { ShaderDataType::Float2, "a_TexCoord1" },
                 { ShaderDataType::Float3, "a_Tangent"   } }
             );
-            auto ib = IndexBuffer::Create(meshData.indices.data(), meshData.indices.size());
+            auto ib = IndexBuffer::Create(meshData.Indices.data(), meshData.Indices.size());
             m_Meshes.push_back(Mesh::Create(vb, ib));
         }
     }

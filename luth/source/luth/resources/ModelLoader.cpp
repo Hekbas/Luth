@@ -19,16 +19,20 @@ namespace Luth
             return nullptr;
         }
 
+        std::shared_ptr<Model> model;
+
         if (HasBones(scene)) {
             LH_CORE_INFO("[ModelLoader] Loading as SkinnedModel");
             auto skinned = std::make_shared<SkinnedModel>(path);
             skinned->SetIsSkinned(true);
-            return skinned;
-        }
+            model = skinned;
+		}
+		else {
+            LH_CORE_INFO("[ModelLoader] Loading as static Model");
+            model = std::make_shared<Model>(path);
+		}
 
-        LH_CORE_INFO("[ModelLoader] Loading as static Model");
-        auto model = std::make_shared<Model>(path);
-        model->SetIsSkinned(false);
+        model->Init();
         return model;
     }
 
