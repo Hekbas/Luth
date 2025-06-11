@@ -9,6 +9,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/ECS/Systems.h"
+#include "luth/ECS/systems/TransformSystem.h"
 #include "luth/ECS/systems/AnimationSystem.h"
 #include "luth/ECS/systems/RenderingSystem.h"
 
@@ -59,6 +60,7 @@ namespace Luth
 
             if (!m_Window->IsMinimized())
             {
+                Systems::Update<TransformSystem>();
                 Systems::Update<AnimationSystem>();
                 Systems::Update<RenderingSystem>();
 

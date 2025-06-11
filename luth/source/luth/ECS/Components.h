@@ -55,19 +55,10 @@ namespace Luth::Component
                 * rotation
                 * glm::scale(glm::mat4(1.0f), m_Scale);
         }
+    };
 
-        /*glm::mat4 GetWorldTransform() const {
-            auto& transform = GetComponent<Transform>();
-            glm::mat4 result = transform.GetTransform();
-
-            if (HasComponent<Parent>()) {
-                Entity parent = GetComponent<Parent>().m_Parent;
-                if (parent) {
-                    result = parent.GetWorldTransform() * result;
-                }
-            }
-            return result;
-        }*/
+    struct WorldTransform {
+        glm::mat4 matrix = glm::mat4(1.0f);
     };
 
     struct Camera {

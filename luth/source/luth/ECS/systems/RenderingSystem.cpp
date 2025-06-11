@@ -97,7 +97,7 @@ namespace Luth
     {
         std::vector<RenderCommand> opaque, transparent;
 
-        auto view = registry.view<Transform, MeshRenderer>();
+        auto view = registry.view<WorldTransform, MeshRenderer>();
         for (auto [entity, transform, meshRend] : view.each()) {
             auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
             if (!material) material = MaterialLibrary::Get(UUID(7));

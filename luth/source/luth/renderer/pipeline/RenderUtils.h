@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/Log.h"
+#include "luth/ECS/Entity.h"
 #include "luth/renderer/Shader.h"
 #include "luth/renderer/pipeline/RenderPass.h"
 #include "luth/resources/libraries/ModelLibrary.h"
@@ -66,7 +67,7 @@ namespace Luth::RenderUtils
             return;
         }
 
-        shader.SetMat4("u_Model", cmd.transform->GetTransform());
+        shader.SetMat4("u_Model", cmd.transform->matrix);
         meshes[meshRend.MeshIndex]->Draw();
     }
 

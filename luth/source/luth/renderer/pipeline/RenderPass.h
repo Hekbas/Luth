@@ -16,7 +16,7 @@ namespace Luth
     struct RenderCommand
     {
         entt::entity entity;
-        Transform* transform;
+        WorldTransform* transform;
         MeshRenderer* meshRend;
         float distance;
     };

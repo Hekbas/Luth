@@ -92,6 +92,8 @@ namespace Luth
                 }
             }
         });
+
+        DrawComponent<WorldTransform>("World Transform", m_SelectedEntity, [](Entity entity, WorldTransform& transform) {});
         #endif
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
