@@ -1,51 +1,45 @@
 #pragma once
 
 #include "luth/ECS/System.h"
-#include "luth/renderer/RenderTechnique.h"
+#include "luth/renderer/pipeline/RenderPipeline.h"
+#include "luth/renderer/pipeline/RenderPass.h"
 
 #include <entt/entt.hpp>
+#include <unordered_map>
 
 namespace Luth
 {
     class RenderingSystem : public System
     {
     public:
-        RenderingSystem();
+        RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
 
         void Update(entt::registry& registry) override;
         void Resize(u32 width, u32 height);
 
-        void RegisterMainTechnique(const std::string& name, std::shared_ptr<RenderTechnique> technique);
-        void SetTechnique(const std::string& name);
-        std::shared_ptr<RenderTechnique> GetActiveTechnique() { return m_ActiveTechnique; }
-        const auto& GetAvailableTechniques() const { return m_MainTechniques; }
+        // Technique = pipeline of passes
+        void RegisterTechnique(const std::string& name, RenderPipeline&& pipeline);
+        void SetActiveTechnique(const std::string& name);
 
-        void RegisterOverlayTechnique(const std::string& name, std::shared_ptr<RenderTechnique> tech) {
-            m_OverlayTechniques[name] = tech;
-        }
-        void EnableOverlay(const std::string& name) { m_EnabledOverlays.insert(name); }
-        void DisableOverlay(const std::string& name) { m_EnabledOverlays.erase(name); }
-        bool IsOverlayEnabled(const std::string& name) const { return m_EnabledOverlays.count(name); }
-
-        void SetViewProjection(const Mat4& vp);
+        std::vector<std::string> GetTechniqueNames() const;
+        const std::string& GetActiveTechniqueName() const;
+        RenderPipeline* GetActivePipeline() const { return m_ActivePipeline; }
 
     private:
         std::pair<std::vector<RenderCommand>, std::vector<RenderCommand>>
             CollectCommands(entt::registry& registry);
-
+        void UpdateTransformUBO(const Mat4& view, const Mat4& proj, const Mat4& model);
         void UpdateLightsUBO(entt::registry& registry);
-        void UpdateTransformUBO(const Mat4& view, const Mat4& projection, const Mat4& model);
 
-        std::unordered_map<std::string, std::shared_ptr<RenderTechnique>> m_MainTechniques;
-        std::shared_ptr<RenderTechnique> m_ActiveTechnique;
+        // map of ready-to-go pipelines
+        std::unordered_map<std::string, RenderPipeline> m_Pipelines;
+        RenderPipeline* m_ActivePipeline = nullptr;
+        std::string m_ActiveName;
 
-        std::unordered_map<std::string, std::shared_ptr<RenderTechnique>> m_OverlayTechniques;
-        std::unordered_set<std::string> m_EnabledOverlays;
-
-        Vec3 m_CameraPos;
-        Mat4 m_ViewProjection;
-        u32 m_TransformUBO;
-        u32 m_LightsUBO;
+        // UBOs, camera, etc.
+        u32   m_TransformUBO, m_LightsUBO;
+        Vec3  m_CameraPos;
+        Mat4  m_ViewProj;
     };
 
     #define MAX_DIR_LIGHTS 4
@@ -79,5 +73,7 @@ namespace Luth
         glm::mat4 model;
 
         TransformUBO() : view(1.0f), projection(1.0f), model(1.0f) {}
+		TransformUBO(Mat4 view, Mat4 projection, Mat4 model)
+			: view(view), projection(projection), model(model) {}
     };
 }

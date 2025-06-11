@@ -18,6 +18,8 @@ namespace Luth
         EditorCamera(float fov, float aspectRatio, float nearClip, float farClip);
 
         void OnUpdate(bool rotate, bool pan);
+
+        glm::vec3 GetPosition() const { return CalculatePosition(); }
         const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
         const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
         glm::mat4 GetViewProjection() const { return m_ProjectionMatrix * m_ViewMatrix; }

@@ -1,21 +1,21 @@
 #include "luthpch.h"
 #include "luth/ECS/systems/RenderingSystem.h"
-#include "luth/renderer/techniques/ForwardTechnique.h"
-#include "luth/renderer/techniques/DeferredTechnique.h"
+#include "luth/renderer/pipeline/passes/GeometryPass.h"
+#include "luth/renderer/pipeline/passes/SSAOPass.h"
+#include "luth/renderer/pipeline/passes/LightingPass.h"
+#include "luth/renderer/pipeline/passes/TransparentPass.h"
+#include "luth/renderer/pipeline/passes/PostProcessPass.h"
 #include "luth/resources/libraries/MaterialLibrary.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 
-#include <entt/entt.hpp>
+#include <glad/glad.h>
 
 namespace Luth
 {
-    RenderingSystem::RenderingSystem()
+    RenderingSystem::RenderingSystem(u32 viewportWidth, u32 viewportHeight)
     {
-        RegisterMainTechnique("Forward", std::make_shared<ForwardTechnique>());
-        RegisterMainTechnique("Deferred", std::make_shared<DeferredTechnique>());
-
-        // TODO: Manage UBOs through Renderer, make agnostic
+        // UBO setup
         glGenBuffers(1, &m_TransformUBO);
         glBindBuffer(GL_UNIFORM_BUFFER, m_TransformUBO);
         glBufferData(GL_UNIFORM_BUFFER, sizeof(TransformUBO), nullptr, GL_DYNAMIC_DRAW);
@@ -27,59 +27,75 @@ namespace Luth
         glBufferData(GL_UNIFORM_BUFFER, sizeof(LightsUBO), nullptr, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_LightsUBO);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+        // Register the “deferred” pipeline
+        RenderPipeline deferredPipeline;
+        deferredPipeline.AddPass<GeometryPass>();
+        deferredPipeline.AddPass<SSAOPass>();
+        deferredPipeline.AddPass<LightingPass>();
+        deferredPipeline.AddPass<TransparentPass>();
+        deferredPipeline.AddPass<PostProcessPass>();
+        deferredPipeline.InitAll(viewportWidth, viewportHeight);
+
+        RegisterTechnique("Forward", std::move(deferredPipeline));
+        SetActiveTechnique("Forward");
     }
 
     void RenderingSystem::Update(entt::registry& registry)
     {
+        if (!m_ActivePipeline) return;
+
+        // Collect opaque / transparent
         auto [opaque, transparent] = CollectCommands(registry);
 
-        if (m_ActiveTechnique) {
-            EditorCamera cam = Editor::GetPanel<ScenePanel>()->GetEditorCamera();
-            UpdateTransformUBO(cam.GetViewMatrix(), cam.GetProjectionMatrix(), Mat4(1.0f));
-            UpdateLightsUBO(registry);
-            m_ActiveTechnique->Render(registry, m_CameraPos, opaque, transparent);
-        }
+        // Update camera / UBOs
+        auto cam = Editor::GetPanel<ScenePanel>()->GetEditorCamera();
+        m_CameraPos = cam.GetPosition();
+        UpdateTransformUBO(cam.GetViewMatrix(), cam.GetProjectionMatrix(), Mat4(1.0f));
+        UpdateLightsUBO(registry);
+
+        // Build context and render
+        RenderContext ctx{ m_ActivePipeline, registry, m_CameraPos, opaque, transparent,
+                            (u32)m_ViewProj[0][0], (u32)m_ViewProj[1][1] };
+        m_ActivePipeline->RenderAll(ctx);
     }
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
-        if (m_ActiveTechnique) {
-            m_ActiveTechnique->Resize(width, height);
-        }
+        if (m_ActivePipeline)
+            m_ActivePipeline->ResizeAll(width, height);
     }
 
-    void RenderingSystem::RegisterMainTechnique(const std::string& name, std::shared_ptr<RenderTechnique> technique)
+    void RenderingSystem::RegisterTechnique(const std::string& name, RenderPipeline&& pipeline)
     {
-        m_MainTechniques[name] = technique;
-        if (!m_ActiveTechnique) { // Auto-select first technique
-            m_ActiveTechnique = technique;
-        }
+        m_Pipelines[name] = std::move(pipeline);
     }
 
-    void RenderingSystem::SetTechnique(const std::string& name)
+    void RenderingSystem::SetActiveTechnique(const std::string& name)
     {
-        if (auto it = m_MainTechniques.find(name); it != m_MainTechniques.end()) {
-            u32 width = m_ActiveTechnique->GetWidth();
-            u32 height = m_ActiveTechnique->GetHeight();
-            m_ActiveTechnique = it->second;
-            m_ActiveTechnique->Resize(width, height);
-            //m_ActiveTechnique->SetViewProjection(m_ViewProjection);
-        }
+        auto it = m_Pipelines.find(name);
+        if (it == m_Pipelines.end()) return;
+        m_ActivePipeline = &it->second;
+        m_ActiveName = it->first;
     }
 
-    void RenderingSystem::SetViewProjection(const Mat4& vp)
+    std::vector<std::string> RenderingSystem::GetTechniqueNames() const
     {
-        /*m_ViewProjection = vp;
-        if (m_ActiveTechnique) {
-            m_ActiveTechnique->SetViewProjection(vp);
-        }*/
+        std::vector<std::string> names;
+        names.reserve(m_Pipelines.size());
+        for (auto& [n, _] : m_Pipelines) names.push_back(n);
+        return names;
+    }
+
+    const std::string& RenderingSystem::GetActiveTechniqueName() const
+    {
+        return m_ActiveName;
     }
 
     std::pair<std::vector<RenderCommand>, std::vector<RenderCommand>>
         RenderingSystem::CollectCommands(entt::registry& registry)
     {
-        std::vector<RenderCommand> opaqueCommands;
-        std::vector<RenderCommand> transparentCommands;
+        std::vector<RenderCommand> opaque, transparent;
 
         auto view = registry.view<Transform, MeshRenderer>();
         for (auto [entity, transform, meshRend] : view.each()) {
@@ -95,7 +111,7 @@ namespace Luth
 
             if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
                 material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
-                opaqueCommands.push_back(cmd);
+                opaque.push_back(cmd);
             }
             else {
                 // TODO: Calculate actual distance from camera
@@ -103,26 +119,22 @@ namespace Luth
                 //cmd.distance = glm::distance(m_CameraPos, worldPos);
                 Vec3 worldPos = Vec3(0.0f, 0.0f, 0.0f);
                 cmd.distance = glm::distance(Vec3(400.0f, 220.0f, 400.0f), worldPos);
-                transparentCommands.push_back(cmd);
+                transparent.push_back(cmd);
             }
         }
 
         // Sort transparent objects back-to-front
-        std::sort(transparentCommands.begin(), transparentCommands.end(),
+        std::sort(transparent.begin(), transparent.end(),
             [](const auto& a, const auto& b) { return a.distance > b.distance; });
 
-        return { opaqueCommands, transparentCommands };
+        return { opaque, transparent };
     }
 
-    void RenderingSystem::UpdateTransformUBO(const Mat4& view, const Mat4& projection, const Mat4& model)
+    void RenderingSystem::UpdateTransformUBO(const Mat4& view, const Mat4& proj, const Mat4& model)
     {
-        TransformUBO data;
-        data.view = view;
-        data.projection = projection;
-        data.model = model;
-
+        TransformUBO data{ view, proj, model };
         glBindBuffer(GL_UNIFORM_BUFFER, m_TransformUBO);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(TransformUBO), &data);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(data), &data);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
 
@@ -165,67 +177,4 @@ namespace Luth
         glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(LightsUBO), &ubo);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
-
-    //void RenderMesh(Transform& transform, MeshRenderer& meshRend, bool isOpaque) {
-    //    // Get resources from UUIDs
-    //    auto model = ModelLibrary::Get(meshRend.ModelUUID);
-    //    auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
-
-    //    if (!model) {
-    //        LH_CORE_WARN("MeshRenderer missing model reference");
-    //        return;
-    //    }
-
-    //    // Validate mesh index
-    //    const auto& meshes = model->GetMeshes();
-    //    if (meshRend.MeshIndex >= meshes.size()) {
-    //        LH_CORE_ERROR("Invalid mesh index: {0}", meshRend.MeshIndex);
-    //        return;
-    //    }
-
-    //    if (!material) material = MaterialLibrary::Get(UUID(7));
-
-    //    // Get shader and setup transform
-    //    auto shader = m_Override ? m_ShaderOverride : material->GetShader();
-    //    if (!shader) {
-    //        LH_CORE_WARN("Invalid shader for material");
-    //        return;
-    //    }
-
-    //    // Set shader uniforms
-    //    shader->Bind();
-    //    //shader->SetMat4("u_Model", transform.GetTransform());
-    //    shader->SetInt("u_RenderMode", static_cast<int>(material->GetRenderMode()));
-
-    //    if (material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
-    //        shader->SetFloat("u_AlphaCutoff", material->GetAlphaCutoff());
-    //    }
-    //    if (material->GetRenderMode() == RendererAPI::RenderMode::Transparent) {
-    //        shader->SetBool("u_AlphaFromDiffuse", material->IsAlphaFromDiffuseEnabled());
-    //        shader->SetFloat("u_Alpha", material->GetAlpha());
-    //    }
-    //    shader->SetVec4("u_Color", material->GetColor());
-
-    //    // Configure render states
-    //    if (isOpaque) {
-    //        Renderer::EnableBlending(false);
-    //    }
-    //    else {
-    //        Renderer::EnableBlending(true);
-    //        Renderer::SetBlendFunction(material->GetBlendSrc(), material->GetBlendDst());
-    //    }
-
-    //    // Bind textures and draw
-    //    BindMaterialTextures(material, shader);
-    //    meshes[meshRend.MeshIndex]->Draw();
-    //}
-
-    //void SetShaderOverride(bool override, UUID uuid) {
-    //    m_Override = override;
-    //    m_ShaderOverride = ShaderLibrary::Get(uuid);
-    //}
-
-    //    // Shader controls
-    //    std::shared_ptr<Shader> m_ShaderOverride;
-    //    bool m_Override = false;
 }

@@ -6,6 +6,7 @@ namespace Luth
 {
     std::shared_mutex ShaderLibrary::s_Mutex;
     std::unordered_map<UUID, ShaderLibrary::ShaderRecord, UUIDHash> ShaderLibrary::s_Shaders;
+    std::unordered_map<std::string, UUID> ShaderLibrary::s_NameToUuidMap;
 
     void ShaderLibrary::Init()
     {
@@ -28,16 +29,23 @@ namespace Luth
         }
 
         UUID uuid = shader->GetUUID();
+        std::string name = shader->GetName();
         std::unique_lock lock(s_Mutex);
 
         auto [it, inserted] = s_Shaders.try_emplace(uuid,
-            ShaderRecord{ shader, "", fs::file_time_type() }
+            ShaderRecord{ shader, name, "", fs::file_time_type() }
         );
 
         if (!inserted) {
             LH_CORE_WARN("Shader with UUID {0} already exists! Overwriting...", uuid.ToString());
-            it->second = { shader, "", fs::file_time_type() };
+            it->second = { shader, name, "", fs::file_time_type() };
         }
+
+        // Update name mapping
+        if (!name.empty()) {
+            s_NameToUuidMap[name] = uuid;
+        }
+
         return true;
     }
 
@@ -58,6 +66,18 @@ namespace Luth
         std::shared_lock lock(s_Mutex);
         auto it = s_Shaders.find(uuid);
         return it != s_Shaders.end() ? it->second.Shader : nullptr;
+    }
+
+    std::shared_ptr<Shader> ShaderLibrary::Get(const std::string& name)
+    {
+        std::shared_lock lock(s_Mutex);
+        auto uuidIt = s_NameToUuidMap.find(name);
+        if (uuidIt == s_NameToUuidMap.end()) {
+            return nullptr;
+        }
+
+        auto shaderIt = s_Shaders.find(uuidIt->second);
+        return shaderIt != s_Shaders.end() ? shaderIt->second.Shader : nullptr;
     }
 
     std::vector<UUID> ShaderLibrary::GetAllUuids()
@@ -95,11 +115,16 @@ namespace Luth
         }
 
         auto modTime = fs::last_write_time(filePath);
+        std::string name = filePath.filename().stem().string();
 
         std::unique_lock lock(s_Mutex);
-        s_Shaders[uuid] = { shader, filePath, modTime };
+        s_Shaders[uuid] = { shader, name, filePath, modTime };
         shader->SetUUID(uuid);
-        shader->SetName(filePath.filename().stem().string());
+        shader->SetName(name);
+
+        if (!name.empty()) {
+            s_NameToUuidMap[name] = uuid;
+        }
 
         LH_CORE_INFO("Loaded Shader {0} from {1}", uuid.ToString(), filePath.string());
         return shader;

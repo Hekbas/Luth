@@ -331,6 +331,7 @@ namespace Luth
                             meshRend.modelNamePreview = model->GetName();
                             meshRend.ModelUUID = assetUuid;
                             meshRend.MeshIndex = meshIndex;
+							meshRend.isSkinned = model->IsSkinned();
                             if (!model->GetMaterials().empty() && meshIndex < materials.size()) {
                                 meshRend.MaterialUUID = materials[meshIndex];
                                 meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();

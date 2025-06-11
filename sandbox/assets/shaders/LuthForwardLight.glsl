@@ -35,14 +35,18 @@ layout(std140, binding = 2) uniform BonesUBO {
     mat4 u_BoneMatrices[MAX_BONES];
 };
 
+uniform bool u_IsSkinned;
+
 void main()
 {
     // Bone transform
-    mat4 boneTransform = mat4(0.0);
-    boneTransform += u_BoneMatrices[a_BoneIDs.x] * a_BoneWeights.x;
-    boneTransform += u_BoneMatrices[a_BoneIDs.y] * a_BoneWeights.y;
-    boneTransform += u_BoneMatrices[a_BoneIDs.z] * a_BoneWeights.z;
-    boneTransform += u_BoneMatrices[a_BoneIDs.w] * a_BoneWeights.w;
+    mat4 boneTransform = mat4(1.0);
+    if (u_IsSkinned) {
+        boneTransform  = u_BoneMatrices[a_BoneIDs.x] * a_BoneWeights.x;
+        boneTransform += u_BoneMatrices[a_BoneIDs.y] * a_BoneWeights.y;
+        boneTransform += u_BoneMatrices[a_BoneIDs.z] * a_BoneWeights.z;
+        boneTransform += u_BoneMatrices[a_BoneIDs.w] * a_BoneWeights.w;
+    }
 
     // Position transformation
     vec4 skinnedPosition = boneTransform * vec4(a_Position, 1.0);
@@ -115,14 +119,6 @@ layout(std140, binding = 1) uniform LightsUBO {
     int pointLightCount;
     PointLight pointLights[MAX_POINT_LIGHTS];
 };
-
-// Bone Transformations
-const int MAX_BONES = 512;
-const int MAX_BONE_INFLUENCE = 4;
-
-// layout(std140, binding = 2) uniform BonesUBO {
-//     mat4 u_BoneMatrices[MAX_BONES];
-// };
 
 // ========== Material Uniforms =========
 #define Diffuse   0
@@ -221,15 +217,6 @@ vec3 CalculateSubsurface(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, flo
     
     // Apply subsurface color and energy conservation
     return mix(u_Subsurface.color, albedo, 0.5) *  radiance *  trans * (1.0 - metallic);
-}
-
-vec3 BoneIdToColor(int boneId) {
-    int seed = boneId * 7919; // Large prime
-    return vec3(
-        float(seed % 255) / 255.0,
-        float((seed / 255) % 255) / 255.0,
-        float((seed / 65025) % 255) / 255.0
-    );
 }
 
 // ========== Main Shader ==========
@@ -354,48 +341,4 @@ void main()
     vec3 color = ambient + Lo + emissive;
 
     FragColor = vec4(color, alpha);
-
-
-    // BONE WEIGTHS v1
-    //vec3 color = vec3(0.0);
-    // for (int i = 0; i < 4; i++) {
-    //     if (0 == v_BoneIDs[i]) {
-    //         if (v_BoneWeights[i] >= 0.7) {
-    //             color.x = v_BoneWeights[i];
-    //         }
-    //         else if (v_BoneWeights[i] >= 0.4) {
-    //             color.y = v_BoneWeights[i];
-    //         }
-    //         else if (v_BoneWeights[i] >= 0.1) {
-    //             color.z = v_BoneWeights[i];
-    //         }
-    //     }
-    // }
-    // FragColor = vec4(color, 1.0);
-
-
-    // BONE WEIGTHS v2
-    // vec3 finalColor = vec3(0.0);
-    // float totalWeight = 0.0;
-    // bool hasValidBones = false;
-
-    // // Blend all influencing bone colors
-    // for (int i = 0; i < 4; i++) {
-    //     if (v_BoneIDs[i] >= 0 && v_BoneWeights[i] > 0.0) {
-    //         vec3 boneColor = BoneIdToColor(v_BoneIDs[i]);
-    //         finalColor += boneColor * v_BoneWeights[i];
-    //         totalWeight += v_BoneWeights[i];
-    //         hasValidBones = true;
-    //     }
-    // }
-
-    // if (hasValidBones) {
-    //     // Normalize and enhance contrast
-    //     finalColor /= totalWeight;
-    //     finalColor = pow(finalColor, vec3(1.5)); // Gamma correction
-    //     FragColor = vec4(finalColor, 1.0);
-    // } else {
-    //     // No bone influence (error color)
-    //     FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta
-    // }
 }
