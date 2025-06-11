@@ -50,7 +50,7 @@ namespace Luth
 
     private:
         u32 m_BonesUBO;
-        bool m_DrawSkeletons = true;
+        bool m_DrawSkeletons = false;
         std::unique_ptr<SkeletonRenderer> m_SkeletonRenderer;
     };
 }

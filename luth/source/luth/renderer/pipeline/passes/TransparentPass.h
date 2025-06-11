@@ -15,7 +15,7 @@ namespace Luth
 
         std::vector<std::pair<std::string, u32>> GetAllAttachments() const {
             return {
-              { "Transparent", m_TransparentFBO->GetColorAttachmentID() },
+              { "No Post-Processing", m_TransparentFBO->GetColorAttachmentID() },
             };
         }
 
