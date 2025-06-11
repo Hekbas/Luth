@@ -205,22 +205,22 @@ namespace Luth
         }
     }
 
-    void SkinnedModel::UpdateAnimation(float timeInSeconds)
+    void SkinnedModel::UpdateAnimation(float timeInSeconds, i32 animationIndex)
     {
         if (!m_Scene || !m_Scene->mAnimations) return;
+		if (animationIndex >= m_Scene->mNumAnimations) animationIndex = 0;
 
-        const aiAnimation* animation = m_Scene->mAnimations[0];
+        const aiAnimation* animation = m_Scene->mAnimations[animationIndex];
         float ticksPerSecond = (float)(animation->mTicksPerSecond != 0.0 ? animation->mTicksPerSecond : 24.0);
         float timeInTicks = timeInSeconds * ticksPerSecond;
         float animationTime = fmod(timeInTicks, (float)animation->mDuration);
 
-        ReadNodeHierarchy(animationTime, m_Scene->mRootNode, Mat4(1.0f));
+        ReadNodeHierarchy(animation, animationTime, m_Scene->mRootNode, Mat4(1.0f));
     }
 
-    void SkinnedModel::ReadNodeHierarchy(float animationTime, const aiNode* node, const Mat4& parentTransform)
+    void SkinnedModel::ReadNodeHierarchy(const aiAnimation* animation, float animationTime, const aiNode* node, const Mat4& parentTransform)
     {
         std::string nodeName(node->mName.C_Str());
-        const aiAnimation* animation = m_Scene->mAnimations[0];
 
         Mat4 nodeTransform = AiMat4ToGLM(node->mTransformation);
         const aiNodeAnim* nodeAnim = FindNodeAnim(animation, nodeName);
@@ -249,7 +249,7 @@ namespace Luth
 		}
 
         for (uint32_t i = 0; i < node->mNumChildren; ++i) {
-            ReadNodeHierarchy(animationTime, node->mChildren[i], globalTransform);
+            ReadNodeHierarchy(animation, animationTime, node->mChildren[i], globalTransform);
         }
     }
 

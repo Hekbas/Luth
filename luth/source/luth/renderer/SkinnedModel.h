@@ -25,7 +25,7 @@ namespace Luth
 
         void ProcessMeshData() override;
 
-        void UpdateAnimation(float timeInSeconds);
+        void UpdateAnimation(float timeInSeconds, i32 animationIndex);
 
         const std::vector<BoneInfo>& GetBoneTransforms() const { return m_BoneInfo; }
         std::vector<Mat4> GetFinalTransforms() const {
@@ -64,7 +64,7 @@ namespace Luth
         aiVector3D InterpolateScaling(float animationTime, const aiNodeAnim* nodeAnim);
         uint32_t FindScaling(float animationTime, const aiNodeAnim* nodeAnim);
 
-        void ReadNodeHierarchy(float animationTime, const aiNode* node, const glm::mat4& parentTransform);
+        void ReadNodeHierarchy(const aiAnimation* animation, float animationTime, const aiNode* node, const glm::mat4& parentTransform);
 
         Assimp::Importer m_Importer;
         const aiScene* m_Scene = nullptr;

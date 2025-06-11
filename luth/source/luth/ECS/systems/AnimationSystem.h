@@ -33,7 +33,7 @@ namespace Luth
             for (auto [entity, anim] : view.each()) {
                 std::shared_ptr<SkinnedModel> skinned =
                     std::dynamic_pointer_cast<SkinnedModel>(ModelLibrary::Get(anim.ModelUUID));
-				skinned->UpdateAnimation(Time::GetTime());
+				skinned->UpdateAnimation(Time::GetTime(), anim.AnimationIndex);
 
                 std::vector<Mat4> boneTransforms = skinned->GetFinalTransforms();
 

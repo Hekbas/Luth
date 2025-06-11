@@ -144,6 +144,7 @@ namespace Luth::Component
         Animation() = default;
         Animation(UUID uuid) : ModelUUID(uuid) {}
         UUID ModelUUID;
+		i32 AnimationIndex = 0;
     };
 
     struct DirectionalLight {

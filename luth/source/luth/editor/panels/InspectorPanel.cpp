@@ -230,6 +230,7 @@ namespace Luth
 
         DrawComponent<Animation>("Animation", m_SelectedEntity, [](Entity entity, Animation& animation) {
 			// TODO: Implement animation component properties
+			ImGui::SliderInt("##Animation Index", &animation.AnimationIndex, 0, 10, "Index: %d", ImGuiSliderFlags_AlwaysClamp);
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
