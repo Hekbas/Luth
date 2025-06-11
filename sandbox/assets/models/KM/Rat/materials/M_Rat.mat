@@ -1,0 +1,71 @@
+{
+    "alpha": 1.0,
+    "alpha_cutoff": 0.5640000104904175,
+    "alpha_from_diffuse": 1,
+    "blend_dst": 3,
+    "blend_src": 2,
+    "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ],
+    "emissive": [
+        0.0,
+        0.0,
+        0.0
+    ],
+    "is_gloss": 0,
+    "is_single_channel": 0,
+    "metal": 0.0,
+    "render_mode": 1,
+    "rough": 1.0,
+    "shader": "0000000000000064",
+    "subsurface": {
+        "color": [
+            1.0,
+            0.0,
+            0.0
+        ],
+        "strength": 0.8019999861717224,
+        "thickness_scale": 0.3070000112056732
+    },
+    "textures": [
+        {
+            "type": 0,
+            "useTexture": true,
+            "uuid": "4291e7368bc2eca0",
+            "uv": 0
+        },
+        {
+            "type": 3,
+            "useTexture": true,
+            "uuid": "bad79162b630c0a5",
+            "uv": 0
+        },
+        {
+            "type": 2,
+            "useTexture": true,
+            "uuid": "777ec2ea5c8e301f",
+            "uv": 0
+        },
+        {
+            "type": 4,
+            "useTexture": true,
+            "uuid": "7f7cba18990c08ac",
+            "uv": 0
+        },
+        {
+            "type": 5,
+            "useTexture": true,
+            "uuid": "b24a023d5272b8e6",
+            "uv": 0
+        },
+        {
+            "type": 8,
+            "useTexture": true,
+            "uuid": "f568651881ec7b02",
+            "uv": 0
+        }
+    ]
+}

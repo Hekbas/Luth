@@ -1,0 +1,22 @@
+{
+    "dependencies": {
+        "0": "ee1ffa3550eb90ce",
+        "1": "23607674a0b35c98",
+        "10": "23607674a0b35c98",
+        "2": "23607674a0b35c98",
+        "3": "23607674a0b35c98",
+        "4": "23607674a0b35c98",
+        "5": "23607674a0b35c98",
+        "6": "23607674a0b35c98",
+        "7": "23607674a0b35c98",
+        "8": "23607674a0b35c98",
+        "9": "23607674a0b35c98"
+    },
+    "type_settings": {
+        "import_normals": true,
+        "import_tangents": false,
+        "optimize_mesh": true
+    },
+    "uuid": "b6b189c4fe57619d",
+    "version": 1
+}

@@ -1,0 +1,15 @@
+{
+    "dependencies": {
+        "0": "edb34b1d1a255e46",
+        "1": "edb34b1d1a255e46",
+        "2": "edb34b1d1a255e46",
+        "3": "edb34b1d1a255e46"
+    },
+    "type_settings": {
+        "import_normals": true,
+        "import_tangents": false,
+        "optimize_mesh": true
+    },
+    "uuid": "9dc7dcb7e21e59eb",
+    "version": 1
+}
