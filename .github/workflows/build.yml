@@ -16,10 +16,26 @@ jobs:
       with:
         submodules: recursive
 
+    - name: List directory contents (debug)
+      run: dir /s /b
+      shell: cmd
+
+    - name: Verify script exists (debug)
+      run: |
+        if exist scripts\setup\setup_windows.bat (
+          echo Script exists
+          type scripts\setup\setup_windows.bat
+        ) else (
+          echo Script not found
+          dir scripts
+          dir scripts\setup
+        )
+      shell: cmd
+
     - name: Run premake batch script
+      run: scripts/setup/setup_windows.bat
       shell: cmd
       working-directory: ${{ github.workspace }}
-      run: scripts\setup\setup_windows.bat
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
