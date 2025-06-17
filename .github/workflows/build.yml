@@ -17,7 +17,10 @@ jobs:
         submodules: recursive
 
     - name: Run premake batch script
-      run: scripts/setup/setup_windows.bat
+      shell: cmd
+      run: |
+        cd scripts/setup
+        setup_windows.bat
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
