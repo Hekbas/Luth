@@ -12,7 +12,7 @@ project "assimp"
 	{
 		-- Dependencies
 		"source/assimp/contrib/irrXML/**",
-		-- "source/assimp/contrib/rapidjson/**",
+		"source/assimp/contrib/rapidjson/**",
 		"source/assimp/contrib/unzip/**",
 		"source/assimp/contrib/zlib/*",
 		-- "source/assimp/contrib/poly2tri/poly2tri/**",
@@ -29,8 +29,8 @@ project "assimp"
 		"source/assimp/code/AssetLib/Collada/**",
 		"source/assimp/code/AssetLib/Blender/**",
 		"source/assimp/code/AssetLib/FBX/**",
-		-- "source/assimp/code/AssetLib/glTF/**",
-		-- "source/assimp/code/AssetLib/glTF2/**",
+		"source/assimp/code/AssetLib/glTF/**",
+		"source/assimp/code/AssetLib/glTF2/**",
 		"source/assimp/code/AssetLib/IQM/**",
 		"source/assimp/code/AssetLib/Obj/**",
 		"source/assimp/code/AssetLib/MD5/**"
@@ -54,6 +54,7 @@ project "assimp"
 	
 	defines
 	{
+		"RAPIDJSON_HAS_STDSTRING=1",
 		"ASSIMP_BUILD_NO_OWN_ZLIB",
 
 		-- Importers
@@ -73,8 +74,8 @@ project "assimp"
 		"ASSIMP_BUILD_NO_CSM_IMPORTER",
 		"ASSIMP_BUILD_NO_DXF_IMPORTER",
 		-- "ASSIMP_BUILD_NO_FBX_IMPORTER",
-		"ASSIMP_BUILD_NO_GLTF_IMPORTER",
-		"ASSIMP_BUILD_NO_GLTF2_IMPORTER",
+		-- "ASSIMP_BUILD_NO_GLTF_IMPORTER",
+		-- "ASSIMP_BUILD_NO_GLTF2_IMPORTER",
 		"ASSIMP_BUILD_NO_HMP_IMPORTER",
 		"ASSIMP_BUILD_NO_IFC_IMPORTER",
 		"ASSIMP_BUILD_NO_IRR_IMPORTER",

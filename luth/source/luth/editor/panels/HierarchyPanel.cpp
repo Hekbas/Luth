@@ -39,7 +39,6 @@ namespace Luth
             ImGui::InputTextWithHint("##Search", "Search...", m_SearchFilter, IM_ARRAYSIZE(m_SearchFilter));
 
             // Entity list
-            ImGui::Separator();
             if (ImGui::BeginChild("EntityList"))
             {
                 m_Context->EachEntity([&](Entity entity) {

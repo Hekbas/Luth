@@ -32,18 +32,13 @@ namespace Luth
     void GLMesh::CreateVAO()
     {
         glGenVertexArrays(1, &m_VAO);
-        LH_CORE_TRACE("Generated VAO with ID: {}", m_VAO);
-
         glBindVertexArray(m_VAO);
-        LH_CORE_TRACE("Bound VAO {}", m_VAO);
 
         m_VertexBuffer->Bind();
-        //LH_CORE_TRACE("Bound vertex buffer with ID: {}", m_VertexBuffer->GetID());
 
         const auto& layout = m_VertexBuffer->GetLayout();
         uint32_t index = 0;
         uint32_t stride = layout.GetStride();
-        LH_CORE_INFO("Processing vertex buffer layout with stride: {}", stride);
 
         for (const auto& element : layout.GetElements()) {
             glEnableVertexAttribArray(index);
@@ -70,10 +65,7 @@ namespace Luth
         }
 
         m_IndexBuffer->Bind();
-        //LH_CORE_TRACE("Bound index buffer with ID: {}", m_IndexBuffer->GetID());
-
         glBindVertexArray(0);
-        LH_CORE_TRACE("Unbound VAO {}", m_VAO);
     }
 
     GLenum GLMesh::ShaderDataTypeToGLType(ShaderDataType type)

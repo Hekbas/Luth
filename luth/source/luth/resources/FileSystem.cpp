@@ -89,6 +89,7 @@ namespace Luth
             { ".fbx",     ResourceType::Model    },
             { ".obj",     ResourceType::Model    },
             { ".gltf",    ResourceType::Model    },
+            { ".glb",     ResourceType::Model    },
             { ".dae",     ResourceType::Model    },
             { ".blend",   ResourceType::Model    },
             { ".md5mesh", ResourceType::Model    },
@@ -100,6 +101,10 @@ namespace Luth
             { ".ttf",     ResourceType::Font     },
             { ".ini",     ResourceType::Config   }
         };
+
+        if (fs::is_directory(path)) {
+            return ResourceType::Directory;
+        }
 
         std::string ext = path.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(),

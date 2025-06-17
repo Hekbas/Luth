@@ -6,6 +6,10 @@
 
 namespace Luth
 {
+    class Model;
+	class Material;
+	class Texture;
+
     class InspectorPanel : public Panel
     {
     public:
@@ -22,14 +26,22 @@ namespace Luth
             m_SelectedResource = resource;
             m_SelectedEntity = {};
         }
+        void SetSelectedResourceNone() {
+            m_SelectedResource = {};
+        }
 
     private:
 
         void DrawEntityComponents();
-        void DrawResourceProperties();
 
         template<typename T, typename UIFunction>
         void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction);
+
+        void DrawResourceProperties();
+		void DrawModel(Model& model);
+		void DrawMaterial(Material& material);
+		void DrawTexture(Texture& texture);
+
 
     private:
         Entity m_SelectedEntity;

@@ -13,7 +13,7 @@ namespace Luth::RenderUtils
     {
         int slot = 0;
         for (auto& texInfo : material->GetTextures()) {
-            auto texture = TextureCache::Get(texInfo.TextureUuid);
+            auto texture = TextureCache::Get(texInfo.Uuid);
             
             // Get appropriate default texture if needed
             if (!texture) {

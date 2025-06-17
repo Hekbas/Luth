@@ -27,7 +27,7 @@ namespace Luth
     };
 
     struct MapInfo {
-        UUID TextureUuid;
+        UUID Uuid;
         MapType type;
         u32 uvIndex = 0;
         bool useMap = true;
@@ -91,7 +91,7 @@ namespace Luth
         // Runtime texture access
         std::shared_ptr<Texture> GetTextureByType(MapType type) const {
             for (const auto& tex : m_Maps) {
-                if (tex.type == type) return TextureCache::Get(tex.TextureUuid);
+                if (tex.type == type) return TextureCache::Get(tex.Uuid);
             }
             return nullptr;
         }

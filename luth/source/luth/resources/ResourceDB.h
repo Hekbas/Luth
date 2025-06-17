@@ -5,13 +5,13 @@
 
 #include <filesystem>
 #include <unordered_map>
+#include <vector>
 
 namespace Luth
 {
     class ResourceDB
     {
     public:
-
         struct ResourceInfo {
             fs::path Path;
             ResourceType Type;
@@ -21,12 +21,13 @@ namespace Luth
         static void Init(const fs::path& projectRoot);
 
         // UUID <-> Info mapping
-        static ResourceInfo UuidToInfo(const UUID& uuid);
+        static const ResourceInfo& UuidToInfo(const UUID& uuid);
         static UUID PathToUuid(const fs::path& path);
 
         // Update operations
         static void RegisterAsset(const fs::path& path, const UUID& uuid);
         static void UnregisterAsset(const fs::path& path);
+        static void UpdateAssetPath(const fs::path& oldPath, const fs::path& newPath);
 
         // Dependency resolution
         static std::vector<UUID> GetAllDependencies(const UUID& uuid);
@@ -35,12 +36,15 @@ namespace Luth
         static void SetDirty(UUID uuid);
         static void SaveDirty();
 
+        // Utility functions
+        static bool IsAssetPath(const fs::path& path);
+
     private:
         static bool ProcessMetaFile(const fs::path& path);
+        static void CleanOrphanedMetaFiles(const fs::path& projectRoot);
 
     private:
         static std::unordered_map<UUID, ResourceInfo, UUIDHash> s_UuidToInfo;
         static std::unordered_map<fs::path, UUID> s_PathToUuid;
-
     };
 }

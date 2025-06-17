@@ -15,7 +15,7 @@ namespace Luth
         struct ResourceEntry
         {
             std::string Name;
-            UUID TextureUuid;
+            UUID Uuid;
             std::string Type;
             int RefCount;
         };

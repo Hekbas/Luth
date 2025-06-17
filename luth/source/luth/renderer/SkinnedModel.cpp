@@ -62,11 +62,6 @@ namespace Luth
             m_SkinnedVertices.push_back(std::move(skinnedVertices));
         }
 
-        // Log m_BoneMapping
-        for (const auto& [boneName, index] : m_BoneMapping) {
-            LH_CORE_TRACE("{0:<4} | {1}", index, boneName);
-        }
-
         // Build bone hierarchy
         LH_CORE_INFO("Building bone hierarchy...");
         BuildBoneHierarchy(m_Scene->mRootNode, -1);
@@ -76,38 +71,38 @@ namespace Luth
         LH_CORE_INFO("Total nodes in hierarchy: {0}", m_BoneHierarchy.size());
         LH_CORE_INFO("Total bones: {0}", m_BoneCount);
 
-        // Log hierarchy structure
-        if (m_BoneHierarchy.empty()) {
-            LH_CORE_WARN("No bone hierarchy to log");
-            return;
-        }
+        //// Log hierarchy structure
+        //if (m_BoneHierarchy.empty()) {
+        //    LH_CORE_WARN("No bone hierarchy to log");
+        //    return;
+        //}
 
-        // Recursive lambda to print hierarchy
-        std::function<void(uint32_t, int)> printNode = [&](uint32_t nodeIndex, int depth) {
-            const auto& node = m_BoneHierarchy[nodeIndex];
+        //// Recursive lambda to print hierarchy
+        //std::function<void(uint32_t, int)> printNode = [&](uint32_t nodeIndex, int depth) {
+        //    const auto& node = m_BoneHierarchy[nodeIndex];
 
-            // Create indentation
-            std::string indent(depth * 2, ' ');
+        //    // Create indentation
+        //    std::string indent(depth * 2, ' ');
 
-            // Format bone info
-            std::string boneInfo = node.Name;
-            if (node.BoneIndex != -1) {
-                boneInfo += " (Bone ID: " + std::to_string(node.BoneIndex) + ")";
-            }
+        //    // Format bone info
+        //    std::string boneInfo = node.Name;
+        //    if (node.BoneIndex != -1) {
+        //        boneInfo += " (Bone ID: " + std::to_string(node.BoneIndex) + ")";
+        //    }
 
-            // Log the node
-            LH_CORE_TRACE("{0}- {1}", indent, boneInfo);
+        //    // Log the node
+        //    LH_CORE_TRACE("{0}- {1}", indent, boneInfo);
 
-            // Recursively print children
-            for (const auto& childNode : m_BoneHierarchy) {
-                if (childNode.ParentIndex == static_cast<int>(nodeIndex)) {
-                    printNode(&childNode - &m_BoneHierarchy[0], depth + 1);
-                }
-            }
-        };
+        //    // Recursively print children
+        //    for (const auto& childNode : m_BoneHierarchy) {
+        //        if (childNode.ParentIndex == static_cast<int>(nodeIndex)) {
+        //            printNode(&childNode - &m_BoneHierarchy[0], depth + 1);
+        //        }
+        //    }
+        //};
 
-        LH_CORE_TRACE("Bone Hierarchy:");
-        printNode(m_RootNodeIndex, 0);
+        //LH_CORE_TRACE("Bone Hierarchy:");
+        //printNode(m_RootNodeIndex, 0);
     }
 
     void SkinnedModel::BuildBoneHierarchy(const aiNode* node, int parentIndex)
@@ -122,7 +117,7 @@ namespace Luth
         // Check if this node is a bone
         auto it = m_BoneMapping.find(nodeName);
         if (it != m_BoneMapping.end()) {
-            boneNode.BoneIndex = it->second;
+            boneNode.BoneIndex = (int)it->second;
         }
 
         uint32_t nodeIndex = static_cast<uint32_t>(m_BoneHierarchy.size());
@@ -145,8 +140,6 @@ namespace Luth
 
     void SkinnedModel::ExtractBoneWeights(aiMesh* mesh, std::vector<SkinnedVertex>& vertices)
     {
-        LH_CORE_TRACE("Extracting bone weights for mesh: {0}", mesh->mName.C_Str());
-
         for (uint32_t boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex) {
             aiBone* bone = mesh->mBones[boneIndex];
             std::string boneName = bone->mName.C_Str();
@@ -341,5 +334,37 @@ namespace Luth
                 return i;
         }
         return nodeAnim->mNumScalingKeys > 1 ? nodeAnim->mNumScalingKeys - 2 : 0;
+    }
+
+    ModelInfo SkinnedModel::GetModelInfo() const
+    {
+        ModelInfo info = Model::GetModelInfo(); // Get base info
+
+        // Add skinned-specific data
+        info.BoneCount = m_BoneCount;
+        info.AnimationCount = m_Scene ? m_Scene->mNumAnimations : 0;
+
+        // Bone hierarchy
+        for (const BoneNode& boneNode : m_BoneHierarchy) {
+            BoneNodeInfo nodeInfo;
+            nodeInfo.Name = boneNode.Name;
+            nodeInfo.ParentIndex = boneNode.ParentIndex;
+            nodeInfo.BoneIndex = boneNode.BoneIndex; // Now int
+            info.BoneHierarchy.push_back(nodeInfo);
+        }
+
+        // Animations
+        if (m_Scene) {
+            for (uint32_t i = 0; i < m_Scene->mNumAnimations; ++i) {
+                const aiAnimation* anim = m_Scene->mAnimations[i];
+                AnimationInfo animInfo;
+                animInfo.Name = anim->mName.C_Str();
+                animInfo.Duration = anim->mDuration;
+                animInfo.TicksPerSecond = anim->mTicksPerSecond ? anim->mTicksPerSecond : 25.0;
+                info.Animations.push_back(animInfo);
+            }
+        }
+
+        return info;
     }
 }

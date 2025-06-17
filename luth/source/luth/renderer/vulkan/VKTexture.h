@@ -21,8 +21,26 @@ namespace Luth
         u32 GetRendererID() const override { return 0; } // Vulkan doesn't use IDs
         const fs::path& GetPath() const override { return m_Path; }
 
+        TextureFormat GetFormat() const override { return m_Format; }
+        std::string GetFormatString() const override {
+            switch (m_Format) {
+            case TextureFormat::R8:      return "R8";
+            case TextureFormat::RGB8:    return "RGB8";
+            case TextureFormat::RGBA8:   return "RGBA8";
+            case TextureFormat::RGBA32F: return "RGBA32F";
+            default: return "Unknown";
+            }
+        }
+
+        TextureWrapMode GetWrapMode() const override { return m_WrapMode; }
         void SetWrapMode(TextureWrapMode mode) override;
+
+        std::pair<TextureFilterMode, TextureFilterMode> GetFilterMode() const override {
+            return { m_MinFilter, m_MagFilter };
+        }
         void SetFilterMode(TextureFilterMode min, TextureFilterMode mag) override;
+
+        int GetMipLevels() const override { return m_MipLevels; }
         void GenerateMipmaps() override;
 
         VkImageView GetImageView() const { return m_ImageView; }
@@ -43,5 +61,10 @@ namespace Luth
 
         u32 m_Width = 0, m_Height = 0;
         fs::path m_Path;
+        int m_MipLevels = 0;
+        TextureFormat m_Format = TextureFormat::RGBA8;
+        TextureWrapMode m_WrapMode = TextureWrapMode::Repeat;
+        TextureFilterMode m_MinFilter = TextureFilterMode::Linear;
+        TextureFilterMode m_MagFilter = TextureFilterMode::Linear;
     };
 }

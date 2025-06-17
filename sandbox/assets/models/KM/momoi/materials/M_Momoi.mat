@@ -11,9 +11,9 @@
         1.0
     ],
     "emissive": [
-        0.0,
-        0.0,
-        0.0
+        1.0,
+        1.0,
+        1.0
     ],
     "is_gloss": 0,
     "is_single_channel": 0,
@@ -51,8 +51,8 @@
         },
         {
             "type": 3,
-            "useTexture": true,
-            "uuid": "f131728fc3c76ac8",
+            "useTexture": false,
+            "uuid": "0000000000000003",
             "uv": 0
         },
         {
@@ -75,8 +75,8 @@
         },
         {
             "type": 7,
-            "useTexture": false,
-            "uuid": "0000000000000003",
+            "useTexture": true,
+            "uuid": "f131728fc3c76ac8",
             "uv": 0
         },
         {
