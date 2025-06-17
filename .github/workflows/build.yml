@@ -18,6 +18,7 @@ jobs:
 
     - name: Run premake batch script
       shell: cmd
+      working-directory: ${{ github.workspace }}
       run: scripts\setup\setup_windows.bat
 
     - name: Setup MSBuild
