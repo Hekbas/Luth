@@ -11,11 +11,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout repository
+    - name: Checkout repository + submodules
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Run premake batch script
       run: scripts/setup/setup_windows.bat
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
 
     - name: Build Debug x64
       run: msbuild /p:Configuration=Debug /p:Platform=x64 /p:WindowsTargetPlatformVersion=10.0 Luth.sln

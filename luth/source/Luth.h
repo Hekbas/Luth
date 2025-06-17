@@ -5,6 +5,7 @@
 #include "luth/core/App.h"
 #include "luth/core/Log.h"
 #include "luth/core/Time.h"
+#include "luth/core/UUID.h"
 
 #include "luth/utils/ImageUtils.h"
 

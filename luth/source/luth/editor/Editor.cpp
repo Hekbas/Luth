@@ -31,9 +31,7 @@ namespace Luth
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         LH_CORE_TRACE(" - Enabled ImGui multi-viewport support");
         
-        SetCustomStyle();
-        //SetBubblegumStyle();
-        //SetRandomStyle();
+        ApplyRandomStyle();
         
         // TODO: Set Render specific Imgui Backends (GL/VK)
         if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
@@ -45,14 +43,14 @@ namespace Luth
             LH_CORE_WARN("ImGui not yet implemented for Vulkan");
         }
 
-        auto technique = Systems::GetSystem<RenderingSystem>();
+        auto rs = Systems::GetSystem<RenderingSystem>();
 
         // Set Panels
         AddPanel(new HierarchyPanel());
         AddPanel(new InspectorPanel());
         AddPanel(new ProjectPanel());
         AddPanel(new ResourcePanel());
-        AddPanel(new ScenePanel(technique));
+        AddPanel(new ScenePanel(rs));
         AddPanel(new RenderPanel());
 
         // Init all panels
@@ -168,17 +166,55 @@ namespace Luth
         s_Panels.emplace_back(panel);
     }
 
+    void Editor::ApplyRandomStyle()
+    {
+        // Generate random number between 1 and 4096
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(1, 1000);
+     
+        int randomValue = dis(gen);
+
+		if (randomValue == 1) { // 0.1% chance
+            SetMatrixStyle();
+			LH_CORE_ERROR("Wake up, Neo...");
+        }
+        else {
+            SetCustomStyle();
+        }
+    }
+
     void Editor::SetCustomStyle()
     {
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "Roboto-Regular.ttf").string().c_str(), 14.0f);
 
+        // Load main font with fallback to default
+        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "Roboto-Regular.ttf").string();
+        if (fs::exists(robotoPath)) {
+            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+        }
+        else {
+			LH_CORE_WARN("Roboto font not found at {}", robotoPath);
+        }
+
+        // Always load default font as fallback
         ImFont* defaultFont = io.Fonts->AddFontDefault();
-        ImFontConfig config;
-        config.MergeMode = false;
-        static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
-        m_IconFont = io.Fonts->AddFontFromFileTTF(
-            FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string().c_str(), 48.0f, &config, iconRanges);
+
+        // Load icon font
+        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        if (fs::exists(iconPath)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
+            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+
+            if (!m_IconFont) {
+				LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            }
+        }
+        else {
+			LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+        }
         
 
         ImGuiStyle& style = ImGui::GetStyle();
@@ -271,16 +307,35 @@ namespace Luth
 
     void Editor::SetBubblegumStyle()
     {
-        // Font
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF(FileSystem::GetPath(ResourceType::Font, "HoneySalt.otf").string().c_str(), 20.0f);
 
+        // Load main font with fallback to default
+        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "HoneySalt.otf").string();
+        if (fs::exists(robotoPath)) {
+            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+        }
+        else {
+            LH_CORE_WARN("Roboto font not found at {}", robotoPath);
+        }
+
+        // Always load default font as fallback
         ImFont* defaultFont = io.Fonts->AddFontDefault();
-        ImFontConfig config;
-        config.MergeMode = false;
-        static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
-        m_IconFont = io.Fonts->AddFontFromFileTTF(
-            FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string().c_str(), 48.0f, &config, iconRanges);
+
+        // Load icon font
+        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        if (fs::exists(iconPath)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
+            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+
+            if (!m_IconFont) {
+                LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            }
+        }
+        else {
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+        }
 
         ImGuiStyle& style = ImGui::GetStyle();
     
@@ -358,6 +413,109 @@ namespace Luth
         colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 0.70f, 0.82f, 0.70f);
         colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
         colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+    }
+
+    void Editor::SetMatrixStyle()
+    {
+        ImGuiIO & io = ImGui::GetIO();
+
+        // Load main font with fallback to default
+        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "CourierPrime-Regular.ttf").string();
+        if (fs::exists(robotoPath)) {
+            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+        }
+        else {
+            LH_CORE_WARN("Roboto font not found at {}", robotoPath);
+        }
+
+        // Always load default font as fallback
+        ImFont* defaultFont = io.Fonts->AddFontDefault();
+
+        // Load icon font
+        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        if (fs::exists(iconPath)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
+            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+
+            if (!m_IconFont) {
+                LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            }
+        }
+        else {
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+        }
+
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec4* colors = style.Colors;
+
+        // ====== Core Colors ======
+        colors[ImGuiCol_Text]                   = ImVec4(0.00f, 1.00f, 0.00f, 1.00f); // Bright green text
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.00f, 0.40f, 0.00f, 1.00f); // Darker green disabled text
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.00f, 0.02f, 0.00f, 1.00f); // Near-black background
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.02f, 0.00f, 0.00f);
+        colors[ImGuiCol_PopupBg]                = ImVec4(0.00f, 0.03f, 0.00f, 0.94f);
+
+        // ====== Borders & Frames ======
+        colors[ImGuiCol_Border]                 = ImVec4(0.00f, 0.50f, 0.00f, 0.50f);
+        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.00f, 0.05f, 0.00f, 0.54f);
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.00f, 0.30f, 0.00f, 0.40f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.00f, 0.40f, 0.00f, 0.67f);
+
+        // ====== Buttons ======
+        colors[ImGuiCol_Button]                 = ImVec4(0.00f, 0.20f, 0.00f, 0.40f);
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(0.00f, 0.50f, 0.00f, 1.00f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(0.00f, 0.70f, 0.00f, 1.00f);
+
+        // ====== Headers ======
+        colors[ImGuiCol_Header]                 = ImVec4(0.00f, 0.30f, 0.00f, 0.31f);
+        colors[ImGuiCol_HeaderHovered]          = ImVec4(0.00f, 0.50f, 0.00f, 0.80f);
+        colors[ImGuiCol_HeaderActive]           = ImVec4(0.00f, 0.70f, 0.00f, 1.00f);
+
+        // ====== Sliders & Scrollbars ======
+        colors[ImGuiCol_SliderGrab]             = ImVec4(0.00f, 0.60f, 0.00f, 1.00f);
+        colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.00f, 0.80f, 0.00f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.00f, 0.30f, 0.00f, 0.80f);
+        colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.00f, 0.50f, 0.00f, 0.80f);
+        colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.00f, 0.70f, 0.00f, 1.00f);
+
+        // ====== Checkmarks & Separators ======
+        colors[ImGuiCol_CheckMark]              = ImVec4(0.00f, 1.00f, 0.00f, 1.00f);
+        colors[ImGuiCol_Separator]              = ImVec4(0.00f, 0.50f, 0.00f, 0.50f);
+        colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.00f, 0.70f, 0.00f, 0.60f);
+        colors[ImGuiCol_SeparatorActive]        = ImVec4(0.00f, 0.90f, 0.00f, 0.70f);
+
+        // ====== Resize Grips ======
+        colors[ImGuiCol_ResizeGrip]             = ImVec4(0.00f, 0.30f, 0.00f, 0.20f);
+        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.00f, 0.60f, 0.00f, 0.60f);
+        colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.00f, 0.80f, 0.00f, 0.90f);
+
+        // ====== Tabs ======
+        colors[ImGuiCol_Tab]                    = ImVec4(0.00f, 0.15f, 0.00f, 0.86f);
+        colors[ImGuiCol_TabHovered]             = ImVec4(0.00f, 0.50f, 0.00f, 0.80f);
+        colors[ImGuiCol_TabActive]              = ImVec4(0.00f, 0.30f, 0.00f, 1.00f);
+        colors[ImGuiCol_TabUnfocused]           = ImVec4(0.00f, 0.10f, 0.00f, 0.97f);
+        colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.00f, 0.20f, 0.00f, 1.00f);
+
+        // ====== Title Bar ======
+        colors[ImGuiCol_TitleBg]                = ImVec4(0.00f, 0.10f, 0.00f, 1.00f);
+        colors[ImGuiCol_TitleBgActive]          = ImVec4(0.00f, 0.20f, 0.00f, 1.00f);
+        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.00f, 0.10f, 0.00f, 0.51f);
+
+        // ====== Docking & Misc ======
+        colors[ImGuiCol_DockingPreview]         = ImVec4(0.00f, 0.60f, 0.00f, 0.70f);
+        colors[ImGuiCol_DockingEmptyBg]         = ImVec4(0.00f, 0.05f, 0.00f, 1.00f);
+
+        // ====== Style Tweaks ======
+        style.FrameRounding = 2.0f;
+        style.WindowRounding = 4.0f;
+        style.ScrollbarRounding = 4.0f;
+        style.GrabRounding = 2.0f;
+        style.AntiAliasedLines = true;
+        style.AntiAliasedFill = true;
     }
 
     void Editor::SetRandomStyle()

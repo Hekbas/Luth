@@ -58,15 +58,6 @@ namespace Luth
         #endif
     }
 
-    fs::path FileSystem::SaveGamePath()
-    {
-        #if defined(_WIN32)
-            return ProjectPath("SavedGames");
-        #else
-            return ProjectPath(".saves");
-        #endif
-    }
-
     fs::path FileSystem::LogPath() {
         return ProjectPath("Logs");
     }
@@ -123,7 +114,6 @@ namespace Luth
         for (const auto& [type, info] : GetTypeInfo()) {
             CreateDirectories(s_ProjectRoot / "assets" / info.directory);
         }
-        CreateDirectories(SaveGamePath());
         CreateDirectories(LogPath());
     }
 

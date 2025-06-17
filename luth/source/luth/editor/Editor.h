@@ -42,8 +42,10 @@ namespace Luth
             return nullptr;
         }
 
+        static void ApplyRandomStyle();
         static void SetCustomStyle();
         static void SetBubblegumStyle();
+		static void SetMatrixStyle();
         static void SetRandomStyle();
 
         static ImFont* GetIconFont() { return m_IconFont; }

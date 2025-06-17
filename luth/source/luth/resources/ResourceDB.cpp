@@ -85,7 +85,6 @@ namespace Luth
 
         s_UuidToInfo[uuid] = { path, type, false };
         s_PathToUuid[path] = uuid;
-        LH_CORE_TRACE("Registered asset: {0} ({1})", path.string(), uuid.ToString());
     }
 
     void ResourceDB::UnregisterAsset(const fs::path& path)

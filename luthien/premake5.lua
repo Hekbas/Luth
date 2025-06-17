@@ -24,11 +24,15 @@ project "Luthien"
    {
       "source",
       "%{wks.location}/luth/source",
+      "%{wks.location}/luth/extern/source",
+      "%{wks.location}/luth/extern/config-headers",
+      IncludeDir["assimp"],
       IncludeDir["glad"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
-      IncludeDir["spdlog"]
+      IncludeDir["spdlog"],
+      IncludeDir["vulkan"]
    }
 
    links
