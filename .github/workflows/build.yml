@@ -1,0 +1,24 @@
+name: Windows Premake Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run premake batch script
+      run: scripts/setup/setup_windows.bat
+
+    - name: Build Debug x64
+      run: msbuild /p:Configuration=Debug /p:Platform=x64 /p:WindowsTargetPlatformVersion=10.0 Luth.sln
+
+    - name: Build Release x64
+      run: msbuild /p:Configuration=Release /p:Platform=x64 /p:WindowsTargetPlatformVersion=10.0 Luth.sln
