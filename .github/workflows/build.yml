@@ -18,7 +18,7 @@ jobs:
 
     - name: Run premake batch script
       shell: cmd
-      run: scripts/setup/setup_windows.bat
+      run: scripts\setup\setup_windows.bat
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
