@@ -2,9 +2,9 @@ name: Windows Premake Build
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, CI_CD]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, CI_CD]
 
 jobs:
   build:
