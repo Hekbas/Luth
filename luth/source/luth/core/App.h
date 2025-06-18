@@ -29,11 +29,13 @@ namespace Luth
         virtual void OnShutdown() {}
 
     private:
+        void SetAppTitle(WindowSpec& ws);
+
         void OnWindowResize(WindowResizeEvent& e);
         void OnWindowClose(WindowCloseEvent& e);
         void OnFileDrop(FileDropEvent& e);
 
-        std::unique_ptr<Window> m_Window;
+        std::shared_ptr<Window> m_Window;
 
         bool m_Running = true;
     };

@@ -20,6 +20,15 @@ project "Luthien"
       "source/**.cpp"
    }
 
+   filter "system:windows"
+      files
+      {
+         "resource.h",
+         "Luthien.rc",
+         "icons/Luth.ico"
+      }
+   filter {}
+
    includedirs
    {
       "source",

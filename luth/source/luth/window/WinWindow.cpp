@@ -5,6 +5,13 @@
 #include "luth/events/KeyEvent.h"
 #include "luth/events/MouseEvent.h"
 #include "luth/events/FileDropEvent.h"
+#include "luth/resources/FileSystem.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+#endif
 
 namespace Luth
 {
@@ -38,7 +45,23 @@ namespace Luth
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
+        m_GLFWwindow = glfwCreateWindow((int)spec.Width, (int)spec.Height, spec.Title.c_str(), monitor, nullptr);
+
+        if (!m_GLFWwindow) {
+            LH_CORE_CRITICAL("Failed to create GLFW window!");
+            glfwTerminate();
+            return;
+        }
+
+        auto path = FileSystem::ProjectPath() / "icons/image/";
+		SetWindowIcon(m_GLFWwindow, path);
+
+        glfwWindowHint(GLFW_SAMPLES, 4);
+
         if (spec.rendererAPI == RendererAPI::API::OpenGL) {
+            glfwMakeContextCurrent(m_GLFWwindow);
+            glfwSwapInterval(spec.VSync ? 1 : 0);
+
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -47,29 +70,11 @@ namespace Luth
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
         }
-        
-        m_GLFWwindow = glfwCreateWindow(
-            (int)spec.Width,
-            (int)spec.Height,
-            spec.Title.c_str(),
-            monitor,
-            nullptr
-        );
-
-        if (!m_GLFWwindow) {
-            LH_CORE_CRITICAL("Failed to create GLFW window!");
-            glfwTerminate();
-            return;
-        }
-
-        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
-            glfwMakeContextCurrent(m_GLFWwindow);
-            glfwSwapInterval(spec.VSync ? 1 : 0);
-        }
 
         glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);
 
         glfwSetWindowUserPointer(m_GLFWwindow, &m_Data);
+
         glfwSetWindowSizeCallback(m_GLFWwindow, [](GLFWwindow* window, int width, int height) {
             WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
             data.Width = width;
@@ -145,5 +150,56 @@ namespace Luth
     bool WinWindow::IsMinimized()
     {
         return glfwGetWindowAttrib(m_GLFWwindow, GLFW_ICONIFIED);
+    }
+
+    void WinWindow::SetWindowColors(const Vec3& caption, const Vec3& border, const Vec3& text)
+    {
+        HWND hwnd = glfwGetWin32Window(m_GLFWwindow);
+
+        // Check if Windows version supports color attributes (Windows 10 build 1903+)
+        if (WINVER >= 0x0A00)
+        {
+            COLORREF captionColor = RGB(caption.x, caption.y, caption.z);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &captionColor, sizeof(captionColor));
+
+            COLORREF borderColor = RGB(border.x, border.y, border.z);
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &borderColor, sizeof(borderColor));
+
+            COLORREF textColor = RGB(text.x, text.y, text.z);
+            DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &textColor, sizeof(textColor));
+        }
+        else
+        {
+            // Older Windows version - fallback or do nothing
+            // I could implement basic color changes using:
+            // SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)CreateSolidBrush(RGB(255,0,0)));
+        }
+    }
+
+    void WinWindow::SetWindowIcon(GLFWwindow* window, fs::path iconPath)
+    {
+        // List of sizes
+        std::vector<int> sizes = { 16, 24, 32, 48, 64, 96, 128, 256 };
+        std::vector<GLFWimage> icons;
+
+        // Load all icons
+        for (int size : sizes) {
+            std::string fullPath = iconPath.string() + "Luth" + std::to_string(size) + ".png";
+            GLFWimage icon;
+            icon.pixels = stbi_load(fullPath.c_str(), &icon.width, &icon.height, 0, 4);
+            if (icon.pixels) { 
+                icons.push_back(icon);
+            }
+        }
+
+        // Set window icons
+        if (!icons.empty()) {
+            glfwSetWindowIcon(window, icons.size(), icons.data());
+        }
+
+        // Free memory
+        for (auto& icon : icons) {
+            stbi_image_free(icon.pixels);
+        }
     }
 }

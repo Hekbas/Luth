@@ -33,6 +33,8 @@ namespace Luth
         virtual u32 GetHeight() const = 0;
         virtual void* GetNativeWindow() const = 0;
 
+		virtual void SetWindowColors(const Vec3& caption, const Vec3& border, const Vec3& text) = 0;
+
         virtual bool IsMinimized() = 0;
 
         static std::unique_ptr<Window> Create(const WindowSpec& spec = WindowSpec());

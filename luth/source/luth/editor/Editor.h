@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/window/Window.h"
 
 #include <memory>
 #include <imgui.h>
@@ -21,7 +22,7 @@ namespace Luth
     class Editor
     {
     public:
-        static void Init(void* window);
+        static void Init(Window* window);
         static void Shutdown();
 
         static void BeginFrame();
@@ -42,7 +43,7 @@ namespace Luth
             return nullptr;
         }
 
-        static void ApplyRandomStyle();
+        static bool ApplyRandomStyle();
         static void SetCustomStyle();
         static void SetBubblegumStyle();
 		static void SetMatrixStyle();
