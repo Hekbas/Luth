@@ -5,9 +5,10 @@
 #include "luth/ECS/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Framebuffer.h"
-#include "luth/utils/ImGuiUtils.h"
 #include "luth/events/RenderEvent.h"
 #include "luth/input/Input.h"
+#include "luth/utils/ImGuiUtils.h"
+#include "luth/utils/LuthIcons.h"
 
 namespace Luth
 {
@@ -30,7 +31,10 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
-        if (ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoScrollbar)) {
+        ImGui::PushFont(Editor::GetFASolid());
+        std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
+
+        if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
             // Viewport sizing
@@ -75,6 +79,7 @@ namespace Luth
             ImGui::PopStyleVar();
         }
         ImGui::End();
+        ImGui::PopFont();
     }
 
     /*void ScenePanel::SetViewportCamera(const std::shared_ptr<Camera>& camera) {

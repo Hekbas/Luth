@@ -3,6 +3,7 @@
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/Systems/RenderingSystem.h"
+#include "luth/utils/LuthIcons.h"
 
 namespace Luth
 {
@@ -25,16 +26,19 @@ namespace Luth
     {
         if (!m_RS) return;
 
-        ImGui::Begin("Render");
-
+        ImGui::PushFont(Editor::GetFASolid());
+        std::string render = ICON_FA_FILM + std::string("  Render");
+        ImGui::Begin(render.c_str());
+        
         // Tab selector
-        if (ImGui::Button("Model Viewer", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+        if (ImGui::Button(ICON_FA_LAYER_GROUP, ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
             m_SelectedTab = 0;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Post Processing", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        if (ImGui::Button(ICON_FA_SLIDERS, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
             m_SelectedTab = 1;
         }
+        ImGui::PopFont();
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -45,7 +49,7 @@ namespace Luth
             // Model Viewer ==========================
             for (auto& [title, modes] : m_Groups) {
                 DrawGroup(title, modes);
-                ImGui::Separator();
+                ImGui::Dummy({ 0, 4 });
             }
         }
         else {
@@ -213,7 +217,6 @@ namespace Luth
             if (isSelected)
                 ImGui::PopStyleColor();
         }
-        ImGui::NewLine();
     }
 
     void RenderPanel::ApplyRenderingSettings()

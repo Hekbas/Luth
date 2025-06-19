@@ -6,6 +6,7 @@
 #include "luth/resources/libraries/MaterialLibrary.h"
 #include "luth/resources/libraries/ModelLibrary.h"
 #include "luth/utils/ImGuiUtils.h"
+#include "luth/utils/LuthIcons.h"
 
 namespace Luth
 {
@@ -18,7 +19,10 @@ namespace Luth
 
     void InspectorPanel::OnRender()
     {
-        if (ImGui::Begin("Inspector"))
+        ImGui::PushFont(Editor::GetFASolid());
+        std::string inspector = ICON_FA_CIRCLE_INFO + std::string("  Inspector");
+
+        if (ImGui::Begin(inspector.c_str()))
         {
             if (m_SelectedEntity) {
                 DrawEntityComponents();
@@ -28,6 +32,7 @@ namespace Luth
             }
         }
         ImGui::End();
+        ImGui::PopFont();
     }
 
     void InspectorPanel::DrawEntityComponents()

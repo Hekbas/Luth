@@ -5,6 +5,7 @@
 #include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/utils/LuthIcons.h"
 
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
@@ -179,11 +180,11 @@ namespace Luth
     {
         std::random_device rd;
         std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(1, 1000);
+        std::uniform_int_distribution<> dis(1, 1);
      
         int randomValue = dis(gen);
 
-		if (randomValue == 1) { // 0.1% chance
+		if (randomValue == 1000) { // 0.1% chance
             SetMatrixStyle();
 			LH_CORE_ERROR("Wake up, Neo...");
             return true;
@@ -198,34 +199,53 @@ namespace Luth
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        // Load main font with fallback to default
+        // Load main font
         std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "Roboto-Regular.ttf").string();
         if (fs::exists(robotoPath)) {
-            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+            m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 15.0f);
         }
         else {
 			LH_CORE_WARN("Roboto font not found at {}", robotoPath);
         }
 
-        // Always load default font as fallback
-        ImFont* defaultFont = io.Fonts->AddFontDefault();
+        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
-        // Load icon font
-        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
-        if (fs::exists(iconPath)) {
+        // Load FA Solid
+        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        if (fs::exists(icon2Path)) {
             ImFontConfig config;
-            config.MergeMode = false;
-            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
-            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+            config.MergeMode = true;
+            config.PixelSnapH = true;
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FASolid = io.Fonts->AddFontFromFileTTF(icon2Path.c_str(), 14.0f, &config, iconRanges);
+            io.Fonts->AddFontDefault();
 
-            if (!m_IconFont) {
-				LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            if (!m_FASolid) {
+                LH_CORE_WARN("Failed to load icon font from {}", icon2Path);
             }
         }
         else {
-			LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon2Path);
         }
-        
+
+        // Load FA Regular
+        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        if (fs::exists(icon1Path)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FARegular = io.Fonts->AddFontFromFileTTF(icon1Path.c_str(), 14.0f, &config, iconRanges);
+            
+
+            if (!m_FARegular) {
+				LH_CORE_WARN("Failed to load icon font from {}", icon1Path);
+            }
+        }
+        else {
+			LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon1Path);
+        }
+
 
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
@@ -346,33 +366,51 @@ namespace Luth
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        // Load main font with fallback to default
+        // Load main font
         std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "HoneySalt.otf").string();
         if (fs::exists(robotoPath)) {
-            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+            m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+            io.Fonts->AddFontDefault();
         }
         else {
             LH_CORE_WARN("Roboto font not found at {}", robotoPath);
         }
 
-        // Always load default font as fallback
-        ImFont* defaultFont = io.Fonts->AddFontDefault();
+        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
-        // Load icon font
-        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
-        if (fs::exists(iconPath)) {
+        // Load FA Regular
+        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        if (fs::exists(icon1Path)) {
             ImFontConfig config;
             config.MergeMode = false;
-            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
-            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FARegular = io.Fonts->AddFontFromFileTTF(icon1Path.c_str(), 48.0f, &config, iconRanges);
 
-            if (!m_IconFont) {
-                LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            if (!m_FARegular) {
+                LH_CORE_WARN("Failed to load icon font from {}", icon1Path);
             }
         }
         else {
-            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon1Path);
         }
+
+        // Load FA Solid
+        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        if (fs::exists(icon2Path)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FASolid = io.Fonts->AddFontFromFileTTF(icon2Path.c_str(), 48.0f, &config, iconRanges);
+
+            if (!m_FASolid) {
+                LH_CORE_WARN("Failed to load icon font from {}", icon2Path);
+            }
+        }
+        else {
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon2Path);
+        }
+
 
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
@@ -476,34 +514,51 @@ namespace Luth
 
     void Editor::SetMatrixStyle()
     {
-        ImGuiIO & io = ImGui::GetIO();
+        ImGuiIO& io = ImGui::GetIO();
 
-        // Load main font with fallback to default
+        // Load main font
         std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "CourierPrime-Regular.ttf").string();
         if (fs::exists(robotoPath)) {
-            io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+            m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
+            io.Fonts->AddFontDefault();
         }
         else {
-            LH_CORE_WARN("Roboto font not found at {}", robotoPath);
+            LH_CORE_WARN("Font not found: {}", robotoPath);
         }
 
-        // Always load default font as fallback
-        ImFont* defaultFont = io.Fonts->AddFontDefault();
+        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
-        // Load icon font
-        std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
-        if (fs::exists(iconPath)) {
+        // Load FA Regular
+        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        if (fs::exists(icon1Path)) {
             ImFontConfig config;
             config.MergeMode = false;
-            static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
-            m_IconFont = io.Fonts->AddFontFromFileTTF(iconPath.c_str(), 48.0f, &config, iconRanges);
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FARegular = io.Fonts->AddFontFromFileTTF(icon1Path.c_str(), 48.0f, &config, iconRanges);
 
-            if (!m_IconFont) {
-                LH_CORE_WARN("Failed to load icon font from {}", iconPath);
+            if (!m_FARegular) {
+                LH_CORE_WARN("Font not found: {}", icon1Path);
             }
         }
         else {
-            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", iconPath);
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon1Path);
+        }
+
+        // Load FA Solid
+        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        if (fs::exists(icon2Path)) {
+            ImFontConfig config;
+            config.MergeMode = false;
+            static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+            m_FASolid = io.Fonts->AddFontFromFileTTF(icon2Path.c_str(), 48.0f, &config, iconRanges);
+
+            if (!m_FASolid) {
+                LH_CORE_WARN("Failed to load icon font from {}", icon2Path);
+            }
+        }
+        else {
+            LH_CORE_WARN("Icon font not found at {}, skipping icon font loading", icon2Path);
         }
 
 

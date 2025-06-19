@@ -49,11 +49,16 @@ namespace Luth
 		static void SetMatrixStyle();
         static void SetRandomStyle();
 
-        static ImFont* GetIconFont() { return m_IconFont; }
+        static ImFont* GetMainFont() { return m_MainFont; }
+        static ImFont* GetFARegular() { return m_FARegular; }
+        static ImFont* GetFASolid() { return m_FASolid; }
 
     private:
         static inline ImGuiContext* s_Context = nullptr;
         static inline std::vector<std::unique_ptr<Panel>> s_Panels;
-        static inline ImFont* m_IconFont;
+
+        static inline ImFont* m_MainFont = nullptr;
+        static inline ImFont* m_FARegular = nullptr;
+        static inline ImFont* m_FASolid = nullptr;
     };
 }

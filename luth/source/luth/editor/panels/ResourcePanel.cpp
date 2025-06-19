@@ -5,6 +5,7 @@
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/resources/libraries/TextureCache.h"
 #include "luth/utils/ImGuiUtils.h"
+#include "luth/utils/LuthIcons.h"
 
 namespace Luth
 {
@@ -17,7 +18,10 @@ namespace Luth
 
     void ResourcePanel::OnRender()
     {
-        if (ImGui::Begin("Resources"))
+        ImGui::PushFont(Editor::GetFASolid());
+        std::string resources = ICON_FA_DATABASE + std::string("  Resources");
+
+        if (ImGui::Begin(resources.c_str()))
         {
             // Filter controls
             DrawFilterControls();
@@ -37,16 +41,17 @@ namespace Luth
             }
         }
         ImGui::End();
+		ImGui::PopFont();
     }
 
     void ResourcePanel::DrawFilterControls()
     {
         ImGui::SetNextItemWidth(200);
-        ImGui::InputTextWithHint("##Search", "Search...", m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer));
+        ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer));
 
         ImGui::SameLine();
 
-        ButtonDropdown("Type Filter", "type_filter", [this]() {
+        ButtonDropdown(ICON_FA_FILTER, "type_filter", [this]() {
             ImGui::Checkbox("Models", &m_ShowModels);
             ImGui::Checkbox("Textures", &m_ShowTextures);
             ImGui::Checkbox("Materials", &m_ShowMaterials);
