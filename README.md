@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/LuthLogo.png" alt="Luth Logo" style="border-radius: 8px;"/>
+  <img src="docs/screenshots/LuthLogo.png" alt="Luth Logo" width="500""/>
 </p>
 
 # <p align="center"></p>
