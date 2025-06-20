@@ -20,15 +20,14 @@ namespace Luth
 
         void OnUIRender() override
         {
-            ImGui::Begin("Engine Dashboard");
-            //ImGui::Text("FPS: %.1f", 1.0f / dt);
-            ImGui::End();
-
             // ImGui Demo
             static bool showDemo = true;
-            if (showDemo) {
-                ImGui::ShowDemoWindow(&showDemo);
-            }
+            if (showDemo) ImGui::ShowDemoWindow(&showDemo);
+
+            ImGuiIO& io = ImGui::GetIO();
+            ImGui::Begin("Luth Metrics");
+            ImGui::Text("Frame time %.3f ms (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            ImGui::End();
         }
 
         void OnShutdown() override {}
