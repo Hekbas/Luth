@@ -53,6 +53,7 @@ namespace Luth
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
+			ResourceDB::Update();
 
             OnUpdate();
 
@@ -83,6 +84,10 @@ namespace Luth
     void App::Close()
     {
         ResourceDB::SaveDirty();
+		ResourceDB::Shutdown();
+		Editor::Shutdown();
+		Systems::Shutdown();
+		Renderer::Shutdown();
     }
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)

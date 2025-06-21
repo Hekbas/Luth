@@ -25,27 +25,34 @@ namespace Luth
         m_LightFBO->Bind();
         Renderer::Clear(BufferBit::Color);
 
-        m_LightShader->Bind();
+        auto lightShader = m_LightShader.lock();
+
+        if (!lightShader) {
+            m_LightShader = ShaderLibrary::Get("LuthDeferredLight");
+            lightShader = m_LightShader.lock();
+        }
+
+        lightShader->Bind();
         auto geoFBO = ctx.pipeline->GetPass<GeometryPass>()->GetGBuffer();
         auto ssaoFBO = ctx.pipeline->GetPass<SSAOPass>()->GetGBuffer();
 
 		geoFBO->BindColorAsTexture(0, 0);
-        m_LightShader->SetInt("o_Position", 0);
+        lightShader->SetInt("o_Position", 0);
 
         geoFBO->BindColorAsTexture(1, 1);
-		m_LightShader->SetInt("o_Normal", 1);
+        lightShader->SetInt("o_Normal", 1);
 
         geoFBO->BindColorAsTexture(2, 2);
-		m_LightShader->SetInt("o_Albedo", 2);
+        lightShader->SetInt("o_Albedo", 2);
 
         geoFBO->BindColorAsTexture(3, 3);
-        m_LightShader->SetInt("o_MRO", 3);
+        lightShader->SetInt("o_MRO", 3);
 
         geoFBO->BindColorAsTexture(4, 4);
-        m_LightShader->SetInt("o_ET", 4);
+        lightShader->SetInt("o_ET", 4);
 
 		ssaoFBO->BindColorAsTexture(0, 5);
-        m_LightShader->SetInt("o_SSAO", 5);
+        lightShader->SetInt("o_SSAO", 5);
 
         Renderer::DrawFullscreenQuad();
         m_LightFBO->Unbind();

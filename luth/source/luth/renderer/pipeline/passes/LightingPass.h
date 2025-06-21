@@ -23,6 +23,6 @@ namespace Luth
         
     private:
         std::shared_ptr<Framebuffer> m_LightFBO;
-        std::shared_ptr<Shader> m_LightShader;
+        std::weak_ptr<Shader> m_LightShader;
     };
 }

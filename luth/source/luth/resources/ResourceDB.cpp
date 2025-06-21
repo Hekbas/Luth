@@ -11,6 +11,10 @@ namespace Luth
     std::unordered_map<UUID, ResourceDB::ResourceInfo, UUIDHash> ResourceDB::s_UuidToInfo;
     std::unordered_map<fs::path, UUID> ResourceDB::s_PathToUuid;
 
+    std::unique_ptr<FileWatcher> ResourceDB::s_FileWatcher;
+    std::vector<std::pair<fs::path, FileWatcher::FileStatus>> ResourceDB::s_ReloadQueue;
+    std::mutex ResourceDB::s_QueueMutex;
+
     void ResourceDB::Init(const fs::path& projectRoot)
     {
         LH_CORE_INFO("Initializing Resource DataBase...");
@@ -42,6 +46,28 @@ namespace Luth
                 default: break;
             }
         }
+
+        // Initialize file watcher
+        s_FileWatcher = std::make_unique<FileWatcher>(1.0f);
+        s_FileWatcher->SetCallback(&ResourceDB::OnFileChanged);
+
+        // Watch all asset directories
+        s_FileWatcher->AddWatch(FileSystem::AssetsPath());
+
+        s_FileWatcher->Start(true);
+    }
+
+    void ResourceDB::Shutdown()
+    {
+        if (s_FileWatcher) {
+            s_FileWatcher->Stop();
+            s_FileWatcher.reset();
+        }
+    }
+
+    void ResourceDB::Update()
+    {
+        ProcessReloadQueue();
     }
 
     const ResourceDB::ResourceInfo& ResourceDB::UuidToInfo(const UUID& uuid)
@@ -212,6 +238,92 @@ namespace Luth
                     LH_CORE_TRACE("Removed orphaned meta file: {0}", path.string());
                 }
             }
+        }
+    }
+
+    void ResourceDB::OnFileChanged(const fs::path& path, FileWatcher::FileStatus status)
+    {
+        // Skip directories and non-asset files
+        if (fs::is_directory(path) || !IsAssetPath(path)) {
+            return;
+        }
+
+        // Skip meta files but process their associated assets
+        fs::path processedPath = path;
+        if (path.extension() == ".meta") {
+            processedPath.replace_extension("");
+            if (!exists(processedPath)) return;
+        }
+
+        // Queue for main thread processing
+        {
+            std::lock_guard lock(s_QueueMutex);
+            s_ReloadQueue.emplace_back(processedPath, status);
+        }
+    }
+
+    void ResourceDB::ProcessReloadQueue()
+    {
+        std::vector<std::pair<fs::path, FileWatcher::FileStatus>> queue;
+        {
+            std::lock_guard lock(s_QueueMutex);
+            queue.swap(s_ReloadQueue);
+        }
+
+        for (auto& [path, status] : queue) {
+            switch (status) {
+                case FileWatcher::FileStatus::Modified: HandleFileModified(path); break;
+                case FileWatcher::FileStatus::Created:  HandleFileCreated(path);  break;
+                case FileWatcher::FileStatus::Deleted:  HandleFileDeleted(path);  break;
+            }
+        }
+    }
+
+    void ResourceDB::HandleFileModified(const fs::path& path)
+    {
+        ResourceType type = FileSystem::ClassifyFileType(path);
+        LH_CORE_INFO("Hot Reloading: {0}", path.string());
+
+        UUID uuid = PathToUuid(path);
+
+        switch (type) {
+            case ResourceType::Shader:   ShaderLibrary::Reload(uuid);   break;
+            case ResourceType::Model:    ModelLibrary::Reload(uuid);    break;
+            case ResourceType::Material: MaterialLibrary::Reload(uuid); break;
+            case ResourceType::Texture:  TextureCache::Reload(uuid);    break;
+            default: break;
+        }
+    }
+
+    void ResourceDB::HandleFileCreated(const fs::path& path)
+    {
+        if (ProcessMetaFile(path)) {
+            ResourceType type = FileSystem::ClassifyFileType(path);
+            LH_CORE_INFO("Loading new asset: {0}", path.string());
+
+            switch (type) {
+                case ResourceType::Model:    Resources::Load<Model>(path);    break;
+                case ResourceType::Texture:  Resources::Load<Texture>(path);  break;
+                case ResourceType::Material: Resources::Load<Material>(path); break;
+                case ResourceType::Shader:   Resources::Load<Shader>(path);   break;
+                default: break;
+            }
+        }
+    }
+
+    void ResourceDB::HandleFileDeleted(const fs::path& path)
+    {
+        UUID uuid = PathToUuid(path);
+        UnregisterAsset(path);
+        LH_CORE_WARN("Asset deleted: {0}", path.string());
+
+        ResourceType type = FileSystem::ClassifyFileType(path);
+        switch (type) {
+            case ResourceType::Model:    ModelLibrary::Remove(uuid);    break;
+            case ResourceType::Texture:  TextureCache::Remove(uuid);    break;
+            case ResourceType::Material: MaterialLibrary::Remove(uuid); break;
+            case ResourceType::Shader:   ShaderLibrary::Remove(uuid);   break;
+            default: break;
         }
     }
 }

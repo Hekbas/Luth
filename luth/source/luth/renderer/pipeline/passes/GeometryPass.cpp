@@ -34,10 +34,17 @@ namespace Luth
 		Renderer::Clear(BufferBit::Color | BufferBit::Depth);
 		Renderer::EnableBlending(false);
 
-		m_GeoShader->Bind();
+		auto geoShader = m_GeoShader.lock();
+
+		if (!geoShader) {
+			m_GeoShader = ShaderLibrary::Get("LuthDeferredGeo");
+			geoShader = m_GeoShader.lock();
+		}
+
+		geoShader->Bind();
 		for (auto& cmd : ctx.opaque) {
-			m_GeoShader->SetBool("u_IsSkinned", cmd.meshRend->isSkinned);
-			RenderUtils::DrawCommand(cmd, *m_GeoShader);
+			geoShader->SetBool("u_IsSkinned", cmd.meshRend->isSkinned);
+			RenderUtils::DrawCommand(cmd, *geoShader);
 		}
 		m_GeoFBO->Unbind();
 	}

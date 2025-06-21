@@ -2,6 +2,7 @@
 
 #include "luth/core/UUID.h"
 #include "luth/resources/MetaFile.h"
+#include "luth/resources/FileWatcher.h"
 
 #include <filesystem>
 #include <unordered_map>
@@ -19,6 +20,8 @@ namespace Luth
         };
 
         static void Init(const fs::path& projectRoot);
+        static void Update();
+        static void Shutdown();
 
         // UUID <-> Info mapping
         static const ResourceInfo& UuidToInfo(const UUID& uuid);
@@ -43,8 +46,18 @@ namespace Luth
         static bool ProcessMetaFile(const fs::path& path);
         static void CleanOrphanedMetaFiles(const fs::path& projectRoot);
 
+        static void OnFileChanged(const fs::path& path, FileWatcher::FileStatus status);
+        static void ProcessReloadQueue();
+		static void HandleFileModified(const fs::path& path);
+		static void HandleFileCreated(const fs::path& path);
+		static void HandleFileDeleted(const fs::path& path);
+
     private:
         static std::unordered_map<UUID, ResourceInfo, UUIDHash> s_UuidToInfo;
         static std::unordered_map<fs::path, UUID> s_PathToUuid;
+
+        static std::unique_ptr<FileWatcher> s_FileWatcher;
+        static std::vector<std::pair<fs::path, FileWatcher::FileStatus>> s_ReloadQueue;
+        static std::mutex s_QueueMutex;
     };
 }

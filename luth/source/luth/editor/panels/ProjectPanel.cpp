@@ -167,7 +167,7 @@ namespace Luth
         if (&node == m_CurrentDirectory) flags |= ImGuiTreeNodeFlags_Selected;
         if (node.Name == "Assets") flags |= ImGuiTreeNodeFlags_Framed;
 
-        //if (node.IsOpen) ImGui::SetNextItemOpen(true);
+        if (node.IsOpen) ImGui::SetNextItemOpen(true);
 
         // Set Icon
         const char* icon = ICON_FA_FOLDER;

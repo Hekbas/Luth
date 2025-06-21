@@ -91,9 +91,9 @@ namespace Luth
         std::shared_ptr<Framebuffer> m_OutputFBO;
 
         // Shaders
-        std::shared_ptr<Shader> m_BloomExtractShader;
-        std::shared_ptr<Shader> m_BloomBlurShader;
-        std::shared_ptr<Shader> m_PostProcessShader;
+        std::weak_ptr<Shader> m_BloomExtractShader;
+        std::weak_ptr<Shader> m_BloomBlurShader;
+        std::weak_ptr<Shader> m_PostProcessShader;
 
         // Bloom
         float m_BloomThreshold = 1.0f;
@@ -102,7 +102,7 @@ namespace Luth
 
         // Others
         float m_GrainAmount = 0.03f;
-        float m_Sharpness = 0.8f;
+        float m_Sharpness = 0.0f;
         float m_AberrationOffset = 0.002f;
         float m_VignetteAmount = 0.5f;
         float m_VignetteHardness = 0.25f;

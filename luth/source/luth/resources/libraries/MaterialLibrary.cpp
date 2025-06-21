@@ -28,6 +28,17 @@ namespace Luth
         return material;
     }
 
+    bool MaterialLibrary::Remove(const UUID& uuid)
+    {
+        std::unique_lock lock(s_Mutex);
+
+        if (auto it = s_Materials.find(uuid); it != s_Materials.end()) {
+            s_Materials.erase(it);
+            return true;
+        }
+        return false;
+    }
+
     std::shared_ptr<Material> MaterialLibrary::LoadOrGet(const fs::path& path)
     {
         UUID materialUUID = ResourceDB::PathToUuid(path);

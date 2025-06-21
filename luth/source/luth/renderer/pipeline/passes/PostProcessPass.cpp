@@ -48,12 +48,29 @@ namespace Luth
     {
         auto lightFBO = ctx.pipeline->GetPass<TransparentPass>()->GetGBuffer();
 
+        auto bloomExtractShader = m_BloomExtractShader.lock();
+        auto bloomBlurShader = m_BloomBlurShader.lock();
+        auto postProcessShader = m_PostProcessShader.lock();
+
+        if (!bloomExtractShader) {
+            m_BloomExtractShader = ShaderLibrary::Get("LuthBloomExtract");
+            bloomExtractShader = m_BloomExtractShader.lock();
+        }
+        if (!bloomBlurShader) {
+            m_BloomBlurShader = ShaderLibrary::Get("LuthBloomBlur");
+            bloomBlurShader = m_BloomBlurShader.lock();
+        }
+        if (!postProcessShader) {
+            m_PostProcessShader = ShaderLibrary::Get("LuthPostProcess");
+            postProcessShader = m_PostProcessShader.lock();
+        }
+
         // 1) Brightness extract
-        m_BloomExtractShader->Bind();
-        m_BloomExtractShader->SetFloat("u_Threshold", m_BloomThreshold);
+        bloomExtractShader->Bind();
+        bloomExtractShader->SetFloat("u_Threshold", m_BloomThreshold);
 
         lightFBO->BindColorAsTexture(0, 0);
-        m_BloomExtractShader->SetInt("u_Scene", 0);
+        bloomExtractShader->SetInt("u_Scene", 0);
 
         m_BloomExtractFBO->Bind();
         Renderer::Clear(BufferBit::Color);
@@ -69,7 +86,7 @@ namespace Luth
         {
             m_PingPongFBO[horizontal]->Bind();
             Renderer::Clear(BufferBit::Color);
-            m_BloomBlurShader->Bind();
+            bloomBlurShader->Bind();
 
             // Bind input texture
             if (firstIteration) {
@@ -81,8 +98,8 @@ namespace Luth
             }
 
             // Set blur parameters
-            m_BloomBlurShader->SetFloat("u_Horizontal", horizontal);
-            m_BloomBlurShader->SetFloat("u_BlurStrength", m_BloomStrength);
+            bloomBlurShader->SetFloat("u_Horizontal", horizontal);
+            bloomBlurShader->SetFloat("u_BlurStrength", m_BloomStrength);
 
             Renderer::DrawFullscreenQuad();
             m_PingPongFBO[horizontal]->Unbind();
@@ -91,30 +108,30 @@ namespace Luth
         }
 
         // 3) Final composite
-        m_PostProcessShader->Bind();
+        postProcessShader->Bind();
         // bind inputs
         lightFBO->BindColorAsTexture(0, 0);
-        m_PostProcessShader->SetInt("u_Scene", 0);
+        postProcessShader->SetInt("u_Scene", 0);
         m_PingPongFBO[0]->BindColorAsTexture(0, 1);
-        m_PostProcessShader->SetInt("u_Bloom", 1);
+        postProcessShader->SetInt("u_Bloom", 1);
 
-        m_PostProcessShader->SetFloat("u_Time", Time::GetTime());
-        m_PostProcessShader->SetFloat("u_BloomStrength", m_BloomStrength);
+        postProcessShader->SetFloat("u_Time", Time::GetTime());
+        postProcessShader->SetFloat("u_BloomStrength", m_BloomStrength);
 
-        m_PostProcessShader->SetFloat("u_GrainAmount", m_GrainAmount);
-        m_PostProcessShader->SetFloat("u_Sharpness", m_Sharpness);
-        m_PostProcessShader->SetFloat("u_AberrationOffset", m_AberrationOffset);
-        m_PostProcessShader->SetFloat("u_VignetteAmount", m_VignetteAmount);
-        m_PostProcessShader->SetFloat("u_VignetteHardness", m_VignetteHardness);
+        postProcessShader->SetFloat("u_GrainAmount", m_GrainAmount);
+        postProcessShader->SetFloat("u_Sharpness", m_Sharpness);
+        postProcessShader->SetFloat("u_AberrationOffset", m_AberrationOffset);
+        postProcessShader->SetFloat("u_VignetteAmount", m_VignetteAmount);
+        postProcessShader->SetFloat("u_VignetteHardness", m_VignetteHardness);
         
-        m_PostProcessShader->SetInt("u_ToneMapOperator", static_cast<int>(m_ToneMapOp));
-        m_PostProcessShader->SetFloat("u_Exposure", m_Exposure);
-        m_PostProcessShader->SetFloat("u_Contrast", m_Contrast);
-        m_PostProcessShader->SetFloat("u_Saturation", m_Saturation);
+        postProcessShader->SetInt("u_ToneMapOperator", static_cast<int>(m_ToneMapOp));
+        postProcessShader->SetFloat("u_Exposure", m_Exposure);
+        postProcessShader->SetFloat("u_Contrast", m_Contrast);
+        postProcessShader->SetFloat("u_Saturation", m_Saturation);
 
-        m_PostProcessShader->SetVec3("u_ShadowBalance", m_ShadowBalance);
-        m_PostProcessShader->SetVec3("u_MidtoneBalance", m_MidtoneBalance);
-        m_PostProcessShader->SetVec3("u_HighlightBalance", m_HighlightBalance);
+        postProcessShader->SetVec3("u_ShadowBalance", m_ShadowBalance);
+        postProcessShader->SetVec3("u_MidtoneBalance", m_MidtoneBalance);
+        postProcessShader->SetVec3("u_HighlightBalance", m_HighlightBalance);
 
         m_OutputFBO->Bind();
         Renderer::DrawFullscreenQuad();

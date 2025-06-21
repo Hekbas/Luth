@@ -40,13 +40,20 @@ namespace Luth
         glBindFramebuffer(GL_READ_FRAMEBUFFER, geoFBO->GetRendererID());
         glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 
+        auto fLightShader = m_FLightShader.lock();
+
+        if (!fLightShader) {
+            m_FLightShader = ShaderLibrary::Get("LuthForwardLight");
+            fLightShader = m_FLightShader.lock();
+        }
+
         m_TransparentFBO->Bind();
         Renderer::EnableBlending(true);
         Renderer::EnableDepthMask(false);
-		m_FLightShader->Bind();
+        fLightShader->Bind();
         for (auto& cmd : ctx.transparent) {
-            m_FLightShader->SetBool("u_IsSkinned", cmd.meshRend->isSkinned);
-            RenderUtils::DrawCommand(cmd, *m_FLightShader);
+            fLightShader->SetBool("u_IsSkinned", cmd.meshRend->isSkinned);
+            RenderUtils::DrawCommand(cmd, *fLightShader);
         }
         Renderer::EnableBlending(false);
         Renderer::EnableDepthMask(true);

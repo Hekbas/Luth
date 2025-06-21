@@ -15,6 +15,8 @@ namespace Luth
         static void Shutdown();
 
         static std::shared_ptr<Material> CreateNew();
+        static bool Remove(const UUID& uuid);
+
         static std::shared_ptr<Material> LoadOrGet(const fs::path& path);
         static std::shared_ptr<Material> Get(const UUID& uuid);
         static std::unordered_map<UUID, std::shared_ptr<Material>, UUIDHash> GetAllMaterials();
