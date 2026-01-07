@@ -6,6 +6,9 @@
 **.vcxproj.user
 **.csproj
 
+# JetBrains Rider
+.idea
+
 # Binaries
 bin
 bin-int

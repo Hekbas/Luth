@@ -38,7 +38,7 @@ namespace Luth
         glm::quat GetOrientation() const;
 
     private:
-        float m_FOV = 45.0f;
+        float m_FOV = 70.0f;
         float m_AspectRatio = 1.778f;
         float m_NearClip = 0.1f;
         float m_FarClip = 1000.0f;

@@ -364,7 +364,7 @@ namespace Luth
 							meshRend.isSkinned = model->IsSkinned();
                             if (!model->GetMaterials().empty() && meshIndex < materials.size()) {
                                 meshRend.MaterialUUID = materials[meshIndex];
-                                meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
+                                //meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
                             }
                             meshIndex++;
                         }

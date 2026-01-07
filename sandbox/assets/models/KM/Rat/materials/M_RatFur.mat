@@ -1,6 +1,6 @@
 {
     "alpha": 1.0,
-    "alpha_cutoff": 0.5640000104904175,
+    "alpha_cutoff": 0.5,
     "alpha_from_diffuse": 1,
     "blend_dst": 3,
     "blend_src": 2,
@@ -18,17 +18,17 @@
     "is_gloss": 0,
     "is_single_channel": 0,
     "metal": 0.0,
-    "render_mode": 0,
-    "rough": 1.0,
-    "shader": "0000000000000064",
+    "render_mode": 2,
+    "rough": 0.5,
+    "shader": "0f1fbc3725e1bda0",
     "subsurface": {
         "color": [
-            1.0,
+            0.0,
             0.0,
             0.0
         ],
-        "strength": 0.8209999799728394,
-        "thickness_scale": 0.8610000014305115
+        "strength": 0.0,
+        "thickness_scale": 0.0
     },
     "textures": [
         {
@@ -38,9 +38,9 @@
             "uv": 0
         },
         {
-            "type": 3,
+            "type": 5,
             "useTexture": true,
-            "uuid": "bad79162b630c0a5",
+            "uuid": "b24a023d5272b8e6",
             "uv": 0
         },
         {
@@ -50,21 +50,9 @@
             "uv": 0
         },
         {
-            "type": 4,
+            "type": 3,
             "useTexture": true,
-            "uuid": "7f7cba18990c08ac",
-            "uv": 0
-        },
-        {
-            "type": 5,
-            "useTexture": true,
-            "uuid": "b24a023d5272b8e6",
-            "uv": 0
-        },
-        {
-            "type": 8,
-            "useTexture": true,
-            "uuid": "f568651881ec7b02",
+            "uuid": "bad79162b630c0a5",
             "uv": 0
         }
     ]

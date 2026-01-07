@@ -17,7 +17,7 @@ namespace Luth
     {
         LH_CORE_INFO("Created Scene panel");
 
-        m_EditorCamera = EditorCamera(50, 1.77, 0.1, 10000);
+        m_EditorCamera = EditorCamera(70, 1.77, 0.1, 10000);
 
         EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) { 
             HandleRenderResize(e);
@@ -97,6 +97,7 @@ namespace Luth
             m_EditorCamera.SetViewportSize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
             m_ViewportSize = { resizeEvent.GetWidth(), resizeEvent.GetHeight() };
             e.m_Handled = true;
+            LH_CORE_TRACE("Resized Viewport {0}x{1}", resizeEvent.GetWidth(), resizeEvent.GetHeight());
         }
     }
 
