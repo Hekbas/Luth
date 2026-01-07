@@ -4,6 +4,7 @@
 #include "luth/renderer/pipeline/RenderPipeline.h"
 #include "luth/renderer/pipeline/RenderPass.h"
 #include "luth/core/Memory.h"
+#include "luth/renderer/rendergraph/RenderGraph.h"
 
 #include <entt/entt.hpp>
 #include <unordered_map>

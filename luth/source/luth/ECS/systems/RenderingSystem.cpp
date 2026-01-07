@@ -60,6 +60,40 @@ namespace Luth
         // Reset Allocator at start of frame
         m_FrameAllocator->Reset();
 
+        // -----------------------------------------------------------------
+        // Render Graph Test (Proof of Concept)
+        // -----------------------------------------------------------------
+        {
+            RG::RenderGraph rg(*m_FrameAllocator);
+
+            struct GeometryPassData {
+                RG::ResourceHandle outputTex;
+            };
+
+            rg.AddPass<GeometryPassData>("GeometryPass",
+                [&](GeometryPassData& data, RG::RenderPassBuilder& builder)
+                {
+                    RG::TextureDesc desc;
+                    desc.name = "SceneColor";
+                    desc.width = 1280;
+                    desc.height = 720;
+                    desc.format = RG::TextureFormat::RGBA8_Unorm;
+                    
+                    data.outputTex = builder.CreateTexture(desc);
+                    data.outputTex = builder.Write(data.outputTex);
+                },
+                [&](GeometryPassData& data, RG::RenderPassContext& ctx)
+                {
+                    // This runs in Execute()
+                    // LH_CORE_INFO("Executing Geometry Pass");
+                }
+            );
+
+            rg.Compile();
+            rg.Execute();
+        }
+        // -----------------------------------------------------------------
+
         // Collect opaque / transparent
         auto [opaque, transparent] = CollectCommands(registry);
 
