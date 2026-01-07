@@ -12,12 +12,17 @@
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/ECS/systems/AnimationSystem.h"
 #include "luth/ECS/systems/RenderingSystem.h"
+#include "luth/core/JobSystem.h"
+#include "luth/core/Profiler.h"
 
 namespace Luth
 {
     App::App(int argc, char** argv)
     {
+        // Core Systems Init
+        JobSystem::Init();
         FileSystem::Init();
+
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
         m_Window = Window::Create(ws);
@@ -50,6 +55,8 @@ namespace Luth
 
         while (m_Running)
         {
+            LH_PROFILE_FRAME("MainThread");
+
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
@@ -59,13 +66,18 @@ namespace Luth
 
             if (!m_Window->IsMinimized())
             {
-                Systems::Update<TransformSystem>();
-                Systems::Update<AnimationSystem>();
-                Systems::Update<RenderingSystem>();
+                // TODO: Parallelize these using JobSystem
+                {
+                    LH_PROFILE_SCOPE("Systems::Update");
+                    Systems::Update<TransformSystem>();
+                    Systems::Update<AnimationSystem>();
+                    Systems::Update<RenderingSystem>();
+                }
 
                 // Render UI (not yet implemented in vulkan)
                 if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
                 {
+                    LH_PROFILE_SCOPE("Editor::Render");
                     Editor::BeginFrame();
                     Editor::Render();
                     OnUIRender();
@@ -73,8 +85,11 @@ namespace Luth
                 }
             }
 
-            m_Window->SwapBuffers();
-            Renderer::Clear(BufferBit::Color | BufferBit::Depth);
+            {
+                LH_PROFILE_SCOPE("SwapBuffers");
+                m_Window->SwapBuffers();
+                Renderer::Clear(BufferBit::Color | BufferBit::Depth);
+            }
         }
 
         OnShutdown();
@@ -88,6 +103,7 @@ namespace Luth
 		Editor::Shutdown();
 		Systems::Shutdown();
 		Renderer::Shutdown();
+        JobSystem::Shutdown();
     }
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
