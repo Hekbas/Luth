@@ -63,6 +63,7 @@ namespace Luth
         // -----------------------------------------------------------------
         // Render Graph Test (Proof of Concept)
         // -----------------------------------------------------------------
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
         {
             RG::RenderGraph rg(*m_FrameAllocator);
 
@@ -85,12 +86,17 @@ namespace Luth
                 [&](GeometryPassData& data, RG::RenderPassContext& ctx)
                 {
                     // This runs in Execute()
-                    // LH_CORE_INFO("Executing Geometry Pass");
+                    // LH_CORE_INFO("Executing Geometry Pass on GPU");
+                    // VkCommandBuffer cmd = (VkCommandBuffer)ctx.commandBuffer;
+                    // vkCmdBeginRenderPass...
                 }
             );
 
             rg.Compile();
-            rg.Execute();
+            Renderer::ExecuteGraph(rg);
+            
+            // Return early to avoid running the OpenGL path
+            return;
         }
         // -----------------------------------------------------------------
 

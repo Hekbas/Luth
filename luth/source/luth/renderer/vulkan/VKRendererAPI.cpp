@@ -4,6 +4,7 @@
 #include "luth/renderer/vulkan/VKRendererAPI.h"
 #include "luth/renderer/vulkan/VKCommon.h"
 #include "luth/renderer/vulkan/VKSwapchain.h"
+#include "luth/core/Profiler.h"
 
 #include <GLFW/glfw3.h>
 
@@ -61,6 +62,12 @@ namespace Luth
         CreateCommandBuffers();
         CreateSyncObjects();
 
+        // Init Render Graph Executor
+        m_GraphExecutor = std::make_unique<VKRenderGraphExecutor>(
+            m_LogicalDevice->GetHandle(), 
+            m_PhysicalDevice->GetHandle()
+        );
+
         LH_CORE_INFO("Vulkan renderer initialization complete");
     }
 
@@ -68,6 +75,7 @@ namespace Luth
     {
         vkDeviceWaitIdle(m_LogicalDevice->GetHandle());
 
+        m_GraphExecutor.reset();
         m_Sync.reset();
 
         if (!m_CommandBuffers.empty()) {
@@ -127,6 +135,96 @@ namespace Luth
     }
 
     void VKRendererAPI::DrawIndexed(u32 count) {}
+
+    void VKRendererAPI::ExecuteGraph(RG::RenderGraph& graph)
+    {
+        // This function is called instead of DrawFrame() when using Render Graph
+        // It needs to handle frame synchronization similar to DrawFrame()
+        
+        auto& frame = m_Sync->GetCurrentFrame();
+        auto frameIndex = m_Sync->GetCurrentFrameIndex();
+
+        // Wait for previous frame
+        vkWaitForFences(m_LogicalDevice->GetHandle(), 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(m_LogicalDevice->GetHandle(), 1, &frame.inFlightFence);
+
+        // Acquire next image
+        uint32_t imageIndex;
+        VkResult result = vkAcquireNextImageKHR(
+            m_LogicalDevice->GetHandle(),
+            m_Swapchain->GetHandle(),
+            UINT64_MAX,
+            frame.imageAvailable,
+            VK_NULL_HANDLE,
+            &imageIndex
+        );
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            RecreateSwapchain();
+            return;
+        }
+
+        // Record command buffer
+        VkCommandBuffer commandBuffer = m_CommandBuffers[imageIndex];
+        vkResetCommandBuffer(commandBuffer, 0);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &beginInfo), "Failed to begin RG command buffer");
+
+        // Execute Graph
+        m_GraphExecutor->Execute(graph, commandBuffer);
+
+        // Transition Swapchain Image to Present?
+        // The graph should handle this if we register the backbuffer as a resource.
+        // For now, let's assume the graph ends in a state compatible with present, 
+        // or we force a transition here.
+        // TODO: Register Swapchain Image in Graph.
+
+        VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer), "Failed to end RG command buffer");
+
+        // Submit commands
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        VkSemaphore waitSemaphores[] = { frame.imageAvailable };
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        VkSemaphore signalSemaphores[] = { frame.renderFinished };
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+
+        VK_CHECK_RESULT(vkQueueSubmit(
+            m_LogicalDevice->GetGraphicsQueue(),
+            1, &submitInfo,
+            frame.inFlightFence
+        ), "Failed to submit RG command buffer!");
+
+        // Present
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+
+        VkSwapchainKHR swapchains[] = { m_Swapchain->GetHandle() };
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapchains;
+        presentInfo.pImageIndices = &imageIndex;
+
+        result = vkQueuePresentKHR(m_LogicalDevice->GetPresentQueue(), &presentInfo);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+            RecreateSwapchain();
+        }
+        else {
+            m_Sync->AdvanceFrame();
+        }
+    }
 
     void VKRendererAPI::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
     {

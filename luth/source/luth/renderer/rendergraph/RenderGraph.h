@@ -39,9 +39,9 @@ namespace Luth::RG
     class RenderPassContext
     {
     public:
-        // TODO: Add methods to get actual Vulkan objects
-        // void* GetTexture(ResourceHandle handle);
-        // VkCommandBuffer GetCommandBuffer();
+        // The backend (Vulkan) will subclass or populate this
+        void* commandBuffer = nullptr; 
+        // Helper to get actual GPU handles would go here
     };
 
     // ===================================================================================
@@ -50,6 +50,30 @@ namespace Luth::RG
 
     class RenderGraph
     {
+    public:
+        struct PassNode
+        {
+            std::string name;
+            std::function<void(RenderPassContext&)> execute;
+            
+            std::vector<ResourceHandle> reads;
+            std::vector<ResourceHandle> writes;
+            std::vector<Barrier> preBarriers;
+        };
+
+        struct ResourceNode
+        {
+            TextureDesc desc;
+            u32 version = 0;
+            bool isTransient = true;
+            
+            ResourceState initialState = ResourceState::Undefined;
+            ResourceState currentState = ResourceState::Undefined;
+            
+            // Runtime data (filled by Executor)
+            void* physicalResource = nullptr; 
+        };
+
     public:
         RenderGraph(LinearAllocator& allocator);
         ~RenderGraph() = default;
@@ -70,37 +94,18 @@ namespace Luth::RG
         }
 
         void Compile();
-        void Execute();
+        void Execute(); // Calls the lambdas (CPU side)
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);
         void RegisterRead(u32 passIndex, ResourceHandle handle);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle);
 
+        // Accessors for the Backend Executor
+        const std::vector<PassNode>& GetPasses() const { return m_Passes; }
+        std::vector<ResourceNode>& GetResources() { return m_Resources; }
+
     private:
-        struct PassNode
-        {
-            std::string name;
-            std::function<void(RenderPassContext&)> execute;
-            
-            std::vector<ResourceHandle> reads;
-            std::vector<ResourceHandle> writes;
-            
-            // Barriers to execute BEFORE this pass starts
-            std::vector<Barrier> preBarriers;
-        };
-
-        struct ResourceNode
-        {
-            TextureDesc desc;
-            u32 version = 0;
-            bool isTransient = true;
-            
-            // State tracking for compiler
-            ResourceState initialState = ResourceState::Undefined;
-            ResourceState currentState = ResourceState::Undefined;
-        };
-
         LinearAllocator& m_Allocator;
         std::vector<PassNode> m_Passes;
         std::vector<ResourceNode> m_Resources;

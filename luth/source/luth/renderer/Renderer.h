@@ -4,6 +4,7 @@
 #include "luth/core/Math.h"
 #include "luth/renderer/RendererAPI.h"
 #include "luth/renderer/Mesh.h"
+#include "luth/renderer/rendergraph/RenderGraph.h"
 
 #include <memory>
 
@@ -35,6 +36,8 @@ namespace Luth
 
         static void DrawIndexed(uint32_t count);
         static void DrawFrame();
+        
+        static void ExecuteGraph(RG::RenderGraph& graph);
 
         static void InitFullscreenQuad();
         static void DrawFullscreenQuad();

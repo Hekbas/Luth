@@ -11,6 +11,7 @@
 #include "luth/renderer/vulkan/VKCommandPool.h"
 #include "luth/renderer/vulkan/VKSync.h"
 #include "luth/renderer/vulkan/VKMesh.h"
+#include "luth/renderer/vulkan/VKRenderGraphExecutor.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -49,6 +50,9 @@ namespace Luth
 
         virtual void DrawIndexed(u32 count) override;
         virtual void DrawFrame() override;
+
+        // New Render Graph API
+        void ExecuteGraph(RG::RenderGraph& graph);
 
         virtual void InitFullscreenQuad() override;
         virtual void DrawFullscreenQuad() override;
@@ -106,6 +110,9 @@ namespace Luth
         std::vector<VkCommandBuffer> m_CommandBuffers;
         std::unique_ptr<VKSync> m_Sync;
         std::shared_ptr<VKMesh> m_CurrentMesh;
+        
+        // Render Graph Executor
+        std::unique_ptr<VKRenderGraphExecutor> m_GraphExecutor;
 
         // Uniform Resources
         VkDescriptorSetLayout m_DescriptorSetLayout;
