@@ -17,35 +17,15 @@ namespace Luth::RG
     // Pass Builder
     // ===================================================================================
 
-    /**
-     * @brief Interface exposed to the Pass Setup lambda.
-     * Allows the pass to declare its inputs and outputs.
-     */
     class RenderPassBuilder
     {
     public:
         RenderPassBuilder(RenderGraph& graph, u32 passIndex)
             : m_Graph(graph), m_PassIndex(passIndex) {}
 
-        /**
-         * @brief Declares that this pass reads from a resource.
-         * @return The handle to the resource (versioned).
-         */
         ResourceHandle Read(ResourceHandle resource);
-
-        /**
-         * @brief Declares that this pass writes to a resource.
-         * This effectively creates a new version of the resource.
-         * @return The new handle representing the resource AFTER this write.
-         */
         ResourceHandle Write(ResourceHandle resource);
-
-        /**
-         * @brief Creates a new transient texture managed by the graph.
-         */
         ResourceHandle CreateTexture(const TextureDesc& desc);
-
-        // TODO: CreateBuffer, ReadBuffer, WriteBuffer
 
     private:
         RenderGraph& m_Graph;
@@ -56,10 +36,6 @@ namespace Luth::RG
     // Pass Execution Context
     // ===================================================================================
 
-    /**
-     * @brief Interface exposed to the Pass Execute lambda.
-     * Provides access to the actual GPU resources (VkImage, VkBuffer).
-     */
     class RenderPassContext
     {
     public:
@@ -78,25 +54,14 @@ namespace Luth::RG
         RenderGraph(LinearAllocator& allocator);
         ~RenderGraph() = default;
 
-        /**
-         * @brief Adds a render pass to the graph.
-         * 
-         * @tparam Data A struct to hold pass-specific data (handles, settings).
-         * @param name Name of the pass for debugging.
-         * @param setup Lambda called immediately to define inputs/outputs.
-         * @param execute Lambda called during graph execution to record commands.
-         */
         template<typename Data, typename SetupFunc, typename ExecuteFunc>
         void AddPass(const std::string& name, SetupFunc&& setup, ExecuteFunc&& execute)
         {
-            // Allocate the pass data in the frame allocator
             Data* data = m_Allocator.New<Data>();
 
-            // Setup phase
             RenderPassBuilder builder(*this, (u32)m_Passes.size());
             setup(*data, builder);
 
-            // Store the pass
             auto executeWrapper = [execute, data](RenderPassContext& ctx) {
                 execute(*data, ctx);
             };
@@ -104,16 +69,7 @@ namespace Luth::RG
             m_Passes.push_back({ name, executeWrapper });
         }
 
-        /**
-         * @brief Compiles the graph.
-         * Calculates dependencies, culls unused passes, and injects barriers.
-         */
         void Compile();
-
-        /**
-         * @brief Executes the graph.
-         * Dispatches pass recording to the JobSystem and submits to the GPU.
-         */
         void Execute();
 
         // Internal API for Builder
@@ -130,8 +86,8 @@ namespace Luth::RG
             std::vector<ResourceHandle> reads;
             std::vector<ResourceHandle> writes;
             
-            // Barrier info calculated during Compile()
-            // std::vector<Barrier> preBarriers;
+            // Barriers to execute BEFORE this pass starts
+            std::vector<Barrier> preBarriers;
         };
 
         struct ResourceNode
@@ -139,7 +95,10 @@ namespace Luth::RG
             TextureDesc desc;
             u32 version = 0;
             bool isTransient = true;
-            // void* gpuResource = nullptr; // Pointer to actual VkImage
+            
+            // State tracking for compiler
+            ResourceState initialState = ResourceState::Undefined;
+            ResourceState currentState = ResourceState::Undefined;
         };
 
         LinearAllocator& m_Allocator;

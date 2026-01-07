@@ -10,12 +10,6 @@ namespace Luth::RG
     // Resource Handles
     // ===================================================================================
     
-    /**
-     * @brief A lightweight handle to a resource within the Render Graph.
-     * 
-     * This does not point to GPU memory directly. It is an ID used by the 
-     * RenderGraphCompiler to track dependencies and lifetimes.
-     */
     struct ResourceHandle
     {
         u32 index = 0;
@@ -64,25 +58,41 @@ namespace Luth::RG
     };
 
     // ===================================================================================
-    // Resource Access Types
+    // Synchronization & States
+    // ===================================================================================
+
+    enum class ResourceState
+    {
+        Undefined,
+        General,
+        ColorAttachment,
+        DepthStencilAttachment,
+        DepthStencilReadOnly,
+        ShaderResource,
+        UnorderedAccess, // Compute/Storage
+        TransferSrc,
+        TransferDst,
+        Present
+    };
+
+    struct Barrier
+    {
+        ResourceHandle resource;
+        ResourceState before;
+        ResourceState after;
+        // TODO: Add queue family ownership transfer info
+    };
+
+    // ===================================================================================
+    // Resource Access Types (Metadata for Pass)
     // ===================================================================================
 
     enum class ResourceAccess
     {
         None,
         Read,       // Shader Resource (SRV)
-        Write,      // Unordered Access (UAV) or Render Target (RTV)
-        ReadWrite   // Read/Write (UAV)
-    };
-
-    /**
-     * @brief Metadata about how a pass uses a resource.
-     * Used by the compiler to insert barriers.
-     */
-    struct ResourceUsage
-    {
-        ResourceAccess access;
-        // TODO: Add pipeline stage flags for more granular barriers
+        Write,      // Render Target (RTV) or UAV
+        ReadWrite   // UAV
     };
 
 }

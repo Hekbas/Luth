@@ -32,7 +32,6 @@ namespace Luth::RG
     RenderGraph::RenderGraph(LinearAllocator& allocator)
         : m_Allocator(allocator)
     {
-        // Reserve some space to avoid reallocations during setup
         m_Passes.reserve(64);
         m_Resources.reserve(256);
     }
@@ -40,7 +39,7 @@ namespace Luth::RG
     ResourceHandle RenderGraph::RegisterResource(const TextureDesc& desc)
     {
         u32 index = (u32)m_Resources.size() + 1; // 1-based index
-        m_Resources.push_back({ desc, 0, true });
+        m_Resources.push_back({ desc, 0, true, ResourceState::Undefined, ResourceState::Undefined });
         return { index, 0 };
     }
 
@@ -48,10 +47,6 @@ namespace Luth::RG
     {
         LH_CORE_ASSERT(handle.IsValid(), "Invalid resource handle read!");
         LH_CORE_ASSERT(handle.index <= m_Resources.size(), "Resource index out of bounds!");
-
-        // Verify version? 
-        // In a strict graph, we might check if handle.version == m_Resources[handle.index-1].version
-        
         m_Passes[passIndex].reads.push_back(handle);
     }
 
@@ -59,7 +54,6 @@ namespace Luth::RG
     {
         LH_CORE_ASSERT(handle.IsValid(), "Invalid resource handle write!");
         
-        // Increment version
         ResourceNode& node = m_Resources[handle.index - 1];
         node.version++;
         
@@ -73,51 +67,86 @@ namespace Luth::RG
     {
         LH_PROFILE_FUNCTION();
 
-        // 1. Cull unused passes (Ref counting)
-        // For now, we assume all passes are active (immediate mode style)
-        // TODO: Implement culling starting from "Backbuffer" or "External" writes.
-
-        // 2. Calculate Barriers
-        // Iterate passes linearly.
-        // For each resource, track its "Current State" (Layout, Access).
-        // If a pass needs Read access but current state is Write, insert barrier.
-        
-        // This requires a "ResourceState" tracker map.
-        // std::unordered_map<u32, ResourceState> resourceStates;
-        
-        // For the prototype, we just log the graph structure
-        /*
-        LH_CORE_INFO("--- Render Graph Compile ---");
-        for (const auto& pass : m_Passes)
+        // Reset resource states for simulation
+        for (auto& res : m_Resources)
         {
-            LH_CORE_INFO("Pass: {0}", pass.name);
-            for (auto r : pass.reads) LH_CORE_INFO("  Read: Res {0} v{1}", r.index, r.version);
-            for (auto w : pass.writes) LH_CORE_INFO("  Write: Res {0} v{1}", r.index, r.version);
+            res.currentState = res.initialState;
         }
-        */
+
+        // Iterate passes to inject barriers
+        for (auto& pass : m_Passes)
+        {
+            // 1. Process Reads (Transition to ShaderResource)
+            for (const auto& handle : pass.reads)
+            {
+                ResourceNode& res = m_Resources[handle.index - 1];
+                
+                // If current state is NOT ShaderResource, we need a barrier
+                // Optimization: If it's DepthStencilReadOnly, we might not need a barrier if we just read depth
+                if (res.currentState != ResourceState::ShaderResource)
+                {
+                    Barrier barrier;
+                    barrier.resource = handle;
+                    barrier.before = res.currentState;
+                    barrier.after = ResourceState::ShaderResource;
+                    
+                    pass.preBarriers.push_back(barrier);
+                    
+                    // Update state
+                    res.currentState = ResourceState::ShaderResource;
+                }
+            }
+
+            // 2. Process Writes (Transition to ColorAttachment or DepthAttachment)
+            for (const auto& handle : pass.writes)
+            {
+                ResourceNode& res = m_Resources[handle.index - 1];
+                
+                // Determine target state based on format (simple heuristic for now)
+                // TODO: Pass builder should specify access type (RenderTarget vs UAV)
+                ResourceState targetState = ResourceState::ColorAttachment;
+                if (res.desc.format == TextureFormat::D32_Float || 
+                    res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
+                {
+                    targetState = ResourceState::DepthStencilAttachment;
+                }
+
+                if (res.currentState != targetState)
+                {
+                    Barrier barrier;
+                    barrier.resource = handle;
+                    barrier.before = res.currentState;
+                    barrier.after = targetState;
+                    
+                    pass.preBarriers.push_back(barrier);
+                    
+                    // Update state
+                    res.currentState = targetState;
+                }
+            }
+        }
     }
 
     void RenderGraph::Execute()
     {
         LH_PROFILE_FUNCTION();
 
-        // 3. Execute Passes
-        // We can dispatch these to the JobSystem!
-        // However, Vulkan Command Buffer recording must be careful about thread safety 
-        // if using a single pool, or we allocate a pool per thread.
-        
-        // For Phase 1 of RenderGraph, let's execute serially to ensure correctness,
-        // then parallelize.
-        
-        RenderPassContext ctx; // Dummy context for now
+        RenderPassContext ctx; 
         
         for (const auto& pass : m_Passes)
         {
             LH_PROFILE_SCOPE(pass.name.c_str());
             
-            // TODO: Insert Barriers here (vkCmdPipelineBarrier)
+            // Log barriers for debugging (since we don't have Vulkan backend yet)
+            if (!pass.preBarriers.empty())
+            {
+                // LH_CORE_INFO("Pass {0} Barriers:", pass.name);
+                for (const auto& b : pass.preBarriers)
+                {
+                    // LH_CORE_INFO("  Res {0}: {1} -> {2}", b.resource.index, (int)b.before, (int)b.after);
+                }
+            }
             
-            // Execute the lambda
             pass.execute(ctx);
         }
     }
