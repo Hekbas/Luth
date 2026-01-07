@@ -3,6 +3,7 @@
 #include "luth/ECS/System.h"
 #include "luth/renderer/pipeline/RenderPipeline.h"
 #include "luth/renderer/pipeline/RenderPass.h"
+#include "luth/core/Memory.h"
 
 #include <entt/entt.hpp>
 #include <unordered_map>
@@ -13,6 +14,7 @@ namespace Luth
     {
     public:
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
+        ~RenderingSystem();
 
         void Update(entt::registry& registry) override;
         void Resize(u32 width, u32 height);
@@ -26,8 +28,10 @@ namespace Luth
         RenderPipeline* GetActivePipeline() const { return m_ActivePipeline; }
 
     private:
-        std::pair<std::vector<RenderCommand>, std::vector<RenderCommand>>
+        // Returns pointers to arrays in the LinearAllocator
+        std::pair<std::span<RenderCommand>, std::span<RenderCommand>>
             CollectCommands(entt::registry& registry);
+            
         void UpdateTransformUBO(const Mat4& view, const Mat4& proj, const Mat4& model);
         void UpdateLightsUBO(entt::registry& registry);
 
@@ -40,6 +44,9 @@ namespace Luth
         u32   m_TransformUBO, m_LightsUBO;
         Vec3  m_CameraPos;
         Mat4  m_ViewProj;
+
+        // Memory
+        std::unique_ptr<LinearAllocator> m_FrameAllocator;
     };
 
     #define MAX_DIR_LIGHTS 4

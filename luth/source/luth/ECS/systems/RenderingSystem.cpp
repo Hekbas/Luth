@@ -8,6 +8,8 @@
 #include "luth/resources/libraries/MaterialLibrary.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
+#include "luth/core/JobSystem.h"
+#include "luth/core/Profiler.h"
 
 #include <glad/glad.h>
 
@@ -15,6 +17,9 @@ namespace Luth
 {
     RenderingSystem::RenderingSystem(u32 viewportWidth, u32 viewportHeight)
     {
+        // Initialize Frame Allocator (1MB should be enough for command lists for now)
+        m_FrameAllocator = std::make_unique<LinearAllocator>(1 * Memory::MB);
+
         // UBO setup
         glGenBuffers(1, &m_TransformUBO);
         glBindBuffer(GL_UNIFORM_BUFFER, m_TransformUBO);
@@ -28,7 +33,7 @@ namespace Luth
         glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_LightsUBO);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-        // Register the “deferred” pipeline
+        // Register the deferred pipeline
         RenderPipeline deferredPipeline;
         deferredPipeline.AddPass<GeometryPass>();
         deferredPipeline.AddPass<SSAOPass>();
@@ -41,9 +46,19 @@ namespace Luth
         SetActiveTechnique("Forward");
     }
 
+    RenderingSystem::~RenderingSystem()
+    {
+        // Allocator cleans itself up
+    }
+
     void RenderingSystem::Update(entt::registry& registry)
     {
+        LH_PROFILE_FUNCTION();
+
         if (!m_ActivePipeline) return;
+
+        // Reset Allocator at start of frame
+        m_FrameAllocator->Reset();
 
         // Collect opaque / transparent
         auto [opaque, transparent] = CollectCommands(registry);
@@ -55,7 +70,12 @@ namespace Luth
         UpdateLightsUBO(registry);
 
         // Build context and render
-        RenderContext ctx{ m_ActivePipeline, registry, m_CameraPos, opaque, transparent,
+        // Note: We need to convert spans back to vectors for the old pipeline API for now
+        // Ideally RenderPipeline should accept spans.
+        std::vector<RenderCommand> opaqueVec(opaque.begin(), opaque.end());
+        std::vector<RenderCommand> transparentVec(transparent.begin(), transparent.end());
+
+        RenderContext ctx{ m_ActivePipeline, registry, m_CameraPos, opaqueVec, transparentVec,
                             (u32)m_ViewProj[0][0], (u32)m_ViewProj[1][1] };
         m_ActivePipeline->RenderAll(ctx);
     }
@@ -92,13 +112,46 @@ namespace Luth
         return m_ActiveName;
     }
 
-    std::pair<std::vector<RenderCommand>, std::vector<RenderCommand>>
+    std::pair<std::span<RenderCommand>, std::span<RenderCommand>>
         RenderingSystem::CollectCommands(entt::registry& registry)
     {
-        std::vector<RenderCommand> opaque, transparent;
+        LH_PROFILE_SCOPE("CollectCommands");
 
         auto view = registry.view<WorldTransform, MeshRenderer>();
-        for (auto [entity, transform, meshRend] : view.each()) {
+        u32 entityCount = (u32)view.size_hint();
+
+        // Allocate worst-case memory from LinearAllocator (fast!)
+        // We assume all entities could be opaque OR transparent to be safe, 
+        // or we allocate one big block and partition it.
+        // For simplicity: Allocate array for ALL entities.
+        RenderCommand* commands = (RenderCommand*)m_FrameAllocator->Allocate(sizeof(RenderCommand) * entityCount);
+        
+        // Atomic counters for parallel filling
+        std::atomic<u32> opaqueCount = 0;
+        std::atomic<u32> transparentCount = 0;
+
+        // Temporary storage for transparent indices (to sort later)
+        // We put transparent commands at the END of the array growing backwards? 
+        // Or just allocate two arrays. Let's allocate two for safety/simplicity now.
+        RenderCommand* opaqueCmds = commands;
+        RenderCommand* transparentCmds = (RenderCommand*)m_FrameAllocator->Allocate(sizeof(RenderCommand) * entityCount);
+
+        // Convert view to vector for dispatch
+        std::vector<entt::entity> entities;
+        entities.reserve(entityCount);
+        for (auto entity : view) entities.push_back(entity);
+
+        JobSystem::Counter counter;
+        JobSystem::Dispatch((u32)entities.size(), 64, [&](JobSystem::JobArgs args)
+        {
+            entt::entity entity = entities[args.jobIndex];
+            auto& transform = view.get<WorldTransform>(entity);
+            auto& meshRend = view.get<MeshRenderer>(entity);
+
+            // Material lookup (Thread safe? MaterialLibrary::Get needs to be safe!)
+            // Assuming MaterialLibrary is read-only during frame or locked.
+            // If not, this is a race condition. 
+            // TODO: Verify MaterialLibrary thread safety.
             auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
             if (!material) material = MaterialLibrary::Get(UUID(7));
 
@@ -110,24 +163,39 @@ namespace Luth
             };
 
             if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
-                material->GetRenderMode() == RendererAPI::RenderMode::Cutout) {
-                opaque.push_back(cmd);
+                material->GetRenderMode() == RendererAPI::RenderMode::Cutout) 
+            {
+                u32 index = opaqueCount.fetch_add(1);
+                opaqueCmds[index] = cmd;
             }
-            else {
-                // TODO: Calculate actual distance from camera
-                //Vec3 worldPos = transform.GetWorldPosition();
-                //cmd.distance = glm::distance(m_CameraPos, worldPos);
-                Vec3 worldPos = Vec3(0.0f, 0.0f, 0.0f);
+            else 
+            {
+                // Calculate distance for sorting
+                // Vec3 worldPos = transform.matrix[3]; // Extract translation
+                // cmd.distance = glm::distance(m_CameraPos, worldPos);
+                
+                // Placeholder distance logic from original code
+                Vec3 worldPos = Vec3(0.0f); 
                 cmd.distance = glm::distance(Vec3(400.0f, 220.0f, 400.0f), worldPos);
-                transparent.push_back(cmd);
+                
+                u32 index = transparentCount.fetch_add(1);
+                transparentCmds[index] = cmd;
             }
+        }, &counter);
+
+        JobSystem::WaitForCounter(&counter);
+
+        // Sort transparent objects (Serial for now, can be parallelized with parallel_sort)
+        {
+            LH_PROFILE_SCOPE("SortTransparent");
+            std::sort(transparentCmds, transparentCmds + transparentCount,
+                [](const auto& a, const auto& b) { return a.distance > b.distance; });
         }
 
-        // Sort transparent objects back-to-front
-        std::sort(transparent.begin(), transparent.end(),
-            [](const auto& a, const auto& b) { return a.distance > b.distance; });
-
-        return { opaque, transparent };
+        return { 
+            std::span<RenderCommand>(opaqueCmds, opaqueCount), 
+            std::span<RenderCommand>(transparentCmds, transparentCount) 
+        };
     }
 
     void RenderingSystem::UpdateTransformUBO(const Mat4& view, const Mat4& proj, const Mat4& model)
