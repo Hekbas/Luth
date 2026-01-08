@@ -4,6 +4,7 @@
 #include "luth/core/Memory.h"
 #include "luth/core/JobSystem.h"
 
+#include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
 #include <string>
@@ -46,7 +47,7 @@ namespace Luth::RG
     class RenderPassContext
     {
     public:
-        // The backend (Vulkan) will subclass or populate this
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
         void* commandBuffer = nullptr; 
         
         // Access to physical resources (void* = VkImage/VkBuffer)
@@ -85,7 +86,10 @@ namespace Luth::RG
             ResourceState currentState = ResourceState::Undefined;
             
             // Runtime data (filled by Executor)
-            void* physicalResource = nullptr; 
+            VkImage image = VK_NULL_HANDLE;
+            VkImageView view = VK_NULL_HANDLE;
+            struct VmaAllocation_T* allocation = nullptr;
+            bool external = false; // If true, we don't destroy it (e.g. Swapchain Image)
         };
 
     public:
@@ -115,7 +119,7 @@ namespace Luth::RG
         }
 
         void Compile();
-        void Execute(); // Calls the lambdas (CPU side)
+        void Execute(VkCommandBuffer cmd);
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);
@@ -134,5 +138,8 @@ namespace Luth::RG
         LinearAllocator& m_Allocator;
         std::vector<PassNode> m_Passes;
         std::vector<ResourceNode> m_Resources;
+
+        void AllocatePhysicalResources();
+        void CleanupPhysicalResources();
     };
 }

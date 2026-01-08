@@ -113,8 +113,7 @@ namespace Luth
 
     void VKRendererAPI::ExecuteGraph(RG::RenderGraph& graph)
     {
-        // TODO: Pass current command buffer to graph
-        // graph.Execute(m_CommandBuffers[m_CurrentFrame]);
+        graph.Execute(m_CommandBuffers[m_CurrentFrame]);
     }
 
     void VKRendererAPI::OnResize(u32 width, u32 height)

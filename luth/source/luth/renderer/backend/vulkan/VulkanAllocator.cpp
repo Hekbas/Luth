@@ -2,8 +2,6 @@
 #include "VulkanAllocator.h"
 #include "luth/core/Log.h"
 
-// VMA Implementation
-// Ensure you have downloaded vk_mem_alloc.h and placed it in luth/extern/vulkan/vma/
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 

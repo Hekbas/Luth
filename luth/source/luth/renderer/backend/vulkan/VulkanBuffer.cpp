@@ -3,7 +3,7 @@
 #include "VulkanContext.h"
 
 // We need VMA enums here
-#include <vk_mem_alloc.h>
+#include <vma/vk_mem_alloc.h>
 
 namespace Luth
 {
