@@ -5,8 +5,10 @@
 #include "luth/events/EventBus.h"
 #include "luth/events/AppEvent.h"
 #include "luth/events/FileDropEvent.h"
+#include "luth/ECS/Scene.h"
 
 #include <vector>
+#include <memory>
 
 namespace Luth
 {
@@ -36,6 +38,7 @@ namespace Luth
         void OnFileDrop(FileDropEvent& e);
 
         std::shared_ptr<Window> m_Window;
+        std::shared_ptr<Scene> m_Scene;
 
         bool m_Running = true;
     };

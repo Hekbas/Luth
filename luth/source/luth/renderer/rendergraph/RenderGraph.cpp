@@ -17,7 +17,12 @@ namespace Luth::RG
 
     ResourceHandle RenderPassBuilder::Write(ResourceHandle resource)
     {
-        return m_Graph.RegisterWrite(m_PassIndex, resource);
+        return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ColorAttachment);
+    }
+
+    ResourceHandle RenderPassBuilder::WriteTransfer(ResourceHandle resource)
+    {
+        return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::TransferDst);
     }
 
     ResourceHandle RenderPassBuilder::CreateTexture(const TextureDesc& desc)
@@ -58,7 +63,7 @@ namespace Luth::RG
         m_Passes[passIndex].reads.push_back(handle);
     }
 
-    ResourceHandle RenderGraph::RegisterWrite(u32 passIndex, ResourceHandle handle)
+    ResourceHandle RenderGraph::RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state)
     {
         LH_CORE_ASSERT(handle.IsValid(), "Invalid resource handle write!");
         
@@ -67,6 +72,7 @@ namespace Luth::RG
         
         ResourceHandle newHandle = { handle.index, node.version };
         m_Passes[passIndex].writes.push_back(newHandle);
+        m_Passes[passIndex].writeStates.push_back(state);
         
         return newHandle;
     }
@@ -101,16 +107,21 @@ namespace Luth::RG
                 }
             }
 
-            // 2. Process Writes (Transition to ColorAttachment or DepthAttachment)
-            for (const auto& handle : pass.writes)
+            // 2. Process Writes
+            for (size_t i = 0; i < pass.writes.size(); ++i)
             {
+                ResourceHandle handle = pass.writes[i];
+                ResourceState targetState = pass.writeStates[i];
                 ResourceNode& res = m_Resources[handle.index - 1];
                 
-                ResourceState targetState = ResourceState::ColorAttachment;
-                if (res.desc.format == TextureFormat::D32_Float || 
-                    res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
+                // Override target state for Depth (if not transfer)
+                if (targetState == ResourceState::ColorAttachment)
                 {
-                    targetState = ResourceState::DepthStencilAttachment;
+                    if (res.desc.format == TextureFormat::D32_Float || 
+                        res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
+                    {
+                        targetState = ResourceState::DepthStencilAttachment;
+                    }
                 }
 
                 if (res.currentState != targetState)
@@ -129,7 +140,14 @@ namespace Luth::RG
 
     void RenderGraph::Execute()
     {
-        // This is the CPU-side execute (if not using VKRenderGraphExecutor)
-        // It's mostly a stub now since VKRenderGraphExecutor handles the real execution
+        LH_PROFILE_FUNCTION();
+
+        RenderPassContext ctx; 
+        
+        for (const auto& pass : m_Passes)
+        {
+            LH_PROFILE_SCOPE(pass.name.c_str());
+            pass.execute(ctx);
+        }
     }
 }

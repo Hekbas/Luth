@@ -17,6 +17,9 @@ namespace Luth
         VkFormat format;
         VkExtent3D extent;
         
+        // Track layout for barriers
+        VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
         // Debug name
         std::string name;
     };
@@ -45,7 +48,6 @@ namespace Luth
         VkPhysicalDevice m_PhysicalDevice;
 
         // Simple pooling: Map hash(desc) -> List of available resources
-        // For a robust engine, we'd use a proper cache with LRU eviction.
         struct PoolEntry
         {
             VKImageResource resource;
@@ -53,6 +55,16 @@ namespace Luth
         };
         
         std::unordered_map<u64, std::vector<PoolEntry>> m_TexturePool;
+        
+        // Resources waiting to be destroyed or recycled
+        // We need to keep them alive for MAX_FRAMES_IN_FLIGHT
+        struct PendingRelease
+        {
+            VKImageResource* resource;
+            u64 frameIndex;
+        };
+        std::vector<PendingRelease> m_ReleaseQueue;
+
         u64 m_CurrentFrame = 0;
     };
 }
