@@ -109,11 +109,11 @@ namespace Luth
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
         WindowSpec spec;
-        spec.rendererAPI = RendererAPI::API::OpenGL;
+        spec.rendererAPI = RendererAPI::API::Vulkan;
         
         if (argc < 2) { // No arguments
             LH_CORE_WARN("Usage: {} [--vulkan|--rt]", argv[0]);
-            LH_CORE_WARN("Initializing default [--opengl]");
+            LH_CORE_WARN("Initializing default [--vulkan]");
             return spec;
         }
 

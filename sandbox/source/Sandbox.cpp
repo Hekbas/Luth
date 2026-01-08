@@ -41,7 +41,7 @@ namespace Luth
         char** testArgv = argv;
 
         if (argc < 2) { // No argument
-            std::vector<std::string> args = { "Sandbox", "--opengl" };
+            std::vector<std::string> args = { "Sandbox", "--vulkan" };
             LuthTest::CreateTestArgs(args, testArgc, testArgv);
 
             LH_CORE_WARN("No arguments provided");

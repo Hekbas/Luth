@@ -43,6 +43,14 @@ namespace Luth::RG
         return { index, 0 };
     }
 
+    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* physicalResource, ResourceState initialState)
+    {
+        u32 index = (u32)m_Resources.size() + 1;
+        // isTransient = false because we don't own it
+        m_Resources.push_back({ desc, 0, false, initialState, initialState, physicalResource });
+        return { index, 0 };
+    }
+
     void RenderGraph::RegisterRead(u32 passIndex, ResourceHandle handle)
     {
         LH_CORE_ASSERT(handle.IsValid(), "Invalid resource handle read!");
@@ -81,8 +89,6 @@ namespace Luth::RG
             {
                 ResourceNode& res = m_Resources[handle.index - 1];
                 
-                // If current state is NOT ShaderResource, we need a barrier
-                // Optimization: If it's DepthStencilReadOnly, we might not need a barrier if we just read depth
                 if (res.currentState != ResourceState::ShaderResource)
                 {
                     Barrier barrier;
@@ -91,8 +97,6 @@ namespace Luth::RG
                     barrier.after = ResourceState::ShaderResource;
                     
                     pass.preBarriers.push_back(barrier);
-                    
-                    // Update state
                     res.currentState = ResourceState::ShaderResource;
                 }
             }
@@ -102,8 +106,6 @@ namespace Luth::RG
             {
                 ResourceNode& res = m_Resources[handle.index - 1];
                 
-                // Determine target state based on format (simple heuristic for now)
-                // TODO: Pass builder should specify access type (RenderTarget vs UAV)
                 ResourceState targetState = ResourceState::ColorAttachment;
                 if (res.desc.format == TextureFormat::D32_Float || 
                     res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
@@ -119,8 +121,6 @@ namespace Luth::RG
                     barrier.after = targetState;
                     
                     pass.preBarriers.push_back(barrier);
-                    
-                    // Update state
                     res.currentState = targetState;
                 }
             }
@@ -129,25 +129,7 @@ namespace Luth::RG
 
     void RenderGraph::Execute()
     {
-        LH_PROFILE_FUNCTION();
-
-        RenderPassContext ctx; 
-        
-        for (const auto& pass : m_Passes)
-        {
-            LH_PROFILE_SCOPE(pass.name.c_str());
-            
-            // Log barriers for debugging (since we don't have Vulkan backend yet)
-            if (!pass.preBarriers.empty())
-            {
-                // LH_CORE_INFO("Pass {0} Barriers:", pass.name);
-                for (const auto& b : pass.preBarriers)
-                {
-                    // LH_CORE_INFO("  Res {0}: {1} -> {2}", b.resource.index, (int)b.before, (int)b.after);
-                }
-            }
-            
-            pass.execute(ctx);
-        }
+        // This is the CPU-side execute (if not using VKRenderGraphExecutor)
+        // It's mostly a stub now since VKRenderGraphExecutor handles the real execution
     }
 }

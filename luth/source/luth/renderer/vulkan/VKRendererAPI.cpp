@@ -164,6 +164,31 @@ namespace Luth
             return;
         }
 
+        // ---------------------------------------------------------------------
+        // Import Swapchain Image into Graph
+        // ---------------------------------------------------------------------
+        RG::TextureDesc backbufferDesc;
+        backbufferDesc.name = "Backbuffer";
+        backbufferDesc.width = m_Swapchain->GetExtent().width;
+        backbufferDesc.height = m_Swapchain->GetExtent().height;
+        backbufferDesc.format = RG::TextureFormat::RGBA8_Unorm; // Approximate
+        
+        // Create a temporary resource wrapper on the stack
+        // Note: We cast to void* because RenderGraph doesn't know about VKImageResource
+        VKImageResource backbufferRes;
+        backbufferRes.image = m_Swapchain->GetImage(imageIndex);
+        backbufferRes.view = m_Swapchain->GetImageView(imageIndex);
+        backbufferRes.format = m_Swapchain->GetImageFormat();
+        backbufferRes.extent = { backbufferDesc.width, backbufferDesc.height, 1 };
+        
+        // Import it!
+        // Note: Initial state is Undefined because AcquireNextImage doesn't guarantee layout
+        // unless we use a subpass dependency, but here we treat it as fresh.
+        // Actually, the swapchain image is usually PRESENT_SRC_KHR or UNDEFINED.
+        graph.ImportResource(backbufferDesc, &backbufferRes, RG::ResourceState::Undefined);
+        
+        // ---------------------------------------------------------------------
+
         // Record command buffer
         VkCommandBuffer commandBuffer = m_CommandBuffers[imageIndex];
         vkResetCommandBuffer(commandBuffer, 0);
@@ -175,11 +200,36 @@ namespace Luth
         // Execute Graph
         m_GraphExecutor->Execute(graph, commandBuffer);
 
-        // Transition Swapchain Image to Present?
-        // The graph should handle this if we register the backbuffer as a resource.
-        // For now, let's assume the graph ends in a state compatible with present, 
-        // or we force a transition here.
-        // TODO: Register Swapchain Image in Graph.
+        // Transition Swapchain Image to Present
+        // We need to ensure the backbuffer is in PRESENT_SRC_KHR layout before presenting.
+        // The graph might leave it in TRANSFER_DST or COLOR_ATTACHMENT.
+        // We can manually insert a barrier here.
+        {
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // Assuming last pass wrote to it
+            barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = backbufferRes.image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            barrier.dstAccessMask = 0;
+
+            vkCmdPipelineBarrier(
+                commandBuffer,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0,
+                0, nullptr,
+                0, nullptr,
+                1, &barrier
+            );
+        }
 
         VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer), "Failed to end RG command buffer");
 

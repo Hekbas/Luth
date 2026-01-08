@@ -41,7 +41,10 @@ namespace Luth::RG
     public:
         // The backend (Vulkan) will subclass or populate this
         void* commandBuffer = nullptr; 
-        // Helper to get actual GPU handles would go here
+        
+        // Access to physical resources (void* = VkImage/VkBuffer)
+        // The executor must set this callback
+        std::function<void*(ResourceHandle)> GetResource;
     };
 
     // ===================================================================================
@@ -98,6 +101,10 @@ namespace Luth::RG
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);
+        
+        // Import an existing resource (e.g. Swapchain Image)
+        ResourceHandle ImportResource(const TextureDesc& desc, void* physicalResource, ResourceState initialState);
+
         void RegisterRead(u32 passIndex, ResourceHandle handle);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle);
 

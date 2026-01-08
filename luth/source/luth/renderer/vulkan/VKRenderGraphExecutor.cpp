@@ -38,6 +38,12 @@ namespace Luth
             // Prepare Context
             RG::RenderPassContext ctx;
             ctx.commandBuffer = cmd;
+            
+            // Provide resource lookup
+            ctx.GetResource = [&](RG::ResourceHandle handle) -> void* {
+                if (handle.index == 0 || handle.index > resources.size()) return nullptr;
+                return resources[handle.index - 1].physicalResource;
+            };
 
             // Execute Lambda
             pass.execute(ctx);

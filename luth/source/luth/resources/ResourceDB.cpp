@@ -39,10 +39,10 @@ namespace Luth
 
             // Load to Database
             switch (FileSystem::ClassifyFileType(path)) {
-                case ResourceType::Model:    Resources::Load<Model>(path);    break;
+                //case ResourceType::Model:    Resources::Load<Model>(path);    break;
                 case ResourceType::Texture:  Resources::Load<Texture>(path);  break;
                 case ResourceType::Material: Resources::Load<Material>(path); break;
-                case ResourceType::Shader:   Resources::Load<Shader>(path);   break;
+                //case ResourceType::Shader:   Resources::Load<Shader>(path);   break;
                 default: break;
             }
         }

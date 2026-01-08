@@ -43,6 +43,18 @@ namespace Luth
             s_GLFWInitialized = true;
         }
 
+        // Set hints BEFORE creating the window
+        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
+            glfwWindowHint(GLFW_SAMPLES, 4);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        }
+        else if (spec.rendererAPI == RendererAPI::API::Vulkan) {
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        }
+
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
         m_GLFWwindow = glfwCreateWindow((int)spec.Width, (int)spec.Height, spec.Title.c_str(), monitor, nullptr);
@@ -56,19 +68,9 @@ namespace Luth
         auto path = FileSystem::ProjectPath() / "icons/image/";
 		SetWindowIcon(m_GLFWwindow, path);
 
-        glfwWindowHint(GLFW_SAMPLES, 4);
-
         if (spec.rendererAPI == RendererAPI::API::OpenGL) {
             glfwMakeContextCurrent(m_GLFWwindow);
             glfwSwapInterval(spec.VSync ? 1 : 0);
-
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        }
-        else if (spec.rendererAPI == RendererAPI::API::Vulkan) {
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
         }
 
         glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);
