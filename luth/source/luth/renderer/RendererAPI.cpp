@@ -1,42 +1,26 @@
 #include "luthpch.h"
 #include "luth/renderer/RendererAPI.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/backend/vulkan/VKRendererAPI.h"
 
 namespace Luth
 {
-    RendererAPI::API RendererAPI::s_API = API::None;
+    RendererAPI::API RendererAPI::s_API = API::Vulkan;
 
-    std::unique_ptr<RendererAPI> RendererAPI::Create(API api)
+    std::unique_ptr<RendererAPI> RendererAPI::Create()
     {
-        LH_CORE_INFO("Initializing {0} renderer...", APIToString(api));
-        s_API = api;
-
-        switch (api)
+        switch (s_API)
         {
             case RendererAPI::API::None:
-                LH_CORE_ASSERT(false, "{0} is not supported!", APIToString(api));
+                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
                 return nullptr;
 
             case RendererAPI::API::Vulkan:
-                return nullptr; // Will be implemented in Phase 3
+                return std::make_unique<VKRendererAPI>();
 
             default:
-                LH_CORE_ASSERT(false, "{1} Unknown RendererAPI!", APIToString(api));
+                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
                 return nullptr;
         }
-    }
-
-    const char* RendererAPI::APIToString(API api)
-    {
-        switch (api)
-        {
-            case API::None:    return "None";
-            case API::Vulkan:  return "Vulkan";
-            default: return "Unknown";
-        }
-    }
-
-    void RendererAPI::SetWindow(void* window) {
-        s_Window = window;
     }
 }

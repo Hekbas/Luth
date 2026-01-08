@@ -1,0 +1,62 @@
+#pragma once
+
+#include "luth/core/LuthTypes.h"
+#include <vulkan/vulkan.h>
+#include <vector>
+#include <functional>
+#include "VulkanDescriptors.h"
+
+// Forward declare VMA types to avoid including the huge header here
+typedef struct VmaAllocator_T* VmaAllocator;
+
+namespace Luth
+{
+    class VulkanContext
+    {
+    public:
+        static void Init(void* windowHandle);
+        static void Shutdown();
+        static VulkanContext& Get();
+
+        VkInstance GetInstance() const { return m_Instance; }
+        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
+        VkDevice GetDevice() const { return m_Device; }
+        VmaAllocator GetAllocator() const { return m_Allocator; }
+        BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
+        
+        // Queue Access
+        VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+        u32 GetGraphicsFamily() const { return m_GraphicsFamily; }
+
+        // Helper to find memory types (if not using VMA for some reason)
+        u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
+
+        // Submit a command immediately and wait for it to finish (used for resource uploads)
+        void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
+
+    private:
+        void CreateInstance();
+        void SetupDebugMessenger();
+        void PickPhysicalDevice();
+        void CreateLogicalDevice();
+        void InitAllocator();
+
+        // Validation Layers
+        bool CheckValidationLayerSupport();
+        std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };
+        bool m_EnableValidationLayers = true; // TODO: Disable in Release
+
+        VkInstance m_Instance = VK_NULL_HANDLE;
+        VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
+        VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
+        VkDevice m_Device = VK_NULL_HANDLE;
+        
+        VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+        u32 m_GraphicsFamily = -1;
+        VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+        BindlessDescriptorSet m_BindlessSet;
+
+        VmaAllocator m_Allocator = VK_NULL_HANDLE;
+        void* m_WindowHandle = nullptr; // Raw GLFW window handle
+    };
+}

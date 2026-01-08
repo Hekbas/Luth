@@ -2,11 +2,7 @@
 #include "luth/renderer/Buffer.h"
 #include "luth/renderer/Renderer.h"
 
-#include "luth/renderer/openGL/GLBuffer.h"
-#include "luth/renderer/OpenGL/GLVertexArray.h"
-#include "luth/renderer/vulkan/VKRendererAPI.h"
-#include "luth/renderer/vulkan/VKBuffer.h"
-#include "luth/renderer/vulkan/VKVertexArray.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 
 #include <vulkan/vulkan.h>
 
@@ -132,22 +128,8 @@ namespace Luth
                 LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
                 return nullptr;
 
-            case RendererAPI::API::OpenGL:
-                return std::make_shared<GLVertexBuffer>(size);
-
             case RendererAPI::API::Vulkan:
-            {
-                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
-                const auto& device = vkRenderer->GetLogicalDevice();
-                return std::make_shared<VKVertexBuffer>(
-                    vkRenderer->GetLogicalDevice().GetHandle(),
-                    vkRenderer->GetPhysicalDevice().GetHandle(),
-                    nullptr,
-                    size,
-                    device.GetTransferQueue(),
-                    device.GetQueueFamilyIndices().transferFamily.value()
-                );
-            }
+                return std::make_shared<VKVertexBuffer>(size);
         }
 
         LH_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -162,22 +144,8 @@ namespace Luth
                 LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
                 return nullptr;
 
-            case RendererAPI::API::OpenGL:
-                return std::make_shared<GLVertexBuffer>(data, size);
-
             case RendererAPI::API::Vulkan:
-            {
-                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
-                const auto& device = vkRenderer->GetLogicalDevice();
-                return std::make_shared<VKVertexBuffer>(
-                    vkRenderer->GetLogicalDevice().GetHandle(),
-                    vkRenderer->GetPhysicalDevice().GetHandle(),
-                    data,
-                    size,
-                    device.GetTransferQueue(),
-                    device.GetQueueFamilyIndices().transferFamily.value()
-                );
-            }
+                return std::make_shared<VKVertexBuffer>(data, size);
         }
 
         LH_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -189,22 +157,8 @@ namespace Luth
     {
         switch (Renderer::GetAPI())
         {
-            case RendererAPI::API::OpenGL:
-                return std::make_shared<GLIndexBuffer>(indices, count);
-
             case RendererAPI::API::Vulkan:
-            {
-                auto vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
-                const auto& device = vkRenderer->GetLogicalDevice();
-                return std::make_shared<VKIndexBuffer>(
-                    vkRenderer->GetLogicalDevice().GetHandle(),
-                    vkRenderer->GetPhysicalDevice().GetHandle(),
-                    indices,
-                    count,
-                    device.GetTransferQueue(),
-                    device.GetQueueFamilyIndices().transferFamily.value()
-                );
-            }
+                return std::make_shared<VKIndexBuffer>(indices, count);
 
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
