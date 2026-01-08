@@ -2,7 +2,6 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
-#include "luth/renderer/RendererAPI.h"
 #include "luth/resources/Resource.h"
 #include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/resources/libraries/TextureCache.h"
@@ -43,6 +42,9 @@ namespace Luth
     class Material : public Resource
     {
     public:
+        enum class RenderMode { Opaque, Cutout, Transparent, Fade };
+        enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
+
         // Shader management
         void SetShaderUUID(const UUID& uuid) { m_ShaderUUID = uuid; }
         UUID GetShaderUUID() const { return m_ShaderUUID; }
@@ -97,19 +99,19 @@ namespace Luth
         }
 
         // Render mode
-        RendererAPI::RenderMode GetRenderMode() const { return m_RenderMode; }
-        void SetRenderMode(RendererAPI::RenderMode mode) { m_RenderMode = mode; }
+        RenderMode GetRenderMode() const { return m_RenderMode; }
+        void SetRenderMode(RenderMode mode) { m_RenderMode = mode; }
 
         // Alpha cutoff for RenderMode::Cutout
         float GetAlphaCutoff() const { return m_AlphaCutoff; }
         void SetAlphaCutoff(float cutoff) { m_AlphaCutoff = cutoff; }
 
         // Blend factors
-        void SetBlendSrc(RendererAPI::BlendFactor factor) { m_BlendSrc = factor; }
-        RendererAPI::BlendFactor GetBlendSrc() const { return m_BlendSrc; }
+        void SetBlendSrc(BlendFactor factor) { m_BlendSrc = factor; }
+        BlendFactor GetBlendSrc() const { return m_BlendSrc; }
 
-        void SetBlendDst(RendererAPI::BlendFactor factor) { m_BlendDst = factor; }
-        RendererAPI::BlendFactor GetBlendDst() const { return m_BlendDst; }
+        void SetBlendDst(BlendFactor factor) { m_BlendDst = factor; }
+        BlendFactor GetBlendDst() const { return m_BlendDst; }
 
         void EnableAlphaFromDiffuse(bool enable) { m_AlphaFromDiffuse = enable; }
         bool IsAlphaFromDiffuseEnabled() const { return m_AlphaFromDiffuse; }
@@ -156,9 +158,9 @@ namespace Luth
         UUID m_ShaderUUID;
         std::vector<MapInfo> m_Maps;
 
-        RendererAPI::RenderMode m_RenderMode = RendererAPI::RenderMode::Opaque;
-        RendererAPI::BlendFactor m_BlendSrc = RendererAPI::BlendFactor::SrcAlpha;
-        RendererAPI::BlendFactor m_BlendDst = RendererAPI::BlendFactor::OneMinusSrcAlpha;
+        RenderMode m_RenderMode = RenderMode::Opaque;
+        BlendFactor m_BlendSrc = BlendFactor::SrcAlpha;
+        BlendFactor m_BlendDst = BlendFactor::OneMinusSrcAlpha;
         float m_AlphaCutoff = 0.5f;
         bool m_AlphaFromDiffuse = false;
         bool m_IsGloss = false;

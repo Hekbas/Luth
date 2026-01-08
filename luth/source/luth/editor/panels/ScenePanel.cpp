@@ -47,11 +47,13 @@ namespace Luth
             }
 
             // Get final output from active rendering technique
-            if (auto technique = m_RenderingSystem->GetActivePipeline()) {
-                i32 textureID = Editor::GetPanel<RenderPanel>()->GetSelectedAttachment();
-                if (textureID == -1) textureID = (i32)technique->GetFinalColorAttachment();
-                ImGui::Image(textureID, ToImVec2(m_ViewportSize), { 0, 1 }, { 1, 0 });
-            }
+            // TODO: Re-implement texture display with RenderGraph
+            // if (auto technique = m_RenderingSystem->GetActivePipeline()) {
+            //    i32 textureID = Editor::GetPanel<RenderPanel>()->GetSelectedAttachment();
+            //    if (textureID == -1) textureID = (i32)technique->GetFinalColorAttachment();
+            //    ImGui::Image(textureID, ToImVec2(m_ViewportSize), { 0, 1 }, { 1, 0 });
+            // }
+            ImGui::Text("Scene Viewport (RenderGraph Output Pending)");
 
             // Interaction states
             m_IsFocused = ImGui::IsWindowFocused();

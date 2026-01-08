@@ -151,6 +151,7 @@ namespace Luth
             
             if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
                 m_PhysicalDevice = device;
+                m_PhysicalDeviceProperties = props;
                 LH_CORE_INFO("Vulkan GPU: {0}", props.deviceName);
                 break;
             }
@@ -160,6 +161,7 @@ namespace Luth
             m_PhysicalDevice = devices[0];
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
+            m_PhysicalDeviceProperties = props;
             LH_CORE_WARN("Vulkan GPU (Integrated): {0}", props.deviceName);
         }
     }
@@ -194,11 +196,20 @@ namespace Luth
         VkPhysicalDeviceFeatures deviceFeatures{};
         deviceFeatures.samplerAnisotropy = VK_TRUE;
 
+        // Vulkan 1.2 Features (Descriptor Indexing for Bindless)
+        VkPhysicalDeviceVulkan12Features features12{};
+        features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        features12.descriptorBindingPartiallyBound = VK_TRUE;
+        features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        features12.runtimeDescriptorArray = VK_TRUE;
+        features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+
         // Vulkan 1.3 Features (Dynamic Rendering, Synchronization2)
         VkPhysicalDeviceVulkan13Features features13{};
         features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
+        features13.pNext = &features12;
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

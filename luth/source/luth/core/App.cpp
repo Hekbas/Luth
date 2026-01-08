@@ -5,12 +5,14 @@
 #include "luth/input/Input.h"
 #include "luth/events/Event.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/core/JobSystem.h"
 #include "luth/core/Profiler.h"
+#include "luth/renderer/Renderer.h"
 
 namespace Luth
 {
@@ -25,7 +27,7 @@ namespace Luth
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
 
-        // Renderer Init will happen here in Phase 3 (VulkanContext::Init)
+        Renderer::Init(m_Window->GetNativeWindow());
         
         // Scene & Systems
         m_Scene = std::make_shared<Scene>();

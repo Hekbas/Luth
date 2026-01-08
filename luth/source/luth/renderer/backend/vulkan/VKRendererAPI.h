@@ -9,7 +9,7 @@ namespace Luth
     class VKRendererAPI : public RendererAPI
     {
     public:
-        virtual void Init() override;
+        virtual void Init(void* windowHandle) override;
         virtual void Shutdown() override;
 
         virtual void BeginFrame() override;

@@ -1,28 +1,25 @@
 #include "luthpch.h"
 #include "luth/renderer/Shader.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/openGL/GLShader.h"
 
 namespace Luth
 {
+    // Simple concrete class for now, just to hold the path
+    class VulkanShaderResource : public Shader
+    {
+    public:
+        VulkanShaderResource(const fs::path& path) : m_Path(path) {}
+        virtual const fs::path& GetPath() const override { return m_Path; }
+    private:
+        fs::path m_Path;
+    };
+
     std::shared_ptr<Shader> Shader::Create(const fs::path& filePath)
     {
         switch (Renderer::GetAPI())
         {
-            case RendererAPI::API::OpenGL:
-                return std::make_shared<GLShader>(filePath);
-            default:
-                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
-                return nullptr;
-        }
-    }
-
-    std::shared_ptr<Shader> Shader::Create(const std::string& vertexSrc, const std::string& fragmentSrc)
-    {
-        switch (Renderer::GetAPI())
-        {
-            case RendererAPI::API::OpenGL:
-                return std::make_shared<GLShader>(vertexSrc, fragmentSrc);
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VulkanShaderResource>(filePath);
             default:
                 LH_CORE_ASSERT(false, "Unknown RendererAPI!");
                 return nullptr;

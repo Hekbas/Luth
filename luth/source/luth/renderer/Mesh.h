@@ -10,12 +10,19 @@ namespace Luth
     class Mesh
     {
     public:
-        virtual ~Mesh() = default;
-        virtual void Bind() const = 0;
-        virtual void Draw() const = 0;
+        Mesh(const std::shared_ptr<VertexBuffer>& vb, const std::shared_ptr<IndexBuffer>& ib)
+            : m_VertexBuffer(vb), m_IndexBuffer(ib) {}
+        ~Mesh() = default;
+
+        const std::shared_ptr<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
+        const std::shared_ptr<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
 
         static std::shared_ptr<Mesh> Create(
             const std::shared_ptr<VertexBuffer>& vb,
             const std::shared_ptr<IndexBuffer>& ib = nullptr);
+            
+    private:
+        std::shared_ptr<VertexBuffer> m_VertexBuffer;
+        std::shared_ptr<IndexBuffer> m_IndexBuffer;
     };
 }

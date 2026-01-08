@@ -5,10 +5,10 @@ namespace Luth
 {
     std::unique_ptr<RendererAPI> Renderer::s_RendererAPI = nullptr;
 
-    void Renderer::Init()
+    void Renderer::Init(void* windowHandle)
     {
         s_RendererAPI = RendererAPI::Create();
-        s_RendererAPI->Init();
+        s_RendererAPI->Init(windowHandle);
     }
 
     void Renderer::Shutdown()

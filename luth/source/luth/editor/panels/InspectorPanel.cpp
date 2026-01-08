@@ -530,18 +530,18 @@ namespace Luth
         }
 
         // Render mode
-        RendererAPI::RenderMode currentMode = material.GetRenderMode();
+        Material::RenderMode currentMode = material.GetRenderMode();
         int modeIndex = static_cast<int>(currentMode);
 
         ImGui::Text("Render Mode"); ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
         if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
-            material.SetRenderMode(static_cast<RendererAPI::RenderMode>(modeIndex));
+            material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
             ResourceDB::SetDirty(material.GetUUID());
         }
 
-        if (material.GetRenderMode() == RendererAPI::RenderMode::Cutout) {
+        if (material.GetRenderMode() == Material::RenderMode::Cutout) {
             float cutoff = material.GetAlphaCutoff();
             ImGui::Text("Alpha Cutoff"); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -551,8 +551,8 @@ namespace Luth
             }
         }
 
-        if (material.GetRenderMode() == RendererAPI::RenderMode::Transparent ||
-            material.GetRenderMode() == RendererAPI::RenderMode::Fade)
+        if (material.GetRenderMode() == Material::RenderMode::Transparent ||
+            material.GetRenderMode() == Material::RenderMode::Fade)
         {
             int srcFactor = static_cast<int>(material.GetBlendSrc());
             int dstFactor = static_cast<int>(material.GetBlendDst());
@@ -562,14 +562,14 @@ namespace Luth
             ImGui::Text("Blend Src  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
-                material.SetBlendSrc(static_cast<RendererAPI::BlendFactor>(srcFactor));
+                material.SetBlendSrc(static_cast<Material::BlendFactor>(srcFactor));
                 ResourceDB::SetDirty(material.GetUUID());
             }
 
             ImGui::Text("Blend Dst  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
-                material.SetBlendDst(static_cast<RendererAPI::BlendFactor>(dstFactor));
+                material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
                 ResourceDB::SetDirty(material.GetUUID());
             }
 

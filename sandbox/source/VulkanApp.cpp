@@ -9,7 +9,6 @@
 
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Buffer.h>
-#include <luth/renderer/vulkan/VKRendererAPI.h>
 #include <luth/renderer/Shader.h>
 #include <memory>
 

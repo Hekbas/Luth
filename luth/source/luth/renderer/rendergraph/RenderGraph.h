@@ -10,6 +10,9 @@
 #include <string>
 #include <unordered_map>
 
+// Forward declare VMA struct
+struct VmaAllocation_T;
+
 namespace Luth::RG
 {
     class RenderGraph;
@@ -48,7 +51,6 @@ namespace Luth::RG
     {
     public:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-        void* commandBuffer = nullptr; 
         
         // Access to physical resources (void* = VkImage/VkBuffer)
         // The executor must set this callback
@@ -88,7 +90,7 @@ namespace Luth::RG
             // Runtime data (filled by Executor)
             VkImage image = VK_NULL_HANDLE;
             VkImageView view = VK_NULL_HANDLE;
-            struct VmaAllocation_T* allocation = nullptr;
+            VmaAllocation_T* allocation = nullptr;
             bool external = false; // If true, we don't destroy it (e.g. Swapchain Image)
         };
 

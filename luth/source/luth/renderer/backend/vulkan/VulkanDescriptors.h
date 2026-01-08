@@ -65,6 +65,7 @@ namespace Luth
 
         VkDescriptorSet GetSet() const { return m_DescriptorSet; }
         VkDescriptorSetLayout GetLayout() const { return m_Layout; }
+        VkDescriptorPool GetPool() const { return m_Pool; }
 
     private:
         static constexpr u32 MAX_BINDLESS_RESOURCES = 1024;

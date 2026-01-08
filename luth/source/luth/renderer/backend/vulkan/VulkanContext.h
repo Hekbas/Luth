@@ -23,6 +23,7 @@ namespace Luth
         VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
+        const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
         
         // Queue Access
@@ -57,6 +58,7 @@ namespace Luth
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
+        VkPhysicalDeviceProperties m_PhysicalDeviceProperties;
         VkDevice m_Device = VK_NULL_HANDLE;
         
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;

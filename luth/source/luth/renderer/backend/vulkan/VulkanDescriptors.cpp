@@ -3,6 +3,7 @@
 #include "VulkanContext.h"
 #include "VulkanAllocator.h"
 #include "luth/core/Log.h"
+#include <vma/vk_mem_alloc.h>
 
 namespace Luth
 {

@@ -3,29 +3,19 @@
 #include "VulkanContext.h"
 #include "luth/core/Log.h"
 #include "luth/window/Window.h" // For getting native window handle
-
-// Temporary: Needed to access the window handle stored in RendererAPI base
-// Ideally, we should pass the window handle in Init()
-#include "luth/renderer/Renderer.h" 
+#include "luth/renderer/rendergraph/RenderGraph.h"
 
 namespace Luth
 {
-    // Static window handle storage (hacky but works with current architecture)
-    static void* s_NativeWindowHandle = nullptr;
-
-    void RendererAPI::SetWindow(void* window) {
-        s_NativeWindowHandle = window;
-    }
-
-    void VKRendererAPI::Init()
+    void VKRendererAPI::Init(void* windowHandle)
     {
         LH_CORE_INFO("Initializing Vulkan Renderer API");
         
         // 1. Init Context (Instance, Device, VMA)
-        VulkanContext::Init(s_NativeWindowHandle);
+        VulkanContext::Init(windowHandle);
 
         // 2. Init Swapchain
-        m_Swapchain = std::make_unique<VulkanSwapchain>(s_NativeWindowHandle);
+        m_Swapchain = std::make_unique<VulkanSwapchain>(windowHandle);
         m_Swapchain->Init();
 
         // 3. Init Command Pool & Sync Objects

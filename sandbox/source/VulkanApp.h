@@ -11,8 +11,7 @@
 #include <luth/renderer/Renderer.h>
 #include <luth/renderer/Buffer.h>
 #include <luth/renderer/Shader.h>
-#include <luth/renderer/vulkan/VKRendererAPI.h>
-#include <luth/renderer/vulkan/VKBuffer.h>
+#include <luth/renderer/backend/vulkan/VKRendererAPI.h>
 #include <memory>
 
 // TEST VULKAN

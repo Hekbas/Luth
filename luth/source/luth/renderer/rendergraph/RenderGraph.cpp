@@ -4,6 +4,7 @@
 #include "luth/core/Profiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include <vma/vk_mem_alloc.h>
 
 namespace Luth::RG
 {

@@ -18,7 +18,6 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
 #include <backends/imgui_impl_vulkan.h>
 
 namespace Luth
@@ -47,12 +46,7 @@ namespace Luth
         #endif
         
         // TODO: Set Render specific Imgui Backends (GL/VK)
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
-            LH_CORE_TRACE(" - Initialized ImGui GLFW/OpenGL3 backend");
-            ImGui_ImplGlfw_InitForOpenGL((GLFWwindow*)window->GetNativeWindow(), true);
-            ImGui_ImplOpenGL3_Init("#version 460");
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
             LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
             ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)window->GetNativeWindow(), true);
 
@@ -89,15 +83,17 @@ namespace Luth
             
             // Dynamic Rendering: No RenderPass
             init_info.UseDynamicRendering = true;
-            init_info.ColorAttachmentFormat = VK_FORMAT_B8G8R8A8_SRGB; // Swapchain format
+            
+            // Setup dynamic rendering info
+            static const VkFormat swapChainFormat = vkRenderer->GetSwapchain().GetImageFormat();
+            init_info.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+            init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+            init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainFormat;
 
-            ImGui_ImplVulkan_Init(&init_info, nullptr);
+            ImGui_ImplVulkan_Init(&init_info);
             
             // Upload Fonts
-            ctx.ImmediateSubmit([](VkCommandBuffer cmd) {
-                ImGui_ImplVulkan_CreateFontsTexture(cmd);
-            });
-            ImGui_ImplVulkan_DestroyFontUploadObjects();
+            ImGui_ImplVulkan_CreateFontsTexture();
         }
 
         auto rs = Systems::GetSystem<RenderingSystem>();
@@ -120,13 +116,7 @@ namespace Luth
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
         s_Panels.clear();
 
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
-            LH_CORE_TRACE("Shutting down ImGui OpenGL backend");
-            ImGui_ImplOpenGL3_Shutdown();
-            ImGui_ImplGlfw_Shutdown();
-            ImGui::DestroyContext();
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
             ImGui_ImplVulkan_Shutdown();
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
@@ -138,12 +128,7 @@ namespace Luth
 
     void Editor::BeginFrame()
     {
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
-            ImGui_ImplOpenGL3_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
@@ -154,26 +139,11 @@ namespace Luth
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
             ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            
-            // Handle multi-viewport updates
-            if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-            {
-                GLFWwindow* backup_current_context = glfwGetCurrentContext();
-                ImGui::UpdatePlatformWindows();
-                ImGui::RenderPlatformWindowsDefault();
-                glfwMakeContextCurrent(backup_current_context);
-            }
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-            ImGui::Render();
-            
-            // Rendering happens inside RenderingSystem via RenderGraph now?
-            // Or we record ImGui commands here?
-            // With Dynamic Rendering, we need to record ImGui into a command buffer.
-            // We will handle this in the RenderGraph "ImGuiPass".
+            // NOTE: We do NOT call ImGui_ImplVulkan_RenderDrawData here.
+            // It requires a command buffer and must be called inside the RenderGraph execution.
+            // See RenderingSystem.cpp -> ImGuiPass (to be implemented).
         }
     }
 

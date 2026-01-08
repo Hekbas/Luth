@@ -12,7 +12,7 @@ namespace Luth
     class Renderer
     {
     public:
-        static void Init();
+        static void Init(void* windowHandle);
         static void Shutdown();
 
         static void BeginFrame();
@@ -22,6 +22,7 @@ namespace Luth
         static void OnResize(u32 width, u32 height);
 
         static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
+        static RendererAPI* GetRendererAPI() { return s_RendererAPI.get(); }
 
     private:
         static std::unique_ptr<RendererAPI> s_RendererAPI;

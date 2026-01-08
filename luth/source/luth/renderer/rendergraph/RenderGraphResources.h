@@ -30,6 +30,7 @@ namespace Luth::RG
     {
         RGBA8_Unorm,
         D32_Float,
+        D24_Unorm_S8_Uint,
         // Add more as needed
     };
 

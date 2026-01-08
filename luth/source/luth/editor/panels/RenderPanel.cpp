@@ -16,9 +16,8 @@ namespace Luth
     {
         m_RS = Systems::GetSystem<RenderingSystem>();
         if (m_RS) {
-            auto* p = m_RS->GetActivePipeline();
-            //m_SelectedAttachment = p->GetFinalColorAttachment();
-            m_SelectedAttachment = p->GetPass<PostProcessPass>()->GetGBuffer()->GetColorAttachmentID(0);
+            // TODO: Re-implement with RenderGraph
+            m_SelectedAttachment = 0;
         }
     }
 
@@ -47,13 +46,11 @@ namespace Luth
         // Show the selected content
         if (m_SelectedTab == 0) {
             // Model Viewer ==========================
-            for (auto& [title, modes] : m_Groups) {
-                DrawGroup(title, modes);
-                ImGui::Dummy({ 0, 4 });
-            }
+            ImGui::Text("Model Viewer Settings - Coming Soon");
         }
         else {
             // Post process ==========================
+            /*
             auto* p = m_RS->GetActivePipeline();
             auto g_SSAOPass = p->GetPass<SSAOPass>();
             auto g_PostProcessPass = p->GetPass<PostProcessPass>();
@@ -188,42 +185,10 @@ namespace Luth
                     g_PostProcessPass->SetAberrationOffset(aberrationOffset);
                 }
             }
+            */
+            ImGui::Text("Render Graph Settings - Coming Soon");
         }
 
         ImGui::End();
-    }
-
-    void RenderPanel::DrawGroup(const char* title, const std::vector<const char*>& modes)
-    {
-        ImGui::TextUnformatted(title);
-        ImGui::Spacing();
-
-        // grab pipeline here
-        auto* pipeline = m_RS->GetActivePipeline();
-        if (!pipeline) return;
-
-        for (auto mode : modes) {
-            bool isSelected = (mode == m_SelectedMode);
-
-            // highlight selected
-            if (isSelected)
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-
-            if (ImGui::Button(mode, ImVec2(120, 0))) {
-                m_SelectedMode = mode;
-                m_SelectedAttachment = pipeline->GetAttachmentByName(m_SelectedMode);
-            }
-
-            if (isSelected)
-                ImGui::PopStyleColor();
-        }
-    }
-
-    void RenderPanel::ApplyRenderingSettings()
-    {
-        //glPolygonMode(GL_FRONT_AND_BACK, m_Wireframe ? GL_LINE : GL_FILL);
-        //m_SingleSided ? glEnable(GL_CULL_FACE) : glDisable(GL_CULL_FACE);
-		//m_DepthTest ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST);
-        //glClearColor(m_ClearColor.x, m_ClearColor.y, m_ClearColor.z, m_ClearColor.w);
     }
 }

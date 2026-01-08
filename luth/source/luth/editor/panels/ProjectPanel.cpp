@@ -651,8 +651,8 @@ namespace Luth
         // Material properties
         materialData["render_mode"] = 0;  // Opaque by default
         materialData["alpha_cutoff"] = 0.5f;
-        materialData["blend_src"] = static_cast<int>(RendererAPI::BlendFactor::SrcAlpha);
-        materialData["blend_dst"] = static_cast<int>(RendererAPI::BlendFactor::OneMinusSrcAlpha);
+        materialData["blend_src"] = static_cast<int>(Material::BlendFactor::SrcAlpha);
+        materialData["blend_dst"] = static_cast<int>(Material::BlendFactor::OneMinusSrcAlpha);
         materialData["alpha_from_diffuse"] = 0;  // False
 
         // Base material parameters

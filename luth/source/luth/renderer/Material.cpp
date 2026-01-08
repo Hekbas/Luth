@@ -42,12 +42,12 @@ namespace Luth
     {
         UUID::FromString(json["shader"].get<std::string>(), m_ShaderUUID);
 
-        m_RenderMode = static_cast<RendererAPI::RenderMode>(json.value("render_mode", 0));
+        m_RenderMode = static_cast<RenderMode>(json.value("render_mode", 0));
         m_AlphaCutoff = json.value("alpha_cutoff", 0.5f);
-        m_BlendSrc = static_cast<RendererAPI::BlendFactor>(json.value("blend_src",
-            static_cast<int>(RendererAPI::BlendFactor::SrcAlpha)));
-        m_BlendDst = static_cast<RendererAPI::BlendFactor>(json.value("blend_dst",
-            static_cast<int>(RendererAPI::BlendFactor::OneMinusSrcAlpha)));
+        m_BlendSrc = static_cast<BlendFactor>(json.value("blend_src",
+            static_cast<int>(BlendFactor::SrcAlpha)));
+        m_BlendDst = static_cast<BlendFactor>(json.value("blend_dst",
+            static_cast<int>(BlendFactor::OneMinusSrcAlpha)));
         m_AlphaFromDiffuse = static_cast<bool>(json.value("alpha_from_diffuse", 0));
 
         if (json.contains("color")) {

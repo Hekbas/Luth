@@ -6,6 +6,7 @@
 #include "luth/events/MouseEvent.h"
 #include "luth/events/FileDropEvent.h"
 #include "luth/resources/FileSystem.h"
+#include <stb/stb_image.h>
 
 #ifdef _WIN32
 #include <windows.h>
