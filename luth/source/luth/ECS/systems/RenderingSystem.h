@@ -5,6 +5,7 @@
 #include "luth/renderer/pipeline/RenderPass.h"
 #include "luth/core/Memory.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/graphics/GfxPipeline.h"
 
 #include <entt/entt.hpp>
 #include <unordered_map>
@@ -48,6 +49,9 @@ namespace Luth
 
         // Memory
         std::unique_ptr<LinearAllocator> m_FrameAllocator;
+
+        // Vulkan Test Pipeline
+        std::unique_ptr<Gfx::GfxPipeline> m_TrianglePipeline;
     };
 
     #define MAX_DIR_LIGHTS 4
