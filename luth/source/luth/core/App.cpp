@@ -5,16 +5,12 @@
 #include "luth/input/Input.h"
 #include "luth/events/Event.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/Resources.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/systems/TransformSystem.h"
-#include "luth/ECS/systems/AnimationSystem.h"
-#include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/core/JobSystem.h"
 #include "luth/core/Profiler.h"
-#include "luth/graphics/GfxRenderer.h" // New Renderer
 
 namespace Luth
 {
@@ -28,23 +24,8 @@ namespace Luth
         SetAppTitle(ws);
         m_Window = Window::Create(ws);
         Input::SetWindow(m_Window->GetNativeWindow());
-        
-        // Initialize New Renderer
-        if (ws.rendererAPI == RendererAPI::API::Vulkan)
-        {
-            Gfx::GfxRenderer::Init(m_Window->GetNativeWindow(), ws.Width, ws.Height);
-        }
-        else
-        {
-            Renderer::Init(ws.rendererAPI, m_Window->GetNativeWindow());
-        }
 
-        // Only init legacy resources for OpenGL for now
-        if (ws.rendererAPI == RendererAPI::API::OpenGL)
-        {
-            Resources::Init();
-            ResourceDB::Init(FileSystem::AssetsPath());
-        }
+        // Renderer Init will happen here in Phase 3 (VulkanContext::Init)
         
         // Scene & Systems
         m_Scene = std::make_shared<Scene>();
@@ -81,42 +62,18 @@ namespace Luth
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
             
-            if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-			    ResourceDB::Update();
-
             OnUpdate();
 
             if (!m_Window->IsMinimized())
             {
-                // TODO: Parallelize these using JobSystem
                 {
                     LH_PROFILE_SCOPE("Systems::Update");
                     Systems::Update<TransformSystem>();
-                    //Systems::Update<AnimationSystem>();
-                    Systems::Update<RenderingSystem>();
-                }
-
-                // Render UI (not yet implemented in vulkan)
-                if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-                {
-                    LH_PROFILE_SCOPE("Editor::Render");
-                    Editor::BeginFrame();
-                    Editor::Render();
-                    OnUIRender();
-                    Editor::EndFrame();
+                    // RenderingSystem will be re-added in Phase 6
                 }
             }
 
-            {
-                LH_PROFILE_SCOPE("SwapBuffers");
-                
-                if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-                {
-                    m_Window->SwapBuffers();
-                    Renderer::Clear(BufferBit::Color | BufferBit::Depth);
-                }
-                // Vulkan swap happens in GfxRenderer::EndFrame() called by RenderingSystem
-            }
+            // SwapBuffers / EndFrame will be handled by the new Renderer in Phase 3
         }
 
         OnShutdown();
@@ -125,19 +82,10 @@ namespace Luth
 
     void App::Close()
     {
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-        {
-            ResourceDB::SaveDirty();
-		    ResourceDB::Shutdown();
-        }
-
 		Editor::Shutdown();
 		Systems::Shutdown();
-		
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
-            Gfx::GfxRenderer::Shutdown();
-        else
-            Renderer::Shutdown();
+        
+        // Renderer::Shutdown(); // Phase 3
 
         JobSystem::Shutdown();
     }
@@ -145,40 +93,14 @@ namespace Luth
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
         WindowSpec spec;
-        spec.rendererAPI = RendererAPI::API::OpenGL;
-        
-        if (argc < 2) { // No arguments
-            LH_CORE_WARN("Usage: {} [--vulkan|--rt]", argv[0]);
-            LH_CORE_WARN("Initializing default [--opengl]");
-            return spec;
-        }
-
-        for (int i = 1; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "--opengl") {
-                spec.rendererAPI = RendererAPI::API::OpenGL;
-                break;
-            }
-            else if (arg == "--vulkan") {
-                spec.rendererAPI = RendererAPI::API::Vulkan;
-                break;
-            }
-            else {  // Invalid argument
-                LH_CORE_WARN("Unknown argument: {}", arg);
-            }
-        }
+        // Arguments parsing can be expanded later if needed
         return spec;
     }
 
     void App::SetAppTitle(WindowSpec& ws)
     {
 		std::string title = "Luth 0.1";
-
-        switch (ws.rendererAPI) {
-            case RendererAPI::API::OpenGL: title += " [OpenGL]"; break;
-		    case RendererAPI::API::Vulkan: title += " [Vulkan]"; break;
-            default: title += " [Unknown API]"; break;
-        }
+        title += " [Vulkan]";
 
 #ifdef _WIN32
 		title += " - Windows";
@@ -189,10 +111,7 @@ namespace Luth
 
     void App::OnWindowResize(WindowResizeEvent& e)
     {
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
-        {
-            Gfx::GfxRenderer::Resize(e.GetWidth(), e.GetHeight());
-        }
+        // Renderer::Resize(e.GetWidth(), e.GetHeight()); // Phase 3
     }
 
     void App::OnWindowClose(WindowCloseEvent& e)

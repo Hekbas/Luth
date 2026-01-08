@@ -11,7 +11,13 @@ namespace Luth::RG
 
     ResourceHandle RenderPassBuilder::Read(ResourceHandle resource)
     {
-        m_Graph.RegisterRead(m_PassIndex, resource);
+        m_Graph.RegisterRead(m_PassIndex, resource, ResourceState::ShaderResource);
+        return resource;
+    }
+
+    ResourceHandle RenderPassBuilder::ReadTransfer(ResourceHandle resource)
+    {
+        m_Graph.RegisterRead(m_PassIndex, resource, ResourceState::TransferSrc);
         return resource;
     }
 
@@ -56,11 +62,12 @@ namespace Luth::RG
         return { index, 0 };
     }
 
-    void RenderGraph::RegisterRead(u32 passIndex, ResourceHandle handle)
+    void RenderGraph::RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state)
     {
         LH_CORE_ASSERT(handle.IsValid(), "Invalid resource handle read!");
         LH_CORE_ASSERT(handle.index <= m_Resources.size(), "Resource index out of bounds!");
         m_Passes[passIndex].reads.push_back(handle);
+        m_Passes[passIndex].readStates.push_back(state);
     }
 
     ResourceHandle RenderGraph::RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state)
@@ -90,20 +97,22 @@ namespace Luth::RG
         // Iterate passes to inject barriers
         for (auto& pass : m_Passes)
         {
-            // 1. Process Reads (Transition to ShaderResource)
-            for (const auto& handle : pass.reads)
+            // 1. Process Reads
+            for (size_t i = 0; i < pass.reads.size(); ++i)
             {
+                ResourceHandle handle = pass.reads[i];
+                ResourceState targetState = pass.readStates[i];
                 ResourceNode& res = m_Resources[handle.index - 1];
                 
-                if (res.currentState != ResourceState::ShaderResource)
+                if (res.currentState != targetState)
                 {
                     Barrier barrier;
                     barrier.resource = handle;
                     barrier.before = res.currentState;
-                    barrier.after = ResourceState::ShaderResource;
+                    barrier.after = targetState;
                     
                     pass.preBarriers.push_back(barrier);
-                    res.currentState = ResourceState::ShaderResource;
+                    res.currentState = targetState;
                 }
             }
 

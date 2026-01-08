@@ -44,16 +44,8 @@ namespace Luth
         }
 
         // Set hints BEFORE creating the window
-        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
-            glfwWindowHint(GLFW_SAMPLES, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        }
-        else if (spec.rendererAPI == RendererAPI::API::Vulkan) {
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-        }
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 
@@ -67,11 +59,6 @@ namespace Luth
 
         auto path = FileSystem::ProjectPath() / "icons/image/";
 		SetWindowIcon(m_GLFWwindow, path);
-
-        if (spec.rendererAPI == RendererAPI::API::OpenGL) {
-            glfwMakeContextCurrent(m_GLFWwindow);
-            glfwSwapInterval(spec.VSync ? 1 : 0);
-        }
 
         glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);
 
@@ -115,24 +102,13 @@ namespace Luth
 
     void WinWindow::SwapBuffers()
     {
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
-            glfwSwapBuffers(m_GLFWwindow);
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-            //LH_CORE_WARN("SwapBuffers not yet implemented for Vulkan");
-        }
+        // Vulkan handles presentation via Swapchain, not glfwSwapBuffers
     }
 
     void WinWindow::SetVSync(bool enabled)
     {
-        if (Renderer::GetAPI() == RendererAPI::API::OpenGL) {
-            glfwSwapInterval(enabled ? 1 : 0);
-            m_Data.VSync = enabled;
-            LH_CORE_INFO("VSync {0}", enabled ? "enabled" : "disabled");
-        }
-        else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-            LH_CORE_WARN("Vsync not yet implemented for Vulkan");
-        }
+        m_Data.VSync = enabled;
+        // VSync will be handled during Swapchain creation in Phase 3
     }
 
     void WinWindow::ToggleFullscreen()

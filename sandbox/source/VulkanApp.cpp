@@ -72,8 +72,8 @@ namespace Luth
     void VulkanApp::OnUIRender()
     {
         // ImGui Demo
-        static bool showDemo = true;
-        if (showDemo) ImGui::ShowDemoWindow(&showDemo);
+        // static bool showDemo = true;
+        // if (showDemo) ImGui::ShowDemoWindow(&showDemo);
     }
 
     void VulkanApp::OnShutdown()

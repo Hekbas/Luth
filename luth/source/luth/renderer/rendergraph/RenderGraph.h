@@ -24,6 +24,7 @@ namespace Luth::RG
             : m_Graph(graph), m_PassIndex(passIndex) {}
 
         ResourceHandle Read(ResourceHandle resource);
+        ResourceHandle ReadTransfer(ResourceHandle resource); // New: For Blit/Copy source
         
         // Standard Write (Render Target)
         ResourceHandle Write(ResourceHandle resource);
@@ -66,9 +67,9 @@ namespace Luth::RG
             std::function<void(RenderPassContext&)> execute;
             
             std::vector<ResourceHandle> reads;
+            std::vector<ResourceState> readStates; // Track desired state for reads
+
             std::vector<ResourceHandle> writes;
-            
-            // Track desired state for writes (ColorAttachment vs TransferDst)
             std::vector<ResourceState> writeStates; 
 
             std::vector<Barrier> preBarriers;
@@ -122,7 +123,7 @@ namespace Luth::RG
         // Import an existing resource (e.g. Swapchain Image)
         ResourceHandle ImportResource(const TextureDesc& desc, void* physicalResource, ResourceState initialState);
 
-        void RegisterRead(u32 passIndex, ResourceHandle handle);
+        void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
 
         // Accessors for the Backend Executor

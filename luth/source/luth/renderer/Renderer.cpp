@@ -1,7 +1,5 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/OpenGL/GLRendererAPI.h"
-#include "luth/renderer/vulkan/VKRendererAPI.h"
 
 namespace Luth
 {
@@ -11,8 +9,6 @@ namespace Luth
     {
         s_RendererAPI = RendererAPI::Create(api);
         s_RendererAPI->SetWindow(window);
-        s_RendererAPI->Init();
-        s_RendererAPI->InitFullscreenQuad();
     }
 
     void Renderer::Shutdown()
@@ -76,15 +72,7 @@ namespace Luth
 
     void Renderer::ExecuteGraph(RG::RenderGraph& graph)
     {
-        if (s_RendererAPI->GetAPI() == RendererAPI::API::Vulkan)
-        {
-            static_cast<VKRendererAPI*>(s_RendererAPI.get())->ExecuteGraph(graph);
-        }
-        else
-        {
-            // Fallback for OpenGL (Execute CPU side only)
-            graph.Execute();
-        }
+        // Will be implemented in Phase 6
     }
 
     void Renderer::InitFullscreenQuad() {

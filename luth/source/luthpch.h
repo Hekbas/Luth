@@ -19,6 +19,5 @@
 #include "luth/core/Log.h"
 #include "luth/core/Time.h"
 #include "luth/core/Math.h"
-#include "luth/core/ThreadPool.h"
 
 #include "luth/utils/CustomFormatters.h"
