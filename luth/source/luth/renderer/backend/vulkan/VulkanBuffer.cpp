@@ -30,7 +30,9 @@ namespace Luth
 
     VKVertexBuffer::~VKVertexBuffer()
     {
-        VulkanAllocator::FreeBuffer(m_Buffer, m_Allocation);
+        VulkanContext::Get().PushDeletion([b = m_Buffer, a = m_Allocation]() {
+            VulkanAllocator::FreeBuffer(b, a);
+        });
     }
 
     void VKVertexBuffer::Bind() const
@@ -110,7 +112,9 @@ namespace Luth
 
     VKIndexBuffer::~VKIndexBuffer()
     {
-        VulkanAllocator::FreeBuffer(m_Buffer, m_Allocation);
+        VulkanContext::Get().PushDeletion([b = m_Buffer, a = m_Allocation]() {
+            VulkanAllocator::FreeBuffer(b, a);
+        });
     }
 
     void VKIndexBuffer::Bind() const {}

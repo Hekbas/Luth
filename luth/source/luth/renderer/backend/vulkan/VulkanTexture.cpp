@@ -48,10 +48,13 @@ namespace Luth
     VKTexture::~VKTexture()
     {
         VulkanContext::Get().GetBindlessSet().UnbindTexture(m_BindlessIndex);
-        VkDevice device = VulkanContext::Get().GetDevice();
-        vkDestroySampler(device, m_Sampler, nullptr);
-        vkDestroyImageView(device, m_ImageView, nullptr);
-        VulkanAllocator::FreeImage(m_Image, m_Allocation);
+        
+        VulkanContext::Get().PushDeletion([img = m_Image, alloc = m_Allocation, view = m_ImageView, samp = m_Sampler]() {
+            VkDevice device = VulkanContext::Get().GetDevice();
+            vkDestroySampler(device, samp, nullptr);
+            vkDestroyImageView(device, view, nullptr);
+            VulkanAllocator::FreeImage(img, alloc);
+        });
     }
 
     void VKTexture::CreateImage(const void* data)

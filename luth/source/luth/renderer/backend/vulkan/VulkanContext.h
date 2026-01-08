@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
+#include <deque>
 #include "VulkanDescriptors.h"
 
 // Forward declare VMA types to avoid including the huge header here
@@ -34,6 +35,13 @@ namespace Luth
         // Submit a command immediately and wait for it to finish (used for resource uploads)
         void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
+        // Safe Resource Deletion
+        void PushDeletion(std::function<void()>&& function);
+        void FlushDeletionQueue();
+        
+        // Called by RendererAPI
+        void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
+
     private:
         void CreateInstance();
         void SetupDebugMessenger();
@@ -58,5 +66,14 @@ namespace Luth
 
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         void* m_WindowHandle = nullptr; // Raw GLFW window handle
+
+        // Resource Deletion Queue
+        struct DeletionQueue
+        {
+            std::deque<std::function<void()>> deletors;
+        };
+        static constexpr u32 MAX_FRAMES_IN_FLIGHT = 2;
+        DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
+        u32 m_CurrentFrameIndex = 0;
     };
 }

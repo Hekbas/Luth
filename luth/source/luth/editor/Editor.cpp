@@ -6,6 +6,8 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VKRendererAPI.h"
 
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
@@ -17,6 +19,7 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <backends/imgui_impl_vulkan.h>
 
 namespace Luth
 {
@@ -50,9 +53,51 @@ namespace Luth
             ImGui_ImplOpenGL3_Init("#version 460");
         }
         else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-            LH_CORE_WARN("ImGui not yet implemented for Vulkan");
-            // We skip ImGui init for Vulkan for now to prevent crashes
-            return;
+            LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
+            ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)window->GetNativeWindow(), true);
+
+            auto& ctx = VulkanContext::Get();
+            auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI()); // Need access to swapchain info
+
+            ImGui_ImplVulkan_InitInfo init_info = {};
+            init_info.Instance = ctx.GetInstance();
+            init_info.PhysicalDevice = ctx.GetPhysicalDevice();
+            init_info.Device = ctx.GetDevice();
+            init_info.QueueFamily = ctx.GetGraphicsFamily();
+            init_info.Queue = ctx.GetGraphicsQueue();
+            init_info.PipelineCache = VK_NULL_HANDLE;
+            init_info.DescriptorPool = ctx.GetBindlessSet().GetPool(); // Reuse bindless pool or create specific one? 
+            // Better create specific one for ImGui to avoid running out of sets
+            // For now, let's assume we create a small pool here or use a dedicated one in Context.
+            // Ideally: init_info.DescriptorPool = ctx.GetImGuiPool();
+            
+            // Hack: Create a temporary pool for ImGui
+            VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 } };
+            VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+            pool_info.maxSets = 1000;
+            pool_info.poolSizeCount = 1;
+            pool_info.pPoolSizes = pool_sizes;
+            vkCreateDescriptorPool(ctx.GetDevice(), &pool_info, nullptr, &init_info.DescriptorPool);
+
+            init_info.Subpass = 0;
+            init_info.MinImageCount = 2;
+            init_info.ImageCount = 2;
+            init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+            init_info.Allocator = nullptr;
+            init_info.CheckVkResultFn = nullptr;
+            
+            // Dynamic Rendering: No RenderPass
+            init_info.UseDynamicRendering = true;
+            init_info.ColorAttachmentFormat = VK_FORMAT_B8G8R8A8_SRGB; // Swapchain format
+
+            ImGui_ImplVulkan_Init(&init_info, nullptr);
+            
+            // Upload Fonts
+            ctx.ImmediateSubmit([](VkCommandBuffer cmd) {
+                ImGui_ImplVulkan_CreateFontsTexture(cmd);
+            });
+            ImGui_ImplVulkan_DestroyFontUploadObjects();
         }
 
         auto rs = Systems::GetSystem<RenderingSystem>();
@@ -82,7 +127,9 @@ namespace Luth
             ImGui::DestroyContext();
         }
         else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-            LH_CORE_WARN("Skipping Vulkan ImGui shutdown (not implemented)");
+            ImGui_ImplVulkan_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
         }
         
         s_Context = nullptr;
@@ -97,7 +144,9 @@ namespace Luth
             ImGui::NewFrame();
         }
         else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
         }
     }
 
@@ -119,7 +168,12 @@ namespace Luth
             }
         }
         else if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
-
+            ImGui::Render();
+            
+            // Rendering happens inside RenderingSystem via RenderGraph now?
+            // Or we record ImGui commands here?
+            // With Dynamic Rendering, we need to record ImGui into a command buffer.
+            // We will handle this in the RenderGraph "ImGuiPass".
         }
     }
 

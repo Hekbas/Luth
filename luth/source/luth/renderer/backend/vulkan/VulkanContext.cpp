@@ -41,6 +41,14 @@ namespace Luth
     {
         if (!s_Instance) return;
 
+        // Flush all deletion queues
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            for (auto& func : s_Instance->m_DeletionQueues[i].deletors) {
+                func();
+            }
+            s_Instance->m_DeletionQueues[i].deletors.clear();
+        }
+
         s_Instance->m_BindlessSet.Shutdown();
         VulkanAllocator::Shutdown();
         vkDestroyCommandPool(s_Instance->m_Device, s_Instance->m_CommandPool, nullptr);
@@ -289,5 +297,19 @@ namespace Luth
         vkQueueWaitIdle(m_GraphicsQueue);
 
         vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &commandBuffer);
+    }
+
+    void VulkanContext::PushDeletion(std::function<void()>&& function)
+    {
+        m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(function);
+    }
+
+    void VulkanContext::FlushDeletionQueue()
+    {
+        auto& queue = m_DeletionQueues[m_CurrentFrameIndex];
+        for (auto& func : queue.deletors) {
+            func();
+        }
+        queue.deletors.clear();
     }
 }

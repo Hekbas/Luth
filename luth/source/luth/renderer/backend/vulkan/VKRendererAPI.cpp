@@ -53,6 +53,10 @@ namespace Luth
     void VKRendererAPI::BeginFrame()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
+        
+        // Update Context Frame Index and Flush Deletions for this frame
+        VulkanContext::Get().SetCurrentFrameIndex(m_CurrentFrame);
+        VulkanContext::Get().FlushDeletionQueue();
 
         // Wait for previous frame
         vkWaitForFences(device, 1, &m_InFlightFences[m_CurrentFrame], VK_TRUE, UINT64_MAX);
