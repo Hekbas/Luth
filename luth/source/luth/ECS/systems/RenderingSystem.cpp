@@ -203,6 +203,54 @@ namespace Luth
         return m_ActiveName;
     }
 
+    struct CollectCommandsData
+    {
+        entt::registry* registry;
+        std::vector<entt::entity>* entities;
+        RenderCommand* opaqueCmds;
+        RenderCommand* transparentCmds;
+        std::atomic<u32>* opaqueCount;
+        std::atomic<u32>* transparentCount;
+    };
+
+    static void CollectCommandsJob(JobSystem::JobArgs args)
+    {
+        CollectCommandsData* data = (CollectCommandsData*)args.data;
+        entt::registry& registry = *data->registry;
+        entt::entity entity = (*data->entities)[args.jobIndex];
+
+        // We need to get components manually since we can't capture the view
+        auto& transform = registry.get<WorldTransform>(entity);
+        auto& meshRend = registry.get<MeshRenderer>(entity);
+
+        // Material lookup (Thread safe? MaterialLibrary::Get needs to be safe!)
+        auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
+        if (!material) material = MaterialLibrary::Get(UUID(7));
+
+        RenderCommand cmd{
+            .entity = entity,
+            .transform = &transform,
+            .meshRend = &meshRend,
+            .distance = 0.0f
+        };
+
+        if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
+            material->GetRenderMode() == RendererAPI::RenderMode::Cutout) 
+        {
+            u32 index = data->opaqueCount->fetch_add(1);
+            data->opaqueCmds[index] = cmd;
+        }
+        else 
+        {
+            // Placeholder distance logic
+            Vec3 worldPos = Vec3(0.0f); 
+            cmd.distance = glm::distance(Vec3(400.0f, 220.0f, 400.0f), worldPos);
+            
+            u32 index = data->transparentCount->fetch_add(1);
+            data->transparentCmds[index] = cmd;
+        }
+    }
+
     std::pair<std::span<RenderCommand>, std::span<RenderCommand>>
         RenderingSystem::CollectCommands(entt::registry& registry)
     {
@@ -212,18 +260,12 @@ namespace Luth
         u32 entityCount = (u32)view.size_hint();
 
         // Allocate worst-case memory from LinearAllocator (fast!)
-        // We assume all entities could be opaque OR transparent to be safe, 
-        // or we allocate one big block and partition it.
-        // For simplicity: Allocate array for ALL entities.
         RenderCommand* commands = (RenderCommand*)m_FrameAllocator->Allocate(sizeof(RenderCommand) * entityCount);
         
         // Atomic counters for parallel filling
         std::atomic<u32> opaqueCount = 0;
         std::atomic<u32> transparentCount = 0;
 
-        // Temporary storage for transparent indices (to sort later)
-        // We put transparent commands at the END of the array growing backwards? 
-        // Or just allocate two arrays. Let's allocate two for safety/simplicity now.
         RenderCommand* opaqueCmds = commands;
         RenderCommand* transparentCmds = (RenderCommand*)m_FrameAllocator->Allocate(sizeof(RenderCommand) * entityCount);
 
@@ -232,48 +274,21 @@ namespace Luth
         entities.reserve(entityCount);
         for (auto entity : view) entities.push_back(entity);
 
-        JobSystem::Counter counter;
-        JobSystem::Dispatch((u32)entities.size(), 64, [&](JobSystem::JobArgs args)
+        if (entities.empty())
         {
-            entt::entity entity = entities[args.jobIndex];
-            auto& transform = view.get<WorldTransform>(entity);
-            auto& meshRend = view.get<MeshRenderer>(entity);
+            return { std::span<RenderCommand>(), std::span<RenderCommand>() };
+        }
 
-            // Material lookup (Thread safe? MaterialLibrary::Get needs to be safe!)
-            // Assuming MaterialLibrary is read-only during frame or locked.
-            // If not, this is a race condition. 
-            // TODO: Verify MaterialLibrary thread safety.
-            auto material = MaterialLibrary::Get(meshRend.MaterialUUID);
-            if (!material) material = MaterialLibrary::Get(UUID(7));
+        CollectCommandsData jobData;
+        jobData.registry = &registry;
+        jobData.entities = &entities;
+        jobData.opaqueCmds = opaqueCmds;
+        jobData.transparentCmds = transparentCmds;
+        jobData.opaqueCount = &opaqueCount;
+        jobData.transparentCount = &transparentCount;
 
-            RenderCommand cmd{
-                .entity = entity,
-                .transform = &transform,
-                .meshRend = &meshRend,
-                .distance = 0.0f
-            };
-
-            if (material->GetRenderMode() == RendererAPI::RenderMode::Opaque ||
-                material->GetRenderMode() == RendererAPI::RenderMode::Cutout) 
-            {
-                u32 index = opaqueCount.fetch_add(1);
-                opaqueCmds[index] = cmd;
-            }
-            else 
-            {
-                // Calculate distance for sorting
-                // Vec3 worldPos = transform.matrix[3]; // Extract translation
-                // cmd.distance = glm::distance(m_CameraPos, worldPos);
-                
-                // Placeholder distance logic from original code
-                Vec3 worldPos = Vec3(0.0f); 
-                cmd.distance = glm::distance(Vec3(400.0f, 220.0f, 400.0f), worldPos);
-                
-                u32 index = transparentCount.fetch_add(1);
-                transparentCmds[index] = cmd;
-            }
-        }, &counter);
-
+        JobSystem::Counter counter;
+        JobSystem::Dispatch((u32)entities.size(), 64, CollectCommandsJob, &jobData, &counter);
         JobSystem::WaitForCounter(&counter);
 
         // Sort transparent objects (Serial for now, can be parallelized with parallel_sort)
