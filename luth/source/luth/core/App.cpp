@@ -10,6 +10,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/ECS/Systems.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/core/JobSystem.h"
 #include "luth/core/Profiler.h"
@@ -22,6 +23,7 @@ namespace Luth
         // Core Systems Init
         JobSystem::Init();
         FileSystem::Init();
+        AssetManager::Init();
 
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
@@ -66,6 +68,7 @@ namespace Luth
             EventBus::ProcessEvents(BusType::MainThread);
             
             OnUpdate();
+            AssetManager::Update();
 
             // Editor Begin
             Editor::BeginFrame();
@@ -102,6 +105,7 @@ namespace Luth
         
         // Renderer::Shutdown(); // Phase 3
 
+        AssetManager::Shutdown();
         JobSystem::Shutdown();
     }
 
@@ -147,9 +151,9 @@ namespace Luth
                     continue;
                 }
 
-                // 2. Classify resource type
-                ResourceType resType = FileSystem::ClassifyFileType(srcPath);
-                if (resType == ResourceType::Unknown) {
+                // 2. Classify asset type
+                AssetType resType = FileSystem::ClassifyFileType(srcPath);
+                if (resType == AssetType::None) {
                     LH_CORE_WARN("Unsupported file type: {0}", srcPath.string());
                     continue;
                 }

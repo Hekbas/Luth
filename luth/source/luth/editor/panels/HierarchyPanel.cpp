@@ -2,10 +2,11 @@
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/ECS/Components.h"
-#include "luth/resources/Resources.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/ResourceDB.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/Model.h"
 #include "luth/ECS/Systems.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
@@ -76,7 +77,7 @@ namespace Luth
         }
         
         ImGui::End();
-		ImGui::PopFont();
+        ImGui::PopFont();
     }
 
     void HierarchyPanel::SetSelectedEntity(Entity entity)
@@ -115,7 +116,7 @@ namespace Luth
             (m_Selection == entity ? ImGuiTreeNodeFlags_Selected : 0) |
             (entity.GetChildren().empty() ? ImGuiTreeNodeFlags_Leaf : 0);
 
-        ImGui::PushID(static_cast<int>(entity.GetComponent<ID>().m_ID));
+        ImGui::PushID(static_cast<int>(entity.GetComponent<ID>().m_ID.GetHalf0()));
 
         // Split arrow and text into separate interactable areas
         bool isOpen = ImGui::TreeNodeEx("##TreeNodeArrow", flags);
@@ -161,7 +162,7 @@ namespace Luth
             // Clickable text label
             ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f)); // Center text vertically
             if (ImGui::Selectable(name.c_str(), m_Selection == entity,
-                ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_SpanAllColumns))
+                                  ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_SpanAllColumns))
             {
                 SetSelectedEntity(entity);
 
@@ -337,40 +338,69 @@ namespace Luth
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ASSET_UUID)) {
                 const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
-                auto assetType = ResourceDB::UuidToInfo(assetUuid).Type;
+                auto assetType = AssetDatabase::GetMetadata(assetUuid).Type;
 
                 switch (assetType) {
-                    case ResourceType::Model: {
-                        std::shared_ptr<Model> model = ModelLibrary::Get(assetUuid);
-                        auto parent = m_Context->CreateEntity(model->GetName());
-                        parent.AddComponent<Children>();
-
-                        if (model->IsSkinned()) parent.AddComponent<Animation>(assetUuid);
-
-                        auto materials = model->GetMaterials();
-
-                        int meshIndex = 0;
-                        for (const auto& mesh : model->GetMeshesData()) {
-                            auto child = m_Context->CreateEntity(mesh.Name);
-
-                            child.AddComponent<Parent>();
-                            child.SetParent(parent);
-                            parent.GetChildren().push_back(child);
-
-                            auto& meshRend = child.AddComponent<MeshRenderer>();
-                            meshRend.modelNamePreview = model->GetName();
-                            meshRend.ModelUUID = assetUuid;
-                            meshRend.MeshIndex = meshIndex;
-							meshRend.isSkinned = model->IsSkinned();
-                            if (!model->GetMaterials().empty() && meshIndex < materials.size()) {
-                                meshRend.MaterialUUID = materials[meshIndex];
-                                //meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
-                            }
-                            meshIndex++;
-                        }
+                case AssetType::Model: {
+                    // Ensure loaded
+                    AssetManager::LoadAsync(assetUuid); 
+                    // NOTE: This might return nullptr if not loaded yet. For drag-drop we might need to block or handle async spawning.
+                    // For now, assuming immediate load or we need to wait.
+                    // Since LoadAsync is async, we can't get it immediately unless we block.
+                    // Ideally, we spawn an entity with a "Pending" state or block main thread (bad).
+                    // For this refactor step, let's try to get it, if null, we can't spawn yet.
+                    // A better approach: AssetManager::GetAsset<Model>(uuid) returns null if not ready.
+                    // We could force load here for simplicity in editor:
+                    // AssetManager::LoadSync(assetUuid); // If we had a sync load.
+                         
+                    // Temporary hack: Spin wait or check if loaded. 
+                    // Real solution: Entity spawns with a "Loading" component.
+                         
+                    // Let's assume for now we just trigger load and if it's not ready we skip spawning (UX issue)
+                    // OR we assume the user double clicked it or it was preloaded.
+                         
+                    // Let's try to get it.
+                    std::shared_ptr<Model> model = AssetManager::GetAsset<Model>(assetUuid);
+                         
+                    if (!model) {
+                        // Force load for editor convenience (blocking)
+                        // Since we don't have LoadSync exposed publicly in the snippet, we rely on LoadAsync + Update loop.
+                        // But we are in the middle of a frame.
+                        // Let's just trigger load and log warning.
+                        AssetManager::LoadAsync(assetUuid);
+                        LH_CORE_WARN("Model not loaded yet. Please try dropping again in a moment.");
                         break;
                     }
-                    default: break;
+                        
+                    auto parent = m_Context->CreateEntity(/*model->GetName()*/);
+                    parent.AddComponent<Children>();
+
+                    if (model->IsSkinned()) parent.AddComponent<Animation>(assetUuid);
+
+                    auto materials = model->GetMaterials();
+
+                    int meshIndex = 0;
+                    for (const auto& mesh : model->GetMeshesData()) {
+                        auto child = m_Context->CreateEntity(mesh.Name);
+
+                        child.AddComponent<Parent>();
+                        child.SetParent(parent);
+                        parent.GetChildren().push_back(child);
+
+                        auto& meshRend = child.AddComponent<MeshRenderer>();
+                        //meshRend.modelNamePreview = model->GetName();
+                        meshRend.ModelUUID = assetUuid;
+                        meshRend.MeshIndex = meshIndex;
+                        meshRend.isSkinned = model->IsSkinned();
+                        if (!model->GetMaterials().empty() && meshIndex < materials.size()) {
+                            meshRend.MaterialUUID = materials[meshIndex];
+                            //meshRend.materialNamePreview = MaterialLibrary::Get(meshRend.MaterialUUID)->GetName();
+                        }
+                        meshIndex++;
+                    }
+                    break;
+                }
+                default: break;
                 }
             }
             ImGui::EndDragDropTarget();

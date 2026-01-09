@@ -13,10 +13,8 @@
 #include "luth/editor/Editor.h"
 
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/libraries/MaterialLibrary.h"
-#include "luth/resources/libraries/ModelLibrary.h"
-#include "luth/resources/libraries/ShaderLibrary.h"
-#include "luth/resources/libraries/TextureCache.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/resources/AssetDatabase.h"
 
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/Buffer.h"

@@ -1,9 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ResourcePanel.h"
-#include "luth/resources/libraries/MaterialLibrary.h"
-#include "luth/resources/libraries/ModelLibrary.h"
-#include "luth/resources/libraries/ShaderLibrary.h"
-#include "luth/resources/libraries/TextureCache.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 
@@ -73,15 +71,52 @@ namespace Luth
     {
         m_FilteredResources.clear();
 
-        // Collect resources from libraries
-        if (m_ShowModels)    AddModelEntries();
-        if (m_ShowMaterials) AddMaterialEntries();
-        if (m_ShowShaders)   AddShaderEntries();
-        if (m_ShowTextures)  AddTextureEntries();
+        const auto& registry = AssetDatabase::GetRegistry();
+ 
+        for (const auto& [uuid, metadata] : registry)
+        {
+            // Filter by type
+            if (metadata.Type == AssetType::Model && !m_ShowModels) continue;
+            if (metadata.Type == AssetType::Material && !m_ShowMaterials) continue;
+            if (metadata.Type == AssetType::Texture && !m_ShowTextures) continue;
+            if (metadata.Type == AssetType::Shader && !m_ShowShaders) continue;
+ 
+            // Create entry
+            ResourceEntry entry;
+            entry.Name = metadata.Path.filename().string();
+            entry.Uuid = uuid;
+             
+            switch (metadata.Type)
+            {
+            case AssetType::Model:    entry.Type = "Model"; break;
+            case AssetType::Material: entry.Type = "Material"; break;
+            case AssetType::Texture:  entry.Type = "Texture"; break;
+            case AssetType::Shader:   entry.Type = "Shader"; break;
+            case AssetType::Font:     entry.Type = "Font"; break;
+            case AssetType::Scene:    entry.Type = "Scene"; break;
+            default:                  entry.Type = "Unknown"; break;
+            }
+ 
+            // Check if loaded in AssetManager
+            if (auto asset = AssetManager::GetAsset<Asset>(uuid))
+            {
+                // -1 because AssetManager holds one reference
+                entry.RefCount = asset.use_count() - 1; 
+            }
+            else
+            {
+                entry.RefCount = 0;
+            }
+ 
+            if (ResourceMatchesSearch(entry))
+            {
+                m_FilteredResources.push_back(entry);
+            }
+        }
 
         // Display entries
         for (const auto& entry : m_FilteredResources) {
-            if (!ResourceMatchesSearch(entry)) continue;
+            //if (!ResourceMatchesSearch(entry)) continue;
 
             ImGui::TableNextRow();
 
@@ -105,54 +140,6 @@ namespace Luth
             // Ref count column
             ImGui::TableSetColumnIndex(3);
             ImGui::Text("%d", entry.RefCount);
-        }
-    }
-
-    void ResourcePanel::AddModelEntries()
-    {
-        for (const auto& [uuid, model] : ModelLibrary::GetAllModels()) {
-            m_FilteredResources.push_back({
-                model.Model->GetName(),
-                uuid,
-                "Model",
-                model.Model.use_count() - 1 // Subtract library's own reference
-            });
-        }
-    }
-
-    void ResourcePanel::AddMaterialEntries()
-    {
-        for (const auto& [uuid, material] : MaterialLibrary::GetAllMaterials()) {
-            m_FilteredResources.push_back({
-                material->GetName(),
-                uuid,
-                "Material",
-                material.use_count() - 1
-            });
-        }
-    }
-
-    void ResourcePanel::AddShaderEntries()
-    {
-        for (const auto& [uuid, shader] : ShaderLibrary::GetAllShaders()) {
-            m_FilteredResources.push_back({
-                shader.Shader->GetName(),
-                uuid,
-                "Shader",
-                shader.Shader.use_count() - 1
-            });
-        }
-    }
-
-    void ResourcePanel::AddTextureEntries()
-    {
-        for (const auto& [uuid, texture] : TextureCache::GetAllTextures()) {
-            m_FilteredResources.push_back({
-                texture.Texture->GetName(),
-                uuid,
-                "Texture",
-                texture.Texture.use_count() - 1
-            });
         }
     }
 

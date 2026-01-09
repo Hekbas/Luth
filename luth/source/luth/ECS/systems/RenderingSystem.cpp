@@ -11,7 +11,8 @@
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/Model.h"
-#include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/Buffer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/renderer/ShaderCompiler.h"
 #include <backends/imgui_impl_vulkan.h>
@@ -45,10 +46,21 @@ namespace Luth
             config.depthWrite = true;
             config.cullMode = VK_CULL_MODE_BACK_BIT;
 
-            // Layouts: Set 0 = Bindless, Set 1 = Global Uniforms
+            // Define Vertex Layout (Matches Model::ProcessMeshData)
+            BufferLayout vertexLayout = {
+                { ShaderDataType::Float3, "a_Position"  },
+                { ShaderDataType::Float3, "a_Normal"    },
+                { ShaderDataType::Float2, "a_TexCoord0" },
+                { ShaderDataType::Float2, "a_TexCoord1" },
+                { ShaderDataType::Float3, "a_Tangent"   } 
+            };
+            config.bindingDescriptions = vertexLayout.GetBindingDescriptions();
+            config.attributeDescriptions = vertexLayout.GetAttributeDescriptions();
+
+            // Layouts: Set 0 = Global Uniforms, Set 1 = Bindless
             std::vector<VkDescriptorSetLayout> layouts = {
-                VulkanContext::Get().GetBindlessSet().GetLayout(),
-                m_GlobalSetLayout
+                m_GlobalSetLayout,
+                VulkanContext::Get().GetBindlessSet().GetLayout()
             };
 
             m_TrianglePipeline = std::make_unique<VKPipeline>(config, vertSpv, fragSpv, layouts);
@@ -211,12 +223,12 @@ namespace Luth
                         // Bind Pipeline
                         m_TrianglePipeline->Bind(cmd);
 
-                        // Bind Bindless Descriptor Set (Set 0)
-                        VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
+                        // Bind Global Uniforms (Set 0)
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 0, 1, &m_GlobalDescriptorSet, 0, nullptr);
 
-                        // Bind Global Uniforms (Set 1)
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 1, 1, &m_GlobalDescriptorSet, 0, nullptr);
+                        // Bind Bindless Descriptor Set (Set 1)
+                        VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 1, 1, &bindlessSet, 0, nullptr);
 
                         // Set Dynamic States
                         VkViewport viewport{};
@@ -237,7 +249,7 @@ namespace Luth
                         auto view = registry.view<Transform, MeshRenderer>();
                         for (auto [entity, transform, meshRenderer] : view.each())
                         {
-                            auto model = ModelLibrary::Get(meshRenderer.ModelUUID);
+                            auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
                             if (!model) continue;
 
                             auto mesh = model->GetMesh(meshRenderer.MeshIndex);
@@ -334,7 +346,7 @@ namespace Luth
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
-        if (m_SceneColor)
+        if (m_SceneColor && width > 0 && height > 0)
         {
             // Recreate texture
             m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA8);

@@ -2,11 +2,15 @@
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/renderer/RendererAPI.h"
-#include "luth/resources/resourceDB.h"
-#include "luth/resources/libraries/ModelLibrary.h"
-#include "luth/resources/libraries/MaterialLibrary.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/resources/MetaFile.h"
+#include "luth/renderer/Material.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
+
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 namespace Luth
 {
@@ -66,9 +70,9 @@ namespace Luth
     DirectoryNode* ProjectPanel::BuildDirectoryTree(const fs::path& path, DirectoryNode* parent)
     {
         DirectoryNode* node = new DirectoryNode();
-        node->Uuid = ResourceDB::PathToUuid(path);
+        node->Uuid = AssetDatabase::GetUUID(path);
         node->Name = path.filename().string();
-        node->Type = ResourceType::Directory;
+        node->Type = AssetType::None; // Directory doesn't have an AssetType usually, or we add AssetType::Directory
         node->Parent = parent;
 
         if (node->Name.empty()) {
@@ -93,10 +97,10 @@ namespace Luth
             // Process files
             for (const auto& entry : entries) {
                 if (!entry.is_directory()) {
-                    ResourceType fileType = FileSystem::ClassifyFileType(entry.path());
-                    if (fileType != ResourceType::Unknown) {
+                    AssetType fileType = FileSystem::ClassifyFileType(entry.path());
+                    if (fileType != AssetType::None) {
 						DirectoryNode* fileNode = new DirectoryNode();
-                        fileNode->Uuid = ResourceDB::PathToUuid(entry.path());
+                        fileNode->Uuid = AssetDatabase::GetUUID(entry.path());
                         fileNode->Name = entry.path().filename().stem().string();
                         fileNode->Type = fileType;
                         fileNode->Parent = node;
@@ -322,7 +326,7 @@ namespace Luth
         }
         else {
 			icon = GetResourceIcon(item.Type);
-            Vec4 color = FileSystem::GetTypeInfo().at(item.Type).color;
+            Vec4 color = (item.Type != AssetType::None) ? FileSystem::GetTypeInfo().at(item.Type).color : Vec4(1.0f);
             ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
             ImGui::PushFont(Editor::GetFASolid());
         }
@@ -348,9 +352,9 @@ namespace Luth
             }
 
             // Drag and drop support
-            if (!isDirectory && (item.Type == ResourceType::Model ||
-                item.Type == ResourceType::Material ||
-                item.Type == ResourceType::Texture))
+            if (!isDirectory && (item.Type == AssetType::Model ||
+                item.Type == AssetType::Material ||
+                item.Type == AssetType::Texture))
             {
                 HandleDragDrop(item);
             }
@@ -404,7 +408,7 @@ namespace Luth
             }
             else {
                 icon = GetResourceIcon(item.Type);
-                Vec4 color = FileSystem::GetTypeInfo().at(item.Type).color;
+                Vec4 color = (item.Type != AssetType::None) ? FileSystem::GetTypeInfo().at(item.Type).color : Vec4(1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
                 ImGui::PushFont(Editor::GetFASolid());
             }
@@ -427,24 +431,24 @@ namespace Luth
         ImGui::EndGroup();
 
         // Drag and drop support
-        if (!isDirectory && (item.Type == ResourceType::Model ||
-            item.Type == ResourceType::Material ||
-            item.Type == ResourceType::Texture))
+        if (!isDirectory && (item.Type == AssetType::Model ||
+            item.Type == AssetType::Material ||
+            item.Type == AssetType::Texture))
         {
             HandleDragDrop(item);
         }
     }
 
-    const char* ProjectPanel::GetResourceIcon(ResourceType type)
+    const char* ProjectPanel::GetResourceIcon(AssetType type)
     {
-        static const std::unordered_map<ResourceType, const char*> icons = {
-            { ResourceType::Model,    ICON_FA_CUBE                  },
-            { ResourceType::Texture,  ICON_FA_IMAGE                 },
-            { ResourceType::Material, ICON_FA_CIRCLE_HALF_STROKE    },
-			{ ResourceType::Shader,   ICON_FA_FILE_CODE             },
-			{ ResourceType::Font,     ICON_FA_FONT                  },
-			{ ResourceType::Config,   ICON_FA_FILE_LINES            },
-			{ ResourceType::Unknown,  ICON_FA_FILE_CIRCLE_QUESTION  }
+        static const std::unordered_map<AssetType, const char*> icons = {
+            { AssetType::Model,    ICON_FA_CUBE                  },
+            { AssetType::Texture,  ICON_FA_IMAGE                 },
+            { AssetType::Material, ICON_FA_CIRCLE_HALF_STROKE    },
+			{ AssetType::Shader,   ICON_FA_FILE_CODE             },
+			{ AssetType::Font,     ICON_FA_FONT                  },
+			// { AssetType::Config,   ICON_FA_FILE_LINES            },
+			{ AssetType::None,  ICON_FA_FILE_CIRCLE_QUESTION  }
         };
         return icons.count(type) ? icons.at(type) : ICON_FILE;
     }
@@ -582,7 +586,7 @@ namespace Luth
     void ProjectPanel::CreateNewFolder()
     {
 		// Current directory
-		fs::path currDir = ResourceDB::UuidToInfo(m_CurrentDirectory->Uuid).Path;
+		fs::path currDir = AssetDatabase::GetMetadata(m_CurrentDirectory->Uuid).Path;
 
 		// Default folder name
 		fs::path newFolderPath = currDir / "NewFolder";
@@ -607,13 +611,13 @@ namespace Luth
 		meta.Save(metaPath);
 
 		// Register with resource database
-		ResourceDB::RegisterAsset(newFolderPath, meta.GetUUID());
+		// AssetDatabase::RegisterAsset(newFolderPath, meta.GetUUID(), AssetType::Directory); // Directory type removed?
 
 		// Add new directory node for the folder
         DirectoryNode* newFolder = new DirectoryNode();
         newFolder->Uuid = meta.GetUUID();
         newFolder->Name = newFolderPath.filename().string();
-        newFolder->Type = ResourceType::Directory;
+        newFolder->Type = AssetType::None; // Directory
         newFolder->Parent = m_CurrentDirectory;
         m_CurrentDirectory->Directories.push_back(std::move(newFolder));
 
@@ -623,7 +627,7 @@ namespace Luth
     void ProjectPanel::CreateNewMaterial()
     {
         // Current directory
-        fs::path currDir = ResourceDB::UuidToInfo(m_CurrentDirectory->Uuid).Path;
+        fs::path currDir = AssetDatabase::GetMetadata(m_CurrentDirectory->Uuid).Path;
 
         // Default material path
         fs::path newMaterialPath = currDir / "NewMaterial.mat";
@@ -686,14 +690,14 @@ namespace Luth
         meta.Save(metaPath);
 
         // Register with resource database
-        ResourceDB::RegisterAsset(newMaterialPath, meta.GetUUID());
-		MaterialLibrary::LoadOrGet(newMaterialPath);
+        AssetDatabase::RegisterAsset(newMaterialPath, meta.GetUUID(), AssetType::Material);
+		// MaterialLibrary::LoadOrGet(newMaterialPath); // Removed
 
         // Add new directory node for the material
         DirectoryNode* newMaterial = new DirectoryNode();
         newMaterial->Uuid = meta.GetUUID();
         newMaterial->Name = newMaterialPath.filename().stem().string();
-        newMaterial->Type = ResourceType::Material;
+        newMaterial->Type = AssetType::Material;
         newMaterial->Parent = m_CurrentDirectory;
         m_CurrentDirectory->Contents.push_back(std::move(newMaterial));
 
@@ -710,11 +714,11 @@ namespace Luth
 
     void ProjectPanel::DeleteResource(DirectoryNode& nodeToDelete)
     {
-		fs::path path = ResourceDB::UuidToInfo(nodeToDelete.Uuid).Path;
+		fs::path path = AssetDatabase::GetMetadata(nodeToDelete.Uuid).Path;
 
         try {
             // Delete the file or directory
-            if (nodeToDelete.Type == ResourceType::Directory) {
+            if (nodeToDelete.Type == AssetType::None) { // Directory
                 fs::remove_all(path);
             }
             else {
@@ -748,7 +752,7 @@ namespace Luth
 
     void ProjectPanel::RenameResource(DirectoryNode& node, const std::string& newName)
     {
-        fs::path oldPath = ResourceDB::UuidToInfo(node.Uuid).Path;
+        fs::path oldPath = AssetDatabase::GetMetadata(node.Uuid).Path;
         std::string extension = oldPath.extension().string();
         fs::path newPath = oldPath.parent_path() / (newName + extension);
 
@@ -771,16 +775,19 @@ namespace Luth
             }
 
             // Update resource database
-            ResourceDB::UpdateAssetPath(oldPath, newPath);
+            AssetType type = AssetDatabase::GetMetadata(node.Uuid).Type;
+            AssetDatabase::UnregisterAsset(node.Uuid);
+            AssetDatabase::RegisterAsset(newPath, node.Uuid, type);
             node.Name = newName;
 
-            switch (node.Type) {
-                case ResourceType::Model:    ModelLibrary::Get(node.Uuid)->SetName(newName);    break;
-                case ResourceType::Texture:  TextureCache::Get(node.Uuid)->SetName(newName);    break;
-                case ResourceType::Material: MaterialLibrary::Get(node.Uuid)->SetName(newName); break;
-                case ResourceType::Shader:   ShaderLibrary::Get(node.Uuid)->SetName(newName);   break;
-                default: break;
-            }
+            // TODO: Notify AssetManager of rename if asset is loaded
+            // switch (node.Type) {
+            //     case ResourceType::Model:    ModelLibrary::Get(node.Uuid)->SetName(newName);    break;
+            //     case ResourceType::Texture:  TextureCache::Get(node.Uuid)->SetName(newName);    break;
+            //     case ResourceType::Material: MaterialLibrary::Get(node.Uuid)->SetName(newName); break;
+            //     case ResourceType::Shader:   ShaderLibrary::Get(node.Uuid)->SetName(newName);   break;
+            //     default: break;
+            // }
 
             LH_CORE_INFO("Renamed {0} to {1}", oldPath.filename().string(), newName + extension);
         }
@@ -794,7 +801,7 @@ namespace Luth
         try {
             if (fs::exists(path)) {
                 fs::remove_all(path);
-                ResourceDB::UnregisterAsset(path);
+                AssetDatabase::UnregisterAsset(AssetDatabase::GetUUID(path));
                 LH_CORE_INFO("Deleted directory: {0}", path.string());
             }
         }

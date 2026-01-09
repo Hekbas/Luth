@@ -231,7 +231,7 @@ namespace Luth
         ImGuiIO& io = ImGui::GetIO();
 
         // Load main font
-        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "Roboto-Regular.ttf").string();
+        std::string robotoPath = FileSystem::GetPath(AssetType::Font, "Roboto-Regular.ttf").string();
         if (fs::exists(robotoPath)) {
             m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 15.0f);
         }
@@ -239,11 +239,11 @@ namespace Luth
 			LH_CORE_WARN("Roboto font not found at {}", robotoPath);
         }
 
-        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //std::string iconPath = FileSystem::GetPath(AssetType::Font, "luth_icons.ttf").string();
         //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
         // Load FA Solid
-        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        std::string icon2Path = FileSystem::GetPath(AssetType::Font, "fa-solid-900.ttf").string();
         if (fs::exists(icon2Path)) {
             ImFontConfig config;
             config.MergeMode = true;
@@ -261,7 +261,7 @@ namespace Luth
         }
 
         // Load FA Regular
-        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        std::string icon1Path = FileSystem::GetPath(AssetType::Font, "fa-regular-400.ttf").string();
         if (fs::exists(icon1Path)) {
             ImFontConfig config;
             config.MergeMode = false;
@@ -398,7 +398,7 @@ namespace Luth
         ImGuiIO& io = ImGui::GetIO();
 
         // Load main font
-        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "HoneySalt.otf").string();
+        std::string robotoPath = FileSystem::GetPath(AssetType::Font, "HoneySalt.otf").string();
         if (fs::exists(robotoPath)) {
             m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
             io.Fonts->AddFontDefault();
@@ -407,11 +407,11 @@ namespace Luth
             LH_CORE_WARN("Roboto font not found at {}", robotoPath);
         }
 
-        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //std::string iconPath = FileSystem::GetPath(AssetType::Font, "luth_icons.ttf").string();
         //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
         // Load FA Regular
-        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        std::string icon1Path = FileSystem::GetPath(AssetType::Font, "fa-regular-400.ttf").string();
         if (fs::exists(icon1Path)) {
             ImFontConfig config;
             config.MergeMode = false;
@@ -427,7 +427,7 @@ namespace Luth
         }
 
         // Load FA Solid
-        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        std::string icon2Path = FileSystem::GetPath(AssetType::Font, "fa-solid-900.ttf").string();
         if (fs::exists(icon2Path)) {
             ImFontConfig config;
             config.MergeMode = false;
@@ -548,7 +548,7 @@ namespace Luth
         ImGuiIO& io = ImGui::GetIO();
 
         // Load main font
-        std::string robotoPath = FileSystem::GetPath(ResourceType::Font, "CourierPrime-Regular.ttf").string();
+        std::string robotoPath = FileSystem::GetPath(AssetType::Font, "CourierPrime-Regular.ttf").string();
         if (fs::exists(robotoPath)) {
             m_MainFont = io.Fonts->AddFontFromFileTTF(robotoPath.c_str(), 14.0f);
             io.Fonts->AddFontDefault();
@@ -557,11 +557,11 @@ namespace Luth
             LH_CORE_WARN("Font not found: {}", robotoPath);
         }
 
-        //std::string iconPath = FileSystem::GetPath(ResourceType::Font, "luth_icons.ttf").string();
+        //std::string iconPath = FileSystem::GetPath(AssetType::Font, "luth_icons.ttf").string();
         //static const ImWchar iconRanges[] = { 0xe900, 0xe905, 0 };
 
         // Load FA Regular
-        std::string icon1Path = FileSystem::GetPath(ResourceType::Font, "fa-regular-400.ttf").string();
+        std::string icon1Path = FileSystem::GetPath(AssetType::Font, "fa-regular-400.ttf").string();
         if (fs::exists(icon1Path)) {
             ImFontConfig config;
             config.MergeMode = false;
@@ -577,7 +577,7 @@ namespace Luth
         }
 
         // Load FA Solid
-        std::string icon2Path = FileSystem::GetPath(ResourceType::Font, "fa-solid-900.ttf").string();
+        std::string icon2Path = FileSystem::GetPath(AssetType::Font, "fa-solid-900.ttf").string();
         if (fs::exists(icon2Path)) {
             ImFontConfig config;
             config.MergeMode = false;

@@ -40,7 +40,7 @@ namespace Luth
 
     void Material::Deserialize(const nlohmann::json& json)
     {
-        UUID::FromString(json["shader"].get<std::string>(), m_ShaderUUID);
+        m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
 
         m_RenderMode = static_cast<RenderMode>(json.value("render_mode", 0));
         m_AlphaCutoff = json.value("alpha_cutoff", 0.5f);
@@ -89,7 +89,7 @@ namespace Luth
         for (const auto& texJson : json["textures"]) {
             MapInfo tex;
             tex.type = static_cast<MapType>(texJson["type"].get<int>());
-            UUID::FromString(texJson["uuid"].get<std::string>(), tex.Uuid);
+            tex.Uuid = UUID::FromString(texJson["uuid"].get<std::string>());
             tex.uvIndex = texJson["uv"].get<u32>();
             tex.useTexture = static_cast<bool>(texJson.value("useTexture", 0));
             m_Maps.push_back(tex);

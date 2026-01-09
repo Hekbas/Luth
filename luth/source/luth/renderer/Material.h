@@ -2,14 +2,16 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
-#include "luth/resources/Resource.h"
-#include "luth/resources/libraries/ShaderLibrary.h"
-#include "luth/resources/libraries/TextureCache.h"
+#include "luth/resources/Asset.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/Shader.h"
+#include "luth/renderer/Texture.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 
 namespace Luth
 {
@@ -30,7 +32,7 @@ namespace Luth
         MapType type;
         u32 uvIndex = 0;
         bool useMap = true;
-        bool useTexture;
+        bool useTexture = true;
     };
 
     struct Subsurface {
@@ -39,9 +41,11 @@ namespace Luth
         float thicknessScale = 1.0f;
     };
 
-    class Material : public Resource
+    class Material : public Asset
     {
     public:
+        virtual AssetType GetType() const override { return AssetType::Material; }
+        
         enum class RenderMode { Opaque, Cutout, Transparent, Fade };
         enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
 
@@ -49,16 +53,24 @@ namespace Luth
         void SetShaderUUID(const UUID& uuid) { m_ShaderUUID = uuid; }
         UUID GetShaderUUID() const { return m_ShaderUUID; }
         std::shared_ptr<Shader> GetShader() const {
-            return ShaderLibrary::Get(m_ShaderUUID);
+             return AssetManager::GetAsset<Shader>(m_ShaderUUID);
         }
 
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
+        
         void SetTexture(const MapInfo& texture) {
-            int index = static_cast<int>(texture.type);
-            if (index >= m_Maps.size()) AddTexture(texture);
-            else m_Maps[index] = texture;
+            bool found = false;
+            for (auto& map : m_Maps) {
+                if (map.type == texture.type) {
+                    map = texture;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) m_Maps.push_back(texture);
         }
+        
         const std::vector<MapInfo>& GetTextures() const { return m_Maps; }
 
         std::optional<u32> GetUVIndex(MapType type) const {
@@ -73,10 +85,12 @@ namespace Luth
                 if (tex.type == type) tex.useMap = enable;
             }
         }
+        
         bool IsUseMapEnabled(MapType type) const {
             for (const auto& tex : m_Maps) {
                 if (tex.type == type) return tex.useMap;
             }
+            return false;
         }
 
         void EnableUseTexture(MapType type, bool enable) {
@@ -84,16 +98,18 @@ namespace Luth
                 if (tex.type == type) tex.useTexture = enable;
             }
         }
+        
         bool IsUseTextureEnabled(MapType type) const {
             for (const auto& tex : m_Maps) {
                 if (tex.type == type) return tex.useTexture;
             }
+            return false;
         }
 
         // Runtime texture access
         std::shared_ptr<Texture> GetTextureByType(MapType type) const {
             for (const auto& tex : m_Maps) {
-                if (tex.type == type) return TextureCache::Get(tex.Uuid);
+                if (tex.type == type) return AssetManager::GetAsset<Texture>(tex.Uuid);
             }
             return nullptr;
         }

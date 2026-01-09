@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/UUID.h"
-#include "luth/resources/Resource.h"
+#include "luth/resources/Asset.h"
 
 #include <nlohmann/json.hpp>
 
@@ -13,8 +13,8 @@ namespace Luth
         explicit MetaFile(const UUID& uuid) : m_UUID(uuid) {}
 
         // Metadata operations
-        static UUID Create(const fs::path& path, ResourceType type);
-        static void SetDefaultTypeSettings(ResourceType type, MetaFile& meta);
+        static UUID Create(const fs::path& path, AssetType type);
+        static void SetDefaultTypeSettings(AssetType type, MetaFile& meta);
 
         bool Load(const fs::path& metaPath);
         bool Save(const fs::path& metaPath) const;

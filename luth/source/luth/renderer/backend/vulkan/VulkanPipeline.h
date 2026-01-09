@@ -17,6 +17,11 @@ namespace Luth
         VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
 
         bool blendEnabled = false;
+
+        // Vertex Input
+        std::vector<VkVertexInputBindingDescription> bindingDescriptions;
+        std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
+
         VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
         VkFrontFace frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         

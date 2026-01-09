@@ -4,7 +4,6 @@
 #include <imgui.h>
 
 // TEST
-#include <luth/resources/libraries/ShaderLibrary.h>
 #include <luth/resources/FileSystem.h>
 
 #include <luth/renderer/Renderer.h>

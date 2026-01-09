@@ -1,6 +1,5 @@
 #include "luthpch.h"
 #include "luth/editor/panels/RenderPanel.h"
-#include "luth/resources/libraries/ShaderLibrary.h"
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/Systems/RenderingSystem.h"
 #include "luth/utils/LuthIcons.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+// FIXME: Refactor SkinnedModel to use new Asset System and Importer
+#if 0
 #include "luth/renderer/Model.h"
 #include <glm/glm.hpp>
 
@@ -96,3 +98,4 @@ namespace Luth
         uint32_t m_RootNodeIndex = 0;
     };
 }
+#endif

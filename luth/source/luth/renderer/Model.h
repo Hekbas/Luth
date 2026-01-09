@@ -2,13 +2,12 @@
 
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Mesh.h"
-#include "luth/resources/Resource.h"
+#include "luth/resources/Asset.h"
 
 #include <string>
 #include <vector>
 #include <memory>
 #include <filesystem>
-#include <assimp/scene.h>
 
 namespace Luth
 {
@@ -62,13 +61,17 @@ namespace Luth
         std::vector<AnimationInfo> Animations;
     };
 
-    class Model : public Resource
+    class Model : public Asset
     {
     public:
-        Model(const fs::path& path);
+        struct CreateParams; // Forward decl
+
+        virtual AssetType GetType() const override { return AssetType::Model; }
+        
+        Model() = default;
         virtual ~Model() = default;
 
-        void Init();
+        static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData);
         
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
         const std::vector<std::shared_ptr<Mesh>>& GetMeshes() const { return m_Meshes; }
@@ -90,12 +93,6 @@ namespace Luth
         void Deserialize(const nlohmann::json& json);
 
     private:
-        void LoadModel(const fs::path& path);
-        void ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform = Mat4(1.0f));
-        MeshData ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform);
-        Material ProcessMaterial(aiMaterial* material, const fs::path& directory);
-        void LoadMaterials(const fs::path& path);
-        Mat4 AxisCorrectionMatrix(const aiScene* scene);
 
         virtual void ProcessMeshData();
 

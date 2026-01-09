@@ -64,6 +64,10 @@ namespace Luth
         // Vertex Input (Empty for now, using Bindless buffers usually)
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount = (u32)config.bindingDescriptions.size();
+        vertexInputInfo.pVertexBindingDescriptions = config.bindingDescriptions.data();
+        vertexInputInfo.vertexAttributeDescriptionCount = (u32)config.attributeDescriptions.size();
+        vertexInputInfo.pVertexAttributeDescriptions = config.attributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;

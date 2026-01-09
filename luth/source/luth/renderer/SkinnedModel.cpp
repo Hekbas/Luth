@@ -1,12 +1,13 @@
 ﻿#include "luthpch.h"
 #include "luth/renderer/SkinnedModel.h"
-#include "luth/resources/Resources.h"
 
 #include <assimp/postprocess.h>
 #include <glm/ext/matrix_integer.hpp>
 #include <assimp/scene.h>
 #include <string>
 
+// FIXME: Refactor SkinnedModel to use new Asset System and Importer
+#if 0
 namespace Luth
 {
     using namespace glm;
@@ -368,3 +369,4 @@ namespace Luth
         return info;
     }
 }
+#endif

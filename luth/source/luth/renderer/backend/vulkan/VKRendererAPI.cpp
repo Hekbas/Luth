@@ -46,10 +46,12 @@ namespace Luth
         
         // Update Context Frame Index and Flush Deletions for this frame
         VulkanContext::Get().SetCurrentFrameIndex(m_CurrentFrame);
-        VulkanContext::Get().FlushDeletionQueue();
 
         // Wait for previous frame
         vkWaitForFences(device, 1, &m_InFlightFences[m_CurrentFrame], VK_TRUE, UINT64_MAX);
+
+        // Flush deletions AFTER we know the GPU is done with this frame's resources
+        VulkanContext::Get().FlushDeletionQueue();
 
         // Acquire image
         u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentFrame]);

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/resources/Resource.h"
+#include "luth/resources/Asset.h"
 #include "luth/utils/ImageUtils.h"
 
 #include <memory>
@@ -22,9 +22,11 @@ namespace Luth
         LinearMipmapLinear, NearestMipmapNearest
     };
 
-    class Texture : public Resource
+    class Texture : public Asset
     {
     public:
+        virtual AssetType GetType() const override { return AssetType::Texture; }
+        
         virtual ~Texture() = default;
 
         virtual void Bind(u32 slot = 0) const = 0;

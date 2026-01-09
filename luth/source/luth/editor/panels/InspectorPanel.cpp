@@ -2,9 +2,11 @@
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/ECS/Components.h"
-#include "luth/resources/ResourceDB.h"
-#include "luth/resources/libraries/MaterialLibrary.h"
-#include "luth/resources/libraries/ModelLibrary.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/Model.h"
+#include "luth/renderer/Material.h"
+#include "luth/renderer/Texture.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 
@@ -27,7 +29,7 @@ namespace Luth
             if (m_SelectedEntity) {
                 DrawEntityComponents();
             }
-            else if (m_SelectedResource) {
+            else if (m_SelectedResource.IsValid()) {
                 DrawResourceProperties();
             }
         }
@@ -58,7 +60,8 @@ namespace Luth
 
             // Name field
             char buffer[256];
-            strcpy(buffer, tag.m_Tag.c_str());
+            strncpy(buffer, tag.m_Tag.c_str(), sizeof(buffer) - 1);
+            buffer[sizeof(buffer) - 1] = 0;
             ImGui::PushItemWidth(-1);
             if (ImGui::InputText("##Name", buffer, sizeof(buffer))) {
                 tag.m_Tag = std::string(buffer);
@@ -211,7 +214,7 @@ namespace Luth
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
                     const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                    if (auto model = ModelLibrary::Get(*droppedUUID)) {
+                    if (auto model = AssetManager::GetAsset<Model>(*droppedUUID)) {
                         meshRenderer.ModelUUID = *droppedUUID;
                         meshRenderer.modelNamePreview = model->GetName();
                     }
@@ -221,8 +224,8 @@ namespace Luth
             ImGui::SameLine();
 
             // Mesh Index Selection
-            if (auto model = ModelLibrary::Get(meshRenderer.ModelUUID)) {
-                const uint32_t meshCount = model->GetMeshes().size();
+            if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
+                const uint32_t meshCount = static_cast<uint32_t>(model->GetMeshes().size());
                 ImGui::Text("#");
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(20);
@@ -242,11 +245,12 @@ namespace Luth
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
                     const UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
-                    if (auto material = MaterialLibrary::Get(droppedUUID)) {
+                    if (auto material = AssetManager::GetAsset<Material>(droppedUUID)) {
                         meshRenderer.MaterialUUID = droppedUUID;
                         meshRenderer.materialNamePreview = material->GetName();
-                        ResourceDB::SetDirty(meshRenderer.ModelUUID);
-                        ModelLibrary::Get(meshRenderer.ModelUUID)->AddMaterial(droppedUUID, meshRenderer.MeshIndex);
+                        // AssetRegistry::SetDirty(meshRenderer.ModelUUID); // TODO: Implement dirty state in AssetManager
+                         if(auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
+                             model->AddMaterial(droppedUUID, meshRenderer.MeshIndex);
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -339,14 +343,15 @@ namespace Luth
     
     void InspectorPanel::DrawResourceProperties()
     {
-        if (auto model = ModelLibrary::Get(m_SelectedResource)) {
-            DrawModel(*model);
-        }
-        else if (auto material = MaterialLibrary::Get(m_SelectedResource)) {
-			DrawMaterial(*material);
-        }
-        else if (auto texture = TextureCache::Get(m_SelectedResource)) {
-            DrawTexture(*texture);
+        // Determine type from DB
+        AssetType type = AssetDatabase::GetMetadata(m_SelectedResource).Type;
+ 
+        if (type == AssetType::Model) {
+            if (auto model = AssetManager::GetAsset<Model>(m_SelectedResource)) DrawModel(*model);
+        } else if (type == AssetType::Material) {
+            if (auto mat = AssetManager::GetAsset<Material>(m_SelectedResource)) DrawMaterial(*mat);
+        } else if (type == AssetType::Texture) {
+            if (auto tex = AssetManager::GetAsset<Texture>(m_SelectedResource)) DrawTexture(*tex);
         }
     }
 
@@ -515,13 +520,14 @@ namespace Luth
         if (auto shader = material.GetShader()) {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
-                for (const auto& [uuid, s] : ShaderLibrary::GetAllShaders()) {
-                    bool selected;
-                    if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
-                        material.SetShaderUUID(uuid);
-                        ResourceDB::SetDirty(material.GetUUID());
-                    }
-                }
+                // TODO: Iterate all shaders in AssetDatabase
+                // for (const auto& [uuid, s] : ShaderLibrary::GetAllShaders()) {
+                //     bool selected;
+                //     if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
+                //         material.SetShaderUUID(uuid);
+                //         AssetRegistry::SetDirty(material.GetUUID());
+                //     }
+                // }
                 ImGui::EndCombo();
             }
         }
@@ -538,7 +544,7 @@ namespace Luth
         const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
         if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
             material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
-            ResourceDB::SetDirty(material.GetUUID());
+            //AssetRegistry::SetDirty(material.GetUUID());
         }
 
         if (material.GetRenderMode() == Material::RenderMode::Cutout) {
@@ -547,7 +553,7 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
                 material.SetAlphaCutoff(cutoff);
-                ResourceDB::SetDirty(material.GetUUID());
+                //AssetRegistry::SetDirty(material.GetUUID());
             }
         }
 
@@ -563,20 +569,20 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                 material.SetBlendSrc(static_cast<Material::BlendFactor>(srcFactor));
-                ResourceDB::SetDirty(material.GetUUID());
+                //AssetRegistry::SetDirty(material.GetUUID());
             }
 
             ImGui::Text("Blend Dst  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                 material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
-                ResourceDB::SetDirty(material.GetUUID());
+                //AssetRegistry::SetDirty(material.GetUUID());
             }
 
             bool fromDiffuse = material.IsAlphaFromDiffuseEnabled();
             if (ImGui::Checkbox("Alpha from Diffuse", &fromDiffuse)) {
                 material.EnableAlphaFromDiffuse(fromDiffuse);
-                ResourceDB::SetDirty(material.GetUUID());
+                //AssetRegistry::SetDirty(material.GetUUID());
             }
         }
 
@@ -590,7 +596,7 @@ namespace Luth
             bool hasTexture = false;
             for (const auto& texInfo : textures) {
                 if (texInfo.type == type) {
-                    if (texture = TextureCache::Get(texInfo.Uuid)) {
+                    if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
                         hasTexture = true;
                         break;
                     }
@@ -636,16 +642,16 @@ namespace Luth
                         const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
                         material.SetTexture({ *droppedUUID, type, 0 });
                         material.EnableUseTexture(type, true);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        //AssetRegistry::SetDirty(material.GetUUID());
                     }
                     ImGui::EndDragDropTarget();
                 }
 
                 // [SUPR] Handle texture deletion
                 if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                    material.SetTexture({ UUID(3), type, 0 });
+                    material.SetTexture({ UUID::Invalid(), type, 0 });
                     material.EnableUseTexture(type, false);
-                    ResourceDB::SetDirty(material.GetUUID());
+                    //AssetRegistry::SetDirty(material.GetUUID());
                 }
 
                 // Texture properties
@@ -665,7 +671,7 @@ namespace Luth
                     if (ImGui::ColorEdit4("##DiffuseColor", &color.r, ImGuiColorEditFlags_NoInputs |
                         ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview)) {
                         material.SetColor(color);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
 
                     if (ImGui::IsItemHovered()) {
@@ -676,26 +682,26 @@ namespace Luth
                     float alpha = material.GetAlpha();
                     if (ImGui::SliderFloat("##Alpha", &alpha, 0.0f, 1.0f)) {
                         material.SetAlpha(alpha);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                 }
                 else if (type == MapType::Metalness) {
                     float metal = material.GetMetal();
                     if (ImGui::SliderFloat("##Metalness", &metal, 0.0f, 1.0f)) {
                         material.SetMetal(metal);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                 }
                 else if (type == MapType::Roughness) {
                     float rough = material.GetRough();
                     if (ImGui::SliderFloat("##Roughness", &rough, 0.0f, 1.0f)) {
                         material.SetRough(rough);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                     bool isGloss = material.IsGloss();
                     if (ImGui::Checkbox("Is Gloss", &isGloss)) {
                         material.SetGloss(isGloss);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                 }
                 else if (type == MapType::Emissive) {
@@ -704,7 +710,7 @@ namespace Luth
                     Vec3 emissive = material.GetEmissive();
                     if (ImGui::ColorEdit3("##EmissiveColor", &emissive.r, ImGuiColorEditFlags_NoInputs)) {
                         material.SetEmissive(emissive);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
 
                     if (ImGui::IsItemHovered()) {
@@ -714,7 +720,7 @@ namespace Luth
                     bool isSingle = material.IsSingleChannel();
                     if (ImGui::Checkbox("Single Channel", &isSingle)) {
                         material.SetSingleChannel(isSingle);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                 }
                 else if (type == MapType::Thickness) {
@@ -723,19 +729,19 @@ namespace Luth
                     Vec3 thick = material.GetSubsurface().color;
                     if (ImGui::ColorEdit3("##ThicknessColor", &thick.r, ImGuiColorEditFlags_NoInputs)) {
                         material.SetSubsurfaceColor(thick);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
 
                     float strength = material.GetSubsurface().strength;
                     if (ImGui::SliderFloat("##ThicknessStrength", &strength, 0.0f, 1.0f)) {
                         material.SetSubsurfaceStrength(strength);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
 
                     float scale = material.GetSubsurface().thicknessScale;
                     if (ImGui::SliderFloat("##ThicknessScale", &scale, 0.0f, 1.0f)) {
                         material.SetSubsurfaceThicknessScale(scale);
-                        ResourceDB::SetDirty(material.GetUUID());
+                        // AssetRegistry::SetDirty(material.GetUUID());
                     }
                 }
 
@@ -841,7 +847,7 @@ namespace Luth
 
         // Preview
         // Calculate preview size
-        float imageAR = texture.GetHeight() / texture.GetWidth();
+        float imageAR = (float)texture.GetHeight() / (float)texture.GetWidth();
         float availWidth = ImGui::GetContentRegionAvail().x;
         float availHeight = ImGui::GetContentRegionAvail().y;
         float availAR = availHeight / availWidth;

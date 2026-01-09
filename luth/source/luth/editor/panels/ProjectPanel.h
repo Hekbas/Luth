@@ -14,7 +14,7 @@ namespace Luth
     struct DirectoryNode {
         UUID Uuid;
         std::string Name;
-        ResourceType Type;
+        AssetType Type;
         bool IsOpen = false;
         DirectoryNode* Parent = nullptr;
         std::vector<DirectoryNode*> Directories;
@@ -54,7 +54,7 @@ namespace Luth
         void DrawGridItems(std::vector<DirectoryNode*>& items, bool isDirectory);
         void DrawGridItem(DirectoryNode& item, bool isDirectory);
 
-        const char* GetResourceIcon(ResourceType type);
+        const char* GetResourceIcon(AssetType type);
 		void HandleDragDrop(DirectoryNode& item);
         void HandleItemInteraction(DirectoryNode& item, bool isDirectory);
         void HandleRenaming();

@@ -3,7 +3,7 @@
 
 namespace Luth
 {
-    UUID MetaFile::Create(const fs::path& path, ResourceType type)
+    UUID MetaFile::Create(const fs::path& path, AssetType type)
     {
         UUID newUuid;
         MetaFile meta(newUuid);
@@ -18,36 +18,36 @@ namespace Luth
         return newUuid;
     }
 
-    void MetaFile::SetDefaultTypeSettings(ResourceType type, MetaFile& meta)
+    void MetaFile::SetDefaultTypeSettings(AssetType type, MetaFile& meta)
     {
         auto& settings = meta.GetTypeSettings();
 
         switch (type) {
-            case ResourceType::Texture:
+            case AssetType::Texture:
                 settings["generate_mipmaps"] = true;
                 settings["compression_format"] = "BC7";
                 settings["srgb"] = true;
                 break;
 
-            case ResourceType::Model:
+            case AssetType::Model:
                 settings["import_normals"] = true;
                 settings["import_tangents"] = false;
                 settings["optimize_mesh"] = true;
                 break;
 
-            case ResourceType::Material:
+            case AssetType::Material:
                 settings["shader"] = "Lit";
                 settings["blend_mode"] = "Opaque";
                 break;
 
-            case ResourceType::Shader:
+            case AssetType::Shader:
                 settings["hot_reload"] = true;
                 settings["optimization_level"] = 3;
                 break;
 
-            case ResourceType::Directory:
-                settings["is_folder"] = true;
-                break;
+            // case AssetType::Directory:
+            //     settings["is_folder"] = true;
+            //     break;
 
             default:
                 break;
@@ -68,21 +68,13 @@ namespace Luth
 
             // Parse UUID from hex string
             std::string uuidStr = json["uuid"].get<std::string>();
-            uint64_t uuidValue;
-            std::stringstream ss;
-            ss << std::hex << uuidStr;
-            ss >> uuidValue;
-            m_UUID = UUID(uuidValue);
+            m_UUID = UUID::FromString(uuidStr);
 
             // Parse dependencies
             m_Dependencies.clear();
             for (const auto& dep : json["dependencies"]) {
                 std::string depStr = dep.get<std::string>();
-                uint64_t depValue;
-                std::stringstream depSS;
-                depSS << std::hex << depStr;
-                depSS >> depValue;
-                m_Dependencies.emplace_back(depValue);
+                m_Dependencies.emplace_back(UUID::FromString(depStr));
             }
 
             // Load type-specific settings
@@ -100,17 +92,12 @@ namespace Luth
         nlohmann::json json;
         json["version"] = FORMAT_VERSION;
 
-        // Convert UUID to hex string
-        std::stringstream uuidSS;
-        uuidSS << std::hex << std::setw(16) << std::setfill('0') << static_cast<uint64_t>(m_UUID);
-        json["uuid"] = uuidSS.str();
+        json["uuid"] = m_UUID.ToString();
 
         // Serialize dependencies
         json["dependencies"] = nlohmann::json::array();
         for (const auto& dep : m_Dependencies) {
-            std::stringstream depSS;
-            depSS << std::hex << std::setw(16) << std::setfill('0') << static_cast<uint64_t>(dep);
-            json["dependencies"].push_back(depSS.str());
+            json["dependencies"].push_back(dep.ToString());
         }
 
         // Type-specific settings
