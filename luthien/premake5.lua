@@ -49,6 +49,11 @@ project "Luthien"
       LibraryDir["vulkan"]
    }
 
+   postbuildcommands
+   {
+      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
+   }
+
    links
    {
       "Luth",
@@ -57,12 +62,12 @@ project "Luthien"
    }
 
    filter "configurations:Debug"
-      defines { "DEBUG" }
+      defines { "DEBUG", "TRACY_ENABLE" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "RELEASE" }
+      defines { "RELEASE", "TRACY_ENABLE" }
       runtime "Release"
       optimize "on"
 

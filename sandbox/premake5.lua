@@ -32,6 +32,7 @@ project "Sandbox"
       IncludeDir["glm"],
       IncludeDir["imgui"],
       IncludeDir["spdlog"],
+      IncludeDir["tracy"],
       IncludeDir["vulkan"]
    }
 
@@ -53,12 +54,12 @@ project "Sandbox"
    }
 
    filter "configurations:Debug"
-      defines { "DEBUG" }
+      defines { "DEBUG", "TRACY_ENABLE" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "RELEASE" }
+      defines { "RELEASE", "TRACY_ENABLE" }
       runtime "Release"
       optimize "on"
 

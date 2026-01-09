@@ -169,7 +169,7 @@ namespace Luth::RG
         
         for (const auto& pass : m_Passes)
         {
-            LH_PROFILE_SCOPE(pass.name.c_str());
+            LH_PROFILE_SCOPE_DYNAMIC(pass.name);
 
             // 1. Execute Barriers
             std::vector<VkImageMemoryBarrier2> barriers;

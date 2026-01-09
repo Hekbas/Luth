@@ -34,6 +34,7 @@ project "Luth"
       IncludeDir["glm"],
       IncludeDir["imgui"],
       IncludeDir["spdlog"],
+      IncludeDir["tracy"],
       IncludeDir["vulkan"]
    }
 
@@ -49,17 +50,20 @@ project "Luth"
       "glfw",
       "glm",
       "imgui",
+      "Tracy",
       "vulkan-1",
-      "shaderc_shared"
+      "shaderc_shared",
+      "ws2_32",
+      "dbghelp"
    }
 
    filter "configurations:Debug"
-      defines { "DEBUG" }
+      defines { "DEBUG", "TRACY_ENABLE" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "RELEASE" }
+      defines { "RELEASE", "TRACY_ENABLE" }
       runtime "Release"
       optimize "on"
 
