@@ -40,7 +40,7 @@ namespace Luth
         VulkanContext::Shutdown();
     }
 
-    void VKRendererAPI::BeginFrame()
+    bool VKRendererAPI::BeginFrame()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         
@@ -56,7 +56,7 @@ namespace Luth
         
         if (imageIndex == -1) {
             // Recreate swapchain handled in OnResize usually, but here we might need to handle it
-            return; 
+            return false; 
         }
 
         vkResetFences(device, 1, &m_InFlightFences[m_CurrentFrame]);
@@ -71,6 +71,7 @@ namespace Luth
         
         // Transition Swapchain Image to Color Attachment (if needed manually, usually RenderGraph handles this)
         // For now, we leave it as is, RenderGraph will handle transitions.
+        return true;
     }
 
     void VKRendererAPI::EndFrame()

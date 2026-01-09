@@ -12,7 +12,7 @@ namespace Luth
         virtual void Init(void* windowHandle) override;
         virtual void Shutdown() override;
 
-        virtual void BeginFrame() override;
+        virtual bool BeginFrame() override;
         virtual void EndFrame() override;
         virtual void ExecuteGraph(RG::RenderGraph& graph) override;
         virtual void OnResize(u32 width, u32 height) override;

@@ -4,6 +4,7 @@
 #include "luth/window/Window.h"
 #include "luth/input/Input.h"
 #include "luth/events/Event.h"
+#include "luth/events/AppEvent.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
@@ -125,7 +126,10 @@ namespace Luth
 
     void App::OnWindowResize(WindowResizeEvent& e)
     {
-        // Renderer::Resize(e.GetWidth(), e.GetHeight()); // Phase 3
+        if (e.GetWidth() == 0 || e.GetHeight() == 0)
+            return;
+
+        Renderer::OnResize(e.GetWidth(), e.GetHeight());
     }
 
     void App::OnWindowClose(WindowCloseEvent& e)

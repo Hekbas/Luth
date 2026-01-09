@@ -15,7 +15,7 @@ namespace Luth
         static void Init(void* windowHandle);
         static void Shutdown();
 
-        static void BeginFrame();
+        static bool BeginFrame();
         static void EndFrame();
         
         static void ExecuteGraph(RG::RenderGraph& graph);

@@ -175,10 +175,10 @@ namespace Luth
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) return -1;
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) return UINT32_MAX;
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             LH_CORE_ERROR("Failed to acquire swap chain image!");
-            return -1;
+            return UINT32_MAX;
         }
         
         m_CurrentFrameIndex = imageIndex;

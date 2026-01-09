@@ -19,9 +19,9 @@ namespace Luth
         }
     }
 
-    void Renderer::BeginFrame()
+    bool Renderer::BeginFrame()
     {
-        s_RendererAPI->BeginFrame();
+        return s_RendererAPI->BeginFrame();
     }
 
     void Renderer::EndFrame()

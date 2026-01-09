@@ -285,13 +285,15 @@ namespace Luth::RG
 
     void RenderGraph::CleanupPhysicalResources()
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
         for (auto& res : m_Resources)
         {
             if (res.isTransient && res.image != VK_NULL_HANDLE)
             {
-                vkDestroyImageView(device, res.view, nullptr);
-                VulkanAllocator::FreeImage(res.image, res.allocation);
+                VulkanContext::Get().PushDeletion([img = res.image, view = res.view, alloc = res.allocation]() {
+                    vkDestroyImageView(VulkanContext::Get().GetDevice(), view, nullptr);
+                    VulkanAllocator::FreeImage(img, alloc);
+                });
+
                 res.image = VK_NULL_HANDLE;
                 res.view = VK_NULL_HANDLE;
                 res.allocation = nullptr;

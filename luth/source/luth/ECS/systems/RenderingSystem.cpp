@@ -62,7 +62,8 @@ namespace Luth
         // -----------------------------------------------------------------
         if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
         {
-            Renderer::BeginFrame();
+            if (!Renderer::BeginFrame())
+                return;
 
             RG::RenderGraph rg(*m_FrameAllocator);
 
