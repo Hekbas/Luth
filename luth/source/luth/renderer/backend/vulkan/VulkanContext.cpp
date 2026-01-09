@@ -35,6 +35,7 @@ namespace Luth
         s_Instance->CreateLogicalDevice();
         s_Instance->InitAllocator();
         s_Instance->m_BindlessSet.Init(s_Instance->m_Device);
+        s_Instance->m_DescriptorAllocator.Init(s_Instance->m_Device);
     }
 
     void VulkanContext::Shutdown()
@@ -50,6 +51,7 @@ namespace Luth
         }
 
         s_Instance->m_BindlessSet.Shutdown();
+        s_Instance->m_DescriptorAllocator.Shutdown();
         VulkanAllocator::Shutdown();
         vkDestroyCommandPool(s_Instance->m_Device, s_Instance->m_CommandPool, nullptr);
         vkDestroyDevice(s_Instance->m_Device, nullptr);

@@ -191,6 +191,7 @@ namespace Luth::RG
                     switch (state) {
                         case ResourceState::Undefined: return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0 };
                         case ResourceState::ColorAttachment: return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
+                        case ResourceState::DepthStencilAttachment: return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
                         case ResourceState::TransferDst: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT };
                         case ResourceState::TransferSrc: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
                         case ResourceState::ShaderResource: return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
@@ -203,6 +204,7 @@ namespace Luth::RG
                     switch (state) {
                         case ResourceState::Undefined: return VK_IMAGE_LAYOUT_UNDEFINED;
                         case ResourceState::ColorAttachment: return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                        case ResourceState::DepthStencilAttachment: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                         case ResourceState::TransferDst: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
                         case ResourceState::TransferSrc: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
                         case ResourceState::ShaderResource: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -258,12 +260,16 @@ namespace Luth::RG
             // Map format
             if (res.desc.format == TextureFormat::RGBA8_Unorm) imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
             else if (res.desc.format == TextureFormat::D32_Float) imageInfo.format = VK_FORMAT_D32_SFLOAT;
+            else if (res.desc.format == TextureFormat::D24_Unorm_S8_Uint) imageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
             
             imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
             imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
             imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
             imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            if (res.desc.format == TextureFormat::D32_Float || res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
+                imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
             res.allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, res.image);
 
@@ -273,7 +279,11 @@ namespace Luth::RG
             viewInfo.image = res.image;
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
             viewInfo.format = imageInfo.format;
-            viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            
+            if (res.desc.format == TextureFormat::D32_Float) viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            else if (res.desc.format == TextureFormat::D24_Unorm_S8_Uint) viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+            else viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
             viewInfo.subresourceRange.baseMipLevel = 0;
             viewInfo.subresourceRange.levelCount = 1;
             viewInfo.subresourceRange.baseArrayLayer = 0;

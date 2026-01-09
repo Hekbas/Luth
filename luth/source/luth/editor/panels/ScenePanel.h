@@ -76,7 +76,7 @@ namespace Luth
         bool IsViewportFocused() const { return m_IsFocused; }
         bool IsViewportHovered() const { return m_IsHovered; }
 
-        EditorCamera GetEditorCamera() { return m_EditorCamera; }
+        EditorCamera& GetEditorCamera() { return m_EditorCamera; }
 
     private:
         void HandleRenderResize(Event& e);

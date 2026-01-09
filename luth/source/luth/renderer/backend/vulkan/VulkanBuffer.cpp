@@ -118,4 +118,33 @@ namespace Luth
     }
 
     void VKIndexBuffer::Bind() const {}
+
+    // ========================================================================
+    // Uniform Buffer
+    // ========================================================================
+
+    VKUniformBuffer::VKUniformBuffer(uint32_t size)
+    {
+        VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        bufferInfo.size = size;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        // CPU_TO_GPU is persistently mapped
+        m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, m_Buffer);
+        m_MappedData = VulkanAllocator::Map(m_Allocation);
+    }
+
+    VKUniformBuffer::~VKUniformBuffer()
+    {
+        VulkanAllocator::Unmap(m_Allocation);
+        VulkanContext::Get().PushDeletion([b = m_Buffer, a = m_Allocation]() {
+            VulkanAllocator::FreeBuffer(b, a);
+        });
+    }
+
+    void VKUniformBuffer::SetData(const void* data, uint32_t size, uint32_t offset)
+    {
+        memcpy((uint8_t*)m_MappedData + offset, data, size);
+    }
 }

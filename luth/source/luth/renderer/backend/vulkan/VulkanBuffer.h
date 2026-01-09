@@ -46,4 +46,19 @@ namespace Luth
         VmaAllocation m_Allocation = nullptr;
         uint32_t m_Count;
     };
+
+    class VKUniformBuffer
+    {
+    public:
+        VKUniformBuffer(uint32_t size);
+        ~VKUniformBuffer();
+
+        void SetData(const void* data, uint32_t size, uint32_t offset = 0);
+        VkBuffer GetVulkanBuffer() const { return m_Buffer; }
+
+    private:
+        VkBuffer m_Buffer = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = nullptr;
+        void* m_MappedData = nullptr;
+    };
 }

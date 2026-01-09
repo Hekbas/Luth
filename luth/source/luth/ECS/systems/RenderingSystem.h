@@ -4,6 +4,7 @@
 #include "luth/core/Memory.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/Texture.h"
 
 #include <entt/entt.hpp>
@@ -11,6 +12,14 @@
 
 namespace Luth
 {
+    struct GlobalUniforms {
+        glm::mat4 viewProjection;
+        glm::mat4 view;
+        glm::mat4 projection;
+        glm::vec3 cameraPos;
+        float time;
+    };
+
     class RenderingSystem : public System
     {
     public:
@@ -23,11 +32,18 @@ namespace Luth
         std::shared_ptr<Texture> GetSceneColor() const { return m_SceneColor; }
 
     private:
+        void InitGlobalUniforms();
+        void UpdateGlobalUniforms();
+
         // Memory
         std::unique_ptr<LinearAllocator> m_FrameAllocator;
 
         // Resources
         std::shared_ptr<Texture> m_SceneColor;
+        
+        std::shared_ptr<VKUniformBuffer> m_GlobalUniformBuffer;
+        VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet m_GlobalDescriptorSet = VK_NULL_HANDLE;
 
         // Vulkan Test Pipeline
         std::unique_ptr<VKPipeline> m_TrianglePipeline;

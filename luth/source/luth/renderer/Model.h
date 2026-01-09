@@ -69,9 +69,10 @@ namespace Luth
         virtual ~Model() = default;
 
         void Init();
-
+        
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
-        std::vector<std::shared_ptr<Mesh>>& GetMeshes() { return m_Meshes; }
+        const std::vector<std::shared_ptr<Mesh>>& GetMeshes() const { return m_Meshes; }
+        std::shared_ptr<Mesh> GetMesh(u32 index) const { return (index < m_Meshes.size()) ? m_Meshes[index] : nullptr; }
         const ModelInfo& GetCachedModelInfo() const { return m_ModelInfo; }
 
         void AddMaterial(UUID uuid, u32 index) {

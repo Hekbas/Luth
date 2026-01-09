@@ -25,6 +25,7 @@ namespace Luth
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
+        DescriptorAllocator& GetDescriptorAllocator() { return m_DescriptorAllocator; }
         
         // Queue Access
         VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
@@ -65,6 +66,7 @@ namespace Luth
         u32 m_GraphicsFamily = -1;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         BindlessDescriptorSet m_BindlessSet;
+        DescriptorAllocator m_DescriptorAllocator;
 
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         void* m_WindowHandle = nullptr; // Raw GLFW window handle

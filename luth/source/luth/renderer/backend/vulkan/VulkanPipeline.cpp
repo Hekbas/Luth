@@ -9,10 +9,10 @@ namespace Luth
     VKPipeline::VKPipeline(const PipelineConfig& config, 
                            const std::vector<u32>& vertCode, 
                            const std::vector<u32>& fragCode,
-                           VkDescriptorSetLayout globalLayout)
+                           const std::vector<VkDescriptorSetLayout>& layouts)
     {
         m_Device = VulkanContext::Get().GetDevice();
-        CreatePipeline(config, vertCode, fragCode, globalLayout);
+        CreatePipeline(config, vertCode, fragCode, layouts);
     }
 
     VKPipeline::~VKPipeline()
@@ -44,7 +44,7 @@ namespace Luth
     void VKPipeline::CreatePipeline(const PipelineConfig& config, 
                                     const std::vector<u32>& vertCode, 
                                     const std::vector<u32>& fragCode,
-                                    VkDescriptorSetLayout globalLayout)
+                                    const std::vector<VkDescriptorSetLayout>& layouts)
     {
         VkShaderModule vertShader = CreateShaderModule(vertCode);
         VkShaderModule fragShader = CreateShaderModule(fragCode);
@@ -124,12 +124,19 @@ namespace Luth
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates = dynamicStates.data();
 
+        // Push Constants
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = sizeof(Mat4); // Model Matrix
+
         // Pipeline Layout
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &globalLayout; // Set 0: Bindless
-        // TODO: Add Push Constants here
+        pipelineLayoutInfo.setLayoutCount = (u32)layouts.size();
+        pipelineLayoutInfo.pSetLayouts = layouts.data();
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
         if (vkCreatePipelineLayout(m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS) {
             LH_CORE_CRITICAL("Failed to create pipeline layout!");
