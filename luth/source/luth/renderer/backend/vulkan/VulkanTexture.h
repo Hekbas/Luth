@@ -31,6 +31,7 @@ namespace Luth
         virtual int GetMipLevels() const override { return 1; }
         virtual void GenerateMipmaps() override {}
 
+        VkImage GetImage() const { return m_Image; }
         VkImageView GetImageView() const { return m_ImageView; }
         VkSampler GetSampler() const { return m_Sampler; }
         u32 GetBindlessIndex() const { return m_BindlessIndex; }

@@ -22,15 +22,16 @@ project "imgui"
 		-- Backend GLFW + OpenGL
 		"source/imgui/backends/imgui_impl_glfw.h",
 		"source/imgui/backends/imgui_impl_glfw.cpp",
-		"source/imgui/backends/imgui_impl_opengl3.h",
-		"source/imgui/backends/imgui_impl_opengl3.cpp"
+		"source/imgui/backends/imgui_impl_vulkan.h",
+		"source/imgui/backends/imgui_impl_vulkan.cpp"
 	}
 
 	includedirs
 	{
 		"source",
 		"source/imgui",
-		IncludeDir["glfw"]
+		IncludeDir["glfw"],
+		IncludeDir["vulkan"]
 	}
 
 	filter "system:windows"

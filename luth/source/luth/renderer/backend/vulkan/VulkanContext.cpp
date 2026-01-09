@@ -304,8 +304,16 @@ namespace Luth
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
-        vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(m_GraphicsQueue);
+        // Create a fence to wait for this specific submission
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence;
+        vkCreateFence(m_Device, &fenceInfo, nullptr, &fence);
+
+        vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, fence);
+        
+        vkWaitForFences(m_Device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(m_Device, fence, nullptr);
 
         vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &commandBuffer);
     }

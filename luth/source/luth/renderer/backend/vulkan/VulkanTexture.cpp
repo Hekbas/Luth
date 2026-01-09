@@ -59,22 +59,7 @@ namespace Luth
 
     void VKTexture::CreateImage(const void* data)
     {
-        VkDeviceSize imageSize = m_Width * m_Height * 4; // Assuming RGBA8
-
-        // 1. Create Staging Buffer
-        VkBufferCreateInfo stagingInfo = {};
-        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stagingInfo.size = imageSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-        VkBuffer stagingBuffer;
-        VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(stagingInfo, VMA_MEMORY_USAGE_CPU_ONLY, stagingBuffer);
-
-        void* mappedData = VulkanAllocator::Map(stagingAlloc);
-        memcpy(mappedData, data, static_cast<size_t>(imageSize));
-        VulkanAllocator::Unmap(stagingAlloc);
-
-        // 2. Create Image
+        // 1. Create Image
         VkImageCreateInfo imageInfo = {};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -86,19 +71,35 @@ namespace Luth
         imageInfo.format = LuthFormatToVulkan(m_Format);
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        // Add COLOR_ATTACHMENT_BIT to allow use as render target, TRANSFER_SRC for readback
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 
         m_Allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Image);
 
-        // 3. Transition and Copy
+        // 2. Create Staging Buffer (only if data exists)
+        VkBuffer stagingBuffer = VK_NULL_HANDLE;
+        VmaAllocation stagingAlloc = nullptr;
+
+        if (data)
+        {
+            VkDeviceSize imageSize = m_Width * m_Height * 4; // Assuming RGBA8
+            VkBufferCreateInfo stagingInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            stagingInfo.size = imageSize;
+            stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+            stagingAlloc = VulkanAllocator::AllocateBuffer(stagingInfo, VMA_MEMORY_USAGE_CPU_ONLY, stagingBuffer);
+
+            void* mappedData = VulkanAllocator::Map(stagingAlloc);
+            memcpy(mappedData, data, static_cast<size_t>(imageSize));
+            VulkanAllocator::Unmap(stagingAlloc);
+        }
+
+        // 3. Transition and Copy (or just Transition)
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            // Transition Undefined -> Transfer Dst
             VkImageMemoryBarrier barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.image = m_Image;
@@ -107,35 +108,47 @@ namespace Luth
             barrier.subresourceRange.levelCount = 1;
             barrier.subresourceRange.baseArrayLayer = 0;
             barrier.subresourceRange.layerCount = 1;
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            if (data)
+            {
+                // Transition Undefined -> Transfer Dst
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-            // Copy Buffer to Image
-            VkBufferImageCopy region{};
-            region.bufferOffset = 0;
-            region.bufferRowLength = 0;
-            region.bufferImageHeight = 0;
-            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.imageSubresource.mipLevel = 0;
-            region.imageSubresource.baseArrayLayer = 0;
-            region.imageSubresource.layerCount = 1;
-            region.imageOffset = { 0, 0, 0 };
-            region.imageExtent = { m_Width, m_Height, 1 };
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-            vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                // Copy Buffer to Image
+                VkBufferImageCopy region{};
+                region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.imageSubresource.layerCount = 1;
+                region.imageExtent = { m_Width, m_Height, 1 };
 
-            // Transition Transfer Dst -> Shader Read Only
-            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+                // Transition Transfer Dst -> Shader Read Only
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            }
+            else
+            {
+                // Just Transition Undefined -> Shader Read Only
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            }
         });
 
-        VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
+        if (stagingBuffer)
+            VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
     }
 
     void VKTexture::CreateViewAndSampler()

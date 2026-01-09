@@ -49,7 +49,8 @@ project "Luth"
       "glfw",
       "glm",
       "imgui",
-      "vulkan-1"
+      "vulkan-1",
+      "shaderc_shared"
    }
 
    filter "configurations:Debug"

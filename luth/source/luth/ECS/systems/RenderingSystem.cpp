@@ -7,7 +7,11 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VKRendererAPI.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/renderer/ShaderCompiler.h"
+#include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
 
 namespace Luth
 {
@@ -18,15 +22,15 @@ namespace Luth
 
         if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
         {
-            // Load compiled SPIR-V shaders
-            std::string vertPath = (FileSystem::AssetsPath() / "shaders/spv/triangle.vert.spv").string();
-            std::string fragPath = (FileSystem::AssetsPath() / "shaders/spv/triangle.frag.spv").string();
+            // Create Scene Color Texture
+            m_SceneColor = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
 
-            // Check if files exist
-            if (!fs::exists(vertPath) || !fs::exists(fragPath)) {
-                LH_CORE_ERROR("Shader files not found! Run compile_shaders.bat");
-                return;
-            }
+            // Compile Shaders
+            fs::path vertSrc = FileSystem::AssetsPath() / "shaders/triangle.vert";
+            fs::path fragSrc = FileSystem::AssetsPath() / "shaders/triangle.frag";
+            
+            std::vector<u32> vertSpv = ShaderCompiler::Compile(vertSrc);
+            std::vector<u32> fragSpv = ShaderCompiler::Compile(fragSrc);
 
             PipelineConfig config;
             config.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // SceneColor format
@@ -37,7 +41,7 @@ namespace Luth
 
             // Use global bindless layout
             VkDescriptorSetLayout globalLayout = VulkanContext::Get().GetBindlessSet().GetLayout();
-            m_TrianglePipeline = std::make_unique<VKPipeline>(config, vertPath, fragPath, globalLayout);
+            m_TrianglePipeline = std::make_unique<VKPipeline>(config, vertSpv, fragSpv, globalLayout);
         }
     }
 
@@ -66,7 +70,6 @@ namespace Luth
                 RG::ResourceHandle outputTex;
             };
 
-            // 1. Geometry Pass (Draws Triangle)
             static RG::ResourceHandle s_SceneColorHandle;
 
             rg.AddPass<GeometryPassData>("GeometryPass",
@@ -74,11 +77,15 @@ namespace Luth
                 {
                     RG::TextureDesc desc;
                     desc.name = "SceneColor";
-                    desc.width = 1280;
-                    desc.height = 720;
+                    desc.width = m_SceneColor->GetWidth();
+                    desc.height = m_SceneColor->GetHeight();
                     desc.format = RG::TextureFormat::RGBA8_Unorm;
                     
-                    data.outputTex = builder.CreateTexture(desc);
+                    data.outputTex = rg.ImportResource(desc, 
+                        (void*)static_cast<VKTexture*>(m_SceneColor.get())->GetImage(), 
+                        (void*)static_cast<VKTexture*>(m_SceneColor.get())->GetImageView(), 
+                        RG::ResourceState::ShaderResource);
+
                     data.outputTex = builder.Write(data.outputTex);
                     s_SceneColorHandle = data.outputTex;
                 },
@@ -110,6 +117,11 @@ namespace Luth
                         // Bind Pipeline
                         m_TrianglePipeline->Bind(cmd);
 
+                        // Bind Bindless Descriptor Set (Set 0)
+                        // FIXME: Shader expects UBO at Set 0, but we are binding Bindless (Samplers). Disabling draw to prevent validation errors.
+                        // VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
+
                         // Set Dynamic States
                         VkViewport viewport{};
                         viewport.x = 0.0f;
@@ -126,40 +138,64 @@ namespace Luth
                         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
                         // Draw Triangle (3 vertices)
-                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        // vkCmdDraw(cmd, 3, 1, 0, 0);
 
                         vkCmdEndRendering(cmd);
                     }
                 }
             );
 
-            // 2. Present Pass (Clears Backbuffer using Render Pass)
-            struct PresentPassData {
+            // 2. ImGui Pass (Draws UI on top of Swapchain)
+            struct ImGuiPassData {
                 RG::ResourceHandle backbuffer;
             };
 
-            rg.AddPass<PresentPassData>("PresentPass",
-                [&](PresentPassData& data, RG::RenderPassBuilder& builder)
+            rg.AddPass<ImGuiPassData>("ImGuiPass",
+                [&](ImGuiPassData& data, RG::RenderPassBuilder& builder)
                 {
+                    auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                    VkImage swapchainImage = vkRenderer->GetSwapchain().GetImage(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
+                    VkImageView swapchainView = vkRenderer->GetSwapchain().GetImageView(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
+
                     RG::TextureDesc desc;
                     desc.name = "Backbuffer";
-                    desc.width = 1280;
-                    desc.height = 720;
+                    desc.width = vkRenderer->GetSwapchain().GetExtent().width;
+                    desc.height = vkRenderer->GetSwapchain().GetExtent().height;
                     desc.format = RG::TextureFormat::RGBA8_Unorm;
                     
-                    // Import Swapchain Image
-                    // Note: In a real engine, we would get the current swapchain image from Renderer
-                    // For now, we assume VKRendererAPI exposes it or we just clear it here.
-                    // Since we don't have easy access to the swapchain image handle here without casting,
-                    // we will skip the actual import logic for this specific test and just rely on the fact
-                    // that EndFrame() presents.
-                    
-                    // However, to test the graph, we can just use the output of GeometryPass
-                    // In a real scenario, we would Blit s_SceneColorHandle to Swapchain Image.
+                    data.backbuffer = rg.ImportResource(desc, 
+                        (void*)swapchainImage, 
+                        (void*)swapchainView, 
+                        RG::ResourceState::Undefined);
+                    data.backbuffer = builder.Write(data.backbuffer);
+
+                    // Declare dependency on SceneColor so RenderGraph generates the transition to SHADER_READ_ONLY
+                    if (s_SceneColorHandle.IsValid())
+                    {
+                        builder.Read(s_SceneColorHandle);
+                    }
                 },
-                [&](PresentPassData& data, RG::RenderPassContext& ctx)
+                [&](ImGuiPassData& data, RG::RenderPassContext& ctx)
                 {
-                    // Placeholder for Swapchain Blit
+                    VkCommandBuffer cmd = ctx.commandBuffer;
+                    RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.backbuffer);
+
+                    VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+                    colorAttachment.imageView = res->view;
+                    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                    colorAttachment.clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+                    VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+                    renderInfo.renderArea = { {0, 0}, {res->desc.width, res->desc.height} };
+                    renderInfo.layerCount = 1;
+                    renderInfo.colorAttachmentCount = 1;
+                    renderInfo.pColorAttachments = &colorAttachment;
+
+                    vkCmdBeginRendering(cmd, &renderInfo);
+                    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+                    vkCmdEndRendering(cmd);
                 }
             );
 
@@ -173,6 +209,10 @@ namespace Luth
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
-        // Resize logic handled by RenderGraph recreation usually
+        if (m_SceneColor)
+        {
+            // Recreate texture
+            m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA8);
+        }
     }
 }

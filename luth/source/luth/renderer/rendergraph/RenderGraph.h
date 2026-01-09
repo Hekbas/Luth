@@ -127,7 +127,7 @@ namespace Luth::RG
         ResourceHandle RegisterResource(const TextureDesc& desc);
         
         // Import an existing resource (e.g. Swapchain Image)
-        ResourceHandle ImportResource(const TextureDesc& desc, void* physicalResource, ResourceState initialState);
+        ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
 
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);

@@ -7,12 +7,12 @@
 namespace Luth
 {
     VKPipeline::VKPipeline(const PipelineConfig& config, 
-                           const std::string& vertPath, 
-                           const std::string& fragPath,
+                           const std::vector<u32>& vertCode, 
+                           const std::vector<u32>& fragCode,
                            VkDescriptorSetLayout globalLayout)
     {
         m_Device = VulkanContext::Get().GetDevice();
-        CreatePipeline(config, vertPath, fragPath, globalLayout);
+        CreatePipeline(config, vertCode, fragCode, globalLayout);
     }
 
     VKPipeline::~VKPipeline()
@@ -26,40 +26,28 @@ namespace Luth
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline);
     }
 
-    VkShaderModule VKPipeline::LoadShader(const std::string& path)
+    VkShaderModule VKPipeline::CreateShaderModule(const std::vector<u32>& code)
     {
-        std::ifstream file(path, std::ios::ate | std::ios::binary);
-        if (!file.is_open()) {
-            LH_CORE_ERROR("Failed to open shader file: {0}", path);
-            return VK_NULL_HANDLE;
-        }
-
-        size_t fileSize = (size_t)file.tellg();
-        std::vector<char> buffer(fileSize);
-        file.seekg(0);
-        file.read(buffer.data(), fileSize);
-        file.close();
-
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize = buffer.size();
-        createInfo.pCode = reinterpret_cast<const uint32_t*>(buffer.data());
+        createInfo.codeSize = code.size() * sizeof(u32);
+        createInfo.pCode = code.data();
 
         VkShaderModule shaderModule;
         if (vkCreateShaderModule(m_Device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-            LH_CORE_ERROR("Failed to create shader module: {0}", path);
+            LH_CORE_ERROR("Failed to create shader module!");
             return VK_NULL_HANDLE;
         }
         return shaderModule;
     }
 
     void VKPipeline::CreatePipeline(const PipelineConfig& config, 
-                                    const std::string& vertPath, 
-                                    const std::string& fragPath,
+                                    const std::vector<u32>& vertCode, 
+                                    const std::vector<u32>& fragCode,
                                     VkDescriptorSetLayout globalLayout)
     {
-        VkShaderModule vertShader = LoadShader(vertPath);
-        VkShaderModule fragShader = LoadShader(fragPath);
+        VkShaderModule vertShader = CreateShaderModule(vertCode);
+        VkShaderModule fragShader = CreateShaderModule(fragCode);
 
         VkPipelineShaderStageCreateInfo shaderStages[] = {
             { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertShader, "main", nullptr },

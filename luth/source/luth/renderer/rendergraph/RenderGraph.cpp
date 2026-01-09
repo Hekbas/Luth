@@ -57,12 +57,13 @@ namespace Luth::RG
         return { index, 0 };
     }
 
-    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* physicalResource, ResourceState initialState)
+    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState)
     {
         u32 index = (u32)m_Resources.size() + 1;
         // isTransient = false because we don't own it
         ResourceNode node{ desc, 0, false, initialState, initialState };
-        node.image = (VkImage)physicalResource;
+        node.image = (VkImage)image;
+        node.view = (VkImageView)view;
         node.external = true;
         m_Resources.push_back(node);
         return { index, 0 };

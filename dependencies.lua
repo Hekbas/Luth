@@ -6,3 +6,6 @@ IncludeDir["glm"] = "%{wks.location}/luth/extern/source/glm"
 IncludeDir["imgui"] = "%{wks.location}/luth/extern/source/imgui"
 IncludeDir["spdlog"] = "%{wks.location}/luth/extern/source/spdlog/include"
 IncludeDir["vulkan"] = "%{wks.location}/luth/extern/source/vulkan/include"
+
+LibraryDir = {}
+LibraryDir["vulkan"] = "%{wks.location}/luth/extern/source/vulkan/lib"

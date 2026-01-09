@@ -27,8 +27,8 @@ namespace Luth
     {
     public:
         VKPipeline(const PipelineConfig& config, 
-                   const std::string& vertPath, 
-                   const std::string& fragPath,
+                   const std::vector<u32>& vertCode, 
+                   const std::vector<u32>& fragCode,
                    VkDescriptorSetLayout globalLayout); // Pass bindless layout
         ~VKPipeline();
 
@@ -37,10 +37,10 @@ namespace Luth
 
     private:
         void CreatePipeline(const PipelineConfig& config, 
-                            const std::string& vertPath, 
-                            const std::string& fragPath,
+                            const std::vector<u32>& vertCode, 
+                            const std::vector<u32>& fragCode,
                             VkDescriptorSetLayout globalLayout);
-        VkShaderModule LoadShader(const std::string& path);
+        VkShaderModule CreateShaderModule(const std::vector<u32>& code);
 
         VkPipeline m_Pipeline = VK_NULL_HANDLE;
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;

@@ -35,9 +35,21 @@ project "Sandbox"
       IncludeDir["vulkan"]
    }
 
+   libdirs
+   {
+      LibraryDir["vulkan"]
+   }
+
+   postbuildcommands
+   {
+      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
+   }
+
    links
    {
-      "Luth"
+      "Luth",
+      "vulkan-1",
+      "shaderc_shared"
    }
 
    filter "configurations:Debug"

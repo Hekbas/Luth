@@ -44,9 +44,16 @@ project "Luthien"
       IncludeDir["vulkan"]
    }
 
+   libdirs
+   {
+      LibraryDir["vulkan"]
+   }
+
    links
    {
-      "Luth"
+      "Luth",
+      "vulkan-1",
+      "shaderc_shared"
    }
 
    filter "configurations:Debug"

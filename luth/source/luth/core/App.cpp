@@ -34,7 +34,7 @@ namespace Luth
         Systems::Init();
         Systems::SetRegistry(m_Scene->RegistryPtr());
 
-        //Editor::Init(m_Window.get());
+        Editor::Init(m_Window.get());
 
         // Subscribe to events
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
@@ -66,16 +66,28 @@ namespace Luth
             
             OnUpdate();
 
+            // Editor Begin
+            Editor::BeginFrame();
+            Editor::Render(); // Submits ImGui commands to ImGui internal buffers
+
+            // Editor End (Generates DrawData for ImGui)
+            Editor::EndFrame();
+
+            // Update and Render additional Platform Windows
+            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+            {
+                ImGui::UpdatePlatformWindows();
+                ImGui::RenderPlatformWindowsDefault();
+            }
+
             if (!m_Window->IsMinimized())
             {
                 {
                     LH_PROFILE_SCOPE("Systems::Update");
                     Systems::Update<TransformSystem>();
-                    // RenderingSystem will be re-added in Phase 6
+                    Systems::Update<RenderingSystem>();
                 }
             }
-
-            // SwapBuffers / EndFrame will be handled by the new Renderer in Phase 3
         }
 
         OnShutdown();

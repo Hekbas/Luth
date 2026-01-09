@@ -9,6 +9,8 @@
 #include "luth/input/Input.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include <backends/imgui_impl_vulkan.h>
 
 namespace Luth
 {
@@ -47,13 +49,34 @@ namespace Luth
             }
 
             // Get final output from active rendering technique
-            // TODO: Re-implement texture display with RenderGraph
-            // if (auto technique = m_RenderingSystem->GetActivePipeline()) {
-            //    i32 textureID = Editor::GetPanel<RenderPanel>()->GetSelectedAttachment();
-            //    if (textureID == -1) textureID = (i32)technique->GetFinalColorAttachment();
-            //    ImGui::Image(textureID, ToImVec2(m_ViewportSize), { 0, 1 }, { 1, 0 });
-            // }
-            ImGui::Text("Scene Viewport (RenderGraph Output Pending)");
+            if (auto texture = m_RenderingSystem->GetSceneColor())
+            {
+                // Create/Get Descriptor Set for ImGui
+                // Note: In a real engine, cache this descriptor set and only update if texture changes.
+                // For now, we create a new one every frame (LEAK WARNING: ImGui_ImplVulkan_AddTexture allocates a set, need to free it?)
+                // ImGui_ImplVulkan_AddTexture is intended for static textures. For dynamic, use ImGui_ImplVulkan_RegisterTexture if available or manage sets manually.
+                // Since we are in "Get it running" mode, we will use the raw bindless index if possible, OR just AddTexture.
+                // Actually, ImGui_ImplVulkan_AddTexture is fine if we don't do it every frame for the SAME texture object.
+                // But m_SceneColor changes on resize.
+                // Let's use a static descriptor set and update it.
+                
+                static VkDescriptorSet ds = VK_NULL_HANDLE;
+                static std::shared_ptr<Texture> lastTex = nullptr;
+
+                if (texture != lastTex)
+                {
+                    if (ds) ImGui_ImplVulkan_RemoveTexture(ds);
+                    auto vkTex = std::static_pointer_cast<VKTexture>(texture);
+                    ds = ImGui_ImplVulkan_AddTexture(vkTex->GetSampler(), vkTex->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    lastTex = texture;
+                }
+
+                ImGui::Image((ImTextureID)ds, ToImVec2(m_ViewportSize), { 0, 0 }, { 1, 1 });
+            }
+            else
+            {
+                ImGui::Text("No Scene Output");
+            }
 
             // Interaction states
             m_IsFocused = ImGui::IsWindowFocused();
