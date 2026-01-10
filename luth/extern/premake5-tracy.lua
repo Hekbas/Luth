@@ -11,12 +11,12 @@ project "Tracy"
    includedirs { "source/tracy/public" }
    
    filter "configurations:Debug"
-      defines { "TRACY_ENABLE" }
+      defines { "TRACY_ENABLE", "TRACY_FIBERS" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "TRACY_ENABLE" }
+      defines { "TRACY_ENABLE", "TRACY_FIBERS" }
       runtime "Release"
       optimize "on"
 

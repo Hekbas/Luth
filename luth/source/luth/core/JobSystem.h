@@ -23,6 +23,14 @@ namespace Luth::JobSystem
         std::atomic<u32> value = 0;
     };
 
+    struct Stats
+    {
+        u32 ThreadCount;
+        u32 TotalFibers;
+        u32 FreeFibers;
+        u32 QueueSize;
+    };
+
     // Lifecycle
     void Init(u32 numThreads = 0); 
     void Shutdown();
@@ -40,6 +48,8 @@ namespace Luth::JobSystem
     // Returns true if the counter has not reached the target value
     bool IsBusy(const Counter* counter);
     
+    Stats GetStats();
+
     // Helper for lambdas (less performant but convenient)
     // Note: This requires allocating the lambda on the heap or LinearAllocator if it captures state!
     template<typename F>

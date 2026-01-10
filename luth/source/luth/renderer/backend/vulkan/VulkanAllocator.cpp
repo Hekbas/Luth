@@ -80,4 +80,19 @@ namespace Luth
     void VulkanAllocator::Unmap(VmaAllocation allocation) {
         vmaUnmapMemory(s_Data->allocator, allocation);
     }
+
+    GPUMemoryStats VulkanAllocator::GetStats()
+    {
+        GPUMemoryStats stats = {};
+        if (s_Data && s_Data->allocator)
+        {
+            VmaTotalStatistics vmaStats;
+            vmaCalculateStatistics(s_Data->allocator, &vmaStats);
+            stats.UsedBytes = vmaStats.total.statistics.allocationBytes;
+            stats.FreeBytes = vmaStats.total.statistics.blockBytes - vmaStats.total.statistics.allocationBytes;
+            stats.AllocationCount = vmaStats.total.statistics.allocationCount;
+            stats.BlockCount = vmaStats.total.statistics.blockCount;
+        }
+        return stats;
+    }
 }

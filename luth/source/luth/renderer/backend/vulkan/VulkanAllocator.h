@@ -10,6 +10,14 @@ enum VmaMemoryUsage;
 
 namespace Luth
 {
+    struct GPUMemoryStats
+    {
+        u64 UsedBytes;
+        u64 FreeBytes;
+        u32 AllocationCount;
+        u32 BlockCount;
+    };
+
     class VulkanAllocator
     {
     public:
@@ -26,5 +34,7 @@ namespace Luth
 
         static void* Map(VmaAllocation allocation);
         static void Unmap(VmaAllocation allocation);
+
+        static GPUMemoryStats GetStats();
     };
 }

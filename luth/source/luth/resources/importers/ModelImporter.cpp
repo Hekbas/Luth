@@ -111,6 +111,8 @@ namespace Luth
 
     bool ModelImporter::Import(const std::filesystem::path& path, std::unique_ptr<AssetData>& outData)
     {
+        LH_PROFILE_FUNCTION();
+
         Assimp::Importer importer;
         const aiScene* scene = importer.ReadFile(path.string(),
             aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |

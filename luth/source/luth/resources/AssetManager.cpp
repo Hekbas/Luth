@@ -57,7 +57,10 @@ namespace Luth
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)
     {
+        LH_PROFILE_FUNCTION();
+
         LoadRequest* req = (LoadRequest*)args.data;
+        LH_PROFILE_TAG("Asset", req->Path.string().c_str());
         
         if (s_Importers.find(req->Type) == s_Importers.end())
         {
@@ -84,6 +87,8 @@ namespace Luth
 
     void AssetManager::Update()
     {
+        LH_PROFILE_FUNCTION();
+
         std::lock_guard<std::mutex> lock(s_UploadMutex);
         if (s_UploadQueue.empty()) return;
 

@@ -172,6 +172,8 @@ namespace Luth
 
     u32 VulkanSwapchain::AcquireNextImage(VkSemaphore signalSemaphore)
     {
+        LH_PROFILE_FUNCTION();
+
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
 
@@ -187,6 +189,8 @@ namespace Luth
 
     void VulkanSwapchain::Present(VkSemaphore waitSemaphore)
     {
+        LH_PROFILE_FUNCTION();
+
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;

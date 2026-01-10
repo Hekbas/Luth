@@ -56,11 +56,13 @@ namespace Luth
             : m_TotalSize(size)
         {
             m_Start = malloc(size);
+            LH_PROFILE_ALLOC(m_Start, size);
             m_Current = m_Start;
         }
 
         ~LinearAllocator()
         {
+            LH_PROFILE_FREE(m_Start);
             free(m_Start);
         }
 

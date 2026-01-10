@@ -15,6 +15,7 @@
 #include "luth/editor/panels/ResourcePanel.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
+#include "luth/editor/panels/ProfilerPanel.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -105,6 +106,7 @@ namespace Luth
         AddPanel(new ResourcePanel());
         AddPanel(new ScenePanel(rs));
         AddPanel(new RenderPanel());
+        AddPanel(new ProfilerPanel());
 
         // Init all panels
         for (auto& panel : s_Panels)
@@ -149,6 +151,8 @@ namespace Luth
 
     void Editor::Render()
     {
+        LH_PROFILE_FUNCTION();
+
         // Skip rendering if context is null (Vulkan case)
         if (!s_Context) return;
 

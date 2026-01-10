@@ -6,6 +6,8 @@ namespace Luth
 {
     bool TextureImporter::Import(const std::filesystem::path& path, std::unique_ptr<AssetData>& outData)
     {
+        LH_PROFILE_FUNCTION();
+
         int width, height, channels;
         stbi_set_flip_vertically_on_load(1);
         

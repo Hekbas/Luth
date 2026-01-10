@@ -32,6 +32,7 @@ namespace Luth::JobSystem
         Fiber fiber;
         Job currentJob;
         bool isMainThread = false;
+        const char* debugName = nullptr;
     };
 
     // We use a fixed pool of counters to avoid allocation during runtime
@@ -93,6 +94,7 @@ namespace Luth::JobSystem
         {
             FiberContext* ctx = new FiberContext();
             ctx->fiber = Fiber::Create(FiberEntryPoint, ctx);
+            ctx->debugName = "Worker Fiber";
             s_FreeFibers.push_back(ctx);
             s_AllFibers.push_back(ctx);
         }
@@ -101,6 +103,7 @@ namespace Luth::JobSystem
         s_ThreadFiber = new FiberContext();
         s_ThreadFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
         s_ThreadFiber->isMainThread = true;
+        s_ThreadFiber->debugName = "Main Thread";
         s_CurrentFiber = s_ThreadFiber;
 
         // Spawn Workers
@@ -173,6 +176,21 @@ namespace Luth::JobSystem
         return counter && counter->value.load() > 0;
     }
 
+    Stats GetStats()
+    {
+        Stats stats;
+        stats.ThreadCount = (u32)s_WorkerThreads.size();
+        
+        std::lock_guard<std::mutex> fiberLock(s_FiberPoolLock);
+        stats.TotalFibers = (u32)s_AllFibers.size();
+        stats.FreeFibers = (u32)s_FreeFibers.size();
+        
+        std::lock_guard<std::mutex> queueLock(s_QueueLock);
+        stats.QueueSize = (u32)s_JobQueue.size();
+        
+        return stats;
+    }
+
     // ===================================================================================
     // Fiber Logic
     // ===================================================================================
@@ -230,9 +248,11 @@ namespace Luth::JobSystem
                     // 3. Switch to Fiber
                     fiberCtx->currentJob = job;
                     s_CurrentFiber = fiberCtx;
+                    LH_PROFILE_FIBER_ENTER(fiberCtx->debugName);
                     Fiber::SwitchTo(fiberCtx->fiber);
                     
                     // 4. Back from Fiber (Job finished or suspended)
+                    LH_PROFILE_FIBER_ENTER("Scheduler");
                     s_CurrentFiber = s_ThreadFiber;
                 }
                 else
@@ -283,12 +303,16 @@ namespace Luth::JobSystem
             }
             
             // Switch back to the thread that scheduled us
+            LH_PROFILE_FIBER_ENTER("Scheduler");
             Fiber::SwitchTo(s_ThreadFiber->fiber);
+            LH_PROFILE_FIBER_ENTER(ctx->debugName);
         }
     }
 
     static void WorkerThreadEntryPoint(u32 threadIndex)
     {
+        LH_PROFILE_THREAD(fmt::format("Worker Thread {}", threadIndex).c_str());
+
         // Convert this thread to a fiber so we can switch FROM it
         s_ThreadFiber = new FiberContext();
         s_ThreadFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);

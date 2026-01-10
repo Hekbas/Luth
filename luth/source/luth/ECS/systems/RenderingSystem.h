@@ -30,6 +30,9 @@ namespace Luth
         void Resize(u32 width, u32 height);
 
         std::shared_ptr<Texture> GetSceneColor() const { return m_SceneColor; }
+        
+        u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
+        u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
 
     private:
         void InitGlobalUniforms();

@@ -42,6 +42,8 @@ namespace Luth
 
     bool VKRendererAPI::BeginFrame()
     {
+        LH_PROFILE_FUNCTION();
+
         VkDevice device = VulkanContext::Get().GetDevice();
         
         // Update Context Frame Index and Flush Deletions for this frame
@@ -78,6 +80,8 @@ namespace Luth
 
     void VKRendererAPI::EndFrame()
     {
+        LH_PROFILE_FUNCTION();
+
         VkCommandBuffer cmd = m_CommandBuffers[m_CurrentFrame];
 
         // Transition Swapchain Image to Present Layout
@@ -132,6 +136,8 @@ namespace Luth
 
     void VKRendererAPI::OnResize(u32 width, u32 height)
     {
+        LH_PROFILE_FUNCTION();
+
         if (width == 0 || height == 0) return;
         m_Swapchain->Recreate(width, height);
     }

@@ -284,6 +284,8 @@ namespace Luth
 
     void VulkanContext::ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function)
     {
+        LH_PROFILE_FUNCTION();
+
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;

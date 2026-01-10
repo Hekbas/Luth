@@ -20,6 +20,8 @@ namespace Luth
 
         static void UpdateTransformJob(JobSystem::JobArgs args)
         {
+            LH_PROFILE_FUNCTION();
+
             UpdateData* data = (UpdateData*)args.data;
             entt::registry& registry = *data->registry;
             entt::entity entity = (*data->entities)[args.jobIndex];

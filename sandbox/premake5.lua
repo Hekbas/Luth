@@ -54,12 +54,12 @@ project "Sandbox"
    }
 
    filter "configurations:Debug"
-      defines { "DEBUG", "TRACY_ENABLE" }
+      defines { "DEBUG", "TRACY_ENABLE", "TRACY_FIBERS" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "RELEASE", "TRACY_ENABLE" }
+      defines { "RELEASE", "TRACY_ENABLE", "TRACY_FIBERS" }
       runtime "Release"
       optimize "on"
 
