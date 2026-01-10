@@ -23,8 +23,8 @@ namespace Luth
     void Entity::SetParent(Entity parent)
     {
         // Prevent invalid parenting
-        if (!parent || parent == *this || IsAncestorOf(parent)) {
-            LH_CORE_WARN("Invalid parenting operation");
+        if (parent == *this || IsAncestorOf(parent)) {
+            LH_CORE_WARN("Invalid parenting operation: Cannot parent to self or descendant");
             return;
         }
 
@@ -36,17 +36,28 @@ namespace Luth
                 children.erase(std::remove(children.begin(), children.end(), *this), children.end());
             }
         }
+        else
+        {
+            m_Scene->RemoveFromRoots(*this);
+        }
 
-        // Add to new parent (without overwriting children)
-        auto& childrenComp = parent.HasComponent<Children>() ?
-            parent.GetComponent<Children>() :
-            parent.AddComponent<Children>();
-        childrenComp.m_Children.push_back(*this);
+        if (parent)
+        {
+            // Add to new parent
+            auto& childrenComp = parent.HasComponent<Children>() ?
+                parent.GetComponent<Children>() :
+                parent.AddComponent<Children>();
+            childrenComp.m_Children.push_back(*this);
 
-        // Set new parent
-        AddOrReplaceComponent<Parent>().m_Parent = parent;
-
-        LH_CORE_INFO("Reparented {0} to {1}", GetName(), parent.GetName());
+            // Set new parent component
+            AddOrReplaceComponent<Parent>().m_Parent = parent;
+        }
+        else
+        {
+            // Make root
+            m_Scene->AddToRoots(*this);
+            if (HasComponent<Parent>()) RemoveComponent<Parent>();
+        }
     }
 
     Entity Entity::GetParent() const

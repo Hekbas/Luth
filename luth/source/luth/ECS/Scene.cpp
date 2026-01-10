@@ -22,6 +22,7 @@ namespace Luth
         entity.AddComponent<Tag>(name);
         entity.AddComponent<Transform>();
         entity.AddComponent<WorldTransform>();
+        m_RootEntities.push_back(entity);
         LH_CORE_TRACE("Created entity: {0}", name);
         return entity;
     }
@@ -46,6 +47,8 @@ namespace Luth
                 siblings.erase(std::remove(siblings.begin(), siblings.end(), entity), siblings.end());
             }
         }
+        else
+            RemoveFromRoots(entity);
 
         // Finally destroy the entity itself
         m_Registry.destroy(entity);
@@ -87,6 +90,8 @@ namespace Luth
                 duplicate.AddComponent<Parent>().m_Parent = parent;
             }
         }
+        else
+            m_RootEntities.push_back(duplicate);
 
         // Recursively duplicate children
         if (original.HasComponent<Children>()) {
@@ -107,6 +112,54 @@ namespace Luth
         return duplicate;
     }
 
+    void Scene::ReorderEntity(Entity entity, Entity target, bool after)
+    {
+        if (entity == target) return;
+
+        // 1. Ensure they share the same parent (reparent if necessary)
+        if (entity.GetParent() != target.GetParent())
+        {
+            entity.SetParent(target.GetParent());
+        }
+
+        // 2. Get the list to modify
+        std::vector<Entity>* list = nullptr;
+        if (entity.HasParent())
+        {
+            list = &entity.GetParent().GetComponent<Children>().m_Children;
+        }
+        else
+        {
+            list = &m_RootEntities;
+        }
+
+        // 3. Move in list
+        auto itEntity = std::find(list->begin(), list->end(), entity);
+        if (itEntity != list->end())
+        {
+            list->erase(itEntity);
+        }
+
+        auto itTarget = std::find(list->begin(), list->end(), target);
+        if (itTarget != list->end())
+        {
+            if (after) itTarget++;
+            list->insert(itTarget, entity);
+        }
+        else
+        {
+            list->push_back(entity); // Fallback
+        }
+    }
+
+    void Scene::AddToRoots(Entity entity) {
+        m_RootEntities.push_back(entity);
+    }
+
+    void Scene::RemoveFromRoots(Entity entity) {
+        m_RootEntities.erase(std::remove(m_RootEntities.begin(), m_RootEntities.end(), entity), m_RootEntities.end());
+    }
+
     std::string Scene::GenerateUniqueName(Entity entity)
     {
         if (!entity.IsValid()) return "";
@@ -125,8 +178,7 @@ namespace Luth
             }
         }
         else {
-            // Assuming GetRootEntities() retrieves all root entities
-            //siblings = GetRootEntities();
+            siblings = m_RootEntities;
         }
 
         // Extract base name and original number from the entity's name

@@ -33,6 +33,10 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
+        // Sync selection from Hierarchy
+        if (auto hierarchy = Editor::GetPanel<HierarchyPanel>())
+            m_SelectedEntity = hierarchy->GetSelectedEntity();
+
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
@@ -90,7 +94,7 @@ namespace Luth
             if (m_IsHovered) {
                 if (ImGui::IsKeyDown(ImGuiKey_F)) {
                     if (m_SelectedEntity) {
-                        glm::vec3 newFocus = m_SelectedEntity->GetComponent<Transform>().m_Position;
+                        glm::vec3 newFocus = m_SelectedEntity.GetComponent<Transform>().m_Position;
                         m_EditorCamera.SetFocalPoint(newFocus);
                     }
                 }

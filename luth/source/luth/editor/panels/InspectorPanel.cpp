@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
+#include "luth/editor/UI.h"
 #include "luth/ECS/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -105,48 +106,11 @@ namespace Luth
         #endif
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
-            // Position control
-            ImGui::Text("Position"); ImGui::SameLine();
-            ImGui::PushItemWidth(-1);
-            ImGui::DragFloat3("##Position", glm::value_ptr(transform.m_Position), 0.1f);
-
-            // Rotation control (Euler angles)
-            ImGui::Text("Rotation"); ImGui::SameLine();
-            glm::vec3 rotationDegrees = transform.m_Rotation;
-            if (ImGui::DragFloat3("##Rotation", glm::value_ptr(rotationDegrees), 0.5f)) {
-                transform.m_Rotation = rotationDegrees;
-            }
-
-            // Scale control
-            ImGui::Text("Scale"); ImGui::SameLine();
-            
-            // Lock toggle button (using padlock icon)
-            static bool scaleLocked = false;
-            ImGui::Checkbox("##ScaleLock", &scaleLocked);
-            ImGui::SameLine();
-            if (scaleLocked) {
-                // Uniform scale control
-                float uniformScale = transform.m_Scale.x;
-                if (ImGui::DragFloat("##UniformScale", &uniformScale, 0.1f)) {
-                    transform.m_Scale = glm::vec3(uniformScale);
-                }
-            }
-            else {
-                // Independent axis control
-                if (ImGui::DragFloat3("##Scale", glm::value_ptr(transform.m_Scale), 0.1f)) {
-                    // Optional: Sync scale if any component was changed to zero
-                    if (transform.m_Scale.x == 0 || transform.m_Scale.y == 0 || transform.m_Scale.z == 0) {
-                        transform.m_Scale = glm::max(transform.m_Scale, glm::vec3(0.001f));
-                    }
-                }
-            }
-
-            // Reset buttons
-            if (ImGui::Button("Reset Transform")) {
-                transform.m_Position = { 0,0,0 };
-                transform.m_Rotation = { 0,0,0 };
-                transform.m_Scale    = { 1,1,1 };
-            }
+            UI::BeginProperties();
+            UI::Property("Position", transform.m_Position);
+            UI::Property("Rotation", transform.m_Rotation);
+            UI::Property("Scale", transform.m_Scale, 0.1f, 1.0f);
+            UI::EndProperties();
         });
 
         DrawComponent<Camera>("Camera", m_SelectedEntity, [](Entity e, Camera& camera) {
@@ -200,61 +164,26 @@ namespace Luth
         });
 
         DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [](Entity entity, MeshRenderer& meshRenderer) {
-            // Model Selection
-            ImGui::Text("Mesh");
-            ImGui::SameLine();
-
-            // Model UUID drag target
-            if (ImGui::Button(meshRenderer.modelNamePreview.empty() ?
-                "Drop Model Here" : meshRenderer.modelNamePreview.c_str()))
-            {
-                // TODO: Open model selection window
-            }
-
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                    const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                    if (auto model = AssetManager::GetAsset<Model>(*droppedUUID)) {
-                        meshRenderer.ModelUUID = *droppedUUID;
-                        meshRenderer.modelNamePreview = model->GetName();
-                    }
-                }
-                ImGui::EndDragDropTarget();
-            }
-            ImGui::SameLine();
-
-            // Mesh Index Selection
+            UI::BeginProperties();
+            
+            UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model);
+            
             if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
-                const uint32_t meshCount = static_cast<uint32_t>(model->GetMeshes().size());
-                ImGui::Text("#");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(20);
-                ImGui::DragInt("##MeshIndex", reinterpret_cast<int*>(&meshRenderer.MeshIndex), 1.0f, 0, meshCount - 1);
+                int meshIndex = (int)meshRenderer.MeshIndex;
+                if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1))
+                    meshRenderer.MeshIndex = (u32)meshIndex;
             }
 
-            // Material Selection
-            ImGui::Text("Material");
-            ImGui::SameLine();
-
-            if (ImGui::Button(meshRenderer.materialNamePreview.empty() ?
-                "Drop Material Here" : meshRenderer.materialNamePreview.c_str()))
+            if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
             {
-                // TODO: Open material selection window
-            }
-
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                    const UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
-                    if (auto material = AssetManager::GetAsset<Material>(droppedUUID)) {
-                        meshRenderer.MaterialUUID = droppedUUID;
-                        meshRenderer.materialNamePreview = material->GetName();
-                        // AssetRegistry::SetDirty(meshRenderer.ModelUUID); // TODO: Implement dirty state in AssetManager
-                         if(auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
-                             model->AddMaterial(droppedUUID, meshRenderer.MeshIndex);
-                    }
+                // Update model's material list if possible
+                if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
+                {
+                    model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
                 }
-                ImGui::EndDragDropTarget();
             }
+            
+            UI::EndProperties();
         });
 
         DrawComponent<Animation>("Animation", m_SelectedEntity, [](Entity entity, Animation& animation) {
@@ -263,19 +192,18 @@ namespace Luth
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
-            ImGui::Text("Color"); ImGui::SameLine();
-            ImGui::ColorEdit3("##Color", &dirLight.Color.x);
-            ImGui::Text("Intensity"); ImGui::SameLine();
-            ImGui::DragFloat("##Intensity", &dirLight.Intensity, 0.01f, 0.0f, 1000.0f);
+            UI::BeginProperties();
+            UI::PropertyColor("Color", dirLight.Color);
+            UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
+            UI::EndProperties();
         });
 
         DrawComponent<PointLight>("Point Light", m_SelectedEntity, [](Entity entity, PointLight& pointLight) {
-            ImGui::Text("Color"); ImGui::SameLine();
-            ImGui::ColorEdit3("##Color", &pointLight.Color.x);
-            ImGui::Text("Intensity"); ImGui::SameLine();
-            ImGui::DragFloat("##Intensity", &pointLight.Intensity, 0.01f, 0.0f, 1000.0f);
-            ImGui::Text("Range"); ImGui::SameLine();
-            ImGui::DragFloat("##Range", &pointLight.Range, 0.1f, 0.0f, 10000.0f);
+            UI::BeginProperties();
+            UI::PropertyColor("Color", pointLight.Color);
+            UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f);
+            UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f);
+            UI::EndProperties();
         });
 
         // Add Component button

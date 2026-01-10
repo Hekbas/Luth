@@ -3,7 +3,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/ECS/Entity.h"
 #include "luth/ECS/Scene.h"
-#include "luth/editor/panels/InspectorPanel.h"
+#include <functional>
 
 namespace Luth
 {
@@ -15,33 +15,40 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
-        std::shared_ptr<Scene> GetContext() { return m_Context; }
         void SetContext(std::shared_ptr<Scene> scene) { m_Context = scene; }
+        std::shared_ptr<Scene> GetContext() const { return m_Context; }
 
         Entity GetSelectedEntity() const { return m_Selection; }
-        Entity* GetSelectedEntity() { return &m_Selection; }
         void SetSelectedEntity(Entity entity);
 
     private:
+        void DrawTopBar();
         void DrawEntityNode(Entity entity);
-        void DrawEntityContextMenu(Entity entity);
-        void DrawEntityCreateMenu();
-        void HandleDragDrop(Entity entity, const std::string& name);
-        void ProcessKeyboardShortcuts();
-        bool EntityMatchesFilter(Entity entity);
+        void DrawContextMenu(Entity parent = {});
+        
+        // Drag & Drop Logic
+        void HandleDragDropSource(Entity entity);
+        void HandleDragDropTarget(Entity targetEntity);
+        void HandleRootDragDropTarget();
 
-        void ProcessDropResource();
+        // Helpers
+        void RenameEntity(Entity entity);
+        void DeleteSelectedEntity();
+        bool IsDescendant(Entity potentialDescendant, Entity potentialAncestor);
 
     private:
         std::shared_ptr<Scene> m_Context;
         Entity m_Selection;
-        Entity m_DraggedEntity;
+        
+        // Renaming State
         Entity m_RenamingEntity;
+        bool m_IsRenaming = false;
+        bool m_FocusRename = false;
+        char m_RenameBuffer[256] = "";
 
+        // Search
         char m_SearchFilter[256] = "";
-        char m_RenameBuffer[256];
-        std::string m_OriginalName;
-
-        bool m_ShowCreateMenu = false;
+        
+        std::vector<std::function<void()>> m_DeferredActions;
     };
 }
