@@ -71,7 +71,7 @@ namespace Luth
         Model() = default;
         virtual ~Model() = default;
 
-        static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData);
+        static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials);
         
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
         const std::vector<std::shared_ptr<Mesh>>& GetMeshes() const { return m_Meshes; }

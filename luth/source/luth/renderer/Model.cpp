@@ -6,10 +6,11 @@
 
 namespace Luth
 {
-    std::shared_ptr<Model> Model::Create(const std::vector<MeshData>& meshData)
+    std::shared_ptr<Model> Model::Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials)
     {
         auto model = std::make_shared<Model>();
         model->m_MeshesData = meshData;
+        model->m_Materials = materials;
         model->ProcessMeshData();
         return model;
     }

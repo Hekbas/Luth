@@ -40,4 +40,13 @@ namespace Luth
         virtual const char* GetName() const override { return "KeyReleasedEvent"; }
         static const char* GetStaticName() { return "KeyReleasedEvent"; }
     };
+
+    class KeyTypedEvent : public KeyEvent
+    {
+    public:
+        KeyTypedEvent(u32 keycode) : KeyEvent(keycode) {}
+
+        virtual const char* GetName() const override { return "KeyTypedEvent"; }
+        static const char* GetStaticName() { return "KeyTypedEvent"; }
+    };
 }

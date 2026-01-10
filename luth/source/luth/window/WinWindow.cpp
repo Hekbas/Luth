@@ -6,6 +6,8 @@
 #include "luth/events/MouseEvent.h"
 #include "luth/events/FileDropEvent.h"
 #include "luth/resources/FileSystem.h"
+
+#include <backends/imgui_impl_glfw.h>
 #include <stb/stb_image.h>
 
 #ifdef _WIN32
@@ -83,6 +85,54 @@ namespace Luth
             for (int i = 0; i < count; i++) files.emplace_back(paths[i]);
             EventBus::Enqueue<FileDropEvent>(BusType::MainThread, std::move(files));
         });
+
+        // ---------------------------------------------------------
+        // Centralized Input Callbacks
+        // ---------------------------------------------------------
+        
+        glfwSetKeyCallback(m_GLFWwindow, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            // 1. Forward to ImGui
+            ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+
+            // 2. Dispatch to Engine (if not captured, or just dispatch anyway and let systems filter)
+            // Note: We dispatch even if ImGui captures, because some global hotkeys (F11, Alt+F4) might need to override UI.
+            // The Input system or Event handler should check ImGui::GetIO().WantCaptureKeyboard if needed.
+            
+            switch (action) {
+                case GLFW_PRESS:    EventBus::Enqueue<KeyPressedEvent>(BusType::MainThread, key, 0); break;
+                case GLFW_RELEASE:  EventBus::Enqueue<KeyReleasedEvent>(BusType::MainThread, key); break;
+                case GLFW_REPEAT:   EventBus::Enqueue<KeyPressedEvent>(BusType::MainThread, key, 1); break;
+            }
+        });
+
+        glfwSetMouseButtonCallback(m_GLFWwindow, [](GLFWwindow* window, int button, int action, int mods) {
+            ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+            
+            switch (action) {
+                case GLFW_PRESS:    EventBus::Enqueue<MouseButtonPressedEvent>(BusType::MainThread, button); break;
+                case GLFW_RELEASE:  EventBus::Enqueue<MouseButtonReleasedEvent>(BusType::MainThread, button); break;
+            }
+        });
+
+        glfwSetScrollCallback(m_GLFWwindow, [](GLFWwindow* window, double xOffset, double yOffset) {
+            ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
+            EventBus::Enqueue<MouseScrolledEvent>(BusType::MainThread, (float)xOffset, (float)yOffset);
+        });
+
+        glfwSetCursorPosCallback(m_GLFWwindow, [](GLFWwindow* window, double xPos, double yPos) {
+            ImGui_ImplGlfw_CursorPosCallback(window, xPos, yPos);
+            EventBus::Enqueue<MouseMovedEvent>(BusType::MainThread, (float)xPos, (float)yPos);
+        });
+
+        glfwSetCharCallback(m_GLFWwindow, [](GLFWwindow* window, unsigned int keycode) {
+            ImGui_ImplGlfw_CharCallback(window, keycode);
+            EventBus::Enqueue<KeyTypedEvent>(BusType::MainThread, keycode);
+        });
+
+        // Forward other necessary callbacks to ImGui
+        glfwSetWindowFocusCallback(m_GLFWwindow, ImGui_ImplGlfw_WindowFocusCallback);
+        glfwSetCursorEnterCallback(m_GLFWwindow, ImGui_ImplGlfw_CursorEnterCallback);
+        glfwSetMonitorCallback(ImGui_ImplGlfw_MonitorCallback);
 
         LH_CORE_INFO("Created window '{0}' ({1}x{2})", spec.Title, spec.Width, spec.Height);
     }

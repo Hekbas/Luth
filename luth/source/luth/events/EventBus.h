@@ -7,6 +7,7 @@
 #include <queue>
 #include <unordered_map>
 #include <functional>
+#include <mutex>
 
 namespace Luth
 {
@@ -46,6 +47,7 @@ namespace Luth
         public:
             template<typename T, typename... Args>
             void Enqueue(Args&&... args) {
+                std::lock_guard<std::mutex> lock(m_QueueLock);
                 m_EventQueue.emplace(
                     std::make_unique<T>(std::forward<Args>(args)...),
                     GetEventTypeID<T>()
@@ -59,10 +61,17 @@ namespace Luth
             }
 
             void ProcessEvents() {
-                while (!m_EventQueue.empty()) {
-                    auto& [event, typeID] = m_EventQueue.front();
+                // Swap queue to allow enqueuing while processing
+                std::queue<std::pair<EventPtr, EventTypeID>> processingQueue;
+                {
+                    std::lock_guard<std::mutex> lock(m_QueueLock);
+                    processingQueue.swap(m_EventQueue);
+                }
+
+                while (!processingQueue.empty()) {
+                    auto& [event, typeID] = processingQueue.front();
                     DispatchEvent(*event, typeID);
-                    m_EventQueue.pop();
+                    processingQueue.pop();
                 }
             }
 
@@ -89,6 +98,7 @@ namespace Luth
 
             std::queue<std::pair<EventPtr, EventTypeID>> m_EventQueue;
             std::unordered_map<EventTypeID, std::vector<EventHandler>> m_Subscribers;
+            std::mutex m_QueueLock;
         };
 
         static BusInstance& GetBus(BusType bus) {

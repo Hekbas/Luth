@@ -9,6 +9,7 @@ namespace Luth
     {
         // We reuse the MeshData struct from Model.h for now
         std::vector<MeshData> Meshes;
+        std::vector<UUID> Materials;
         // Add skeleton/animation data here later
     };
 

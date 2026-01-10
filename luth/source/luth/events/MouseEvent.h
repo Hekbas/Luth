@@ -20,6 +20,25 @@ namespace Luth
         float m_X, m_Y;
     };
 
+    class MouseScrolledEvent : public Event
+    {
+    public:
+        MouseScrolledEvent(float xOffset, float yOffset)
+            : m_XOffset(xOffset), m_YOffset(yOffset) {}
+
+        float GetXOffset() const { return m_XOffset; }
+        float GetYOffset() const { return m_YOffset; }
+
+        virtual const char* GetName() const override { return "MouseScrolledEvent"; }
+        virtual u32 GetCategoryFlags() const override {
+            return EventCategoryMouse | EventCategoryInput;
+        }
+        static const char* GetStaticName() { return "MouseScrolledEvent"; }
+
+    private:
+        float m_XOffset, m_YOffset;
+    };
+
     class MouseButtonEvent : public Event
     {
     public:

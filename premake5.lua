@@ -30,6 +30,7 @@ group "Luth/Extern"
       include "luth/extern/premake5-glfw"
       include "luth/extern/premake5-glm"
       include "luth/extern/premake5-imgui"
+      include "luth/extern/premake5-imguizmo"
       include "luth/extern/premake5-tracy"
 group ""
 

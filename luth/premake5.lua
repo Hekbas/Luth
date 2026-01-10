@@ -20,7 +20,7 @@ project "Luth"
    files
    {
       "source/**.h",
-      "source/**.cpp"
+      "source/**.cpp",
    }
    
    includedirs
@@ -33,6 +33,7 @@ project "Luth"
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
+      IncludeDir["imguizmo"],
       IncludeDir["spdlog"],
       IncludeDir["tracy"],
       IncludeDir["vulkan"]
@@ -50,6 +51,7 @@ project "Luth"
       "glfw",
       "glm",
       "imgui",
+      "ImGuizmo",
       "Tracy",
       "vulkan-1",
       "shaderc_shared",
