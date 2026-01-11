@@ -254,50 +254,11 @@ namespace Luth::RG
         {
             if (!res.isTransient || res.image != VK_NULL_HANDLE) continue;
 
-            VkImageCreateInfo imageInfo{};
-            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-            imageInfo.imageType = VK_IMAGE_TYPE_2D;
-            imageInfo.extent.width = res.desc.width;
-            imageInfo.extent.height = res.desc.height;
-            imageInfo.extent.depth = 1;
-            imageInfo.mipLevels = 1;
-            imageInfo.arrayLayers = 1;
-            
-            // Map format
-            if (res.desc.format == TextureFormat::RGBA8_Unorm) imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            else if (res.desc.format == TextureFormat::D32_Float) imageInfo.format = VK_FORMAT_D32_SFLOAT;
-            else if (res.desc.format == TextureFormat::D24_Unorm_S8_Uint) imageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
-            
-            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-            if (res.desc.format == TextureFormat::D32_Float || res.desc.format == TextureFormat::D24_Unorm_S8_Uint)
-                imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-            else
-                imageInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-            res.allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, res.image);
-
-            // Create View
-            VkImageViewCreateInfo viewInfo{};
-            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            viewInfo.image = res.image;
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            viewInfo.format = imageInfo.format;
-            
-            if (res.desc.format == TextureFormat::D32_Float) viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            else if (res.desc.format == TextureFormat::D24_Unorm_S8_Uint) viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-            else viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-
-            viewInfo.subresourceRange.baseMipLevel = 0;
-            viewInfo.subresourceRange.levelCount = 1;
-            viewInfo.subresourceRange.baseArrayLayer = 0;
-            viewInfo.subresourceRange.layerCount = 1;
-
-            vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &res.view);
+            // Use Cache
+            PooledResource pooled = VulkanContext::Get().GetResourceCache().GetTexture(res.desc);
+            res.image = pooled.image;
+            res.view = pooled.view;
+            res.allocation = (VmaAllocation_T*)pooled.allocation;
         }
     }
 
@@ -307,10 +268,14 @@ namespace Luth::RG
         {
             if (res.isTransient && res.image != VK_NULL_HANDLE)
             {
-                VulkanContext::Get().PushDeletion([img = res.image, view = res.view, alloc = res.allocation]() {
-                    vkDestroyImageView(VulkanContext::Get().GetDevice(), view, nullptr);
-                    VulkanAllocator::FreeImage(img, alloc);
-                });
+                // Return to Cache
+                PooledResource pooled;
+                pooled.image = res.image;
+                pooled.view = res.view;
+                pooled.allocation = (VmaAllocation)res.allocation;
+                pooled.desc = res.desc;
+                
+                VulkanContext::Get().GetResourceCache().ReturnTexture(pooled);
 
                 res.image = VK_NULL_HANDLE;
                 res.view = VK_NULL_HANDLE;

@@ -1,6 +1,6 @@
 #include "luthpch.h"
-#include "VulkanContext.h"
-#include "VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/core/Log.h"
 
 #include <GLFW/glfw3.h>
@@ -36,6 +36,7 @@ namespace Luth
         s_Instance->InitAllocator();
         s_Instance->m_BindlessSet.Init(s_Instance->m_Device);
         s_Instance->m_DescriptorAllocator.Init(s_Instance->m_Device);
+        s_Instance->m_ResourceCache.Init();
     }
 
     void VulkanContext::Shutdown()
@@ -50,6 +51,7 @@ namespace Luth
             s_Instance->m_DeletionQueues[i].deletors.clear();
         }
 
+        s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
         s_Instance->m_DescriptorAllocator.Shutdown();
         VulkanAllocator::Shutdown();
