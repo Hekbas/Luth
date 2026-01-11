@@ -148,7 +148,7 @@
 - [x] Input System (Event Bus).
 
 ### Phase 2: The Data Pipeline (Current Focus)
-1.  **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically.
+1.  **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically. [Done]
 2.  **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader, rather than hardcoded structs.
 3.  **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
