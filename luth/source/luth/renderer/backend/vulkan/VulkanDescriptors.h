@@ -6,6 +6,9 @@
 #include <unordered_map>
 #include <deque>
 
+// Forward declare VMA types
+typedef struct VmaAllocation_T* VmaAllocation;
+
 namespace Luth
 {
     // Manages a pool of descriptors, growing as needed
@@ -81,7 +84,7 @@ namespace Luth
         VkImage m_NullImage = VK_NULL_HANDLE;
         VkImageView m_NullImageView = VK_NULL_HANDLE;
         VkSampler m_NullSampler = VK_NULL_HANDLE;
-        struct VmaAllocation_T* m_NullAllocation = nullptr;
+        VmaAllocation m_NullAllocation = nullptr;
 
         void CreateNullTexture();
     };

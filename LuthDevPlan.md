@@ -168,12 +168,12 @@
      *   Implemented `AssetSerializer` for binary formats.
      *   Updated `AssetManager` to load from `Library/` artifacts.
      *   Updated Importers to compile source assets to artifacts.
- 4.  **Inspector & Selection:** Update to load from Library. [Current Focus]
+ 4.  **Inspector & Selection:** Update to load from Library. [Done]
 
-### Phase 4: Render Graph & Scene
+### Phase 4: Render Graph & Scene (Current Focus)
 1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
-2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth.
-3.  **Bindless Textures:** Finalize the global texture array integration.
+2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth. [Done]
+3.  **Bindless Textures:** Finalize the global texture array integration. [Current Focus]
 
 ### Phase 5: Editor Polish
 1.  **Play/Stop State:** Implement the simulation loop toggle.
