@@ -22,6 +22,8 @@ namespace Luth
         std::vector<VkVertexInputBindingDescription> bindingDescriptions;
         std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
 
+        std::vector<VkPushConstantRange> pushConstantRanges;
+
         VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
         VkFrontFace frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         
