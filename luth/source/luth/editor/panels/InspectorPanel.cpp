@@ -448,7 +448,7 @@ namespace Luth
         if (auto shader = material.GetShader()) {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
-                // TODO: Iterate all shaders in AssetDatabase
+                // TODO: Iterate all shaders
                 // for (const auto& [uuid, s] : ShaderLibrary::GetAllShaders()) {
                 //     bool selected;
                 //     if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
@@ -461,6 +461,47 @@ namespace Luth
         }
         else {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Missing Shader");
+        }
+        
+        ImGui::Dummy({ 0, 4 });
+        
+        // Dynamic Uniform Editor
+        if (auto shader = material.GetShader())
+        {
+            if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                UI::BeginProperties();
+                for (const auto& [buffName, buffer] : shader->GetBuffers())
+                {
+                    if (buffer.Set != 1) continue; // Only edit Material set
+                    
+                    for (const auto& [name, uniform] : buffer.Uniforms)
+                    {
+                        // Skip internal/system uniforms if any
+                        
+                        switch (uniform.Type)
+                        {
+                            case ShaderDataType::Float: {
+                                float val = material.Get<float>(name);
+                                if (UI::Property(name.c_str(), val)) material.Set(name, val);
+                                break;
+                            }
+                            case ShaderDataType::Float3: {
+                                Vec3 val = material.Get<Vec3>(name);
+                                if (UI::PropertyColor(name.c_str(), val)) material.Set(name, val);
+                                break;
+                            }
+                            case ShaderDataType::Float4: {
+                                Vec4 val = material.Get<Vec4>(name);
+                                if (UI::PropertyColor(name.c_str(), val)) material.Set(name, val);
+                                break;
+                            }
+                            default: break;
+                        }
+                    }
+                }
+                UI::EndProperties();
+            }
         }
 
         // Render mode
@@ -504,12 +545,6 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                 material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
-                //AssetRegistry::SetDirty(material.GetUUID());
-            }
-
-            bool fromDiffuse = material.IsAlphaFromDiffuseEnabled();
-            if (ImGui::Checkbox("Alpha from Diffuse", &fromDiffuse)) {
-                material.EnableAlphaFromDiffuse(fromDiffuse);
                 //AssetRegistry::SetDirty(material.GetUUID());
             }
         }
@@ -594,83 +629,6 @@ namespace Luth
                 // Texture specific properties
                 if (type == MapType::Diffuse) {
                     ImGui::SameLine();
-
-                    Vec4 color = material.GetColor();
-                    if (ImGui::ColorEdit4("##DiffuseColor", &color.r, ImGuiColorEditFlags_NoInputs |
-                        ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview)) {
-                        material.SetColor(color);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Diffuse Color");
-                    }
-                }
-                else if (type == MapType::Alpha) {
-                    float alpha = material.GetAlpha();
-                    if (ImGui::SliderFloat("##Alpha", &alpha, 0.0f, 1.0f)) {
-                        material.SetAlpha(alpha);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-                }
-                else if (type == MapType::Metalness) {
-                    float metal = material.GetMetal();
-                    if (ImGui::SliderFloat("##Metalness", &metal, 0.0f, 1.0f)) {
-                        material.SetMetal(metal);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-                }
-                else if (type == MapType::Roughness) {
-                    float rough = material.GetRough();
-                    if (ImGui::SliderFloat("##Roughness", &rough, 0.0f, 1.0f)) {
-                        material.SetRough(rough);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-                    bool isGloss = material.IsGloss();
-                    if (ImGui::Checkbox("Is Gloss", &isGloss)) {
-                        material.SetGloss(isGloss);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-                }
-                else if (type == MapType::Emissive) {
-                    ImGui::SameLine();
-
-                    Vec3 emissive = material.GetEmissive();
-                    if (ImGui::ColorEdit3("##EmissiveColor", &emissive.r, ImGuiColorEditFlags_NoInputs)) {
-                        material.SetEmissive(emissive);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Emissive Color");
-                    }
-
-                    bool isSingle = material.IsSingleChannel();
-                    if (ImGui::Checkbox("Single Channel", &isSingle)) {
-                        material.SetSingleChannel(isSingle);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-                }
-                else if (type == MapType::Thickness) {
-                    ImGui::SameLine();
-
-                    Vec3 thick = material.GetSubsurface().color;
-                    if (ImGui::ColorEdit3("##ThicknessColor", &thick.r, ImGuiColorEditFlags_NoInputs)) {
-                        material.SetSubsurfaceColor(thick);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-
-                    float strength = material.GetSubsurface().strength;
-                    if (ImGui::SliderFloat("##ThicknessStrength", &strength, 0.0f, 1.0f)) {
-                        material.SetSubsurfaceStrength(strength);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
-
-                    float scale = material.GetSubsurface().thicknessScale;
-                    if (ImGui::SliderFloat("##ThicknessScale", &scale, 0.0f, 1.0f)) {
-                        material.SetSubsurfaceThicknessScale(scale);
-                        // AssetRegistry::SetDirty(material.GetUUID());
-                    }
                 }
 
                 ImGui::Unindent();

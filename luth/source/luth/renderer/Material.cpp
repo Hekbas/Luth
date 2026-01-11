@@ -3,6 +3,12 @@
 
 namespace Luth
 {
+    void Material::SetShader(const UUID& uuid)
+    {
+        m_ShaderUUID = uuid;
+        InitializeStorage();
+    }
+
     void Material::Serialize(nlohmann::json& json) const
     {
         json["shader"] = m_ShaderUUID.ToString();
@@ -13,19 +19,42 @@ namespace Luth
         json["blend_dst"] = static_cast<int>(m_BlendDst);
         json["alpha_from_diffuse"] = static_cast<int>(m_AlphaFromDiffuse);
 
-        json["color"] = { m_Color.r, m_Color.g, m_Color.b, m_Color.a };
-        json["alpha"] = m_Alpha;
-        json["metal"] = m_Metal;
-        json["rough"] = m_Rough;
-        json["emissive"] = { m_Emissive.r, m_Emissive.g, m_Emissive.b };
-        json["is_gloss"] = static_cast<int>(m_IsGloss);
-        json["is_single_channel"] = static_cast<int>(m_IsSingleChannel);
-
-        json["subsurface"] = {
-            {"color", {m_Subsurface.color.r, m_Subsurface.color.g, m_Subsurface.color.b}},
-            {"strength", m_Subsurface.strength},
-            {"thickness_scale", m_Subsurface.thicknessScale}
-        };
+        // Serialize Uniforms
+        // We need the shader to know types to serialize correctly back to JSON
+        // For now, we can try to serialize based on the cached JSON or reconstruct it
+        // Ideally, we iterate the shader uniforms and read from m_UniformStorage
+        nlohmann::json uniformsJson;
+        auto shader = GetShader();
+        if (shader && !m_UniformStorage.empty())
+        {
+            for (const auto& [bufferName, buffer] : shader->GetBuffers())
+            {
+                // Assuming we only serialize the main material buffer for now
+                // TODO: Handle multiple buffers if needed
+                for (const auto& [name, uniform] : buffer.Uniforms)
+                {
+                    if (uniform.Offset + uniform.Size > m_UniformStorage.size()) continue;
+                    
+                    const uint8_t* ptr = m_UniformStorage.data() + uniform.Offset;
+                    
+                    switch (uniform.Type)
+                    {
+                        case ShaderDataType::Float:  uniformsJson[name] = *(float*)ptr; break;
+                        case ShaderDataType::Float2: uniformsJson[name] = { ((float*)ptr)[0], ((float*)ptr)[1] }; break;
+                        case ShaderDataType::Float3: uniformsJson[name] = { ((float*)ptr)[0], ((float*)ptr)[1], ((float*)ptr)[2] }; break;
+                        case ShaderDataType::Float4: uniformsJson[name] = { ((float*)ptr)[0], ((float*)ptr)[1], ((float*)ptr)[2], ((float*)ptr)[3] }; break;
+                        case ShaderDataType::Int:    uniformsJson[name] = *(int*)ptr; break;
+                        case ShaderDataType::Bool:   uniformsJson[name] = *(bool*)ptr; break;
+                        default: break;
+                    }
+                }
+            }
+        }
+        else if (!m_CachedUniformJSON.empty())
+        {
+            uniformsJson = m_CachedUniformJSON;
+        }
+        json["uniforms"] = uniformsJson;
 
         json["textures"] = nlohmann::json::array();
         for (const auto& tex : m_Maps) {
@@ -41,6 +70,12 @@ namespace Luth
     void Material::Deserialize(const nlohmann::json& json)
     {
         m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
+        
+        // Cache uniforms to apply when shader is loaded
+        if (json.contains("uniforms"))
+            m_CachedUniformJSON = json["uniforms"];
+
+        InitializeStorage(); // Try to init if shader is already loaded
 
         m_RenderMode = static_cast<RenderMode>(json.value("render_mode", 0));
         m_AlphaCutoff = json.value("alpha_cutoff", 0.5f);
@@ -49,41 +84,6 @@ namespace Luth
         m_BlendDst = static_cast<BlendFactor>(json.value("blend_dst",
             static_cast<int>(BlendFactor::OneMinusSrcAlpha)));
         m_AlphaFromDiffuse = static_cast<bool>(json.value("alpha_from_diffuse", 0));
-
-        if (json.contains("color")) {
-            auto& jc = json["color"];
-            m_Color = glm::vec4(jc[0].get<float>(), jc[1].get<float>(),
-                jc[2].get<float>(), jc[3].get<float>());
-        }
-
-        m_Alpha = json.value("alpha", 1.0f);
-        m_Metal = json.value("metal", 0.0f);
-        m_Rough = json.value("rough", 1.0f);
-
-        if (json.contains("emissive")) {
-            auto& je = json["emissive"];
-            m_Emissive = glm::vec3(je[0].get<float>(), je[1].get<float>(), je[2].get<float>());
-        }
-        else {
-            m_Emissive = glm::vec3(0.0f);
-        }
-
-        m_IsGloss = static_cast<bool>(json.value("is_gloss", 0));
-        m_IsSingleChannel = static_cast<bool>(json.value("is_single_channel", 0));
-
-        if (json.contains("subsurface")) {
-            const auto& subsurfaceJson = json["subsurface"];
-
-            if (subsurfaceJson.contains("color")) {
-                auto& jc = subsurfaceJson["color"];
-                m_Subsurface.color = glm::vec3(jc[0].get<float>(), jc[1].get<float>(), jc[2].get<float>());
-            }
-            m_Subsurface.strength = subsurfaceJson.value("strength", 1.0f);
-            m_Subsurface.thicknessScale = subsurfaceJson.value("thickness_scale", 1.0f);
-        }
-        else {
-            m_Subsurface = Subsurface{};
-        }
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {
@@ -94,6 +94,102 @@ namespace Luth
             tex.useTexture = static_cast<bool>(texJson.value("useTexture", 0));
             m_Maps.push_back(tex);
         }
+    }
+
+    void Material::InitializeStorage()
+    {
+        auto shader = GetShader();
+        if (!shader) return;
+
+        // Find the material uniform buffer (Convention: "MaterialUniforms" or Set 1 Binding 0)
+        // For now, we take the first buffer that is NOT global (Set 0)
+        const ShaderBuffer* targetBuffer = nullptr;
+        for (const auto& [name, buffer] : shader->GetBuffers())
+        {
+            if (buffer.Set == 1) // Convention: Material data is Set 1
+            {
+                targetBuffer = &buffer;
+                break;
+            }
+        }
+
+        if (targetBuffer)
+        {
+            if (m_UniformStorage.size() != targetBuffer->Size)
+            {
+                m_UniformStorage.resize(targetBuffer->Size);
+                memset(m_UniformStorage.data(), 0, m_UniformStorage.size());
+            }
+
+            // Apply cached JSON values if any
+            if (!m_CachedUniformJSON.empty())
+            {
+                for (const auto& [name, uniform] : targetBuffer->Uniforms)
+                {
+                    if (m_CachedUniformJSON.contains(name))
+                    {
+                        auto& jVal = m_CachedUniformJSON[name];
+                        void* ptr = m_UniformStorage.data() + uniform.Offset;
+
+                        switch (uniform.Type)
+                        {
+                            case ShaderDataType::Float:  *(float*)ptr = jVal.get<float>(); break;
+                            case ShaderDataType::Float2: *(Vec2*)ptr = Vec2(jVal[0], jVal[1]); break;
+                            case ShaderDataType::Float3: *(Vec3*)ptr = Vec3(jVal[0], jVal[1], jVal[2]); break;
+                            case ShaderDataType::Float4: *(Vec4*)ptr = Vec4(jVal[0], jVal[1], jVal[2], jVal[3]); break;
+                            case ShaderDataType::Int:    *(int*)ptr = jVal.get<int>(); break;
+                            case ShaderDataType::Bool:   *(bool*)ptr = jVal.get<bool>(); break;
+                            default: break;
+                        }
+                    }
+                }
+                m_CachedUniformJSON.clear();
+            }
+        }
+    }
+
+    bool Material::SetUniformData(const std::string& name, const void* data, uint32_t size)
+    {
+        if (m_UniformStorage.empty()) InitializeStorage();
+        if (m_UniformStorage.empty()) return false;
+
+        auto shader = GetShader();
+        if (!shader) return false;
+
+        // Find uniform in Set 1
+        for (const auto& [buffName, buffer] : shader->GetBuffers())
+        {
+            if (buffer.Set != 1) continue;
+            
+            auto it = buffer.Uniforms.find(name);
+            if (it != buffer.Uniforms.end())
+            {
+                const auto& uniform = it->second;
+                if (uniform.Size == size)
+                {
+                    memcpy(m_UniformStorage.data() + uniform.Offset, data, size);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool Material::GetUniformData(const std::string& name, void* outData, uint32_t size) const
+    {
+        if (m_UniformStorage.empty()) return false;
+        auto shader = GetShader();
+        if (!shader) return false;
+
+        for (const auto& [buffName, buffer] : shader->GetBuffers()) {
+            if (buffer.Set != 1) continue;
+            auto it = buffer.Uniforms.find(name);
+            if (it != buffer.Uniforms.end() && it->second.Size == size) {
+                memcpy(outData, m_UniformStorage.data() + it->second.Offset, size);
+                return true;
+            }
+        }
+        return false;
     }
 
     const char* Material::ToString(MapType type) {

@@ -149,7 +149,7 @@
 
 ### Phase 2: The Data Pipeline (Current Focus)
 1.  **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically. [Done]
-2.  **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader, rather than hardcoded structs.
+2.  **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader, rather than hardcoded structs. [Done]
 3.  **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
 ### Phase 3: The Render Graph & Scene

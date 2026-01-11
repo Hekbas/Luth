@@ -211,16 +211,18 @@ namespace Luth
         matJson["render_mode"] = 0; // Opaque
 
         // Properties
+        nlohmann::json uniforms;
         aiColor4D color;
         if (aiMat->Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS) {
-            matJson["color"] = { color.r, color.g, color.b, color.a };
+            uniforms["u_AlbedoColor"] = { color.r, color.g, color.b, color.a };
         } else if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
-            matJson["color"] = { color.r, color.g, color.b, color.a };
+            uniforms["u_AlbedoColor"] = { color.r, color.g, color.b, color.a };
         }
 
         float floatVal;
-        if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS) matJson["metal"] = floatVal;
-        if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) matJson["rough"] = floatVal;
+        if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS) uniforms["u_Metalness"] = floatVal;
+        if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) uniforms["u_Roughness"] = floatVal;
+        matJson["uniforms"] = uniforms;
 
         // Textures
         matJson["textures"] = nlohmann::json::array();

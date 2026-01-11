@@ -35,12 +35,6 @@ namespace Luth
         bool useTexture = true;
     };
 
-    struct Subsurface {
-        Vec3 color = Vec3(0.0f);
-        float strength = 1.0f;
-        float thicknessScale = 1.0f;
-    };
-
     class Material : public Asset
     {
     public:
@@ -50,7 +44,7 @@ namespace Luth
         enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
 
         // Shader management
-        void SetShaderUUID(const UUID& uuid) { m_ShaderUUID = uuid; }
+        void SetShader(const UUID& uuid);
         UUID GetShaderUUID() const { return m_ShaderUUID; }
         std::shared_ptr<Shader> GetShader() const {
              return AssetManager::GetAsset<Shader>(m_ShaderUUID);
@@ -132,37 +126,21 @@ namespace Luth
         void EnableAlphaFromDiffuse(bool enable) { m_AlphaFromDiffuse = enable; }
         bool IsAlphaFromDiffuseEnabled() const { return m_AlphaFromDiffuse; }
 
-        // Properties
-        Vec4 GetColor() const { return m_Color; }
-        void SetColor(Vec4 color) { m_Color = color; }
-
-        float GetAlpha() const { return m_Alpha; }
-        void SetAlpha(float alpha) { m_Alpha = alpha; }
-
-        float GetMetal() const { return m_Metal; }
-        void SetMetal(float metal) { m_Metal = metal; }
-
-        float GetRough() const { return m_Rough; }
-        void SetRough(float rough) { m_Rough = rough; }
-
-        Vec3 GetEmissive() const { return m_Emissive; }
-        void SetEmissive(Vec3 emissive) { m_Emissive = emissive; }
-
-        Subsurface GetSubsurface() const { return m_Subsurface; }
-        void SetSubsurfaceParams(const Vec3& color, float strength, float thickness) {
-            m_Subsurface.color = color;
-            m_Subsurface.strength = strength;
-            m_Subsurface.thicknessScale = thickness;
+        // Generic Uniform Access
+        template<typename T>
+        void Set(const std::string& name, const T& value) {
+            SetUniformData(name, &value, sizeof(T));
         }
-        void SetSubsurfaceColor(const Vec3& color) { m_Subsurface.color = color; }
-        void SetSubsurfaceStrength(float strength) { m_Subsurface.strength = strength; }
-        void SetSubsurfaceThicknessScale(float thickness) { m_Subsurface.thicknessScale = thickness; }
 
-        bool IsGloss() const { return m_IsGloss; }
-        void SetGloss(bool gloss) { m_IsGloss = gloss; }
+        template<typename T>
+        T Get(const std::string& name, T defaultValue = T()) const {
+            T value;
+            if (GetUniformData(name, &value, sizeof(T)))
+                return value;
+            return defaultValue;
+        }
 
-        bool IsSingleChannel() const { return m_IsSingleChannel; }
-        void SetSingleChannel(bool singleChannel) { m_IsSingleChannel = singleChannel; }
+        const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
 
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
@@ -171,7 +149,15 @@ namespace Luth
         static const char* ToString(MapType type);
 
     private:
+        bool SetUniformData(const std::string& name, const void* data, uint32_t size);
+        bool GetUniformData(const std::string& name, void* outData, uint32_t size) const;
+        void InitializeStorage();
+
         UUID m_ShaderUUID;
+        std::vector<uint8_t> m_UniformStorage;
+        // Temporary storage for deserialization if shader is not loaded yet
+        nlohmann::json m_CachedUniformJSON;
+
         std::vector<MapInfo> m_Maps;
 
         RenderMode m_RenderMode = RenderMode::Opaque;
@@ -179,15 +165,6 @@ namespace Luth
         BlendFactor m_BlendDst = BlendFactor::OneMinusSrcAlpha;
         float m_AlphaCutoff = 0.5f;
         bool m_AlphaFromDiffuse = false;
-        bool m_IsGloss = false;
-        bool m_IsSingleChannel = false;
-
-        Vec4 m_Color = Vec4(1.0f);
-        float m_Alpha = 1.0f;
-        float m_Metal = 0.5f;
-        float m_Rough = 0.5f;
-        Vec3 m_Emissive = Vec3(0.0f);
-        Subsurface m_Subsurface;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const MapType type) {
