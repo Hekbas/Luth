@@ -23,8 +23,24 @@ namespace Luth::RG
     void RenderResourceCache::NewFrame()
     {
         m_FrameIndex++;
-        
-        // TODO: Implement cleanup of stale resources (e.g. unused for > 100 frames)
+        PerformGarbageCollection();
+    }
+
+    void RenderResourceCache::PerformGarbageCollection()
+    {
+        for (auto it = m_Pool.begin(); it != m_Pool.end(); )
+        {
+            if (m_FrameIndex - it->lastUsedFrame > k_StaleFrameThreshold)
+            {
+                vkDestroyImageView(VulkanContext::Get().GetDevice(), it->view, nullptr);
+                VulkanAllocator::FreeImage(it->image, it->allocation);
+                it = m_Pool.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     PooledResource RenderResourceCache::GetTexture(const TextureDesc& desc)
@@ -70,6 +86,7 @@ namespace Luth::RG
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+        // Apply usage flags based on format to avoid validation errors
         if (desc.format == TextureFormat::D32_Float || desc.format == TextureFormat::D24_Unorm_S8_Uint)
             imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         else
@@ -98,8 +115,9 @@ namespace Luth::RG
         return res;
     }
 
-    void RenderResourceCache::ReturnTexture(const PooledResource& resource)
+    void RenderResourceCache::ReturnTexture(PooledResource resource)
     {
+        resource.lastUsedFrame = m_FrameIndex; // Mark as used this frame
         m_Pool.push_back(resource);
     }
 }

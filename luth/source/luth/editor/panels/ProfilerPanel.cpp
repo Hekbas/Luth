@@ -5,6 +5,7 @@
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/systems/RenderingSystem.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/utils/LuthIcons.h"
 
 #include <imgui.h>
@@ -46,7 +47,7 @@ namespace Luth
                 ImGui::Text("FPS: %.1f", m_FPS);
                 ImGui::Text("Frame Time: %.3f ms", m_FrameTime);
                 
-                ImGui::PlotLines("##FrameTimes", m_FrameTimeHistory.data(), (int)m_FrameTimeHistory.size(), 0, nullptr, 0.0f, 33.0f, ImVec2(0, 80));
+                ImGui::PlotLines("##FrameTimes", m_FrameTimeHistory.data(), (int)m_FrameTimeHistory.size(), 0, nullptr, 0.0f, 33.0f, ImVec2(0, 40));
             }
 
             // 2. Job System
@@ -75,6 +76,11 @@ namespace Luth
                 ImGui::Text("Used: %.2f MB", usedMB);
                 ImGui::Text("Free: %.2f MB", freeMB);
                 ImGui::Text("Allocations: %d", gpuStats.AllocationCount);
+
+                if (ImGui::Button("Trim Unused Assets"))
+                {
+                    AssetManager::Trim();
+                }
                 
                 if (totalMB > 0.0f)
                     ImGui::ProgressBar(usedMB / totalMB, ImVec2(-1, 0));

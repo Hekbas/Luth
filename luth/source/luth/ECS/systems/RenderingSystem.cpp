@@ -192,7 +192,7 @@ namespace Luth
                 data.outputTex = rg.ImportResource(desc, 
                     (void*)static_cast<VKTexture*>(m_SceneColor.get())->GetImage(), 
                     (void*)static_cast<VKTexture*>(m_SceneColor.get())->GetImageView(), 
-                    RG::ResourceState::ShaderResource);
+                    RG::ResourceState::Undefined);
 
                 RG::TextureDesc depthDesc;
                 depthDesc.name = "SceneDepth";

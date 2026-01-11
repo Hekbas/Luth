@@ -25,11 +25,14 @@ namespace Luth::RG
         void Shutdown();
         void NewFrame();
 
+        void PerformGarbageCollection();
+
         PooledResource GetTexture(const TextureDesc& desc);
-        void ReturnTexture(const PooledResource& resource);
+        void ReturnTexture(PooledResource resource);
 
     private:
         std::vector<PooledResource> m_Pool;
         u64 m_FrameIndex = 0;
+        static constexpr u64 k_StaleFrameThreshold = 10000; // Frames before a resource is considered stale
     };
 }

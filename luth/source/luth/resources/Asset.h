@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
 #include <string>
 
@@ -25,6 +26,7 @@ namespace Luth
         
         UUID Handle;
         AssetFlag Flags = AssetFlag::None;
+        f32 LastAccessedTime = 0.0f;
         
         virtual AssetType GetType() const = 0;
         bool IsValid() const { return (int)Flags & (int)AssetFlag::Invalid; }

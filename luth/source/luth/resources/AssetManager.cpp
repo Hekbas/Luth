@@ -8,6 +8,7 @@
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Material.h"
+#include "luth/core/Time.h"
 
 namespace Luth
 {
@@ -17,6 +18,9 @@ namespace Luth
     std::mutex AssetManager::s_AssetMutex;
     std::mutex AssetManager::s_UploadMutex;
     std::vector<AssetManager::PendingUpload> AssetManager::s_UploadQueue;
+
+    static float s_GCTimer = 0.0f;
+    static const float k_GCInterval = 2.0f; // Run GC every 2 seconds
 
     void AssetManager::Init()
     {
@@ -117,7 +121,11 @@ namespace Luth
             newAsset = material;
         }
 
-        if (newAsset) { newAsset->Handle = handle; s_Assets[handle] = newAsset; }
+        if (newAsset) { 
+            newAsset->Handle = handle; 
+            newAsset->LastAccessedTime = Time::GetTime();
+            s_Assets[handle] = newAsset; 
+        }
         return newAsset;
     }
 
@@ -148,6 +156,26 @@ namespace Luth
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);
         return s_LoadingAssets.find(handle) != s_LoadingAssets.end();
+    }
+
+    void AssetManager::Trim()
+    {
+        std::lock_guard<std::mutex> lock(s_AssetMutex);
+        f32 currentTime = Time::GetTime();
+        const f32 timeout = 5.0f; // Keep unused assets for 5 seconds
+
+        for (auto it = s_Assets.begin(); it != s_Assets.end(); )
+        {
+            // If use_count is 1, it means only s_Assets holds a reference
+            if (it->second.use_count() == 1 && (currentTime - it->second->LastAccessedTime > timeout))
+            {
+                it = s_Assets.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)
@@ -205,6 +233,14 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
+        // Automatic Garbage Collection
+        s_GCTimer += Time::UnscaledDeltaTime();
+        if (s_GCTimer >= k_GCInterval)
+        {
+            Trim();
+            s_GCTimer = 0.0f;
+        }
+
         std::lock_guard<std::mutex> lock(s_UploadMutex);
         if (s_UploadQueue.empty()) return;
 
@@ -241,6 +277,7 @@ namespace Luth
 
                 if (newAsset) {
                     newAsset->Handle = upload.Handle;
+                    newAsset->LastAccessedTime = Time::GetTime();
                     s_Assets[upload.Handle] = newAsset;
                 }
             }

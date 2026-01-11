@@ -6,6 +6,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RendererAPI.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/utils/LuthIcons.h"
 
 #include <imgui.h>
@@ -284,7 +285,10 @@ namespace Luth::UI
             {
                 if (it->second.second.expired())
                 {
-                    ImGui_ImplVulkan_RemoveTexture(it->second.first);
+                    VkDescriptorSet set = it->second.first;
+                    VulkanContext::Get().PushDeletion([set]() {
+                        ImGui_ImplVulkan_RemoveTexture(set);
+                    });
                     it = s_TextureCache.erase(it);
                 }
                 else

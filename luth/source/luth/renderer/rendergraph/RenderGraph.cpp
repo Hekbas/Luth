@@ -61,7 +61,7 @@ namespace Luth::RG
     {
         u32 index = (u32)m_Resources.size() + 1;
         // isTransient = false because we don't own it
-        ResourceNode node{ desc, 0, false, initialState, initialState };
+        ResourceNode node{ desc, 0, false, initialState, initialState }; // Current state starts at initial
         node.image = (VkImage)image;
         node.view = (VkImageView)view;
         node.external = true;
@@ -99,6 +99,11 @@ namespace Luth::RG
         for (auto& res : m_Resources)
         {
             res.currentState = res.initialState;
+            // If transient, initial state is Undefined (newly allocated)
+            if (res.isTransient)
+            {
+                res.currentState = ResourceState::Undefined;
+            }
         }
 
         // Iterate passes to inject barriers

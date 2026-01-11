@@ -4,6 +4,7 @@
 #include "luth/resources/Asset.h"
 #include "luth/resources/AssetImporter.h"
 #include "luth/core/JobSystem.h"
+#include "luth/core/Time.h"
 
 #include <unordered_map>
 #include <queue>
@@ -29,8 +30,10 @@ namespace Luth
         {
             std::lock_guard<std::mutex> lock(s_AssetMutex);
             auto it = s_Assets.find(handle);
-            if (it != s_Assets.end())
+            if (it != s_Assets.end()) {
+                it->second->LastAccessedTime = Time::GetTime();
                 return std::static_pointer_cast<T>(it->second);
+            }
             return nullptr;
         }
 
@@ -46,6 +49,9 @@ namespace Luth
         // Check status
         static bool IsLoaded(UUID handle);
         static bool IsLoading(UUID handle);
+
+        // Unloads assets that are only referenced by the AssetManager
+        static void Trim();
 
     private:
         struct LoadRequest {

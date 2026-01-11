@@ -66,6 +66,7 @@
         *   Checks if Artifact exists in `Library/`. If not, triggers **Import**.
         *   Deserializes the binary Artifact into `AssetData`.
     4.  **Upload Phase** (Main Thread): Creates GPU resources from `AssetData`.
+    5.  **Garbage Collection:** Automatically unloads assets with no external references every 2 seconds.
 *   **Reference Counting:** `std::shared_ptr` handles lifetime.
 
 ### C. Importers
