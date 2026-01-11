@@ -2,27 +2,25 @@
 
 #include "luth/editor/Editor.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/core/UUID.h"
 
 #include <memory>
 #include <vector>
+#include <filesystem>
 
 namespace Luth
 {
-    constexpr const char* ASSET_UUID = "ASSET_UUID";
-    constexpr const char* ENTITY_UUID = "ENTITY_UUID";
-
     struct DirectoryNode {
-        UUID Uuid;
+        fs::path Path;
         std::string Name;
-        AssetType Type;
-        bool IsOpen = false;
+        AssetType Type = AssetType::None;
+        UUID Handle = UUID::Invalid();
+        
         DirectoryNode* Parent = nullptr;
-        std::vector<DirectoryNode*> Directories;
-        std::vector<DirectoryNode*> Contents;
-
-        /*bool operator==(const DirectoryNode& other) const {
-            return Uuid == other.Uuid;
-        }*/
+        std::vector<std::unique_ptr<DirectoryNode>> SubDirectories;
+        std::vector<std::unique_ptr<DirectoryNode>> Files;
+        
+        bool IsOpen = false;
     };
 
 	class InspectorPanel;
@@ -35,54 +33,51 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
+        void Refresh();
+
     private:
-        // Directory tree management
-        DirectoryNode* BuildDirectoryTree(const fs::path& path, DirectoryNode* parent = nullptr);
-        DirectoryNode* FindNode(DirectoryNode& root, const DirectoryNode& target);
-        bool DeleteNode(DirectoryNode& root, const DirectoryNode& target);
+        std::unique_ptr<DirectoryNode> BuildDirectoryTree(const fs::path& path, DirectoryNode* parent);
+        void UpdateSearchResults();
+        void RecursiveSearch(DirectoryNode* node, const std::string& query);
 
         // UI rendering
-        void DrawDirectoryNode(DirectoryNode& node);
-        void DrawPathBar();
-        void DrawDirectoryContent();
+        void DrawTree();
+        void DrawTreeNode(DirectoryNode* node);
+        void DrawContent();
+        void DrawPathBar(float width);
 
-        void DrawListView();
-        void DrawListItems(std::vector<DirectoryNode*>& items, bool isDirectory);
-        void DrawListItem(DirectoryNode& item, bool isDirectory);
+        void DrawItem(DirectoryNode* node, bool isGrid);
 
-        void DrawGridView();
-        void DrawGridItems(std::vector<DirectoryNode*>& items, bool isDirectory);
-        void DrawGridItem(DirectoryNode& item, bool isDirectory);
-
-        const char* GetResourceIcon(AssetType type);
-		void HandleDragDrop(DirectoryNode& item);
-        void HandleItemInteraction(DirectoryNode& item, bool isDirectory);
+        // Interaction
+        void HandleDragDrop(DirectoryNode* node);
+        void HandleClick(DirectoryNode* node, bool doubleClick);
+        void HandleContextMenu(DirectoryNode* node);
         void HandleRenaming();
 
-        void DrawCreateMenu();
-        void ShowDeleteConfirmation();
-
-        // Resource operations
+        // Actions
         void CreateNewFolder();
         void CreateNewMaterial();
-        void DeleteResource(DirectoryNode& parentNode);
-        void RenameResource(DirectoryNode& node, const std::string& newName);
-        void DeleteDirectoryRecursive(const fs::path& path);
+        void DeleteItem(DirectoryNode* node);
+        void RenameItem(DirectoryNode* node, const std::string& newName);
+
+        const char* GetIcon(AssetType type, bool isDirectory) const;
 
         // Runtime state
 		InspectorPanel* m_InspectorPanel = nullptr;
-        std::string m_AssetsPath;
+        fs::path m_AssetsPath;
 
-        DirectoryNode* m_RootNode;
-        DirectoryNode* m_CurrentDirectory = nullptr;
-        DirectoryNode* m_SelectedNode = nullptr;
-        DirectoryNode* m_NodeMenu = nullptr;
-        DirectoryNode* m_NodeToRename = nullptr;
-        DirectoryNode* m_NodeToDelete = nullptr;
-
+        std::unique_ptr<DirectoryNode> m_RootNode;
+        DirectoryNode* m_CurrentDirNode = nullptr;
+        
+        fs::path m_SelectedPath;
+        DirectoryNode* m_RenamingNode = nullptr;
         char m_RenameBuffer[256] = "";
-        std::string m_OriginalName;
+        char m_SearchBuffer[256] = "";
+        std::vector<DirectoryNode*> m_SearchResults;
+        bool m_IsSearching = false;
 
-		bool m_ListView = true;
+        float m_ThumbnailSize = 64.0f;
+        float m_Padding = 16.0f;
+        static constexpr float k_ListModeThreshold = 16.0f;
     };
 }

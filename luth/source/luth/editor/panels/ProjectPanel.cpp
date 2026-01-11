@@ -22,10 +22,16 @@ namespace Luth
     void ProjectPanel::OnInit()
     {
         m_InspectorPanel = Editor::GetPanel<InspectorPanel>();
-        m_AssetsPath = FileSystem::AssetsPath().string();
+        m_AssetsPath = FileSystem::AssetsPath();
+        Refresh();
+    }
 
-        m_RootNode = BuildDirectoryTree(m_AssetsPath);
-        m_CurrentDirectory = m_RootNode;
+    void ProjectPanel::Refresh()
+    {
+        m_RootNode = BuildDirectoryTree(m_AssetsPath, nullptr);
+        m_CurrentDirNode = m_RootNode.get();
+        if (m_IsSearching)
+            UpdateSearchResults();
     }
 
     void ProjectPanel::OnRender()
@@ -37,9 +43,15 @@ namespace Luth
         {
             // Left panel - directory tree
             ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_ResizeX);
-            //ImGui::Dummy({ 0, 4 });
-            ImGui::SetNextItemOpen(true);
-            DrawDirectoryNode(*m_RootNode);
+            
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS " Search...", m_SearchBuffer, sizeof(m_SearchBuffer))) {
+                m_IsSearching = strlen(m_SearchBuffer) > 0;
+                UpdateSearchResults();
+            }
+            ImGui::Separator();
+
+            DrawTree();
             ImGui::EndChild();
 
             ImGui::SameLine();
@@ -49,30 +61,46 @@ namespace Luth
             ImGui::BeginChild("##ProjectSplitView", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
             ImGui::PopStyleColor();
 
-            // Top bar with path
-            DrawPathBar();
+            // Top bar with path and slider
+            float availWidth = ImGui::GetContentRegionAvail().x;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float sliderWidth = std::min(availWidth * 0.1f, 100.0f);
+            float pathBarWidth = availWidth - sliderWidth - spacing;
+            if (pathBarWidth < 10.0f) pathBarWidth = 10.0f;
+
+            DrawPathBar(pathBarWidth);
             ImGui::SameLine();
-			if (ImGui::Button("#")) m_ListView = !m_ListView;
+            
+            ImGui::SetNextItemWidth(sliderWidth);
+            ImGui::SliderFloat("##Size", &m_ThumbnailSize, 16.0f, 96.0f, "");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Icon Size");
 
             // Directory contents
             ImGui::BeginChild("##ProjectContent", ImVec2(0, 0), true);
-            DrawDirectoryContent();
+
+            if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl)
+            {
+                float zoom = ImGui::GetIO().MouseWheel * 4.0f;
+                if (zoom != 0.0f)
+                {
+                    m_ThumbnailSize = std::clamp(m_ThumbnailSize + zoom, 16.0f, 96.0f);
+                }
+            }
+
+            DrawContent();
             ImGui::EndChild();
 
             ImGui::EndChild();
         }
         ImGui::End();
         ImGui::PopFont();
-
-        if (m_NodeToDelete) ShowDeleteConfirmation();
     }
 
-    DirectoryNode* ProjectPanel::BuildDirectoryTree(const fs::path& path, DirectoryNode* parent)
+    std::unique_ptr<DirectoryNode> ProjectPanel::BuildDirectoryTree(const fs::path& path, DirectoryNode* parent)
     {
-        DirectoryNode* node = new DirectoryNode();
-        node->Uuid = AssetDatabase::GetUUID(path);
+        auto node = std::make_unique<DirectoryNode>();
+        node->Path = path;
         node->Name = path.filename().string();
-        node->Type = AssetType::None; // Directory doesn't have an AssetType usually, or we add AssetType::Directory
         node->Parent = parent;
 
         if (node->Name.empty()) {
@@ -81,30 +109,23 @@ namespace Luth
         }
 
         try {
-            std::vector<fs::directory_entry> entries;
             for (const auto& entry : fs::directory_iterator(path)) {
-                entries.push_back(entry);
-            }
-
-            // Process directories
-            for (const auto& entry : entries) {
+                if (entry.path().extension() == ".meta") continue;
+                
                 if (entry.is_directory()) {
-                    auto child = BuildDirectoryTree(entry.path(), node);
-                    node->Directories.push_back(std::move(child));
+                    auto child = BuildDirectoryTree(entry.path(), node.get());
+                    node->SubDirectories.push_back(std::move(child));
                 }
-            }
-
-            // Process files
-            for (const auto& entry : entries) {
-                if (!entry.is_directory()) {
+                else {
                     AssetType fileType = FileSystem::ClassifyFileType(entry.path());
                     if (fileType != AssetType::None) {
-						DirectoryNode* fileNode = new DirectoryNode();
-                        fileNode->Uuid = AssetDatabase::GetUUID(entry.path());
+						auto fileNode = std::make_unique<DirectoryNode>();
+                        fileNode->Path = entry.path();
                         fileNode->Name = entry.path().filename().stem().string();
                         fileNode->Type = fileType;
-                        fileNode->Parent = node;
-                        node->Contents.push_back(std::move(fileNode));
+                        fileNode->Handle = AssetDatabase::GetUUID(entry.path());
+                        fileNode->Parent = node.get();
+                        node->Files.push_back(std::move(fileNode));
                     }
                 }
             }
@@ -116,69 +137,54 @@ namespace Luth
         return node;
     }
 
-    DirectoryNode* ProjectPanel::FindNode(DirectoryNode& root, const DirectoryNode& target)
+    void ProjectPanel::UpdateSearchResults()
     {
-        if (&root == &target) return &root;
-
-        // Search Directories
-        for (auto& dir : root.Directories) {
-            if (dir == &target) return dir;
-            DirectoryNode* found = FindNode(*dir, target);
-            if (found) return found;
+        m_SearchResults.clear();
+        if (m_IsSearching && m_RootNode) {
+            std::string query = m_SearchBuffer;
+            std::transform(query.begin(), query.end(), query.begin(), ::tolower);
+            RecursiveSearch(m_RootNode.get(), query);
         }
-
-        // Search Contents
-        for (auto& content : root.Contents) {
-            if (content == &target) return content;
-        }
-
-        return nullptr;
     }
 
-    // TODO: I dont quite like this beeing DFS :/
-    bool ProjectPanel::DeleteNode(DirectoryNode& root, const DirectoryNode& target)
+    void ProjectPanel::RecursiveSearch(DirectoryNode* node, const std::string& query)
     {
-        // Check Directories
-        for (auto it = root.Directories.begin(); it != root.Directories.end(); ++it) {
-            if (*it == &target) {
-                delete* it;
-                root.Directories.erase(it);
-                return true;
-            }
-            if (DeleteNode(**it, target)) {
-                return true;
+        for (auto& dir : node->SubDirectories) RecursiveSearch(dir.get(), query);
+        for (auto& file : node->Files) {
+            std::string name = file->Name;
+            std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+            if (name.find(query) != std::string::npos) {
+                m_SearchResults.push_back(file.get());
             }
         }
-
-        // Check Contents
-        for (auto it = root.Contents.begin(); it != root.Contents.end(); ++it) {
-            if (*it == &target) {
-                delete* it;
-                root.Contents.erase(it);
-                return true;
-            }
-        }
-
-        return false;
     }
 
-    void ProjectPanel::DrawDirectoryNode(DirectoryNode& node)
+    void ProjectPanel::DrawTree()
+    {
+        if (m_RootNode) {
+            ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
+            DrawTreeNode(m_RootNode.get());
+        }
+    }
+
+    void ProjectPanel::DrawTreeNode(DirectoryNode* node)
     {
         // Setup flags
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth |
             ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        if (node.Directories.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
-        if (&node == m_CurrentDirectory) flags |= ImGuiTreeNodeFlags_Selected;
-        if (node.Name == "Assets") flags |= ImGuiTreeNodeFlags_Framed;
+        
+        if (node->SubDirectories.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (node == m_CurrentDirNode) flags |= ImGuiTreeNodeFlags_Selected;
+        if (node->Name == "Assets") flags |= ImGuiTreeNodeFlags_Framed;
 
-        if (node.IsOpen) ImGui::SetNextItemOpen(true);
+        if (node->IsOpen) ImGui::SetNextItemOpen(true);
 
         // Set Icon
         const char* icon = ICON_FA_FOLDER;
-        if (node.Directories.empty() && node.Contents.empty()) {
+        if (node->SubDirectories.empty() && node->Files.empty()) {
             ImGui::PushFont(Editor::GetFARegular());
         }
-        else if (node.IsOpen && !node.Directories.empty()) {
+        else if (node->IsOpen && !node->SubDirectories.empty()) {
             icon = ICON_FA_FOLDER_OPEN;
             ImGui::PushFont(Editor::GetFARegular());
 		}
@@ -187,15 +193,16 @@ namespace Luth
         }
             
         // Draw the node
-        node.IsOpen = ImGui::TreeNodeEx((void*)&node, flags, "%s", icon);
+        node->IsOpen = ImGui::TreeNodeEx((void*)node, flags, "%s", icon);
         ImGui::PopFont();
 
         if (ImGui::IsItemClicked()) {
-            m_CurrentDirectory = &node;
+            m_CurrentDirNode = node;
+            m_SelectedPath = node->Path;
         }
 
         ImGui::SameLine();
-        ImGui::Text(node.Name.c_str());
+        ImGui::Text(node->Name.c_str());
         
         // Visual line settings
         const ImColor treeLineColor = ImColor(128, 128, 128, 128);
@@ -203,20 +210,20 @@ namespace Luth
         ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-        if (node.IsOpen) {
+        if (node->IsOpen) {
             verticalLineStart.x += smallOffsetX; // My ocd will kill me
             ImVec2 verticalLineEnd = verticalLineStart;
 
-            for (auto& child : node.Directories) {
+            for (auto& child : node->SubDirectories) {
                 auto currentPos = ImGui::GetCursorScreenPos();
 
                 // Calculate horizontal line size
                 float horizontalTreeLineSize = 20.0f;
-                if (!child->Directories.empty())
+                if (!child->SubDirectories.empty())
                     horizontalTreeLineSize *= 0.5f;
 
                 // Draw child node
-                DrawDirectoryNode(*child);
+                DrawTreeNode(child.get());
 
                 // Draw horizontal line
                 const ImRect childRect = ImRect(currentPos, currentPos + ImVec2(0.0f, ImGui::GetFontSize()));
@@ -236,15 +243,15 @@ namespace Luth
         }
     }
 
-    void ProjectPanel::DrawPathBar()
+    void ProjectPanel::DrawPathBar(float width)
     {
-        if (!m_CurrentDirectory) return;
+        if (!m_CurrentDirNode) return;
 
-        ImGui::BeginChild("##PathBar", ImVec2(-26, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
+        ImGui::BeginChild("##PathBar", ImVec2(width, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
 
         // Store path segments in reverse order (from current to root)
         std::vector<DirectoryNode*> pathSegments;
-        for (DirectoryNode* node = m_CurrentDirectory; node != nullptr; node = node->Parent) {
+        for (DirectoryNode* node = m_CurrentDirNode; node != nullptr; node = node->Parent) {
             pathSegments.push_back(node);
         }
 
@@ -263,7 +270,7 @@ namespace Luth
             // Special styling for root (Assets)
             if (segment->Name == "Assets") {
                 if (ImGui::Button("Assets", ImVec2(0, 0))) {
-                    m_CurrentDirectory = segment;
+                    m_CurrentDirNode = segment;
                 }
             }
             else {
@@ -272,7 +279,7 @@ namespace Luth
 
                 // Use Selectable for clickable segments with proper sizing
                 if (ImGui::Selectable(segment->Name.c_str(), false, 0, textSize)) {
-                    m_CurrentDirectory = segment;
+                    m_CurrentDirNode = segment;
                 }
             }
 
@@ -282,531 +289,298 @@ namespace Luth
         ImGui::EndChild();
     }
 
-    void ProjectPanel::DrawDirectoryContent()
+    void ProjectPanel::DrawContent()
     {
-        if (!m_CurrentDirectory) return;
+        if (!m_CurrentDirNode && !m_IsSearching) return;
 
         if (ImGui::BeginPopupContextWindow("ProjectContextMenu")) {
-            DrawCreateMenu();
+            if (ImGui::MenuItem("Create Folder")) CreateNewFolder();
+            if (ImGui::MenuItem("Create Material")) CreateNewMaterial();
             ImGui::EndPopup();
         }
 
-        m_ListView ? DrawListView() : DrawGridView();
-    }
+        bool isListView = m_ThumbnailSize <= k_ListModeThreshold;
+        float cellSize = m_ThumbnailSize + m_Padding;
+        float panelWidth = ImGui::GetContentRegionAvail().x;
+        int columnCount = (int)(panelWidth / cellSize);
+        if (columnCount < 1) columnCount = 1;
 
-    void ProjectPanel::DrawListView()
-    {
-        ImGui::Dummy({ 0, 2 });
-        DrawListItems(m_CurrentDirectory->Directories, true);
-        DrawListItems(m_CurrentDirectory->Contents, false);
-    }
-
-    void ProjectPanel::DrawListItems(std::vector<DirectoryNode*>& items, bool isDirectory)
-    {
-        ImGui::Indent(8.0f);
-        for (auto& item : items) {
-            ImGui::PushID((void*)item);
-            DrawListItem(*item, isDirectory);
-            ImGui::PopID();
-        }
-        ImGui::Unindent(8.0f);
-    }
-
-    void ProjectPanel::DrawListItem(DirectoryNode& item, bool isDirectory)
-    {
-        // Set Icon
-        const char* icon = ICON_FA_FOLDER;
-        if (isDirectory) {
-            if (item.Directories.empty() && item.Contents.empty()) {
-                ImGui::PushFont(Editor::GetFARegular());
-            }
-            else {
-                ImGui::PushFont(Editor::GetFASolid());
-            }
-        }
-        else {
-			icon = GetResourceIcon(item.Type);
-            Vec4 color = (item.Type != AssetType::None) ? FileSystem::GetTypeInfo().at(item.Type).color : Vec4(1.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
-            ImGui::PushFont(Editor::GetFASolid());
+        if (!isListView) {
+            ImGui::Columns(columnCount, 0, false);
         }
 
-        // Draw Icon
-        ImGui::Text(icon);
-        if (!isDirectory) ImGui::PopStyleColor();
-        ImGui::PopFont();
-
-        // Name with same-line alignment
-        ImGui::SameLine();
-
-        const bool isRenaming = (m_NodeToRename == &item);
-        if (isRenaming) {
-            HandleRenaming();
-        }
-        else {
-            const bool isSelected = (m_SelectedNode == &item);
-            ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick;
-
-            if (ImGui::Selectable(item.Name.c_str(), isSelected, flags)) {
-                HandleItemInteraction(item, isDirectory);
-            }
-
-            // Drag and drop support
-            if (!isDirectory && (item.Type == AssetType::Model ||
-                item.Type == AssetType::Material ||
-                item.Type == AssetType::Texture))
-            {
-                HandleDragDrop(item);
-            }
-
-            // Right-click
-            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) {
-                m_NodeMenu = &item;
-            }
-        }
-    }
-
-    void ProjectPanel::DrawGridView()
-    {
-        const float thumbnailSize = 64.0f;
-        const float padding = 16.0f;
-        const float cellSize = thumbnailSize + padding;
-        const int columnCount = (int)(ImGui::GetContentRegionAvail().x / cellSize);
-
-        ImGui::Columns(std::max(1, columnCount), 0, false);
-        DrawGridItems(m_CurrentDirectory->Directories, true);
-        DrawGridItems(m_CurrentDirectory->Contents, false);
-        ImGui::Columns(1);
-    }
-
-    void ProjectPanel::DrawGridItems(std::vector<DirectoryNode*>& items, bool isDirectory)
-    {
-        for (auto& item : items) {
-            ImGui::PushID((void*)item);
-            DrawGridItem(*item, isDirectory);
-            ImGui::NextColumn();
-            ImGui::PopID();
-        }
-    }
-
-    void ProjectPanel::DrawGridItem(DirectoryNode& item, bool isDirectory)
-    {
-        const float thumbnailSize = 64.0f;
-
-        // Icon Button
-        ImGui::BeginGroup();
+        if (m_IsSearching)
         {
-            // Set Icon
-            const char* icon = ICON_FA_FOLDER;
-            if (isDirectory) {
-                if (item.Directories.empty() && item.Contents.empty()) {
-                    ImGui::PushFont(Editor::GetFARegular());
-                }
-                else {
-                    ImGui::PushFont(Editor::GetFASolid());
-                }
+            for (auto* node : m_SearchResults) {
+                ImGui::PushID(node);
+                DrawItem(node, !isListView);
+                ImGui::PopID();
+                if (!isListView) ImGui::NextColumn();
             }
-            else {
-                icon = GetResourceIcon(item.Type);
-                Vec4 color = (item.Type != AssetType::None) ? FileSystem::GetTypeInfo().at(item.Type).color : Vec4(1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
-                ImGui::PushFont(Editor::GetFASolid());
+            
+            if (m_SearchResults.empty()) {
+                ImGui::TextDisabled("No results found.");
+            }
+        }
+        else
+        {
+            // Directories
+            for (auto& dir : m_CurrentDirNode->SubDirectories) {
+                ImGui::PushID(dir.get());
+                DrawItem(dir.get(), !isListView);
+                ImGui::PopID();
+                if (!isListView) ImGui::NextColumn();
             }
 
-            ImGui::SetWindowFontScale(3.0f);
-            ImGui::Button(icon, { thumbnailSize, thumbnailSize });
-            ImGui::SetWindowFontScale(1.0f);
+            // Files
+            for (auto& file : m_CurrentDirNode->Files) {
+                ImGui::PushID(file.get());
+                DrawItem(file.get(), !isListView);
+                ImGui::PopID();
+                if (!isListView) ImGui::NextColumn();
+            }
+        }
+
+        if (!isListView) {
+            ImGui::Columns(1);
+        }
+    }
+
+    void ProjectPanel::DrawItem(DirectoryNode* node, bool isGrid)
+    {
+        bool isDirectory = (node->Type == AssetType::None);
+        const char* icon = GetIcon(node->Type, isDirectory);
+        
+        bool isSelected = (m_SelectedPath == node->Path);
+        bool isRenaming = (m_RenamingNode == node);
+
+        if (isGrid)
+        {
+            ImGui::BeginGroup();
+            ImGui::PushFont(Editor::GetFASolid());
+            
+            // Colorize icon
+            if (!isDirectory) {
+                Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
+                ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
+            }
+
+            // Icon Button
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            if (ImGui::Button(icon, { m_ThumbnailSize, m_ThumbnailSize })) {
+                HandleClick(node, false);
+            }
+            ImGui::PopStyleColor();
 
             if (!isDirectory) ImGui::PopStyleColor();
             ImGui::PopFont();
 
-            // Handle interactions
+            // Handle Drag Drop
+            HandleDragDrop(node);
+            
+            // Handle Double Click
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                if (isDirectory) m_CurrentDirectory = &item;
+                HandleClick(node, true);
             }
 
-            // Name label
-            ImGui::TextWrapped("%s", item.Name.c_str());
-        }
-        ImGui::EndGroup();
+            // Context Menu
+            if (ImGui::BeginPopupContextItem()) {
+                HandleContextMenu(node);
+                ImGui::EndPopup();
+            }
 
-        // Drag and drop support
-        if (!isDirectory && (item.Type == AssetType::Model ||
-            item.Type == AssetType::Material ||
-            item.Type == AssetType::Texture))
+            // Name
+            if (isRenaming) {
+                HandleRenaming();
+            }
+            else {
+                ImGui::TextWrapped("%s", node->Name.c_str());
+            }
+            
+            ImGui::EndGroup();
+        }
+        else // List View (Small Zoom)
         {
-            HandleDragDrop(item);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
+
+            ImGui::PushFont(Editor::GetFASolid());
+            if (!isDirectory) {
+                Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
+                ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
+            }
+            ImGui::Text(icon);
+            if (!isDirectory) ImGui::PopStyleColor();
+            ImGui::PopFont();
+            // TODO: Add small icon texture support here if available
+
+            ImGui::SameLine();
+
+            if (isRenaming) {
+                HandleRenaming();
+            }
+            else {
+                if (ImGui::Selectable(node->Name.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick)) {
+                    HandleClick(node, ImGui::IsMouseDoubleClicked(0));
+                }
+                
+                HandleDragDrop(node);
+                
+                if (ImGui::BeginPopupContextItem()) {
+                    HandleContextMenu(node);
+                    ImGui::EndPopup();
+                }
+            }
+
+            // In list view, show extra details if searching (like path)
+            if (m_IsSearching) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", node->Path.parent_path().string().c_str());
+            }
         }
     }
 
-    const char* ProjectPanel::GetResourceIcon(AssetType type)
+    const char* ProjectPanel::GetIcon(AssetType type, bool isDirectory) const
     {
+        if (isDirectory) return ICON_FA_FOLDER;
+
         static const std::unordered_map<AssetType, const char*> icons = {
             { AssetType::Model,    ICON_FA_CUBE                  },
             { AssetType::Texture,  ICON_FA_IMAGE                 },
             { AssetType::Material, ICON_FA_CIRCLE_HALF_STROKE    },
 			{ AssetType::Shader,   ICON_FA_FILE_CODE             },
 			{ AssetType::Font,     ICON_FA_FONT                  },
-			// { AssetType::Config,   ICON_FA_FILE_LINES            },
 			{ AssetType::None,  ICON_FA_FILE_CIRCLE_QUESTION  }
         };
         return icons.count(type) ? icons.at(type) : ICON_FILE;
     }
 
-    void ProjectPanel::HandleDragDrop(DirectoryNode& item)
+    void ProjectPanel::HandleDragDrop(DirectoryNode* node)
     {
+        if (node->Type == AssetType::None) return; // Don't drag folders for now
+
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-            ImGui::SetDragDropPayload("ASSET_UUID", &item.Uuid, sizeof(Luth::UUID));
-            ImGui::Text("%s", item.Name.c_str());
+            ImGui::SetDragDropPayload("ASSET_UUID", &node->Handle, sizeof(UUID));
+            ImGui::Text("%s", node->Name.c_str());
             ImGui::EndDragDropSource();
         }
     }
 
-    void ProjectPanel::HandleItemInteraction(DirectoryNode& item, bool isDirectory)
+    void ProjectPanel::HandleClick(DirectoryNode* node, bool doubleClick)
     {
-        if (ImGui::IsMouseDoubleClicked(0)) {
-            if (isDirectory) {
-                m_CurrentDirectory->IsOpen = true;
-                m_CurrentDirectory = &item;
-			}
+        m_SelectedPath = node->Path;
+
+        if (doubleClick) {
+            if (node->Type == AssetType::None) {
+                m_CurrentDirNode = node;
+            }
             else {
-                m_SelectedNode = &item;
-                m_InspectorPanel->SetSelectedResource(item.Uuid);
+                // Open asset?
             }
         }
-        else {  // single click
-            if (isDirectory) {
+        else {
+            if (node->Type != AssetType::None) {
+                m_InspectorPanel->SetSelectedResource(node->Handle);
+            }
+        }
+    }
 
-            }
-            else {
-                if (m_SelectedNode == &item) {
-                }
-                else {
-                    m_SelectedNode = &item;
-                    m_InspectorPanel->SetSelectedResource(item.Uuid);
-                }
-            }
+    void ProjectPanel::HandleContextMenu(DirectoryNode* node)
+    {
+        if (ImGui::MenuItem("Rename")) {
+            m_RenamingNode = node;
+            strncpy_s(m_RenameBuffer, node->Name.c_str(), sizeof(m_RenameBuffer));
+        }
+        if (ImGui::MenuItem("Delete")) {
+            DeleteItem(node);
         }
     }
 
     void ProjectPanel::HandleRenaming()
     {
-        if (!m_NodeToRename) return;
+        if (!m_RenamingNode) return;
 
-        // Setup input text flags and focus
-        constexpr ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll;
         ImGui::SetKeyboardFocusHere();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-
-        // Text Input
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-        const bool finish = ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer), flags);
-        ImGui::PopStyleVar();
-
-        // Check for cancellation (Escape key)
-        const bool cancel = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape);
-
-        if (!finish && !cancel) return;
-
-        if (finish && !cancel) {
-            // Validate and apply new name
-            std::string newName(m_RenameBuffer);
-            if (newName.empty()) newName = m_OriginalName;
-            m_NodeToRename->Name = newName;
-			RenameResource(*m_NodeToRename, newName);
+        if (ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+            RenameItem(m_RenamingNode, m_RenameBuffer);
+            m_RenamingNode = nullptr;
         }
-        else if (cancel) {
-            // Restore original name
-            m_NodeToRename->Name = m_OriginalName;
-        }
-
-        // Cleanup
-        m_NodeToRename = nullptr;
-        m_OriginalName.clear();
-        memset(m_RenameBuffer, 0, sizeof(m_RenameBuffer));
-    }
-
-    void ProjectPanel::DrawCreateMenu()
-    {
-        if (ImGui::BeginMenu("Create")) {
-            if (ImGui::MenuItem("Folder")) {
-                CreateNewFolder();
-            }
-            if (ImGui::MenuItem("Material")) {
-                CreateNewMaterial();
-            }
-            // TODO: Add other create options here...
-            ImGui::EndMenu();
-        }
-
-        if (m_NodeMenu) {
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Rename")) {
-				m_NodeToRename = m_NodeMenu;
-                strncpy_s(m_RenameBuffer, m_NodeToRename->Name.c_str(), sizeof(m_RenameBuffer));
-				m_NodeMenu = nullptr;
-            }
-            if (ImGui::MenuItem("Delete")) {
-				m_NodeToDelete = m_NodeMenu;
-                ImGui::OpenPopup("Delete?");
-                m_NodeMenu = nullptr;
-            }
-        }
-    }
-
-    void ProjectPanel::ShowDeleteConfirmation()
-    {
-        // Always center the confirmation dialog
-        ImGui::OpenPopup("Delete?");
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-        if (ImGui::BeginPopupModal("Delete?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            ImGui::Text("Are you sure you want to delete '%s'?", m_NodeToDelete->Name.c_str());
-            ImGui::Separator();
-
-            if (ImGui::Button("Delete", ImVec2(120, 0))) {
-                DeleteResource(*m_NodeToDelete);
-                ImGui::CloseCurrentPopup();
-                m_NodeToDelete = nullptr;
-            }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                ImGui::CloseCurrentPopup();
-                m_NodeToDelete = nullptr;
-            }
-
-            ImGui::EndPopup();
+        
+        if (!ImGui::IsItemActive() && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(1))) {
+            m_RenamingNode = nullptr;
         }
     }
 
     void ProjectPanel::CreateNewFolder()
     {
-		// Current directory
-		fs::path currDir = AssetDatabase::GetMetadata(m_CurrentDirectory->Uuid).Path;
-
-		// Default folder name
-		fs::path newFolderPath = currDir / "NewFolder";
-
-		// Ensure unique folder name
-		int counter = 1;
-		while (fs::exists(newFolderPath)) {
-			newFolderPath = currDir / ("NewFolder_" + std::to_string(counter++));
-		}
-
-		// Create the folder
-		if (!fs::create_directory(newFolderPath)) {
-			LH_CORE_ERROR("Failed to create folder: {0}", newFolderPath.string());
-			return;
-		}
-
-		// Create .meta file
-		fs::path metaPath = newFolderPath;
-		metaPath += ".meta";
-		UUID uuid;
-		MetaFile meta(uuid); // New random UUID
-		meta.Save(metaPath);
-
-		// Register with resource database
-		// AssetDatabase::RegisterAsset(newFolderPath, meta.GetUUID(), AssetType::Directory); // Directory type removed?
-
-		// Add new directory node for the folder
-        DirectoryNode* newFolder = new DirectoryNode();
-        newFolder->Uuid = meta.GetUUID();
-        newFolder->Name = newFolderPath.filename().string();
-        newFolder->Type = AssetType::None; // Directory
-        newFolder->Parent = m_CurrentDirectory;
-        m_CurrentDirectory->Directories.push_back(std::move(newFolder));
-
-		LH_CORE_INFO("Created new folder: {0}", newFolderPath.string());
+        fs::path path = m_CurrentDirNode->Path / "New Folder";
+        int i = 1;
+        while (fs::exists(path)) {
+            path = m_CurrentDirNode->Path / ("New Folder " + std::to_string(i++));
+        }
+        fs::create_directory(path);
+        Refresh();
     }
 
     void ProjectPanel::CreateNewMaterial()
     {
-        // Current directory
-        fs::path currDir = AssetDatabase::GetMetadata(m_CurrentDirectory->Uuid).Path;
-
-        // Default material path
-        fs::path newMaterialPath = currDir / "NewMaterial.mat";
-
-        // Ensure unique filename
+        fs::path path = m_CurrentDirNode->Path / "New Material.mat";
         int counter = 1;
-        while (fs::exists(newMaterialPath)) {
-            newMaterialPath = currDir /
-                ("NewMaterial_" + std::to_string(counter++) + ".mat");
+        while (fs::exists(path)) {
+            path = m_CurrentDirNode->Path / ("New Material " + std::to_string(counter++) + ".mat");
         }
 
-        // Create the material file
-        std::ofstream file(newMaterialPath);
-        if (!file.is_open()) {
-            LH_CORE_ERROR("Failed to create material file: {0}", newMaterialPath.string());
-            return;
-        }
-
-        // Create default material content
+        // Default Material JSON
         nlohmann::json materialData;
-
-        // Shader (empty by default)
         materialData["shader"] = "";
-
-        // Material properties
-        materialData["render_mode"] = 0;  // Opaque by default
+        materialData["render_mode"] = 0;
         materialData["alpha_cutoff"] = 0.5f;
         materialData["blend_src"] = static_cast<int>(Material::BlendFactor::SrcAlpha);
         materialData["blend_dst"] = static_cast<int>(Material::BlendFactor::OneMinusSrcAlpha);
         materialData["alpha_from_diffuse"] = 0;  // False
-
-        // Base material parameters
-        materialData["color"] = { 1.0f, 1.0f, 1.0f, 1.0f };  // White
-        materialData["alpha"] = 1.0f;
-        materialData["metal"] = 0.0f;
-        materialData["rough"] = 0.5f;
-        materialData["emissive"] = { 0.0f, 0.0f, 0.0f };  // No emission
-        materialData["is_gloss"] = 0;  // False
-        materialData["is_single_channel"] = 0;  // False
-
-        // Subsurface scattering defaults
-        materialData["subsurface"] = {
-            {"color", {1.0f, 1.0f, 1.0f}},
-            {"strength", 0.0f},
-            {"thickness_scale", 1.0f}
-        };
-
-        // Empty texture maps array
         materialData["textures"] = nlohmann::json::array();
 
+        std::ofstream file(path);
         file << materialData.dump(4);
         file.close();
 
-        // Create .meta file
-        fs::path metaPath = newMaterialPath;
-        metaPath += ".meta";
+        // Register
+        UUID uuid = MetaFile::Create(path, AssetType::Material);
+        AssetDatabase::RegisterAsset(path, uuid, AssetType::Material);
 
-        UUID uuid;
-        MetaFile meta(uuid); // New random UUID
-        meta.Save(metaPath);
-
-        // Register with resource database
-        AssetDatabase::RegisterAsset(newMaterialPath, meta.GetUUID(), AssetType::Material);
-		// MaterialLibrary::LoadOrGet(newMaterialPath); // Removed
-
-        // Add new directory node for the material
-        DirectoryNode* newMaterial = new DirectoryNode();
-        newMaterial->Uuid = meta.GetUUID();
-        newMaterial->Name = newMaterialPath.filename().stem().string();
-        newMaterial->Type = AssetType::Material;
-        newMaterial->Parent = m_CurrentDirectory;
-        m_CurrentDirectory->Contents.push_back(std::move(newMaterial));
-
-        // Set as selected in inspector
-        m_InspectorPanel->SetSelectedResource(meta.GetUUID());
-
-        // Notify listeners
-        /*if (OnMaterialCreated) {
-            OnMaterialCreated(newMaterialPath);
-        }*/
-
-        LH_CORE_INFO("Created new material: {0}", newMaterialPath.string());
+        Refresh();
     }
 
-    void ProjectPanel::DeleteResource(DirectoryNode& nodeToDelete)
+    void ProjectPanel::DeleteItem(DirectoryNode* node)
     {
-		fs::path path = AssetDatabase::GetMetadata(nodeToDelete.Uuid).Path;
-
-        try {
-            // Delete the file or directory
-            if (nodeToDelete.Type == AssetType::None) { // Directory
-                fs::remove_all(path);
-            }
-            else {
-                fs::remove(path);
-            }
-
-            // Delete associated .meta
-            fs::path metaPath = path.string() + ".meta";
-            fs::remove(metaPath);
+        if (node->Type == AssetType::None) {
+            fs::remove_all(node->Path);
         }
-        catch (const std::exception& e) {
-			LH_CORE_ERROR("Failed to delete resource: {0}", e.what());
-            return;
+        else {
+            fs::remove(node->Path);
+            fs::remove(node->Path.string() + ".meta");
+            AssetDatabase::UnregisterAsset(node->Handle);
         }
-
-        // Remove node
-		bool found = DeleteNode(*m_CurrentDirectory, nodeToDelete);
-
-        // Update UI state if needed
-        if (m_SelectedNode == &nodeToDelete) {
-            m_SelectedNode = nullptr;
-            if (m_InspectorPanel) {
-                m_InspectorPanel->SetSelectedResourceNone();
-            }
-        }
-
-        if (m_NodeToRename == &nodeToDelete) {
-            m_NodeToRename = nullptr;
-        }
+        Refresh();
     }
 
-    void ProjectPanel::RenameResource(DirectoryNode& node, const std::string& newName)
+    void ProjectPanel::RenameItem(DirectoryNode* node, const std::string& newName)
     {
-        fs::path oldPath = AssetDatabase::GetMetadata(node.Uuid).Path;
-        std::string extension = oldPath.extension().string();
-        fs::path newPath = oldPath.parent_path() / (newName + extension);
-
-        if (!fs::exists(oldPath)) {
-            LH_CORE_ERROR("Resource to rename does not exist: {0}", oldPath.string());
-            return;
-        }
+        fs::path newPath = node->Path.parent_path() / newName;
+        if (node->Type != AssetType::None) newPath += node->Path.extension();
 
         try {
-            // Rename the main file
-            fs::rename(oldPath, newPath);
-
-            // Rename .meta file if exists
-            fs::path oldMetaPath = oldPath;
-            oldMetaPath += ".meta";
-            if (fs::exists(oldMetaPath)) {
-                fs::path newMetaPath = newPath;
-                newMetaPath += ".meta";
-                fs::rename(oldMetaPath, newMetaPath);
+            fs::rename(node->Path, newPath);
+            
+            if (node->Type != AssetType::None) {
+                fs::rename(node->Path.string() + ".meta", newPath.string() + ".meta");
+                AssetDatabase::UnregisterAsset(node->Handle);
+                AssetDatabase::RegisterAsset(newPath, node->Handle, node->Type);
             }
-
-            // Update resource database
-            AssetType type = AssetDatabase::GetMetadata(node.Uuid).Type;
-            AssetDatabase::UnregisterAsset(node.Uuid);
-            AssetDatabase::RegisterAsset(newPath, node.Uuid, type);
-            node.Name = newName;
-
-            // TODO: Notify AssetManager of rename if asset is loaded
-            // switch (node.Type) {
-            //     case ResourceType::Model:    ModelLibrary::Get(node.Uuid)->SetName(newName);    break;
-            //     case ResourceType::Texture:  TextureCache::Get(node.Uuid)->SetName(newName);    break;
-            //     case ResourceType::Material: MaterialLibrary::Get(node.Uuid)->SetName(newName); break;
-            //     case ResourceType::Shader:   ShaderLibrary::Get(node.Uuid)->SetName(newName);   break;
-            //     default: break;
-            // }
-
-            LH_CORE_INFO("Renamed {0} to {1}", oldPath.filename().string(), newName + extension);
+            
+            Refresh();
         }
-        catch (const fs::filesystem_error& e) {
-            LH_CORE_ERROR("Failed to rename resource: {0}", e.what());
-        }
-    }
-
-    void ProjectPanel::DeleteDirectoryRecursive(const fs::path& path)
-    {
-        try {
-            if (fs::exists(path)) {
-                fs::remove_all(path);
-                AssetDatabase::UnregisterAsset(AssetDatabase::GetUUID(path));
-                LH_CORE_INFO("Deleted directory: {0}", path.string());
-            }
-        }
-        catch (const fs::filesystem_error& e) {
-            LH_CORE_ERROR("Failed to delete directory: {0}", e.what());
+        catch (std::exception& e) {
+            LH_CORE_ERROR("Rename failed: {0}", e.what());
         }
     }
 }
