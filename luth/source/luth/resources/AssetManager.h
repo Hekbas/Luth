@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <queue>
 #include <mutex>
+#include <unordered_set>
 #include <memory>
 #include <filesystem>
 
@@ -55,6 +56,7 @@ namespace Luth
         static void LoadJob(JobSystem::JobArgs args);
 
         static std::unordered_map<UUID, std::shared_ptr<Asset>, UUIDHash> s_Assets;
+        static std::unordered_set<UUID, UUIDHash> s_LoadingAssets;
         static std::unordered_map<AssetType, std::unique_ptr<AssetImporter>> s_Importers;
         
         static std::mutex s_AssetMutex;

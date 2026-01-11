@@ -147,13 +147,13 @@
 - [x] ImGui Integration.
 - [x] Input System (Event Bus).
 
-### Phase 2: The Data Pipeline (Current Focus)
-1.  **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically. [Done]
-2.  **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader, rather than hardcoded structs. [Done]
-3.  **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
+### Phase 2: The Data Pipeline (Done)
+- [x] **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically.
+- [x] **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader.
+- [x] **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
-### Phase 3: The Render Graph & Scene
-1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph.
+### Phase 3: The Render Graph & Scene (Current Focus)
+1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. (Currently hardcoded in RenderingSystem, needs refinement).
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth.
 3.  **Bindless Textures:** Finalize the global texture array integration.
 
