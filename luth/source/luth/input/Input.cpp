@@ -5,11 +5,6 @@
 
 namespace Luth
 {
-    // Define static members
-    std::array<bool, 512> Input::s_KeyData;
-    std::array<bool, 8> Input::s_MouseData;
-    Vec2 Input::s_MousePos;
-
     void Input::Init()
     {
         s_KeyData.fill(false);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Event.h"
+#include <GLFW/glfw3.h>
 
 namespace Luth
 {
