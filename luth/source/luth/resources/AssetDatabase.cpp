@@ -2,6 +2,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
+#include "luth/core/Log.h"
 
 namespace Luth
 {
@@ -15,37 +16,68 @@ namespace Luth
         s_Assets.clear();
         s_PathToUuid.clear();
 
-        // Initial Scan
+        if (!fs::exists(projectRoot))
+        {
+            LH_CORE_WARN("AssetDatabase: Project root does not exist: {0}", projectRoot.string());
+            return;
+        }
+
+        std::vector<fs::path> metaFilesToDelete;
+
         for (const auto& entry : std::filesystem::recursive_directory_iterator(projectRoot))
         {
-            if (entry.is_regular_file() && entry.path().extension() != ".meta")
+            if (!entry.is_regular_file()) continue;
+
+            const auto& path = entry.path();
+
+            // 1. Check for orphaned .meta files
+            if (path.extension() == ".meta")
             {
-                AssetType type = FileSystem::ClassifyFileType(entry.path());
-                if (type != AssetType::None)
+                fs::path assetPath = path;
+                assetPath.replace_extension(""); // Remove .meta to get original asset path
+                if (!fs::exists(assetPath))
                 {
-                    UUID uuid;
-                    fs::path metaPath = entry.path();
-                    metaPath += ".meta";
-
-                    if (fs::exists(metaPath))
-                    {
-                        // Load existing UUID
-                        MetaFile meta(UUID::Invalid());
-                        if (meta.Load(metaPath))
-                            uuid = meta.GetUUID();
-                    }
-                    
-                    if (!uuid.IsValid())
-                    {
-                        // Generate new meta file
-                        uuid = MetaFile::Create(entry.path(), type);
-                    }
-
-                    s_Assets[uuid] = { entry.path(), type };
-                    s_PathToUuid[entry.path()] = uuid;
+                    metaFilesToDelete.push_back(path);
                 }
+                continue;
+            }
+
+            // 2. Process Asset files
+            AssetType type = FileSystem::ClassifyFileType(path);
+            if (type != AssetType::None)
+            {
+                UUID uuid;
+                fs::path metaPath = path;
+                metaPath += ".meta";
+
+                if (fs::exists(metaPath))
+                {
+                    MetaFile meta(UUID::Invalid());
+                    if (meta.Load(metaPath))
+                        uuid = meta.GetUUID();
+                    else
+                        LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {0}", metaPath.string());
+                }
+                
+                if (!uuid.IsValid())
+                {
+                    uuid = MetaFile::Create(path, type);
+                    LH_CORE_INFO("AssetDatabase: Generated meta file for {0}", path.filename().string());
+                }
+
+                s_Assets[uuid] = { path, type };
+                s_PathToUuid[path] = uuid;
             }
         }
+
+        // 3. Delete orphans
+        for (const auto& path : metaFilesToDelete)
+        {
+            LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {0}", path.filename().string());
+            fs::remove(path);
+        }
+
+        LH_CORE_INFO("AssetDatabase: Initialized with {0} assets", s_Assets.size());
     }
 
     void AssetDatabase::Shutdown()

@@ -11,6 +11,7 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/ECS/Systems.h"
 #include "luth/resources/AssetManager.h"
+#include "luth/resources/AssetDatabase.h"
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/core/JobSystem.h"
 #include "luth/core/Profiler.h"
@@ -23,6 +24,7 @@ namespace Luth
         // Core Systems Init
         JobSystem::Init();
         FileSystem::Init();
+        AssetDatabase::Init(FileSystem::AssetsPath());
         AssetManager::Init();
 
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
@@ -107,6 +109,7 @@ namespace Luth
         // Renderer::Shutdown(); // Phase 3
 
         AssetManager::Shutdown();
+        AssetDatabase::Shutdown();
         JobSystem::Shutdown();
     }
 
