@@ -299,6 +299,33 @@ namespace Luth
                     }
                 }
             }
+            // Handle Asset Drop (Parenting new model to target)
+            else if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID"))
+            {
+                const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
+                const auto& meta = AssetDatabase::GetMetadata(assetUuid);
+
+                if (meta.Type == AssetType::Model)
+                {
+                    if (auto model = std::static_pointer_cast<Model>(AssetManager::LoadImmediate(assetUuid)))
+                    {
+                        Entity root = m_Context->CreateEntity(model->GetName());
+                        root.SetParent(targetEntity);
+
+                        const auto& meshes = model->GetMeshes();
+                        for (size_t i = 0; i < meshes.size(); i++)
+                        {
+                            Entity child = m_Context->CreateEntity(model->GetCachedModelInfo().Meshes[i].Name);
+                            child.SetParent(root);
+                            auto& mr = child.AddComponent<MeshRenderer>();
+                            mr.ModelUUID = assetUuid;
+                            mr.MeshIndex = (u32)i;
+                            if (i < model->GetMaterials().size()) mr.MaterialUUID = model->GetMaterials()[i];
+                        }
+                        SetSelectedEntity(root);
+                    }
+                }
+            }
             ImGui::EndDragDropTarget();
         }
     }
@@ -323,8 +350,27 @@ namespace Luth
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID"))
             {
                 const UUID assetUuid = *static_cast<const UUID*>(payload->Data);
-                // Logic to instantiate model from asset (reuse existing logic)
-                // ...
+                const auto& meta = AssetDatabase::GetMetadata(assetUuid);
+
+                if (meta.Type == AssetType::Model)
+                {
+                    if (auto model = std::static_pointer_cast<Model>(AssetManager::LoadImmediate(assetUuid)))
+                    {
+                        Entity root = m_Context->CreateEntity(model->GetName());
+                        
+                        const auto& meshes = model->GetMeshes();
+                        for (size_t i = 0; i < meshes.size(); i++)
+                        {
+                            Entity child = m_Context->CreateEntity(model->GetCachedModelInfo().Meshes[i].Name);
+                            child.SetParent(root);
+                            auto& mr = child.AddComponent<MeshRenderer>();
+                            mr.ModelUUID = assetUuid;
+                            mr.MeshIndex = (u32)i;
+                            if (i < model->GetMaterials().size()) mr.MaterialUUID = model->GetMaterials()[i];
+                        }
+                        SetSelectedEntity(root);
+                    }
+                }
             }
             
             ImGui::EndDragDropTarget();

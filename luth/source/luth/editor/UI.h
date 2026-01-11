@@ -3,9 +3,11 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/Asset.h"
+#include "luth/renderer/Texture.h"
 
 #include <string>
 #include <glm/glm.hpp>
+#include <imgui.h>
 
 namespace Luth::UI
 {
@@ -29,4 +31,7 @@ namespace Luth::UI
 
     // Asset Slot with Drag & Drop support
     bool PropertyAsset(const char* label, UUID& assetHandle, AssetType type);
+
+    // Helper to get ImGui Texture ID (Handles Vulkan Descriptor creation/caching)
+    ImTextureID GetTextureID(const std::shared_ptr<Texture>& texture);
 }

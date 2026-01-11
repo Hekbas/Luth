@@ -593,7 +593,7 @@ namespace Luth
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
                 std::string textureId = "##Texture_" + std::string(label);
                 if (hasTexture) {
-                    ImGui::ImageButton(textureId.c_str(), (ImTextureID)texture->GetRendererID(), { 32, 32 }, { 0, 1 }, { 1, 0 });
+                    ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), { 32, 32 }, { 0, 1 }, { 1, 0 });
                 }
                 else {
                     ImGui::Button(textureId.c_str(), { 32, 32 });
@@ -753,7 +753,7 @@ namespace Luth
         // Preview region with texture
         if (ImGui::BeginChild("PreviewRegion", { availWidth, 0 })) {
             ImGui::SetCursorPos(offset);
-            ImGui::Image((ImTextureID)(intptr_t)texture.GetRendererID(),
+            ImGui::Image(UI::GetTextureID(std::shared_ptr<Texture>(&texture, [](Texture*){})), // Hack to create shared_ptr from ref for helper
                 { previewWidth, previewHeight }, { 0, 1 }, { 1, 0 });
         }
         ImGui::EndChild();

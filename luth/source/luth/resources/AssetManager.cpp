@@ -56,6 +56,47 @@ namespace Luth
         JobSystem::Execute(LoadJob, req);
     }
 
+    std::shared_ptr<Asset> AssetManager::LoadImmediate(UUID handle)
+    {
+        // Check cache first
+        if (auto asset = GetAsset<Asset>(handle)) return asset;
+
+        const auto& info = AssetDatabase::GetMetadata(handle);
+        if (info.Path.empty()) return nullptr;
+
+        // Load Data
+        std::unique_ptr<AssetData> data = nullptr;
+        if (s_Importers.find(info.Type) != s_Importers.end())
+        {
+            s_Importers[info.Type]->Import(info.Path, data);
+        }
+
+        if (!data) return nullptr;
+
+        // Create Asset (Main Thread)
+        std::shared_ptr<Asset> newAsset = nullptr;
+        if (info.Type == AssetType::Texture)
+        {
+            auto* texData = static_cast<TextureAssetData*>(data.get());
+            newAsset = Texture::Create(texData->Width, texData->Height, texData->Format, texData->Pixels.data());
+        }
+        else if (info.Type == AssetType::Model)
+        {
+            auto* modelData = static_cast<ModelAssetData*>(data.get());
+            newAsset = Model::Create(modelData->Meshes, modelData->Materials);
+        }
+        else if (info.Type == AssetType::Material)
+        {
+            auto* matData = static_cast<MaterialAssetData*>(data.get());
+            auto material = std::make_shared<Material>();
+            material->Deserialize(matData->JsonData);
+            newAsset = material;
+        }
+
+        if (newAsset) { newAsset->Handle = handle; s_Assets[handle] = newAsset; }
+        return newAsset;
+    }
+
     bool AssetManager::IsLoaded(UUID handle)
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);

@@ -147,12 +147,26 @@
 - [x] ImGui Integration.
 - [x] Input System (Event Bus).
 
-### Phase 2: The Data Pipeline (Done)
+### Phase 2: Data Pipeline (Done)
 - [x] **Shader Reflection:** Implement `Shader` class using SPIRV-Cross to generate layouts automatically.
 - [x] **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader.
 - [x] **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
-### Phase 3: The Render Graph & Scene (Current Focus)
+### Phase 3: Editor & Asset Pipeline Refactor (Current Focus)
+ **Goal:** Eliminate technical debt in ProjectPanel and ensure robust Asset loading/inspection.
+ 
+ 1.  **Asset Database Integrity:** 
+     *   Ensure `AssetDatabase::Init` correctly scans and populates the Registry at startup.
+     *   Validate `.meta` file generation and synchronization.
+ 2.  **Project Panel Rewrite:** 
+     *   Refactor `ProjectPanel` to remove raw pointers and manual memory management.
+     *   Use `AssetDatabase` as the source of truth for UUIDs.
+     *   Implement robust Drag & Drop using UUID payloads.
+ 3.  **Inspector & Selection:** 
+     *   Implement "Load-on-Inspect" logic: The Inspector triggers `AssetManager` to load assets when selected.
+     *   Fix Texture/Material previews in the Inspector.
+
+### Phase 3: Render Graph & Scene
 1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth.
 3.  **Bindless Textures:** Finalize the global texture array integration.
@@ -161,6 +175,7 @@
 1.  **Play/Stop State:** Implement the simulation loop toggle.
 2.  **Gizmos:** Integrate ImGuizmo for Transform manipulation.
 3.  **Picking:** Implement Mouse Picking (Entity selection via viewport click).
+4.  **Frame Debugger:** Visualizer for RenderGraph passes and resources.
 
 ### Phase 5: Gameplay Features
 1.  **Physics:** Integrate Jolt or PhysX.

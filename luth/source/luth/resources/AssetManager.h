@@ -37,6 +37,9 @@ namespace Luth
         // Triggers background loading via JobSystem
         static void LoadAsync(UUID handle);
 
+        // Blocking load (Main Thread). Used by Editor for immediate instantiation.
+        static std::shared_ptr<Asset> LoadImmediate(UUID handle);
+
         // Check status
         static bool IsLoaded(UUID handle);
 
