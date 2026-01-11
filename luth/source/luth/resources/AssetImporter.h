@@ -17,8 +17,8 @@ namespace Luth
     public:
         virtual ~AssetImporter() = default;
 
-        // Runs on Worker Thread. Must NOT touch Vulkan context.
-        // Returns true if successful and populates outData.
-        virtual bool Import(const std::filesystem::path& path, std::unique_ptr<AssetData>& outData) = 0;
+        // Runs on Worker Thread. Reads source, processes, and writes binary artifact to destination.
+        // Must NOT touch Vulkan context.
+        virtual bool Import(const std::filesystem::path& source, const std::filesystem::path& destination) = 0;
     };
 }

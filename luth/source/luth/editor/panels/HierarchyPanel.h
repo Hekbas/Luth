@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
+#include "luth/core/UUID.h"
 #include "luth/ECS/Entity.h"
 #include "luth/ECS/Scene.h"
 #include <functional>
@@ -35,6 +36,7 @@ namespace Luth
         void RenameEntity(Entity entity);
         void DeleteSelectedEntity();
         bool IsDescendant(Entity potentialDescendant, Entity potentialAncestor);
+        void InstantiateModel(UUID modelUUID, Entity parent);
 
     private:
         std::shared_ptr<Scene> m_Context;
@@ -50,5 +52,11 @@ namespace Luth
         char m_SearchFilter[256] = "";
         
         std::vector<std::function<void()>> m_DeferredActions;
+
+        struct PendingInstantiation {
+            UUID ModelUUID;
+            Entity Parent;
+        };
+        std::vector<PendingInstantiation> m_PendingInstantiations;
     };
 }

@@ -27,6 +27,22 @@ namespace Luth
         AssetDatabase::Init(FileSystem::AssetsPath());
         AssetManager::Init();
 
+        // Import Phase: Process any stale assets found by AssetDatabase
+        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
+        if (!dirtyAssets.empty())
+        {
+            LH_CORE_INFO("Importing {0} assets in parallel...", dirtyAssets.size());
+            
+            JobSystem::Counter importCounter;
+            // Stateless lambda converts to function pointer for JobSystem
+            JobSystem::Dispatch((u32)dirtyAssets.size(), 1, [](JobSystem::JobArgs args) {
+                const auto& assets = AssetDatabase::GetDirtyAssets();
+                AssetManager::Import(assets[args.jobIndex]);
+            }, nullptr, &importCounter);
+
+            JobSystem::WaitForCounter(&importCounter);
+        }
+
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
         m_Window = Window::Create(ws);

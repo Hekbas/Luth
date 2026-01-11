@@ -8,6 +8,7 @@
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Texture.h"
+#include "luth/resources/FileSystem.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 
@@ -168,6 +169,10 @@ namespace Luth
             
             UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model);
             
+            // Ensure model is loaded to get mesh count
+            if (meshRenderer.ModelUUID.IsValid() && !AssetManager::IsLoaded(meshRenderer.ModelUUID) && !AssetManager::IsLoading(meshRenderer.ModelUUID))
+                 AssetManager::LoadAsync(meshRenderer.ModelUUID);
+
             if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
                 int meshIndex = (int)meshRenderer.MeshIndex;
                 if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1))
@@ -271,8 +276,42 @@ namespace Luth
     
     void InspectorPanel::DrawResourceProperties()
     {
-        // Determine type from DB
-        AssetType type = AssetDatabase::GetMetadata(m_SelectedResource).Type;
+        const auto& meta = AssetDatabase::GetMetadata(m_SelectedResource);
+        
+        // Handle invalid/deleted assets
+        if (meta.Type == AssetType::None)
+        {
+            if (m_SelectedResource.IsValid())
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Asset not found (UUID: %s)", m_SelectedResource.ToString().c_str());
+            return;
+        }
+
+        AssetType type = meta.Type;
+
+        // Always show Metadata
+        if (ImGui::CollapsingHeader("Asset Metadata", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (ImGui::BeginTable("Metadata", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            {
+                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("Name"); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", meta.Path.filename().string().c_str());
+                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("Type"); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", FileSystem::GetTypeInfo().at(type).name.c_str());
+                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("UUID"); ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("%s", m_SelectedResource.ToString().c_str());
+                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("Path"); ImGui::TableSetColumnIndex(1); ImGui::TextWrapped("%s", meta.Path.string().c_str());
+                ImGui::EndTable();
+            }
+        }
+        ImGui::Dummy({ 0, 4 });
+
+        // Load on inspect if not loaded
+        if (!AssetManager::IsLoaded(m_SelectedResource)) {
+            if (!AssetManager::IsLoading(m_SelectedResource)) {
+                AssetManager::LoadAsync(m_SelectedResource);
+            }
+            
+            ImGui::Text("Loading Asset Data...");
+            // TODO: Add a spinner here (ImGui::Spinner)
+            return;
+        }
  
         if (type == AssetType::Model) {
             if (auto model = AssetManager::GetAsset<Model>(m_SelectedResource)) DrawModel(*model);
@@ -557,8 +596,15 @@ namespace Luth
         auto DrawTextureProperty = [&](MapType type, const char* label) {
             std::shared_ptr<Texture> texture;
             bool hasTexture = false;
+            UUID textureUUID = UUID::Invalid();
+
             for (const auto& texInfo : textures) {
                 if (texInfo.type == type) {
+                    textureUUID = texInfo.Uuid;
+                    // Try load if needed for preview
+                    if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
+                        AssetManager::LoadAsync(texInfo.Uuid);
+
                     if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
                         hasTexture = true;
                         break;
@@ -594,6 +640,9 @@ namespace Luth
                 std::string textureId = "##Texture_" + std::string(label);
                 if (hasTexture) {
                     ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), { 32, 32 }, { 0, 1 }, { 1, 0 });
+                }
+                else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
+                    ImGui::Button("...", { 32, 32 }); // Loading placeholder
                 }
                 else {
                     ImGui::Button(textureId.c_str(), { 32, 32 });

@@ -52,13 +52,20 @@
 *   **Metadata:** Stores `Path`, `Type`, `UUID` in `.meta` files side-by-side with assets.
 *   **Registry:** `std::unordered_map<UUID, AssetMetadata>`. Loaded at startup by scanning the `Assets/` folder.
 *   **Hot Reloading:** `FileWatcher` detects changes. Triggers re-import on worker thread.
+*   **Artifact Cache (Library):**
+    *   Source assets (`.fbx`, `.png`) are imported into engine-ready binary formats stored in `Library/Artifacts/`.
+    *   Import happens only when source hash or meta settings change.
+    *   **Version Control:** `Library/` is excluded. `Assets/` and `.meta` files are committed.
+    *   Runtime loads exclusively from `Library/`, never parsing raw formats like FBX
 
 ### B. Asset Manager (Runtime)
 *   **Async Loading:**
     1.  `LoadAsync(UUID)` checks cache.
     2.  If missing, spawns a **Load Job**.
-    3.  **Load Job** (Worker): Reads file, parses data (e.g., `stbi_load`, `Assimp`), produces `AssetData` (CPU memory).
-    4.  **Upload Phase** (Main Thread/Render Thread): `AssetManager::Update()` consumes the `AssetData`, creates GPU resources (Vulkan Image/Buffer), and updates the `Asset` pointer.
+    3.  **Load Job** (Worker): 
+        *   Checks if Artifact exists in `Library/`. If not, triggers **Import**.
+        *   Deserializes the binary Artifact into `AssetData`.
+    4.  **Upload Phase** (Main Thread): Creates GPU resources from `AssetData`.
 *   **Reference Counting:** `std::shared_ptr` handles lifetime.
 
 ### C. Importers
@@ -152,31 +159,28 @@
 - [x] **Material System Refactor:** Update `Material` to use generic data buffers defined by the Shader.
 - [x] **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
-### Phase 3: Editor & Asset Pipeline Refactor (Current Focus)
- **Goal:** Eliminate technical debt in ProjectPanel and ensure robust Asset loading/inspection.
- 
- 1.  **Asset Database Integrity:** 
-     *   Ensure `AssetDatabase::Init` correctly scans and populates the Registry at startup.
-     *   Validate `.meta` file generation and synchronization.
- 2.  **Project Panel Rewrite:** 
-     *   Refactor `ProjectPanel` to remove raw pointers and manual memory management.
-     *   Use `AssetDatabase` as the source of truth for UUIDs.
-     *   Implement robust Drag & Drop using UUID payloads.
- 3.  **Inspector & Selection:** 
-     *   Implement "Load-on-Inspect" logic: The Inspector triggers `AssetManager` to load assets when selected.
-     *   Fix Texture/Material previews in the Inspector.
+### Phase 3: Asset Cache & Editor Refactor (Current Focus)
+ **Goal:** Implement a Unity-style Library cache to eliminate runtime parsing overhead.
+  
+ 1.  **Asset Database Integrity:** [Done]
+ 2.  **Project Panel Rewrite:** [Done]
+ 3.  **Artifact System:** [Done]
+     *   Implemented `AssetSerializer` for binary formats.
+     *   Updated `AssetManager` to load from `Library/` artifacts.
+     *   Updated Importers to compile source assets to artifacts.
+ 4.  **Inspector & Selection:** Update to load from Library. [Current Focus]
 
-### Phase 3: Render Graph & Scene
+### Phase 4: Render Graph & Scene
 1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth.
 3.  **Bindless Textures:** Finalize the global texture array integration.
 
-### Phase 4: Editor Polish
+### Phase 5: Editor Polish
 1.  **Play/Stop State:** Implement the simulation loop toggle.
 2.  **Gizmos:** Integrate ImGuizmo for Transform manipulation.
 3.  **Picking:** Implement Mouse Picking (Entity selection via viewport click).
 4.  **Frame Debugger:** Visualizer for RenderGraph passes and resources.
 
-### Phase 5: Gameplay Features
+### Phase 6: Gameplay Features
 1.  **Physics:** Integrate Jolt or PhysX.
 2.  **Scripting:** Integrate Mono (C#) or Lua.

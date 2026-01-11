@@ -16,6 +16,6 @@ namespace Luth
     class MaterialImporter : public AssetImporter
     {
     public:
-        bool Import(const std::filesystem::path& path, std::unique_ptr<AssetData>& outData) override;
+        bool Import(const std::filesystem::path& source, const std::filesystem::path& destination) override;
     };
 }

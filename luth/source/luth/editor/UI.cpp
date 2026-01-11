@@ -276,23 +276,34 @@ namespace Luth::UI
         if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
         {
             // Simple cache for ImGui Descriptors
-            // Note: In a production engine, you'd want to clean this up when textures are destroyed.
-            static std::unordered_map<uint32_t, VkDescriptorSet> s_TextureCache;
+            // Key: Texture Pointer (void*), Value: { DescriptorSet, WeakPtr }
+            static std::unordered_map<void*, std::pair<VkDescriptorSet, std::weak_ptr<Texture>>> s_TextureCache;
             
-            // Use the pointer address as a unique key for the cache (assuming Texture objects persist)
-            // A better way would be to add a unique ID to the Texture class or use the Asset UUID.
-            // Using BindlessIndex as key since it's unique per active texture.
-            auto vkTex = std::static_pointer_cast<VKTexture>(texture);
-            u32 key = vkTex->GetBindlessIndex();
+            // Cleanup stale entries
+            for (auto it = s_TextureCache.begin(); it != s_TextureCache.end(); )
+            {
+                if (it->second.second.expired())
+                {
+                    ImGui_ImplVulkan_RemoveTexture(it->second.first);
+                    it = s_TextureCache.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
 
+            void* key = texture.get();
             if (s_TextureCache.find(key) == s_TextureCache.end())
             {
-                s_TextureCache[key] = ImGui_ImplVulkan_AddTexture(
+                auto vkTex = std::static_pointer_cast<VKTexture>(texture);
+                VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(
                     vkTex->GetSampler(), 
                     vkTex->GetImageView(), 
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                s_TextureCache[key] = { set, texture };
             }
-            return (ImTextureID)s_TextureCache[key];
+            return (ImTextureID)s_TextureCache[key].first;
         }
 
         return (ImTextureID)(uintptr_t)texture->GetRendererID();

@@ -1,4 +1,14 @@
-# Visual Studio files and folder
+# Build Artifacts
+bin/
+bin-int/
+*.exe
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.exp
+
+# Visual Studio
 .vs/
 **.sln
 **.vcxproj
@@ -8,10 +18,15 @@
 
 # JetBrains Rider
 .idea
+*.DotSettings.user
 
-# Binaries
-bin
-bin-int
-
-# Luth files
+# Luth Engine Cache
+Library/
+Logs/
+Temp/
+*imgui.ini
 *.log
+
+# OS
+.DS_Store
+Thumbs.db

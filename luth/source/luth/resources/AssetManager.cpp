@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/TextureImporter.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
@@ -64,11 +65,34 @@ namespace Luth
         const auto& info = AssetDatabase::GetMetadata(handle);
         if (info.Path.empty()) return nullptr;
 
-        // Load Data
-        std::unique_ptr<AssetData> data = nullptr;
-        if (s_Importers.find(info.Type) != s_Importers.end())
+        // 1. Check/Create Artifact
+        fs::path artifactPath = AssetDatabase::GetArtifactPath(handle);
+        bool artifactReady = fs::exists(artifactPath);
+
+        if (!artifactReady)
         {
-            s_Importers[info.Type]->Import(info.Path, data);
+            if (s_Importers.find(info.Type) != s_Importers.end())
+            {
+                artifactReady = s_Importers[info.Type]->Import(info.Path, artifactPath);
+            }
+        }
+
+        if (!artifactReady) return nullptr;
+
+        // 2. Load Data from Artifact
+        std::unique_ptr<AssetData> data = nullptr;
+        if (info.Type == AssetType::Texture) {
+            auto texData = std::make_unique<TextureAssetData>();
+            if (AssetSerializer::DeserializeTexture(artifactPath, *texData)) data = std::move(texData);
+        }
+        else if (info.Type == AssetType::Model) {
+            auto modelData = std::make_unique<ModelAssetData>();
+            if (AssetSerializer::DeserializeModel(artifactPath, *modelData)) data = std::move(modelData);
+        }
+        else if (info.Type == AssetType::Material)
+        {
+            auto matData = std::make_unique<MaterialAssetData>();
+            if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
         }
 
         if (!data) return nullptr;
@@ -97,10 +121,33 @@ namespace Luth
         return newAsset;
     }
 
+    void AssetManager::Import(UUID handle)
+    {
+        const auto& info = AssetDatabase::GetMetadata(handle);
+        if (info.Path.empty()) return;
+
+        fs::path artifactPath = AssetDatabase::GetArtifactPath(handle);
+        
+        if (s_Importers.find(info.Type) != s_Importers.end())
+        {
+            LH_CORE_INFO("Importing Asset: {0}", info.Path.string());
+            if (!s_Importers[info.Type]->Import(info.Path, artifactPath))
+            {
+                LH_CORE_ERROR("Failed to import asset: {0}", info.Path.string());
+            }
+        }
+    }
+
     bool AssetManager::IsLoaded(UUID handle)
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);
         return s_Assets.find(handle) != s_Assets.end();
+    }
+
+    bool AssetManager::IsLoading(UUID handle)
+    {
+        std::lock_guard<std::mutex> lock(s_AssetMutex);
+        return s_LoadingAssets.find(handle) != s_LoadingAssets.end();
     }
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)
@@ -110,22 +157,39 @@ namespace Luth
         LoadRequest* req = (LoadRequest*)args.data;
         LH_PROFILE_TAG("Asset", req->Path.string().c_str());
         
+        fs::path artifactPath = AssetDatabase::GetArtifactPath(req->Handle);
+        bool artifactReady = fs::exists(artifactPath);
+
+        // 1. Import if missing
+        if (!artifactReady)
+        {
+            if (s_Importers.find(req->Type) != s_Importers.end())
+            {
+                auto& importer = s_Importers[req->Type];
+                artifactReady = importer->Import(req->Path, artifactPath);
+            }
+            else
+            {
+                LH_CORE_ERROR("AssetManager: No importer for type {0}", (int)req->Type);
+            }
+        }
+
+        // 2. Load from Artifact
         std::unique_ptr<AssetData> data = nullptr;
-        bool success = false;
-
-        if (s_Importers.find(req->Type) != s_Importers.end())
+        if (artifactReady)
         {
-            auto& importer = s_Importers[req->Type];
-            success = importer->Import(req->Path, data);
-        }
-        else
-        {
-            LH_CORE_ERROR("AssetManager: No importer for type {0}", (int)req->Type);
-        }
-
-        if (!success)
-        {
-            LH_CORE_ERROR("AssetManager: Failed to import {0}", req->Path.string());
+            if (req->Type == AssetType::Texture) {
+                auto texData = std::make_unique<TextureAssetData>();
+                if (AssetSerializer::DeserializeTexture(artifactPath, *texData)) data = std::move(texData);
+            }
+            else if (req->Type == AssetType::Model) {
+                auto modelData = std::make_unique<ModelAssetData>();
+                if (AssetSerializer::DeserializeModel(artifactPath, *modelData)) data = std::move(modelData);
+            }
+            else if (req->Type == AssetType::Material) {
+                auto matData = std::make_unique<MaterialAssetData>();
+                if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
+            }
         }
 
         // Push to upload queue regardless of success to clear the loading flag on main thread

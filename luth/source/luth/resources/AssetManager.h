@@ -40,8 +40,12 @@ namespace Luth
         // Blocking load (Main Thread). Used by Editor for immediate instantiation.
         static std::shared_ptr<Asset> LoadImmediate(UUID handle);
 
+        // Forces regeneration of the artifact from source (Blocking)
+        static void Import(UUID handle);
+
         // Check status
         static bool IsLoaded(UUID handle);
+        static bool IsLoading(UUID handle);
 
     private:
         struct LoadRequest {
