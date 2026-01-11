@@ -153,7 +153,7 @@
 - [x] **Asset Manager Async:** Ensure `LoadAsync` works robustly with the Job System.
 
 ### Phase 3: The Render Graph & Scene (Current Focus)
-1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. (Currently hardcoded in RenderingSystem, needs refinement).
+1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth.
 3.  **Bindless Textures:** Finalize the global texture array integration.
 

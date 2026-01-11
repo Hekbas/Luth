@@ -37,6 +37,9 @@ namespace Luth
     private:
         void InitGlobalUniforms();
         void UpdateGlobalUniforms();
+        
+        RG::ResourceHandle AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry);
+        void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         // Memory
         std::unique_ptr<LinearAllocator> m_FrameAllocator;
