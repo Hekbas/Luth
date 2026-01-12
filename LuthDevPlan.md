@@ -104,12 +104,18 @@
         *   Push Constant ranges.
         *   Vertex Input attributes.
 *   **Material Asset:**
+    *   **PBR Standard:** Albedo, Normal, Metallic, Roughness, AO, Emissive.
+    *   **Workflow:** Metallic-Roughness.
     *   Holds a reference to a `Shader`.
     *   Stores a binary blob of Uniform Data (UBO) matching the shader's reflection.
     *   Stores references to Textures.
 *   **Bindless Design:**
     *   **Global Bindless Set:** All textures in the engine are bound to a single Descriptor Array (e.g., `binding = 10[]`).
     *   Materials store an *index* into this array, passed to the shader via Push Constants or UBO.
+
+### C. Lighting & Environment
+*   **Global Illumination:** Image Based Lighting (IBL) for PBR. (Irradiance Map + Prefiltered Environment Map + BRDF LUT).
+*   **Shadows:** Cascaded Shadow Maps (CSM) for Directional Lights.
 
 ### C. Backend (Vulkan)
 *   **Dynamic Rendering:** No `VkRenderPass` or `VkFramebuffer` objects. Use `vkCmdBeginRendering`.
@@ -127,6 +133,7 @@
 *   **Systems:**
     *   `TransformSystem`: Computes World Matrices from Local Matrices + Hierarchy. (Parallelizable).
     *   `RenderingSystem`: Culls objects, submits draw calls to RenderGraph.
+    *   `SceneSerializer`: Saves/Loads the Entity Registry to YAML/JSON.
     *   `ScriptSystem`: Updates C#/Lua scripts (Future).
 
 ---
@@ -143,6 +150,7 @@
     *   `HierarchyPanel`: Tree view of Entities. Handles parenting/reordering.
     *   `InspectorPanel`: Reflection-based editing of Components and Assets.
     *   `ContentBrowser`: File system view. Handles Drag & Drop of assets.
+    *   `ConsolePanel`: Captures engine logs (spdlog sink) and displays them in the editor.
 
 ---
 
@@ -174,13 +182,17 @@
 ### Phase 4: Render Graph & Scene (Current Focus)
 1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth. [Done]
-3.  **Bindless Textures:** Finalize the global texture array integration. [Current Focus]
+3.  **Bindless Textures:** Finalize the global texture array integration and shader usage. [Current Focus]
+4.  **PBR & IBL:** Implement Physically Based Rendering and Image Based Lighting.
+5.  **Shadow Mapping:** Implement a Shadow Pass in the Render Graph.
 
 ### Phase 5: Editor Polish
 1.  **Play/Stop State:** Implement the simulation loop toggle.
-2.  **Gizmos:** Integrate ImGuizmo for Transform manipulation.
-3.  **Picking:** Implement Mouse Picking (Entity selection via viewport click).
-4.  **Frame Debugger:** Visualizer for RenderGraph passes and resources.
+2.  **Gizmos:** Integrate ImGuizmo for Transform manipulation. [Done]
+3.  **Scene Serialization:** Save and Load Scenes (YAML).
+4.  **Picking:** Implement Mouse Picking (Entity selection via viewport click).
+5.  **Console Panel:** In-editor log viewer.
+6.  **Frame Debugger:** Visualizer for RenderGraph passes and resources.
 
 ### Phase 6: Gameplay Features
 1.  **Physics:** Integrate Jolt or PhysX.
