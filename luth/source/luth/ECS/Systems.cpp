@@ -2,6 +2,7 @@
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/ECS/systems/AnimationSystem.h"
+#include "luth/ECS/systems/CameraSystem.h"
 #include "luth/ECS/systems/RenderingSystem.h"
 
 namespace Luth
@@ -12,6 +13,7 @@ namespace Luth
     void Systems::Init() {
         LH_CORE_INFO("Initializing Systems...");
         AddSystem<TransformSystem>();
+        AddSystem<CameraSystem>();
         //AddSystem<AnimationSystem>();
         AddSystem<RenderingSystem>();
     }

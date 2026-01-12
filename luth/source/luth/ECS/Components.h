@@ -42,23 +42,16 @@ namespace Luth::Component
     };
 
     struct Transform {
-        glm::vec3 m_Position = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 m_Rotation = { 0.0f, 0.0f, 0.0f }; // Euler angles (degrees)
-        glm::vec3 m_Scale    = { 1.0f, 1.0f, 1.0f };
+        glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 Rotation = { 0.0f, 0.0f, 0.0f }; // Euler angles (degrees)
+        glm::vec3 Scale    = { 1.0f, 1.0f, 1.0f };
 
-        glm::mat4 GetTransform() const {
-            glm::mat4 rotation = glm::toMat4(
-                glm::quat(glm::radians(m_Rotation))
-            );
-
-            return glm::translate(glm::mat4(1.0f), m_Position)
-                * rotation
-                * glm::scale(glm::mat4(1.0f), m_Scale);
-        }
+        glm::mat4 LocalMatrix = glm::mat4(1.0f);
+        bool IsDirty = true;
     };
 
     struct WorldTransform {
-        glm::mat4 matrix = glm::mat4(1.0f);
+        glm::mat4 Matrix = glm::mat4(1.0f);
     };
 
     struct Camera {
@@ -81,52 +74,10 @@ namespace Luth::Component
         glm::mat4 ViewMatrix;
         glm::mat4 ProjectionMatrix;
 
+        bool IsDirty = true;
+
         Camera() = default;
         Camera(const Camera&) = default;
-
-        void SetPerspective(float verticalFOV, float nearClip, float farClip) {
-            Projection = ProjectionType::Perspective;
-            VerticalFOV = verticalFOV;
-            NearClip = nearClip;
-            FarClip = farClip;
-            RecalculateProjection();
-        }
-
-        void SetOrthographic(float size, float nearClip, float farClip) {
-            Projection = ProjectionType::Orthographic;
-            OrthographicSize = size;
-            OrthographicNear = nearClip;
-            OrthographicFar = farClip;
-            RecalculateProjection();
-        }
-
-        void RecalculateProjection() {
-            if (Projection == ProjectionType::Perspective) {
-                ProjectionMatrix = glm::perspective(
-                    glm::radians(VerticalFOV),
-                    AspectRatio,
-                    NearClip,
-                    FarClip
-                );
-            }
-            else {
-                float orthoLeft = -OrthographicSize * AspectRatio * 0.5f;
-                float orthoRight = OrthographicSize * AspectRatio * 0.5f;
-                float orthoBottom = -OrthographicSize * 0.5f;
-                float orthoTop = OrthographicSize * 0.5f;
-
-                ProjectionMatrix = glm::ortho(
-                    orthoLeft, orthoRight,
-                    orthoBottom, orthoTop,
-                    OrthographicNear,
-                    OrthographicFar
-                );
-            }
-        }
-
-        glm::mat4 GetViewProjection(const glm::mat4& transform) const {
-            return ProjectionMatrix * glm::inverse(transform);
-        }
     };
 
     struct MeshRenderer {

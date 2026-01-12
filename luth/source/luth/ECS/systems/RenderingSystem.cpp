@@ -330,8 +330,8 @@ void main() {
                     scissor.extent = { res->desc.width, res->desc.height };
                     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-                    auto view = registry.view<Transform, MeshRenderer>();
-                    for (auto [entity, transform, meshRenderer] : view.each())
+                    auto view = registry.view<WorldTransform, MeshRenderer>();
+                    for (auto [entity, worldTransform, meshRenderer] : view.each())
                     {
                         auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
                         if (!model) continue;
@@ -345,7 +345,7 @@ void main() {
                         if (!vb || !ib) continue;
                         
                         ObjectPushConstants pc{};
-                        pc.modelMatrix = transform.GetTransform();
+                        pc.modelMatrix = worldTransform.Matrix;
                         pc.albedoMapIndex = 0; // Default to 0 (white texture usually)
 
                         // Get Material

@@ -96,7 +96,7 @@ namespace Luth
             if (m_IsHovered) {
                 if (ImGui::IsKeyDown(ImGuiKey_F)) {
                     if (m_SelectedEntity) {
-                        glm::vec3 newFocus = m_SelectedEntity.GetComponent<Transform>().m_Position;
+                        glm::vec3 newFocus = m_SelectedEntity.GetComponent<Transform>().Position;
                         m_EditorCamera.SetFocalPoint(newFocus);
                     }
                 }
@@ -137,7 +137,21 @@ namespace Luth
 
         // Entity Transform
         auto& tc = m_SelectedEntity.GetComponent<Transform>();
-        glm::mat4 transform = tc.GetTransform();
+        
+        // Get World Matrix for Gizmo
+        glm::mat4 worldMatrix = m_SelectedEntity.GetComponent<WorldTransform>().Matrix;
+
+        // If we are in Local mode, we still need the world matrix for position, but we want to edit in local axes.
+        // ImGuizmo handles this via the MODE parameter.
+        
+        // However, if we edit in World mode, we need to decompose the result back to Local.
+        // If dirty, reconstruct world matrix on the fly to be responsive
+        if (tc.IsDirty)
+        {
+             // We can't easily reconstruct world matrix here without parent info.
+             // Rely on the System to have updated it, OR force a quick calc if needed.
+             // For now, let's trust the system update loop which runs before Render.
+        }
 
         // Snapping
         bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
@@ -148,17 +162,27 @@ namespace Luth
         float snapValues[3] = { snapValue, snapValue, snapValue };
 
         ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
-            (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
+            (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(worldMatrix),
             nullptr, snap ? snapValues : nullptr);
 
         if (ImGuizmo::IsUsing())
         {
-            float translation[3], rotation[3], scale[3];
-            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(transform), translation, rotation, scale);
+            // Convert back to Local Space
+            glm::mat4 localMatrix = worldMatrix;
+            if (m_SelectedEntity.HasParent())
+            {
+                Entity parent = m_SelectedEntity.GetParent();
+                glm::mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
+                localMatrix = glm::inverse(parentWorld) * worldMatrix;
+            }
 
-            tc.m_Position = glm::make_vec3(translation);
-            tc.m_Rotation = glm::make_vec3(rotation);
-            tc.m_Scale = glm::make_vec3(scale);
+            float translation[3], rotation[3], scale[3];
+            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(localMatrix), translation, rotation, scale);
+
+            tc.Position = glm::make_vec3(translation);
+            tc.Rotation = glm::make_vec3(rotation);
+            tc.Scale = glm::make_vec3(scale);
+            tc.IsDirty = true;
         }
 
         // Gizmo Shortcuts

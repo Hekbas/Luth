@@ -108,9 +108,9 @@ namespace Luth
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             UI::BeginProperties();
-            UI::Property("Position", transform.m_Position);
-            UI::Property("Rotation", transform.m_Rotation);
-            UI::Property("Scale", transform.m_Scale, 0.1f, 1.0f);
+            if (UI::Property("Position", transform.Position)) transform.IsDirty = true;
+            if (UI::Property("Rotation", transform.Rotation)) transform.IsDirty = true;
+            if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) transform.IsDirty = true;
             UI::EndProperties();
         });
 
@@ -125,7 +125,7 @@ namespace Luth
                     bool isSelected = currentProjectionType == projectionTypeStrings[i];
                     if (ImGui::Selectable(projectionTypeStrings[i], isSelected)) {
                         camera.Projection = (Camera::ProjectionType)i;
-                        camera.RecalculateProjection();
+                        camera.IsDirty = true;
                     }
                     if (isSelected) {
                         ImGui::SetItemDefaultFocus();
@@ -144,7 +144,7 @@ namespace Luth
                 ImGui::Text("Far "); ImGui::SameLine();
                 changed |= ImGui::DragFloat("##Far", &camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
 
-                if (changed) camera.RecalculateProjection();
+                if (changed) camera.IsDirty = true;
             }
             // Orthographic settings
             else {
@@ -156,12 +156,12 @@ namespace Luth
                 ImGui::Text("Far "); ImGui::SameLine();
                 changed |= ImGui::DragFloat("##Far", &camera.OrthographicFar, 0.01f);
 
-                if (changed) camera.RecalculateProjection();
+                if (changed) camera.IsDirty = true;
             }
 
             // Aspect ratio (could be auto-calculated from viewport)
             ImGui::Text("Aspect"); ImGui::SameLine();
-            ImGui::DragFloat("##Aspect", &camera.AspectRatio, 0.01f, 0.1f, 10.0f);
+            if (ImGui::DragFloat("##Aspect", &camera.AspectRatio, 0.01f, 0.1f, 10.0f)) camera.IsDirty = true;
         });
 
         DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [](Entity entity, MeshRenderer& meshRenderer) {

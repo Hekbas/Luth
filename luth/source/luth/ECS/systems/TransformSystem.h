@@ -12,68 +12,58 @@ namespace Luth
     public:
         TransformSystem() {}
 
-        struct UpdateData
+        void UpdateEntityAndChildren(entt::registry& registry, entt::entity entity, const glm::mat4& parentTransform, bool parentDirty)
         {
-            entt::registry* registry;
-            std::vector<entt::entity>* entities;
-        };
-
-        static void UpdateTransformJob(JobSystem::JobArgs args)
-        {
-            LH_PROFILE_FUNCTION();
-
-            UpdateData* data = (UpdateData*)args.data;
-            entt::registry& registry = *data->registry;
-            entt::entity entity = (*data->entities)[args.jobIndex];
-
-            // We need to get components manually since we can't capture the view
-            // Optimization: Pass raw pointers to component arrays if possible
             auto& transform = registry.get<Transform>(entity);
             auto& worldTransform = registry.get<WorldTransform>(entity);
 
-            glm::mat4 world = transform.GetTransform();
-
-            if (registry.any_of<Parent>(entity))
+            // 1. Update Local Matrix if dirty
+            if (transform.IsDirty) 
             {
-                entt::entity current = registry.get<Parent>(entity).m_Parent;
-                while (registry.valid(current) && registry.any_of<Transform>(current)) 
-                {
-                    const auto& t = registry.get<Transform>(current);
-                    world = t.GetTransform() * world;
-
-                    if (!registry.any_of<Parent>(current))
-                        break;
-
-                    current = registry.get<Parent>(current).m_Parent;
-                }
+                glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
+                transform.LocalMatrix = glm::translate(glm::mat4(1.0f), transform.Position)
+                    * rotation
+                    * glm::scale(glm::mat4(1.0f), transform.Scale);
             }
 
-            worldTransform.matrix = world;
+            // 2. Update World Matrix
+            // If parent was dirty, we must update world even if we aren't dirty
+            if (transform.IsDirty || parentDirty)
+            {
+                worldTransform.Matrix = parentTransform * transform.LocalMatrix;
+                transform.IsDirty = false; // Clear flag now that world is updated
+                parentDirty = true; // Propagate dirty state to children
+            }
+
+            // 3. Recurse to Children
+            if (registry.any_of<Children>(entity))
+            {
+                const auto& children = registry.get<Children>(entity).m_Children;
+                for (auto child : children)
+                {
+                    if (child.IsValid()) // Check validity
+                    {
+                        UpdateEntityAndChildren(registry, (entt::entity)child, worldTransform.Matrix, parentDirty);
+                    }
+                }
+            }
         }
 
         void Update(entt::registry& registry) override
         {
             LH_PROFILE_FUNCTION();
 
-            auto view = registry.view<Transform, WorldTransform>();
+            // Iterate Root Entities (those without Parent component)
+            // We need a way to get roots efficiently. Scene maintains m_RootEntities but System doesn't have access to Scene class directly, only registry.
+            // We can iterate all entities with Transform but NO Parent.
             
-            // Allocate entities vector on stack or frame allocator?
-            // std::vector allocates on heap.
-            // For now, heap is fine for the vector itself, but we should use FrameAllocator later.
-            std::vector<entt::entity> entities;
-            entities.reserve(view.size_hint());
+            auto view = registry.view<Transform>(entt::exclude<Parent>);
+            glm::mat4 identity(1.0f);
+
             for (auto entity : view)
-                entities.push_back(entity);
-
-            if (entities.empty()) return;
-
-            UpdateData jobData;
-            jobData.registry = &registry;
-            jobData.entities = &entities;
-
-            JobSystem::Counter counter;
-            JobSystem::Dispatch((u32)entities.size(), 64, UpdateTransformJob, &jobData, &counter);
-            JobSystem::WaitForCounter(&counter);
+            {
+                UpdateEntityAndChildren(registry, entity, identity, false);
+            }
         }
     };
 }
