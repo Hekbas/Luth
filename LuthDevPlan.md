@@ -182,8 +182,8 @@
 ### Phase 4: Render Graph & Scene (Current Focus)
 1.  **Scene Rendering:** Connect ECS `MeshRenderer` to the RenderGraph. [Done]
 2.  **Transient Resources:** Implement aliasing/reuse in RenderGraph for GBuffer/Depth. [Done]
-3.  **Bindless Textures:** Finalize the global texture array integration and shader usage. [Current Focus]
-4.  **PBR & IBL:** Implement Physically Based Rendering and Image Based Lighting.
+3.  **Bindless Textures:** Finalize the global texture array integration and shader usage. [Done]
+4.  **PBR & IBL:** Implement Physically Based Rendering and Image Based Lighting. [Current Focus]
 5.  **Shadow Mapping:** Implement a Shadow Pass in the Render Graph.
 
 ### Phase 5: Editor Polish

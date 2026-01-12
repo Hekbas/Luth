@@ -16,6 +16,7 @@
 #include "luth/renderer/Buffer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/renderer/ShaderCompiler.h"
+#include <fstream>
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
 
@@ -37,6 +38,77 @@ namespace Luth
             fs::path vertSrc = FileSystem::AssetsPath() / "shaders/triangle.vert";
             fs::path fragSrc = FileSystem::AssetsPath() / "shaders/triangle.frag";
             
+            // Ensure default shaders exist
+            if (!fs::exists(vertSrc.parent_path())) fs::create_directories(vertSrc.parent_path());
+            
+            if (!fs::exists(vertSrc)) {
+                std::ofstream out(vertSrc);
+                out << R"(#version 450
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord0;
+layout(location = 3) in vec2 a_TexCoord1;
+layout(location = 4) in vec3 a_Tangent;
+
+layout(location = 0) out vec3 v_Normal;
+layout(location = 1) out vec2 v_TexCoord;
+
+layout(set = 0, binding = 0) uniform GlobalUniforms {
+    mat4 viewProjection;
+    mat4 view;
+    mat4 projection;
+    vec3 cameraPos;
+    float time;
+} ubo;
+
+layout(push_constant) uniform PushConstants {
+    mat4 modelMatrix;
+    uint albedoMapIndex;
+} pc;
+
+void main() {
+    v_Normal = mat3(transpose(inverse(pc.modelMatrix))) * a_Normal;
+    v_TexCoord = a_TexCoord0;
+    gl_Position = ubo.viewProjection * pc.modelMatrix * vec4(a_Position, 1.0);
+})";
+            }
+
+            if (!fs::exists(fragSrc)) {
+                std::ofstream out(fragSrc);
+                out << R"(#version 450
+#extension GL_EXT_nonuniform_qualifier : enable
+
+layout(location = 0) in vec3 v_Normal;
+layout(location = 1) in vec2 v_TexCoord;
+
+layout(location = 0) out vec4 outColor;
+
+layout(set = 0, binding = 0) uniform GlobalUniforms {
+    mat4 viewProjection;
+    mat4 view;
+    mat4 projection;
+    vec3 cameraPos;
+    float time;
+} ubo;
+
+layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
+
+layout(push_constant) uniform PushConstants {
+    mat4 modelMatrix;
+    uint albedoMapIndex;
+} pc;
+
+void main() {
+    vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
+    float diff = max(dot(normalize(v_Normal), lightDir), 0.1);
+    
+    // Bindless lookup
+    vec4 albedo = texture(globalTextures[nonuniformEXT(pc.albedoMapIndex)], v_TexCoord);
+    
+    outColor = vec4(albedo.rgb * diff, albedo.a);
+})";
+            }
+
             std::vector<u32> vertSpv = ShaderCompiler::Compile(vertSrc);
             std::vector<u32> fragSpv = ShaderCompiler::Compile(fragSrc);
 
