@@ -13,10 +13,10 @@ namespace Luth
         {
             LH_PROFILE_FUNCTION();
             auto& registry = scene->Registry();
-            auto view = registry.view<Camera>();
+            auto view = registry.view<Camera, WorldTransform>();
             for (auto entity : view)
             {
-                auto& camera = view.get<Camera>(entity);
+                auto [camera, transform] = view.get<Camera, WorldTransform>(entity);
 
                 if (camera.IsDirty)
                 {
@@ -33,8 +33,15 @@ namespace Luth
 
                         camera.ProjectionMatrix = glm::ortho(orthoLeft, orthoRight, orthoBottom, orthoTop, camera.OrthographicNear, camera.OrthographicFar);
                     }
+                    
+                    // Vulkan clip space Y flip
+                    camera.ProjectionMatrix[1][1] *= -1;
+
                     camera.IsDirty = false;
                 }
+
+                // Calculate View Matrix (Inverse of World Transform)
+                camera.ViewMatrix = glm::inverse(transform.Matrix);
             }
         }
     };

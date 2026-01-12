@@ -244,7 +244,7 @@
      - [x] **Hierarchy Propagation:** Implement efficient parent-to-child world matrix updates (O(N) instead of O(N*Depth)).
      - [x] **Parallelization:** Ensure hierarchy updates are jobified correctly (Level-order traversal).
  3.  **Camera System:**
-     - [ ] **System-Driven:** Move projection calculation from Component to `CameraSystem`.
+     - [x] **System-Driven:** Move projection calculation from Component to `CameraSystem`.
  
  ### Phase 5: Render Graph & Scene
  **Goal:** Implement high-fidelity PBR rendering.
