@@ -58,8 +58,8 @@ namespace Luth
                 ImGui::Text("Worker Threads: %d", stats.ThreadCount);
                 ImGui::Text("Job Queue: %d", stats.QueueSize);
                 
-                float fiberUsage = 1.0f - ((float)stats.FreeFibers / (float)stats.TotalFibers);
-                ImGui::Text("Fiber Usage: %d / %d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
+                float fiberUsage = (float)stats.PeakFibers / (float)stats.TotalFibers;
+                ImGui::Text("Fiber Usage (Peak): %d / %d", stats.PeakFibers, stats.TotalFibers);
                 ImGui::ProgressBar(fiberUsage, ImVec2(-1, 0), "");
             }
 

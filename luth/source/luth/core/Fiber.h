@@ -16,7 +16,7 @@ namespace Luth::JobSystem
         // Function pointer for the fiber entry point
         using EntryPoint = void(*)(void*);
         
-        static Fiber Create(EntryPoint entry, void* args, u32 stackSize = 64 * 1024)
+        static Fiber Create(EntryPoint entry, void* args, u32 stackSize = 512 * 1024)
         {
             Fiber f;
             #ifdef _WIN32

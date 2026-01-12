@@ -28,12 +28,14 @@ namespace Luth::JobSystem
         u32 ThreadCount;
         u32 TotalFibers;
         u32 FreeFibers;
+        u32 PeakFibers;
         u32 QueueSize;
     };
 
     // Lifecycle
     void Init(u32 numThreads = 0); 
     void Shutdown();
+    void ResetFrameStats();
 
     // Run a single task
     void Execute(JobFunction function, void* data = nullptr, Counter* counter = nullptr);

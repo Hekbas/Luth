@@ -24,6 +24,9 @@ namespace Luth
             entt::entity entity = (*data->entities)[args.jobIndex];
             entt::registry& reg = *data->registry;
 
+            // Safety check: Ensure entity is valid and has required components
+            if (!reg.valid(entity) || !reg.all_of<Transform, WorldTransform>(entity)) return;
+
             auto& transform = reg.get<Transform>(entity);
             auto& world = reg.get<WorldTransform>(entity);
 

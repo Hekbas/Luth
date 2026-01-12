@@ -80,6 +80,7 @@ namespace Luth
         while (m_Running)
         {
             LH_PROFILE_FRAME("MainThread");
+            JobSystem::ResetFrameStats();
 
             Time::Update();
             m_Window->OnUpdate();

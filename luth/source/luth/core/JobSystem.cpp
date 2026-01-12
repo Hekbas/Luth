@@ -33,6 +33,7 @@ namespace Luth::JobSystem
         Job currentJob;
         bool isMainThread = false;
         const char* debugName = nullptr;
+        FiberContext* fiberToRecycle = nullptr;
     };
 
     // We use a fixed pool of counters to avoid allocation during runtime
@@ -60,6 +61,8 @@ namespace Luth::JobSystem
     static std::vector<FiberContext*> s_FreeFibers;
     static std::vector<FiberContext*> s_AllFibers; // To delete them at shutdown
     static std::mutex s_FiberPoolLock;
+    static u32 s_ActiveFibers = 0;
+    static u32 s_PeakFibers = 0;
 
     // Thread Local State
     static thread_local FiberContext* s_CurrentFiber = nullptr;
@@ -93,7 +96,7 @@ namespace Luth::JobSystem
         for (u32 i = 0; i < 128; ++i)
         {
             FiberContext* ctx = new FiberContext();
-            ctx->fiber = Fiber::Create(FiberEntryPoint, ctx);
+            ctx->fiber = Fiber::Create(FiberEntryPoint, ctx, 512 * 1024); // 512KB stack
             ctx->debugName = "Worker Fiber";
             s_FreeFibers.push_back(ctx);
             s_AllFibers.push_back(ctx);
@@ -140,6 +143,12 @@ namespace Luth::JobSystem
         delete s_ThreadFiber;
     }
 
+    void ResetFrameStats()
+    {
+        std::lock_guard<std::mutex> lock(s_FiberPoolLock);
+        s_PeakFibers = s_ActiveFibers;
+    }
+
     void Execute(JobFunction function, void* data, Counter* counter)
     {
         if (counter) counter->value++;
@@ -184,6 +193,7 @@ namespace Luth::JobSystem
         std::lock_guard<std::mutex> fiberLock(s_FiberPoolLock);
         stats.TotalFibers = (u32)s_AllFibers.size();
         stats.FreeFibers = (u32)s_FreeFibers.size();
+        stats.PeakFibers = s_PeakFibers;
         
         std::lock_guard<std::mutex> queueLock(s_QueueLock);
         stats.QueueSize = (u32)s_JobQueue.size();
@@ -240,6 +250,9 @@ namespace Luth::JobSystem
                     {
                         fiberCtx = s_FreeFibers.back();
                         s_FreeFibers.pop_back();
+                        
+                        s_ActiveFibers++;
+                        if (s_ActiveFibers > s_PeakFibers) s_PeakFibers = s_ActiveFibers;
                     }
                 }
 
@@ -254,6 +267,15 @@ namespace Luth::JobSystem
                     // 4. Back from Fiber (Job finished or suspended)
                     LH_PROFILE_FIBER_ENTER("Scheduler");
                     s_CurrentFiber = s_ThreadFiber;
+
+                    // Recycle the fiber if it finished
+                    if (s_ThreadFiber->fiberToRecycle)
+                    {
+                        std::lock_guard<std::mutex> lock(s_FiberPoolLock);
+                        s_ActiveFibers--;
+                        s_FreeFibers.push_back(s_ThreadFiber->fiberToRecycle);
+                        s_ThreadFiber->fiberToRecycle = nullptr;
+                    }
                 }
                 else
                 {
@@ -296,11 +318,8 @@ namespace Luth::JobSystem
                 }
             }
 
-            // 3. Return to Scheduler (Recycle Fiber)
-            {
-                std::lock_guard<std::mutex> lock(s_FiberPoolLock);
-                s_FreeFibers.push_back(ctx);
-            }
+            // 3. Mark for recycling (Scheduler will handle it after switch)
+            s_ThreadFiber->fiberToRecycle = ctx;
             
             // Switch back to the thread that scheduled us
             LH_PROFILE_FIBER_ENTER("Scheduler");
@@ -316,6 +335,7 @@ namespace Luth::JobSystem
         // Convert this thread to a fiber so we can switch FROM it
         s_ThreadFiber = new FiberContext();
         s_ThreadFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
+        s_ThreadFiber->debugName = "Worker Thread";
         s_CurrentFiber = s_ThreadFiber;
 
         SchedulerEntryPoint(nullptr);
