@@ -12,13 +12,23 @@ namespace Luth
     public:
         TransformSystem() {}
 
-        void UpdateEntityAndChildren(entt::registry& registry, entt::entity entity, const glm::mat4& parentTransform, bool parentDirty)
+        struct TransformJobData
         {
-            auto& transform = registry.get<Transform>(entity);
-            auto& worldTransform = registry.get<WorldTransform>(entity);
+            entt::registry* registry;
+            std::vector<entt::entity>* entities;
+        };
 
-            // 1. Update Local Matrix if dirty
-            if (transform.IsDirty) 
+        static void UpdateTransformsJob(JobSystem::JobArgs args)
+        {
+            TransformJobData* data = (TransformJobData*)args.data;
+            entt::entity entity = (*data->entities)[args.jobIndex];
+            entt::registry& reg = *data->registry;
+
+            auto& transform = reg.get<Transform>(entity);
+            auto& world = reg.get<WorldTransform>(entity);
+
+            // 1. Update Local
+            if (transform.IsDirty)
             {
                 glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
                 transform.LocalMatrix = glm::translate(glm::mat4(1.0f), transform.Position)
@@ -26,44 +36,90 @@ namespace Luth
                     * glm::scale(glm::mat4(1.0f), transform.Scale);
             }
 
-            // 2. Update World Matrix
-            // If parent was dirty, we must update world even if we aren't dirty
-            if (transform.IsDirty || parentDirty)
+            // 2. Update World
+            // Parent is guaranteed to be updated because we process by levels
+            if (reg.any_of<Parent>(entity))
             {
-                worldTransform.Matrix = parentTransform * transform.LocalMatrix;
-                transform.IsDirty = false; // Clear flag now that world is updated
-                parentDirty = true; // Propagate dirty state to children
+                entt::entity parent = reg.get<Parent>(entity).m_Parent;
+                const auto& parentWorld = reg.get<WorldTransform>(parent);
+                
+                // Optimization: Check if parent changed? 
+                // For now, simple matrix mult. 
+                // Ideally we track IsDirty propagation, but in parallel we can't easily read parent's dirty flag 
+                // if we cleared it in the previous level's job.
+                // So we just recompute. Matrix mult is cheap.
+                world.Matrix = parentWorld.Matrix * transform.LocalMatrix;
             }
-
-            // 3. Recurse to Children
-            if (registry.any_of<Children>(entity))
+            else
             {
-                const auto& children = registry.get<Children>(entity).m_Children;
-                for (auto child : children)
-                {
-                    if (child.IsValid()) // Check validity
-                    {
-                        UpdateEntityAndChildren(registry, (entt::entity)child, worldTransform.Matrix, parentDirty);
-                    }
-                }
+                world.Matrix = transform.LocalMatrix;
             }
+            
+            transform.IsDirty = false;
         }
 
-        void Update(entt::registry& registry) override
+        void Update(Scene* scene) override
         {
             LH_PROFILE_FUNCTION();
 
-            // Iterate Root Entities (those without Parent component)
-            // We need a way to get roots efficiently. Scene maintains m_RootEntities but System doesn't have access to Scene class directly, only registry.
-            // We can iterate all entities with Transform but NO Parent.
-            
-            auto view = registry.view<Transform>(entt::exclude<Parent>);
-            glm::mat4 identity(1.0f);
-
-            for (auto entity : view)
+            if (scene->GetHierarchyVersion() != m_LastHierarchyVersion)
             {
-                UpdateEntityAndChildren(registry, entity, identity, false);
+                RebuildHierarchy(scene);
+                m_LastHierarchyVersion = scene->GetHierarchyVersion();
+            }
+
+            JobSystem::Counter counter;
+            TransformJobData jobData;
+            jobData.registry = &scene->Registry();
+
+            for (auto& level : m_Levels)
+            {
+                if (level.empty()) continue;
+                
+                jobData.entities = &level;
+                // Group size 64 seems reasonable for matrix mults
+                JobSystem::Dispatch((u32)level.size(), 64, UpdateTransformsJob, &jobData, &counter);
+                JobSystem::WaitForCounter(&counter);
             }
         }
+
+    private:
+        void RebuildHierarchy(Scene* scene)
+        {
+            LH_PROFILE_FUNCTION();
+            m_Levels.clear();
+            
+            // Level 0: Roots
+            m_Levels.push_back({});
+            for (auto entity : scene->GetRootEntities())
+                m_Levels[0].push_back((entt::entity)entity);
+
+            // BFS
+            size_t currentLevel = 0;
+            entt::registry& reg = scene->Registry();
+
+            while (true)
+            {
+                std::vector<entt::entity> nextLevel;
+                // Reserve optimization?
+                
+                for (auto parent : m_Levels[currentLevel])
+                {
+                    if (reg.any_of<Children>(parent))
+                    {
+                        const auto& children = reg.get<Children>(parent).m_Children;
+                        for (auto child : children)
+                            nextLevel.push_back((entt::entity)child);
+                    }
+                }
+
+                if (nextLevel.empty()) break;
+                m_Levels.push_back(std::move(nextLevel));
+                currentLevel++;
+            }
+        }
+
+        std::vector<std::vector<entt::entity>> m_Levels;
+        u32 m_LastHierarchyVersion = 0;
     };
 }

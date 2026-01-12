@@ -37,6 +37,9 @@ namespace Luth
         auto GetAllEntitiesWith() { return m_Registry.view<Components...>(); }
 
         const std::vector<Entity>& GetRootEntities() const { return m_RootEntities; }
+        
+        u32 GetHierarchyVersion() const { return m_HierarchyVersion; }
+        void IncrementHierarchyVersion() { m_HierarchyVersion++; }
 
     private:
         std::string GenerateUniqueName(Entity entity);
@@ -46,6 +49,7 @@ namespace Luth
     private:
         entt::registry m_Registry;
         std::vector<Entity> m_RootEntities;
+        u32 m_HierarchyVersion = 0;
         
         friend class Entity;
     };

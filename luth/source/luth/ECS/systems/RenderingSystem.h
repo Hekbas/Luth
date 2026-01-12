@@ -31,7 +31,7 @@ namespace Luth
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
         ~RenderingSystem();
 
-        void Update(entt::registry& registry) override;
+        void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
         std::shared_ptr<Texture> GetSceneColor() const { return m_SceneColor; }

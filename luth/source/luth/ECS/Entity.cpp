@@ -58,6 +58,8 @@ namespace Luth
             m_Scene->AddToRoots(*this);
             if (HasComponent<Parent>()) RemoveComponent<Parent>();
         }
+        
+        m_Scene->IncrementHierarchyVersion();
     }
 
     Entity Entity::GetParent() const

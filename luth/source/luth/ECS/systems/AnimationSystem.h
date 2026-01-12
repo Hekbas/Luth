@@ -9,6 +9,6 @@ namespace Luth
     public:
         AnimationSystem() = default;
 
-        void Update(entt::registry& registry) override {}
+        void Update(Scene* scene) override {}
     };
 }

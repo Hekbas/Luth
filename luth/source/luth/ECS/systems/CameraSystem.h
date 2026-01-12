@@ -9,10 +9,10 @@ namespace Luth
     class CameraSystem : public System
     {
     public:
-        void Update(entt::registry& registry) override
+        void Update(Scene* scene) override
         {
             LH_PROFILE_FUNCTION();
-
+            auto& registry = scene->Registry();
             auto view = registry.view<Camera>();
             for (auto entity : view)
             {

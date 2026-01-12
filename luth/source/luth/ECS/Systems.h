@@ -7,6 +7,8 @@
 
 namespace Luth
 {
+    class Scene;
+
     class Systems
     {
     public:
@@ -32,15 +34,15 @@ namespace Luth
         template<typename T>
         static void Update() {
             if (auto system = GetSystem<T>()) {
-                system->Update(*s_Registry);
+                system->Update(s_Scene);
             }
         }
 
-        static void SetRegistry(std::shared_ptr<entt::registry> registry) { s_Registry = registry; }
-        static entt::registry& GetRegistry() { return *s_Registry; }
+        static void SetScene(Scene* scene) { s_Scene = scene; }
+        static Scene* GetScene() { return s_Scene; }
 
     private:
         static std::vector<std::shared_ptr<System>> s_Systems;
-        static std::shared_ptr<entt::registry> s_Registry;
+        static Scene* s_Scene;
     };
 }

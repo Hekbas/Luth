@@ -241,8 +241,8 @@
      - [x] **POD Enforce:** Refactor `Camera`, `Transform` to be strict POD (Plain Old Data). Move logic to Systems.
      - [x] **Dirty Flags:** Implement dirty state for Transforms to avoid redundant matrix recalculations.
  2.  **Transform System:**
-     - [ ] **Hierarchy Propagation:** Implement efficient parent-to-child world matrix updates (O(N) instead of O(N*Depth)).
-     - [ ] **Parallelization:** Ensure hierarchy updates are jobified correctly (Level-order traversal).
+     - [x] **Hierarchy Propagation:** Implement efficient parent-to-child world matrix updates (O(N) instead of O(N*Depth)).
+     - [x] **Parallelization:** Ensure hierarchy updates are jobified correctly (Level-order traversal).
  3.  **Camera System:**
      - [ ] **System-Driven:** Move projection calculation from Component to `CameraSystem`.
  

@@ -53,7 +53,7 @@ namespace Luth
         // Scene & Systems
         m_Scene = std::make_shared<Scene>();
         Systems::Init();
-        Systems::SetRegistry(m_Scene->RegistryPtr());
+        Systems::SetScene(m_Scene.get());
 
         Editor::Init(m_Window.get());
 
