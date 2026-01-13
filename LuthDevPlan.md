@@ -189,7 +189,7 @@
     - [x] **Poller Job:** Implement the `VulkanWaitJob` that yields instead of blocks.
     - [x] **Removal of Fences:** Delete all `vkWaitForFences` calls in the hot path.
 3.  **Command Management:**
-    - [ ] **Command Allocators:** Create pool of `CommandAllocator` (Pool + Cache) that can be claimed by a Job.
+    - [x] **Command Allocators:** Create pool of `CommandAllocator` (Pool + Cache) that can be claimed by a Job.
     - [ ] **Parallel Recording:** Dispatch RenderGraph passes to worker threads via Secondary Buffers.
 4.  **Data Transfer:**
     - [ ] **Async Upload:** Implement `UploadContext` with a dedicated Transfer Queue and Staging Ring Buffer.
