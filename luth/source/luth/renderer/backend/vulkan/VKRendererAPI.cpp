@@ -215,6 +215,8 @@ namespace Luth
         m_RenderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         
         // Initialize Timeline Semaphore
+        // Note: VulkanContext must be initialized before this!
+        // Init() is called in VKRendererAPI::Init() after VulkanContext::Init()
         m_FrameTimeline.Init(0);
 
         VkSemaphoreCreateInfo semaphoreInfo{};

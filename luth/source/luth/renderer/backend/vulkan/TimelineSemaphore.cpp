@@ -17,6 +17,10 @@ namespace Luth
 
     void TimelineSemaphore::Init(u64 initialValue)
     {
+        // Ensure VulkanContext is initialized before creating semaphore
+        // This check is useful if Init is called manually
+        // But the crash happened because the constructor called Init() before Context was ready.
+
         VkSemaphoreTypeCreateInfo typeCreateInfo{};
         typeCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
         typeCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;

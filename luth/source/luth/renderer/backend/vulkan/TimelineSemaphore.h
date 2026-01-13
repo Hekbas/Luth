@@ -8,7 +8,14 @@ namespace Luth
     class TimelineSemaphore
     {
     public:
-        TimelineSemaphore(u64 initialValue = 0);
+        // Default constructor does NOT initialize the Vulkan object.
+        // You must call Init() manually.
+        TimelineSemaphore() = default;
+
+        // Constructor that initializes the semaphore immediately.
+        // VulkanContext must be initialized before calling this.
+        explicit TimelineSemaphore(u64 initialValue);
+
         ~TimelineSemaphore();
 
         void Init(u64 initialValue = 0);
