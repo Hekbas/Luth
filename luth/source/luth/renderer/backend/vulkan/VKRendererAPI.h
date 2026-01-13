@@ -2,6 +2,7 @@
 
 #include "luth/renderer/RendererAPI.h"
 #include "VulkanSwapchain.h"
+#include "TimelineSemaphore.h"
 #include <vulkan/vulkan.h>
 
 namespace Luth
@@ -37,7 +38,12 @@ namespace Luth
         
         std::vector<VkSemaphore> m_ImageAvailableSemaphores;
         std::vector<VkSemaphore> m_RenderFinishedSemaphores;
-        std::vector<VkFence> m_InFlightFences;
+        
+        // Timeline Semaphore for Frame Synchronization
+        // Replaces VkFence m_InFlightFences
+        TimelineSemaphore m_FrameTimeline;
+        u64 m_FrameValues[MAX_FRAMES_IN_FLIGHT] = {0};
+        u64 m_CurrentFrameValue = 0;
 
         bool m_FramebufferResized = false;
     };

@@ -187,7 +187,7 @@
 2.  **Frame Synchronization (The Poller):**
     - [x] **Timeline Wrapper:** Abstract `VK_KHR_timeline_semaphore`.
     - [x] **Poller Job:** Implement the `VulkanWaitJob` that yields instead of blocks.
-    - [ ] **Removal of Fences:** Delete all `vkWaitForFences` calls in the hot path.
+    - [x] **Removal of Fences:** Delete all `vkWaitForFences` calls in the hot path.
 3.  **Command Management:**
     - [ ] **Command Allocators:** Create pool of `CommandAllocator` (Pool + Cache) that can be claimed by a Job.
     - [ ] **Parallel Recording:** Dispatch RenderGraph passes to worker threads via Secondary Buffers.
