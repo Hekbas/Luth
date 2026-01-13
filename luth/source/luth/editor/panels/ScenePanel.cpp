@@ -9,6 +9,7 @@
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include <backends/imgui_impl_vulkan.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <ImGuizmo.h>
@@ -58,20 +59,23 @@ namespace Luth
             if (auto texture = m_RenderingSystem->GetSceneColor())
             {
                 // Create/Get Descriptor Set for ImGui
-                // Note: In a real engine, cache this descriptor set and only update if texture changes.
-                // For now, we create a new one every frame (LEAK WARNING: ImGui_ImplVulkan_AddTexture allocates a set, need to free it?)
-                // ImGui_ImplVulkan_AddTexture is intended for static textures. For dynamic, use ImGui_ImplVulkan_RegisterTexture if available or manage sets manually.
-                // Since we are in "Get it running" mode, we will use the raw bindless index if possible, OR just AddTexture.
-                // Actually, ImGui_ImplVulkan_AddTexture is fine if we don't do it every frame for the SAME texture object.
-                // But m_SceneColor changes on resize.
-                // Let's use a static descriptor set and update it.
-                
                 static VkDescriptorSet ds = VK_NULL_HANDLE;
                 static std::shared_ptr<Texture> lastTex = nullptr;
 
                 if (texture != lastTex)
                 {
-                    if (ds) ImGui_ImplVulkan_RemoveTexture(ds);
+                    if (ds) 
+                    {
+                        // IMPORTANT: We cannot free the descriptor set immediately if it's being used by a command buffer in flight.
+                        // ImGui_ImplVulkan_RemoveTexture calls vkFreeDescriptorSets.
+                        // We must defer this deletion until the GPU is done with the frame that used it.
+                        
+                        VkDescriptorSet oldSet = ds;
+                        VulkanContext::Get().PushDeletion([oldSet]() {
+                            ImGui_ImplVulkan_RemoveTexture(oldSet);
+                        });
+                    }
+
                     auto vkTex = std::static_pointer_cast<VKTexture>(texture);
                     ds = ImGui_ImplVulkan_AddTexture(vkTex->GetSampler(), vkTex->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                     lastTex = texture;

@@ -181,6 +181,12 @@ namespace Luth
         LH_PROFILE_FUNCTION();
 
         if (width == 0 || height == 0) return;
+        
+        // Wait for the device to be idle before resizing
+        // This ensures that no command buffers are using the swapchain images or descriptors
+        // that might be destroyed during recreation.
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
         m_Swapchain->Recreate(width, height);
     }
 
