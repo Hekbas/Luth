@@ -186,7 +186,7 @@
     - [x] **Job Concepts:** Implement C++20 Concepts (`JobPayload`) to ban non-trivial destructors in jobs.
 2.  **Frame Synchronization (The Poller):**
     - [x] **Timeline Wrapper:** Abstract `VK_KHR_timeline_semaphore`.
-    - [ ] **Poller Job:** Implement the `VulkanWaitJob` that yields instead of blocks.
+    - [x] **Poller Job:** Implement the `VulkanWaitJob` that yields instead of blocks.
     - [ ] **Removal of Fences:** Delete all `vkWaitForFences` calls in the hot path.
 3.  **Command Management:**
     - [ ] **Command Allocators:** Create pool of `CommandAllocator` (Pool + Cache) that can be claimed by a Job.
