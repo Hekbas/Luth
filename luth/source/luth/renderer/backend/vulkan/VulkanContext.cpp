@@ -207,6 +207,9 @@ namespace Luth
         features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         features12.runtimeDescriptorArray = VK_TRUE;
         features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        
+        // Enable Timeline Semaphores (Vulkan 1.2 feature)
+        features12.timelineSemaphore = VK_TRUE;
 
         // Vulkan 1.3 Features (Dynamic Rendering, Synchronization2)
         VkPhysicalDeviceVulkan13Features features13{};
