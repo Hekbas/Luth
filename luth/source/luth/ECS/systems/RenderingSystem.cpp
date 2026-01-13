@@ -118,6 +118,7 @@ void main() {
             config.depthTest = true;
             config.depthWrite = true;
             config.cullMode = VK_CULL_MODE_BACK_BIT;
+            config.frontFace = VK_FRONT_FACE_CLOCKWISE; // Fix winding order due to Y-flip
 
             // Define Vertex Layout (Matches Model::ProcessMeshData)
             BufferLayout vertexLayout = {
@@ -205,7 +206,6 @@ void main() {
         GlobalUniforms ubo{};
         ubo.view = camera.GetViewMatrix();
         ubo.projection = camera.GetProjectionMatrix();
-        ubo.projection[1][1] *= -1; // Vulkan flip Y
         ubo.viewProjection = ubo.projection * ubo.view;
         ubo.cameraPos = camera.GetPosition();
         ubo.time = Time::GetTime();

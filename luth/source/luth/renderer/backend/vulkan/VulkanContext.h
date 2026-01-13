@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <deque>
+#include <mutex>
 #include "luth/renderer/backend/vulkan/VulkanDescriptors.h"
 #include "luth/renderer/rendergraph/RenderResourceCache.h"
 
@@ -39,6 +40,10 @@ namespace Luth
         // Submit a command immediately and wait for it to finish (used for resource uploads)
         void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
+        // Thread-safe queue submission
+        bool Submit(const VkSubmitInfo& submitInfo, VkFence fence);
+        VkResult Present(const VkPresentInfoKHR& presentInfo);
+
         // Safe Resource Deletion
         void PushDeletion(std::function<void()>&& function);
         void FlushDeletionQueue();
@@ -65,7 +70,9 @@ namespace Luth
         VkDevice m_Device = VK_NULL_HANDLE;
         
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+        std::mutex m_QueueMutex;
         u32 m_GraphicsFamily = -1;
+        std::mutex m_CommandPoolMutex;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         BindlessDescriptorSet m_BindlessSet;
         DescriptorAllocator m_DescriptorAllocator;

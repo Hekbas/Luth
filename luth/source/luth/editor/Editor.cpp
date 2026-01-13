@@ -68,10 +68,10 @@ namespace Luth
             // Ideally: init_info.DescriptorPool = ctx.GetImGuiPool();
             
             // Hack: Create a temporary pool for ImGui
-            VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 } };
+            VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2000 } };
             VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
             pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-            pool_info.maxSets = 1000;
+            pool_info.maxSets = 2000;
             pool_info.poolSizeCount = 1;
             pool_info.pPoolSizes = pool_sizes;
             vkCreateDescriptorPool(ctx.GetDevice(), &pool_info, nullptr, &init_info.DescriptorPool);

@@ -14,7 +14,6 @@ namespace Luth::JobSystem
     };
 
     // Standard job function signature
-    // We use a raw function pointer + void* for maximum performance (no std::function overhead)
     using JobFunction = void(*)(JobArgs);
 
     // Synchronization primitive
@@ -32,6 +31,16 @@ namespace Luth::JobSystem
         u32 QueueSize;
     };
 
+    // Fiber Local Storage (FLS)
+    // This struct travels with the Fiber, not the OS Thread.
+    struct JobContext
+    {
+        // Pointers to per-frame allocators will go here
+        void* FrameAllocator = nullptr; 
+        void* CommandAllocator = nullptr;
+        u32 ThreadIndex = 0;
+    };
+
     // Lifecycle
     void Init(u32 numThreads = 0); 
     void Shutdown();
@@ -44,7 +53,6 @@ namespace Luth::JobSystem
     void Dispatch(u32 jobCount, u32 groupSize, JobFunction function, void* data = nullptr, Counter* counter = nullptr);
 
     // Fiber-aware wait
-    // If the counter is not zero, the current fiber is suspended and a new job is picked up.
     void WaitForCounter(Counter* counter, u32 targetValue = 0);
 
     // Returns true if the counter has not reached the target value
@@ -52,13 +60,6 @@ namespace Luth::JobSystem
     
     Stats GetStats();
 
-    // Helper for lambdas (less performant but convenient)
-    // Note: This requires allocating the lambda on the heap or LinearAllocator if it captures state!
-    template<typename F>
-    void ExecuteLambda(F&& lambda, Counter* counter = nullptr)
-    {
-        // TODO: Allocate lambda storage
-        // For now, we don't support capturing lambdas directly without an allocator.
-        // Users should use Execute with a static function and void* data.
-    }
+    // Access the current Fiber's context
+    JobContext* GetCurrentJobContext();
 }

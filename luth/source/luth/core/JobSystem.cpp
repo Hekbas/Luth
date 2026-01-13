@@ -31,18 +31,10 @@ namespace Luth::JobSystem
     {
         Fiber fiber;
         Job currentJob;
+        JobContext publicContext; // The public FLS
         bool isMainThread = false;
         const char* debugName = nullptr;
         FiberContext* fiberToRecycle = nullptr;
-    };
-
-    // We use a fixed pool of counters to avoid allocation during runtime
-    constexpr u32 MAX_COUNTERS = 1024;
-    struct CounterData
-    {
-        std::atomic<u32> value = 0;
-        std::vector<FiberContext*> waitingFibers; // Fibers waiting on this counter
-        std::mutex lock;
     };
 
     // ===================================================================================
@@ -64,9 +56,11 @@ namespace Luth::JobSystem
     static u32 s_ActiveFibers = 0;
     static u32 s_PeakFibers = 0;
 
-    // Thread Local State
+    // Thread Local State - ONLY for the Scheduler Fiber
+    // We use this to know which Fiber is currently running on this OS thread.
+    // This is the ONLY valid use of thread_local in the system.
     static thread_local FiberContext* s_CurrentFiber = nullptr;
-    static thread_local FiberContext* s_ThreadFiber = nullptr; // The "OS Thread" fiber (scheduler)
+    static thread_local FiberContext* s_SchedulerFiber = nullptr; 
 
     // ===================================================================================
     // Forward Declarations
@@ -91,8 +85,6 @@ namespace Luth::JobSystem
         LH_CORE_INFO("Initializing Fiber JobSystem with {0} threads", numThreads);
 
         // Create Fiber Pool
-        // We need enough fibers to cover all threads + waiting jobs.
-        // 128 is a safe starting number for a "Swarm" demo.
         for (u32 i = 0; i < 128; ++i)
         {
             FiberContext* ctx = new FiberContext();
@@ -102,17 +94,18 @@ namespace Luth::JobSystem
             s_AllFibers.push_back(ctx);
         }
 
-        // Convert Main Thread to Fiber
-        s_ThreadFiber = new FiberContext();
-        s_ThreadFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
-        s_ThreadFiber->isMainThread = true;
-        s_ThreadFiber->debugName = "Main Thread";
-        s_CurrentFiber = s_ThreadFiber;
+        // Convert Main Thread to Fiber (This becomes the Scheduler for Thread 0)
+        s_SchedulerFiber = new FiberContext();
+        s_SchedulerFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
+        s_SchedulerFiber->isMainThread = true;
+        s_SchedulerFiber->debugName = "Main Thread";
+        s_SchedulerFiber->publicContext.ThreadIndex = 0;
+        s_CurrentFiber = s_SchedulerFiber;
 
         // Spawn Workers
         for (u32 i = 0; i < numThreads; ++i)
         {
-            s_WorkerThreads.emplace_back(std::bind(WorkerThreadEntryPoint, i));
+            s_WorkerThreads.emplace_back(std::bind(WorkerThreadEntryPoint, i + 1));
         }
     }
 
@@ -136,17 +129,19 @@ namespace Luth::JobSystem
         s_AllFibers.clear();
         s_FreeFibers.clear();
         
-        // Cleanup Main Thread Fiber wrapper
-        // Note: We don't destroy the main thread fiber handle, OS does it? 
-        // Actually ConvertThreadToFiber requires ConvertFiberToThread to undo? 
-        // Or just let it die.
-        delete s_ThreadFiber;
+        delete s_SchedulerFiber;
     }
 
     void ResetFrameStats()
     {
         std::lock_guard<std::mutex> lock(s_FiberPoolLock);
         s_PeakFibers = s_ActiveFibers;
+    }
+
+    JobContext* GetCurrentJobContext()
+    {
+        // This is safe because s_CurrentFiber is updated on every switch
+        return &s_CurrentFiber->publicContext;
     }
 
     void Execute(JobFunction function, void* data, Counter* counter)
@@ -225,17 +220,12 @@ namespace Luth::JobSystem
                 else
                 {
                     // If no jobs, wait (sleep the OS thread)
-                    // Only if we are NOT the main thread. Main thread shouldn't sleep here usually.
-                    // But if Main calls WaitForCounter, it enters here.
-                    if (s_CurrentFiber != s_ThreadFiber) 
+                    // Only if we are NOT the main thread.
+                    if (s_CurrentFiber != s_SchedulerFiber) 
                     {
-                        // We are a worker fiber returning to scheduler? 
-                        // No, Scheduler IS s_ThreadFiber.
+                        // Should not happen, we are in scheduler loop
                     }
                     
-                    // If we are a worker thread, we wait.
-                    // If we are main thread, we yield?
-                    // For simplicity, we use condition variable.
                     s_WakeCondition.wait(lock);
                 }
             }
@@ -260,28 +250,29 @@ namespace Luth::JobSystem
                 {
                     // 3. Switch to Fiber
                     fiberCtx->currentJob = job;
+                    
+                    // Inherit thread index for debugging/profiling
+                    fiberCtx->publicContext.ThreadIndex = s_SchedulerFiber->publicContext.ThreadIndex;
+
                     s_CurrentFiber = fiberCtx;
                     LH_PROFILE_FIBER_ENTER(fiberCtx->debugName);
                     Fiber::SwitchTo(fiberCtx->fiber);
                     
                     // 4. Back from Fiber (Job finished or suspended)
                     LH_PROFILE_FIBER_ENTER("Scheduler");
-                    s_CurrentFiber = s_ThreadFiber;
+                    s_CurrentFiber = s_SchedulerFiber;
 
                     // Recycle the fiber if it finished
-                    if (s_ThreadFiber->fiberToRecycle)
+                    if (s_SchedulerFiber->fiberToRecycle)
                     {
                         std::lock_guard<std::mutex> lock(s_FiberPoolLock);
                         s_ActiveFibers--;
-                        s_FreeFibers.push_back(s_ThreadFiber->fiberToRecycle);
-                        s_ThreadFiber->fiberToRecycle = nullptr;
+                        s_FreeFibers.push_back(s_SchedulerFiber->fiberToRecycle);
+                        s_SchedulerFiber->fiberToRecycle = nullptr;
                     }
                 }
                 else
                 {
-                    // No fibers available! This is bad.
-                    // We should probably run the job on the thread stack as fallback?
-                    // Or spin wait.
                     LH_CORE_ERROR("Fiber pool exhausted!");
                 }
             }
@@ -308,22 +299,15 @@ namespace Luth::JobSystem
             // 2. Decrement Counter
             if (job.counter)
             {
-                u32 prev = job.counter->value.fetch_sub(1);
-                if (prev == 1)
-                {
-                    // Counter reached 0. Wake up waiting fibers?
-                    // We don't have a central wait list yet.
-                    // In this simple implementation, waiting fibers are just polling or 
-                    // we need to implement the "Waiting List" logic.
-                }
+                job.counter->value.fetch_sub(1);
             }
 
             // 3. Mark for recycling (Scheduler will handle it after switch)
-            s_ThreadFiber->fiberToRecycle = ctx;
+            s_SchedulerFiber->fiberToRecycle = ctx;
             
             // Switch back to the thread that scheduled us
             LH_PROFILE_FIBER_ENTER("Scheduler");
-            Fiber::SwitchTo(s_ThreadFiber->fiber);
+            Fiber::SwitchTo(s_SchedulerFiber->fiber);
             LH_PROFILE_FIBER_ENTER(ctx->debugName);
         }
     }
@@ -333,35 +317,24 @@ namespace Luth::JobSystem
         LH_PROFILE_THREAD(fmt::format("Worker Thread {}", threadIndex).c_str());
 
         // Convert this thread to a fiber so we can switch FROM it
-        s_ThreadFiber = new FiberContext();
-        s_ThreadFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
-        s_ThreadFiber->debugName = "Worker Thread";
-        s_CurrentFiber = s_ThreadFiber;
+        s_SchedulerFiber = new FiberContext();
+        s_SchedulerFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
+        s_SchedulerFiber->debugName = "Worker Thread";
+        s_SchedulerFiber->publicContext.ThreadIndex = threadIndex;
+        s_CurrentFiber = s_SchedulerFiber;
 
         SchedulerEntryPoint(nullptr);
 
-        delete s_ThreadFiber;
+        delete s_SchedulerFiber;
     }
 
     void WaitForCounter(Counter* counter, u32 targetValue)
     {
         if (!counter) return;
 
-        // Simple Fiber-aware wait:
-        // While waiting, run other jobs.
-        // If we are in a Fiber, we could suspend.
-        // But since we don't have a "Waiting List" implementation yet, 
-        // we will just help the scheduler.
-        
-        // Note: This implementation effectively turns WaitForCounter into "HelpWithJobs".
-        // It doesn't strictly "Suspend" the fiber in the sense of putting it aside.
-        // It keeps the current fiber active and runs nested jobs.
-        // This is safe but can overflow the stack if recursion is too deep.
-        // True Fiber Wait requires swapping out the current fiber.
-        
+        // Simple Fiber-aware wait (Help with jobs)
         while (counter->value.load() > targetValue)
         {
-            // Try to run a job from the queue
             Job job;
             bool found = false;
             {
@@ -376,8 +349,6 @@ namespace Luth::JobSystem
 
             if (found)
             {
-                // Execute directly on this stack (Nested)
-                // This avoids needing a new fiber for the helper work
                 JobArgs args{ 0, 0, job.data };
                 for (u32 i = job.start; i < job.end; ++i)
                 {
@@ -389,7 +360,6 @@ namespace Luth::JobSystem
             }
             else
             {
-                // No jobs? Yield.
                 std::this_thread::yield();
             }
         }

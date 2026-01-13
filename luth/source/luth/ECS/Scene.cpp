@@ -24,6 +24,7 @@ namespace Luth
         entity.AddComponent<WorldTransform>();
         m_RootEntities.push_back(entity);
         LH_CORE_TRACE("Created entity: {0}", name);
+        IncrementHierarchyVersion();
         return entity;
     }
 
@@ -53,6 +54,7 @@ namespace Luth
         // Finally destroy the entity itself
         m_Registry.destroy(entity);
         LH_CORE_TRACE("Destroyed entity: {0}", entity.GetName());
+        IncrementHierarchyVersion();
     }
 
     Entity Scene::DuplicateEntity(Entity original, bool skipParentAddition)

@@ -60,7 +60,10 @@ namespace Luth
         u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentFrame]);
         
         if (imageIndex == -1) {
-            // Recreate swapchain handled in OnResize usually, but here we might need to handle it
+            // If acquire failed, we can't proceed. 
+            // We might need to recreate swapchain if it's out of date, but usually OnResize handles it.
+            // Just return false to skip this frame.
+            // Consider adding a small sleep here to avoid spinning if we are minimized or in a bad state.
             return false; 
         }
 
@@ -72,6 +75,7 @@ namespace Luth
         // Begin Recording
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(m_CommandBuffers[m_CurrentFrame], &beginInfo);
         
         return true;
@@ -118,8 +122,12 @@ namespace Luth
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
-        if (vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, m_InFlightFences[m_CurrentFrame]) != VK_SUCCESS) {
-            LH_CORE_ERROR("Failed to submit draw command buffer!");
+        // Check for submit failure to avoid desyncing semaphores
+        if (!VulkanContext::Get().Submit(submitInfo, m_InFlightFences[m_CurrentFrame]))
+        {
+            // If submit failed, do not present. Wait for idle to reset state.
+            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            return;
         }
 
         // Present

@@ -1,8 +1,9 @@
 # Luth Engine Architecture & Development Plan
 
 **Status:** Active
-**Philosophy:** Data-Oriented, Jobified, Vulkan-First.
- 
+**Philosophy:** Data-Oriented, Jobified (N:M Fibers), Vulkan-First (Bindless).
+**Goal:** AAA-grade architectural rigor; Zero "Main Thread" blocking.
+
 ---
 
 ## 0. System Hierarchy & Data Flow
@@ -11,12 +12,12 @@
 ```text
 [Engine Root]
  ├── [Core]
- │    ├── JobSystem (Fibers) ................... N:M Task Scheduler (Work Stealing)
- │    │    ├── Fiber Context ................... Stack management, FLS (Fiber Local Storage)
- │    │    └── Synchronization ................. Atomic Counters, Spinlocks, Timeline Semaphores
- │    ├── EventBus (Thread-Safe) ............... Inter-system communication
+ │    ├── JobSystem (Fibers) ................... N:M Task Scheduler (Lock-Free Chase-Lev Deque)
+ │    │    ├── Fiber Context ................... Stack (VirtualAlloc), FLS (JobContext), Guard Pages
+ │    │    └── Synchronization ................. Atomic Counters, Spinlocks (with Yield), Poller Jobs
+ │    ├── EventBus ............................. Double-Buffered / Deferred Dispatch
  │    └── Memory ............................... Allocators
- │         ├── LinearAllocator ................. Frame-local scratch memory (Frame Packets)
+ │         ├── FramePacketAllocator ............ Linear (Reset per frame). No destructors.
  │         └── PoolAllocator ................... Fixed-size components/fibers
  │
  ├── [Asset Pipeline]
@@ -24,39 +25,38 @@
  │    ├── Library .............................. Binary artifacts cache (Disk)
  │    └── AssetManager ......................... Runtime lifecycle
  │         ├── Importers ....................... Convert Source -> Artifact
- │         └── UploadContext ................... Async CPU -> GPU Transfer
- │              └── StagingBuffer .............. Ring Buffer (CPU_TO_GPU)
+ │         └── UploadContext ................... Async Transfer Queue (Staging Ring Buffer)
  │
  ├── [Scene / ECS]
  │    ├── Registry (EnTT) ...................... Entity/Component storage
  │    └── Systems .............................. Logic execution
- │         ├── TransformSystem ................. Hierarchy propagation (Parallel Level-Order)
+ │         ├── TransformSystem ................. Parallel Level-Order Hierarchy
  │         ├── CameraSystem .................... View/Projection calculation
- │         └── RenderingSystem ................. Scene culling & Graph submission
+ │         └── RenderingSystem ................. Graph Compiler & Cull Jobs
  │
  └── [Rendering (Vulkan 1.3)]
-      ├── RenderGraph .......................... Automatic barriers & transient memory
-      ├── ResourceCache ........................ Reuse of render targets/buffers
-      ├── Bindless Descriptors ................. Global texture array (Set 0)
+      ├── RenderGraph .......................... DAG Construction -> Barrier Injection -> Aliasing
+      ├── ResourceCache ........................ Transient resource reuse
+      ├── Bindless Descriptors ................. Global "Mega-Texture" Array (Set 0)
       └── Backend .............................. Device abstraction
-           ├── Swapchain ....................... Presentation
-           ├── FrameData ....................... Per-frame resources (CmdPools, Semaphores)
+           ├── Dynamic Rendering ............... No RenderPass/Framebuffer objects
+           ├── FrameData ....................... Triple Buffered (CmdPools per Thread, Semaphores)
            └── Synchronization ................. Timeline Semaphores, Poller Jobs
 ```
 
 ### Execution Flow (Per Frame)
 1.  **Input**: Poll GLFW -> Dispatch Events -> Update Input State.
-2.  **Asset Sync**: Process `UploadContext` (Copy Staging -> Device Local).
-    *   *Constraint:* Must happen before rendering to ensure resources are valid.
-3.  **Logic Update**:
-    *   `AssetManager`: Dispatch load jobs (Disk I/O -> Staging).
-    *   `TransformSystem`: Update dirty hierarchies (Parallel Level-Order).
-    *   `CameraSystem`: Recalculate matrices.
-4.  **Render Prep**: `RenderingSystem` culls entities and adds passes to `RenderGraph`.
+2.  **Asset Sync**: Process `UploadContext` (Copy Staging -> Device Local) via Transfer Queue.
+    * [cite_start]*Constraint:* Must happen before rendering to ensure resources are valid[cite: 131, 132].
+3.  **Logic Update (Jobified)**:
+    * **Kick Jobs**: Asset Loading, Physics, Transform Updates, Culling.
+    * [cite_start]**Wait Strategy**: Main Thread yields to Worker Pool; never sleeps[cite: 22].
+4.  [cite_start]**Render Prep**: `RenderGraph` compiles passes and injects `VkImageMemoryBarrier2`[cite: 106, 110].
 5.  **Render Execute**:
-    *   `RenderGraph`: Compile (Calculate Barriers) -> Allocate Resources.
-    *   `Backend`: Acquire Image -> Execute Graph (Record Cmds) -> Submit -> Present.
-    *   *Constraint:* Non-blocking. CPU submits and moves to next frame. Sync via Timeline Semaphores (Poller Job).
+    * [cite_start]**Parallel Record**: Workers record into Secondary Command Buffers[cite: 76].
+    * **Submit**: Main Thread submits to Graphics Queue.
+    * **Present**: Standard Swapchain presentation.
+    * **Constraint**: The CPU moves to Frame N+1 immediately. [cite_start]It checks Frame N's GPU completion via a **Poller Job** only when resource recycling is needed[cite: 88, 92].
 
 ---
 
@@ -64,42 +64,43 @@
 
 ### A. The Fiber System (Job System)
 **Role:** Abstracts CPU cores into a pool of workers executing Fibers.
-**Philosophy:** The "Main Thread" is reserved strictly for OS Event Polling and Swapchain Presentation. All engine logic (Update, Physics, Render Recording) runs as Jobs.
+**Philosophy:** No blocking allowed. If a dependency is not met, the Fiber Yields.
 
-*   **Primitives:**
-    *   `Fiber`: Lightweight execution context (stack).
-        *   *Implementation:* Windows Fibers initially, custom assembly later for perf.
-        *   *Safety:* Guard pages between stacks to trap overflows.
-    *   `Counter`: Atomic synchronization primitive for waiting.
-    *   `JobQueue`: Lock-free Chase-Lev work-stealing deque per worker thread.
-*   **Execution Model:**
-    *   **Fork/Join:** `Dispatch(N)` splits work into chunks. Main thread waits on a counter.
-    *   **Dependency Graph:** Jobs spawn child jobs. Parent waits on children.
-    *   **Wait Strategy:** `WaitForCounter` does **not** sleep the thread. It switches the thread execution to a new Fiber from the pool to keep the core busy ("Fiber Yielding").
-*   **Safety:**
-    *   **TLS Hazard:** `thread_local` is forbidden or must be wrapped via `JobContext`.
-    *   **Floating Point:** Respect ABI callee-saved registers (XMM6-XMM15) during context switch.
+* **Primitives:**
+    * [cite_start]`Fiber`: Lightweight execution context (VirtualAlloc stack + Guard Page)[cite: 46, 51].
+    * `JobContext`: The "Fiber Local Storage" (FLS). [cite_start]Contains pointer to current `FrameAllocator` and `CommandAllocator`[cite: 58].
+    * `Counter`: Atomic variable for dependency tracking.
+* **Execution Model:**
+    * [cite_start]**Wait Strategy**: `WaitForCounter` switches execution to a new Fiber[cite: 25].
+    * **Poller Job**: A specific job type that loops on `vkGetSemaphoreCounterValue`. [cite_start]If target not reached, it yields (re-queues itself) to allow other CPU work[cite: 92, 178].
+* **Safety Constraints:**
+    * **NO `thread_local`**: Standard TLS is forbidden (unsafe due to migration). [cite_start]Use `JobContext`[cite: 33, 34].
+    * [cite_start]**Float Safety**: Respect ABI callee-saved registers (XMM6-XMM15) or enforce strict no-float zones across yields[cite: 189].
 
 ### B. Memory Management
-**Role:** Minimize allocations during the frame loop.
-*   **Linear Allocator (Frame Allocator):**
-    *   Reset at the start of every frame.
-    *   Used for: RenderGraph nodes, Command Lists, UI transient data, per-frame event data.
-*   **Staging Buffer (Ring Buffer):**
-    *   Persistent CPU-mapped buffer (`VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT`).
-    *   Used for: Async texture/buffer uploads.
-*   **Pool Allocator:**
-    *   Used for: Components, Fibers, fixed-size objects.
+* **Frame Packet Allocator (Linear):**
+    * Allocates per-frame transient data (RenderGraph nodes, Draw packets).
+    * **Rule**: POD types only. [cite_start]Destructors are **not** run[cite: 123, 128].
+* **Staging Buffer (Ring Buffer):**
+    * Persistent mapped buffer. [cite_start]Tracks "Fence Values" to know when regions are safe to overwrite[cite: 131].
 
 ### C. Event System
-**Role:** Decouple systems (Input -> GameLogic, Window -> Renderer).
-*   **Architecture:** Bus-based, Immediate or Buffered.
-*   **Thread Safety:** Events generated on Main Thread (OS events) are buffered.
+**Role:** Decouple systems without introducing blocking locks.
+* **Architecture:** Double-Buffered Message Queue.
+* **Thread Safety:**
+    * **Producers:** Any Fiber can push an event (Atomic Index increment on a Ring Buffer).
+    * **Consumers:** Events are dispatched only at specific sync points (e.g., start of frame) on the Main Thread/Fiber.
+* **Immediate Dispatch:** Allowed *only* for thread-local logic. Cross-thread immediate dispatch is forbidden (risk of deadlock).
 
 ### D. Debugging & Profiling
-*   **Tracy Integration:** Full instrumentation of Fibers (Context Switches), Locks, and GPU zones.
-*   **Stuck Job Detector:** Watchdog to detect deadlocks or infinite loops in fibers.
-*   **Console:** In-game/Editor console for logging and CVars.
+**Role:** Observability in a system where "Call Stacks" are unreliable.
+* **Tracy Integration:**
+    * [cite_start]**Fiber Aware:** Use `TracyFiberEnter` / `TracyFiberLeave` to visualize jumping execution flow[cite: 236].
+    * **Lock Contention:** Profile spin-lock wait times to detect over-subscription.
+* **Stuck Job Detector (Watchdog):**
+    * A dedicated OS thread monitors active job timestamps.
+    * [cite_start]**Trigger:** If a job runs > 100ms, it pauses execution and dumps the specific Fiber Stack[cite: 231, 233].
+* **Console:** CVars for runtime tuning of job priorities and memory pool sizes.
 
 ---
 
@@ -107,182 +108,100 @@
 
 **Role:** Asynchronous loading, processing, and management of resources.
 
-### A. Asset Database (Registry)
-*   **Metadata:** Stores `Path`, `Type`, `UUID` in `.meta` files side-by-side with assets.
-*   **Registry:** `std::unordered_map<UUID, AssetMetadata>`. Loaded at startup.
-*   **Artifact Cache (Library):**
-    *   Source assets (`.fbx`, `.png`) are imported into engine-ready binary formats stored in `Library/Artifacts/`.
-    *   Runtime loads exclusively from `Library/`.
+### A. Asset Database & Manager
+* **Runtime:** Loads exclusively from binary artifacts in `Library/`.
+* **Async Loading:**
+    * Spawns **Load Job** (Disk I/O -> Staging).
+    * [cite_start]Pushes to `UploadContext` (Transfer Queue)[cite: 131].
+    * **Garbage Collection:** Time-based hysteresis.
 
-### B. Asset Manager (Runtime)
-*   **Async Loading:**
-    1.  `LoadAsync(UUID)` checks cache.
-    2.  If missing, spawns a **Load Job**.
-    3.  **Load Job** (Worker):
-        *   Reads Artifact from disk.
-        *   Allocates Staging Memory.
-        *   Copies data to Staging.
-        *   Pushes `UploadRequest` to `UploadContext`.
-    4.  **Upload Phase** (Main Thread Start):
-        *   Records `vkCmdCopyBufferToImage` for all pending requests.
-        *   Submits to Transfer Queue (or Graphics Queue with barrier).
-*   **Garbage Collection:** Time-based hysteresis (e.g., unload if unused for 5s).
-
-### C. Importers
-*   **ModelImporter:**
-    *   **Geometry:** Standardizes coordinate system (Y-Up, Right-Handed). Generates Tangents/Normals (MikkTSpace).
-    *   **Optimization:** Vertex cache optimization, overdraw reduction (meshoptimizer).
-    *   **Hierarchy:** Extracts Skeleton/Bone hierarchy for animation.
-    *   **Materials:** Extracts embedded materials and textures as separate sub-assets.
-*   **TextureImporter:**
-    *   **Compression:** BC7 (Color), BC5 (Normal), BC6H (HDR).
-    *   **Mipmaps:** Box/Kaiser filter generation.
-*   **MaterialImporter:**
-    *   JSON-based definition.
-    *   Maps standard PBR inputs (Albedo, Normal, Roughness, Metalness, AO) to Shader Uniforms.
+### B. Importers
+* **ModelImporter:** Standardizes coords (Y-Up), MikkTSpace tangents, MeshOptimizer.
+* **TextureImporter:** BC7/BC5 compression with Mipmaps.
 
 ---
 
-## 3. Rendering Architecture (Vulkan)
+## 3. Rendering Architecture (Vulkan 1.3)
 
-**Role:** High-performance, parallel-friendly rendering.
+**Role:** Explicit, high-performance, bindless.
 
 ### A. The Render Graph (Frame Graph)
-**Role:** Automates synchronization (Barriers) and memory management (Transient Resources).
-*   **Structure:** `RenderPass` (Logic) + `Resource` (Data).
-*   **Execution Flow:** Setup -> Compile (Barriers/Aliasing) -> Execute.
-*   **Transient Resources:** Textures needed only for the frame (e.g., DepthBuffer, GBuffer) are allocated from a specific `FrameHeap` and reused via aliasing.
+[cite_start]**Role:** Automates synchronization and transient memory aliasing[cite: 106].
+* **Structure:** DAG of `RenderPass` (Logic) + `Resource` (Data).
+* **Compilation:**
+    * [cite_start]Topological Sort -> Barrier Injection (`vkCmdPipelineBarrier2`)[cite: 207].
+    * [cite_start]**Memory Aliasing:** Allocates non-overlapping transient textures (e.g., Depth, G-Buffer) in the same physical `DeviceMemory` block to save VRAM[cite: 116].
+* **Execution:**
+    * [cite_start]Graph nodes are dispatched as **Parallel Jobs**[cite: 113].
+    * [cite_start]**Command Recording:** Workers record into Secondary Command Buffers[cite: 76].
 
-### B. Shader & Material System
-**Role:** Data-driven pipeline state and resource binding.
-*   **Shader Asset:**
-    *   Compiles GLSL -> SPIR-V.
-    *   **Reflection (SPIRV-Cross):** Automatically determines Descriptor Set Layouts and Push Constant ranges.
-    *   **Variants:** Uber-shader approach with `#define` permutations (STATIC_MESH, SKINNED, INSTANCED).
-*   **Material Asset:**
-    *   **PBR Standard:** Albedo, Normal, Metallic, Roughness, AO, Emissive.
-    *   **Workflow:** Metallic-Roughness.
-    *   Stores a binary blob of Uniform Data (UBO) matching the shader's reflection.
-*   **Bindless Design:**
-    *   **Global Bindless Set:** All textures in the engine are bound to a single Descriptor Array (Set 0).
-    *   **Indices:** Materials store an integer index into this array.
+### B. Shader & Material System (Bindless)
+**Role:** Decoupled data binding.
+* **Global Heap:**
+    * [cite_start]Single `DescriptorSet` (Set 0) binding global arrays of Textures/Buffers (`binding = 10`, `VK_EXT_descriptor_indexing`)[cite: 220].
+    * **Update Strategy:** Updates handled via `StagingBuffer` and aliased to the set.
+* **Material Data:**
+    * [cite_start]Materials are POD structs containing `uint32_t textureIndex`[cite: 223].
+    * Data is uploaded to a massive `StorageBuffer` (MaterialBuffer).
+    * **Push Constants:** Shader receives `materialID` and fetches data manually.
+* **Benefit:** No `vkCmdBindDescriptorSets` per object. [cite_start]Massive CPU perf gain[cite: 227].
 
-### C. Lighting & Environment
-*   **Global Illumination:** Image Based Lighting (IBL) for PBR (Irradiance Map + Prefiltered Environment Map + BRDF LUT).
-*   **Shadows:** Cascaded Shadow Maps (CSM) for Directional Lights.
-*   **Lights:** Directional, Point, Spot, Area (LTC).
-*   **Post-Processing:** Tone Mapping (ACES), Bloom, SSAO, TAA.
-
-### D. Backend (Vulkan 1.3)
-*   **Dynamic Rendering:** No `VkRenderPass` objects. Use `vkCmdBeginRendering`.
-*   **Synchronization 2:** Use `vkCmdPipelineBarrier2`.
-*   **Frame Data (Double/Triple Buffering):**
-    *   `VkCommandPool` (One per thread per frame).
-    *   `VkSemaphore` (Timeline Semaphores for GPU-CPU sync).
-    *   `DeletionQueue` (Resources to free when frame is complete).
-*   **Upload Context:**
-    *   Dedicated Command Buffer for uploads.
-    *   Syncs via `UploadCompleteSemaphore`.
+### C. Backend & Synchronization
+* [cite_start]**Dynamic Rendering:** `vkCmdBeginRendering` (No `VkRenderPass` objects)[cite: 246].
+* **Synchronization:**
+    * **Timeline Semaphores:** Unifies Compute/Graphics/Transfer sync. [cite_start]Replaces `vkWaitForFences` entirely[cite: 88, 245].
+    * [cite_start]**Poller Job:** "Wait-Free" GPU synchronization on CPU[cite: 92].
+* **Frame Data:**
+    * [cite_start]Triple Buffered `FrameContext` (CommandAllocators, DeletionQueue)[cite: 83].
+    * [cite_start]**Context-Carried Pools:** `CommandAllocator` travels *with the Fiber* (via `JobContext`) or is grabbed from a thread-safe pool[cite: 67].
 
 ---
 
 ## 4. Scene System (ECS)
 
-**Role:** Game logic and state management.
-*   **Library:** EnTT.
-*   **Entity:** `uint32_t` ID.
-*   **Components:**
-    *   `ID`, `Tag`: Identity.
-    *   `Transform`, `WorldTransform`, `Parent`, `Children`: Hierarchy.
-    *   `MeshRenderer`: Link to Model/Material assets.
-    *   `Camera`: Projection data.
-    *   `Light`: Directional/Point light data.
-*   **Systems:**
-    *   `TransformSystem`: Parallel Level-Order Traversal for hierarchy updates.
-    *   `CameraSystem`: View/Projection matrix calculation.
-    *   `RenderingSystem`: Culling and Draw Packet generation.
-    *   `SceneSerializer`: YAML Save/Load.
-    *    --- (Future) ---
-    *   `AnimationSystem`: Updates bone matrices for Skinned Meshes.
-    *   `ScriptSystem`: Updates C#/Lua scripts.
-    *   `PhysicsSystem`: Integration with Jolt Physics.
+**Role:** Game logic and state management (EnTT).
+* **Systems:**
+    * `TransformSystem`: Parallel Level-Order Traversal.
+    * `RenderingSystem`: Culling and Draw Packet generation.
+    * `SceneSerializer`: YAML Save/Load.
 
 ---
 
 ## 5. Editor Architecture
 
-**Role:** Tools for creation and debugging.
-*   **UI Library:** Dear ImGui (Docking branch).
-*   **Panels:** Scene, Hierarchy, Inspector, Project, Console, Profiler.
-*   **Scene View:**
-    *   **Gizmos:** ImGuizmo integration (Translate/Rotate/Scale).
-    *   **Camera:** Fly/Orbit modes.
-    *   **Picking:** Mouse picking via Framebuffer readback.
-    *   **Grid:** Infinite grid rendering.
-*   **Project Panel:**
-    *   Virtual Filesystem view.
-    *   Drag & Drop support.
-    *   Thumbnail generation.
-*   **Inspector:**
-    *   Reflection-based component editing.
-    *   Asset preview.
+**Role:** Tools for creation and debugging (Dear ImGui).
+* **Panels:** Scene, Hierarchy, Inspector, Project, Console, Profiler.
+* **Scene View:** ImGuizmo integration, Framebuffer picking.
 
 ---
 
 ## 6. Implementation Roadmap
 
-### Phase 1: Foundation (Done)
-- [x] Context & Windowing (GLFW).
-- [x] Vulkan Backend (Instance, Device, Swapchain, VMA).
-- [x] Job System (Fibers, Counters).
-- [x] ImGui Integration.
-- [x] Input System.
-
-### Phase 2: Data Pipeline (Done)
-- [x] Shader Reflection (SPIRV-Cross).
-- [x] Material System.
-- [x] Asset Manager Async.
-
-### Phase 3: Asset Cache & Editor Refactor (Done)
-- [x] Asset Database & Artifacts.
-- [x] Project Panel & Inspector.
-- [x] Load-on-Inspect.
-
-### Phase 4: ECS Architecture Refactor (Done)
-- [x] POD Components.
-- [x] Transform System (Parallel Hierarchy).
-- [x] Camera System.
-
 ### Phase 5: Vulkan Architecture Refactor (Current Focus)
-**Goal:** Eliminate race conditions and CPU stalls by implementing a robust Phase-Based rendering architecture.
+**Goal:** Eliminate race conditions and CPU stalls.
 
-1.  **Core Stability (Fiber Safety):**
-    - [ ] **TLS Audit:** Replace `thread_local` usage with Fiber-Local Storage (FLS) via `JobContext` to prevent data corruption during migration.
-    - [ ] **Stack Guard Pages:** Ensure fiber stacks are separated by `PAGE_NOACCESS` memory to trap overflows.
-    - [ ] **Job Concepts:** Use C++20 Concepts to enforce constraints on Job Payloads.
-2.  **Staging & Uploads (Async Transfer):**
-    - [ ] **Staging Buffer:** Implement `StagingBuffer` class (Persistent Mapped Ring Buffer).
-    - [ ] **Upload Context:** Implement `UploadContext` to manage `vkCmdCopy` commands on a Transfer Queue.
-    - [ ] **Asset Integration:** Refactor `VKTexture` and `AssetManager` to write to Staging Buffer instead of blocking on `ImmediateSubmit`.
-3.  **Frame Synchronization (Timeline Semaphores):**
-    - [ ] **Timeline Wrapper:** Implement `VKTimelineSemaphore` abstraction.
-    - [ ] **Frame Data:** Refactor `VKRendererAPI` to use explicit `FrameData` structs (CmdPools, Semaphores, DeletionQueue).
-    - [ ] **Poller Job:** Implement a non-blocking Fiber Job that polls `vkGetSemaphoreCounterValue` and yields until GPU is ready.
-4.  **Parallel Rendering:**
-    - [ ] **Command Allocators:** Implement `CommandAllocator` pool (one per worker thread) to allow lock-free command buffer allocation inside jobs.
-    - [ ] **Parallel Record:** Dispatch RenderGraph passes to worker threads using Secondary Command Buffers.
-    - [ ] **Barrier Builder:** Implement `BarrierBuilder` helper for `vkCmdPipelineBarrier2` to simplify graph compilation.
+1.  **Fiber Safety & Core (Critical):**
+    - [ ] [cite_start]**Stack Guard Pages:** Implement `PAGE_NOACCESS` between fiber stacks to trap overflows[cite: 51].
+    - [x] **TLS Audit:** Search/Destroy `thread_local`. [cite_start]Replace with `JobContext` lookups[cite: 151].
+    - [ ] [cite_start]**Job Concepts:** Implement C++20 Concepts (`JobPayload`) to ban non-trivial destructors in jobs[cite: 138].
+2.  **Frame Synchronization (The Poller):**
+    - [ ] **Timeline Wrapper:** Abstract `VK_KHR_timeline_semaphore`.
+    - [ ] [cite_start]**Poller Job:** Implement the `VulkanWaitJob` that yields instead of blocks[cite: 178].
+    - [ ] **Removal of Fences:** Delete all `vkWaitForFences` calls in the hot path.
+3.  **Command Management:**
+    - [ ] [cite_start]**Command Allocators:** Create pool of `CommandAllocator` (Pool + Cache) that can be claimed by a Job[cite: 68].
+    - [ ] [cite_start]**Parallel Recording:** Dispatch RenderGraph passes to worker threads via Secondary Buffers[cite: 78].
+4.  **Data Transfer:**
+    - [ ] [cite_start]**Async Upload:** Implement `UploadContext` with a dedicated Transfer Queue and Staging Ring Buffer[cite: 131].
 
-### Phase 6: Rendering Features
-1.  **PBR & IBL:**
+### Phase 6: Rendering Features (Bindless)
+1.  **Bindless Pipeline:**
+    - [ ] **Global Descriptor Set:** Setup `layout(binding=10) uniform texture2D globalTextures[];`.
+    - [ ] [cite_start]**Material System Refactor:** Change materials to store `uint` indices instead of `VkDescriptorSet`[cite: 220].
+2.  **PBR & Lighting:**
     - [ ] Environment Map Importer (.hdr).
-    - [ ] IBL Compute Shaders (Irradiance, Prefilter, BRDF).
-    - [ ] PBR Shader Implementation.
-    - [ ] **Material Parameters:** Expose Metallic/Roughness/AO factors in Inspector.
-2.  **Shadow Mapping:**
-    - [ ] Cascaded Shadow Maps (CSM).
-    - [ ] Shadow Render Pass.
-    - [ ] **PCF:** Implement Percentage Closer Filtering in PBR shader.
+    - [ ] IBL Compute Shaders.
+    - [ ] **Shadows:** Cascaded Shadow Maps (CSM).
 
 ### Phase 7: Editor Polish & Gameplay
 1.  **Scene Serialization:** YAML Save/Load.

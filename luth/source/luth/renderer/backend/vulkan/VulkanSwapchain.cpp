@@ -201,7 +201,7 @@ namespace Luth
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &m_CurrentFrameIndex;
 
-        VkResult result = vkQueuePresentKHR(VulkanContext::Get().GetGraphicsQueue(), &presentInfo);
+        VkResult result = VulkanContext::Get().Present(presentInfo);
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             // Recreate logic handled by RendererAPI

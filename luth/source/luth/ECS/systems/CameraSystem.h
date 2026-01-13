@@ -35,7 +35,8 @@ namespace Luth
                     }
                     
                     // Vulkan clip space Y flip
-                    camera.ProjectionMatrix[1][1] *= -1;
+                    // We do this here so it's cached in the component
+                    camera.ProjectionMatrix[1][1] *= -1.0f;
 
                     camera.IsDirty = false;
                 }
