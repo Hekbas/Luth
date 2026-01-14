@@ -210,13 +210,13 @@
 **Goal:** Establish the memory and execution foundation. No Vulkan implementation in this phase.
 
 **5.1 Memory Architecture**
-- [ ] **Tagged Page Allocator:**
-    - [ ] Implement `TaggedPageAllocator` (Pool of 2MB `VirtualAlloc` pages).
-    - [ ] Implement `FreeTag(uint32_t tag)` for bulk reclamation.
-    - [ ] Implement `ThreadCache` (Index-based access via `JobContext`) to minimize global lock contention.
-- [ ] **Frame Architecture:**
-    - [ ] Define `FrameParams` struct (Inputs, Time, Matrices, Viewport).
-    - [ ] Implement Triple Buffering for `FrameParams` (Game N, Render N-1, GPU N-2).
+- [x] **Tagged Page Allocator:**
+    - [x] Implement `TaggedPageAllocator` (Pool of 2MB `VirtualAlloc` pages).
+    - [x] Implement `FreeTag(uint32_t tag)` for bulk reclamation.
+    - [x] Implement `ThreadCache` (Index-based access via `JobContext`) to minimize global lock contention.
+- [x] **Frame Architecture:**
+    - [x] Define `FrameParams` struct (Inputs, Time, Matrices, Viewport).
+    - [x] Implement Triple Buffering for `FrameParams` (Game N, Render N-1, GPU N-2).
 - [ ] **Job Context:**
     - [ ] Define `struct JobContext`.
     - [ ] **Fields:** `TaggedAllocator*`, `FrameParams*`, `ThreadIndex`, `FiberID`.
