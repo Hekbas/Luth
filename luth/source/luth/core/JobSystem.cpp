@@ -56,13 +56,8 @@ namespace Luth::JobSystem
 
     // Job Queues (Priority Based)
     static std::deque<Job> s_JobQueues[(int)JobPriority::Count];
-    static AdaptiveMutex s_QueueLock; // Replaced std::mutex with AdaptiveMutex
-    static std::condition_variable_any s_WakeCondition; // Use any to work with AdaptiveMutex? No, AdaptiveMutex doesn't support condition_variable.
-    // We need a standard mutex for condition variable, or implement a custom semaphore.
-    // For now, let's keep std::mutex for the condition variable but use AdaptiveMutex for queue access if possible.
-    // Actually, condition_variable requires std::unique_lock<std::mutex>.
-    // So we stick to std::mutex for the queue lock to support waiting.
     static std::mutex s_StandardQueueLock;
+    static std::condition_variable s_WakeCondition;
 
     // Fiber Pool
     static std::vector<FiberContext*> s_FreeFibers;
@@ -70,6 +65,12 @@ namespace Luth::JobSystem
     static std::mutex s_FiberPoolLock;
     static u32 s_ActiveFibers = 0;
     static u32 s_PeakFibers = 0;
+
+    // Global Context Pointers (Set by App/Renderer)
+    static Memory::TaggedPageAllocator* s_GlobalAllocator = nullptr;
+    static const FrameParams* s_GlobalParams = nullptr;
+    static CommandAllocatorPool* s_GlobalCommandPool = nullptr;
+    static std::mutex s_ContextLock;
 
     // Thread Local State - ONLY for the Scheduler Fiber
     static thread_local FiberContext* s_CurrentFiber = nullptr;
@@ -151,6 +152,19 @@ namespace Luth::JobSystem
         s_PeakFibers = s_ActiveFibers;
     }
 
+    void SetGlobalFrameContext(Memory::TaggedPageAllocator* allocator, const FrameParams* params)
+    {
+        std::lock_guard<std::mutex> lock(s_ContextLock);
+        s_GlobalAllocator = allocator;
+        s_GlobalParams = params;
+    }
+
+    void SetGlobalCommandPool(CommandAllocatorPool* commandPool)
+    {
+        std::lock_guard<std::mutex> lock(s_ContextLock);
+        s_GlobalCommandPool = commandPool;
+    }
+
     JobContext* GetCurrentJobContext()
     {
         return &s_CurrentFiber->publicContext;
@@ -168,8 +182,6 @@ namespace Luth::JobSystem
         if (counter) counter->value++;
 
         // Default priority Normal for now. 
-        // TODO: Add priority to Execute API or infer?
-        // For now, everything is Normal.
         Job job{ function, data, counter, 0, 1, JobPriority::Normal };
         
         PushJob(job);
@@ -283,6 +295,15 @@ namespace Luth::JobSystem
                     
                     // Inherit thread index for debugging/profiling
                     fiberCtx->publicContext.ThreadIndex = s_SchedulerFiber->publicContext.ThreadIndex;
+                    
+                    // Copy Global Context to Fiber
+                    // This ensures every fiber has access to the current frame's allocators
+                    {
+                        std::lock_guard<std::mutex> lock(s_ContextLock);
+                        fiberCtx->publicContext.Allocator = s_GlobalAllocator;
+                        fiberCtx->publicContext.Params = s_GlobalParams;
+                        fiberCtx->publicContext.CommandPool = s_GlobalCommandPool;
+                    }
 
                     s_CurrentFiber = fiberCtx;
                     LH_PROFILE_FIBER_ENTER(fiberCtx->debugName);
@@ -351,6 +372,7 @@ namespace Luth::JobSystem
         s_SchedulerFiber->fiber = Fiber::ConvertThreadToFiber(nullptr);
         s_SchedulerFiber->debugName = "Worker Thread";
         s_SchedulerFiber->publicContext.ThreadIndex = threadIndex;
+        
         s_CurrentFiber = s_SchedulerFiber;
 
         SchedulerEntryPoint(nullptr);

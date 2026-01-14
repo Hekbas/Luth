@@ -306,9 +306,9 @@ namespace Luth::RG
                 
                 VkCommandBufferBeginInfo beginInfo{};
                 beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+                beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                 beginInfo.pInheritanceInfo = &inheritanceInfo;
-                
+
                 if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
                 {
                     LH_CORE_ERROR("Failed to begin secondary command buffer!");
