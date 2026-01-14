@@ -24,49 +24,47 @@ namespace Luth
     {
         std::lock_guard<std::mutex> lock(m_Lock);
         
-        for (VkCommandPool pool : m_AllPools)
+        for (CommandAllocator* allocator : m_AllAllocators)
         {
-            vkDestroyCommandPool(m_Device, pool, nullptr);
+            vkDestroyCommandPool(m_Device, allocator->GetPool(), nullptr);
+            delete allocator;
         }
         
-        m_AllPools.clear();
-        m_AvailablePools.clear();
+        m_AllAllocators.clear();
+        m_AvailableAllocators.clear();
     }
 
-    VkCommandPool CommandAllocatorPool::AcquirePool()
+    CommandAllocator* CommandAllocatorPool::Acquire()
     {
         std::lock_guard<std::mutex> lock(m_Lock);
 
-        if (!m_AvailablePools.empty())
+        if (!m_AvailableAllocators.empty())
         {
-            VkCommandPool pool = m_AvailablePools.back();
-            m_AvailablePools.pop_back();
-            return pool;
+            CommandAllocator* allocator = m_AvailableAllocators.back();
+            m_AvailableAllocators.pop_back();
+            return allocator;
         }
 
-        return CreatePool();
+        return CreateAllocator();
     }
 
-    void CommandAllocatorPool::ReleasePool(VkCommandPool pool)
+    void CommandAllocatorPool::Release(CommandAllocator* allocator)
     {
         std::lock_guard<std::mutex> lock(m_Lock);
-        m_AvailablePools.push_back(pool);
+        m_AvailableAllocators.push_back(allocator);
     }
 
     void CommandAllocatorPool::ResetAll()
     {
         std::lock_guard<std::mutex> lock(m_Lock);
         
-        for (VkCommandPool pool : m_AllPools)
+        for (CommandAllocator* allocator : m_AllAllocators)
         {
-            vkResetCommandPool(m_Device, pool, 0);
+            allocator->Reset();
         }
-        
-        // In a more complex system, we might want to ensure all pools are returned before resetting.
-        // For now, we assume this is called at a safe point (start of frame) where no recording is happening.
     }
 
-    VkCommandPool CommandAllocatorPool::CreatePool()
+    CommandAllocator* CommandAllocatorPool::CreateAllocator()
     {
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -77,9 +75,11 @@ namespace Luth
         if (vkCreateCommandPool(m_Device, &poolInfo, nullptr, &pool) != VK_SUCCESS)
         {
             LH_CORE_CRITICAL("Failed to create Command Pool!");
+            return nullptr;
         }
 
-        m_AllPools.push_back(pool);
-        return pool;
+        CommandAllocator* allocator = new CommandAllocator(m_Device, pool);
+        m_AllAllocators.push_back(allocator);
+        return allocator;
     }
 }

@@ -1,15 +1,21 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "CommandAllocator.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <mutex>
+#include <queue>
 
 namespace Luth
 {
-    // Manages a pool of VkCommandPools to be used by fibers.
-    // Since fibers migrate between threads, we cannot rely on thread_local command pools.
-    // Instead, a fiber requests an allocator from this pool, records commands, and returns it.
+    // ===================================================================================
+    // Command Allocator Pool (Thread-Safe Global Pool)
+    // ===================================================================================
+    // Manages a pool of CommandAllocator objects.
+    // Fibers acquire an allocator to record commands and release it when done.
+    // Released allocators are NOT reset immediately; they are reset when the frame they were used for is recycled.
+    
     class CommandAllocatorPool
     {
     public:
@@ -19,25 +25,26 @@ namespace Luth
         void Init();
         void Shutdown();
 
-        // Acquires a command pool for the current thread/fiber.
+        // Acquires a CommandAllocator for the current thread/fiber.
         // If no pool is available, a new one is created.
-        VkCommandPool AcquirePool();
+        CommandAllocator* Acquire();
 
-        // Returns a pool to the available list.
+        // Returns an allocator to the pool.
         // Should be called when the fiber is done recording for the frame.
-        void ReleasePool(VkCommandPool pool);
+        void Release(CommandAllocator* allocator);
 
-        // Resets all pools. Should be called at the start of a frame.
+        // Resets all allocators in the pool.
+        // WARNING: Only call this when you are sure NO allocators are in use (e.g. after GPU wait).
         void ResetAll();
 
     private:
-        VkCommandPool CreatePool();
+        CommandAllocator* CreateAllocator();
 
         u32 m_QueueFamilyIndex = 0;
         VkDevice m_Device = VK_NULL_HANDLE;
 
         std::mutex m_Lock;
-        std::vector<VkCommandPool> m_AvailablePools;
-        std::vector<VkCommandPool> m_AllPools;
+        std::vector<CommandAllocator*> m_AvailableAllocators;
+        std::vector<CommandAllocator*> m_AllAllocators;
     };
 }
