@@ -16,6 +16,7 @@
 #include "luth/core/JobSystem.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/core/IOThread.h"
 
 namespace Luth
 {
@@ -23,6 +24,7 @@ namespace Luth
     {
         // Core Systems Init
         JobSystem::Init();
+        IOThread::Init();
         m_FrameContext.Init();
         
         FileSystem::Init();
@@ -176,6 +178,7 @@ namespace Luth
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
         m_FrameContext.Shutdown();
+        IOThread::Shutdown();
         JobSystem::Shutdown();
     }
 
