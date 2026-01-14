@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/core/UUID.h"
+#include "luth/core/JobSystem.h"
 
 #include <random>
 #include <cstring>
@@ -9,18 +10,79 @@ namespace Luth
     static std::random_device s_RandomDevice;
     static std::uniform_int_distribution<uint64_t> s_UniformDistribution;
 
+    // We need a way to store the random engine in a fiber-safe way.
+    // Since we don't have arbitrary data slots in JobContext yet, we can use a small pool of engines
+    // indexed by ThreadIndex from JobContext.
+    // Or, we can just use a spinlock for now since UUID generation isn't extremely hot in the render loop.
+    // Actually, JobContext has ThreadIndex. We can use that.
+    
+    // Global pool of random engines, one per thread.
+    // Max threads is usually small (e.g. 64).
+    static std::vector<std::mt19937_64> s_Engines;
+    static std::mutex s_EngineInitLock;
+    static bool s_EnginesInitialized = false;
+
+    static void EnsureEnginesInitialized()
+    {
+        if (s_EnginesInitialized) return;
+        std::lock_guard<std::mutex> lock(s_EngineInitLock);
+        if (s_EnginesInitialized) return;
+
+        // Reserve enough for max threads. 
+        // We can resize dynamically if needed, but std::vector resize is not thread safe.
+        // Let's assume max 128 threads for now.
+        s_Engines.resize(128);
+        for (auto& engine : s_Engines)
+        {
+            engine.seed(s_RandomDevice());
+        }
+        s_EnginesInitialized = true;
+    }
+
     UUID::UUID()
     {
-        // FIX: Use thread_local to make generation thread-safe without mutex locking overhead.
-        // This creates a unique generator per thread, seeded once.
-        static thread_local std::mt19937_64 s_Engine(s_RandomDevice());
+        EnsureEnginesInitialized();
 
-        m_Data[0] = s_UniformDistribution(s_Engine);
-        m_Data[1] = s_UniformDistribution(s_Engine);
+        // Get current thread index from JobSystem
+        // If we are not in a job, we might be on the main thread or an external thread.
+        // JobSystem::GetCurrentJobContext() returns nullptr if not in a fiber?
+        // Actually, our JobSystem implementation sets s_CurrentFiber for Main Thread too.
+        // So it should be safe.
+        
+        auto* ctx = JobSystem::GetCurrentJobContext();
+        u32 threadIndex = 0;
+        if (ctx)
+        {
+            threadIndex = ctx->ThreadIndex;
+        }
+        else
+        {
+            // Fallback for pre-init or external threads
+            // Just use index 0 with a lock? Or hash thread ID?
+            // For safety, let's just use a fallback engine with a lock.
+            static std::mt19937_64 s_FallbackEngine(s_RandomDevice());
+            static std::mutex s_FallbackLock;
+            std::lock_guard<std::mutex> lock(s_FallbackLock);
+            m_Data[0] = s_UniformDistribution(s_FallbackEngine);
+            m_Data[1] = s_UniformDistribution(s_FallbackEngine);
+            
+            uint8_t* bytes = reinterpret_cast<uint8_t*>(m_Data);
+            bytes[6] = (bytes[6] & 0x0F) | 0x40; 
+            bytes[8] = (bytes[8] & 0x3F) | 0x80; 
+            return;
+        }
+
+        if (threadIndex >= s_Engines.size()) threadIndex = 0; // Safety
+
+        // No lock needed here because ThreadIndex is unique to the OS thread running this code.
+        // Even if fibers migrate, they migrate *between* threads, so at any instant,
+        // only one fiber is running on Thread K.
+        std::mt19937_64& engine = s_Engines[threadIndex];
+        
+        m_Data[0] = s_UniformDistribution(engine);
+        m_Data[1] = s_UniformDistribution(engine);
 
         // Version 4, Variant 1 compliance
-        // We safely cast to bytes to ensure we hit the specific bits required by RFC 4122
-        // regardless of how uint64_t is laid out in registers.
         uint8_t* bytes = reinterpret_cast<uint8_t*>(m_Data);
         bytes[6] = (bytes[6] & 0x0F) | 0x40; // Version 4
         bytes[8] = (bytes[8] & 0x3F) | 0x80; // Variant 1
