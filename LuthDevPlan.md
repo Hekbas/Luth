@@ -223,23 +223,23 @@
     - [x] **Rule:** All Jobs must accept `JobContext&` as their primary argument.
 
 **5.2 Fiber Runtime**
-- [ ] **Safety Audit:**
-    - [ ] Remove all `thread_local` variables. Replace with `JobContext` lookups.
-    - [ ] Verify `Guard Page` implementation (protects against stack overflow).
-- [ ] **Synchronization Primitives:**
-    - [ ] Implement `AdaptiveMutex` (Spin ~2000 cycles -> `Fiber::Yield()`).
-    - [ ] Implement `AtomicCounter` (Wait adds fiber to "Wait List", resume moves to "Ready List").
-- [ ] **Scheduler Upgrade:**
-    - [ ] Implement **Priority Queues** (High, Normal, Low).
-    - [ ] **Policy:** High Priority (Game Logic) preempts Low Priority (Asset Loading).
+- [x] **Safety Audit:**
+    - [x] Remove all `thread_local` variables. Replace with `JobContext` lookups.
+    - [x] Verify `Guard Page` implementation (protects against stack overflow).
+- [x] **Synchronization Primitives:**
+    - [x] Implement `AdaptiveMutex` (Spin ~2000 cycles -> `Fiber::Yield()`).
+    - [x] Implement `AtomicCounter` (Wait adds fiber to "Wait List", resume moves to "Ready List").
+- [x] **Scheduler Upgrade:**
+    - [x] Implement **Priority Queues** (High, Normal, Low).
+    - [x] **Policy:** High Priority (Game Logic) preempts Low Priority (Asset Loading).
 
 **5.3 Engine Loop**
-- [ ] **Main Loop Refactor:**
-    - [ ] Implement explicit pipeline staging: `KickGame(N)` -> `SubmitRender(N-1)` -> `RecycleGPU(N-2)`.
-- [ ] **I/O Subsystem:**
-    - [ ] Spawn dedicated `IO_Thread` (OS Thread).
-    - [ ] Implement `FileRequestQueue` (Lock-free ring buffer).
-    - [ ] **Constraint:** Blocking I/O (fread/fstream) forbidden in Fiber Workers.
+- [x] **Main Loop Refactor:**
+    - [x] Implement explicit pipeline staging: `KickGame(N)` -> `SubmitRender(N-1)` -> `RecycleGPU(N-2)`.
+- [x] **I/O Subsystem:**
+    - [x] Spawn dedicated `IO_Thread` (OS Thread).
+    - [x] Implement `FileRequestQueue` (Lock-free ring buffer).
+    - [x] **Constraint:** Blocking I/O (fread/fstream) forbidden in Fiber Workers.
 
 ---
 
@@ -247,13 +247,13 @@
 **Goal:** Lock-free, explicit command generation utilizing the core memory model.
 
 **6.1 Synchronization**
-- [ ] **Timeline Semaphores:**
-    - [ ] Create `TimelineSemaphore` wrapper.
-    - [ ] **Rule:** All Queue submits must signal a Timeline value (Frame Index).
-- [ ] **The Poller Job:**
-    - [ ] Implement `VulkanWaitJob`.
-    - [ ] **Logic:** `vkGetSemaphoreCounterValue` -> If < Target, Yield; Else, execute callback.
-    - [ ] **Cleanup:** Remove all `vkWaitForFences` calls.
+- [x] **Timeline Semaphores:**
+    - [x] Create `TimelineSemaphore` wrapper.
+    - [x] **Rule:** All Queue submits must signal a Timeline value (Frame Index).
+- [x] **The Poller Job:**
+    - [x] Implement `VulkanWaitJob`.
+    - [x] **Logic:** `vkGetSemaphoreCounterValue` -> If < Target, Yield; Else, execute callback.
+    - [x] **Cleanup:** Remove all `vkWaitForFences` calls.
 
 **6.2 Command Buffer Management**
 - [ ] **Command Allocator:**
