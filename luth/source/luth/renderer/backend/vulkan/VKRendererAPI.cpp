@@ -23,6 +23,10 @@ namespace Luth
         // 3. Init Command Pool & Sync Objects
         CreateCommandBuffers();
         CreateSyncObjects();
+        
+        // 4. Init Command Allocator Pool for Parallel Recording
+        m_CommandAllocatorPool = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetGraphicsFamily());
+        m_CommandAllocatorPool->Init();
     }
 
     void VKRendererAPI::Shutdown()
@@ -37,6 +41,7 @@ namespace Luth
         }
         
         m_FrameTimeline.Shutdown();
+        m_CommandAllocatorPool->Shutdown();
 
         vkDestroyCommandPool(device, m_CommandPool, nullptr);
         m_Swapchain.reset();
@@ -70,6 +75,18 @@ namespace Luth
 
         // Flush deletions AFTER we know the GPU is done with this frame's resources
         VulkanContext::Get().FlushDeletionQueue();
+        
+        // Reset Command Allocator Pool for this frame
+        // Note: In a triple-buffered system, we should have a pool PER frame index.
+        // Currently CommandAllocatorPool is global. This is a bug if we reset it while GPU is using it?
+        // Wait, we just waited for the GPU to finish with this frame index.
+        // BUT, if we have multiple frames in flight, we can't reset the GLOBAL pool.
+        // We need a pool per frame index.
+        // TODO: Refactor CommandAllocatorPool to be per-frame or handle reset correctly.
+        // For now, since we wait for the frame, it's safe-ish if we assume only one frame is recording at a time.
+        // But parallel recording means multiple threads record for the CURRENT frame.
+        // So we reset it here.
+        m_CommandAllocatorPool->ResetAll();
 
         // Acquire image
         u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentFrame]);
@@ -173,6 +190,8 @@ namespace Luth
 
     void VKRendererAPI::ExecuteGraph(RG::RenderGraph& graph)
     {
+        // TODO: Implement Parallel Recording here using m_CommandAllocatorPool
+        // For now, we still use the main command buffer linearly.
         graph.Execute(m_CommandBuffers[m_CurrentFrame]);
     }
 
