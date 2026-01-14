@@ -217,10 +217,10 @@
 - [x] **Frame Architecture:**
     - [x] Define `FrameParams` struct (Inputs, Time, Matrices, Viewport).
     - [x] Implement Triple Buffering for `FrameParams` (Game N, Render N-1, GPU N-2).
-- [ ] **Job Context:**
-    - [ ] Define `struct JobContext`.
-    - [ ] **Fields:** `TaggedAllocator*`, `FrameParams*`, `ThreadIndex`, `FiberID`.
-    - [ ] **Rule:** All Jobs must accept `JobContext&` as their primary argument.
+- [x] **Job Context:**
+    - [x] Define `struct JobContext`.
+    - [x] **Fields:** `TaggedAllocator*`, `FrameParams*`, `ThreadIndex`, `FiberID`.
+    - [x] **Rule:** All Jobs must accept `JobContext&` as their primary argument.
 
 **5.2 Fiber Runtime**
 - [ ] **Safety Audit:**

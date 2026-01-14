@@ -1,10 +1,17 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/memory/TaggedPageAllocator.h"
 #include <atomic>
 #include <functional>
 #include <type_traits>
 #include <concepts>
+
+namespace Luth
+{
+    struct FrameParams;
+    class CommandAllocatorPool;
+}
 
 namespace Luth::JobSystem
 {
@@ -37,10 +44,20 @@ namespace Luth::JobSystem
     // This struct travels with the Fiber, not the OS Thread.
     struct JobContext
     {
-        // Pointers to per-frame allocators will go here
-        void* FrameAllocator = nullptr; 
-        void* CommandAllocator = nullptr;
+        // Memory
+        Memory::TaggedPageAllocator* Allocator = nullptr;
+        Memory::TaggedPageAllocator::ThreadCache AllocatorCache; // Per-fiber cache for lock-free alloc
+
+        // Frame Data
+        const FrameParams* Params = nullptr; // Read-only params for the current job's frame context
+
+        // Command Recording
+        CommandAllocatorPool* CommandPool = nullptr;
+        void* CurrentCommandAllocator = nullptr; // Pointer to the thread-local CommandAllocator (if acquired)
+
+        // Metadata
         u32 ThreadIndex = 0;
+        u32 FiberID = 0;
     };
 
     // ===================================================================================
