@@ -121,7 +121,13 @@ namespace Luth::RG
         }
 
         void Compile();
+        
+        // Execute using a single command buffer (Legacy/Serial)
         void Execute(VkCommandBuffer cmd);
+
+        // Execute using parallel jobs (New)
+        // Records barriers into primaryCmd, and fills outCommandBuffers with secondary buffers
+        void ExecuteParallel(VkCommandBuffer primaryCmd, std::vector<VkCommandBuffer>& outCommandBuffers);
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);

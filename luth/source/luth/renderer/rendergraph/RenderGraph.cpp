@@ -4,6 +4,8 @@
 #include "luth/core/Profiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VKRendererAPI.h"
+#include "luth/renderer/Renderer.h"
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth::RG
@@ -159,6 +161,33 @@ namespace Luth::RG
         }
     }
 
+    // Helper to map states to Vulkan flags
+    static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state) {
+        switch (state) {
+            case ResourceState::Undefined: return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0 };
+            case ResourceState::ColorAttachment: return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
+            case ResourceState::DepthStencilAttachment: return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+            case ResourceState::TransferDst: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT };
+            case ResourceState::TransferSrc: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
+            case ResourceState::ShaderResource: return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
+            case ResourceState::Present: return { VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0 };
+            default: return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
+        }
+    }
+
+    static VkImageLayout GetLayout(ResourceState state) {
+        switch (state) {
+            case ResourceState::Undefined: return VK_IMAGE_LAYOUT_UNDEFINED;
+            case ResourceState::ColorAttachment: return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            case ResourceState::DepthStencilAttachment: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            case ResourceState::TransferDst: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            case ResourceState::TransferSrc: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            case ResourceState::ShaderResource: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            case ResourceState::Present: return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            default: return VK_IMAGE_LAYOUT_UNDEFINED;
+        }
+    }
+
     void RenderGraph::Execute(VkCommandBuffer cmd)
     {
         LH_PROFILE_FUNCTION();
@@ -186,7 +215,6 @@ namespace Luth::RG
                 barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
                 barrier.image = res.image;
                 
-                // Determine aspect mask based on format
                 if (res.desc.format == TextureFormat::D32_Float)
                     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
                 else
@@ -197,33 +225,6 @@ namespace Luth::RG
                 barrier.subresourceRange.baseArrayLayer = 0;
                 barrier.subresourceRange.layerCount = 1;
                 
-                // Map abstract states to Vulkan stages/access
-                auto GetStateInfo = [](ResourceState state) -> std::pair<VkPipelineStageFlags2, VkAccessFlags2> {
-                    switch (state) {
-                        case ResourceState::Undefined: return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0 };
-                        case ResourceState::ColorAttachment: return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
-                        case ResourceState::DepthStencilAttachment: return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
-                        case ResourceState::TransferDst: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT };
-                        case ResourceState::TransferSrc: return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
-                        case ResourceState::ShaderResource: return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
-                        case ResourceState::Present: return { VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0 };
-                        default: return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
-                    }
-                };
-
-                auto GetLayout = [](ResourceState state) -> VkImageLayout {
-                    switch (state) {
-                        case ResourceState::Undefined: return VK_IMAGE_LAYOUT_UNDEFINED;
-                        case ResourceState::ColorAttachment: return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                        case ResourceState::DepthStencilAttachment: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                        case ResourceState::TransferDst: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                        case ResourceState::TransferSrc: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                        case ResourceState::ShaderResource: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        case ResourceState::Present: return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                        default: return VK_IMAGE_LAYOUT_UNDEFINED;
-                    }
-                };
-
                 auto [srcStage, srcAccess] = GetStateInfo(b.before);
                 auto [dstStage, dstAccess] = GetStateInfo(b.after);
 
@@ -248,6 +249,147 @@ namespace Luth::RG
 
             // 2. Execute Pass
             pass.execute(ctx);
+        }
+
+        CleanupPhysicalResources();
+    }
+
+    // ===================================================================================
+    // Parallel Execution
+    // ===================================================================================
+
+    struct PassJobData
+    {
+        const RenderGraph::PassNode* pass;
+        RenderGraph::ResourceNode* resources; // Pointer to array
+        u32 resourceCount;
+        VkCommandBuffer cmd;
+    };
+
+    struct ParallelJobArgs
+    {
+        PassJobData data;
+        VkCommandBuffer* outCmd;
+    };
+
+    void RenderGraph::ExecuteParallel(VkCommandBuffer primaryCmd, std::vector<VkCommandBuffer>& outCommandBuffers)
+    {
+        LH_PROFILE_FUNCTION();
+
+        AllocatePhysicalResources();
+        
+        auto* renderer = dynamic_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+        LH_CORE_ASSERT(renderer, "RenderGraph::ExecuteParallel requires VKRendererAPI!");
+        
+        JobSystem::Counter jobCounter;
+        std::vector<ParallelJobArgs> parallelArgs(m_Passes.size());
+        outCommandBuffers.resize(m_Passes.size());
+
+        // 1. Dispatch Jobs
+        for (size_t i = 0; i < m_Passes.size(); ++i)
+        {
+            parallelArgs[i].data.pass = &m_Passes[i];
+            parallelArgs[i].data.resources = m_Resources.data();
+            parallelArgs[i].data.resourceCount = (u32)m_Resources.size();
+            parallelArgs[i].outCmd = &outCommandBuffers[i];
+            
+            JobSystem::Execute([](JobSystem::JobArgs args)
+            {
+                auto* ctx = JobSystem::GetCurrentJobContext();
+                LH_CORE_ASSERT(ctx && ctx->CommandPool, "JobContext missing CommandPool!");
+                
+                CommandAllocator* allocator = ctx->CommandPool->Acquire();
+                VkCommandBuffer cmd = allocator->GetBuffer();
+                
+                VkCommandBufferInheritanceInfo inheritanceInfo{};
+                inheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+                
+                VkCommandBufferBeginInfo beginInfo{};
+                beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+                beginInfo.pInheritanceInfo = &inheritanceInfo;
+                
+                if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
+                {
+                    LH_CORE_ERROR("Failed to begin secondary command buffer!");
+                    ctx->CommandPool->Release(allocator);
+                    return;
+                }
+                
+                ParallelJobArgs* jobArgs = (ParallelJobArgs*)args.data;
+                jobArgs->data.cmd = cmd;
+                
+                RenderPassContext passCtx;
+                passCtx.commandBuffer = cmd;
+                passCtx.GetResource = [jobArgs](ResourceHandle h) -> void* {
+                    if (h.index == 0 || h.index > jobArgs->data.resourceCount) return nullptr;
+                    return &jobArgs->data.resources[h.index - 1];
+                };
+                
+                jobArgs->data.pass->execute(passCtx);
+                
+                vkEndCommandBuffer(cmd);
+                *jobArgs->outCmd = cmd;
+                
+                ctx->CommandPool->Release(allocator);
+            }, &parallelArgs[i], &jobCounter);
+        }
+
+        // 2. Wait for all jobs
+        JobSystem::WaitForCounter(&jobCounter);
+
+        // 3. Record Barriers and Execute Secondary Buffers
+        for (size_t i = 0; i < m_Passes.size(); ++i)
+        {
+            const auto& pass = m_Passes[i];
+            
+            // Barriers
+            std::vector<VkImageMemoryBarrier2> barriers;
+            for (const auto& b : pass.preBarriers)
+            {
+                ResourceNode& res = m_Resources[b.resource.index - 1];
+                
+                VkImageMemoryBarrier2 barrier{};
+                barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                barrier.image = res.image;
+                
+                if (res.desc.format == TextureFormat::D32_Float)
+                    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                else
+                    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+                barrier.subresourceRange.baseMipLevel = 0;
+                barrier.subresourceRange.levelCount = 1;
+                barrier.subresourceRange.baseArrayLayer = 0;
+                barrier.subresourceRange.layerCount = 1;
+                
+                auto [srcStage, srcAccess] = GetStateInfo(b.before);
+                auto [dstStage, dstAccess] = GetStateInfo(b.after);
+
+                barrier.srcStageMask = srcStage;
+                barrier.srcAccessMask = srcAccess;
+                barrier.dstStageMask = dstStage;
+                barrier.dstAccessMask = dstAccess;
+                barrier.oldLayout = GetLayout(b.before);
+                barrier.newLayout = GetLayout(b.after);
+
+                barriers.push_back(barrier);
+            }
+
+            if (!barriers.empty())
+            {
+                VkDependencyInfo depInfo{};
+                depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                depInfo.imageMemoryBarrierCount = (u32)barriers.size();
+                depInfo.pImageMemoryBarriers = barriers.data();
+                vkCmdPipelineBarrier2(primaryCmd, &depInfo);
+            }
+            
+            // Execute Secondary Buffer
+            if (outCommandBuffers[i] != VK_NULL_HANDLE)
+            {
+                vkCmdExecuteCommands(primaryCmd, 1, &outCommandBuffers[i]);
+            }
         }
 
         CleanupPhysicalResources();
