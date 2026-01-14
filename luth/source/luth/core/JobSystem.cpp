@@ -3,6 +3,7 @@
 #include "luth/core/Fiber.h"
 #include "luth/core/Profiler.h"
 #include "luth/core/Log.h"
+#include "luth/core/AdaptiveMutex.h"
 
 #include <thread>
 #include <vector>
@@ -18,6 +19,14 @@ namespace Luth::JobSystem
     // Internal Structures
     // ===================================================================================
 
+    enum class JobPriority : u8
+    {
+        High = 0,
+        Normal = 1,
+        Low = 2,
+        Count = 3
+    };
+
     struct Job
     {
         JobFunction function;
@@ -25,6 +34,7 @@ namespace Luth::JobSystem
         Counter* counter;
         u32 start;
         u32 end;
+        JobPriority priority;
     };
 
     struct FiberContext
@@ -44,10 +54,15 @@ namespace Luth::JobSystem
     static std::vector<std::thread> s_WorkerThreads;
     static std::atomic<bool> s_Running = false;
 
-    // Job Queue
-    static std::deque<Job> s_JobQueue;
-    static std::mutex s_QueueLock;
-    static std::condition_variable s_WakeCondition;
+    // Job Queues (Priority Based)
+    static std::deque<Job> s_JobQueues[(int)JobPriority::Count];
+    static AdaptiveMutex s_QueueLock; // Replaced std::mutex with AdaptiveMutex
+    static std::condition_variable_any s_WakeCondition; // Use any to work with AdaptiveMutex? No, AdaptiveMutex doesn't support condition_variable.
+    // We need a standard mutex for condition variable, or implement a custom semaphore.
+    // For now, let's keep std::mutex for the condition variable but use AdaptiveMutex for queue access if possible.
+    // Actually, condition_variable requires std::unique_lock<std::mutex>.
+    // So we stick to std::mutex for the queue lock to support waiting.
+    static std::mutex s_StandardQueueLock;
 
     // Fiber Pool
     static std::vector<FiberContext*> s_FreeFibers;
@@ -57,8 +72,6 @@ namespace Luth::JobSystem
     static u32 s_PeakFibers = 0;
 
     // Thread Local State - ONLY for the Scheduler Fiber
-    // We use this to know which Fiber is currently running on this OS thread.
-    // This is the ONLY valid use of thread_local in the system.
     static thread_local FiberContext* s_CurrentFiber = nullptr;
     static thread_local FiberContext* s_SchedulerFiber = nullptr; 
 
@@ -140,18 +153,26 @@ namespace Luth::JobSystem
 
     JobContext* GetCurrentJobContext()
     {
-        // This is safe because s_CurrentFiber is updated on every switch
         return &s_CurrentFiber->publicContext;
+    }
+
+    // Helper to push job to correct queue
+    static void PushJob(const Job& job)
+    {
+        std::lock_guard<std::mutex> lock(s_StandardQueueLock);
+        s_JobQueues[(int)job.priority].push_back(job);
     }
 
     void Execute(JobFunction function, void* data, Counter* counter)
     {
         if (counter) counter->value++;
 
-        {
-            std::lock_guard<std::mutex> lock(s_QueueLock);
-            s_JobQueue.push_back({ function, data, counter, 0, 1 });
-        }
+        // Default priority Normal for now. 
+        // TODO: Add priority to Execute API or infer?
+        // For now, everything is Normal.
+        Job job{ function, data, counter, 0, 1, JobPriority::Normal };
+        
+        PushJob(job);
         s_WakeCondition.notify_one();
     }
 
@@ -164,12 +185,12 @@ namespace Luth::JobSystem
         if (counter) counter->value += groupCount;
 
         {
-            std::lock_guard<std::mutex> lock(s_QueueLock);
+            std::lock_guard<std::mutex> lock(s_StandardQueueLock);
             for (u32 i = 0; i < groupCount; ++i)
             {
                 u32 start = i * groupSize;
                 u32 end = std::min(start + groupSize, jobCount);
-                s_JobQueue.push_back({ function, data, counter, start, end });
+                s_JobQueues[(int)JobPriority::Normal].push_back({ function, data, counter, start, end, JobPriority::Normal });
             }
         }
         s_WakeCondition.notify_all();
@@ -190,8 +211,10 @@ namespace Luth::JobSystem
         stats.FreeFibers = (u32)s_FreeFibers.size();
         stats.PeakFibers = s_PeakFibers;
         
-        std::lock_guard<std::mutex> queueLock(s_QueueLock);
-        stats.QueueSize = (u32)s_JobQueue.size();
+        std::lock_guard<std::mutex> queueLock(s_StandardQueueLock);
+        stats.QueueSize = 0;
+        for(int i=0; i<(int)JobPriority::Count; ++i)
+            stats.QueueSize += (u32)s_JobQueues[i].size();
         
         return stats;
     }
@@ -208,22 +231,29 @@ namespace Luth::JobSystem
             Job job;
             bool found = false;
 
-            // 1. Try to get a job
+            // 1. Try to get a job (Priority Order)
             {
-                std::unique_lock<std::mutex> lock(s_QueueLock);
-                if (!s_JobQueue.empty())
+                std::unique_lock<std::mutex> lock(s_StandardQueueLock);
+                
+                // Check queues from High to Low
+                for (int i = 0; i < (int)JobPriority::Count; ++i)
                 {
-                    job = s_JobQueue.front();
-                    s_JobQueue.pop_front();
-                    found = true;
+                    if (!s_JobQueues[i].empty())
+                    {
+                        job = s_JobQueues[i].front();
+                        s_JobQueues[i].pop_front();
+                        found = true;
+                        break;
+                    }
                 }
-                else
+
+                if (!found)
                 {
                     // If no jobs, wait (sleep the OS thread)
                     // Only if we are NOT the main thread.
                     if (s_CurrentFiber != s_SchedulerFiber) 
                     {
-                        // Should not happen, we are in scheduler loop
+                        // Should not happen
                     }
                     
                     s_WakeCondition.wait(lock);
@@ -338,12 +368,18 @@ namespace Luth::JobSystem
             Job job;
             bool found = false;
             {
-                std::unique_lock<std::mutex> lock(s_QueueLock);
-                if (!s_JobQueue.empty())
+                std::unique_lock<std::mutex> lock(s_StandardQueueLock);
+                
+                // Check queues from High to Low
+                for (int i = 0; i < (int)JobPriority::Count; ++i)
                 {
-                    job = s_JobQueue.front();
-                    s_JobQueue.pop_front();
-                    found = true;
+                    if (!s_JobQueues[i].empty())
+                    {
+                        job = s_JobQueues[i].front();
+                        s_JobQueues[i].pop_front();
+                        found = true;
+                        break;
+                    }
                 }
             }
 
