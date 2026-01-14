@@ -23,6 +23,8 @@ namespace Luth
     {
         // Core Systems Init
         JobSystem::Init();
+        m_FrameContext.Init();
+        
         FileSystem::Init();
         AssetDatabase::Init(FileSystem::AssetsPath());
         AssetManager::Init();
@@ -81,6 +83,33 @@ namespace Luth
         {
             LH_PROFILE_FRAME("MainThread");
             JobSystem::ResetFrameStats();
+            
+            // 1. Start Frame N (Game Logic)
+            m_FrameContext.BeginFrame();
+            
+            // Update JobContext for Main Thread
+            // The Main Thread acts as a worker for Game Logic
+            auto* ctx = JobSystem::GetCurrentJobContext();
+            if (ctx)
+            {
+                ctx->Allocator = &m_FrameContext.GetAllocator();
+                ctx->Params = &m_FrameContext.GetCurrentParams();
+                // Update cache tag for new frame
+                ctx->AllocatorCache.CurrentTag = (u32)(m_FrameContext.GetCurrentFrameIndex() % FrameContext::MAX_FRAMES_IN_FLIGHT);
+                // Reset active page if tag changed? 
+                // TaggedPageAllocator::Allocate handles tag changes by getting a new page if needed.
+                // But we should probably clear the active page pointer if the tag changed to avoid mixing pages?
+                // Actually, Allocate checks if page is full. It doesn't check tag.
+                // We must reset ActivePage if we switch tags.
+                // Optimization: Keep ActivePage if it has space and matches tag?
+                // But we recycle pages by tag. If we hold a page from Frame N-3, it might be freed.
+                // So yes, we should reset ActivePage.
+                // Ideally, ThreadCache should manage this.
+                // For now, we just set the tag. The Allocator logic needs to be robust.
+                // Let's assume Allocator::Allocate handles it or we manually reset.
+                // Resetting ActivePage to nullptr is safe.
+                ctx->AllocatorCache.ActivePage = nullptr; 
+            }
 
             Time::Update();
             m_Window->OnUpdate();
@@ -109,9 +138,28 @@ namespace Luth
                 {
                     LH_PROFILE_SCOPE("Systems::Update");
                     Systems::Update<TransformSystem>();
+                    
+                    // 2. Submit Render N-1
+                    // RenderingSystem should now consume FrameParams[N-1]
+                    // But currently it runs on Main Thread and does immediate recording?
+                    // We need to split Logic vs Render.
+                    // For now, we keep it as is, but prepare for the split.
                     Systems::Update<RenderingSystem>();
                 }
             }
+            
+            // 3. Recycle GPU N-2
+            // This happens inside Renderer::BeginFrame (via PollerJob)
+            // But we need to hook it up to FrameContext::RecycleFrame.
+            // The Renderer knows when a frame finishes.
+            // We need a callback from Renderer to App? Or Renderer calls FrameContext directly?
+            // Ideally, App drives this.
+            // Renderer::GetCompletedFrameIndex()?
+            
+            // Temporary: We call RecycleFrame in BeginFrame of next loop based on assumption?
+            // No, we need explicit sync.
+            // Let's leave recycling inside Renderer for now, or move it here later.
+            // Actually, FrameContext::RecycleFrame should be called by the PollerJob callback.
         }
 
         OnShutdown();
@@ -127,6 +175,7 @@ namespace Luth
 
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
+        m_FrameContext.Shutdown();
         JobSystem::Shutdown();
     }
 

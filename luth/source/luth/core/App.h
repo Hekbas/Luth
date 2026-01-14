@@ -6,6 +6,7 @@
 #include "luth/events/AppEvent.h"
 #include "luth/events/FileDropEvent.h"
 #include "luth/ECS/Scene.h"
+#include "luth/core/FrameData.h"
 
 #include <vector>
 #include <memory>
@@ -39,6 +40,9 @@ namespace Luth
 
         std::shared_ptr<Window> m_Window;
         std::shared_ptr<Scene> m_Scene;
+        
+        // Frame Pipelining
+        FrameContext m_FrameContext;
 
         bool m_Running = true;
     };
