@@ -256,28 +256,32 @@
     - [x] **Cleanup:** Remove all `vkWaitForFences` calls.
 
 **6.2 Command Buffer Management**
-- [ ] **Command Allocator:**
-    - [ ] Create `struct CommandAllocator` (owns `VkCommandPool` + `vector<VkCommandBuffer>`).
-    - [ ] Implement `GetBuffer()` (Lock-free, internal cache).
-    - [ ] Implement `Reset()` (Resets underlying pool).
-- [ ] **Global Pool:**
-    - [ ] Create `CommandAllocatorPool` (Thread-safe `ConcurrentQueue`).
-    - [ ] **Acquire:** Pop allocator from queue.
-    - [ ] **Release:** Push allocator back to queue.
-- [ ] **Integration:**
-    - [ ] Add `CommandAllocator*` to `JobContext`.
-    - [ ] Implement "Lazy Acquire" in Render Jobs.
-    - [ ] Implement "Frame End Release" (Recycle only when `Poller` confirms GPU done).
+- [x] **Command Allocator:**
+    - [x] Create `struct CommandAllocator` (owns `VkCommandPool` + `vector<VkCommandBuffer>`).
+    - [x] Implement `GetBuffer()` (Lock-free, internal cache).
+    - [x] Implement `Reset()` (Resets underlying pool).
+- [x] **Global Pool:**
+    - [x] Create `CommandAllocatorPool` (Thread-safe `ConcurrentQueue`).
+    - [x] **Acquire:** Pop allocator from queue.
+    - [x] **Release:** Push allocator back to queue.
+- [ ] **Per-Frame Pools:**
+    - [ ] Refactor `CommandAllocatorPool` to support per-frame recycling.
+    - [ ] Update `VKRendererAPI` to maintain `CommandAllocatorPool[MAX_FRAMES_IN_FLIGHT]`.
+    - [ ] Update `JobSystem` to switch global pool pointer on frame boundary.
+- [x] **Integration:**
+    - [x] Add `CommandAllocator*` to `JobContext`.
+    - [x] Implement "Lazy Acquire" in Render Jobs.
+    - [x] Implement "Frame End Release" (Recycle only when `Poller` confirms GPU done).
 
 **6.3 Render Graph & Execution**
-- [ ] **Render Graph Compiler:**
-    - [ ] Implement DAG topological sort.
-    - [ ] Implement `BarrierBuilder` (Inject `vkCmdPipelineBarrier2`).
-- [ ] **Parallel Recording:**
-    - [ ] Refactor `RenderGraph::Execute`:
-        - [ ] Split Pass into N tasks (Secondary Buffers).
-        - [ ] Dispatch Jobs (concurrent with Game N).
-        - [ ] Coalesce Secondary Buffers into Primary for submission.
+- [x] **Render Graph Compiler:**
+    - [x] Implement DAG topological sort.
+    - [x] Implement `BarrierBuilder` (Inject `vkCmdPipelineBarrier2`).
+- [x] **Parallel Recording:**
+    - [x] Refactor `RenderGraph::Execute`:
+        - [x] Split Pass into N tasks (Secondary Buffers).
+        - [x] Dispatch Jobs (concurrent with Game N).
+        - [x] Coalesce Secondary Buffers into Primary for submission.
 
 ---
 
