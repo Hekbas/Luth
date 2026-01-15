@@ -25,13 +25,16 @@ namespace Luth
         CreateCommandBuffers();
         CreateSyncObjects();
         
-        // 4. Init Command Allocator Pool for Parallel Recording
-        m_CommandAllocatorPool = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetGraphicsFamily());
-        m_CommandAllocatorPool->Init();
+        // 4. Init Command Allocator Pools for Parallel Recording (Per-Frame)
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            m_CommandAllocatorPools[i] = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetGraphicsFamily());
+            m_CommandAllocatorPools[i]->Init();
+        }
         
-        // 5. Register Global Command Pool with JobSystem
-        // This ensures worker threads can access it via JobContext
-        JobSystem::SetGlobalCommandPool(m_CommandAllocatorPool.get());
+        // 5. Register Initial Global Command Pool with JobSystem
+        // We start with frame 0
+        JobSystem::SetGlobalCommandPool(m_CommandAllocatorPools[0].get());
     }
 
     void VKRendererAPI::Shutdown()
@@ -46,7 +49,10 @@ namespace Luth
         }
         
         m_FrameTimeline.Shutdown();
-        m_CommandAllocatorPool->Shutdown();
+        
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            m_CommandAllocatorPools[i]->Shutdown();
+        }
 
         vkDestroyCommandPool(device, m_CommandPool, nullptr);
         m_Swapchain.reset();
@@ -81,54 +87,19 @@ namespace Luth
         // Flush deletions AFTER we know the GPU is done with this frame's resources
         VulkanContext::Get().FlushDeletionQueue();
         
-        // Reset Command Allocator Pool for this frame
-        // Note: This resets ALL allocators.
-        // If we have multiple frames in flight, we must ensure that allocators used by previous frames
-        // are NOT reset until those frames are done.
-        // But we just waited for the GPU to finish with this frame index (waitValue).
-        // However, CommandAllocatorPool is GLOBAL. It contains allocators used by ALL frames.
-        // If we reset it here, we might reset allocators used by Frame N-1 (which is currently on GPU).
-        // This is the bug causing "vkResetCommandPool: command buffer is in use".
+        // Reset Command Allocator Pool for THIS frame
+        // Now safe because we waited for this frame index to finish on GPU.
+        m_CommandAllocatorPools[m_CurrentFrame]->ResetAll();
         
-        // FIX: We need a CommandAllocatorPool PER FRAME in flight.
-        // Or, we need to track which allocators belong to which frame.
-        // Since CommandAllocatorPool is designed to be a "Rental Shop", we should only reset allocators
-        // that were returned by frames that are finished.
+        // Update Global JobSystem Context for Worker Threads
+        // Switch to the pool for the current frame
+        JobSystem::SetGlobalCommandPool(m_CommandAllocatorPools[m_CurrentFrame].get());
         
-        // But currently CommandAllocatorPool::ResetAll resets EVERYTHING.
-        // This is incorrect for a global pool with frames in flight.
-        
-        // Temporary Fix: Don't reset the pool here.
-        // Let the allocators grow indefinitely? No.
-        // We need to fix CommandAllocatorPool to handle frame lifetimes.
-        // But for now, to stop the crash/validation error, we can just NOT reset it and leak command memory (it reuses pools but never resets them).
-        // Actually, CommandAllocator::GetBuffer reuses buffers if available.
-        // But without Reset(), the buffers accumulate.
-        
-        // Correct Fix: Move CommandAllocatorPool to be per-frame-in-flight.
-        // But CommandAllocatorPool is thread-safe and used by fibers.
-        // If we make it per-frame, we need an array of pools.
-        // And we need to pass the correct pool to the JobContext.
-        
-        // Let's implement per-frame pools in VKRendererAPI.
-        // But that requires changing JobSystem to accept a pool pointer per frame?
-        // Or we just swap the pointer in SetGlobalCommandPool every frame?
-        // Yes! We swap the pointer.
-        
-        // But we need to implement the array of pools first.
-        // For this step, I will comment out ResetAll() to confirm it fixes the validation error,
-        // and then we will refactor to per-frame pools.
-        
-        // Actually, let's just do the refactor now. It's critical.
-        // But I can't change the header easily in one go.
-        // I will comment out ResetAll() for now.
-        // m_CommandAllocatorPool->ResetAll();
-
         // Update Main Thread's JobContext with the CommandPool
         auto* ctx = JobSystem::GetCurrentJobContext();
         if (ctx)
         {
-            ctx->CommandPool = m_CommandAllocatorPool.get();
+            ctx->CommandPool = m_CommandAllocatorPools[m_CurrentFrame].get();
         }
 
         // Acquire image

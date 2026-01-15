@@ -5,6 +5,7 @@
 #include "TimelineSemaphore.h"
 #include "CommandAllocatorPool.h"
 #include <vulkan/vulkan.h>
+#include <array>
 
 namespace Luth
 {
@@ -24,8 +25,8 @@ namespace Luth
         VkCommandBuffer GetCurrentCommandBuffer() { return m_CommandBuffers[m_CurrentFrame]; }
         u32 GetCurrentFrameIndex() const { return m_CurrentFrame; }
         
-        // Accessor for Parallel Recording
-        CommandAllocatorPool& GetCommandAllocatorPool() { return *m_CommandAllocatorPool; }
+        // Accessor for Parallel Recording (Returns pool for CURRENT frame)
+        CommandAllocatorPool& GetCommandAllocatorPool() { return *m_CommandAllocatorPools[m_CurrentFrame]; }
 
     private:
         void CreateSyncObjects();
@@ -40,8 +41,8 @@ namespace Luth
         VkCommandPool m_CommandPool;
         std::vector<VkCommandBuffer> m_CommandBuffers;
         
-        // Parallel Command Recording
-        std::unique_ptr<CommandAllocatorPool> m_CommandAllocatorPool;
+        // Parallel Command Recording (Per-Frame Pools)
+        std::array<std::unique_ptr<CommandAllocatorPool>, MAX_FRAMES_IN_FLIGHT> m_CommandAllocatorPools;
         
         std::vector<VkSemaphore> m_ImageAvailableSemaphores;
         std::vector<VkSemaphore> m_RenderFinishedSemaphores;
