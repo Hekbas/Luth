@@ -34,11 +34,15 @@ namespace Luth
         VkImage GetImage() const { return m_Image; }
         VkImageView GetImageView() const { return m_ImageView; }
         VkSampler GetSampler() const { return m_Sampler; }
-        u32 GetBindlessIndex() const { return m_BindlessIndex; }
+        
+        // Bindless Support
+        virtual u32 GetBindlessIndex() const override { return m_BindlessIndex; }
 
     private:
         void CreateImage(const void* data);
         void CreateViewAndSampler();
+        void RegisterBindless();
+        void UnregisterBindless();
 
         fs::path m_Path;
         u32 m_Width, m_Height;

@@ -11,6 +11,7 @@ namespace Luth
     enum class TextureFormat {
         None = 0,
         R8, RGB8, RGBA8, RGBA32F,
+        D32_Float, D24_Unorm_S8_Uint // Added Depth formats
     };
 
     enum class TextureWrapMode {
@@ -48,6 +49,9 @@ namespace Luth
 
         virtual int GetMipLevels() const = 0;
         virtual void GenerateMipmaps() = 0;
+        
+        // Bindless Support
+        virtual u32 GetBindlessIndex() const { return 0; }
 
         static std::shared_ptr<Texture> Create(const fs::path& path);
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
