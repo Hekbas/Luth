@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/MaterialSystem.h"
 
 namespace Luth
 {
@@ -9,10 +10,15 @@ namespace Luth
     {
         s_RendererAPI = RendererAPI::Create();
         s_RendererAPI->Init(windowHandle);
+        
+        // Init Material System (Global SSBO)
+        MaterialSystem::Init();
     }
 
     void Renderer::Shutdown()
     {
+        MaterialSystem::Shutdown();
+
         if (s_RendererAPI) {
             s_RendererAPI->Shutdown();
             s_RendererAPI.reset();
