@@ -1,0 +1,309 @@
+#include "luthpch.h"
+#include "UploadContext.h"
+#include "VulkanContext.h"
+#include "VulkanAllocator.h"
+#include "luth/core/Log.h"
+#include "luth/core/Profiler.h"
+
+#include <vma/vk_mem_alloc.h>
+
+namespace Luth
+{
+    static UploadContext* s_Instance = nullptr;
+
+    void UploadContext::Init()
+    {
+        if (s_Instance) return;
+        s_Instance = new UploadContext();
+        s_Instance->CreateResources();
+        LH_CORE_INFO("Upload Context Initialized (Staging: 64MB)");
+    }
+
+    void UploadContext::Shutdown()
+    {
+        if (!s_Instance) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        
+        // Wait for all uploads
+        s_Instance->m_UploadTimeline.Wait(s_Instance->m_CurrentValue);
+
+        s_Instance->m_UploadTimeline.Shutdown();
+        vkDestroyCommandPool(device, s_Instance->m_CommandPool, nullptr);
+        
+        VulkanAllocator::Unmap(s_Instance->m_StagingAllocation);
+        VulkanAllocator::FreeBuffer(s_Instance->m_StagingBuffer, s_Instance->m_StagingAllocation);
+
+        delete s_Instance;
+        s_Instance = nullptr;
+    }
+
+    UploadContext& UploadContext::Get()
+    {
+        LH_CORE_ASSERT(s_Instance, "UploadContext not initialized!");
+        return *s_Instance;
+    }
+
+    void UploadContext::CreateResources()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        
+        // 1. Get Transfer Queue
+        m_TransferQueue = VulkanContext::Get().GetGraphicsQueue(); 
+        u32 queueFamily = VulkanContext::Get().GetGraphicsFamily();
+
+        // 2. Command Pool
+        VkCommandPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex = queueFamily;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        vkCreateCommandPool(device, &poolInfo, nullptr, &m_CommandPool);
+
+        // 3. Command Buffer
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = m_CommandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+        vkAllocateCommandBuffers(device, &allocInfo, &m_CommandBuffer);
+
+        // 4. Timeline Semaphore
+        m_UploadTimeline.Init(0);
+
+        // 5. Staging Buffer
+        VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        bufferInfo.size = STAGING_SIZE;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        
+        m_StagingAllocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_ONLY, m_StagingBuffer);
+        m_StagingMapped = VulkanAllocator::Map(m_StagingAllocation);
+    }
+
+    u64 UploadContext::AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset)
+    {
+        // Simple Ring Buffer Logic
+        // Head moves forward. Tail follows as fences complete.
+        
+        // Align head
+        u64 alignedHead = (m_StagingHead + (alignment - 1)) & ~(alignment - 1);
+        
+        // Check wrap around
+        if (alignedHead + size > STAGING_SIZE)
+        {
+            alignedHead = 0;
+            m_StagingHead = 0;
+        }
+
+        // Check overlap with Tail
+        u64 completedValue = m_UploadTimeline.GetValue();
+        
+        // Remove completed blocks from tracking
+        while (!m_InFlightBlocks.empty())
+        {
+            if (m_InFlightBlocks.front().fenceValue <= completedValue)
+            {
+                m_InFlightBlocks.erase(m_InFlightBlocks.begin());
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        // Update Tail
+        if (!m_InFlightBlocks.empty())
+        {
+            m_StagingTail = m_InFlightBlocks.front().offset;
+        }
+
+        // Check space
+        bool hasSpace = false;
+        if (m_InFlightBlocks.empty())
+        {
+            hasSpace = true;
+        }
+        else
+        {
+            if (alignedHead >= m_StagingTail)
+            {
+                // [ ... Tail ... Head ... ]
+                // If Head >= Tail (not wrapped), we check Head + Size <= Size (already done) AND we don't care about Tail unless we wrap.
+                hasSpace = true; 
+            }
+            else
+            {
+                // [ ... Head ... Tail ... ]
+                // Wrapped. Must not cross Tail.
+                if (alignedHead + size <= m_StagingTail)
+                {
+                    hasSpace = true;
+                }
+            }
+        }
+
+        if (!hasSpace)
+        {
+            // Buffer full! Wait for the oldest block to finish.
+            if (!m_InFlightBlocks.empty())
+            {
+                m_UploadTimeline.Wait(m_InFlightBlocks.front().fenceValue);
+                // Recurse to update tail and retry
+                return AllocateStaging(size, alignment, outMappedPtr, outBuffer, outOffset);
+            }
+        }
+
+        // Allocation successful
+        *outMappedPtr = (u8*)m_StagingMapped + alignedHead;
+        outBuffer = m_StagingBuffer;
+        outOffset = alignedHead;
+        
+        m_StagingHead = alignedHead + size;
+        
+        return m_CurrentValue + 1; // The fence value this upload will use
+    }
+
+    u64 UploadContext::UploadBuffer(const void* data, u64 size, VkBuffer dstBuffer, u64 dstOffset)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
+
+        void* stagingPtr;
+        VkBuffer stagingBuffer;
+        u64 stagingOffset;
+        
+        u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
+        
+        memcpy(stagingPtr, data, size);
+
+        vkResetCommandBuffer(m_CommandBuffer, 0);
+        
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = stagingOffset;
+        copyRegion.dstOffset = dstOffset;
+        copyRegion.size = size;
+        vkCmdCopyBuffer(m_CommandBuffer, stagingBuffer, dstBuffer, 1, &copyRegion);
+        
+        vkEndCommandBuffer(m_CommandBuffer);
+
+        // Submit
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        
+        VkTimelineSemaphoreSubmitInfo timelineInfo{};
+        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineInfo.signalSemaphoreValueCount = 1;
+        timelineInfo.pSignalSemaphoreValues = &fenceValue;
+        
+        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
+        submitInfo.pSignalSemaphores = &signalSemaphore;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pNext = &timelineInfo;
+
+        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        
+        m_CurrentValue = fenceValue;
+        
+        // Track block
+        m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
+        
+        return fenceValue;
+    }
+
+    u64 UploadContext::UploadImage(const void* data, u64 size, VkImage dstImage, VkBufferImageCopy copyRegion)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
+
+        void* stagingPtr;
+        VkBuffer stagingBuffer;
+        u64 stagingOffset;
+        
+        u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
+        
+        memcpy(stagingPtr, data, size);
+        
+        // Adjust copy region buffer offset
+        copyRegion.bufferOffset += stagingOffset;
+
+        vkResetCommandBuffer(m_CommandBuffer, 0);
+        
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+
+        // Transition to Transfer Dst
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = dstImage;
+        
+        // Manually copy subresource fields because VkImageSubresourceLayers != VkImageSubresourceRange
+        barrier.subresourceRange.aspectMask = copyRegion.imageSubresource.aspectMask;
+        barrier.subresourceRange.baseMipLevel = copyRegion.imageSubresource.mipLevel;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = copyRegion.imageSubresource.baseArrayLayer;
+        barrier.subresourceRange.layerCount = copyRegion.imageSubresource.layerCount;
+
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkCmdCopyBufferToImage(m_CommandBuffer, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+        // Transition to Shader Read
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(m_CommandBuffer);
+
+        // Submit
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        
+        VkTimelineSemaphoreSubmitInfo timelineInfo{};
+        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineInfo.signalSemaphoreValueCount = 1;
+        timelineInfo.pSignalSemaphoreValues = &fenceValue;
+        
+        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
+        submitInfo.pSignalSemaphores = &signalSemaphore;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pNext = &timelineInfo;
+
+        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        
+        m_CurrentValue = fenceValue;
+        
+        m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
+        
+        return fenceValue;
+    }
+
+    bool UploadContext::IsComplete(u64 fenceValue)
+    {
+        return m_UploadTimeline.GetValue() >= fenceValue;
+    }
+
+    void UploadContext::WaitForUpload(u64 fenceValue)
+    {
+        m_UploadTimeline.Wait(fenceValue);
+    }
+}
