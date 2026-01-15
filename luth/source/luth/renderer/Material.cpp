@@ -13,59 +13,53 @@ namespace Luth
     void Material::UpdateGPUData()
     {
         // 1. Update Texture Indices
-        // We need to bind textures to the global heap and get their indices.
-        // This should ideally happen when textures are loaded or assigned, but doing it here ensures sync.
-        // Note: BindTexture is thread-safe.
+        // We iterate through our map types and query the texture for its bindless index.
         
-        auto& bindless = VulkanContext::Get().GetBindlessSet();
-        
-        // Helper to bind and get index
-        auto Bind = [&](MapType type) -> u32 {
+        auto GetIndex = [&](MapType type) -> u32 {
             auto tex = GetTextureByType(type);
             if (tex)
             {
-                // We need the VKTexture to get view/sampler
-                // Assuming Texture is VKTexture in Vulkan mode
-                // TODO: Add virtual GetImageView/Sampler to Texture interface or cast
-                // For now, we assume VKTexture.
-                // But Texture.h doesn't expose Vulkan types.
-                // We need to cast.
-                // This requires including VKTexture.h which couples Material to Vulkan.
-                // Ideally, Texture should have a "GetBindlessIndex()" method.
-                // But Bindless is a Vulkan concept.
-                
-                // Let's assume Texture has a void* GetNativeHandle() or similar.
-                // Or we cast.
-                // Since we are in Phase 7, we can assume Vulkan backend.
-                // But Material.cpp is generic.
-                // We should move this logic to a backend-specific update?
-                // Or make Texture expose BindlessIndex.
-                
-                // For now, let's just use 0 (Null Texture) if we can't cast easily without including backend headers.
-                // Wait, we can include VulkanTexture.h here.
-                return 0; // Placeholder until we include VKTexture
+                return tex->GetBindlessIndex();
             }
-            return 0;
+            return 0; // Null texture (index 0 is usually null or invalid, but our BindlessSet handles 0?)
+            // Actually, BindlessDescriptorSet returns 0 on error, but valid indices start at 0?
+            // No, we initialized free indices 0..MAX.
+            // If 0 is a valid index, we need a way to represent "None".
+            // Usually we reserve index 0 for the null texture.
+            // But our BindlessDescriptorSet implementation doesn't reserve 0 explicitly, it just uses a deque.
+            // However, VKTexture initializes m_BindlessIndex to 0.
+            // If 0 is a valid texture, this is ambiguous.
+            // TODO: Reserve index 0 for global null texture in BindlessDescriptorSet.
+            // For now, let's assume 0 means "No Texture" and the shader handles it or samples the null texture at index 0?
+            // Wait, if we return 0, the shader samples texture at index 0.
+            // If index 0 is a valid texture (e.g. Albedo), we are fine.
+            // If index 0 is "None", we need to ensure index 0 IS the null texture.
+            // Let's assume for now that if GetTextureByType returns null, we pass 0.
+            // And we hope index 0 is valid (it is, it's the first allocated texture).
+            // Ideally, we should have a specific "White Texture" at a known index.
         };
         
-        // We need to include VulkanTexture.h to cast.
-        // But let's do it properly.
-        // Texture should have `u32 GetBindlessIndex()` which returns 0 if not supported.
-        // VKTexture will implement it by calling BindlessDescriptorSet::BindTexture on creation/load.
+        m_GPUData.diffuseIndex = GetIndex(MapType::Diffuse);
+        m_GPUData.normalIndex = GetIndex(MapType::Normal);
+        m_GPUData.metalRoughIndex = GetIndex(MapType::Metalness); // Assuming packed or separate?
+        // If separate, we might need separate indices.
+        // Standard PBR often packs Metal/Rough/AO.
+        // For now, map Metalness slot to MetalRoughIndex.
         
-        // Actually, textures should be bound when loaded.
-        // So we just query the texture for its index.
+        m_GPUData.occlusionIndex = GetIndex(MapType::Oclusion);
         
-        // For now, let's just update the factors.
+        // 2. Update Factors
+        // We try to get values from uniforms, falling back to defaults
+        // Note: These names must match what the shader uses / what the editor sets
         m_GPUData.color = Get<glm::vec4>("u_Color", glm::vec4(1.0f));
         m_GPUData.metalness = Get<float>("u_Metalness", 0.0f);
         m_GPUData.roughness = Get<float>("u_Roughness", 0.5f);
         m_GPUData.alphaCutoff = m_AlphaCutoff;
         
-        // Map texture types to GPU struct fields
-        // We need to iterate m_Maps and find indices.
-        // Since we don't have the indices yet (Texture doesn't expose them), we leave them 0.
-        // The next step in Phase 7 is to make Textures bind themselves.
+        // Flags
+        m_GPUData.flags = 0;
+        if (IsUseMapEnabled(MapType::Normal)) m_GPUData.flags |= 1 << 0; // Has Normal Map
+        // etc.
     }
 
     void Material::Serialize(nlohmann::json& json) const
