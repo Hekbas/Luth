@@ -242,12 +242,12 @@
     - [x] **Constraint:** Blocking I/O (fread/fstream) forbidden in Fiber Workers.
 
 **5.4 Observability & Tooling**
-- [ ] **Tracy Fiber Integration:**
-    - [ ] Hook `TracyFiberEnter` / `TracyFiberLeave` into `JobSystem`.
-- [ ] **ImGui Job Debugger:**
-    - [ ] Create `JobSystemPanel` to visualize threads, fibers, and queues.
-- [ ] **Stuck Job Detector:**
-    - [ ] Implement Watchdog thread to detect long-running jobs.
+- [x] **Tracy Fiber Integration:**
+    - [x] Hook `TracyFiberEnter` / `TracyFiberLeave` into `JobSystem`.
+- [x] **ImGui Job Debugger:**
+    - [x] Create `JobSystemPanel` to visualize threads, fibers, and queues.
+- [x] **Stuck Job Detector:**
+    - [x] Implement Watchdog thread to detect long-running jobs.
 
 ---
 
@@ -300,9 +300,9 @@
 - [x] **Global Descriptor Heap:**
     - [x] Enable `VK_EXT_descriptor_indexing`.
     - [x] Create Layout: `binding=10, uniform texture2D globalTextures[]`.
-- [ ] **Material System:**
-    - [ ] Refactor Materials to use `uint32_t textureID` instead of `VkDescriptorSet`.
-    - [ ] Upload Material Data to a global `SSBO`.
+- [x] **Material System:**
+    - [x] Refactor Materials to use `uint32_t textureID` instead of `VkDescriptorSet`.
+    - [x] Upload Material Data to a global `SSBO`.
 
 **7.2 Asset Streaming**
 - [ ] **Upload Context:**
