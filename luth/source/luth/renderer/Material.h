@@ -33,6 +33,28 @@ namespace Luth
         u32 uvIndex = 0;
         bool useMap = true;
         bool useTexture = true;
+        
+        // Bindless Index (Runtime only)
+        u32 bindlessIndex = 0; 
+    };
+
+    // GPU-friendly Material Data Structure (Std140/Std430)
+    // This matches the shader struct
+    struct GPUMaterialData
+    {
+        glm::vec4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        
+        // Texture Indices (Bindless)
+        u32 diffuseIndex = 0;
+        u32 normalIndex = 0;
+        u32 metalRoughIndex = 0;
+        u32 occlusionIndex = 0;
+        
+        // Factors
+        f32 metalness = 0.0f;
+        f32 roughness = 0.5f;
+        f32 alphaCutoff = 0.5f;
+        u32 flags = 0; // Bitmask for features
     };
 
     class Material : public Asset
@@ -141,6 +163,10 @@ namespace Luth
         }
 
         const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
+        
+        // GPU Data Access
+        const GPUMaterialData& GetGPUData() const { return m_GPUData; }
+        void UpdateGPUData(); // Updates m_GPUData from internal state/maps
 
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
@@ -159,6 +185,9 @@ namespace Luth
         nlohmann::json m_CachedUniformJSON;
 
         std::vector<MapInfo> m_Maps;
+        
+        // Cached GPU Data
+        GPUMaterialData m_GPUData;
 
         RenderMode m_RenderMode = RenderMode::Opaque;
         BlendFactor m_BlendSrc = BlendFactor::SrcAlpha;

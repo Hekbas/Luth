@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/Material.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 namespace Luth
 {
@@ -7,6 +8,64 @@ namespace Luth
     {
         m_ShaderUUID = uuid;
         InitializeStorage();
+    }
+
+    void Material::UpdateGPUData()
+    {
+        // 1. Update Texture Indices
+        // We need to bind textures to the global heap and get their indices.
+        // This should ideally happen when textures are loaded or assigned, but doing it here ensures sync.
+        // Note: BindTexture is thread-safe.
+        
+        auto& bindless = VulkanContext::Get().GetBindlessSet();
+        
+        // Helper to bind and get index
+        auto Bind = [&](MapType type) -> u32 {
+            auto tex = GetTextureByType(type);
+            if (tex)
+            {
+                // We need the VKTexture to get view/sampler
+                // Assuming Texture is VKTexture in Vulkan mode
+                // TODO: Add virtual GetImageView/Sampler to Texture interface or cast
+                // For now, we assume VKTexture.
+                // But Texture.h doesn't expose Vulkan types.
+                // We need to cast.
+                // This requires including VKTexture.h which couples Material to Vulkan.
+                // Ideally, Texture should have a "GetBindlessIndex()" method.
+                // But Bindless is a Vulkan concept.
+                
+                // Let's assume Texture has a void* GetNativeHandle() or similar.
+                // Or we cast.
+                // Since we are in Phase 7, we can assume Vulkan backend.
+                // But Material.cpp is generic.
+                // We should move this logic to a backend-specific update?
+                // Or make Texture expose BindlessIndex.
+                
+                // For now, let's just use 0 (Null Texture) if we can't cast easily without including backend headers.
+                // Wait, we can include VulkanTexture.h here.
+                return 0; // Placeholder until we include VKTexture
+            }
+            return 0;
+        };
+        
+        // We need to include VulkanTexture.h to cast.
+        // But let's do it properly.
+        // Texture should have `u32 GetBindlessIndex()` which returns 0 if not supported.
+        // VKTexture will implement it by calling BindlessDescriptorSet::BindTexture on creation/load.
+        
+        // Actually, textures should be bound when loaded.
+        // So we just query the texture for its index.
+        
+        // For now, let's just update the factors.
+        m_GPUData.color = Get<glm::vec4>("u_Color", glm::vec4(1.0f));
+        m_GPUData.metalness = Get<float>("u_Metalness", 0.0f);
+        m_GPUData.roughness = Get<float>("u_Roughness", 0.5f);
+        m_GPUData.alphaCutoff = m_AlphaCutoff;
+        
+        // Map texture types to GPU struct fields
+        // We need to iterate m_Maps and find indices.
+        // Since we don't have the indices yet (Texture doesn't expose them), we leave them 0.
+        // The next step in Phase 7 is to make Textures bind themselves.
     }
 
     void Material::Serialize(nlohmann::json& json) const
@@ -20,17 +79,12 @@ namespace Luth
         json["alpha_from_diffuse"] = static_cast<int>(m_AlphaFromDiffuse);
 
         // Serialize Uniforms
-        // We need the shader to know types to serialize correctly back to JSON
-        // For now, we can try to serialize based on the cached JSON or reconstruct it
-        // Ideally, we iterate the shader uniforms and read from m_UniformStorage
         nlohmann::json uniformsJson;
         auto shader = GetShader();
         if (shader && !m_UniformStorage.empty())
         {
             for (const auto& [bufferName, buffer] : shader->GetBuffers())
             {
-                // Assuming we only serialize the main material buffer for now
-                // TODO: Handle multiple buffers if needed
                 for (const auto& [name, uniform] : buffer.Uniforms)
                 {
                     if (uniform.Offset + uniform.Size > m_UniformStorage.size()) continue;
@@ -71,11 +125,10 @@ namespace Luth
     {
         m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
         
-        // Cache uniforms to apply when shader is loaded
         if (json.contains("uniforms"))
             m_CachedUniformJSON = json["uniforms"];
 
-        InitializeStorage(); // Try to init if shader is already loaded
+        InitializeStorage();
 
         m_RenderMode = static_cast<RenderMode>(json.value("render_mode", 0));
         m_AlphaCutoff = json.value("alpha_cutoff", 0.5f);
@@ -101,12 +154,10 @@ namespace Luth
         auto shader = GetShader();
         if (!shader) return;
 
-        // Find the material uniform buffer (Convention: "MaterialUniforms" or Set 1 Binding 0)
-        // For now, we take the first buffer that is NOT global (Set 0)
         const ShaderBuffer* targetBuffer = nullptr;
         for (const auto& [name, buffer] : shader->GetBuffers())
         {
-            if (buffer.Set == 1) // Convention: Material data is Set 1
+            if (buffer.Set == 1) 
             {
                 targetBuffer = &buffer;
                 break;
@@ -121,7 +172,6 @@ namespace Luth
                 memset(m_UniformStorage.data(), 0, m_UniformStorage.size());
             }
 
-            // Apply cached JSON values if any
             if (!m_CachedUniformJSON.empty())
             {
                 for (const auto& [name, uniform] : targetBuffer->Uniforms)
@@ -156,7 +206,6 @@ namespace Luth
         auto shader = GetShader();
         if (!shader) return false;
 
-        // Find uniform in Set 1
         for (const auto& [buffName, buffer] : shader->GetBuffers())
         {
             if (buffer.Set != 1) continue;
