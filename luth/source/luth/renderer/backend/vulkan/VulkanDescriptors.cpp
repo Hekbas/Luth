@@ -184,11 +184,31 @@ namespace Luth
         m_NullAllocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_NullImage);
 
         // Upload white pixel
-        // (Simplified: In production use a staging buffer. Here we assume VulkanAllocator handles mapping or we use ImmediateSubmit)
-        // Since VulkanAllocator::AllocateImage doesn't upload, we need to do it.
-        // For brevity, skipping upload logic here, assuming texture is created. 
-        // Ideally we reuse VKTexture logic or move upload to a helper.
-        // For now, let's just create the view/sampler so we don't crash.
+        // Use ImmediateSubmit to transition and upload
+        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+            // 1. Transition to Transfer Dst
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.image = m_NullImage;
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            // 2. Clear Color (Upload white)
+            VkClearColorValue clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+            VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            vkCmdClearColorImage(cmd, m_NullImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
+
+            // 3. Transition to Shader Read
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        });
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -200,11 +220,19 @@ namespace Luth
 
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         vkCreateSampler(m_Device, &samplerInfo, nullptr, &m_NullSampler);
     }
 
     u32 BindlessDescriptorSet::BindTexture(VkImageView view, VkSampler sampler)
     {
+        std::lock_guard<std::mutex> lock(m_Lock);
+
         if (m_FreeIndices.empty()) {
             LH_CORE_ERROR("Bindless descriptor set full!");
             return 0;
@@ -234,6 +262,8 @@ namespace Luth
 
     void BindlessDescriptorSet::UnbindTexture(u32 index)
     {
+        std::lock_guard<std::mutex> lock(m_Lock);
+
         // Replace with null texture to be safe
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
