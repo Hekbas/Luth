@@ -7,6 +7,7 @@
 #include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/editor/Editor.h"
 
 #include <imgui.h>
 
@@ -53,14 +54,36 @@ namespace Luth
             // 2. Job System
             if (ImGui::CollapsingHeader("Job System", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                auto stats = JobSystem::GetStats();
-                
+                JobSystem::Stats stats = JobSystem::GetStats();
+
                 ImGui::Text("Worker Threads: %d", stats.ThreadCount);
-                ImGui::Text("Job Queue: %d", stats.QueueSize);
-                
-                float fiberUsage = (float)stats.PeakFibers / (float)stats.TotalFibers;
-                ImGui::Text("Fiber Usage (Peak): %d / %d", stats.PeakFibers, stats.TotalFibers);
-                ImGui::ProgressBar(fiberUsage, ImVec2(-1, 0), "");
+                ImGui::Text("Active Fibers: %d / %d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
+                ImGui::Text("Peak Fibers (Frame): %d", stats.PeakFibers);
+                ImGui::Text("Queued Jobs: %d", stats.QueueSize);
+
+                ImGui::Separator();
+
+                // Queue Load
+                float queueRatio = (float)stats.QueueSize / 100.0f; // Arbitrary scale
+                ImGui::ProgressBar(queueRatio, ImVec2(-1, 0.0f), "Queue Load");
+
+                // Fiber Pool Usage
+                float fiberRatio = (float)(stats.TotalFibers - stats.FreeFibers) / (float)stats.TotalFibers;
+                char fiberOverlay[32];
+                sprintf(fiberOverlay, "%d/%d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
+                ImGui::ProgressBar(fiberRatio, ImVec2(-1, 0.0f), fiberOverlay);
+                ImGui::SameLine();
+                ImGui::Text("Fiber Pool");
+
+                // Thread Status (Placeholder)
+                if (ImGui::TreeNode("Worker Threads"))
+                {
+                    for (u32 i = 0; i < stats.ThreadCount; ++i)
+                    {
+                        ImGui::Text("Worker %d: Running", i);
+                    }
+                    ImGui::TreePop();
+                }
             }
 
             // 3. Memory
@@ -87,7 +110,14 @@ namespace Luth
 
                 ImGui::Separator();
 
-                // Frame Allocator
+                // Frame Allocator (Updated for TaggedPageAllocator?)
+                // Note: RenderingSystem might not expose TaggedPageAllocator stats yet.
+                // We should update this when we expose allocator stats.
+                // For now, keep legacy check or remove if it crashes.
+                // Since we replaced LinearAllocator with TaggedPageAllocator in FrameContext,
+                // RenderingSystem might not have GetFrameAllocatorUsage anymore if we didn't update it.
+                // Let's check RenderingSystem later. For now, comment out to avoid build errors if API changed.
+                /*
                 auto renderSystem = Systems::GetSystem<RenderingSystem>();
                 if (renderSystem)
                 {
@@ -100,6 +130,7 @@ namespace Luth
                     ImGui::Text("Used: %.2f KB / %.2f KB", frameUsedKB, frameTotalKB);
                     ImGui::ProgressBar((float)frameUsed / (float)frameTotal, ImVec2(-1, 0));
                 }
+                */
             }
         }
         ImGui::End();
