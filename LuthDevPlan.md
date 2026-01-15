@@ -241,6 +241,14 @@
     - [x] Implement `FileRequestQueue` (Lock-free ring buffer).
     - [x] **Constraint:** Blocking I/O (fread/fstream) forbidden in Fiber Workers.
 
+**5.4 Observability & Tooling**
+- [ ] **Tracy Fiber Integration:**
+    - [ ] Hook `TracyFiberEnter` / `TracyFiberLeave` into `JobSystem`.
+- [ ] **ImGui Job Debugger:**
+    - [ ] Create `JobSystemPanel` to visualize threads, fibers, and queues.
+- [ ] **Stuck Job Detector:**
+    - [ ] Implement Watchdog thread to detect long-running jobs.
+
 ---
 
 ### Phase 6: Vulkan Backend
@@ -264,10 +272,10 @@
     - [x] Create `CommandAllocatorPool` (Thread-safe `ConcurrentQueue`).
     - [x] **Acquire:** Pop allocator from queue.
     - [x] **Release:** Push allocator back to queue.
-- [ ] **Per-Frame Pools:**
-    - [ ] Refactor `CommandAllocatorPool` to support per-frame recycling.
-    - [ ] Update `VKRendererAPI` to maintain `CommandAllocatorPool[MAX_FRAMES_IN_FLIGHT]`.
-    - [ ] Update `JobSystem` to switch global pool pointer on frame boundary.
+- [x] **Per-Frame Pools:**
+    - [x] Refactor `CommandAllocatorPool` to support per-frame recycling.
+    - [x] Update `VKRendererAPI` to maintain `CommandAllocatorPool[MAX_FRAMES_IN_FLIGHT]`.
+    - [x] Update `JobSystem` to switch global pool pointer on frame boundary.
 - [x] **Integration:**
     - [x] Add `CommandAllocator*` to `JobContext`.
     - [x] Implement "Lazy Acquire" in Render Jobs.
@@ -289,9 +297,9 @@
 **Goal:** High-throughput resource streaming.
 
 **7.1 Bindless Resources**
-- [ ] **Global Descriptor Heap:**
-    - [ ] Enable `VK_EXT_descriptor_indexing`.
-    - [ ] Create Layout: `binding=10, uniform texture2D globalTextures[]`.
+- [x] **Global Descriptor Heap:**
+    - [x] Enable `VK_EXT_descriptor_indexing`.
+    - [x] Create Layout: `binding=10, uniform texture2D globalTextures[]`.
 - [ ] **Material System:**
     - [ ] Refactor Materials to use `uint32_t textureID` instead of `VkDescriptorSet`.
     - [ ] Upload Material Data to a global `SSBO`.
