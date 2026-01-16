@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/Fiber.h"
 #include <atomic>
 
 namespace Luth::JobSystem
@@ -14,8 +15,13 @@ namespace Luth::JobSystem
     struct AtomicCounter
     {
         std::atomic<u32> Value = 0;
+        
+        // Lock-Free Stack of Waiting Fibers
+        // When a fiber waits on this counter, it pushes itself here.
+        // When the counter reaches 0, we pop all fibers and wake them.
+        std::atomic<Fiber*> WaitingListHead = nullptr;
 
-        AtomicCounter(u32 initialValue = 0) : Value(initialValue) {}
+        AtomicCounter(u32 initialValue = 0) : Value(initialValue), WaitingListHead(nullptr) {}
 
         // Increment the counter (e.g., adding a job)
         void Increment(u32 count = 1)
@@ -40,6 +46,7 @@ namespace Luth::JobSystem
         void Reset(u32 value = 0)
         {
             Value.store(value, std::memory_order_relaxed);
+            WaitingListHead.store(nullptr, std::memory_order_relaxed);
         }
     };
 }

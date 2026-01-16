@@ -13,8 +13,10 @@ namespace Luth::JobSystem
     {
         void* Handle = nullptr;
         void* Args = nullptr; // User data passed to the fiber function
-        void* StackBase = nullptr; // Pointer to the allocated stack memory (for manual guard pages)
-        u32 StackSize = 0;
+        
+        // Intrusive Linked List for Waiting (Lock-Free Stack Node)
+        // Used when this fiber is waiting on an AtomicCounter
+        Fiber* NextWaiting = nullptr;
 
         // Function pointer for the fiber entry point
         using EntryPoint = void(*)(void*);
@@ -23,21 +25,11 @@ namespace Luth::JobSystem
         {
             Fiber f;
             f.Args = args;
-            f.StackSize = stackSize;
+            f.NextWaiting = nullptr;
 
             #ifdef _WIN32
-            // Windows CreateFiber automatically allocates a stack.
-            // However, to strictly enforce guard pages, we might want to use CreateFiberEx 
-            // or rely on Windows default guard page behavior (which is usually present).
-            // For this implementation, we will stick to CreateFiber but add a commit flag if needed.
-            // Note: Windows stacks grow downwards. The system automatically places a guard page.
-            // But for custom allocators or stricter control, we would VirtualAlloc manually.
-            
-            // To be safe and explicit according to the plan, we should verify stack behavior.
-            // But CreateFiber does this well on Windows.
-            // Let's use CreateFiberEx to be explicit about the commit size vs reserve size.
-            
             // Commit 64KB initially, Reserve full size.
+            // CreateFiberEx(dwStackCommitSize, dwStackReserveSize, dwFlags, lpStartAddress, lpParameter)
             f.Handle = CreateFiberEx(64 * 1024, stackSize, 0, (LPFIBER_START_ROUTINE)entry, args);
             
             if (!f.Handle)
@@ -67,8 +59,9 @@ namespace Luth::JobSystem
         static Fiber ConvertThreadToFiber(void* args)
         {
             Fiber f;
+            f.Args = args;
+            f.NextWaiting = nullptr;
             #ifdef _WIN32
-            // Check if already a fiber to avoid errors
             if (IsThreadAFiber())
             {
                  f.Handle = GetCurrentFiber();
@@ -78,7 +71,6 @@ namespace Luth::JobSystem
                 f.Handle = ::ConvertThreadToFiber(args);
             }
             #endif
-            f.Args = args;
             return f;
         }
     };
