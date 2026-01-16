@@ -9,16 +9,12 @@ namespace Luth::JobSystem
     // ===================================================================================
     // Atomic Counter (Fiber Synchronization)
     // ===================================================================================
-    // Used to track job completion.
-    // Fibers wait on this counter reaching a target value (usually 0).
     
     struct AtomicCounter
     {
         std::atomic<u32> Value = 0;
         
         // Lock-Free Stack of Waiting Fibers
-        // When a fiber waits on this counter, it pushes itself here.
-        // When the counter reaches 0, we pop all fibers and wake them.
         std::atomic<Fiber*> WaitingListHead = nullptr;
 
         AtomicCounter(u32 initialValue = 0) : Value(initialValue), WaitingListHead(nullptr) {}
@@ -42,11 +38,31 @@ namespace Luth::JobSystem
             return Value.load(std::memory_order_acquire);
         }
         
-        // Reset the counter
         void Reset(u32 value = 0)
         {
             Value.store(value, std::memory_order_relaxed);
             WaitingListHead.store(nullptr, std::memory_order_relaxed);
+        }
+
+        // 1.2 Mechanism: Add a fiber to the wait list (Lock-Free Push)
+        void AddWaitingFiber(Fiber* fiber)
+        {
+            Fiber* oldHead = WaitingListHead.load(std::memory_order_relaxed);
+            do
+            {
+                fiber->NextWaiting = oldHead;
+            } 
+            while (!WaitingListHead.compare_exchange_weak(oldHead, fiber, 
+                                                          std::memory_order_release, 
+                                                          std::memory_order_relaxed));
+        }
+
+        // 1.2 Mechanism: Retrieve all waiting fibers (Lock-Free Pop All)
+        // Returns the head of the linked list. The caller must traverse NextWaiting.
+        Fiber* TakeAllWaitingFibers()
+        {
+            // Atomically detach the entire list
+            return WaitingListHead.exchange(nullptr, std::memory_order_acquire);
         }
     };
 }
