@@ -4,6 +4,7 @@
 #include "DynamicRendering.h"
 #include "luth/core/JobSystem.h"
 #include "CommandAllocatorPool.h"
+#include "luth/core/FrameData.h" // For FrameContext
 #include <functional>
 
 namespace Luth
@@ -21,6 +22,9 @@ namespace Luth
         
         // Output: The recorded command buffer
         VkCommandBuffer OutputCommandBuffer = VK_NULL_HANDLE;
+        
+        // Pointer to the FrameContext to push the result to
+        FrameContext* TargetFrame = nullptr;
 
         static void Execute(JobSystem::JobArgs args)
         {
@@ -63,7 +67,6 @@ namespace Luth
                 renderingInheritanceInfo.stencilAttachmentFormat = job->PassInfo.StencilAttachment->Format;
             }
             
-            // TODO: Rasterization Samples? Assume 1 for now or add to PassInfo.
             renderingInheritanceInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
             VkCommandBufferInheritanceInfo inheritanceInfo{};
@@ -86,6 +89,13 @@ namespace Luth
 
             // 5. End Recording
             vkEndCommandBuffer(cmd);
+            
+            // 6. Push to FrameContext (Thread-Safe)
+            if (job->TargetFrame)
+            {
+                std::lock_guard<std::mutex> lock(job->TargetFrame->CommandBufferMutex);
+                job->TargetFrame->CommandBuffers.push_back(cmd);
+            }
         }
     };
 }

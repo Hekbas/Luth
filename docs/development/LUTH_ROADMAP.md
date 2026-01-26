@@ -1,6 +1,6 @@
 # ROADMAP.MD - Luth Engine Implementation Path
 **Objective:** Transform Luth into a high-performance, fiber-based, pipelined game engine.
-**Status:** DRAFT -> ACTIVE
+**Status:** ACTIVE
 
  ---
 
@@ -8,32 +8,32 @@
 *Goal: Establish the non-blocking execution environment. The engine must be able to spawn 100,000 empty jobs without stalling the OS threads.*
 
 ### 1.1. Low-Level Context Switching
-- [ ] **Implementation:** Create struct `FiberContext`.
+- [x] **Implementation:** Create struct `FiberContext`.
     * **Windows:** Wrap `CreateFiberEx` / `SwitchToFiber`.
     * **Linux:** Implement assembly context switch (save `rbx`, `rbp`, `r12-r15`, `rip`, `rsp`).
-- [ ] **Stack Management:** Implement `FiberPool`.
+- [x] **Stack Management:** Implement `FiberPool`.
     * Allocate a large virtual memory block (e.g., 64MB).
     * Commit pages on demand (don't commit all 64MB at startup).
     * **Constraint:** Use guards (protected pages) between stacks to catch overflows.
 
 ### 1.2. Atomic Counter & Wait List
-- [ ] **Data Structure:** Create struct `AtomicCounter`.
+- [x] **Data Structure:** Create struct `AtomicCounter`.
     * `std::atomic<uint32_t> value`
     * `std::atomic<Fiber*> waitingListHead` (Lock-Free Stack).
-- [ ] **Mechanism:** Implement `AddDependency(AtomicCounter* c, Fiber* f)`.
+- [x] **Mechanism:** Implement `AddDependency(AtomicCounter* c, Fiber* f)`.
     * Use CAS (Compare-And-Swap) to push the fiber onto the `waitingListHead` of the counter.
-- [ ] **Verification:** Write a unit test where Fiber A waits on Fiber B. Ensure Fiber A is not scheduled until Fiber B finishes.
+- [x] **Verification:** Write a unit test where Fiber A waits on Fiber B. Ensure Fiber A is not scheduled until Fiber B finishes.
 
 ### 1.3. Scheduler (Hybrid Queues)
-- [ ] **Task:** Implement **Global High-Priority Queue** (Lock-Free MPMC).
-- [ ] **Task:** Implement **Local Work-Stealing Deque** (Chase-Lev) for Normal priority.
-- [ ] **Task:** Implement **WorkerThread** loop:
+- [x] **Task:** Implement **Global High-Priority Queue** (Lock-Free MPMC).
+- [x] **Task:** Implement **Local Work-Stealing Deque** (Chase-Lev) for Normal priority.
+- [x] **Task:** Implement **WorkerThread** loop:
   1. Check Global High.
   2. Check Local.
   3. Steal.
 
 ### 1.4. Wait Strategy (Safe Helping)
-- [ ] **Task:** Implement `while(counter > 0) { if (TryGetLocalJob(out job)) { RunJobOnNewFiber(job); } else { Suspend(); } }`.
+- [x] **Task:** Implement `while(counter > 0) { if (TryGetLocalJob(out job)) { RunJobOnNewFiber(job); } else { Suspend(); } }`.
   * Logic: `std::vector<Job> localQueue` (Circular buffer).
   * Crucial: Verify `RunJobOnNewFiber` grabs a new fiber from the pool and context switches. **Do not call inline**.
 
@@ -43,7 +43,7 @@
 *Goal: Implement the memory infrastructure required to run Game, Render, and GPU logic in parallel without locks.*
 
 ### 2.1. Frame Architecture
-- [ ] **Struct:** Define `FrameContext`.
+- [x] **Struct:** Define `FrameContext`.
 ```cpp
 struct FrameContext {
     uint64_t frameId;
@@ -51,16 +51,16 @@ struct FrameContext {
     //...
 };
 ```
-- [ ] **Storage:** Create `FrameContext frames[3]` (Triple Buffering).
+- [x] **Storage:** Create `FrameContext frames[3]` (Triple Buffering).
 
 ### 2.2. Linear Allocator
-- [ ] **Implementation:** Create `LinearAllocator` (Reset-only bump allocator).
+- [x] **Implementation:** Create `LinearAllocator` (Reset-only bump allocator).
     * **Pointer:** `std::atomic<byte*> currentPtr`.
     * **Block:** Pre-allocated 128MB block per frame.
     * **Constraint:** No `delete` or `free`. We only call `Reset()` when the frame index loops back.
 
 ### 2.3. Engine Loop Refactor
-- [ ] **Main Loop:** Rewrite `App.cpp` loop.
+- [x] **Main Loop:** Rewrite `App.cpp` loop.
     * **Old:** `Update()` -> `Render()` -> `Present()`.
     * **New:**
         1.  `Wait(Frame[N-2].gpuFinished)`
@@ -75,18 +75,18 @@ struct FrameContext {
 *Goal: Record command buffers in parallel fibers without driver crashes.*
 
 ### 3.1. Thread-Local Contexts
-- [ ] **RHI:** Create `RenderThreadContext` (allocated per Worker Thread, not per Fiber).
+- [x] **RHI:** Create `RenderThreadContext` (allocated per Worker Thread, not per Fiber).
     * `VkCommandPool` (One per thread).
     * `DescriptorAllocator` (One per thread).
-- [ ] **Access:** Implement `GetRenderContext()` that returns the context of the current worker thread executing the fiber.
+- [x] **Access:** Implement `GetRenderContext()` that returns the context of the current worker thread executing the fiber.
 
 ### 3.2. Dynamic Rendering Wrapper
-- [ ] **API:** Abstraction for `vkCmdBeginRendering`.
+- [x] **API:** Abstraction for `vkCmdBeginRendering`.
     * **Input:** `std::span<TextureHandle> attachments`.
     * **Logic:** Populate `VkRenderingInfo`. No `VkRenderPass` objects allowed.
 
 ### 3.3. Chunked Recording
-- [ ] **Logic:** Implement `RenderPassJob`.
+- [x] **Logic:** Implement `RenderPassJob`.
     * **Start:** `vkAllocateCommandBuffers` (Secondary or Primary Chunk).
     * **Record:** Draw calls.
     * **End:** `vkEndCommandBuffer`.
