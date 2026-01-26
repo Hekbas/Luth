@@ -32,26 +32,31 @@ namespace Luth
         FrameParams Params;
         
         // Memory for Game Logic (cleared after GPU finishes N-2)
-        // LinearAllocator LogicMemory; 
+        Memory::LinearAllocator LogicMemory; 
 
         // 2. Synchronization
         JobSystem::AtomicCounter GameReady;        // Signaled when Game Logic finishes this frame
         u64 GpuTimelineValue = 0;      // The value the GPU signals when done
 
         // 3. Render Resources
-        // LinearAllocator RenderMemory;   // For temporary command arrays/barriers
+        Memory::LinearAllocator RenderMemory;   // For temporary command arrays/barriers
         CommandAllocatorPool* CmdPool = nullptr;  // Thread-local command pools for this frame
         
         // List of command buffers recorded for this frame
         // std::vector<VkCommandBuffer> CommandBuffers; 
         // std::mutex CommandBufferMutex;
 
+        FrameContext() 
+            : LogicMemory(10 * 1024 * 1024), // 10MB per frame for logic
+              RenderMemory(10 * 1024 * 1024) // 10MB per frame for render commands
+        {}
+
         void Reset()
         {
             GameReady.Value = 0;
             GameReady.WaitingListHead = nullptr;
-            // LogicMemory.Reset();
-            // RenderMemory.Reset();
+            LogicMemory.Reset();
+            RenderMemory.Reset();
             // CommandBuffers.clear();
         }
     };
