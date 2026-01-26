@@ -70,6 +70,7 @@ namespace Luth
             // Hack: Create a temporary pool for ImGui
             VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2000 } };
             VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
             pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
             pool_info.maxSets = 2000;
             pool_info.poolSizeCount = 1;
@@ -144,9 +145,32 @@ namespace Luth
 
         if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
             ImGui::Render();
-            // NOTE: We do NOT call ImGui_ImplVulkan_RenderDrawData here.
-            // It requires a command buffer and must be called inside the RenderGraph execution.
-            // See RenderingSystem.cpp -> ImGuiPass (to be implemented).
+            
+            // [ARCHITECTURAL DEBT] Phase 1 Bootstrap
+            // TODO(Phase 4): Remove this immediate rendering.
+            // ImGui rendering must be moved to an 'ImGuiPass' in the RenderGraph.
+            // This current implementation bypasses the graph to verify the JobSystem/Windowing.
+            
+            auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+            VkCommandBuffer cmd = vkRenderer->GetCurrentCommandBuffer();
+            
+            VkRenderingAttachmentInfo colorAttachment{};
+            colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            colorAttachment.imageView = vkRenderer->GetSwapchain().GetImageView(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
+            colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // Load existing content (scene)
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            
+            VkRenderingInfo renderingInfo{};
+            renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            renderingInfo.renderArea = { {0, 0}, {vkRenderer->GetSwapchain().GetExtent().width, vkRenderer->GetSwapchain().GetExtent().height} };
+            renderingInfo.layerCount = 1;
+            renderingInfo.colorAttachmentCount = 1;
+            renderingInfo.pColorAttachments = &colorAttachment;
+            
+            vkCmdBeginRendering(cmd, &renderingInfo);
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+            vkCmdEndRendering(cmd);
         }
     }
 

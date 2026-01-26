@@ -91,22 +91,35 @@ namespace Luth
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
             
-            Editor::BeginFrame();
-            OnUpdate();
-            AssetManager::Update();
-            Editor::Render(); 
-            Editor::EndFrame();
-
-            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+            if (m_Window->IsMinimized())
             {
-                ImGui::UpdatePlatformWindows();
-                ImGui::RenderPlatformWindowsDefault();
+                std::this_thread::yield();
+                continue;
             }
 
-            if (!m_Window->IsMinimized())
+            // 1. Begin Vulkan Frame (Acquire Image, Start Recording)
+            if (Renderer::BeginFrame())
             {
+                // 2. Editor Logic
+                Editor::BeginFrame();
+                OnUpdate();
+                AssetManager::Update();
+                Editor::Render(); 
+                Editor::EndFrame(); // Records ImGui to CB
+
+                // 3. Update Viewports (ImGui)
+                if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+                {
+                    ImGui::UpdatePlatformWindows();
+                    ImGui::RenderPlatformWindowsDefault();
+                }
+
+                // 4. Game Logic
                 Systems::Update<TransformSystem>();
-                // Systems::Update<RenderingSystem>(); // Disabled until Renderer is ready
+                // Systems::Update<RenderingSystem>(); 
+
+                // 5. End Vulkan Frame (Submit, Present)
+                Renderer::EndFrame();
             }
         }
 
