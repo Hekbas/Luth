@@ -14,6 +14,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/ECS/systems/TransformSystem.h"
 #include "luth/core/JobSystem.h"
+#include "luth/core/JobSystemTests.h" // Include Tests
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/core/IOThread.h"
@@ -26,6 +27,9 @@ namespace Luth
         JobSystem::Init();
         IOThread::Init();
         // m_FrameContext.Init(); // TODO: Re-enable when FrameContext is ready
+        
+        // Run Job System Verification Tests
+        JobSystem::Tests::RunAll();
         
         FileSystem::Init();
         AssetDatabase::Init(FileSystem::AssetsPath());
