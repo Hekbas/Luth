@@ -3,6 +3,7 @@
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
 #include "luth/core/Memory.h"
 #include "luth/core/JobSystem.h"
+#include "luth/renderer/backend/vulkan/DynamicRendering.h" // For AttachmentInfo
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -31,7 +32,11 @@ namespace Luth::RG
         ResourceHandle ReadTransfer(ResourceHandle resource); // New: For Blit/Copy source
         
         // Standard Write (Render Target)
-        ResourceHandle Write(ResourceHandle resource);
+        // Optionally specify load/store ops and clear value
+        ResourceHandle Write(ResourceHandle resource, 
+                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
+                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE, 
+                             VkClearValue clearValue = {});
         
         // Transfer Write (Clear/Copy)
         ResourceHandle WriteTransfer(ResourceHandle resource);
@@ -64,6 +69,14 @@ namespace Luth::RG
     class RenderGraph
     {
     public:
+        struct PassAttachment
+        {
+            ResourceHandle handle;
+            VkAttachmentLoadOp loadOp;
+            VkAttachmentStoreOp storeOp;
+            VkClearValue clearValue;
+        };
+
         struct PassNode
         {
             std::string name;
@@ -74,6 +87,11 @@ namespace Luth::RG
 
             std::vector<ResourceHandle> writes;
             std::vector<ResourceState> writeStates; 
+            
+            // Metadata for Dynamic Rendering
+            std::vector<PassAttachment> colorAttachments;
+            PassAttachment depthAttachment;
+            bool hasDepth = false;
 
             std::vector<Barrier> preBarriers;
         };
@@ -137,6 +155,10 @@ namespace Luth::RG
 
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
+        
+        // New: Register attachment details
+        void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
+        void RegisterDepthAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
 
         // Accessors for the Backend Executor
         const std::vector<PassNode>& GetPasses() const { return m_Passes; }
