@@ -26,7 +26,7 @@ namespace Luth
         // Core Systems Init
         JobSystem::Init();
         IOThread::Init();
-        // m_FrameContext.Init(); // TODO: Re-enable when FrameContext is ready
+        m_FrameData.Init();
         
         // Run Job System Verification Tests
         JobSystem::Tests::RunAll();
@@ -124,6 +124,9 @@ namespace Luth
 
                 // 5. End Vulkan Frame (Submit, Present)
                 Renderer::EndFrame();
+                
+                // Advance Frame Data
+                m_FrameData.Advance();
             }
         }
 
@@ -138,7 +141,7 @@ namespace Luth
         
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
-        // m_FrameContext.Shutdown();
+        m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
     }
