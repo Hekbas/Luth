@@ -25,24 +25,26 @@ namespace Luth
         // Core Systems Init
         JobSystem::Init();
         IOThread::Init();
-        m_FrameContext.Init();
+        // m_FrameContext.Init(); // TODO: Re-enable when FrameContext is ready
         
         FileSystem::Init();
         AssetDatabase::Init(FileSystem::AssetsPath());
         AssetManager::Init();
 
         // Import Phase: Process any stale assets found by AssetDatabase
-        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
-        if (!dirtyAssets.empty())
+        const auto& dirtyAssetsRef = AssetDatabase::GetDirtyAssets();
+        if (!dirtyAssetsRef.empty())
         {
-            LH_CORE_INFO("Importing {0} assets in parallel...", dirtyAssets.size());
+            std::vector<UUID> assetsToImport = dirtyAssetsRef;
+            
+            LH_CORE_INFO("Importing {0} assets in parallel...", assetsToImport.size());
             
             JobSystem::Counter importCounter;
-            // Stateless lambda converts to function pointer for JobSystem
-            JobSystem::Dispatch((u32)dirtyAssets.size(), 1, [](JobSystem::JobArgs args) {
-                const auto& assets = AssetDatabase::GetDirtyAssets();
-                AssetManager::Import(assets[args.jobIndex]);
-            }, nullptr, &importCounter);
+            
+            JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+                std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
+                AssetManager::Import((*assets)[args.jobIndex]);
+            }, &assetsToImport, &importCounter);
 
             JobSystem::WaitForCounter(&importCounter);
         }
@@ -81,54 +83,20 @@ namespace Luth
     {
         OnInit();
 
+        // Temporary Loop for Phase 1 Testing
+        // We are not using the full fiber loop yet as FrameContext is incomplete
         while (m_Running)
         {
-            LH_PROFILE_FRAME("MainThread");
-            JobSystem::ResetFrameStats();
-            
-            // 1. Start Frame N (Game Logic)
-            m_FrameContext.BeginFrame();
-            
-            // Update JobContext for Main Thread
-            // The Main Thread acts as a worker for Game Logic
-            auto* ctx = JobSystem::GetCurrentJobContext();
-            if (ctx)
-            {
-                ctx->Allocator = &m_FrameContext.GetAllocator();
-                ctx->Params = &m_FrameContext.GetCurrentParams();
-                // Update cache tag for new frame
-                ctx->AllocatorCache.CurrentTag = (u32)(m_FrameContext.GetCurrentFrameIndex() % FrameContext::MAX_FRAMES_IN_FLIGHT);
-                // Reset active page if tag changed? 
-                // TaggedPageAllocator::Allocate handles tag changes by getting a new page if needed.
-                // But we should probably clear the active page pointer if the tag changed to avoid mixing pages?
-                // Actually, Allocate checks if page is full. It doesn't check tag.
-                // We must reset ActivePage if we switch tags.
-                // Optimization: Keep ActivePage if it has space and matches tag?
-                // But we recycle pages by tag. If we hold a page from Frame N-3, it might be freed.
-                // So yes, we should reset ActivePage.
-                // Ideally, ThreadCache should manage this.
-                // For now, we just set the tag. The Allocator logic needs to be robust.
-                // Let's assume Allocator::Allocate handles it or we manually reset.
-                // Resetting ActivePage to nullptr is safe.
-                ctx->AllocatorCache.ActivePage = nullptr; 
-            }
-
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
             
-            // Editor Begin
             Editor::BeginFrame();
-
             OnUpdate();
             AssetManager::Update();
-
-            Editor::Render(); // Submits ImGui commands to ImGui internal buffers
-
-            // Editor End (Generates DrawData for ImGui)
+            Editor::Render(); 
             Editor::EndFrame();
 
-            // Update and Render additional Platform Windows
             if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
             {
                 ImGui::UpdatePlatformWindows();
@@ -137,31 +105,9 @@ namespace Luth
 
             if (!m_Window->IsMinimized())
             {
-                {
-                    LH_PROFILE_SCOPE("Systems::Update");
-                    Systems::Update<TransformSystem>();
-                    
-                    // 2. Submit Render N-1
-                    // RenderingSystem should now consume FrameParams[N-1]
-                    // But currently it runs on Main Thread and does immediate recording?
-                    // We need to split Logic vs Render.
-                    // For now, we keep it as is, but prepare for the split.
-                    Systems::Update<RenderingSystem>();
-                }
+                Systems::Update<TransformSystem>();
+                // Systems::Update<RenderingSystem>(); // Disabled until Renderer is ready
             }
-            
-            // 3. Recycle GPU N-2
-            // This happens inside Renderer::BeginFrame (via PollerJob)
-            // But we need to hook it up to FrameContext::RecycleFrame.
-            // The Renderer knows when a frame finishes.
-            // We need a callback from Renderer to App? Or Renderer calls FrameContext directly?
-            // Ideally, App drives this.
-            // Renderer::GetCompletedFrameIndex()?
-            
-            // Temporary: We call RecycleFrame in BeginFrame of next loop based on assumption?
-            // No, we need explicit sync.
-            // Let's leave recycling inside Renderer for now, or move it here later.
-            // Actually, FrameContext::RecycleFrame should be called by the PollerJob callback.
         }
 
         OnShutdown();
@@ -173,11 +119,9 @@ namespace Luth
 		Editor::Shutdown();
 		Systems::Shutdown();
         
-        // Renderer::Shutdown(); // Phase 3
-
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
-        m_FrameContext.Shutdown();
+        // m_FrameContext.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
     }
@@ -185,7 +129,6 @@ namespace Luth
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
         WindowSpec spec;
-        // Arguments parsing can be expanded later if needed
         return spec;
     }
 
@@ -218,32 +161,22 @@ namespace Luth
     {
         for (const auto& srcPath : e.GetPaths()) {
             try {
-                // 1. Validate file
                 if (!fs::exists(srcPath)) {
                     LH_CORE_ERROR("Dropped file not found: {0}", srcPath.string());
                     continue;
                 }
 
-                // 2. Classify asset type
                 AssetType resType = FileSystem::ClassifyFileType(srcPath);
                 if (resType == AssetType::None) {
                     LH_CORE_WARN("Unsupported file type: {0}", srcPath.string());
                     continue;
                 }
 
-                // 3. Determine destination path
                 fs::path destPath = FileSystem::GetPath(resType, srcPath.stem().string(), true);
-
-                // Create target directory if needed
                 FileSystem::CreateDirectories(destPath.parent_path());
-
-                // 4. Copy file to project
                 fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing);
                 LH_CORE_INFO("Imported {0} to {1}", srcPath.filename().string(), destPath.string());
-
-                // 5. Generate meta file
                 UUID newUuid = MetaFile::Create(destPath, resType);
-
                 LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
             }
             catch (const fs::filesystem_error& err) {

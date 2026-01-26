@@ -2,6 +2,8 @@
 **Objective:** Transform Luth into a high-performance, fiber-based, pipelined game engine.
 **Status:** DRAFT -> ACTIVE
 
+ ---
+
 ## Phase 1: The "Naughty Dog" Fiber Kernel
 *Goal: Establish the non-blocking execution environment. The engine must be able to spawn 100,000 empty jobs without stalling the OS threads.*
 
@@ -14,7 +16,7 @@
     * Commit pages on demand (don't commit all 64MB at startup).
     * **Constraint:** Use guards (protected pages) between stacks to catch overflows.
 
-### 1.2. The Atomic Counter & Wait List
+### 1.2. Atomic Counter & Wait List
 - [ ] **Data Structure:** Create struct `AtomicCounter`.
     * `std::atomic<uint32_t> value`
     * `std::atomic<Fiber*> waitingListHead` (Lock-Free Stack).
@@ -22,18 +24,22 @@
     * Use CAS (Compare-And-Swap) to push the fiber onto the `waitingListHead` of the counter.
 - [ ] **Verification:** Write a unit test where Fiber A waits on Fiber B. Ensure Fiber A is not scheduled until Fiber B finishes.
 
-### 1.3. The Scheduler (Chase-Lev Deque)
-- [ ] **Data Structure:** Create struct `WorkerThread`.
-    * `std::vector<Job> localQueue` (Circular buffer).
-    * `std::atomic<int> bottom` (Owned by thread).
-    * `std::atomic<int> top` (Shared/Stealable).
-- [ ] **Loop Logic:**
-    1.  `PopBottom()` (LIFO) -> Run Job.
-    2.  If Empty -> `Steal()` (FIFO from random peer).
-    3.  If Empty -> `PollTimelines()` (Check GPU).
-    4.  If Empty -> `_mm_pause()` / Sleep.
+### 1.3. Scheduler (Hybrid Queues)
+- [ ] **Task:** Implement **Global High-Priority Queue** (Lock-Free MPMC).
+- [ ] **Task:** Implement **Local Work-Stealing Deque** (Chase-Lev) for Normal priority.
+- [ ] **Task:** Implement **WorkerThread** loop:
+  1. Check Global High.
+  2. Check Local.
+  3. Steal.
 
-## Phase 2: The Data Pipeline (The "3-Frame" Ring)
+### 1.4. Wait Strategy (Safe Helping)
+- [ ] **Task:** Implement `while(counter > 0) { if (TryGetLocalJob(out job)) { RunJobOnNewFiber(job); } else { Suspend(); } }`.
+  * Logic: `std::vector<Job> localQueue` (Circular buffer).
+  * Crucial: Verify `RunJobOnNewFiber` grabs a new fiber from the pool and context switches. **Do not call inline**.
+
+ ---
+
+## Phase 2: The Data Pipeline (Triple Buffer)
 *Goal: Implement the memory infrastructure required to run Game, Render, and GPU logic in parallel without locks.*
 
 ### 2.1. Frame Architecture
@@ -47,13 +53,13 @@ struct FrameContext {
 ```
 - [ ] **Storage:** Create `FrameContext frames[3]` (Triple Buffering).
 
-### 2.2. The Linear Allocator
-- [ ] **Implementation:** Create `LinearAllocator`.
+### 2.2. Linear Allocator
+- [ ] **Implementation:** Create `LinearAllocator` (Reset-only bump allocator).
     * **Pointer:** `std::atomic<byte*> currentPtr`.
     * **Block:** Pre-allocated 128MB block per frame.
     * **Constraint:** No `delete` or `free`. We only call `Reset()` when the frame index loops back.
 
-### 2.3. The Engine Loop Refactor
+### 2.3. Engine Loop Refactor
 - [ ] **Main Loop:** Rewrite `App.cpp` loop.
     * **Old:** `Update()` -> `Render()` -> `Present()`.
     * **New:**
@@ -62,6 +68,8 @@ struct FrameContext {
         3.  `KickJob(GameUpdate, Frame[N])`
         4.  `KickJob(RenderRecord, Frame[N-1])` (Dependent on `Frame[N-1].gameReady`)
         5.  `Submit(Frame[N-1])`
+
+ ---
 
 ## Phase 3: Vulkan 1.3 Backend (Thread-Safe Recording)
 *Goal: Record command buffers in parallel fibers without driver crashes.*
@@ -83,6 +91,8 @@ struct FrameContext {
     * **Record:** Draw calls.
     * **End:** `vkEndCommandBuffer`.
     * **Output:** Push the completed `VkCommandBuffer` handle to a thread-safe list in `FrameContext`.
+
+ ---
 
 ## Phase 4: Synchronization & The Render Graph
 *Goal: Automatic barrier generation and async compute.*
@@ -112,6 +122,8 @@ struct FrameContext {
     * Create global TimelineSemaphore `gpuTimeline`.
     * **On Submit:** `signal(gpuTimeline, frameId)`.
     * **On CPU Wait:** `WaitForGPU(frameId)` -> Fiber yields if `gpuTimeline < frameId`.
+
+ ---
 
 ## Phase 5: Verification & Stress Testing
 

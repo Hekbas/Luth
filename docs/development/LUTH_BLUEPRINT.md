@@ -1,5 +1,5 @@
 # AGENTS.MD - Luth Engine Development Protocols
-**Version:** 2.0 (Fiber-Native / Vulkan 1.3)
+**Version:** 3.0 (Fiber-Native / Vulkan 1.3)
 **Context:** High-Performance C++20 Game Engine
 **Strict Constraint:** Zero OS-blocking on worker threads.
 
@@ -15,12 +15,44 @@ We are building a **Latency-Hiding, Fiber-Based Game Engine** inspired by Naught
 2.  **NO** `std::this_thread::yield()` or `sleep()`. If a job waits, it switches fibers, keeping the OS thread 100% busy with other work.
 3.  **NO** `vkWaitForFences` on the CPU. We poll Timeline Semaphores.
 4.  **NO** `VkRenderPass` / `VkFramebuffer`. Use `VkRenderingInfo` (Dynamic Rendering).
+4.  **NO Inline Execution of Jobs:** When "helping" during a wait, you must **ALWAYS** switch to a fresh fiber. Never run a job as a function call on the current stack.
 
 ## 2. Core Systems Implementation Plan
 
-### 2.1. The "Naughty Dog" Job System (Refactor `JobSystem.cpp`)
-* **Problem:** Current implementation uses a global `std::mutex` (High Contention) and `std::this_thread::yield()` (OS Blocking).
-* **Target:** Lock-Free Work Stealing with Fiber Context Switching.
+### 2.1. The Hybrid Job System (Priority + Work Stealing)
+* **Problem:** Pure Work Stealing ignores priority. Pure Global Queues contend on high-core-count PCs.
+* **Solution:** Hybrid Priority Model.
+
+**Queues:**
+* **Global High-Priority Queue (MPMC):** For critical path tasks (Audio, Physics, Render Recording).
+* **Local Normal-Priority Deques (Chase-Lev):** For general gameplay/entity logic. One per thread.
+
+**Worker Loop Algorithm:**
+```cpp
+while (Running) {
+Job job;
+// 1. Strict Priority: Always check Global High Queue first
+if (GlobalHighQueue.TryPop(job)) {
+RunJob(job);
+continue;
+}
+
+    // 2. Local Depth-First: Check Local Deque (LIFO) for cache locality
+    if (LocalDeque.Pop(job)) {
+        RunJob(job);
+        continue;
+    }
+
+    // 3. Load Balancing: Steal from others (FIFO)
+    if (Steal(job)) {
+        RunJob(job);
+        continue;
+    }
+
+    // 4. GPU Polling (If idle)
+    PollTimelineSemaphores();
+}
+```
 
 **Data Structure: `Fiber`**
 * Must contain `jmp_buf` / `ucontext` / Win32 Fiber Handle.
@@ -32,23 +64,15 @@ We are building a **Latency-Hiding, Fiber-Based Game Engine** inspired by Naught
   * `std::atomic<uint32_t> value`
   * `std::atomic<Fiber*> waitingListHead` (Lock-free stack of fibers waiting for this counter).
 
-**Algorithm: `WaitForCounter(Counter* c, uint32_t target)`**
-1.  **Check:** `if (c->value <= target) return;`
-2.  **Helping:** Try to pop a job from the local queue and execute it (help the system while waiting).
-3.  **Suspend (If no help available):**
-  * Add `CurrentFiber` to `c->waitingListHead` using CAS (Compare-And-Swap).
-  * **Switch Context:** Call `SwitchFiber(SchedulerFiber)`.
-  * The OS Thread does **NOT** sleep. It just loads a new stack.
+### 2.2. The "Help-First" Wait Strategy (Stack Safe)
+* **Context:** When `WaitForCounter(C)` is called, the fiber cannot proceed until `C == 0`.
+* **Strategy:** Instead of yielding immediately (ND style), we try to "help" by running local sub-jobs to keep the cache hot.
 
-**Algorithm: `WorkerThread`**
-* Owns a Chase-Lev Deque (Lock-Free Work Stealing Deque).
-* **Loop:**
-  1.  Pop Local (LIFO - Hot Cache).
-  2.  If empty, Steal from Random Victim (FIFO - Cold Cache).
-  3.  If empty, Poll TimelineSemaphores (GPU check).
-  4.  If empty, `_mm_pause()` (Brief spin).
+**Strict Safety Rule:** When helping, you must **Acquire a Fresh Fiber** and **SwitchTo** it.
+* **Violation:** `job.function()` (Inline Call) -> **REJECT.** (Causes Stack Overflow on deep graphs).
+* **Compliance:** `fiber = Pool.Get(); Setup(fiber, job); SwitchTo(fiber);` -> **APPROVE.**
 
-### 2.2. The 3-Stage Frame Pipeline (New Implementation)
+### 2.3. The 3-Stage Frame Pipeline
 We decouple Game Logic from Rendering via deep pipelining. Data flows through a ring buffer of FrameData.
 
 **Concept:** At any wall-clock time $T$, we are processing 3 frames simultaneously:
@@ -104,43 +128,53 @@ void EngineLoop() {
 }
 ```
 
-### 2.3. Vulkan & Frame Graph (Refactor `RenderingSystem.cpp`)
-* **Dynamic Rendering:** All passes use `vkCmdBeginRendering`.
-* **The Graph:**
-  * **Setup Phase:** Systems declare `Read(Resource)` and `Write(Resource)`.
-  * **Compile Phase:**
-    * **Topological Sort** (Determine execution order).
-    * **Barrier Injection:** Calculate `VkImageMemoryBarrier2` automatically based on usage transitions (e.g., `ColorAttachment` -> `ShaderReadOnly`).
-    * **Aliasing:** Reuse memory for transient targets (e.g., G-Buffer and DoF buffer might share the same VRAM if their lifetimes don't overlap).
-* **Thread Safety:**
-  * Command Recording uses Thread-Local Command Pools.
-  * **Constraint:** A Fiber cannot hold a `VkCommandBuffer` open across a `WaitForCounter`. (If a fiber yields, it might resume on a different thread, violating command pool threading rules).
-  * **Solution:** Record "Chunks" (Secondary Buffers) or atomic "Passes" that complete without yielding.
+## 3. Vulkan 1.3 Backend
 
-## 3. Directory Structure Refinement
+### 3.1. API Constraints
+* **Dynamic Rendering:** Use `vkCmdBeginRendering`.
+* **Bindless Descriptors:** Use `VK_EXT_descriptor_indexing`. Bind one global descriptor heap (sampled images, storage buffers) at slot 0. Access resources via indices in Push Constants.
+
+### 3.2. Thread Safety & Recording
+* **Thread-Local Pools:** `VkCommandPool` is Thread-Local. Never share a pool across threads.
+* **Chunked Recording:** A fiber must **NOT** yield while holding an open `VkCommandBuffer`.
+  * **Strategy:** Record a "Chunk" (Secondary Buffer), close it, push it to a thread-safe list in `FrameContext`, **THEN** yield.
+  * **Resumption:** If the fiber resumes on a different thread, it allocates a new buffer from that new thread's pool.
+
+### 3.3. Synchronization
+* **Timeline Semaphores:** Use a global `FrameTimeline` semaphore.
+* **Polling:** The Scheduler loop runs a `PollGPU()` function periodically to check if Frame N-2 is complete.
+
+## 4. Directory Structure Refinement
 Align the codebase to this architecture:
 ```text
 luth/
 ├── core/
 │   ├── fibers/
-│   │   ├── FiberContext.asm      // Assembly for context switching
-│   │   ├── Scheduler.cpp         // Work-Stealing implementation
-│   │   └── Counter.h             // AtomicCounter + Intrusive Wait List
+│   │   ├── FiberContext.asm        // Assembly for context switching
+│   │   ├── Scheduler.cpp           // Work-Stealing implementation
+│   │   ├── Counter.h               // AtomicCounter + Intrusive Wait List
+│   │   └── WorkStealingQueue.h     // Chase-Lev Deque
 │   ├── memory/
-│   │   └── LinearAllocator.h     // Essential for FrameParams
-│   └── FrameData.h               // Defines FrameContext & FrameParams ring buffer
+│   │   └── LinearAllocator.h       // Per-frame CPU memory
+│   └── FrameData.h                 // Defines FrameContext & FrameParams ring buffer
 ├── renderer/
 │   ├── backend/
 │   │   ├── vulkan/
 │   │   │   ├── TimelineSemaphore.h // Wrapper for vkGetSemaphoreCounterValue
+│   │   │   ├── DescriptorHeap.h    // Bindless management
 │   │   │   └── CommandPool.h       // Thread-Local Pool wrapper
-│   ├── graph/
-│   │   ├── RenderGraph.cpp       // Compiler & Executor
-│   │   ├── PassNode.h            // Concepts for render passes
-│   │   └── ResourceBarrier.cpp   // Auto-barrier logic
+│   ├── RenderGraph/
+│   │   ├── Compiler.cpp            // Topological sort & barrier injection
+│   │   ├── ResourceAllocator.cpp   // Transient aliasing logic
+│   │   └── Executor.cpp            // Spawns Jobs from compiled graph
 ```
+## 5. Glossary
+* **Yielding:** Saving current registers/stack, pushing fiber to a wait list, and loading a new fiber.
+* **Helping:** Executing a pending job from the local queue while waiting for a counter, to avoid a full context switch overhead if possible (but **ALWAYS** switching stacks).
+* **Transient Resource:** A texture/buffer that exists only for the duration of one frame. Backed by aliased memory.
+* **Barrier Batching:** Merging multiple image transitions into a single `vkCmdPipelineBarrier2` call.
 
-## 4. Implementation Checklist for Agent
+## 6. Implementation Checklist for Agent
 When generating code, verify against these items:
 
 - [ ] **Does `WaitForCounter` block the OS thread?**

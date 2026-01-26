@@ -30,6 +30,8 @@ namespace Luth
     using f32 = float;      // 32-bit floating point
     using f64 = double;     // 64-bit floating point
 
+    using byte = std::byte; // Standard byte type
+
     // =============================================
     //              GLM Integrations
     // =============================================

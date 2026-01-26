@@ -1,15 +1,11 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/JobSystem.h"
 
 namespace Luth
 {
     class TimelineSemaphore;
-}
-
-namespace Luth::JobSystem
-{
-    struct Counter;
 }
 
 namespace Luth
