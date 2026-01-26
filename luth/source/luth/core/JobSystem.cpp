@@ -57,6 +57,9 @@ namespace Luth::JobSystem
         std::deque<Fiber*> ReadyFibers;
         std::mutex ReadyFibersMutex;
 
+        // Global Contexts (Propagated to workers)
+        std::atomic<CommandAllocatorPool*> GlobalCommandPool = nullptr;
+
         // Stats
         std::atomic<u32> PeakFibers = 0;
     };
@@ -105,6 +108,10 @@ namespace Luth::JobSystem
     static void FiberEntryPoint(void* args)
     {
         Job* jobPtr = (Job*)args;
+        
+        // Update Context from Global State
+        // This ensures the fiber has access to the current frame's resources
+        t_JobContext.CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
         
         // Execute the job
         if (jobPtr && jobPtr->Function)
@@ -160,6 +167,9 @@ namespace Luth::JobSystem
 
         while (s_Data.Running)
         {
+            // Update Context for the worker thread itself (in case it runs inline or needs it)
+            t_JobContext.CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
+
             Job job;
             Fiber* readyFiber = nullptr;
             bool foundJob = false;
@@ -316,12 +326,8 @@ namespace Luth::JobSystem
                     // 3. Switch to it.
                     
                     if (fiber->Handle) Fiber::Destroy(*fiber);
-                    *fiber = Fiber::Create(FiberEntryPoint, &job); // Pass pointer to local job? Unsafe.
-                    // We need to copy the job to a stable location.
-                    // Or pass by value? CreateFiber takes void*.
-                    // We need to allocate the job on heap or use a slot.
                     
-                    // Let's allocate a Job on the heap for now.
+                    // Allocate job on heap to pass safely to fiber
                     Job* heapJob = new Job(job);
                     *fiber = Fiber::Create(FiberEntryPoint, heapJob);
                     
@@ -584,5 +590,6 @@ namespace Luth::JobSystem
     void SetGlobalCommandPool(CommandAllocatorPool* pool)
     {
         t_JobContext.CommandPool = pool;
+        s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
     }
 }
