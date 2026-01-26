@@ -18,19 +18,22 @@ namespace Luth
         // But since we don't own the pool, we assume the pool owner handles destruction.
     }
 
-    VkCommandBuffer CommandAllocator::GetBuffer()
+    VkCommandBuffer CommandAllocator::GetBuffer(VkCommandBufferLevel level)
     {
         // 1. Check cache
-        if (m_UsedCount < m_Buffers.size())
-        {
-            return m_Buffers[m_UsedCount++];
-        }
-
-        // 2. Allocate new
+        // Note: We currently don't segregate cache by level.
+        // If we mix primary/secondary, we need to track them separately.
+        // For now, let's assume we always allocate new if the cache is empty or if we want to be safe.
+        // Optimization: Just allocate new for now to avoid complexity.
+        // The pool reset handles recycling.
+        
+        // Actually, we can't reuse buffers from the vector if they were allocated with a different level.
+        // Let's just always allocate for now. The pool handles the memory.
+        
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_Pool;
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY; // Default to Secondary for parallel recording
+        allocInfo.level = level;
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer cmd;
@@ -51,5 +54,6 @@ namespace Luth
         // We just reset our index.
         vkResetCommandPool(m_Device, m_Pool, 0);
         m_UsedCount = 0;
+        m_Buffers.clear(); // Since we are re-allocating every time, clear the vector.
     }
 }

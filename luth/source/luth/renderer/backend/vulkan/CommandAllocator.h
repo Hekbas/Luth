@@ -20,7 +20,7 @@ namespace Luth
         ~CommandAllocator();
 
         // Get a fresh command buffer from the cache or allocate new
-        VkCommandBuffer GetBuffer();
+        VkCommandBuffer GetBuffer(VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 
         // Reset the underlying pool and clear cache index
         void Reset();
