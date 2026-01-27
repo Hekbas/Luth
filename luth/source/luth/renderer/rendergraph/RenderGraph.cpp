@@ -232,11 +232,16 @@ namespace Luth::RG
         
         // Allocate jobs in a stable vector to avoid pointer invalidation
         std::vector<RenderPassJob> jobs(m_Passes.size());
+        
+        // Storage for AttachmentInfo vectors to keep them alive during job execution
+        // We use a vector of vectors, indexed by pass index
+        std::vector<std::vector<AttachmentInfo>> passAttachments(m_Passes.size());
 
         for (size_t i = 0; i < m_Passes.size(); ++i)
         {
             const auto& pass = m_Passes[i];
             RenderPassJob& job = jobs[i];
+            auto& attachments = passAttachments[i];
             
             // 1. Build RenderPassInfo
             for(const auto& att : pass.colorAttachments)
@@ -253,60 +258,91 @@ namespace Luth::RG
                 info.ClearValue = att.clearValue;
                 info.Layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 
-                // We need to store these AttachmentInfos somewhere stable too.
-                // RenderPassJob::PassInfo uses spans.
-                // Let's add a vector to RenderPassJob to hold the data? No, it's a struct.
-                // We need a stable storage for the vector data.
-                // Hack: Use a static/member vector in RenderGraph? No, thread safety.
-                // Use a vector of vectors in this function scope? Yes.
+                attachments.push_back(info);
             }
             
-            // FIX: We need stable storage for AttachmentInfo vectors.
-            // Since we are iterating, we can't easily pre-allocate without knowing counts.
-            // Let's just skip the dynamic rendering setup in the job for this specific compilation fix step
-            // and assume the user lambda handles it, OR fix the lambda assignment.
+            job.ColorAttachments = { attachments.data(), attachments.size() };
             
-            // The error was:
-            // binary '=': no operator found which takes a right-hand operand of type 'const std::function<void (Luth::RG::RenderPassContext &)>'
-            // RenderPassJob::RecordFunction expects 'std::function<void(VkCommandBuffer)>'
-            // PassNode::execute is 'std::function<void(RenderPassContext&)>'
-            
-            // We need to wrap the lambda.
-            
-            job.RecordFunction = [&pass](VkCommandBuffer cmd) {
-                RenderPassContext ctx;
-                ctx.commandBuffer = cmd;
-                // ctx.GetResource = ... // We need to capture resource lookup
-                // But we can't capture 'this' easily if it's not stable?
-                // 'this' is RenderGraph, it is stable during ExecuteParallel.
+            if (pass.hasDepth)
+            {
+                ResourceNode& res = m_Resources[pass.depthAttachment.handle.index - 1];
+                AttachmentInfo info{};
+                info.ImageView = res.view;
+                info.Format = VK_FORMAT_D32_SFLOAT; // TODO: Map format
+                info.LoadOp = pass.depthAttachment.loadOp;
+                info.StoreOp = pass.depthAttachment.storeOp;
+                info.ClearValue = pass.depthAttachment.clearValue;
+                info.Layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 
-                // We need to pass the resource lookup to the context.
-                // But RenderPassJob is a POD struct, it doesn't hold the context.
-                // The lambda captures it.
+                // We need to store this somewhere stable too if we want to point to it
+                // But RenderPassJob has a separate DepthAttachment field (not a pointer to vector)
+                // Wait, RenderPassJob struct definition is needed to confirm.
+                // Assuming it stores AttachmentInfo by value or pointer.
+                // If by value, we are good.
+                job.DepthAttachment = info;
+                job.HasDepth = true;
+            }
+
+            // 2. Inject Barriers (Serial for now, into Primary Cmd)
+            for (const auto& barrier : pass.preBarriers)
+            {
+                ResourceNode& res = m_Resources[barrier.resource.index - 1];
+                auto [srcStage, srcAccess] = GetStateInfo(barrier.before);
+                auto [dstStage, dstAccess] = GetStateInfo(barrier.after);
+
+                VkImageMemoryBarrier2 b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+                b.srcStageMask = srcStage;
+                b.srcAccessMask = srcAccess;
+                b.dstStageMask = dstStage;
+                b.dstAccessMask = dstAccess;
+                b.oldLayout = GetLayout(barrier.before);
+                b.newLayout = GetLayout(barrier.after);
+                b.image = res.image;
+                b.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
                 
-                pass.execute(ctx);
-            };
-            
-            // Wait, we need to capture 'this' (RenderGraph) to look up resources inside the lambda?
-            // The original lambda in PassNode already captures what it needs (the pass data).
-            // But RenderPassContext needs GetResource.
-            
-            // Let's fix the lambda assignment first.
+                if (res.desc.format == TextureFormat::D32_Float)
+                    b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dep.imageMemoryBarrierCount = 1;
+                dep.pImageMemoryBarriers = &b;
+
+                vkCmdPipelineBarrier2(primaryCmd, &dep);
+            }
+
+            // 3. Setup Job Lambda
             job.RecordFunction = [this, &pass](VkCommandBuffer cmd) {
                 RenderPassContext ctx;
                 ctx.commandBuffer = cmd;
                 ctx.GetResource = [this](ResourceHandle h) -> void* {
                     if (h.index == 0 || h.index > m_Resources.size()) return nullptr;
+                    // Return the ResourceNode itself, or the image/view?
+                    // The context expects void* which the user casts to ResourceNode*
                     return &m_Resources[h.index - 1];
                 };
                 pass.execute(ctx);
             };
             
-            // JobSystem::Execute(RenderPassJob::Execute, &job, &jobCounter);
-            // Commented out until we fix the AttachmentInfo storage issue in next step
+            // 4. Kick Job
+            // We pass the job pointer. The job struct must remain valid until Wait.
+            // 'jobs' vector is stable until end of function.
+            JobSystem::Execute([](JobSystem::JobArgs args) {
+                RenderPassJob* j = (RenderPassJob*)args.data;
+                j->Execute(j); // Execute the recording logic
+            }, &job, &jobCounter);
         }
 
-        // JobSystem::WaitForCounter(&jobCounter);
+        // Wait for all recording to finish
+        JobSystem::WaitForCounter(&jobCounter);
+
+        // Collect Command Buffers
+        for (size_t i = 0; i < jobs.size(); ++i)
+        {
+            if (jobs[i].CommandBuffer != VK_NULL_HANDLE)
+            {
+                outCommandBuffers[i] = jobs[i].CommandBuffer;
+            }
+        }
 
         CleanupPhysicalResources();
     }
