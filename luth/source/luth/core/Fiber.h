@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/Log.h"
+#include <atomic>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -20,6 +21,60 @@ namespace Luth::JobSystem
         
         // Pinning Support
         u32 PinnedThreadIndex = ~0u; // Default: No affinity (~0u)
+        
+        // Status
+        bool IsFinished = false;
+        
+        // State for Race Condition Prevention
+        // 0 = Free
+        // 1 = Running (Do not switch to this)
+        // 2 = Suspended (Safe to switch to)
+        std::atomic<u8> State;
+
+        // Wait Request (Passed to Scheduler)
+        void* WaitCounter = nullptr;
+        u32 WaitTarget = 0;
+
+        // Default Constructor
+        Fiber() : State(0) {}
+
+        // Move Constructor
+        Fiber(Fiber&& other) noexcept
+        {
+            Handle = other.Handle;
+            Args = other.Args;
+            NextWaiting = other.NextWaiting;
+            PinnedThreadIndex = other.PinnedThreadIndex;
+            IsFinished = other.IsFinished;
+            State.store(other.State.load());
+            WaitCounter = other.WaitCounter;
+            WaitTarget = other.WaitTarget;
+
+            other.Handle = nullptr;
+        }
+
+        // Move Assignment
+        Fiber& operator=(Fiber&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Handle = other.Handle;
+                Args = other.Args;
+                NextWaiting = other.NextWaiting;
+                PinnedThreadIndex = other.PinnedThreadIndex;
+                IsFinished = other.IsFinished;
+                State.store(other.State.load());
+                WaitCounter = other.WaitCounter;
+                WaitTarget = other.WaitTarget;
+
+                other.Handle = nullptr;
+            }
+            return *this;
+        }
+
+        // Deleted Copy Constructor & Assignment (std::atomic is not copyable)
+        Fiber(const Fiber&) = delete;
+        Fiber& operator=(const Fiber&) = delete;
 
         bool IsPinned() const { return PinnedThreadIndex != ~0u; }
 
@@ -33,6 +88,10 @@ namespace Luth::JobSystem
             f.Args = args;
             f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
+            f.IsFinished = false;
+            f.State = 0; // Free
+            f.WaitCounter = nullptr;
+            f.WaitTarget = 0;
 
             #ifdef _WIN32
             // Commit 64KB initially, Reserve full size.
@@ -68,6 +127,10 @@ namespace Luth::JobSystem
             f.Args = args;
             f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
+            f.IsFinished = false;
+            f.State = 1; // Running (Main Thread is always running)
+            f.WaitCounter = nullptr;
+            f.WaitTarget = 0;
             #ifdef _WIN32
             if (IsThreadAFiber())
             {

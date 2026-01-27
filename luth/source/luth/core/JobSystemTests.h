@@ -19,7 +19,7 @@ namespace Luth::JobSystem::Tests
         
         constexpr u32 JOB_COUNT = 10000;
         std::atomic<u32> counter = 0;
-        JobSystem::Counter waitCounter;
+        JobSystem::Counter waitCounter(0);
 
         Timer timer;
         JobSystem::Dispatch(JOB_COUNT, 1, [](JobSystem::JobArgs args) {
@@ -66,7 +66,7 @@ namespace Luth::JobSystem::Tests
     {
         DependencyData* data = (DependencyData*)args.data;
         
-        JobSystem::Counter c;
+        JobSystem::Counter c(0);
         JobSystem::Execute(JobB, data, &c);
         
         // This should cause the fiber to yield
@@ -84,7 +84,7 @@ namespace Luth::JobSystem::Tests
         LH_CORE_INFO("Running Test: Fiber Yielding...");
         
         DependencyData data;
-        JobSystem::Counter mainCounter;
+        JobSystem::Counter mainCounter(0);
         
         JobSystem::Execute(JobA, &data, &mainCounter);
         JobSystem::WaitForCounter(&mainCounter);
@@ -110,7 +110,7 @@ namespace Luth::JobSystem::Tests
         constexpr u32 JOB_COUNT = 1000000;
         constexpr u32 GROUP_SIZE = 1; // Force individual scheduling overhead
         
-        JobSystem::Counter waitCounter;
+        JobSystem::Counter waitCounter(0);
         Timer timer;
         
         JobSystem::Dispatch(JOB_COUNT, GROUP_SIZE, [](JobSystem::JobArgs){}, nullptr, &waitCounter);

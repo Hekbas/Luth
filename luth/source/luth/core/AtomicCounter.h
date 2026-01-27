@@ -8,23 +8,21 @@ namespace Luth::JobSystem
     struct Fiber;
 
     // ===================================================================================
-    // Lock-Free Atomic Counter
+    // Atomic Counter with Busy Bit and SpinLock
+    // Value: Bits 1-31 = Count, Bit 0 = Busy Flag
+    // Lock: Protects WaitingListHead
     // ===================================================================================
     
     struct AtomicCounter
     {
-        // The value of the counter.
-        // When this reaches 0, the counter is considered "signaled".
-        std::atomic<u32> Value = 0;
-        
-        // Lock-Free Stack of waiting fibers.
-        // When a fiber waits on this counter, it pushes itself onto this list.
-        // When the counter hits 0, the decrementing thread pops all fibers and wakes them.
-        std::atomic<Fiber*> WaitingListHead = nullptr;
+        std::atomic<u32> Value;
+        std::atomic_flag Lock = ATOMIC_FLAG_INIT; 
+        Fiber* WaitingListHead = nullptr;
 
-        AtomicCounter(u32 initialValue = 0) : Value(initialValue), WaitingListHead(nullptr) {}
+        AtomicCounter() : Value(0), WaitingListHead(nullptr) {}
+        AtomicCounter(u32 initialValue) : Value(initialValue << 1), WaitingListHead(nullptr) {}
 
-        // Non-copyable to prevent accidental atomic copies
+        // Non-copyable
         AtomicCounter(const AtomicCounter&) = delete;
         AtomicCounter& operator=(const AtomicCounter&) = delete;
     };

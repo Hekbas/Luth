@@ -9,6 +9,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <emmintrin.h> // For _mm_pause
 
 // ===================================================================================
 // Internal Implementation Details
@@ -122,13 +123,44 @@ namespace Luth::JobSystem
             // Decrement counter if present
             if (jobPtr->CounterPtr)
             {
-                // Atomic decrement
-                u32 prev = jobPtr->CounterPtr->Value.fetch_sub(1);
-                if (prev == 1)
+                // Atomic decrement with Busy Bit logic (Bit 0 = Busy, Bits 1..31 = Count)
+                // We shift the count by 1.
+                u32 old = jobPtr->CounterPtr->Value.load();
+                while(true)
                 {
-                    // We hit zero. Wake up waiting fibers.
-                    // Lock-Free Stack Pop All
-                    Fiber* waitingFiber = jobPtr->CounterPtr->WaitingListHead.exchange(nullptr);
+                    // If Busy (Odd), we must wait for it to clear to avoid race conditions
+                    if ((old & 1) == 1)
+                    {
+                        _mm_pause();
+                        old = jobPtr->CounterPtr->Value.load();
+                        continue;
+                    }
+
+                    if (old < 2) break; // Should not happen if logic is correct (0 is free)
+
+                    if (old == 2) // Last job (Count 1 -> 0)
+                    {
+                        // Try to set Busy Bit (Value 1)
+                        if (jobPtr->CounterPtr->Value.compare_exchange_weak(old, 1)) break;
+                    }
+                    else // old > 2
+                    {
+                        // Decrement count by 1 (Value - 2)
+                        if (jobPtr->CounterPtr->Value.compare_exchange_weak(old, old - 2)) break;
+                    }
+                }
+
+                if (old == 2)
+                {
+                    // We hit zero count. Wake up waiting fibers.
+                    // Acquire Lock
+                    while (jobPtr->CounterPtr->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
+                    
+                    Fiber* waitingFiber = jobPtr->CounterPtr->WaitingListHead;
+                    jobPtr->CounterPtr->WaitingListHead = nullptr;
+                    
+                    jobPtr->CounterPtr->Lock.clear(std::memory_order_release);
+
                     while (waitingFiber)
                     {
                         Fiber* next = waitingFiber->NextWaiting;
@@ -142,17 +174,18 @@ namespace Luth::JobSystem
                         
                         waitingFiber = next;
                     }
+                    
+                    // Clear Busy Bit (Value 1 -> 0)
+                    jobPtr->CounterPtr->Value.fetch_sub(1);
                 }
             }
         }
 
+        // Mark as finished so the scheduler knows to free it
+        t_CurrentFiber->IsFinished = true;
+
         // Job Complete. Return to Scheduler.
         // We need to switch back to the "Scheduler Fiber" (which is usually the thread's main loop)
-        // BUT, in this architecture, the thread *is* the scheduler.
-        // So we mark this fiber as free and pick a new job.
-        
-        // For Phase 1.1, we will just switch back to the MainThreadFiber of this thread
-        // This is a simplification. Real workers stay in fibers.
         Fiber::SwitchTo(t_MainThreadFiber);
     }
 
@@ -194,37 +227,17 @@ namespace Luth::JobSystem
                 t_CurrentFiber = &t_MainThreadFiber; // Back from fiber
                 
                 // If the fiber finished (it switched back to us), we free it.
-                // BUT, if it yielded again, we don't free it.
-                // How do we know?
-                // In this simple model, FiberEntryPoint switches back to MainThreadFiber when done.
-                // If it yields, it switches back to MainThreadFiber too.
-                // We need a state on the fiber or return value.
+                if (readyFiber->IsFinished)
+                {
+                    delete (Job*)readyFiber->Args;
+                    FreeFiber(readyFiber);
+                }
+                else if (readyFiber->WaitCounter)
+                {
+                    // The fiber yielded because it's waiting.
+                    // It is already in the counter's wait list (added by WaitForCounter).
+                }
                 
-                // For now, let's assume if it returns here, it's either done or yielded.
-                // If it yielded, it's in a waiting list.
-                // If it's done, we should free it.
-                // We need a "IsFinished" flag on the fiber or similar.
-                // Or, the FiberEntryPoint calls FreeFiber itself? No, unsafe.
-                
-                // Let's assume for Phase 1.4 that fibers run to completion unless they wait.
-                // If they wait, they add themselves to a list and switch back.
-                // So if we are here, we don't know if it finished or waited.
-                
-                // FIX: We need to know if we should free the fiber.
-                // Let's add a bool to Fiber struct? Or check if it's in a wait list?
-                // Actually, the FiberEntryPoint handles the "Done" case by switching back.
-                // If it yields, it also switches back.
-                
-                // We will handle this by having the FiberEntryPoint mark itself as "Done" before switching back.
-                // But we can't access it after switching if we free it.
-                
-                // For now, let's just implement the "New Job" path correctly.
-                // Resuming fibers is tricky without a proper status flag.
-                // Let's assume for now that if we resume a fiber, it eventually finishes and we free it then.
-                // Wait, we only FreeFiber in the "New Job" path below.
-                // We need to FreeFiber here if it's done.
-                
-                // Let's skip freeing for resumed fibers for a moment and focus on the switch.
                 continue;
             }
 
@@ -246,89 +259,13 @@ namespace Luth::JobSystem
                 if (fiber)
                 {
                     // Setup Fiber
-                    // We can't easily reset the entry point of an existing Windows Fiber without recreating it
-                    // OR using a trampoline.
-                    // For Phase 1, we will assume the fiber is fresh or we use a trampoline.
-                    // Actually, Windows Fibers maintain their state. To reuse them, they must have yielded,
-                    // or we must delete/recreate them, OR they loop internally.
-                    
-                    // CORRECT APPROACH: The Fiber Function itself should be a loop:
-                    // void FiberLoop() { while(1) { Run(Job); Yield(); } }
-                    // But for now, let's just implement the switching mechanism.
-                    
-                    // TODO: Implement Fiber Reuse Strategy
-                    
-                    // Execute Job Inline for now to fix the hang (Phase 1.1)
-                    // We are not switching fibers yet because we haven't implemented the trampoline
-                    // WAIT: I am supposed to implement True Yielding now.
-                    // So I MUST use SwitchTo.
-                    
-                    // To use SwitchTo with a new job, we need to set the fiber's entry point or state.
-                    // Windows CreateFiber takes a function. We can't change it easily.
-                    // We MUST use a trampoline that pulls jobs from a thread-local slot.
-                    
-                    // Trampoline Logic:
-                    // 1. Set t_NextJob = job
-                    // 2. SwitchTo(fiber)
-                    // 3. Fiber reads t_NextJob, runs it.
-                    // 4. Fiber switches back to MainThreadFiber.
-                    
-                    // But we need to pass the job to the fiber.
-                    // We can use the fiber's user data, but CreateFiber sets it once.
-                    
-                    // Let's stick to the inline execution for the "New Job" path for this specific step
-                    // because implementing the full trampoline is a bigger task (Phase 1.5?).
-                    // The request is "True Fiber Yielding in WaitForCounter".
-                    // This means *when waiting*, we switch.
-                    
-                    // So, if we are running a job (inline or fiber), and we call WaitForCounter:
-                    // 1. We are in a fiber (or main thread).
-                    // 2. We switch to the Scheduler (MainThreadFiber).
-                    
-                    // If we are executing inline (on MainThreadFiber), we CANNOT switch to MainThreadFiber (we are already there).
-                    // So True Yielding REQUIRES running jobs in fibers first.
-                    
-                    // So I MUST implement running jobs in fibers now.
-                    
-                    // Hack for Windows Fibers: Delete and Recreate for now (Slow but correct).
-                    // Or use a global/thread-local variable to pass the job.
-                    
-                    // Let's use the "Args" pointer in Fiber struct, but we can't change what CreateFiber passed.
-                    // But we can cast 'fiber->Args' to a 'Job**' and update the pointed-to value? No.
-                    
-                    // We will use a thread-local "NextJob" variable.
-                    // t_NextJob = &job;
-                    // SwitchTo(fiber);
-                    
-                    // But the fiber needs to know to look there.
-                    // The fiber entry point needs to be generic.
-                    
-                    // Let's change CreateFiber to use a generic entry point.
-                    // But we pre-allocated them in Init().
-                    // We need to change Init() to use a generic entry point.
-                    
-                    // For this step, I will keep inline execution for "New Jobs" 
-                    // BUT implement the "WaitForCounter" switch.
-                    // Wait, if I run inline, I am on the thread stack.
-                    // If I call WaitForCounter, and I try to SwitchTo(MainThreadFiber), I am switching to myself. Crash/No-op.
-                    
-                    // So: To support WaitForCounter yielding, I MUST run the job in a fiber.
-                    
-                    // Okay, I will implement the "Delete/Create" strategy for now.
-                    // It's slow but safe and allows me to pass the job args.
-                    // We will optimize to a Trampoline later.
-                    
-                    // Actually, Fiber::Create calls CreateFiber.
-                    // So I can just destroy the old fiber and create a new one with the new job args.
-                    
-                    // 1. Destroy the fiber from the pool (if it exists).
-                    // 2. Create a new one with the job entry point.
-                    // 3. Switch to it.
-                    
+                    // Destroy old fiber handle if it exists to reset stack/registers
                     if (fiber->Handle) Fiber::Destroy(*fiber);
                     
                     // Allocate job on heap to pass safely to fiber
                     Job* heapJob = new Job(job);
+                    
+                    // Use Move Assignment for Fiber
                     *fiber = Fiber::Create(FiberEntryPoint, heapJob);
                     
                     t_CurrentFiber = fiber;
@@ -336,43 +273,20 @@ namespace Luth::JobSystem
                     t_CurrentFiber = &t_MainThreadFiber;
                     
                     // Cleanup
-                    delete heapJob;
+                    // NOTE: We do NOT delete heapJob here blindly.
+                    // If the fiber yielded, heapJob must remain valid.
                     
                     // If the fiber finished, we free it.
-                    // If it yielded, it's in a list.
-                    // How do we know?
-                    // We can check if the fiber is in the ReadyList or WaitingList? No.
-                    // We can add a "State" to the Fiber struct.
-                    
-                    // Let's add a simple hack:
-                    // If the job finished, the counter (if any) is decremented.
-                    // But we don't know if *this* fiber finished.
-                    
-                    // Let's assume for this step that we ONLY support yielding on the Main Thread for now?
-                    // No, the requirement is "True Fiber Yielding".
-                    
-                    // Okay, I will implement the "Ready List" logic fully.
-                    // And I will use the heap allocation for jobs.
-                    
-                    // If the fiber returns, it is DONE.
-                    // If it yields, it calls SwitchTo, so it DOES NOT return here yet.
-                    // It returns here only when it is switched back to.
-                    
-                    // So if SwitchTo returns, it means the fiber yielded back to us.
-                    // But did it yield because it's done, or because it's waiting?
-                    // FiberEntryPoint calls SwitchTo when done.
-                    // WaitForCounter calls SwitchTo when waiting.
-                    
-                    // We need a flag "IsWaiting" on the fiber.
-                    
-                    FreeFiber(fiber); // Only if done.
+                    if (fiber->IsFinished)
+                    {
+                        delete (Job*)fiber->Args;
+                        FreeFiber(fiber);
+                    }
                 }
             }
             else
             {
                 // Sleep / Yield
-                // std::this_thread::yield(); // BUSY WAIT CAUSES 100% CPU
-                
                 // Better wait strategy for idle workers
                 std::unique_lock<std::mutex> lock(s_Data.GlobalQueueMutex);
                 s_Data.WakeCondition.wait(lock, []{ return !s_Data.GlobalQueue.empty() || !s_Data.Running; });
@@ -394,10 +308,6 @@ namespace Luth::JobSystem
         s_Data.FiberPool.resize(1024); // 1024 fibers
         for (u32 i = 0; i < 1024; ++i)
         {
-            // We don't create the OS fiber yet, we do it on demand or here
-            // Let's create them here for simplicity
-            // NOTE: CreateFiber requires a function. We need a generic trampoline.
-            // s_Data.FiberPool[i] = Fiber::Create(FiberTrampoline, &s_Data.FiberPool[i]);
             s_Data.FreeFibers.push_back(i);
         }
 
@@ -441,7 +351,7 @@ namespace Luth::JobSystem
 
     void Execute(JobFunction function, void* data, Counter* counter)
     {
-        if (counter) counter->Value.fetch_add(1);
+        if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1)
 
         Job job;
         job.Function = function;
@@ -463,7 +373,7 @@ namespace Luth::JobSystem
 
         u32 groupCount = (jobCount + groupSize - 1) / groupSize;
         
-        if (counter) counter->Value.fetch_add(groupCount);
+        if (counter) counter->Value.fetch_add(groupCount << 1); // Add groupCount (shifted by 1)
 
         {
             std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
@@ -485,12 +395,17 @@ namespace Luth::JobSystem
     {
         if (!counter) return;
 
+        u32 target = targetValue << 1;
+
         // Check if we are in a fiber or main thread
         // If main thread (and not converted to fiber yet properly), we must busy wait/help
         if (t_CurrentFiber == &t_MainThreadFiber)
         {
-             while (counter->Value.load() > targetValue)
+             while (true)
             {
+                u32 v = counter->Value.load();
+                if (v <= target && (v & 1) == 0) return;
+
                 // Try to help (run local jobs)
                 Job job;
                 bool found = false;
@@ -511,10 +426,25 @@ namespace Luth::JobSystem
                     
                     if (job.CounterPtr)
                     {
-                         u32 prev = job.CounterPtr->Value.fetch_sub(1);
-                         if (prev == 1)
-                         {
-                             Fiber* waitingFiber = job.CounterPtr->WaitingListHead.exchange(nullptr);
+                        // Inline decrement logic (same as FiberEntryPoint)
+                        u32 old = job.CounterPtr->Value.load();
+                        while(true)
+                        {
+                            if ((old & 1) == 1) { _mm_pause(); old = job.CounterPtr->Value.load(); continue; }
+                            if (old < 2) break;
+                            if (old == 2) { if (job.CounterPtr->Value.compare_exchange_weak(old, 1)) break; }
+                            else { if (job.CounterPtr->Value.compare_exchange_weak(old, old - 2)) break; }
+                        }
+
+                        if (old == 2)
+                        {
+                             while (job.CounterPtr->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
+                             
+                             Fiber* waitingFiber = job.CounterPtr->WaitingListHead;
+                             job.CounterPtr->WaitingListHead = nullptr;
+                             
+                             job.CounterPtr->Lock.clear(std::memory_order_release);
+
                              while (waitingFiber)
                              {
                                  Fiber* next = waitingFiber->NextWaiting;
@@ -525,7 +455,8 @@ namespace Luth::JobSystem
                                  s_Data.WakeCondition.notify_one();
                                  waitingFiber = next;
                              }
-                         }
+                             job.CounterPtr->Value.fetch_sub(1);
+                        }
                     }
                 }
                 else
@@ -537,17 +468,49 @@ namespace Luth::JobSystem
         }
 
         // We are in a worker fiber. Yield!
-        if (counter->Value.load() > targetValue)
+        while (true)
         {
-            // Add to wait list
-            Fiber* head = counter->WaitingListHead.load();
-            do
+            u32 v = counter->Value.load();
+            if (v <= target && (v & 1) == 0) return;
+
+            // If Busy, wait for it to clear
+            if ((v & 1) == 1)
             {
-                t_CurrentFiber->NextWaiting = head;
-            } while (!counter->WaitingListHead.compare_exchange_weak(head, t_CurrentFiber));
+                std::this_thread::yield();
+                continue;
+            }
+
+            // Add to wait list (Protected by SpinLock)
+            while (counter->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
             
+            // Double check value inside lock
+            v = counter->Value.load();
+            if (v <= target && (v & 1) == 0)
+            {
+                counter->Lock.clear(std::memory_order_release);
+                return;
+            }
+            
+            // If Busy, we must back off because the decrementer might have already grabbed the list
+            if ((v & 1) == 1)
+            {
+                counter->Lock.clear(std::memory_order_release);
+                std::this_thread::yield();
+                continue;
+            }
+
+            t_CurrentFiber->NextWaiting = counter->WaitingListHead;
+            counter->WaitingListHead = t_CurrentFiber;
+            
+            counter->Lock.clear(std::memory_order_release);
+
+            // Set wait state
+            t_CurrentFiber->WaitCounter = counter;
+            t_CurrentFiber->WaitTarget = targetValue;
+
             // Switch back to scheduler
             Fiber::SwitchTo(t_MainThreadFiber);
+            return; // Resumed
         }
     }
 
