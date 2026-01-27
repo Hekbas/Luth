@@ -61,8 +61,9 @@ continue;
 **Data Structure: `AtomicCounter`**
 * Replaces `std::atomic<int>`.
 * Contains:
-  * `std::atomic<uint32_t> value`
-  * `std::atomic<Fiber*> waitingListHead` (Lock-free stack of fibers waiting for this counter).
+  * `std::atomic<uint32_t> value` (Bits 1-31: Count, Bit 0: Busy Flag)
+  * `std::atomic_flag Lock` (SpinLock for WaitingListHead)
+  * `Fiber* waitingListHead` (Stack of fibers waiting for this counter).
 
 ### 2.2. The "Help-First" Wait Strategy (Stack Safe)
 * **Context:** When `WaitForCounter(C)` is called, the fiber cannot proceed until `C == 0`.

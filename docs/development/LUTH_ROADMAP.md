@@ -18,10 +18,11 @@
 
 ### 1.2. Atomic Counter & Wait List
 - [x] **Data Structure:** Create struct `AtomicCounter`.
-    * `std::atomic<uint32_t> value`
-    * `std::atomic<Fiber*> waitingListHead` (Lock-Free Stack).
+    * `std::atomic<uint32_t> value` (Bits 1-31: Count, Bit 0: Busy Flag)
+    * `std::atomic_flag Lock` (SpinLock for WaitingListHead)
+    * `Fiber* waitingListHead` (Stack of fibers waiting for this counter).
 - [x] **Mechanism:** Implement `AddDependency(AtomicCounter* c, Fiber* f)`.
-    * Use CAS (Compare-And-Swap) to push the fiber onto the `waitingListHead` of the counter.
+    * Use SpinLock to push the fiber onto the `waitingListHead` of the counter.
 - [x] **Verification:** Write a unit test where Fiber A waits on Fiber B. Ensure Fiber A is not scheduled until Fiber B finishes.
 
 ### 1.3. Scheduler (Hybrid Queues)
@@ -97,31 +98,33 @@ struct FrameContext {
 ## Phase 4: Synchronization & The Render Graph
 *Goal: Automatic barrier generation and async compute.*
 
-### 4.1. The Graph Data Model
+### 4.1. The Graph Core (API & Data)
 - [ ] **Structs:**
-    * `RGResource`: Logical handle (Texture/Buffer).
-    * `RGPass`: Contains read list, write list, and execution lambda.
-- [ ] **Builder:** `RGBuilder::Read(handle)`, `RGBuilder::Write(handle)`.
+    * `RGResourceHandle`: Versioned integer handle.
+    * `RGPass`: Contains `Setup` (lambda) and `Execute` (lambda).
+- [ ] **Builder:** `RGBuilder::Read(handle)`, `RGBuilder::Write(handle)`, `RGBuilder::Create(desc)`.
+- [ ] **Registry:** `RenderGraph` class to store passes and resources.
 
-### 4.2. The Compiler (Topological Sort)
-- [ ] **Algorithm:**
-    1.  Filter out passes with no side effects (culling).
-    2.  Sort passes based on dependencies.
-    3.  Calculate resource lifetimes (first usage, last usage).
+### 4.2. The Compiler (Logic)
+- [ ] **Culling:** Remove passes that do not contribute to the backbuffer (or imported resources).
+- [ ] **Sort:** Topological sort (linearize dependency graph).
+- [ ] **Lifetimes:** Calculate `FirstUsage` and `LastUsage` for transient resource memory management.
 
-### 4.3. Barrier Solver
-- [ ] **Logic:**
-    * Iterate the sorted pass list.
-    * Track current state of every resource (e.g., `Undefined`).
-    * If Pass A writes (`ColorTarget`) and Pass B reads (`ShaderResource`):
-        * Inject `VkImageMemoryBarrier2` between A and B.
-        * Transition: `COLOR_ATTACHMENT_OPTIMAL` -> `SHADER_READ_ONLY_OPTIMAL`.
+### 4.3. Resource Management (Physical)
+- [ ] **Import:** `ImportResource(VkImage)` for Swapchain/External images.
+- [ ] **Creation:** `CreateResource(Desc)` for transient buffers (GBuffer, etc.).
+- [ ] **Pooling:** Simple reuse pool for transient `VkImage`s to avoid per-frame allocation overhead.
 
-### 4.4. Timeline Semaphore Integration
-- [ ] **Sync:**
-    * Create global TimelineSemaphore `gpuTimeline`.
-    * **On Submit:** `signal(gpuTimeline, frameId)`.
-    * **On CPU Wait:** `WaitForGPU(frameId)` -> Fiber yields if `gpuTimeline < frameId`.
+### 4.4. Barrier Solver (Synchronization)
+- [ ] **State Tracking:** Track `Layout`, `Access`, `Stage` for every resource.
+- [ ] **Injection:** Insert `VkImageMemoryBarrier2` when state transitions are required between passes.
+- [ ] **Batching:** Merge barriers into a single `vkCmdPipelineBarrier2` call per transition point.
+
+### 4.5. The Executor (Fiber Integration)
+- [ ] **Job Spawning:** Iterate sorted passes.
+    *   Spawn `RenderPassJob` for each pass (records to Secondary Command Buffer).
+    *   Use `AtomicCounter` for dependencies if parallel recording is enabled.
+- [ ] **Submission:** Execute all Secondary Buffers into a Primary Buffer and submit to `GraphicsQueue`.
 
  ---
 
