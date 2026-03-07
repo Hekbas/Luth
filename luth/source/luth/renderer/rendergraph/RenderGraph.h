@@ -31,13 +31,18 @@ namespace Luth::RG
         ResourceHandle Read(ResourceHandle resource);
         ResourceHandle ReadTransfer(ResourceHandle resource); // New: For Blit/Copy source
         
-        // Standard Write (Render Target)
-        // Optionally specify load/store ops and clear value
+        // Standard Write (Color Target)
         ResourceHandle Write(ResourceHandle resource, 
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
                              VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE, 
                              VkClearValue clearValue = {});
         
+        // Depth Write (Depth Target)
+        ResourceHandle WriteDepth(ResourceHandle resource, 
+                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
+                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE, 
+                             VkClearValue clearValue = {});
+
         // Transfer Write (Clear/Copy)
         ResourceHandle WriteTransfer(ResourceHandle resource);
 

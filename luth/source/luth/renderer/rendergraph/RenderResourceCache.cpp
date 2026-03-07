@@ -2,6 +2,7 @@
 #include "RenderResourceCache.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/core/Log.h"
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth::RG
@@ -48,7 +49,6 @@ namespace Luth::RG
         // Find in pool
         for (auto it = m_Pool.begin(); it != m_Pool.end(); ++it)
         {
-            // Simple matching logic. In production, might want to check usage flags too if they vary.
             if (it->desc.width == desc.width &&
                 it->desc.height == desc.height &&
                 it->desc.format == desc.format)
@@ -61,6 +61,8 @@ namespace Luth::RG
         }
 
         // Create new if not found
+        LH_CORE_WARN("Allocating new transient texture: {0} ({1}x{2})", desc.name, desc.width, desc.height);
+        
         PooledResource res;
         res.desc = desc;
         res.lastUsedFrame = m_FrameIndex;
@@ -76,6 +78,7 @@ namespace Luth::RG
 
         // Map format
         if (desc.format == TextureFormat::RGBA8_Unorm) imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        else if (desc.format == TextureFormat::BGRA8_Unorm) imageInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
         else if (desc.format == TextureFormat::D32_Float) imageInfo.format = VK_FORMAT_D32_SFLOAT;
         else if (desc.format == TextureFormat::D24_Unorm_S8_Uint) imageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
         else imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // Fallback

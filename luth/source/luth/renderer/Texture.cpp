@@ -1,15 +1,15 @@
-#include "Luthpch.h"
+#include "luthpch.h"
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/RendererAPI.h"
+#include "luth/renderer/RenderBackend.h"
 
 namespace Luth
 {
     std::shared_ptr<Texture> Texture::Create(const fs::path& path)
     {
-        switch (Renderer::GetAPI()) {
-            case RendererAPI::API::Vulkan: return std::make_shared<VKTexture>(path);
+        switch (Renderer::GetBackend()->GetAPI()) {
+            case RenderBackend::API::Vulkan: return std::make_shared<VKTexture>(path);
             default:
                 LH_CORE_ASSERT(false, "Unknown renderer API!");
                 return nullptr;
@@ -23,8 +23,8 @@ namespace Luth
             return nullptr;
         }
 
-        switch (Renderer::GetAPI()) {
-            case RendererAPI::API::Vulkan: return std::make_shared<VKTexture>(width, height, format, data);
+        switch (Renderer::GetBackend()->GetAPI()) {
+            case RenderBackend::API::Vulkan: return std::make_shared<VKTexture>(width, height, format, data);
             default:
                 LH_CORE_ASSERT(false, "Unknown renderer API!");
                 return nullptr;

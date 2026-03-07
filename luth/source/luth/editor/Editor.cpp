@@ -4,10 +4,11 @@
 #include "luth/ECS/Systems.h"
 #include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/RenderBackend.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/renderer/backend/vulkan/VKRendererAPI.h"
+#include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
@@ -47,13 +48,13 @@ namespace Luth
         #endif
         
         // TODO: Set Render specific Imgui Backends (GL/VK)
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
             // We install callbacks manually in WinWindow to handle event routing
             ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)window->GetNativeWindow(), false);
 
             auto& ctx = VulkanContext::Get();
-            auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI()); // Need access to swapchain info
+            auto* vkRenderer = static_cast<VulkanBackend*>(Renderer::GetBackend()); // Need access to swapchain info
 
             ImGui_ImplVulkan_InitInfo init_info = {};
             init_info.Instance = ctx.GetInstance();
@@ -120,7 +121,7 @@ namespace Luth
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
         s_Panels.clear();
 
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             ImGui_ImplVulkan_Shutdown();
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
@@ -132,7 +133,7 @@ namespace Luth
 
     void Editor::BeginFrame()
     {
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
@@ -143,7 +144,7 @@ namespace Luth
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan) {
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             ImGui::Render();
             
             // [ARCHITECTURAL DEBT] Phase 1 Bootstrap
@@ -151,26 +152,9 @@ namespace Luth
             // ImGui rendering must be moved to an 'ImGuiPass' in the RenderGraph.
             // This current implementation bypasses the graph to verify the JobSystem/Windowing.
             
-            auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
-            VkCommandBuffer cmd = vkRenderer->GetCurrentCommandBuffer();
-            
-            VkRenderingAttachmentInfo colorAttachment{};
-            colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            colorAttachment.imageView = vkRenderer->GetSwapchain().GetImageView(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
-            colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // Load existing content (scene)
-            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            
-            VkRenderingInfo renderingInfo{};
-            renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            renderingInfo.renderArea = { {0, 0}, {vkRenderer->GetSwapchain().GetExtent().width, vkRenderer->GetSwapchain().GetExtent().height} };
-            renderingInfo.layerCount = 1;
-            renderingInfo.colorAttachmentCount = 1;
-            renderingInfo.pColorAttachments = &colorAttachment;
-            
-            vkCmdBeginRendering(cmd, &renderingInfo);
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-            vkCmdEndRendering(cmd);
+            // NOTE: We removed the immediate rendering here because it's now handled by RenderingSystem::AddImGuiPass
+            // inside the RenderGraph execution.
+            // So Editor::EndFrame just finalizes the ImGui frame data.
         }
     }
 

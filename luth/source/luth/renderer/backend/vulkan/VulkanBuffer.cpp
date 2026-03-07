@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "VulkanBuffer.h"
 #include "VulkanContext.h"
+#include "VulkanAllocator.h" // Added include
 
 // We need VMA enums here
 #include <vma/vk_mem_alloc.h>

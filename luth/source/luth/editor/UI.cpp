@@ -4,7 +4,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/RendererAPI.h"
+#include "luth/renderer/RenderBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/utils/LuthIcons.h"
@@ -274,7 +274,7 @@ namespace Luth::UI
     {
         if (!texture) return 0;
 
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
             // Simple cache for ImGui Descriptors
             // Key: Texture Pointer (void*), Value: { DescriptorSet, WeakPtr }

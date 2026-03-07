@@ -27,6 +27,7 @@ namespace Luth
         
         VkRect2D RenderArea = {};
         u32 LayerCount = 1;
+        VkRenderingFlags Flags = 0; // Added Flags
     };
 
     class DynamicRendering
@@ -77,6 +78,7 @@ namespace Luth
 
             VkRenderingInfo renderingInfo{};
             renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            renderingInfo.flags = info.Flags; // Use flags
             renderingInfo.renderArea = info.RenderArea;
             renderingInfo.layerCount = info.LayerCount;
             renderingInfo.colorAttachmentCount = (u32)colorInfos.size();

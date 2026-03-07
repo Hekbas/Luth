@@ -6,7 +6,7 @@
 #include "luth/core/Profiler.h"
 #include "luth/ECS/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/backend/vulkan/VKRendererAPI.h"
+#include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
@@ -27,7 +27,7 @@ namespace Luth
         // Initialize Frame Allocator (1MB should be enough for command lists for now)
         m_FrameAllocator = std::make_unique<LinearAllocator>(1 * Memory::MB);
 
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
             // Create Scene Color Texture
             m_SceneColor = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
@@ -224,11 +224,8 @@ void main() {
         // -----------------------------------------------------------------
         // Render Graph Test (Proof of Concept)
         // -----------------------------------------------------------------
-        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            if (!Renderer::BeginFrame())
-                return;
-
             UpdateGlobalUniforms();
 
             RG::RenderGraph rg(*m_FrameAllocator);
@@ -238,7 +235,6 @@ void main() {
 
             rg.Compile();
             Renderer::ExecuteGraph(rg);
-            Renderer::EndFrame();
             
             return;
         }
@@ -262,11 +258,6 @@ void main() {
                 desc.height = m_SceneColor->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
                 
-                // We create a new transient resource for the scene color
-                // The m_SceneColor member is just a placeholder for size/format now
-                // Actually, we want to output to a texture that we can display in ImGui
-                // For now, let's use a transient one and assume ImGui pass consumes it
-                
                 data.outputTex = builder.CreateTexture(desc);
 
                 RG::TextureDesc depthDesc;
@@ -277,8 +268,7 @@ void main() {
 
                 data.depthTex = builder.CreateTexture(depthDesc);
                 
-                // Declare writes (Render Targets)
-                data.depthTex = builder.Write(data.depthTex);
+                data.depthTex = builder.WriteDepth(data.depthTex); // Use WriteDepth
                 data.outputTex = builder.Write(data.outputTex);
                 
                 outputHandle = data.outputTex;
@@ -287,10 +277,6 @@ void main() {
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 
-                // We don't need to do BeginRendering here anymore!
-                // The RenderGraph Executor handles it via Dynamic Rendering inheritance.
-                // We just bind pipeline and draw.
-
                 m_TrianglePipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 0, 1, &m_GlobalDescriptorSet, 0, nullptr);
@@ -298,7 +284,6 @@ void main() {
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_TrianglePipeline->GetLayout(), 1, 1, &bindlessSet, 0, nullptr);
 
-                // Viewport/Scissor are dynamic state
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
                 
                 VkViewport viewport{};
@@ -327,9 +312,8 @@ void main() {
                     
                     ObjectPushConstants pc{};
                     pc.modelMatrix = worldTransform.Matrix;
-                    pc.albedoMapIndex = 0; // Default to 0 (white texture usually)
+                    pc.albedoMapIndex = 0; 
 
-                    // Get Material
                     if (meshRenderer.MaterialUUID.IsValid())
                     {
                         auto material = AssetManager::GetAsset<Material>(meshRenderer.MaterialUUID);
@@ -366,15 +350,30 @@ void main() {
         rg.AddPass<ImGuiPassData>("ImGuiPass",
             [&](ImGuiPassData& data, RG::RenderPassBuilder& builder)
             {
-                auto* vkRenderer = static_cast<VKRendererAPI*>(Renderer::GetRendererAPI());
+                auto* vkRenderer = static_cast<VulkanBackend*>(Renderer::GetBackend());
                 VkImage swapchainImage = vkRenderer->GetSwapchain().GetImage(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
                 VkImageView swapchainView = vkRenderer->GetSwapchain().GetImageView(vkRenderer->GetSwapchain().GetCurrentFrameIndex());
+                VkFormat swapchainFormat = vkRenderer->GetSwapchain().GetImageFormat(); // Get actual format
 
                 RG::TextureDesc desc;
                 desc.name = "Backbuffer";
                 desc.width = vkRenderer->GetSwapchain().GetExtent().width;
                 desc.height = vkRenderer->GetSwapchain().GetExtent().height;
-                desc.format = RG::TextureFormat::RGBA8_Unorm;
+                
+                // Map Vulkan format to TextureFormat
+                // This is a bit hacky, we should probably store VkFormat in TextureDesc if we want full flexibility
+                // But for now, let's assume RGBA8_Unorm maps to whatever the swapchain is if we handle it in RenderGraph
+                // OR we add a new format enum for Swapchain?
+                // Let's stick to RGBA8_Unorm but ensure RenderGraph knows how to handle it.
+                // Actually, RenderGraph uses TextureFormat to determine VkFormat.
+                // If we pass RGBA8_Unorm, RenderGraph uses VK_FORMAT_R8G8B8A8_UNORM.
+                // But Swapchain is B8G8R8A8_UNORM.
+                // So we need to tell RenderGraph the correct format.
+                // We need to add BGRA8 to TextureFormat.
+                
+                // For now, I will assume RenderGraph has been updated to handle this or I will update RenderGraphResources.h
+                // Let's update RenderGraphResources.h to include BGRA8_Unorm.
+                desc.format = RG::TextureFormat::BGRA8_Unorm;
                 
                 data.backbuffer = rg.ImportResource(desc, 
                     (void*)swapchainImage, 
@@ -391,20 +390,7 @@ void main() {
             [&](ImGuiPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                
-                // ImGui Pass is also a Render Pass, so we don't need BeginRendering
-                // BUT ImGui_ImplVulkan_RenderDrawData expects to be inside a render pass.
-                // Since we are using dynamic rendering inheritance, it should work if ImGui is configured correctly.
-                // Note: ImGui_ImplVulkan_InitInfo needs check_vk_result etc.
-                // And we need to ensure ImGui knows we are using dynamic rendering.
-                
-                // For now, just draw.
                 ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-                
-                // Note: We need to update the ScenePanel with the texture ID from the graph
-                // This is tricky because the texture ID changes every frame (transient).
-                // We need a way to pass the descriptor set to ImGui.
-                // For this test, we skip displaying the scene texture in the panel and just render the UI.
             }
         );
     }
@@ -413,7 +399,6 @@ void main() {
     {
         if (m_SceneColor && width > 0 && height > 0)
         {
-            // Recreate texture
             m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA8);
         }
     }

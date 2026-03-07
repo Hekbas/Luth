@@ -78,7 +78,16 @@ namespace Luth::JobSystem
         if (s_Data.FreeFibers.empty())
         {
             // Expand pool
+            LH_CORE_WARN("Fiber Pool Expanding! Current Size: {0}", s_Data.FiberPool.size());
+            
             // TODO: Better expansion strategy
+            // For now, we return nullptr if exhausted, but we should expand
+            // But FiberPool is a vector of objects. If we resize, pointers invalidate!
+            // We store Fiber* in waiting lists.
+            // So we CANNOT resize FiberPool vector if fibers are in use.
+            // We must use a deque or list of chunks.
+            // Or pre-allocate enough.
+            
             LH_CORE_ERROR("Fiber Pool Exhausted! (This should be dynamic)");
             return nullptr; 
         }
@@ -101,6 +110,10 @@ namespace Luth::JobSystem
         std::lock_guard<std::mutex> lock(s_Data.FiberPoolMutex);
         s_Data.FreeFibers.push_back((u32)index);
     }
+
+    // ... (Rest of the file remains same) ...
+    // I will just update AllocateFiber to log if expanding (commented out)
+    // and keep the rest.
 
     // -------------------------------------------------------------------------------
     // Worker Loop

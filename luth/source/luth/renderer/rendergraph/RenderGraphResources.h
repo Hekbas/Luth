@@ -29,6 +29,7 @@ namespace Luth::RG
     enum class TextureFormat
     {
         RGBA8_Unorm,
+        BGRA8_Unorm, // Added for Swapchain
         D32_Float,
         D24_Unorm_S8_Uint,
         // Add more as needed

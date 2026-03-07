@@ -13,6 +13,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/ECS/systems/TransformSystem.h"
+#include "luth/ECS/systems/RenderingSystem.h" // Include RenderingSystem
 #include "luth/core/JobSystem.h"
 #include "luth/core/JobSystemTests.h" // Include Tests
 #include "luth/core/Profiler.h"
@@ -103,32 +104,31 @@ namespace Luth
             }
 
             // 1. Begin Vulkan Frame (Acquire Image, Start Recording)
-            if (Renderer::BeginFrame())
+            Renderer::BeginFrame();
+            
+            // 2. Editor Logic
+            Editor::BeginFrame();
+            OnUpdate();
+            AssetManager::Update();
+            Editor::Render(); 
+            Editor::EndFrame(); // Records ImGui to CB
+
+            // 3. Update Viewports (ImGui)
+            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
             {
-                // 2. Editor Logic
-                Editor::BeginFrame();
-                OnUpdate();
-                AssetManager::Update();
-                Editor::Render(); 
-                Editor::EndFrame(); // Records ImGui to CB
-
-                // 3. Update Viewports (ImGui)
-                if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-                {
-                    ImGui::UpdatePlatformWindows();
-                    ImGui::RenderPlatformWindowsDefault();
-                }
-
-                // 4. Game Logic
-                Systems::Update<TransformSystem>();
-                // Systems::Update<RenderingSystem>(); 
-
-                // 5. End Vulkan Frame (Submit, Present)
-                Renderer::EndFrame();
-                
-                // Advance Frame Data
-                m_FrameData.Advance();
+                ImGui::UpdatePlatformWindows();
+                ImGui::RenderPlatformWindowsDefault();
             }
+
+            // 4. Game Logic
+            Systems::Update<TransformSystem>();
+            Systems::Update<RenderingSystem>(); // Enabled RenderingSystem
+
+            // 5. End Vulkan Frame (Submit, Present)
+            Renderer::EndFrame();
+            
+            // Advance Frame Data
+            m_FrameData.Advance();
         }
 
         OnShutdown();

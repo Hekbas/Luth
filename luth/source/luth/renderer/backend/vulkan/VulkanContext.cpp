@@ -227,7 +227,7 @@ namespace Luth
 
         std::vector<const char*> deviceExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            // VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME // Promoted to core in 1.3
+            VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME // Enabled for ImGui compatibility
         };
 
         createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());

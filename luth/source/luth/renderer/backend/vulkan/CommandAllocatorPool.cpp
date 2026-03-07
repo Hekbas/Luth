@@ -61,10 +61,6 @@ namespace Luth
         for (CommandAllocator* allocator : m_AllAllocators)
         {
             allocator->Reset();
-            // Ensure all allocators are marked as available after reset?
-            // No, ResetAll is called when the frame is done.
-            // All allocators should have been released by then.
-            // We should assert if m_AvailableAllocators.size() != m_AllAllocators.size()
         }
         
         // Reset availability just in case (though logic should ensure they are returned)
@@ -73,6 +69,8 @@ namespace Luth
 
     CommandAllocator* CommandAllocatorPool::CreateAllocator()
     {
+        LH_CORE_WARN("Creating new Command Allocator. Total: {0}", m_AllAllocators.size() + 1);
+
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT; // Hint that buffers are short-lived

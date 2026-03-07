@@ -60,6 +60,9 @@ namespace Luth
 
         VmaAllocation allocation;
         vmaCreateImage(s_Data->allocator, &imageInfo, &allocInfo, &outImage, &allocation, nullptr);
+        
+        LH_CORE_TRACE("VMA Alloc Image: {0}x{1}", imageInfo.extent.width, imageInfo.extent.height);
+        
         return allocation;
     }
 
@@ -68,6 +71,7 @@ namespace Luth
     }
 
     void VulkanAllocator::FreeImage(VkImage image, VmaAllocation allocation) {
+        LH_CORE_TRACE("VMA Free Image");
         vmaDestroyImage(s_Data->allocator, image, allocation);
     }
 

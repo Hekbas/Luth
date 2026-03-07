@@ -1,7 +1,8 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/renderer/RendererAPI.h"
+#include "luth/renderer/RenderBackend.h"
+#include "luth/core/FrameData.h"
 
 #include <memory>
 
@@ -15,16 +16,18 @@ namespace Luth
         static void Init(void* windowHandle);
         static void Shutdown();
 
-        static bool BeginFrame();
+        // New Frame Logic
+        static void BeginFrame();
         static void EndFrame();
         
         static void ExecuteGraph(RG::RenderGraph& graph);
         static void OnResize(u32 width, u32 height);
 
-        static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
-        static RendererAPI* GetRendererAPI() { return s_RendererAPI.get(); }
+        static RenderBackend* GetBackend() { return s_Backend.get(); }
+        static FrameContext& GetCurrentFrame() { return s_FrameData.GetCurrentFrame(); }
 
     private:
-        static std::unique_ptr<RendererAPI> s_RendererAPI;
+        static std::unique_ptr<RenderBackend> s_Backend;
+        static FrameData s_FrameData;
     };
 }

@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/Buffer.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/RenderBackend.h"
 
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 
@@ -122,46 +123,46 @@ namespace Luth
     // Vertex Buffer
     std::shared_ptr<VertexBuffer> VertexBuffer::Create(uint32_t size)
     {
-        switch (Renderer::GetAPI())
+        switch (Renderer::GetBackend()->GetAPI())
         {
-            case RendererAPI::API::None:
-                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
+            case RenderBackend::API::None:
+                LH_CORE_ASSERT(false, "RenderBackend::API::None is not supported!");
                 return nullptr;
 
-            case RendererAPI::API::Vulkan:
+            case RenderBackend::API::Vulkan:
                 return std::make_shared<VKVertexBuffer>(size);
         }
 
-        LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+        LH_CORE_ASSERT(false, "Unknown RenderBackend!");
         return nullptr;
     }
 
     std::shared_ptr<VertexBuffer> VertexBuffer::Create(const void* data, uint32_t size)
     {
-        switch (Renderer::GetAPI())
+        switch (Renderer::GetBackend()->GetAPI())
         {
-            case RendererAPI::API::None:
-                LH_CORE_ASSERT(false, "RendererAPI::None is not supported!");
+            case RenderBackend::API::None:
+                LH_CORE_ASSERT(false, "RenderBackend::API::None is not supported!");
                 return nullptr;
 
-            case RendererAPI::API::Vulkan:
+            case RenderBackend::API::Vulkan:
                 return std::make_shared<VKVertexBuffer>(data, size);
         }
 
-        LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+        LH_CORE_ASSERT(false, "Unknown RenderBackend!");
         return nullptr;
     }
 
     // Index Buffer
     std::shared_ptr<IndexBuffer> IndexBuffer::Create(const uint32_t* indices, uint32_t count)
     {
-        switch (Renderer::GetAPI())
+        switch (Renderer::GetBackend()->GetAPI())
         {
-            case RendererAPI::API::Vulkan:
+            case RenderBackend::API::Vulkan:
                 return std::make_shared<VKIndexBuffer>(indices, count);
 
             default:
-                LH_CORE_ASSERT(false, "Unknown RendererAPI!");
+                LH_CORE_ASSERT(false, "Unknown RenderBackend!");
                 return nullptr;
         }
     }
