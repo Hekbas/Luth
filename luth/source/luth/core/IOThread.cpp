@@ -39,6 +39,44 @@ namespace Luth
         s_WakeCondition.notify_one();
     }
 
+    // -------------------------------------------------------------------------------
+    // Static callback job data — avoids new/delete in the dispatch path.
+    // Uses a simple ring of pre-allocated slots.
+    // -------------------------------------------------------------------------------
+
+    static constexpr u32 MAX_IO_CALLBACKS = 64;
+
+    struct IOCallbackSlot
+    {
+        std::function<void(std::vector<u8>)> Callback;
+        std::vector<u8> Data;
+        std::atomic<bool> InUse = false;
+    };
+
+    static IOCallbackSlot s_CallbackSlots[MAX_IO_CALLBACKS];
+    static std::atomic<u32> s_NextSlot = 0;
+
+    static IOCallbackSlot* AcquireSlot()
+    {
+        for (u32 attempt = 0; attempt < MAX_IO_CALLBACKS; ++attempt)
+        {
+            u32 idx = s_NextSlot.fetch_add(1, std::memory_order_relaxed) % MAX_IO_CALLBACKS;
+            bool expected = false;
+            if (s_CallbackSlots[idx].InUse.compare_exchange_strong(expected, true))
+                return &s_CallbackSlots[idx];
+        }
+        return nullptr; // All slots busy — caller should handle
+    }
+
+    static void IOCallbackJob(JobSystem::JobArgs args)
+    {
+        IOCallbackSlot* slot = (IOCallbackSlot*)args.data;
+        slot->Callback(std::move(slot->Data));
+        slot->Callback = nullptr;
+        slot->Data.clear();
+        slot->InUse.store(false, std::memory_order_release);
+    }
+
     void IOThread::ThreadEntryPoint()
     {
         LH_PROFILE_THREAD("IO Thread");
@@ -65,54 +103,34 @@ namespace Luth
             if (found)
             {
                 LH_PROFILE_SCOPE("IO Read");
-                // Blocking Read
+
+                // Read file (blocking — that's fine, we're on a dedicated OS thread)
                 std::ifstream file(req.Path, std::ios::ate | std::ios::binary);
+
+                IOCallbackSlot* slot = AcquireSlot();
+                if (!slot)
+                {
+                    LH_CORE_ERROR("IOThread: All callback slots busy. Dropping callback for: {0}", req.Path);
+                    continue;
+                }
 
                 if (!file.is_open())
                 {
                     LH_CORE_ERROR("IOThread: Failed to open file: {0}", req.Path);
-                    // Callback with empty buffer
-                    // Dispatch to JobSystem to avoid blocking IO thread with callback logic
-                    // Note: We need to copy the callback and buffer.
-                    // Since buffer is empty, it's cheap.
-                    // But std::function copy might allocate.
-                    
-                    // We use a lambda wrapper for the job
-                    // IMPORTANT: The lambda must be copyable or we need to allocate it.
-                    // JobSystem::Execute takes void*.
-                    
-                    // For simplicity in this prototype, we just run the callback here if it's fast?
-                    // NO. Callback might parse JSON or decompress textures. Must be on Worker.
-                    
-                    // We allocate a struct to pass to the job
-                    struct JobData { std::function<void(std::vector<u8>)> cb; std::vector<u8> data; };
-                    JobData* jobData = new JobData{ req.Callback, {} };
-                    
-                    JobSystem::Execute([](JobSystem::JobArgs args) {
-                        JobData* d = (JobData*)args.data;
-                        d->cb(std::move(d->data));
-                        delete d;
-                    }, jobData);
-                    
+                    slot->Callback = req.Callback;
+                    slot->Data.clear();
+                    JobSystem::Execute(IOCallbackJob, slot);
                     continue;
                 }
 
                 size_t fileSize = (size_t)file.tellg();
-                std::vector<u8> buffer(fileSize);
+                slot->Data.resize(fileSize);
                 file.seekg(0);
-                file.read((char*)buffer.data(), fileSize);
+                file.read((char*)slot->Data.data(), fileSize);
                 file.close();
 
-                // Dispatch Callback to JobSystem (Low Priority)
-                struct JobData { std::function<void(std::vector<u8>)> cb; std::vector<u8> data; };
-                JobData* jobData = new JobData{ req.Callback, std::move(buffer) };
-
-                // TODO: Use Low Priority when available in Execute API
-                JobSystem::Execute([](JobSystem::JobArgs args) {
-                    JobData* d = (JobData*)args.data;
-                    d->cb(std::move(d->data));
-                    delete d;
-                }, jobData);
+                slot->Callback = req.Callback;
+                JobSystem::Execute(IOCallbackJob, slot);
             }
         }
     }

@@ -1,7 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
-#include "luth/renderer/RendererAPI.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"

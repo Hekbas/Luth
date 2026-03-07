@@ -59,12 +59,12 @@ namespace Luth
                 ImGui::Text("Worker Threads: %d", stats.ThreadCount);
                 ImGui::Text("Active Fibers: %d / %d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
                 ImGui::Text("Peak Fibers (Frame): %d", stats.PeakFibers);
-                ImGui::Text("Queued Jobs: %d", stats.QueueSize);
+                ImGui::Text("Queued Jobs: %d", stats.HighQueueSize);
 
                 ImGui::Separator();
 
                 // Queue Load
-                float queueRatio = (float)stats.QueueSize / 100.0f; // Arbitrary scale
+                float queueRatio = (float)stats.HighQueueSize / 100.0f; // Arbitrary scale
                 ImGui::ProgressBar(queueRatio, ImVec2(-1, 0.0f), "Queue Load");
 
                 // Fiber Pool Usage

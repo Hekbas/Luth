@@ -3,6 +3,7 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/core/Log.h"
 #include <atomic>
+#include <cassert>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -10,25 +11,26 @@
 
 namespace Luth::JobSystem
 {
+    // Forward declare — implemented in JobSystem.cpp via FLS
+    struct JobContext;
+    JobContext* GetCurrentJobContext();
+
     struct Fiber
     {
         void* Handle = nullptr;
         void* Args = nullptr; // User data passed to the fiber function
-        
+
         // Intrusive Linked List for Waiting (Lock-Free Stack Node)
-        // Used when this fiber is waiting on an AtomicCounter
         Fiber* NextWaiting = nullptr;
-        
+
         // Pinning Support
-        u32 PinnedThreadIndex = ~0u; // Default: No affinity (~0u)
-        
+        u32 PinnedThreadIndex = ~0u; // Default: No affinity
+
         // Status
         bool IsFinished = false;
-        
+
         // State for Race Condition Prevention
-        // 0 = Free
-        // 1 = Running (Do not switch to this)
-        // 2 = Suspended (Safe to switch to)
+        // 0 = Free, 1 = Running, 2 = Suspended
         std::atomic<u8> State;
 
         // Wait Request (Passed to Scheduler)
@@ -72,7 +74,7 @@ namespace Luth::JobSystem
             return *this;
         }
 
-        // Deleted Copy Constructor & Assignment (std::atomic is not copyable)
+        // Deleted Copy Constructor & Assignment
         Fiber(const Fiber&) = delete;
         Fiber& operator=(const Fiber&) = delete;
 
@@ -80,8 +82,8 @@ namespace Luth::JobSystem
 
         // Function pointer for the fiber entry point
         using EntryPoint = void(*)(void*);
-        
-        // Increased stack size to 2MB to handle heavy asset importers (Assimp)
+
+        // 2MB stack — handles heavy asset importers (Assimp)
         static Fiber Create(EntryPoint entry, void* args, u32 stackSize = 2 * 1024 * 1024)
         {
             Fiber f;
@@ -89,20 +91,18 @@ namespace Luth::JobSystem
             f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
             f.IsFinished = false;
-            f.State = 0; // Free
+            f.State = 0;
             f.WaitCounter = nullptr;
             f.WaitTarget = 0;
 
             #ifdef _WIN32
-            // Commit 64KB initially, Reserve full size.
             f.Handle = CreateFiberEx(64 * 1024, stackSize, 0, (LPFIBER_START_ROUTINE)entry, args);
-            
             if (!f.Handle)
             {
                 LH_CORE_CRITICAL("Failed to create fiber! Error: {0}", GetLastError());
             }
             #endif
-            
+
             return f;
         }
 
@@ -114,8 +114,25 @@ namespace Luth::JobSystem
             f.Handle = nullptr;
         }
 
+        // V3 ENFORCEMENT: Assert that we are NOT inside a RecordingScope.
+        // If this assertion fires, someone is yielding while recording a VkCommandBuffer.
+        // That violates Contract 4 (VkCommandPool is thread-local, fiber may resume
+        // on a different OS thread after yield).
         static void SwitchTo(Fiber& f)
         {
+            #ifndef NDEBUG
+            {
+                JobContext* ctx = GetCurrentJobContext();
+                if (ctx)
+                {
+                    assert(!ctx->IsRecording &&
+                        "FATAL: Fiber::SwitchTo called while IsRecording == true! "
+                        "You are yielding inside a RecordingScope. This violates Contract 4 "
+                        "(VkCommandBuffer thread affinity). End recording before yielding.");
+                }
+            }
+            #endif
+
             #ifdef _WIN32
             SwitchToFiber(f.Handle);
             #endif
@@ -128,7 +145,7 @@ namespace Luth::JobSystem
             f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
             f.IsFinished = false;
-            f.State = 1; // Running (Main Thread is always running)
+            f.State = 1; // Running
             f.WaitCounter = nullptr;
             f.WaitTarget = 0;
             #ifdef _WIN32

@@ -1,24 +1,39 @@
 #include "luthpch.h"
 #include "JobSystem.h"
 #include "Fiber.h"
+#include "SpinLock.h"
+#include "MPMCQueue.h"
+#include "WorkStealingDeque.h"
 #include "Log.h"
+#include "Profiler.h"
 
 #include <thread>
 #include <vector>
-#include <deque>
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
-#include <emmintrin.h> // For _mm_pause
+#include <emmintrin.h> // _mm_pause
+
+#ifdef _WIN32
+#include <windows.h>   // Fibers, FLS, WaitOnAddress
+#pragma comment(lib, "Synchronization.lib") // WaitOnAddress / WakeByAddress
+#endif
 
 // ===================================================================================
-// Internal Implementation Details
+// Internal Implementation
 // ===================================================================================
 
 namespace Luth::JobSystem
 {
     // -------------------------------------------------------------------------------
-    // Data Structures
+    // Constants
+    // -------------------------------------------------------------------------------
+
+    static constexpr u32 MAX_FIBERS         = 512;
+    static constexpr u32 HIGH_QUEUE_SIZE    = 4096;  // Must be power of 2
+    static constexpr u32 LOCAL_DEQUE_SIZE   = 1024;
+    static constexpr u32 MAX_INLINE_DEPTH   = 4;     // V5: depth-limited inline execution
+
+    // -------------------------------------------------------------------------------
+    // Internal Job Struct
     // -------------------------------------------------------------------------------
 
     struct Job
@@ -30,35 +45,61 @@ namespace Luth::JobSystem
         u32 GroupIndex = 0;
     };
 
-    // Thread-Local State
-    static thread_local u32 t_ThreadID = 0;
-    static thread_local Fiber* t_CurrentFiber = nullptr;
-    static thread_local Fiber t_MainThreadFiber; // The fiber representing the OS thread entry point
-    static thread_local JobContext t_JobContext; // The actual storage for the context
+    // -------------------------------------------------------------------------------
+    // Fiber Local Storage (FLS) — Replaces thread_local
+    // -------------------------------------------------------------------------------
 
-    // Global State
+    static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
+
+    static void SetCurrentContext(JobContext* ctx)
+    {
+        FlsSetValue(s_FlsIndex, ctx);
+    }
+
+    // -------------------------------------------------------------------------------
+    // Per-Worker Data (indexed by thread ID, NOT per-fiber)
+    // -------------------------------------------------------------------------------
+
+    struct WorkerData
+    {
+        std::thread Thread;
+        Fiber SchedulerFiber;   // The OS thread converted to fiber
+        Fiber* CurrentFiber = nullptr;
+        std::unique_ptr<WorkStealingDeque<Job>> LocalDeque;
+        JobContext Context;     // One context per fiber (swapped on fiber switch)
+        u32 ThreadIndex = 0;
+
+        WorkerData() : LocalDeque(std::make_unique<WorkStealingDeque<Job>>(LOCAL_DEQUE_SIZE)) {}
+    };
+
+    // -------------------------------------------------------------------------------
+    // Global Scheduler Data
+    // -------------------------------------------------------------------------------
+
     struct SchedulerData
     {
-        std::vector<std::thread> WorkerThreads;
-        std::atomic<bool> Running = false;
+        // Workers
+        std::vector<WorkerData> Workers;
         u32 ThreadCount = 0;
+        std::atomic<bool> Running = false;
 
         // Fiber Pool
-        std::vector<Fiber> FiberPool;
-        std::vector<u32> FreeFibers;
-        std::mutex FiberPoolMutex;
+        Fiber FiberPool[MAX_FIBERS];
+        Job FiberJobs[MAX_FIBERS]; // Per-fiber job storage (avoids thread_local lifetime issue)
+        JobContext FiberContexts[MAX_FIBERS]; // One context per fiber
+        SpinLock FiberPoolLock;
+        u32 FreeFibers[MAX_FIBERS];
+        u32 FreeFiberCount = 0;
 
-        // Global Queue (High Priority / Overflow)
-        // TODO: Replace with Lock-Free MPMC
-        std::deque<Job> GlobalQueue;
-        std::mutex GlobalQueueMutex;
-        std::condition_variable WakeCondition; // Only used for initial wake-up, not per-job
-        
-        // Ready Fibers (Fibers that were waiting and are now ready to resume)
-        std::deque<Fiber*> ReadyFibers;
-        std::mutex ReadyFibersMutex;
+        // Global High-Priority Queue (Lock-Free MPMC)
+        MPMCQueue<Job, HIGH_QUEUE_SIZE> HighQueue;
 
-        // Global Contexts (Propagated to workers)
+        // Ready Fibers (waiting fibers whose counter reached target)
+        Fiber* ReadyFibers[MAX_FIBERS];
+        u32 ReadyFiberCount = 0;
+        SpinLock ReadyFibersLock;
+
+        // Global Contexts (propagated at frame boundary)
         std::atomic<CommandAllocatorPool*> GlobalCommandPool = nullptr;
 
         // Stats
@@ -68,242 +109,315 @@ namespace Luth::JobSystem
     static SchedulerData s_Data;
 
     // -------------------------------------------------------------------------------
-    // Fiber Management
+    // Worker Thread ID (safe to use thread_local for this ONE variable because
+    // this is per-OS-thread, not per-fiber, and that's correct — worker index
+    // doesn't change when fibers switch on the same OS thread)
+    // -------------------------------------------------------------------------------
+
+    static thread_local u32 t_WorkerIndex = 0;
+    static thread_local bool t_IsMainThread = false;
+
+    // -------------------------------------------------------------------------------
+    // Fiber Pool Management
     // -------------------------------------------------------------------------------
 
     static Fiber* AllocateFiber()
     {
-        std::lock_guard<std::mutex> lock(s_Data.FiberPoolMutex);
-        
-        if (s_Data.FreeFibers.empty())
+        SpinLockGuard lock(s_Data.FiberPoolLock);
+
+        if (s_Data.FreeFiberCount == 0)
         {
-            // Expand pool
-            LH_CORE_WARN("Fiber Pool Expanding! Current Size: {0}", s_Data.FiberPool.size());
-            
-            // TODO: Better expansion strategy
-            // For now, we return nullptr if exhausted, but we should expand
-            // But FiberPool is a vector of objects. If we resize, pointers invalidate!
-            // We store Fiber* in waiting lists.
-            // So we CANNOT resize FiberPool vector if fibers are in use.
-            // We must use a deque or list of chunks.
-            // Or pre-allocate enough.
-            
-            LH_CORE_ERROR("Fiber Pool Exhausted! (This should be dynamic)");
-            return nullptr; 
+            LH_CORE_ERROR("Fiber Pool Exhausted! ({0} fibers)", MAX_FIBERS);
+            return nullptr;
         }
 
-        u32 index = s_Data.FreeFibers.back();
-        s_Data.FreeFibers.pop_back();
-        
-        u32 used = (u32)s_Data.FiberPool.size() - (u32)s_Data.FreeFibers.size();
-        u32 currentPeak = s_Data.PeakFibers.load();
-        if (used > currentPeak) s_Data.PeakFibers.store(used);
+        u32 index = s_Data.FreeFibers[--s_Data.FreeFiberCount];
+
+        u32 used = MAX_FIBERS - s_Data.FreeFiberCount;
+        u32 peak = s_Data.PeakFibers.load(std::memory_order_relaxed);
+        if (used > peak) s_Data.PeakFibers.store(used, std::memory_order_relaxed);
 
         return &s_Data.FiberPool[index];
     }
 
     static void FreeFiber(Fiber* fiber)
     {
-        // Calculate index from pointer
-        u64 index = fiber - s_Data.FiberPool.data();
-        
-        std::lock_guard<std::mutex> lock(s_Data.FiberPoolMutex);
-        s_Data.FreeFibers.push_back((u32)index);
+        u32 index = (u32)(fiber - s_Data.FiberPool);
+
+        SpinLockGuard lock(s_Data.FiberPoolLock);
+        s_Data.FreeFibers[s_Data.FreeFiberCount++] = index;
     }
 
-    // ... (Rest of the file remains same) ...
-    // I will just update AllocateFiber to log if expanding (commented out)
-    // and keep the rest.
-
-    // -------------------------------------------------------------------------------
-    // Worker Loop
-    // -------------------------------------------------------------------------------
-
-    static void FiberEntryPoint(void* args)
+    static JobContext* GetFiberContext(Fiber* fiber)
     {
-        Job* jobPtr = (Job*)args;
-        
-        // Update Context from Global State
-        // This ensures the fiber has access to the current frame's resources
-        t_JobContext.CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
-        
-        // Execute the job
-        if (jobPtr && jobPtr->Function)
-        {
-            JobArgs jArgs{ jobPtr->JobIndex, jobPtr->GroupIndex, jobPtr->Data };
-            jobPtr->Function(jArgs);
-            
-            // Decrement counter if present
-            if (jobPtr->CounterPtr)
-            {
-                // Atomic decrement with Busy Bit logic (Bit 0 = Busy, Bits 1..31 = Count)
-                // We shift the count by 1.
-                u32 old = jobPtr->CounterPtr->Value.load();
-                while(true)
-                {
-                    // If Busy (Odd), we must wait for it to clear to avoid race conditions
-                    if ((old & 1) == 1)
-                    {
-                        _mm_pause();
-                        old = jobPtr->CounterPtr->Value.load();
-                        continue;
-                    }
-
-                    if (old < 2) break; // Should not happen if logic is correct (0 is free)
-
-                    if (old == 2) // Last job (Count 1 -> 0)
-                    {
-                        // Try to set Busy Bit (Value 1)
-                        if (jobPtr->CounterPtr->Value.compare_exchange_weak(old, 1)) break;
-                    }
-                    else // old > 2
-                    {
-                        // Decrement count by 1 (Value - 2)
-                        if (jobPtr->CounterPtr->Value.compare_exchange_weak(old, old - 2)) break;
-                    }
-                }
-
-                if (old == 2)
-                {
-                    // We hit zero count. Wake up waiting fibers.
-                    // Acquire Lock
-                    while (jobPtr->CounterPtr->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
-                    
-                    Fiber* waitingFiber = jobPtr->CounterPtr->WaitingListHead;
-                    jobPtr->CounterPtr->WaitingListHead = nullptr;
-                    
-                    jobPtr->CounterPtr->Lock.clear(std::memory_order_release);
-
-                    while (waitingFiber)
-                    {
-                        Fiber* next = waitingFiber->NextWaiting;
-                        
-                        // Add to Ready List
-                        {
-                            std::lock_guard<std::mutex> lock(s_Data.ReadyFibersMutex);
-                            s_Data.ReadyFibers.push_back(waitingFiber);
-                        }
-                        s_Data.WakeCondition.notify_one();
-                        
-                        waitingFiber = next;
-                    }
-                    
-                    // Clear Busy Bit (Value 1 -> 0)
-                    jobPtr->CounterPtr->Value.fetch_sub(1);
-                }
-            }
-        }
-
-        // Mark as finished so the scheduler knows to free it
-        t_CurrentFiber->IsFinished = true;
-
-        // Job Complete. Return to Scheduler.
-        // We need to switch back to the "Scheduler Fiber" (which is usually the thread's main loop)
-        Fiber::SwitchTo(t_MainThreadFiber);
+        u32 index = (u32)(fiber - s_Data.FiberPool);
+        return &s_Data.FiberContexts[index];
     }
 
-    static void WorkerThreadEntryPoint(u32 threadID)
+    // -------------------------------------------------------------------------------
+    // Counter Decrement Logic
+    // -------------------------------------------------------------------------------
+
+    static void DecrementCounter(Counter* counter)
     {
-        t_ThreadID = threadID;
-        t_JobContext.ThreadIndex = threadID;
-        
-        // Convert this OS thread to a Fiber so we can switch away from it
-        t_MainThreadFiber = Fiber::ConvertThreadToFiber(nullptr);
-        t_CurrentFiber = &t_MainThreadFiber;
-
-        while (s_Data.Running)
+        // Atomic decrement with Busy Bit (Bit 0 = Busy, Bits 1..31 = Count)
+        u32 old = counter->Value.load();
+        while (true)
         {
-            // Update Context for the worker thread itself (in case it runs inline or needs it)
-            t_JobContext.CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
-
-            Job job;
-            Fiber* readyFiber = nullptr;
-            bool foundJob = false;
-            bool foundFiber = false;
-
-            // 1. Check Ready Fibers (High Priority Resumption)
+            // If Busy (odd), spin until clear
+            if ((old & 1) == 1)
             {
-                std::lock_guard<std::mutex> lock(s_Data.ReadyFibersMutex);
-                if (!s_Data.ReadyFibers.empty())
-                {
-                    readyFiber = s_Data.ReadyFibers.front();
-                    s_Data.ReadyFibers.pop_front();
-                    foundFiber = true;
-                }
-            }
-
-            if (foundFiber)
-            {
-                // Resume Fiber
-                t_CurrentFiber = readyFiber;
-                Fiber::SwitchTo(*readyFiber);
-                t_CurrentFiber = &t_MainThreadFiber; // Back from fiber
-                
-                // If the fiber finished (it switched back to us), we free it.
-                if (readyFiber->IsFinished)
-                {
-                    delete (Job*)readyFiber->Args;
-                    FreeFiber(readyFiber);
-                }
-                else if (readyFiber->WaitCounter)
-                {
-                    // The fiber yielded because it's waiting.
-                    // It is already in the counter's wait list (added by WaitForCounter).
-                }
-                
+                _mm_pause();
+                old = counter->Value.load();
                 continue;
             }
 
-            // 2. Try Global Queue
+            if (old < 2) break; // Should not happen
+
+            if (old == 2) // Last job (Count 1 -> 0)
             {
-                std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
-                if (!s_Data.GlobalQueue.empty())
+                // Set Busy Bit (Value 1)
+                if (counter->Value.compare_exchange_weak(old, 1))
+                    break;
+            }
+            else // old > 2
+            {
+                // Decrement count (Value - 2)
+                if (counter->Value.compare_exchange_weak(old, old - 2))
+                    break;
+            }
+        }
+
+        if (old == 2)
+        {
+            // Counter reached zero — wake waiting fibers
+            // Acquire spinlock on the wait list
+            while (counter->Lock.test_and_set(std::memory_order_acquire))
+                _mm_pause();
+
+            Fiber* waitingFiber = counter->WaitingListHead;
+            counter->WaitingListHead = nullptr;
+
+            counter->Lock.clear(std::memory_order_release);
+
+            // Move all waiting fibers to the Ready list
+            while (waitingFiber)
+            {
+                Fiber* next = waitingFiber->NextWaiting;
+                waitingFiber->NextWaiting = nullptr;
+
                 {
-                    job = s_Data.GlobalQueue.front();
-                    s_Data.GlobalQueue.pop_front();
-                    foundJob = true;
+                    SpinLockGuard lock(s_Data.ReadyFibersLock);
+                    s_Data.ReadyFibers[s_Data.ReadyFiberCount++] = waitingFiber;
+                }
+
+                // V4: Wake a sleeping worker
+                s_Data.HighQueue.GetGeneration(); // Touch to trigger wake
+                u32 gen = s_Data.HighQueue.GetGeneration();
+#ifdef _WIN32
+                WakeByAddressSingle(s_Data.HighQueue.GetGenerationPtr());
+#endif
+
+                waitingFiber = next;
+            }
+
+            // Clear Busy Bit (Value 1 -> 0)
+            counter->Value.fetch_sub(1);
+        }
+    }
+
+    // -------------------------------------------------------------------------------
+    // Fiber Entry Point
+    // -------------------------------------------------------------------------------
+
+    static void WINAPI FiberEntryPoint(void* args)
+    {
+        Job* jobPtr = (Job*)args;
+
+        // Set up FLS for this fiber
+        Fiber* self = s_Data.Workers[t_WorkerIndex].CurrentFiber;
+        JobContext* ctx = GetFiberContext(self);
+
+        // Propagate global state
+        ctx->CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
+        ctx->ThreadIndex = t_WorkerIndex;
+        ctx->FiberID = (u32)(self - s_Data.FiberPool);
+        ctx->IsRecording = false;
+        ctx->InlineDepth = 0;
+        SetCurrentContext(ctx);
+
+        // Execute the job
+        if (jobPtr && jobPtr->Function)
+        {
+            LH_PROFILE_SCOPE("Job");
+
+            JobArgs jArgs{ jobPtr->JobIndex, jobPtr->GroupIndex, jobPtr->Data };
+            jobPtr->Function(jArgs);
+
+            // Decrement counter
+            if (jobPtr->CounterPtr)
+                DecrementCounter(jobPtr->CounterPtr);
+        }
+
+        // Mark finished
+        self->IsFinished = true;
+
+        // Return to scheduler fiber
+        Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+    }
+
+    // -------------------------------------------------------------------------------
+    // Worker Thread Loop
+    // -------------------------------------------------------------------------------
+
+    static void WorkerThreadLoop(u32 workerIndex)
+    {
+        LH_PROFILE_THREAD("Worker");
+
+        t_WorkerIndex = workerIndex;
+        t_IsMainThread = false;
+
+        WorkerData& worker = s_Data.Workers[workerIndex];
+        worker.ThreadIndex = workerIndex;
+
+        // Convert OS thread to fiber (so we can switch away from it)
+        worker.SchedulerFiber = Fiber::ConvertThreadToFiber(nullptr);
+        worker.CurrentFiber = &worker.SchedulerFiber;
+
+        // Set up initial context for the scheduler fiber
+        worker.Context.ThreadIndex = workerIndex;
+        SetCurrentContext(&worker.Context);
+
+        while (s_Data.Running.load(std::memory_order_relaxed))
+        {
+            // ---- Priority 1: Resume Ready Fibers ----
+            Fiber* readyFiber = nullptr;
+            {
+                SpinLockGuard lock(s_Data.ReadyFibersLock);
+                if (s_Data.ReadyFiberCount > 0)
+                {
+                    readyFiber = s_Data.ReadyFibers[--s_Data.ReadyFiberCount];
+                }
+            }
+
+            if (readyFiber)
+            {
+                // Swap FLS to the resumed fiber's context
+                JobContext* fiberCtx = GetFiberContext(readyFiber);
+                fiberCtx->ThreadIndex = workerIndex; // Update thread index (may have migrated)
+                SetCurrentContext(fiberCtx);
+
+                worker.CurrentFiber = readyFiber;
+                Fiber::SwitchTo(*readyFiber);
+                worker.CurrentFiber = &worker.SchedulerFiber;
+
+                // Restore scheduler context
+                SetCurrentContext(&worker.Context);
+
+                // Cleanup if finished
+                if (readyFiber->IsFinished)
+                    FreeFiber(readyFiber);
+
+                continue;
+            }
+
+            // ---- Priority 2: Global High Queue (MPMC) ----
+            Job job;
+            bool foundJob = false;
+
+            if (s_Data.HighQueue.TryPop(job))
+            {
+                foundJob = true;
+            }
+            // ---- Priority 3: Local Deque (LIFO — cache locality) ----
+            else if (worker.LocalDeque->TryPop(job))
+            {
+                foundJob = true;
+            }
+            // ---- Priority 4: Steal from other workers (FIFO — load balance) ----
+            else
+            {
+                u32 victimStart = workerIndex + 1;
+                for (u32 i = 0; i < s_Data.ThreadCount; ++i)
+                {
+                    u32 victim = (victimStart + i) % s_Data.ThreadCount;
+                    if (victim == workerIndex) continue;
+
+                    if (s_Data.Workers[victim].LocalDeque->TrySteal(job))
+                    {
+                        foundJob = true;
+                        break;
+                    }
                 }
             }
 
             if (foundJob)
             {
-                // Get a fiber
+                // Get a fiber from the pool
                 Fiber* fiber = AllocateFiber();
-                if (fiber)
+                if (!fiber)
                 {
-                    // Setup Fiber
-                    // Destroy old fiber handle if it exists to reset stack/registers
-                    if (fiber->Handle) Fiber::Destroy(*fiber);
-                    
-                    // Allocate job on heap to pass safely to fiber
-                    Job* heapJob = new Job(job);
-                    
-                    // Use Move Assignment for Fiber
-                    *fiber = Fiber::Create(FiberEntryPoint, heapJob);
-                    
-                    t_CurrentFiber = fiber;
-                    Fiber::SwitchTo(*fiber);
-                    t_CurrentFiber = &t_MainThreadFiber;
-                    
-                    // Cleanup
-                    // NOTE: We do NOT delete heapJob here blindly.
-                    // If the fiber yielded, heapJob must remain valid.
-                    
-                    // If the fiber finished, we free it.
-                    if (fiber->IsFinished)
-                    {
-                        delete (Job*)fiber->Args;
-                        FreeFiber(fiber);
-                    }
+                    // Pool exhausted — push job back and spin
+                    s_Data.HighQueue.TryPush(job);
+                    _mm_pause();
+                    continue;
                 }
+
+                // Destroy old fiber handle to reset stack
+                if (fiber->Handle) Fiber::Destroy(*fiber);
+
+                // Store job in per-fiber storage (NOT thread_local — survives fiber yield)
+                u32 fiberIndex = (u32)(fiber - s_Data.FiberPool);
+                s_Data.FiberJobs[fiberIndex] = job;
+
+                *fiber = Fiber::Create(FiberEntryPoint, &s_Data.FiberJobs[fiberIndex]);
+
+                // Reset fiber context
+                JobContext* fiberCtx = GetFiberContext(fiber);
+                *fiberCtx = {};
+                fiberCtx->ThreadIndex = workerIndex;
+                SetCurrentContext(fiberCtx);
+
+                worker.CurrentFiber = fiber;
+                Fiber::SwitchTo(*fiber);
+                worker.CurrentFiber = &worker.SchedulerFiber;
+
+                // Restore scheduler context
+                SetCurrentContext(&worker.Context);
+
+                if (fiber->IsFinished)
+                    FreeFiber(fiber);
+
+                continue;
             }
-            else
+
+            // ---- Priority 5: Idle — Wait for work (V4 compliant) ----
+#ifdef _WIN32
             {
-                // Sleep / Yield
-                // Better wait strategy for idle workers
-                std::unique_lock<std::mutex> lock(s_Data.GlobalQueueMutex);
-                s_Data.WakeCondition.wait(lock, []{ return !s_Data.GlobalQueue.empty() || !s_Data.Running; });
+                // V4: Compare-and-wait pattern to prevent lost wakeups
+                u32 gen = s_Data.HighQueue.GetGeneration();
+
+                // Double-check: is there work now?
+                if (!s_Data.HighQueue.IsEmpty())
+                    continue;
+
+                {
+                    SpinLockGuard lock(s_Data.ReadyFibersLock);
+                    if (s_Data.ReadyFiberCount > 0)
+                        continue;
+                }
+
+                // Sleep until generation changes (new work arrives)
+                WaitOnAddress(
+                    s_Data.HighQueue.GetGenerationPtr(),
+                    &gen,
+                    sizeof(gen),
+                    1 // 1ms timeout to check for shutdown
+                );
             }
+#else
+            _mm_pause();
+#endif
         }
     }
 
@@ -313,48 +427,74 @@ namespace Luth::JobSystem
 
     void Init(u32 numThreads)
     {
+        // Allocate FLS index
+        s_FlsIndex = FlsAlloc(nullptr);
+        if (s_FlsIndex == FLS_OUT_OF_INDEXES)
+        {
+            LH_CORE_CRITICAL("Failed to allocate FLS index!");
+            return;
+        }
+
         if (numThreads == 0) numThreads = std::thread::hardware_concurrency() - 1;
-        s_Data.ThreadCount = numThreads;
+        if (numThreads < 1) numThreads = 1;
+
+        s_Data.ThreadCount = numThreads + 1; // +1 for main thread (index 0)
         s_Data.Running = true;
 
-        // Initialize Fiber Pool (Pre-allocate)
-        s_Data.FiberPool.resize(1024); // 1024 fibers
-        for (u32 i = 0; i < 1024; ++i)
+        // Initialize Fiber Pool
+        s_Data.FreeFiberCount = MAX_FIBERS;
+        for (u32 i = 0; i < MAX_FIBERS; ++i)
+            s_Data.FreeFibers[i] = i;
+
+        // Initialize Workers (index 0 is reserved for main thread)
+        s_Data.Workers.resize(s_Data.ThreadCount);
+
+        // Main thread setup (index 0)
+        t_WorkerIndex = 0;
+        t_IsMainThread = true;
+        s_Data.Workers[0].ThreadIndex = 0;
+        s_Data.Workers[0].SchedulerFiber = Fiber::ConvertThreadToFiber(nullptr);
+        s_Data.Workers[0].CurrentFiber = &s_Data.Workers[0].SchedulerFiber;
+        s_Data.Workers[0].Context.ThreadIndex = 0;
+        SetCurrentContext(&s_Data.Workers[0].Context);
+
+        // Spawn Worker Threads (index 1..N)
+        for (u32 i = 1; i < s_Data.ThreadCount; ++i)
         {
-            s_Data.FreeFibers.push_back(i);
+            s_Data.Workers[i].Thread = std::thread(WorkerThreadLoop, i);
         }
 
-        // Spawn Workers
-        for (u32 i = 0; i < numThreads; ++i)
-        {
-            s_Data.WorkerThreads.emplace_back(WorkerThreadEntryPoint, i + 1);
-        }
-        
-        // Init Main Thread
-        t_ThreadID = 0;
-        t_JobContext.ThreadIndex = 0;
-        t_MainThreadFiber = Fiber::ConvertThreadToFiber(nullptr);
-        t_CurrentFiber = &t_MainThreadFiber;
-        
-        LH_CORE_INFO("JobSystem Initialized with {0} worker threads.", numThreads);
+        LH_CORE_INFO("JobSystem initialized: {0} workers + main thread (isolated)", numThreads);
     }
 
     void Shutdown()
     {
         s_Data.Running = false;
-        s_Data.WakeCondition.notify_all(); // Wake up all threads to exit
-        
-        for (auto& t : s_Data.WorkerThreads)
+
+        // Wake all sleeping workers
+#ifdef _WIN32
+        WakeByAddressAll(s_Data.HighQueue.GetGenerationPtr());
+#endif
+
+        for (u32 i = 1; i < s_Data.ThreadCount; ++i)
         {
-            if (t.joinable()) t.join();
+            if (s_Data.Workers[i].Thread.joinable())
+                s_Data.Workers[i].Thread.join();
         }
-        s_Data.WorkerThreads.clear();
-        
-        // Destroy Fibers
-        for (auto& f : s_Data.FiberPool)
+
+        // Destroy fiber pool
+        for (u32 i = 0; i < MAX_FIBERS; ++i)
+            Fiber::Destroy(s_Data.FiberPool[i]);
+
+        // Free FLS
+        if (s_FlsIndex != FLS_OUT_OF_INDEXES)
         {
-            Fiber::Destroy(f);
+            FlsFree(s_FlsIndex);
+            s_FlsIndex = FLS_OUT_OF_INDEXES;
         }
+
+        s_Data.Workers.clear();
+        LH_CORE_INFO("JobSystem shut down.");
     }
 
     void ResetFrameStats()
@@ -362,9 +502,9 @@ namespace Luth::JobSystem
         s_Data.PeakFibers = 0;
     }
 
-    void Execute(JobFunction function, void* data, Counter* counter)
+    void Execute(JobFunction function, void* data, Counter* counter, Priority priority)
     {
-        if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1)
+        if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
         Job job;
         job.Function = function;
@@ -373,35 +513,46 @@ namespace Luth::JobSystem
         job.JobIndex = 0;
         job.GroupIndex = 0;
 
+        if (priority == Priority::Normal && !t_IsMainThread)
         {
-            std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
-            s_Data.GlobalQueue.push_back(job);
+            // Push to local deque (if we're on a worker thread)
+            s_Data.Workers[t_WorkerIndex].LocalDeque->Push(job);
         }
-        s_Data.WakeCondition.notify_one();
+        else
+        {
+            // High/Low priority — global queue. Spin-retry if full.
+            while (!s_Data.HighQueue.TryPush(job))
+                _mm_pause(); // Workers are consuming, space will free up
+        }
     }
 
-    void Dispatch(u32 jobCount, u32 groupSize, JobFunction function, void* data, Counter* counter)
+    void Dispatch(u32 jobCount, u32 groupSize, JobFunction function,
+                  void* data, Counter* counter, Priority priority)
     {
         if (jobCount == 0) return;
 
         u32 groupCount = (jobCount + groupSize - 1) / groupSize;
-        
-        if (counter) counter->Value.fetch_add(groupCount << 1); // Add groupCount (shifted by 1)
+        if (counter) counter->Value.fetch_add(groupCount << 1);
 
+        for (u32 i = 0; i < groupCount; ++i)
         {
-            std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
-            for (u32 i = 0; i < groupCount; ++i)
+            Job job;
+            job.Function = function;
+            job.Data = data;
+            job.CounterPtr = counter;
+            job.JobIndex = i * groupSize;
+            job.GroupIndex = i;
+
+            if (priority == Priority::Normal && !t_IsMainThread)
             {
-                Job job;
-                job.Function = function;
-                job.Data = data;
-                job.CounterPtr = counter;
-                job.JobIndex = i * groupSize; // Base index
-                job.GroupIndex = i;
-                s_Data.GlobalQueue.push_back(job);
+                s_Data.Workers[t_WorkerIndex].LocalDeque->Push(job);
+            }
+            else
+            {
+                while (!s_Data.HighQueue.TryPush(job))
+                    _mm_pause();
             }
         }
-        s_Data.WakeCondition.notify_all();
     }
 
     void WaitForCounter(Counter* counter, u32 targetValue)
@@ -410,162 +561,151 @@ namespace Luth::JobSystem
 
         u32 target = targetValue << 1;
 
-        // Check if we are in a fiber or main thread
-        // If main thread (and not converted to fiber yet properly), we must busy wait/help
-        if (t_CurrentFiber == &t_MainThreadFiber)
+        if (t_IsMainThread)
         {
-             while (true)
+            // V2: Main thread is ISOLATED — no job stealing.
+            // Busy-spin with _mm_pause until counter reaches target.
+            while (true)
             {
-                u32 v = counter->Value.load();
+                u32 v = counter->Value.load(std::memory_order_acquire);
                 if (v <= target && (v & 1) == 0) return;
-
-                // Try to help (run local jobs)
-                Job job;
-                bool found = false;
-                {
-                    std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
-                    if (!s_Data.GlobalQueue.empty())
-                    {
-                        job = s_Data.GlobalQueue.front();
-                        s_Data.GlobalQueue.pop_front();
-                        found = true;
-                    }
-                }
-
-                if (found)
-                {
-                    JobArgs jArgs{ job.JobIndex, job.GroupIndex, job.Data };
-                    job.Function(jArgs);
-                    
-                    if (job.CounterPtr)
-                    {
-                        // Inline decrement logic (same as FiberEntryPoint)
-                        u32 old = job.CounterPtr->Value.load();
-                        while(true)
-                        {
-                            if ((old & 1) == 1) { _mm_pause(); old = job.CounterPtr->Value.load(); continue; }
-                            if (old < 2) break;
-                            if (old == 2) { if (job.CounterPtr->Value.compare_exchange_weak(old, 1)) break; }
-                            else { if (job.CounterPtr->Value.compare_exchange_weak(old, old - 2)) break; }
-                        }
-
-                        if (old == 2)
-                        {
-                             while (job.CounterPtr->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
-                             
-                             Fiber* waitingFiber = job.CounterPtr->WaitingListHead;
-                             job.CounterPtr->WaitingListHead = nullptr;
-                             
-                             job.CounterPtr->Lock.clear(std::memory_order_release);
-
-                             while (waitingFiber)
-                             {
-                                 Fiber* next = waitingFiber->NextWaiting;
-                                 {
-                                     std::lock_guard<std::mutex> lock(s_Data.ReadyFibersMutex);
-                                     s_Data.ReadyFibers.push_back(waitingFiber);
-                                 }
-                                 s_Data.WakeCondition.notify_one();
-                                 waitingFiber = next;
-                             }
-                             job.CounterPtr->Value.fetch_sub(1);
-                        }
-                    }
-                }
-                else
-                {
-                    std::this_thread::yield();
-                }
+                _mm_pause();
             }
-            return;
         }
 
-        // We are in a worker fiber. Yield!
+        // Worker fiber path — yield to scheduler
         while (true)
         {
-            u32 v = counter->Value.load();
+            u32 v = counter->Value.load(std::memory_order_acquire);
             if (v <= target && (v & 1) == 0) return;
 
-            // If Busy, wait for it to clear
+            // If Busy bit set, spin briefly
             if ((v & 1) == 1)
             {
-                std::this_thread::yield();
+                _mm_pause();
                 continue;
             }
 
-            // Add to wait list (Protected by SpinLock)
-            while (counter->Lock.test_and_set(std::memory_order_acquire)) { _mm_pause(); }
-            
-            // Double check value inside lock
-            v = counter->Value.load();
+            // V5: Try to help (depth-limited inline execution)
+            JobContext* ctx = GetCurrentJobContext();
+            if (ctx && ctx->InlineDepth < MAX_INLINE_DEPTH)
+            {
+                // Try to grab a local job
+                Job inlineJob;
+                bool found = false;
+
+                if (s_Data.Workers[t_WorkerIndex].LocalDeque->TryPop(inlineJob))
+                    found = true;
+                else if (s_Data.HighQueue.TryPop(inlineJob))
+                    found = true;
+
+                if (found)
+                {
+                    ctx->InlineDepth++;
+                    {
+                        JobArgs jArgs{ inlineJob.JobIndex, inlineJob.GroupIndex, inlineJob.Data };
+                        inlineJob.Function(jArgs);
+
+                        if (inlineJob.CounterPtr)
+                            DecrementCounter(inlineJob.CounterPtr);
+                    }
+                    ctx->InlineDepth--;
+                    continue; // Re-check our counter
+                }
+            }
+
+            // No inline work available or depth exceeded — yield to scheduler
+            // Add ourselves to the counter's wait list
+            while (counter->Lock.test_and_set(std::memory_order_acquire))
+                _mm_pause();
+
+            // Double-check inside lock
+            v = counter->Value.load(std::memory_order_acquire);
             if (v <= target && (v & 1) == 0)
             {
                 counter->Lock.clear(std::memory_order_release);
                 return;
             }
-            
-            // If Busy, we must back off because the decrementer might have already grabbed the list
+
             if ((v & 1) == 1)
             {
                 counter->Lock.clear(std::memory_order_release);
-                std::this_thread::yield();
+                _mm_pause();
                 continue;
             }
 
-            t_CurrentFiber->NextWaiting = counter->WaitingListHead;
-            counter->WaitingListHead = t_CurrentFiber;
-            
+            // Add current fiber to wait list
+            Fiber* currentFiber = s_Data.Workers[t_WorkerIndex].CurrentFiber;
+            currentFiber->NextWaiting = counter->WaitingListHead;
+            counter->WaitingListHead = currentFiber;
+
             counter->Lock.clear(std::memory_order_release);
 
             // Set wait state
-            t_CurrentFiber->WaitCounter = counter;
-            t_CurrentFiber->WaitTarget = targetValue;
+            currentFiber->WaitCounter = counter;
+            currentFiber->WaitTarget = targetValue;
 
             // Switch back to scheduler
-            Fiber::SwitchTo(t_MainThreadFiber);
-            return; // Resumed
+            Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+
+            // Resumed! Counter has reached target.
+            return;
         }
     }
 
     void YieldFiber()
     {
-        // Switch back to scheduler/main fiber
-        // TODO: Implement
+        if (t_IsMainThread) return; // Main thread cannot yield (V2)
+
+        // V3: Assert not recording
+        JobContext* ctx = GetCurrentJobContext();
+        assert(!ctx || !ctx->IsRecording &&
+            "YieldFiber called while IsRecording == true! Contract 4 violation.");
+
+        Fiber* currentFiber = s_Data.Workers[t_WorkerIndex].CurrentFiber;
+        if (currentFiber == &s_Data.Workers[t_WorkerIndex].SchedulerFiber)
+            return; // Already in scheduler
+
+        // Push to ready list (so it gets picked up again)
+        {
+            SpinLockGuard lock(s_Data.ReadyFibersLock);
+            s_Data.ReadyFibers[s_Data.ReadyFiberCount++] = currentFiber;
+        }
+
+        Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
     }
 
     bool IsBusy(const Counter* counter)
     {
-        return counter && counter->Value.load() > 0;
+        if (!counter) return false;
+        u32 v = counter->Value.load(std::memory_order_acquire);
+        return v > 0;
     }
 
     Stats GetStats()
     {
-        u32 queueSize = 0;
-        {
-            std::lock_guard<std::mutex> lock(s_Data.GlobalQueueMutex);
-            queueSize = (u32)s_Data.GlobalQueue.size();
-        }
-        return { s_Data.ThreadCount, (u32)s_Data.FiberPool.size(), (u32)s_Data.FreeFibers.size(), s_Data.PeakFibers.load(), queueSize };
+        return {
+            s_Data.ThreadCount,
+            MAX_FIBERS,
+            s_Data.FreeFiberCount,
+            s_Data.PeakFibers.load(std::memory_order_relaxed),
+            0 // TODO: HighQueue size query
+        };
     }
 
     u32 GetWorkerThreadId()
     {
-        return t_ThreadID;
-    }
-    
-    void ExecuteMainThreadLoop()
-    {
-        // TODO: Implement the main thread message pump + job stealing loop
+        return t_WorkerIndex;
     }
 
     JobContext* GetCurrentJobContext()
     {
-        return &t_JobContext;
+        if (s_FlsIndex == FLS_OUT_OF_INDEXES) return nullptr;
+        return (JobContext*)FlsGetValue(s_FlsIndex);
     }
 
     void SetGlobalCommandPool(CommandAllocatorPool* pool)
     {
-        t_JobContext.CommandPool = pool;
         s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
     }
 }
