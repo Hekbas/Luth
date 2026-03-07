@@ -83,11 +83,10 @@ namespace Luth
             // 5. End Recording
             vkEndCommandBuffer(cmd);
             
-            // 6. Push to FrameContext (Thread-Safe)
+            // 6. Push to FrameContext (Thread-Safe via SpinLock)
             if (job->TargetFrame)
             {
-                std::lock_guard<std::mutex> lock(job->TargetFrame->CommandBufferMutex);
-                job->TargetFrame->CommandBuffers.push_back(cmd);
+                job->TargetFrame->AddCommandBuffer(cmd);
             }
             
             // 7. Release Allocator back to pool

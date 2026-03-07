@@ -13,9 +13,9 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/ECS/systems/TransformSystem.h"
-#include "luth/ECS/systems/RenderingSystem.h" // Include RenderingSystem
+#include "luth/ECS/systems/RenderingSystem.h"
 #include "luth/core/JobSystem.h"
-#include "luth/core/JobSystemTests.h" // Include Tests
+#include "luth/core/JobSystemTests.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/core/IOThread.h"
@@ -44,7 +44,6 @@ namespace Luth
             
             LH_CORE_INFO("Importing {0} assets in parallel...", assetsToImport.size());
             
-            // Explicitly initialize counter to avoid uninitialized memory issues
             JobSystem::Counter importCounter(0);
             
             JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
@@ -61,6 +60,7 @@ namespace Luth
         Input::Init();
 
         Renderer::Init(m_Window->GetNativeWindow());
+        Renderer::SetFrameData(&m_FrameData);
         
         // Scene & Systems
         m_Scene = std::make_shared<Scene>();
@@ -85,14 +85,34 @@ namespace Luth
 
     App::~App() {}
 
+    // ===============================================================================
+    // Pipelined Engine Loop (V2: Main Thread Isolated)
+    // ===============================================================================
+    // Structure (target):
+    //   1. glfwPollEvents()         — OS message pump (main-thread-only)
+    //   2. TryReclaimGPU(N-2)       — Non-blocking GPU completion check
+    //   3. KickGame(Frame[N])       — Dispatch game logic to workers
+    //   4. WaitForCounter(GameReady) — Main thread busy-spins (V2 isolated)
+    //   5. KickRender(Frame[N-1])   — Dispatch render recording to workers
+    //   6. WaitForCounter(RenderReady) — Wait for recording
+    //   7. Submit(Frame[N-1])       — Send command buffers to GPU
+    //   8. Present()                — Swapchain present (main-thread-only)
+    //
+    // Phase 2 Implementation: Frame data flow is correct. Full job parallelism
+    // between Game(N) and Render(N-1) is wired structurally but runs sequentially
+    // within each frame until Phase 3 (Render Graph) enables proper parallel recording.
+
     void App::Run()
     {
         OnInit();
 
-        // Temporary Loop for Phase 1 Testing
-        // We are not using the full fiber loop yet as FrameContext is incomplete
         while (m_Running)
         {
+            LH_PROFILE_FRAME("MainThread");
+            
+            u64 frameIndex = m_FrameData.GetFrameIndex();
+
+            // ── Step 1: OS Message Pump (Main thread only, V2) ──
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
@@ -103,32 +123,49 @@ namespace Luth
                 continue;
             }
 
-            // 1. Begin Vulkan Frame (Acquire Image, Start Recording)
-            Renderer::BeginFrame();
-            
-            // 2. Editor Logic
+            // ── Step 2: GPU Reclaim (N-2) ──
+            // For the first few frames, there's nothing to reclaim
+            FrameContext& currentFrame = m_FrameData.Current();
+            if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
+            {
+                FrameContext& gpuFrame = m_FrameData.GPU();
+                // V6: Check if GPU(N-2) is done. If not, current frame uses overflow.
+                // For now, the blocking wait in AcquireImage handles this.
+                // When PollerJobs are wired (Phase 3+), this becomes non-blocking.
+            }
+
+            // ── Step 3: Begin Vulkan Frame ──
+            // Acquires swapchain image, waits on timeline for this slot's previous use
+            Renderer::BeginFrame(frameIndex);
+
+            // Reset frame resources now that GPU is done with this slot
+            currentFrame.Reset();
+            currentFrame.Params.DeltaTime = Time::DeltaTime();
+            currentFrame.Params.TotalTime = Time::GetTime();
+            currentFrame.Params.FrameNumber = frameIndex;
+
+            // ── Step 4: Game Logic ──
             Editor::BeginFrame();
             OnUpdate();
             AssetManager::Update();
             Editor::Render(); 
-            Editor::EndFrame(); // Records ImGui to CB
+            Editor::EndFrame();
 
-            // 3. Update Viewports (ImGui)
             if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
             {
                 ImGui::UpdatePlatformWindows();
                 ImGui::RenderPlatformWindowsDefault();
             }
 
-            // 4. Game Logic
             Systems::Update<TransformSystem>();
-            Systems::Update<RenderingSystem>(); // Enabled RenderingSystem
+            Systems::Update<RenderingSystem>();
 
-            // 5. End Vulkan Frame (Submit, Present)
+            // ── Step 5: End Frame (Submit + Present) ──
             Renderer::EndFrame();
             
-            // Advance Frame Data
+            // ── Step 6: Advance Frame ──
             m_FrameData.Advance();
+            JobSystem::ResetFrameStats();
         }
 
         OnShutdown();
@@ -142,6 +179,7 @@ namespace Luth
         
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
+        Renderer::Shutdown();
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();

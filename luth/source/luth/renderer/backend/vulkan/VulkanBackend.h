@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/renderer/RenderBackend.h"
+#include "luth/core/FrameData.h"
 #include "VulkanSwapchain.h"
 #include "TimelineSemaphore.h"
 #include "CommandAllocatorPool.h"
@@ -28,14 +29,16 @@ namespace Luth
         // Command Pool Access for Parallel Recording
         CommandAllocatorPool& GetCommandAllocatorPool(u32 frameIndex) { return *m_CommandAllocatorPools[frameIndex % MAX_FRAMES_IN_FLIGHT]; }
 
+        // Non-blocking GPU completion check for frame pipelining
+        bool IsFrameComplete(u64 frameIndex);
+
     private:
         void CreateSyncObjects();
         void CreateFrameCommandBuffers();
 
         std::unique_ptr<VulkanSwapchain> m_Swapchain;
         
-        // Synchronization
-        static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+        // Synchronization — uses global MAX_FRAMES_IN_FLIGHT (3)
         std::vector<VkSemaphore> m_ImageAvailableSemaphores;
         std::vector<VkSemaphore> m_RenderFinishedSemaphores;
         
@@ -49,6 +52,6 @@ namespace Luth
         VkCommandPool m_PrimaryCommandPool = VK_NULL_HANDLE;
         std::vector<VkCommandBuffer> m_PrimaryCommandBuffers;
         
-        u32 m_CurrentFrameIndex = 0; // 0 or 1
+        u32 m_CurrentFrameIndex = 0;
     };
 }

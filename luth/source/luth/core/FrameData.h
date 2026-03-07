@@ -2,109 +2,142 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/core/AtomicCounter.h"
+#include "luth/core/SpinLock.h"
 #include "luth/core/memory/LinearAllocator.h" 
 #include <vector>
 #include <array>
-#include <mutex>
 #include <vulkan/vulkan.h>
 
 namespace Luth
 {
-    // Forward declarations
     class CommandAllocatorPool;
 
     // ===================================================================================
-    // Frame Context (Triple Buffered)
+    // Engine-wide constant — single source of truth
     // ===================================================================================
+
+    static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
+
+    // ===================================================================================
+    // Frame Params — Read-Only data packet for the frame
+    // ===================================================================================
+    // Written by Game(N). Read by Render(N-1). Immutable after GameReady signals.
 
     struct FrameParams
     {
-        // Global Matrices
-        // Camera Data
         // Time
-        f32 DeltaTime;
-        f32 TotalTime;
-        u64 FrameNumber;
+        f32 DeltaTime = 0.0f;
+        f32 TotalTime = 0.0f;
+        u64 FrameNumber = 0;
+
+        // Camera
+        Mat4 ViewMatrix{1.0f};
+        Mat4 ProjectionMatrix{1.0f};
+        Vec3 CameraPosition{0.0f};
+        Vec3 CameraForward{0.0f, 0.0f, -1.0f};
+
+        // Viewport
+        u32 ViewportWidth = 0;
+        u32 ViewportHeight = 0;
     };
+
+    // ===================================================================================
+    // Frame Context — One per in-flight frame (triple buffered)
+    // ===================================================================================
 
     struct FrameContext
     {
-        static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
-
-        // 1. Data Packet (Written by Game, Read-Only by Render)
+        // ---- Data Packet ----
         FrameParams Params;
         
-        // Memory for Game Logic (cleared after GPU finishes N-2)
-        Memory::LinearAllocator LogicMemory; 
+        // ---- Synchronization ----
+        JobSystem::AtomicCounter GameReady;     // Signaled when Game Logic finishes
+        JobSystem::AtomicCounter RenderReady;   // Signaled when Render Recording finishes
+        u64 GpuTimelineValue = 0;               // Timeline value GPU signals when done
+        bool GpuFinished = false;               // Set by PollerJob when GPU is done with this frame
 
-        // 2. Synchronization
-        JobSystem::AtomicCounter GameReady;        // Signaled when Game Logic finishes this frame
-        u64 GpuTimelineValue = 0;      // The value the GPU signals when done
+        // ---- Memory ----
+        Memory::LinearAllocator LogicMemory;    // Game-thread allocations
+        Memory::LinearAllocator RenderMemory;   // Render-thread allocations (barriers, cmd arrays)
 
-        // 3. Render Resources
-        Memory::LinearAllocator RenderMemory;   // For temporary command arrays/barriers
-        CommandAllocatorPool* CmdPool = nullptr;  // Thread-local command pools for this frame
-        
-        // List of command buffers recorded for this frame (Secondary Buffers)
+        // ---- Render Resources ----
+        CommandAllocatorPool* CmdPool = nullptr;
+
+        // V6: Overflow allocator tier
+        // If GPU(N-2) hasn't finished when frame N starts, we can't reset the primary
+        // allocators. Instead, this frame uses overflow memory. Pages are tagged with
+        // the frame index and reclaimed when GPU eventually finishes.
+        bool UsingOverflow = false;
+
+        // Secondary command buffers collected from parallel recording
         std::vector<VkCommandBuffer> CommandBuffers; 
-        std::mutex CommandBufferMutex;
+        SpinLock CommandBufferLock; // Replaces std::mutex (V1 compliant)
+
+        void AddCommandBuffer(VkCommandBuffer cmd)
+        {
+            SpinLockGuard lock(CommandBufferLock);
+            CommandBuffers.push_back(cmd);
+        }
 
         FrameContext() 
-            : LogicMemory(10 * 1024 * 1024), // 10MB per frame for logic
-              RenderMemory(10 * 1024 * 1024) // 10MB per frame for render commands
+            : LogicMemory(10 * 1024 * 1024),   // 10MB per frame for logic
+              RenderMemory(10 * 1024 * 1024)    // 10MB per frame for render
         {}
 
         void Reset()
         {
+            Params = {};
             GameReady.Value = 0;
             GameReady.WaitingListHead = nullptr;
+            RenderReady.Value = 0;
+            RenderReady.WaitingListHead = nullptr;
+            GpuFinished = false;
+            UsingOverflow = false;
+
             LogicMemory.Reset();
             RenderMemory.Reset();
             
-            std::lock_guard<std::mutex> lock(CommandBufferMutex);
-            CommandBuffers.clear();
+            {
+                SpinLockGuard lock(CommandBufferLock);
+                CommandBuffers.clear();
+            }
         }
     };
 
-    // Container for the ring buffer
+    // ===================================================================================
+    // Frame Data — Triple-buffered ring
+    // ===================================================================================
+    // Owned exclusively by App. Passed to systems by reference.
+
     class FrameData
     {
     public:
         void Init()
         {
             m_FrameIndex = 0;
-            for(auto& f : m_Frames) f.Reset();
+            for (auto& f : m_Frames) f.Reset();
         }
 
-        void Shutdown()
-        {
-            // Cleanup if needed
-        }
+        void Shutdown() {}
 
-        FrameContext& GetFrame(u64 index)
-        {
-            return m_Frames[index % FrameContext::MAX_FRAMES_IN_FLIGHT];
-        }
+        // Current frame (Game N writes here)
+        FrameContext& Current()  { return m_Frames[m_FrameIndex % MAX_FRAMES_IN_FLIGHT]; }
 
-        FrameContext& GetCurrentFrame()
-        {
-            return GetFrame(m_FrameIndex);
-        }
-        
-        FrameContext& GetPreviousFrame()
-        {
-            return GetFrame(m_FrameIndex - 1);
-        }
+        // Previous frame (Render N-1 reads here)
+        FrameContext& Previous() { return m_Frames[(m_FrameIndex - 1) % MAX_FRAMES_IN_FLIGHT]; }
 
-        u64 GetCurrentFrameIndex() const { return m_FrameIndex; }
-        
-        void Advance()
-        {
-            m_FrameIndex++;
-        }
+        // Two frames ago (GPU N-2, check for completion)
+        FrameContext& GPU()      { return m_Frames[(m_FrameIndex - 2) % MAX_FRAMES_IN_FLIGHT]; }
+
+        // Access by absolute index
+        FrameContext& GetFrame(u64 index) { return m_Frames[index % MAX_FRAMES_IN_FLIGHT]; }
+
+        u64 GetFrameIndex() const { return m_FrameIndex; }
+
+        void Advance() { m_FrameIndex++; }
 
     private:
-        std::array<FrameContext, FrameContext::MAX_FRAMES_IN_FLIGHT> m_Frames;
+        std::array<FrameContext, MAX_FRAMES_IN_FLIGHT> m_Frames;
         u64 m_FrameIndex = 0;
     };
 }

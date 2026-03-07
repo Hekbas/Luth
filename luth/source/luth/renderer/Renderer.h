@@ -16,18 +16,21 @@ namespace Luth
         static void Init(void* windowHandle);
         static void Shutdown();
 
+        // Frame management — Renderer uses FrameData owned by App
+        static void SetFrameData(FrameData* frameData);
+
         // New Frame Logic
-        static void BeginFrame();
+        static void BeginFrame(u64 frameIndex);
         static void EndFrame();
         
-        static void ExecuteGraph(RG::RenderGraph& graph);
+        static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex);
         static void OnResize(u32 width, u32 height);
 
         static RenderBackend* GetBackend() { return s_Backend.get(); }
-        static FrameContext& GetCurrentFrame() { return s_FrameData.GetCurrentFrame(); }
+        static FrameData* GetFrameData() { return s_FrameData; }
 
     private:
         static std::unique_ptr<RenderBackend> s_Backend;
-        static FrameData s_FrameData;
+        static FrameData* s_FrameData; // Owned by App, NOT by Renderer
     };
 }

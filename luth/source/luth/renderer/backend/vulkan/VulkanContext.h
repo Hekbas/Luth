@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/core/FrameData.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
@@ -86,7 +87,7 @@ namespace Luth
         {
             std::deque<std::function<void()>> deletors;
         };
-        static constexpr u32 MAX_FRAMES_IN_FLIGHT = 2;
+        // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
         u32 m_CurrentFrameIndex = 0;
     };

@@ -234,7 +234,7 @@ void main() {
             AddImGuiPass(rg, sceneColor);
 
             rg.Compile();
-            Renderer::ExecuteGraph(rg);
+            Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex());
             
             return;
         }

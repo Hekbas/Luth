@@ -168,4 +168,11 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to allocate primary command buffers!");
         }
     }
+    bool VulkanBackend::IsFrameComplete(u64 frameIndex)
+    {
+        // Non-blocking check: has GPU finished this frame?
+        // Timeline value for frame F is F+1 (set in SubmitFrame)
+        u64 requiredValue = frameIndex + 1;
+        return m_FrameTimeline.GetValue() >= requiredValue;
+    }
 }
