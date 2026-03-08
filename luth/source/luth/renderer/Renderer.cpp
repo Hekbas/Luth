@@ -34,7 +34,6 @@ namespace Luth
 
     void Renderer::BeginFrame(u64 frameIndex)
     {
-        // Acquire swapchain image (may block on GPU fence for this frame's slot)
         s_Backend->AcquireImage(frameIndex);
     }
 
@@ -58,9 +57,8 @@ namespace Luth
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(primaryCmd, &beginInfo);
         
-        // Execute Graph (Records barriers to primary, dispatches secondary buffers)
-        std::vector<VkCommandBuffer> secondaryBuffers;
-        graph.ExecuteParallel(primaryCmd, secondaryBuffers);
+        // Execute the render graph — barriers + recording + secondary execution
+        graph.Execute(primaryCmd);
         
         // Present Barrier for Swapchain Image
         auto* vkBackend = static_cast<VulkanBackend*>(s_Backend.get());

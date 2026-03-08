@@ -3,13 +3,12 @@
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
 #include "luth/core/Memory.h"
 #include "luth/core/JobSystem.h"
-#include "luth/renderer/backend/vulkan/DynamicRendering.h" // For AttachmentInfo
+#include "luth/renderer/backend/vulkan/DynamicRendering.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
 #include <string>
-#include <unordered_map>
 
 // Forward declare VMA struct
 struct VmaAllocation_T;
@@ -19,7 +18,7 @@ namespace Luth::RG
     class RenderGraph;
 
     // ===================================================================================
-    // Pass Builder
+    // Pass Builder — Declares resource reads/writes during setup
     // ===================================================================================
 
     class RenderPassBuilder
@@ -29,23 +28,19 @@ namespace Luth::RG
             : m_Graph(graph), m_PassIndex(passIndex) {}
 
         ResourceHandle Read(ResourceHandle resource);
-        ResourceHandle ReadTransfer(ResourceHandle resource); // New: For Blit/Copy source
+        ResourceHandle ReadTransfer(ResourceHandle resource);
         
-        // Standard Write (Color Target)
         ResourceHandle Write(ResourceHandle resource, 
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
                              VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE, 
                              VkClearValue clearValue = {});
         
-        // Depth Write (Depth Target)
         ResourceHandle WriteDepth(ResourceHandle resource, 
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
                              VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE, 
                              VkClearValue clearValue = {});
 
-        // Transfer Write (Clear/Copy)
         ResourceHandle WriteTransfer(ResourceHandle resource);
-
         ResourceHandle CreateTexture(const TextureDesc& desc);
 
     private:
@@ -54,22 +49,31 @@ namespace Luth::RG
     };
 
     // ===================================================================================
-    // Pass Execution Context
+    // Pass Execution Context — Passed to pass execute lambdas
     // ===================================================================================
 
     class RenderPassContext
     {
     public:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-        
-        // Access to physical resources (void* = VkImage/VkBuffer)
-        // The executor must set this callback
         std::function<void*(ResourceHandle)> GetResource;
     };
 
     // ===================================================================================
-    // Render Graph
+    // Render Graph — DAG Compile → Barrier Inject → Execute
     // ===================================================================================
+    //
+    // Execution model (Phase 3):
+    //   Iterate sorted passes in order. For each pass:
+    //     1. Emit batched pre-barriers into primary cmd
+    //     2. BeginRendering on primary cmd
+    //     3. Dispatch pass recording as a RenderPassJob (secondary cmd buffer)
+    //     4. WaitForCounter (inline execute if depth allows, V5)
+    //     5. ExecuteCommands (secondary into primary)
+    //     6. EndRendering
+    //
+    //   Parallelism comes from WITHIN a pass (splitting draw calls across N jobs).
+    //   Multi-pass parallelism is NOT supported (inter-pass barriers are serial).
 
     class RenderGraph
     {
@@ -88,7 +92,7 @@ namespace Luth::RG
             std::function<void(RenderPassContext&)> execute;
             
             std::vector<ResourceHandle> reads;
-            std::vector<ResourceState> readStates; // Track desired state for reads
+            std::vector<ResourceState> readStates;
 
             std::vector<ResourceHandle> writes;
             std::vector<ResourceState> writeStates; 
@@ -99,6 +103,10 @@ namespace Luth::RG
             bool hasDepth = false;
 
             std::vector<Barrier> preBarriers;
+
+            // Compile output
+            bool culled = false;    // Dead-pass culling 
+            u32 sortOrder = 0;      // Topological order
         };
 
         struct ResourceNode
@@ -110,11 +118,15 @@ namespace Luth::RG
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
             
-            // Runtime data (filled by Executor)
+            // Physical resource (filled by AllocatePhysicalResources)
             VkImage image = VK_NULL_HANDLE;
             VkImageView view = VK_NULL_HANDLE;
             VmaAllocation_T* allocation = nullptr;
-            bool external = false; // If true, we don't destroy it (e.g. Swapchain Image)
+            bool external = false;
+
+            // Lifetime tracking (for future aliasing)
+            u32 firstPass = UINT32_MAX;   // First pass that reads/writes this resource
+            u32 lastPass = 0;             // Last pass that reads/writes this resource
         };
 
     public:
@@ -124,48 +136,36 @@ namespace Luth::RG
         template<typename Data, typename SetupFunc, typename ExecuteFunc>
         void AddPass(const std::string& name, SetupFunc&& setup, ExecuteFunc&& execute)
         {
-            // 1. Allocate Pass Data
             Data* data = m_Allocator.New<Data>();
 
-            // 2. Create Pass Node immediately so Builder can access it
             u32 passIndex = (u32)m_Passes.size();
             m_Passes.emplace_back();
             PassNode& node = m_Passes.back();
             node.name = name;
 
-            // 3. Run Setup (Populates reads/writes in node)
             RenderPassBuilder builder(*this, passIndex);
             setup(*data, builder);
 
-            // 4. Set Execute Function
             node.execute = [execute, data](RenderPassContext& ctx) {
                 execute(*data, ctx);
             };
         }
 
+        // Compile: Cull → Barrier Solve (topo sort is implicit — passes added in order)
         void Compile();
         
-        // Execute using a single command buffer (Legacy/Serial)
-        void Execute(VkCommandBuffer cmd);
-
-        // Execute using parallel jobs (New)
-        // Records barriers into primaryCmd, and fills outCommandBuffers with secondary buffers
-        void ExecuteParallel(VkCommandBuffer primaryCmd, std::vector<VkCommandBuffer>& outCommandBuffers);
+        // Execute: Serial pass iteration with parallel inner recording
+        void Execute(VkCommandBuffer primaryCmd);
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);
-        
-        // Import an existing resource (e.g. Swapchain Image)
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
-
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
-        
-        // New: Register attachment details
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
         void RegisterDepthAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
 
-        // Accessors for the Backend Executor
+        // Accessors
         const std::vector<PassNode>& GetPasses() const { return m_Passes; }
         std::vector<ResourceNode>& GetResources() { return m_Resources; }
 
@@ -176,5 +176,10 @@ namespace Luth::RG
 
         void AllocatePhysicalResources();
         void CleanupPhysicalResources();
+
+        // Compile sub-steps
+        void CullDeadPasses();
+        void SolveBarriers();
+        void ComputeLifetimes();
     };
 }
