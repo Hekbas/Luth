@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/RenderPanel.h"
-#include "luth/ECS/Systems.h"
-#include "luth/ECS/Systems/RenderingSystem.h"
+#include "luth/scene/Systems.h"
+#include "luth/scene/systems/RenderingSystem.h"
 #include "luth/utils/LuthIcons.h"
 
 namespace Luth

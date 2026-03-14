@@ -3,7 +3,7 @@
 #include "luth/core/UUID.h"
 #include "luth/resources/Asset.h"
 #include "luth/resources/AssetImporter.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/core/Time.h"
 
 #include <unordered_map>

@@ -1,24 +1,23 @@
 #include "luthpch.h"
 #include "luth/core/App.h"
 
-#include "luth/window/Window.h"
-#include "luth/input/Input.h"
-#include "luth/events/Event.h"
-#include "luth/events/AppEvent.h"
+#include "luth/platform/Window.h"
+#include "luth/platform/Input.h"
+#include "luth/platform/Event.h"
+#include "luth/platform/AppEvent.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
-#include "luth/ECS/Systems.h"
+#include "luth/scene/Systems.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
-#include "luth/ECS/systems/TransformSystem.h"
-#include "luth/ECS/systems/RenderingSystem.h"
-#include "luth/core/JobSystem.h"
-#include "luth/core/JobSystemTests.h"
+#include "luth/scene/systems/TransformSystem.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/core/IOThread.h"
+#include "luth/jobs/IOThread.h"
 
 namespace Luth
 {
@@ -28,9 +27,6 @@ namespace Luth
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
-        
-        // Run Job System Verification Tests
-        JobSystem::Tests::RunAll();
         
         FileSystem::Init();
         AssetDatabase::Init(FileSystem::AssetsPath());

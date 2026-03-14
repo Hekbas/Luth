@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "DynamicRendering.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 #include "CommandAllocatorPool.h"
 #include <functional>
 #include <span>

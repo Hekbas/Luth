@@ -2,7 +2,7 @@
 
 #include "luth/editor/Editor.h"
 #include "luth/core/UUID.h"
-#include "luth/ECS/Entity.h"
+#include "luth/scene/Entity.h"
 
 namespace Luth
 {

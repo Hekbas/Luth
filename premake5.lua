@@ -26,7 +26,6 @@ group ""
 
 group "Luth/Extern"
       include "luth/extern/premake5-assimp"
-      include "luth/extern/premake5-glad"
       include "luth/extern/premake5-glfw"
       include "luth/extern/premake5-glm"
       include "luth/extern/premake5-imgui"

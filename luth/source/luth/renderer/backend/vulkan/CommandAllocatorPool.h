@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "CommandAllocator.h"
-#include "luth/core/SpinLock.h"
+#include "luth/jobs/SpinLock.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 

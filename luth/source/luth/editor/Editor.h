@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/window/Window.h"
+#include "luth/platform/Window.h"
 
 #include <memory>
 #include <imgui.h>

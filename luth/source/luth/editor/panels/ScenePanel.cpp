@@ -2,10 +2,9 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
-#include "luth/ECS/Components.h"
+#include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/Framebuffer.h"
-#include "luth/events/RenderEvent.h"
+#include "luth/platform/RenderEvent.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -16,6 +15,8 @@
 
 namespace Luth
 {
+    using namespace Component;
+
     ScenePanel::ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem)
         : m_RenderingSystem(renderingSystem)
     {

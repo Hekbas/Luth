@@ -1,12 +1,12 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/window/Window.h"
-#include "luth/events/EventBus.h"
-#include "luth/events/AppEvent.h"
-#include "luth/events/FileDropEvent.h"
-#include "luth/ECS/Scene.h"
-#include "luth/core/FrameData.h"
+#include "luth/platform/Window.h"
+#include "luth/platform/EventBus.h"
+#include "luth/platform/AppEvent.h"
+#include "luth/platform/FileDropEvent.h"
+#include "luth/scene/Scene.h"
+#include "luth/renderer/FrameData.h"
 
 #include <vector>
 #include <memory>

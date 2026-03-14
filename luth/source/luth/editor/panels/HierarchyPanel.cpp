@@ -1,8 +1,8 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
-#include "luth/ECS/Components.h"
-#include "luth/ECS/Systems.h"
+#include "luth/scene/Components.h"
+#include "luth/scene/Systems.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
@@ -13,6 +13,7 @@
 
 namespace Luth
 {
+    using namespace Component;
     HierarchyPanel::HierarchyPanel()
     {
         LH_CORE_INFO("Created Hierarchy panel");

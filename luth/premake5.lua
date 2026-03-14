@@ -29,7 +29,6 @@ project "Luth"
       "extern/source",
       "extern/config-headers",
       IncludeDir["assimp"],
-      IncludeDir["glad"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
@@ -47,7 +46,6 @@ project "Luth"
    links
    {
       "assimp",
-      "glad",
       "glfw",
       "glm",
       "imgui",

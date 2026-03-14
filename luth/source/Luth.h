@@ -7,9 +7,7 @@
 #include "luth/core/Time.h"
 #include "luth/core/UUID.h"
 
-#include "luth/utils/ImageUtils.h"
-
-#include "luth/input/Input.h"
+#include "luth/platform/Input.h"
 #include "luth/editor/Editor.h"
 
 #include "luth/resources/FileSystem.h"

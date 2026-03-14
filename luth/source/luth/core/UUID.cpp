@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/core/UUID.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 
 #include <random>
 #include <cstring>

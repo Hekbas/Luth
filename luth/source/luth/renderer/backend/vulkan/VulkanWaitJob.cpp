@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "VulkanWaitJob.h"
 #include "TimelineSemaphore.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/core/Log.h"
 #include <thread> // For std::this_thread::yield
 

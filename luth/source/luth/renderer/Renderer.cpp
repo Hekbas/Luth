@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/MaterialSystem.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/CommandAllocatorPool.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"

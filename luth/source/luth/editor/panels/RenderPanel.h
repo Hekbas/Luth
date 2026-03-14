@@ -2,7 +2,7 @@
 
 #include "luth/editor/Editor.h"
 #include "luth/core/UUID.h"
-#include "luth/ECS/systems/RenderingSystem.h"
+#include "luth/scene/systems/RenderingSystem.h"
 
 #include <map>
 #include <string>

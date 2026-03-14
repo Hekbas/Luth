@@ -2,7 +2,7 @@
 #include "VulkanBackend.h"
 #include "VulkanContext.h"
 #include "luth/core/Log.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 
 namespace Luth
 {

@@ -2,7 +2,7 @@
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/UI.h"
-#include "luth/ECS/Components.h"
+#include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/Model.h"
@@ -14,6 +14,8 @@
 
 namespace Luth
 {
+    using namespace Component;
+
     InspectorPanel::InspectorPanel()
     {
         LH_CORE_INFO("Created Inspector panel");

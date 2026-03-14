@@ -1,18 +1,16 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
-#include "luth/ECS/Entity.h"
-#include "luth/ECS/systems/RenderingSystem.h"
-#include "luth/events/Event.h"
-#include "luth/events/EventBus.h"
+#include "luth/scene/Entity.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/platform/Event.h"
+#include "luth/platform/EventBus.h"
 
 #include <ImGuizmo.h>
 
 namespace Luth
 {
     class Scene;
-    class Framebuffer;
-
     class EditorCamera
     {
     public:

@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/resources/Asset.h"
-#include "luth/utils/ImageUtils.h"
+#include <stb/stb_image.h>
 
 #include <memory>
 

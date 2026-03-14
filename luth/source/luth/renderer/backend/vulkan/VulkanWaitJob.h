@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/core/JobSystem.h"
+#include "luth/jobs/JobSystem.h"
 
 namespace Luth
 {

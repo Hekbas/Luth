@@ -1,8 +1,8 @@
 #pragma once
 
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
-#include "luth/core/Memory.h"
-#include "luth/core/JobSystem.h"
+#include "luth/memory/Memory.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/renderer/backend/vulkan/DynamicRendering.h"
 
 #include <vulkan/vulkan.h>
@@ -130,7 +130,7 @@ namespace Luth::RG
         };
 
     public:
-        RenderGraph(LinearAllocator& allocator);
+        RenderGraph(Memory::LinearAllocator& allocator);
         ~RenderGraph() = default;
 
         template<typename Data, typename SetupFunc, typename ExecuteFunc>
@@ -170,7 +170,7 @@ namespace Luth::RG
         std::vector<ResourceNode>& GetResources() { return m_Resources; }
 
     private:
-        LinearAllocator& m_Allocator;
+        Memory::LinearAllocator& m_Allocator;
         std::vector<PassNode> m_Passes;
         std::vector<ResourceNode> m_Resources;
 
