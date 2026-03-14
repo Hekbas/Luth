@@ -2,10 +2,9 @@
 
 #include "luth/core/LuthTypes.h"
 #include "CommandAllocator.h"
+#include "luth/core/SpinLock.h"
 #include <vulkan/vulkan.h>
 #include <vector>
-#include <mutex>
-#include <queue>
 
 namespace Luth
 {
@@ -43,7 +42,7 @@ namespace Luth
         u32 m_QueueFamilyIndex = 0;
         VkDevice m_Device = VK_NULL_HANDLE;
 
-        std::mutex m_Lock;
+        SpinLock m_Lock;
         std::vector<CommandAllocator*> m_AvailableAllocators;
         std::vector<CommandAllocator*> m_AllAllocators;
     };

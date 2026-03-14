@@ -31,15 +31,11 @@
 
 Honestly? I just really love this stuff.
 
-It started with my Bachelor's Thesis. I built a "functional C++ engine" from scratch. It was single-threaded and used a very basic Vulkan implementation (no bindless resources, no complex concurrency) just a simple loop. It worked, and I had a blast building it!
+It started with my Bachelor's Thesis, where I designed a dual-renderer engine to benchmark Vulkan path tracing against traditional OpenGL PBR. The focus was purely on real-time graphics, so the underlying architecture was single-threaded. It worked, and I had a blast building it!
 
-Then I watched Christian Gyrling’s GDC talk on *[Parallelizing the Naughty Dog Engine Using Fibers](https://www.gdcvault.com/play/1022186/Parallelizing-the-Naughty-Dog-Engine)*.
+Then I watched Christian Gyrling’s GDC talk on *[Parallelizing the Naughty Dog Engine Using Fibers](https://www.gdcvault.com/play/1022186/Parallelizing-the-Naughty-Dog-Engine)*. Seeing how they saturated every single CPU core made me realize that my "simple loop" was basically running with the parking brake on.
 
-It blew my mind. Seeing how they saturated every single CPU core made me realize that my "simple loop" was basically running with the parking brake on. I really wanted to understand the raw, complex machinery behind AAA engines.
-
-So, I scrapped my old architecture and started Luth from scratch.
-
-This project is my personal deep dive into fiber-based job systems, lock-free memory models, bindless Vulkan rendering... It is absolutely over-engineered for a solo project, but that’s the point. I am building this to learn, to fail, and to obsess over the details that turn good code into high-performance architecture.
+So, I started Luth from scratch to explore high-performance architecture: fiber-based job systems, lock-free memory models, and bindless Vulkan rendering. It is absolutely over-engineered for a solo project, but that’s the point.
 
 ---
 
@@ -113,166 +109,15 @@ LUTH Engine is built on the shoulders of giants:
 
 ---
 
-## Detailed Roadmap
-> [!WARNING]
-> The engine is currently undergoing a massive architectural reboot (Phase 5) to fully implement the Fiber/Vulkan integration described above.
+## Current State & Roadmap
 
-### Phase 1: Engine Bootstrap [Completed]
-> Core platform abstraction and initial rendering capability.
+The engine has recently undergone a massive architectural reboot to fully implement the **Fiber/Vulkan integration** described above. 
 
-- [x] **Platform Layer:**
-  - [x] **Windowing:** GLFW integration with window abstraction.
-  - [x] **Input System:** Centralized event bus and polling (Mouse/Keyboard/Controller).
-  - [x] **Vulkan Bootstrap:** Initial Instance/Device creation and VMA (Vulkan Memory Allocator) integration.
-- [x] **ImGui Integration:**
-  - [x] **Viewports & Docking:** Multi-window support enabling a modern editor layout.
-  - [x] **Vulkan Hooks:** Custom render backend for ImGui draw lists.
+**Completed Core Features:**
+* Complete lock-free Job System using Win32 Fibers and Chase-Lev work-stealing deques.
+* Custom memory allocators (Linear Frame Packets, Tagged Page Allocator) avoiding `std::mutex` and `new`/`delete` in the hot path.
+* Fully pipelined frame execution `Game(N) -> Render(N-1) -> GPU(N-2)`.
+* Vulkan 1.3 backend featuring Dynamic Rendering and Timeline Semaphores.
+* Parallel Render Graph utilizing worker threads for secondary command buffer recording.
 
-### Phase 2: Concurrency v1.0 [Completed]
-> Foundation of the Job System (Pre-Reboot).
-
-- [x] **Fiber Primitives:**
-  - [x] **Task Scheduler:** Fiber-based execution model using assembly context switching.
-  - [x] **Synchronization:** Basic counters and wait primitives.
-- [x] **Async Asset Loading:** Job-based loading pipeline to offload disk I/O from the main thread.
-
-### Phase 3: Data Pipeline & Artifacts [Completed]
-> Robust, metadata-driven asset management system.
-
-- [x] **Artifact System:**
-  - [x] **Asset Database:** Integrity scanning, orphan cleanup, and UUID registry.
-  - [x] **Library Cache:** "Source vs. Artifact" separation. Importers compile raw assets (PNG, OBJ) into efficient binary binaries stored in `Library/`.
-  - [x] **Metadata:** Generation of `.meta` files for import settings stability.
-- [x] **Shader Reflection:**
-  - [x] **SPIRV-Cross Integration:** Automated reflection of shader binaries to generate Descriptor Set layouts and pipeline interfaces dynamically.
-  - [x] **Material System:** Reflection-driven property exposure (uniforms matched to Inspector fields).
-
-### Phase 4: ECS & Editor Architecture [Completed]
-> Scalable entity management and WYSIWYG tooling.
-
-- [x] **ECS Optimization:**
-  - [x] **Dirty Flags:** Reactive transform updates to avoid redundant matrix multiplication.
-  - [x] **Hierarchy Propagation:** Optimized O(N) parent-to-child world matrix calculation.
-  - [x] **POD Enforcement:** Strict Plain-Old-Data layout for core components (`Transform`, `Camera`) to maximize cache locality.
-- [x] **Editor Polish:**
-  - [x] **Project Panel:** Virtual filesystem view with Search, Zoom, and Drag & Drop support.
-  - [x] **Inspector:** Async preview loading and weak reference management for textures.
-  - [x] **Gizmos:** ImGuizmo integration for visual object manipulation.
-
-### Phase 5: Core Systems [Current Focus]
-> Establish the memory and execution foundation. No Vulkan implementation in this phase.
-
-**5.1 Memory Architecture**
-- [ ] **Tagged Page Allocator:**
-  - [ ] Implement `TaggedPageAllocator` (Pool of 2MB `VirtualAlloc` pages).
-  - [ ] Implement `FreeTag(uint32_t tag)` for bulk reclamation.
-  - [ ] Implement `ThreadCache` (Index-based access via `JobContext`) to minimize global lock contention.
-- [ ] **Frame Architecture:**
-  - [ ] Define `FrameParams` struct (Inputs, Time, Matrices, Viewport).
-  - [ ] Implement Triple Buffering for `FrameParams` (Game N, Render N-1, GPU N-2).
-- [ ] **Job Context:**
-  - [ ] Define `struct JobContext`.
-  - [ ] **Fields:** `TaggedAllocator*`, `FrameParams*`, `ThreadIndex`, `FiberID`.
-  - [ ] **Rule:** All Jobs must accept `JobContext&` as their primary argument.
-
-**5.2 Fiber Runtime**
-- [ ] **Safety Audit:**
-  - [ ] Remove all `thread_local` variables. Replace with `JobContext` lookups.
-  - [ ] Verify `Guard Page` implementation (protects against stack overflow).
-- [ ] **Synchronization Primitives:**
-  - [ ] Implement `AdaptiveMutex` (Spin ~2000 cycles -> `Fiber::Yield()`).
-  - [ ] Implement `AtomicCounter` (Wait adds fiber to "Wait List", resume moves to "Ready List").
-- [ ] **Scheduler Upgrade:**
-  - [ ] Implement **Priority Queues** (High, Normal, Low).
-  - [ ] **Policy:** High Priority (Game Logic) preempts Low Priority (Asset Loading).
-
-**5.3 Engine Loop**
-- [ ] **Main Loop Refactor:**
-  - [ ] Implement explicit pipeline staging: `KickGame(N)` -> `SubmitRender(N-1)` -> `RecycleGPU(N-2)`.
-- [ ] **I/O Subsystem:**
-  - [ ] Spawn dedicated `IO_Thread` (OS Thread).
-  - [ ] Implement `FileRequestQueue` (Lock-free ring buffer).
-  - [ ] **Constraint:** Blocking I/O (fread/fstream) forbidden in Fiber Workers.
-
----
-
-### Phase 6: Vulkan Backend
-> Lock-free, explicit command generation utilizing the core memory model.
-
-**6.1 Synchronization**
-- [ ] **Timeline Semaphores:**
-  - [ ] Create `TimelineSemaphore` wrapper.
-  - [ ] **Rule:** All Queue submits must signal a Timeline value (Frame Index).
-- [ ] **The Poller Job:**
-  - [ ] Implement `VulkanWaitJob`.
-  - [ ] **Logic:** `vkGetSemaphoreCounterValue` -> If < Target, Yield; Else, execute callback.
-  - [ ] **Cleanup:** Remove all `vkWaitForFences` calls.
-
-**6.2 Command Buffer Management**
-- [ ] **Command Allocator:**
-  - [ ] Create `struct CommandAllocator` (owns `VkCommandPool` + `vector<VkCommandBuffer>`).
-  - [ ] Implement `GetBuffer()` (Lock-free, internal cache).
-  - [ ] Implement `Reset()` (Resets underlying pool).
-- [ ] **Global Pool:**
-  - [ ] Create `CommandAllocatorPool` (Thread-safe `ConcurrentQueue`).
-  - [ ] **Acquire:** Pop allocator from queue.
-  - [ ] **Release:** Push allocator back to queue.
-- [ ] **Integration:**
-  - [ ] Add `CommandAllocator*` to `JobContext`.
-  - [ ] Implement "Lazy Acquire" in Render Jobs.
-  - [ ] Implement "Frame End Release" (Recycle only when `Poller` confirms GPU done).
-
-**6.3 Render Graph & Execution**
-- [ ] **Render Graph Compiler:**
-  - [ ] Implement DAG topological sort.
-  - [ ] Implement `BarrierBuilder` (Inject `vkCmdPipelineBarrier2`).
-- [ ] **Parallel Recording:**
-  - [ ] Refactor `RenderGraph::Execute`:
-    - [ ] Split Pass into N tasks (Secondary Buffers).
-    - [ ] Dispatch Jobs (concurrent with Game N).
-    - [ ] Coalesce Secondary Buffers into Primary for submission.
-
----
-
-### Phase 7: Data & Bindless Pipeline
-> High-throughput resource streaming.
-
-**7.1 Bindless Resources**
-- [ ] **Global Descriptor Heap:**
-  - [ ] Enable `VK_EXT_descriptor_indexing`.
-  - [ ] Create Layout: `binding=10, uniform texture2D globalTextures[]`.
-- [ ] **Material System:**
-  - [ ] Refactor Materials to use `uint32_t textureID` instead of `VkDescriptorSet`.
-  - [ ] Upload Material Data to a global `SSBO`.
-
-**7.2 Asset Streaming**
-- [ ] **Upload Context:**
-  - [ ] Create dedicated `TransferQueue`.
-  - [ ] Implement `StagingRingBuffer` (Persistent mapped memory).
-- [ ] **Async Flow:**
-  - [ ] `IO_Thread` reads binary -> Spawns `DecompressJob` -> Allocates Staging -> Records Copy -> Signals Timeline.
-
----
-
-### Phase 8: Rendering Features
-> Graphical fidelity.
-
-- [ ] **PBR Implementation:**
-  - [ ] Load .HDR Environment Maps.
-  - [ ] Implement IBL (Irradiance/Prefilter Compute Shaders).
-- [ ] **Shadows:**
-  - [ ] Cascaded Shadow Maps (CSM).
-  - [ ] Parallel Shadow Render Pass.
-- [ ] **Post-Processing:**
-  - [ ] Tone Mapping (ACES).
-  - [ ] Bloom (Compute Shader).
-
----
-
-### Phase 9: Gameplay & Tooling
-> Engine usability.
-
-- [ ] **Scene Serialization:** YAML Save/Load via EnTT.
-- [ ] **Physics:** Jolt Physics Integration (Jobified via `JobSystem`).
-- [ ] **Scripting:** C# Mono Integration (Game Logic stage).
-- [ ] **Editor:** ImGui Docking, Gizmos, Asset Browser.
+Development is currently focused on expanding the rendering features (PBR, cascaded shadow maps, post-processing) and building the asset streaming pipeline.

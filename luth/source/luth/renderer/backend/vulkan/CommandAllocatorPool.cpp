@@ -22,7 +22,7 @@ namespace Luth
 
     void CommandAllocatorPool::Shutdown()
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
         
         for (CommandAllocator* allocator : m_AllAllocators)
         {
@@ -36,7 +36,7 @@ namespace Luth
 
     CommandAllocator* CommandAllocatorPool::Acquire()
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         if (!m_AvailableAllocators.empty())
         {
@@ -50,13 +50,13 @@ namespace Luth
 
     void CommandAllocatorPool::Release(CommandAllocator* allocator)
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
         m_AvailableAllocators.push_back(allocator);
     }
 
     void CommandAllocatorPool::ResetAll()
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
         
         for (CommandAllocator* allocator : m_AllAllocators)
         {
