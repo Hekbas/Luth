@@ -45,6 +45,8 @@ namespace Luth
 		virtual ~Shader() = default;
         
 		virtual const fs::path& GetPath() const = 0;
+		virtual void Reload() {}
+		virtual bool IsValid() const { return false; }
 
 		// Reflection Data Access
 		const std::unordered_map<std::string, ShaderBuffer>& GetBuffers() const { return m_Buffers; }

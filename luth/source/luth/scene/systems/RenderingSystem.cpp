@@ -17,6 +17,8 @@
 #include "luth/renderer/Buffer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/renderer/ShaderCompiler.h"
+#include "luth/renderer/ShaderLibrary.h"
+#include "luth/renderer/backend/vulkan/VulkanShader.h"
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -40,9 +42,17 @@ namespace Luth
             InitGlobalUniforms();
             InitShadowResources();
 
-            // Compile PBR shaders
-            m_PBRVertSpv = ShaderCompiler::Compile(FileSystem::AssetsPath() / "shaders/pbr.vert");
-            m_PBRFragSpv = ShaderCompiler::Compile(FileSystem::AssetsPath() / "shaders/pbr.frag");
+            // Create and register shaders via Shader asset (compiles + reflects)
+            auto pbrShader = Shader::Create(FileSystem::AssetsPath() / "shaders/pbr.vert");
+            ShaderLibrary::Register("pbr", pbrShader);
+
+            auto shadowShader = Shader::Create(FileSystem::AssetsPath() / "shaders/shadowDepth.vert");
+            ShaderLibrary::Register("shadowDepth", shadowShader);
+
+            // Extract SPIR-V for pipeline creation
+            auto vkPbr = std::static_pointer_cast<VulkanShader>(pbrShader);
+            m_PBRVertSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+            m_PBRFragSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
 
             if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty())
             {
@@ -50,9 +60,9 @@ namespace Luth
                 return;
             }
 
-            // Compile shadow shaders
-            m_ShadowVertSpv = ShaderCompiler::Compile(FileSystem::AssetsPath() / "shaders/shadowDepth.vert");
-            m_ShadowFragSpv = ShaderCompiler::Compile(FileSystem::AssetsPath() / "shaders/shadowDepth.frag");
+            auto vkShadow = std::static_pointer_cast<VulkanShader>(shadowShader);
+            m_ShadowVertSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+            m_ShadowFragSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
 
             if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty())
             {
@@ -61,11 +71,53 @@ namespace Luth
             }
 
             CreatePipelines();
+
+            // Shader reload callback — rebuilds pipelines when a shader is reloaded
+            ShaderLibrary::SetReloadCallback([this](const std::string& name) {
+                vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
+                if (name == "pbr") {
+                    auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("pbr"));
+                    m_PBRVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+                    m_PBRFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+                } else if (name == "shadowDepth") {
+                    auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("shadowDepth"));
+                    m_ShadowVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+                    m_ShadowFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+                }
+
+                m_Pipelines.clear();
+                m_ShadowPipeline.reset();
+                CreatePipelines();
+                LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
+            });
+
+            // File watcher for shader hot-reload
+            m_ShaderWatcher.AddWatch(FileSystem::AssetsPath() / "shaders");
+            m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
+                if (status != FileWatcher::FileStatus::Modified) return;
+
+                std::string ext = changedFile.extension().string();
+                if (ext != ".vert" && ext != ".frag") return;
+
+                std::string stem = changedFile.stem().string();
+                for (const auto& [name, shader] : ShaderLibrary::GetAll()) {
+                    if (shader->GetPath().stem().string() == stem) {
+                        std::lock_guard lock(m_ReloadMutex);
+                        m_PendingReloads.insert(name);
+                        break;
+                    }
+                }
+            });
+            m_ShaderWatcher.Start(true);
         }
     }
 
     RenderingSystem::~RenderingSystem()
     {
+        m_ShaderWatcher.Stop();
+        ShaderLibrary::SetReloadCallback(nullptr);
+
         VkDevice device = VulkanContext::Get().GetDevice();
 
         if (m_ShadowSampler)
@@ -408,6 +460,17 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         auto& registry = scene->Registry();
+
+        // Drain pending shader reloads (queued by FileWatcher on background thread)
+        {
+            std::lock_guard lock(m_ReloadMutex);
+            for (const auto& name : m_PendingReloads)
+            {
+                LH_CORE_INFO("Shader file changed — reloading '{}'", name);
+                ShaderLibrary::Reload(name);
+            }
+            m_PendingReloads.clear();
+        }
 
         m_FrameAllocator->Reset();
 

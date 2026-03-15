@@ -40,7 +40,8 @@ project "Luth"
 
    libdirs
    {
-      "extern/source/vulkan/lib"
+      "extern/source/vulkan/lib",
+      os.getenv("VULKAN_SDK") .. "/Lib"
    }
 
    links
@@ -56,6 +57,9 @@ project "Luth"
       "ws2_32",
       "dbghelp"
    }
+
+   -- TODO: spirv-cross reflection disabled — Vulkan SDK pre-built libs have ABI mismatch.
+   -- When spirv-cross is built from source, add: links { "spirv-cross-core", "spirv-cross-glsl" }
 
    filter "configurations:Debug"
       defines { "DEBUG", "TRACY_ENABLE", "TRACY_FIBERS" }

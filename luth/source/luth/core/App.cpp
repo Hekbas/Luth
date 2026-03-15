@@ -17,6 +17,7 @@
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/ShaderLibrary.h"
 #include "luth/jobs/IOThread.h"
 
 namespace Luth
@@ -57,6 +58,7 @@ namespace Luth
 
         Renderer::Init(m_Window->GetNativeWindow());
         Renderer::SetFrameData(&m_FrameData);
+        ShaderLibrary::Init();
         
         // Scene & Systems
         m_Scene = std::make_shared<Scene>();
@@ -175,6 +177,7 @@ namespace Luth
         
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
+        ShaderLibrary::Shutdown();
         Renderer::Shutdown();
         m_FrameData.Shutdown();
         IOThread::Shutdown();

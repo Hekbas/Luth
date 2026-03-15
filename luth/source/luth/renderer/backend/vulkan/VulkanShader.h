@@ -13,6 +13,8 @@ namespace Luth
         virtual ~VulkanShader();
 
         virtual const fs::path& GetPath() const override { return m_Path; }
+        void Reload() override;
+        bool IsValid() const override;
 
         // Vulkan specific
         const std::vector<u32>& GetSpirV(VkShaderStageFlagBits stage) const;

@@ -11,6 +11,7 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/renderer/ShaderLibrary.h"
 
 namespace Luth
 {
@@ -489,14 +490,12 @@ namespace Luth
         if (auto shader = material.GetShader()) {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
-                // TODO: Iterate all shaders
-                // for (const auto& [uuid, s] : ShaderLibrary::GetAllShaders()) {
-                //     bool selected;
-                //     if (ImGui::Selectable(s.Shader->GetName().c_str(), &selected)) {
-                //         material.SetShaderUUID(uuid);
-                //         AssetRegistry::SetDirty(material.GetUUID());
-                //     }
-                // }
+                for (const auto& [name, s] : ShaderLibrary::GetAll()) {
+                    bool selected = (s == material.GetShader());
+                    if (ImGui::Selectable(name.c_str(), selected))
+                        material.SetShader(s->Handle);
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
                 ImGui::EndCombo();
             }
         }

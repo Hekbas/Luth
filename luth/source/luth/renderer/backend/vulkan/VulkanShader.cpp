@@ -4,11 +4,16 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/core/Log.h"
 
+// TODO: spirv-cross reflection disabled — Vulkan SDK pre-built libs have ABI mismatch.
+// Re-enable includes + Reflect() body when spirv-cross is built from source.
+#if LUTH_SPIRV_CROSS_ENABLED
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
+#endif
 
 namespace Luth
 {
+#if LUTH_SPIRV_CROSS_ENABLED
     static ShaderDataType SpirvTypeToShaderDataType(const spirv_cross::SPIRType& type)
     {
         switch (type.basetype)
@@ -31,6 +36,7 @@ namespace Luth
         }
         return ShaderDataType::None;
     }
+#endif
 
     VulkanShader::VulkanShader(const fs::path& path)
         : m_Path(path)
@@ -45,6 +51,48 @@ namespace Luth
         {
             vkDestroyShaderModule(device, module, nullptr);
         }
+    }
+
+    void VulkanShader::Reload()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // Destroy old shader modules
+        for (auto& [stage, module] : m_ShaderModules)
+            vkDestroyShaderModule(device, module, nullptr);
+
+        m_ShaderModules.clear();
+        m_ShaderStages.clear();
+        m_SpirVData.clear();
+        m_Buffers.clear();
+        m_Resources.clear();
+        m_PushConstants.clear();
+
+        // Recompile from disk
+        CompileOrGetVulkanBinaries();
+
+        if (IsValid())
+            LH_CORE_INFO("VulkanShader: reloaded '{}'", m_Path.string());
+        else
+            LH_CORE_ERROR("VulkanShader: reload failed for '{}'", m_Path.string());
+    }
+
+    bool VulkanShader::IsValid() const
+    {
+        return !m_ShaderModules.empty();
+    }
+
+    const std::vector<u32>& VulkanShader::GetSpirV(VkShaderStageFlagBits stage) const
+    {
+        static const std::vector<u32> empty;
+        auto it = m_SpirVData.find(stage);
+        return (it != m_SpirVData.end()) ? it->second : empty;
+    }
+
+    VkShaderModule VulkanShader::GetShaderModule(VkShaderStageFlagBits stage) const
+    {
+        auto it = m_ShaderModules.find(stage);
+        return (it != m_ShaderModules.end()) ? it->second : VK_NULL_HANDLE;
     }
 
     void VulkanShader::CompileOrGetVulkanBinaries()
@@ -64,7 +112,9 @@ namespace Luth
             if (!spirv.empty())
             {
                 m_SpirVData[VK_SHADER_STAGE_VERTEX_BIT] = spirv;
-                Reflect(VK_SHADER_STAGE_VERTEX_BIT, spirv);
+                // TODO: Reflect(VK_SHADER_STAGE_VERTEX_BIT, spirv);
+                // Disabled: Vulkan SDK spirv-cross libs have ABI mismatch with project MSVC.
+                // Re-enable when spirv-cross is built from source as a project dependency.
                 CreateShaderModule(VK_SHADER_STAGE_VERTEX_BIT, spirv);
             }
         }
@@ -79,7 +129,7 @@ namespace Luth
             if (!spirv.empty())
             {
                 m_SpirVData[VK_SHADER_STAGE_FRAGMENT_BIT] = spirv;
-                Reflect(VK_SHADER_STAGE_FRAGMENT_BIT, spirv);
+                // TODO: Reflect(VK_SHADER_STAGE_FRAGMENT_BIT, spirv);
                 CreateShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, spirv);
             }
         }
@@ -87,7 +137,8 @@ namespace Luth
 
     void VulkanShader::Reflect(VkShaderStageFlagBits stage, const std::vector<u32>& spirv)
     {
-        spirv_cross::Compiler compiler(spirv);
+#if LUTH_SPIRV_CROSS_ENABLED
+        spirv_cross::Compiler compiler(spirv.data(), spirv.size());
         spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
         LH_CORE_TRACE("Reflecting Shader: {0} (Stage: {1})", m_Path.string(), (int)stage);
@@ -139,7 +190,6 @@ namespace Luth
             ShaderBuffer buffer;
             buffer.Name = resource.name;
             buffer.Size = bufferSize;
-            // Push constants don't have set/binding
 
             LH_CORE_TRACE("  Push Constant: {0} (Size: {1})", resource.name, bufferSize);
 
@@ -167,11 +217,10 @@ namespace Luth
         {
             uint32_t set = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
             uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-            
-            // Handle arrays (bindless)
+
             const auto& type = compiler.get_type(resource.type_id);
             uint32_t arraySize = !type.array.empty() ? type.array[0] : 1;
-            if (arraySize == 0) arraySize = 0; // Unsized array (RuntimeArray)
+            if (arraySize == 0) arraySize = 0;
 
             ShaderResource res;
             res.Name = resource.name;
@@ -182,6 +231,10 @@ namespace Luth
             m_Resources[resource.name] = res;
             LH_CORE_TRACE("  Texture: {0} (Set: {1}, Binding: {2})", resource.name, set, binding);
         }
+#else
+        (void)stage; (void)spirv;
+        LH_CORE_WARN("VulkanShader::Reflect() disabled — spirv-cross not linked (ABI mismatch with Vulkan SDK pre-built libs)");
+#endif
     }
 
     void VulkanShader::CreateShaderModule(VkShaderStageFlagBits stage, const std::vector<u32>& spirv)

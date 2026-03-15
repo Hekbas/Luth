@@ -8,9 +8,12 @@
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Material.h"
 #include "luth/core/UUID.h"
+#include "luth/resources/FileWatcher.h"
 
 #include <entt/entt.hpp>
 #include <unordered_map>
+#include <set>
+#include <mutex>
 
 namespace Luth
 {
@@ -114,6 +117,11 @@ namespace Luth
 
         // Material SSBO slot tracking (MaterialUUID -> SSBO index)
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
+
+        // Shader hot-reload
+        FileWatcher m_ShaderWatcher;
+        std::mutex m_ReloadMutex;
+        std::set<std::string> m_PendingReloads;
     };
 
 }
