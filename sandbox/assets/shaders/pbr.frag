@@ -1,0 +1,191 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : enable
+
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) in mat3 v_TBN;    // locations 3, 4, 5
+
+layout(location = 0) out vec4 outColor;
+
+// ---------- Descriptor Sets ----------
+
+// Set 0: Global Uniforms
+layout(set = 0, binding = 0) uniform GlobalUniforms {
+    mat4 viewProjection;
+    mat4 view;
+    mat4 projection;
+    vec3 cameraPos;
+    float time;
+} ubo;
+
+// Set 1: Bindless Textures
+layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
+
+// Set 2: Material SSBO
+struct GPUMaterialData {
+    vec4  color;
+    uint  diffuseIndex;
+    uint  normalIndex;
+    uint  metalRoughIndex;
+    uint  occlusionIndex;
+    float metalness;
+    float roughness;
+    float alphaCutoff;
+    uint  flags;
+};
+
+layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
+    GPUMaterialData materials[];
+};
+
+// Push Constants
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    uint materialIndex;
+} pc;
+
+// ---------- Flag Constants ----------
+
+const uint FLAG_HAS_NORMAL     = (1u << 0);
+const uint FLAG_HAS_METALROUGH = (1u << 1);
+const uint FLAG_HAS_OCCLUSION  = (1u << 2);
+const uint FLAG_HAS_DIFFUSE    = (1u << 3);
+const uint FLAG_HAS_EMISSIVE   = (1u << 4);
+
+const float PI = 3.14159265359;
+
+// ---------- PBR BRDF Functions ----------
+
+// GGX/Trowbridge-Reitz normal distribution
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+    float a  = roughness * roughness;
+    float a2 = a * a;
+    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return a2 / max(denom, 0.0000001);
+}
+
+// Schlick-GGX geometry function
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+// Smith geometry function (combined)
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx2 = GeometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+// Fresnel-Schlick approximation
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Calculate contribution of a single light
+vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness)
+{
+    vec3 H = normalize(V + L);
+
+    // F0: reflectance at normal incidence (0.04 for dielectrics, albedo for metals)
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+    // Cook-Torrance BRDF
+    float D = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+    vec3  F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    vec3 numerator    = D * G * F;
+    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    vec3 specular     = numerator / denominator;
+
+    // Energy conservation: diffuse = (1 - specular) * (1 - metallic)
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+    float NdotL = max(dot(N, L), 0.0);
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+// ---------- Main ----------
+
+void main()
+{
+    GPUMaterialData mat = materials[pc.materialIndex];
+
+    // --- Albedo ---
+    vec4 albedo = mat.color;
+    if ((mat.flags & FLAG_HAS_DIFFUSE) != 0u)
+    {
+        vec4 texColor = texture(globalTextures[nonuniformEXT(mat.diffuseIndex)], v_TexCoord);
+        albedo *= texColor;
+    }
+
+    // --- Alpha cutoff (Cutout mode: alphaCutoff > 0; Opaque: alphaCutoff == 0) ---
+    if (albedo.a < mat.alphaCutoff)
+        discard;
+
+    // --- Normal ---
+    vec3 N;
+    if ((mat.flags & FLAG_HAS_NORMAL) != 0u)
+    {
+        vec3 tangentNormal = texture(globalTextures[nonuniformEXT(mat.normalIndex)], v_TexCoord).rgb;
+        tangentNormal = tangentNormal * 2.0 - 1.0;
+        N = normalize(v_TBN * tangentNormal);
+    }
+    else
+    {
+        N = normalize(v_Normal);
+    }
+
+    // --- Metallic / Roughness ---
+    float metallic  = mat.metalness;
+    float roughness = mat.roughness;
+    if ((mat.flags & FLAG_HAS_METALROUGH) != 0u)
+    {
+        // glTF convention: G = roughness, B = metallic
+        vec3 mrSample = texture(globalTextures[nonuniformEXT(mat.metalRoughIndex)], v_TexCoord).rgb;
+        roughness *= mrSample.g;
+        metallic  *= mrSample.b;
+    }
+    roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
+
+    // --- Ambient Occlusion ---
+    float ao = 1.0;
+    if ((mat.flags & FLAG_HAS_OCCLUSION) != 0u)
+    {
+        ao = texture(globalTextures[nonuniformEXT(mat.occlusionIndex)], v_TexCoord).r;
+    }
+
+    // --- Lighting ---
+    vec3 V = normalize(ubo.cameraPos - v_WorldPos);
+
+    // Hardcoded directional light (Phase 5-B adds real lights)
+    vec3 lightDir   = normalize(vec3(1.0, 1.0, 0.5));
+    vec3 lightColor = vec3(1.0, 1.0, 1.0);
+    float lightIntensity = 3.0;
+    vec3 radiance = lightColor * lightIntensity;
+
+    vec3 Lo = CalculateLight(lightDir, radiance, V, N, albedo.rgb, metallic, roughness);
+
+    // Ambient (constant; IBL comes in Phase 5-G)
+    vec3 ambient = vec3(0.03) * albedo.rgb * ao;
+
+    vec3 color = ambient + Lo;
+
+    outColor = vec4(color, albedo.a);
+}

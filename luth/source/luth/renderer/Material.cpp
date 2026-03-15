@@ -56,10 +56,13 @@ namespace Luth
         m_GPUData.roughness = Get<float>("u_Roughness", 0.5f);
         m_GPUData.alphaCutoff = m_AlphaCutoff;
         
-        // Flags
+        // Flags — each bit indicates a valid texture is bound for that feature
         m_GPUData.flags = 0;
-        if (IsUseMapEnabled(MapType::Normal)) m_GPUData.flags |= 1 << 0; // Has Normal Map
-        // etc.
+        if (GetTextureByType(MapType::Normal)    && IsUseMapEnabled(MapType::Normal))    m_GPUData.flags |= (1 << 0); // HAS_NORMAL
+        if (GetTextureByType(MapType::Metalness) && IsUseMapEnabled(MapType::Metalness)) m_GPUData.flags |= (1 << 1); // HAS_METALROUGH
+        if (GetTextureByType(MapType::Oclusion)  && IsUseMapEnabled(MapType::Oclusion))  m_GPUData.flags |= (1 << 2); // HAS_OCCLUSION
+        if (GetTextureByType(MapType::Diffuse)   && IsUseMapEnabled(MapType::Diffuse))   m_GPUData.flags |= (1 << 3); // HAS_DIFFUSE
+        if (GetTextureByType(MapType::Emissive)  && IsUseMapEnabled(MapType::Emissive))  m_GPUData.flags |= (1 << 4); // HAS_EMISSIVE
     }
 
     void Material::Serialize(nlohmann::json& json) const
