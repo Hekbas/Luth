@@ -120,7 +120,7 @@ void main() {
             config.depthTest = true;
             config.depthWrite = true;
             config.cullMode = VK_CULL_MODE_BACK_BIT;
-            config.frontFace = VK_FRONT_FACE_CLOCKWISE; // Fix winding order due to Y-flip
+            config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // lookAt(det=-1) + Y-flip(det=-1) cancel out → CCW in clip space
 
             // Define Vertex Layout (Matches Model::ProcessMeshData)
             BufferLayout vertexLayout = {
@@ -208,6 +208,7 @@ void main() {
         GlobalUniforms ubo{};
         ubo.view = camera.GetViewMatrix();
         ubo.projection = camera.GetProjectionMatrix();
+        ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
         ubo.cameraPos = camera.GetPosition();
         ubo.time = Time::GetTime();
@@ -259,8 +260,12 @@ void main() {
                 desc.width = m_SceneColor->GetWidth();
                 desc.height = m_SceneColor->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
-                
-                data.outputTex = builder.CreateTexture(desc);
+
+                auto vkTex = std::static_pointer_cast<VKTexture>(m_SceneColor);
+                data.outputTex = rg.ImportResource(desc,
+                    (void*)vkTex->GetImage(),
+                    (void*)vkTex->GetImageView(),
+                    RG::ResourceState::ShaderResource);
 
                 RG::TextureDesc depthDesc;
                 depthDesc.name = "SceneDepth";
@@ -270,7 +275,10 @@ void main() {
 
                 data.depthTex = builder.CreateTexture(depthDesc);
                 
-                data.depthTex = builder.WriteDepth(data.depthTex); // Use WriteDepth
+                VkClearValue depthClear{};
+                depthClear.depthStencil = { 1.0f, 0 };
+                data.depthTex = builder.WriteDepth(data.depthTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, depthClear);
                 data.outputTex = builder.Write(data.outputTex);
                 
                 outputHandle = data.outputTex;

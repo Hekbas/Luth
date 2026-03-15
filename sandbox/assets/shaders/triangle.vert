@@ -1,17 +1,28 @@
 #version 450
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec2 a_TexCoord0;
+layout(location = 3) in vec2 a_TexCoord1;
+layout(location = 4) in vec3 a_Tangent;
 
-layout(binding = 0) uniform UniformBufferObject {
-    mat4 model;
+layout(location = 0) out vec3 v_Normal;
+layout(location = 1) out vec2 v_TexCoord;
+
+layout(set = 0, binding = 0) uniform GlobalUniforms {
+    mat4 viewProjection;
     mat4 view;
-    mat4 proj;
+    mat4 projection;
+    vec3 cameraPos;
+    float time;
 } ubo;
 
-layout(location = 0) in vec2 inPosition;
-layout(location = 1) in vec3 inColor;
-
-layout(location = 0) out vec3 fragColor;
+layout(push_constant) uniform PushConstants {
+    mat4 modelMatrix;
+    uint albedoMapIndex;
+} pc;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
-    fragColor = inColor;
+    v_Normal = mat3(transpose(inverse(pc.modelMatrix))) * a_Normal;
+    v_TexCoord = a_TexCoord0;
+    gl_Position = ubo.viewProjection * pc.modelMatrix * vec4(a_Position, 1.0);
 }

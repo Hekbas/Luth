@@ -313,9 +313,8 @@ namespace Luth
 
     void EditorCamera::UpdateProjection() {
         m_ProjectionMatrix = glm::perspective(
-            glm::radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip); 
-        // Vulkan Y-flip for Editor Camera too
-        m_ProjectionMatrix[1][1] *= -1.0f;
+            glm::radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip);
+        // No Y-flip here — applied at GPU uniform upload only (RenderingSystem::UpdateGlobalUniforms)
     }
 
     void EditorCamera::UpdateView() {

@@ -153,6 +153,28 @@ namespace Luth
 
         // 5. Create Null Texture (1x1 White)
         CreateNullTexture();
+
+        // 6. Reserve index 0 for null/fallback texture
+        {
+            u32 reservedIndex = m_FreeIndices.front(); // Will be 0
+            m_FreeIndices.pop_front();
+
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView   = m_NullImageView;
+            imageInfo.sampler     = m_NullSampler;
+
+            VkWriteDescriptorSet write{};
+            write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet          = m_DescriptorSet;
+            write.dstBinding      = 0;
+            write.dstArrayElement = reservedIndex;
+            write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo      = &imageInfo;
+
+            vkUpdateDescriptorSets(m_Device, 1, &write, 0, nullptr);
+        }
     }
 
     void BindlessDescriptorSet::Shutdown()
