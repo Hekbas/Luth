@@ -9,6 +9,33 @@
 
 namespace Luth
 {
+    // -------------------------------------------------------------------------
+    // Format helpers
+    // -------------------------------------------------------------------------
+
+    static VkFormat ToVkFormat(TextureFormat fmt)
+    {
+        switch (fmt)
+        {
+            case TextureFormat::R8:              return VK_FORMAT_R8_UNORM;
+            case TextureFormat::RGB8:            return VK_FORMAT_R8G8B8_UNORM;
+            case TextureFormat::RGBA8:           return VK_FORMAT_R8G8B8A8_UNORM;
+            case TextureFormat::RGBA32F:         return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
+            case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
+            default:                             return VK_FORMAT_R8G8B8A8_UNORM;
+        }
+    }
+
+    static bool IsDepthFormat(TextureFormat fmt)
+    {
+        return fmt == TextureFormat::D32_Float || fmt == TextureFormat::D24_Unorm_S8_Uint;
+    }
+
+    // -------------------------------------------------------------------------
+    // Constructors
+    // -------------------------------------------------------------------------
+
     VKTexture::VKTexture(const fs::path& path)
         : m_Path(path)
     {
@@ -21,10 +48,10 @@ namespace Luth
             m_Width = width;
             m_Height = height;
             m_Format = TextureFormat::RGBA8;
-            
+
             CreateImage(data);
             CreateViewAndSampler();
-            
+
             stbi_image_free(data);
         }
         else
@@ -42,14 +69,13 @@ namespace Luth
 
     VKTexture::~VKTexture()
     {
-        // Unbind from global set
+        // Unbind from global set (only color textures are in bindless)
         if (m_BindlessIndex != 0)
             VulkanContext::Get().GetBindlessSet().UnbindTexture(m_BindlessIndex);
 
-        // Defer deletion
         VulkanContext::Get().PushDeletion([img = m_Image, view = m_ImageView, samp = m_Sampler, alloc = m_Allocation]() {
             VkDevice device = VulkanContext::Get().GetDevice();
-            vkDestroySampler(device, samp, nullptr);
+            if (samp) vkDestroySampler(device, samp, nullptr);
             vkDestroyImageView(device, view, nullptr);
             VulkanAllocator::FreeImage(img, alloc);
         });
@@ -60,8 +86,15 @@ namespace Luth
         // No-op for bindless
     }
 
+    // -------------------------------------------------------------------------
+    // CreateImage
+    // -------------------------------------------------------------------------
+
     void VKTexture::CreateImage(const void* data)
     {
+        const bool isDepth = IsDepthFormat(m_Format);
+        VkFormat vkFmt = ToVkFormat(m_Format);
+
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -70,25 +103,39 @@ namespace Luth
         imageInfo.extent.depth = 1;
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = 1;
-        imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // TODO: Handle m_Format
+        imageInfo.format = vkFmt;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+        if (isDepth)
+        {
+            // Depth textures: attachment + sampled (for shadow maps / post-process reads)
+            imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                            | VK_IMAGE_USAGE_SAMPLED_BIT;
+        }
+        else
+        {
+            imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                            | VK_IMAGE_USAGE_SAMPLED_BIT
+                            | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        }
+
         m_Allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Image);
 
-        if (data)
+        // Upload pixel data (color textures only; depth textures are never CPU-uploaded directly)
+        if (data && !isDepth)
         {
-            VkDeviceSize imageSize = m_Width * m_Height * 4;
+            u32 bytesPerPixel = 4; // RGBA8, R8, etc. — stb always gives RGBA
 
-            // Staging Buffer
+            VkDeviceSize imageSize = (VkDeviceSize)m_Width * m_Height * bytesPerPixel;
+
             VkBuffer stagingBuffer;
             VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             bufferInfo.size = imageSize;
             bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            
+
             VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_ONLY, stagingBuffer);
 
             void* mappedData = VulkanAllocator::Map(stagingAlloc);
@@ -112,21 +159,18 @@ namespace Luth
                 barrier.srcAccessMask = 0;
                 barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-                // Copy
                 VkBufferImageCopy region{};
-                region.bufferOffset = 0;
-                region.bufferRowLength = 0;
-                region.bufferImageHeight = 0;
                 region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 region.imageSubresource.mipLevel = 0;
                 region.imageSubresource.baseArrayLayer = 0;
                 region.imageSubresource.layerCount = 1;
-                region.imageOffset = { 0, 0, 0 };
                 region.imageExtent = { m_Width, m_Height, 1 };
 
-                vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
                 // Transition to Shader Read
                 barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -134,49 +178,80 @@ namespace Luth
                 barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
                 barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0, 0, nullptr, 0, nullptr, 1, &barrier);
             });
 
             VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
         }
         else
         {
-            // If no data, transition to Shader Read anyway (or General)
+            // No data (render target / shadow map): transition to a suitable initial layout.
+            // Color render targets → SHADER_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
+            // Depth textures → DEPTH_STENCIL_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
+            VkImageAspectFlags aspect = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+            VkImageLayout newLayout = isDepth
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkPipelineStageFlags dstStage = isDepth
+                ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            VkAccessFlags dstAccess = isDepth
+                ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+                : VK_ACCESS_SHADER_READ_BIT;
+
             VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
                 VkImageMemoryBarrier barrier{};
                 barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barrier.newLayout = newLayout;
                 barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 barrier.image = m_Image;
-                barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                barrier.subresourceRange.aspectMask = aspect;
                 barrier.subresourceRange.baseMipLevel = 0;
                 barrier.subresourceRange.levelCount = 1;
                 barrier.subresourceRange.baseArrayLayer = 0;
                 barrier.subresourceRange.layerCount = 1;
                 barrier.srcAccessMask = 0;
-                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                barrier.dstAccessMask = dstAccess;
 
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dstStage,
+                    0, 0, nullptr, 0, nullptr, 1, &barrier);
             });
         }
     }
 
+    // -------------------------------------------------------------------------
+    // CreateViewAndSampler
+    // -------------------------------------------------------------------------
+
     void VKTexture::CreateViewAndSampler()
     {
+        const bool isDepth = IsDepthFormat(m_Format);
+        VkFormat vkFmt = ToVkFormat(m_Format);
+
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = m_Image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.format = vkFmt;
+        viewInfo.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
         vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &m_ImageView);
+
+        // Depth textures don't get a generic sampler registered in bindless.
+        // Their sampling (e.g. shadow PCF) is set up externally with a dedicated VkSampler.
+        if (isDepth)
+        {
+            m_Sampler = VK_NULL_HANDLE;
+            m_BindlessIndex = 0;
+            return;
+        }
 
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -201,7 +276,13 @@ namespace Luth
 
     std::string VKTexture::GetFormatString() const
     {
-        return "RGBA8";
+        switch (m_Format)
+        {
+            case TextureFormat::RGBA8:   return "RGBA8";
+            case TextureFormat::RGBA32F: return "RGBA32F";
+            case TextureFormat::D32_Float: return "D32_Float";
+            default: return "Unknown";
+        }
     }
 
     void VKTexture::SetWrapMode(TextureWrapMode mode) {}

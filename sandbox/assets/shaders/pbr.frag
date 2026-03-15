@@ -17,6 +17,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
+    mat4 lightSpaceMatrix;
 } ubo;
 
 // Set 1: Bindless Textures
@@ -38,6 +39,29 @@ struct GPUMaterialData {
 layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
     GPUMaterialData materials[];
 };
+
+// Set 3: Lights + Shadow
+struct DirectionalLightData {
+    vec3  direction;
+    float intensity;
+    vec3  color;
+    float _pad;
+};
+
+struct PointLightData {
+    vec3  position;
+    float range;
+    vec3  color;
+    float intensity;
+};
+
+layout(set = 3, binding = 0) uniform LightUBO {
+    DirectionalLightData dirLight;
+    PointLightData       pointLights[64];
+    int                  numPointLights;
+} lights;
+
+layout(set = 3, binding = 1) uniform sampler2DShadow shadowMap;
 
 // Push Constants
 layout(push_constant) uniform PushConstants {
@@ -121,6 +145,34 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
     return (kD * albedo / PI + specular) * radiance * NdotL;
 }
 
+// ---------- PCF Shadow ----------
+
+float ComputeShadow(vec3 worldPos)
+{
+    vec4 lsPos = ubo.lightSpaceMatrix * vec4(worldPos, 1.0);
+    vec3 proj  = lsPos.xyz / lsPos.w;
+    proj.xy    = proj.xy * 0.5 + 0.5;
+
+    // Out of shadow frustum = fully lit
+    if (proj.z < 0.0 || proj.z > 1.0 ||
+        proj.x < 0.0 || proj.x > 1.0 ||
+        proj.y < 0.0 || proj.y > 1.0)
+        return 1.0;
+
+    // PCF 3x3 (manual texel offsets — textureOffset requires constant expressions)
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            vec3 sampleCoord = vec3(proj.xy + vec2(x, y) * texelSize, proj.z);
+            shadow += texture(shadowMap, sampleCoord);
+        }
+    }
+    return shadow / 9.0;
+}
+
 // ---------- Main ----------
 
 void main()
@@ -173,16 +225,30 @@ void main()
 
     // --- Lighting ---
     vec3 V = normalize(ubo.cameraPos - v_WorldPos);
+    vec3 Lo = vec3(0.0);
 
-    // Hardcoded directional light (Phase 5-B adds real lights)
-    vec3 lightDir   = normalize(vec3(1.0, 1.0, 0.5));
-    vec3 lightColor = vec3(1.0, 1.0, 1.0);
-    float lightIntensity = 3.0;
-    vec3 radiance = lightColor * lightIntensity;
+    // Directional light + PCF shadow
+    {
+        float shadow = ComputeShadow(v_WorldPos);
+        vec3 dirRadiance = lights.dirLight.color * lights.dirLight.intensity;
+        Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance,
+                             V, N, albedo.rgb, metallic, roughness) * shadow;
+    }
 
-    vec3 Lo = CalculateLight(lightDir, radiance, V, N, albedo.rgb, metallic, roughness);
+    // Point lights (no shadows)
+    for (int i = 0; i < min(lights.numPointLights, 64); ++i)
+    {
+        vec3  toLight   = lights.pointLights[i].position - v_WorldPos;
+        float dist      = length(toLight);
+        float atten     = 1.0 / max(dist * dist, 0.0001);
+        float rolloff   = pow(1.0 - clamp(dist / lights.pointLights[i].range, 0.0, 1.0), 2.0);
+        vec3  ptRadiance = lights.pointLights[i].color
+                         * lights.pointLights[i].intensity * atten * rolloff;
+        if (dot(ptRadiance, ptRadiance) > 0.0001)
+            Lo += CalculateLight(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
+    }
 
-    // Ambient (constant; IBL comes in Phase 5-G)
+    // Ambient (constant; IBL comes later)
     vec3 ambient = vec3(0.03) * albedo.rgb * ao;
 
     vec3 color = ambient + Lo;

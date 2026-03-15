@@ -18,6 +18,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
+    mat4 lightSpaceMatrix;
 } ubo;
 
 // Push Constants
