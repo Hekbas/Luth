@@ -4,6 +4,7 @@
 #include "luth/platform/Window.h"
 
 #include <memory>
+#include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <imgui/imgui_internal.h>
 
@@ -54,7 +55,9 @@ namespace Luth
         static ImFont* GetFASolid() { return m_FASolid; }
 
     private:
+        static inline Window* s_Window = nullptr;
         static inline ImGuiContext* s_Context = nullptr;
+        static inline VkDescriptorPool s_ImGuiPool = VK_NULL_HANDLE;
         static inline std::vector<std::unique_ptr<Panel>> s_Panels;
 
         static inline ImFont* m_MainFont = nullptr;

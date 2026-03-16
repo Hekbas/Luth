@@ -5,6 +5,7 @@
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/CommandAllocatorPool.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 namespace Luth
 {
@@ -25,6 +26,16 @@ namespace Luth
             s_Backend->Shutdown();
             s_Backend.reset();
         }
+    }
+
+    void Renderer::WaitForGPU()
+    {
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+    }
+
+    void Renderer::FlushDeletionQueues()
+    {
+        VulkanContext::Get().FlushAllDeletionQueues();
     }
 
     void Renderer::SetFrameData(FrameData* frameData)

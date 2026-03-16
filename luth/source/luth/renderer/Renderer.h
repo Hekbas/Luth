@@ -16,6 +16,10 @@ namespace Luth
         static void Init(void* windowHandle);
         static void Shutdown();
 
+        // Call before destroying any GPU resources outside the render loop
+        static void WaitForGPU();
+        static void FlushDeletionQueues();
+
         // Frame management — Renderer uses FrameData owned by App
         static void SetFrameData(FrameData* frameData);
 

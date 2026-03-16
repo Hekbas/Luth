@@ -367,4 +367,14 @@ namespace Luth
         }
         queue.deletors.clear();
     }
+
+    void VulkanContext::FlushAllDeletionQueues()
+    {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            for (auto& func : m_DeletionQueues[i].deletors) {
+                func();
+            }
+            m_DeletionQueues[i].deletors.clear();
+        }
+    }
 }

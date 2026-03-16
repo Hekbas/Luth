@@ -270,16 +270,15 @@ namespace Luth::UI
         return changed;
     }
 
+    // File-scope so ClearTextureCache() can access it
+    static std::unordered_map<void*, std::pair<VkDescriptorSet, std::weak_ptr<Texture>>> s_TextureCache;
+
     ImTextureID GetTextureID(const std::shared_ptr<Texture>& texture)
     {
         if (!texture) return 0;
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            // Simple cache for ImGui Descriptors
-            // Key: Texture Pointer (void*), Value: { DescriptorSet, WeakPtr }
-            static std::unordered_map<void*, std::pair<VkDescriptorSet, std::weak_ptr<Texture>>> s_TextureCache;
-            
             // Cleanup stale entries
             for (auto it = s_TextureCache.begin(); it != s_TextureCache.end(); )
             {
@@ -302,8 +301,8 @@ namespace Luth::UI
             {
                 auto vkTex = std::static_pointer_cast<VKTexture>(texture);
                 VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(
-                    vkTex->GetSampler(), 
-                    vkTex->GetImageView(), 
+                    vkTex->GetSampler(),
+                    vkTex->GetImageView(),
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 s_TextureCache[key] = { set, texture };
             }
@@ -311,5 +310,13 @@ namespace Luth::UI
         }
 
         return (ImTextureID)(uintptr_t)texture->GetRendererID();
+    }
+
+    void ClearTextureCache()
+    {
+        for (auto& [key, entry] : s_TextureCache) {
+            ImGui_ImplVulkan_RemoveTexture(entry.first);
+        }
+        s_TextureCache.clear();
     }
 }

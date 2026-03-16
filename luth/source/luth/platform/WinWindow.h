@@ -29,9 +29,10 @@ namespace Luth
 
         bool IsMinimized() override;
 
+        void Shutdown() override;
+
     private:
         void Init(const WindowSpec& spec);
-        void Shutdown();
 
         GLFWwindow* m_GLFWwindow = nullptr;
 

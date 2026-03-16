@@ -34,4 +34,7 @@ namespace Luth::UI
 
     // Helper to get ImGui Texture ID (Handles Vulkan Descriptor creation/caching)
     ImTextureID GetTextureID(const std::shared_ptr<Texture>& texture);
+
+    // Must be called during shutdown before ImGui_ImplVulkan_Shutdown
+    void ClearTextureCache();
 }

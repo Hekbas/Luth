@@ -17,6 +17,7 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/panels/ProfilerPanel.h"
+#include "luth/editor/UI.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -26,6 +27,7 @@ namespace Luth
 {
     void Editor::Init(Window* window)
     {
+        s_Window = window;
         LH_CORE_INFO("Initializing Luth Editor");
         IMGUI_CHECKVERSION();
         LH_CORE_TRACE(" - Initialized ImGui context for OpenGL");
@@ -77,6 +79,7 @@ namespace Luth
             pool_info.poolSizeCount = 1;
             pool_info.pPoolSizes = pool_sizes;
             vkCreateDescriptorPool(ctx.GetDevice(), &pool_info, nullptr, &init_info.DescriptorPool);
+            s_ImGuiPool = init_info.DescriptorPool;
 
             init_info.Subpass = 0;
             init_info.MinImageCount = 2;
@@ -120,14 +123,39 @@ namespace Luth
     {
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
         s_Panels.clear();
+        UI::ClearTextureCache();
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
+            // Clear GLFW callbacks that forward to ImGui BEFORE destroying
+            // the backend. We installed these manually (install_callbacks=false),
+            // so ImGui_ImplGlfw_Shutdown won't remove them. Without this,
+            // Win32 focus messages during Vulkan teardown dispatch into freed
+            // ImGui backend data.
+            if (s_Window) {
+                GLFWwindow* win = (GLFWwindow*)s_Window->GetNativeWindow();
+                if (win) {
+                    glfwSetWindowFocusCallback(win, nullptr);
+                    glfwSetCursorEnterCallback(win, nullptr);
+                    glfwSetKeyCallback(win, nullptr);
+                    glfwSetMouseButtonCallback(win, nullptr);
+                    glfwSetScrollCallback(win, nullptr);
+                    glfwSetCursorPosCallback(win, nullptr);
+                    glfwSetCharCallback(win, nullptr);
+                }
+            }
+
             ImGui_ImplVulkan_Shutdown();
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
+
+            if (s_ImGuiPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(VulkanContext::Get().GetDevice(), s_ImGuiPool, nullptr);
+                s_ImGuiPool = VK_NULL_HANDLE;
+            }
         }
         
         s_Context = nullptr;
+        s_Window = nullptr;
         LH_CORE_INFO("Editor system shutdown completed");
     }
 

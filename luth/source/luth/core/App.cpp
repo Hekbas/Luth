@@ -172,13 +172,27 @@ namespace Luth
 
     void App::Close()
     {
+        // Wait for all GPU work to finish before destroying any resources
+        Renderer::WaitForGPU();
+
 		Editor::Shutdown();
 		Systems::Shutdown();
-        
+
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
         ShaderLibrary::Shutdown();
+
+        // Flush deferred GPU resource deletions queued by asset/shader destructors
+        Renderer::FlushDeletionQueues();
+
         Renderer::Shutdown();
+
+        // Destroy the window after Vulkan (surface must outlive swapchain),
+        // but Editor::Shutdown already removed ImGui callbacks so no stale dispatch.
+        if (m_Window) {
+            m_Window->Shutdown();
+        }
+
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();

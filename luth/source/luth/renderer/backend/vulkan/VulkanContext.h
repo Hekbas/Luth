@@ -48,6 +48,7 @@ namespace Luth
         // Safe Resource Deletion
         void PushDeletion(std::function<void()>&& function);
         void FlushDeletionQueue();
+        void FlushAllDeletionQueues();
         
         // Called by RendererAPI
         void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
