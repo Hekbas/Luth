@@ -101,6 +101,8 @@ namespace Luth::Component
     struct DirectionalLight {
         Vec3 Color = Vec3(1.0f);
         float Intensity = 1.0f;
+        bool CastShadows = true;
+        float ShadowBias = 0.005f;
     };
     
     struct PointLight {

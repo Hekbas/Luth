@@ -19,6 +19,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec3 cameraPos;
     float time;
     mat4 lightSpaceMatrix;
+    float shadowBias;
+    float _pad[3];
 } ubo;
 
 // Push Constants

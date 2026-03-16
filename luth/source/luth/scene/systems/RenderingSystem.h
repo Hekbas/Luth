@@ -24,6 +24,8 @@ namespace Luth
         glm::vec3 cameraPos;
         float     time;
         glm::mat4 lightSpaceMatrix;  // Set by UpdateLightUniforms before upload
+        float     shadowBias;
+        float     _pad[3];
     };
 
     struct ObjectPushConstants {
@@ -94,6 +96,8 @@ namespace Luth
 
         // Light space matrix (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms)
         glm::mat4 m_CachedLightSpaceMatrix = glm::mat4(1.0f);
+        float     m_CachedShadowBias = 0.005f;
+        bool      m_CachedCastShadows = true;
 
         // Shadow map
         std::shared_ptr<Texture> m_ShadowMap;

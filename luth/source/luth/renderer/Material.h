@@ -164,9 +164,18 @@ namespace Luth
 
         const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
         
+        // Albedo color (direct access — bypasses uniform storage)
+        glm::vec4 GetColor() const { return m_GPUData.color; }
+        void SetColor(const glm::vec4& color) { m_GPUData.color = color; }
+
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }
         void UpdateGPUData(); // Updates m_GPUData from internal state/maps
+
+        // Dirty tracking
+        bool IsDirty() const { return m_Dirty; }
+        void MarkDirty() { m_Dirty = true; }
+        void ClearDirty() { m_Dirty = false; }
 
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
@@ -194,6 +203,7 @@ namespace Luth
         BlendFactor m_BlendDst = BlendFactor::OneMinusSrcAlpha;
         float m_AlphaCutoff = 0.5f;
         bool m_AlphaFromDiffuse = false;
+        bool m_Dirty = false;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const MapType type) {

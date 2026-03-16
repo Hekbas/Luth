@@ -49,11 +49,18 @@ namespace Luth
         m_GPUData.occlusionIndex = GetIndex(MapType::Oclusion);
         
         // 2. Update Factors
-        // We try to get values from uniforms, falling back to defaults
-        // Note: These names must match what the shader uses / what the editor sets
-        m_GPUData.color = Get<glm::vec4>("u_Color", glm::vec4(1.0f));
-        m_GPUData.metalness = Get<float>("u_Metalness", 0.0f);
-        m_GPUData.roughness = Get<float>("u_Roughness", 0.5f);
+        // Color is set directly via SetColor() — only override from uniforms if reflection is active
+        glm::vec4 uniformColor;
+        if (GetUniformData("u_Color", &uniformColor, sizeof(glm::vec4)))
+            m_GPUData.color = uniformColor;
+        // else: keep m_GPUData.color as-is (set via SetColor() or deserialized default)
+
+        float uniformMetal;
+        m_GPUData.metalness = GetUniformData("u_Metalness", &uniformMetal, sizeof(float))
+            ? uniformMetal : m_GPUData.metalness;
+        float uniformRough;
+        m_GPUData.roughness = GetUniformData("u_Roughness", &uniformRough, sizeof(float))
+            ? uniformRough : m_GPUData.roughness;
         m_GPUData.alphaCutoff = m_AlphaCutoff;
         
         // Flags — each bit indicates a valid texture is bound for that feature
@@ -74,6 +81,9 @@ namespace Luth
         json["blend_src"] = static_cast<int>(m_BlendSrc);
         json["blend_dst"] = static_cast<int>(m_BlendDst);
         json["alpha_from_diffuse"] = static_cast<int>(m_AlphaFromDiffuse);
+
+        // Serialize color
+        json["color"] = { m_GPUData.color.r, m_GPUData.color.g, m_GPUData.color.b, m_GPUData.color.a };
 
         // Serialize Uniforms
         nlohmann::json uniformsJson;
@@ -134,6 +144,9 @@ namespace Luth
         m_BlendDst = static_cast<BlendFactor>(json.value("blend_dst",
             static_cast<int>(BlendFactor::OneMinusSrcAlpha)));
         m_AlphaFromDiffuse = static_cast<bool>(json.value("alpha_from_diffuse", 0));
+
+        if (json.contains("color") && json["color"].is_array() && json["color"].size() == 4)
+            m_GPUData.color = glm::vec4(json["color"][0], json["color"][1], json["color"][2], json["color"][3]);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

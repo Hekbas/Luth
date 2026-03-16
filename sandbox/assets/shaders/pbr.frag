@@ -18,6 +18,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec3 cameraPos;
     float time;
     mat4 lightSpaceMatrix;
+    float shadowBias;
+    float _pad[3];
 } ubo;
 
 // Set 1: Bindless Textures
@@ -149,6 +151,10 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
 
 float ComputeShadow(vec3 worldPos)
 {
+    // Negative bias = shadows disabled
+    if (ubo.shadowBias < 0.0)
+        return 1.0;
+
     vec4 lsPos = ubo.lightSpaceMatrix * vec4(worldPos, 1.0);
     vec3 proj  = lsPos.xyz / lsPos.w;
     proj.xy    = proj.xy * 0.5 + 0.5;
@@ -158,6 +164,9 @@ float ComputeShadow(vec3 worldPos)
         proj.x < 0.0 || proj.x > 1.0 ||
         proj.y < 0.0 || proj.y > 1.0)
         return 1.0;
+
+    // Apply bias to reduce shadow acne
+    proj.z -= ubo.shadowBias;
 
     // PCF 3x3 (manual texel offsets — textureOffset requires constant expressions)
     vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));

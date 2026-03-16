@@ -5,6 +5,8 @@
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
+#include "luth/resources/AssetSerializer.h"
+#include "luth/resources/importers/MaterialImporter.h"
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Texture.h"
@@ -203,6 +205,10 @@ namespace Luth
             UI::BeginProperties();
             UI::PropertyColor("Color", dirLight.Color);
             UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
+            UI::Property("Cast Shadows", dirLight.CastShadows);
+            if (dirLight.CastShadows) {
+                UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f);
+            }
             UI::EndProperties();
         });
 
@@ -245,7 +251,14 @@ namespace Luth
                 m_SelectedEntity.AddOrReplaceComponent<PointLight>();
                 ImGui::CloseCurrentPopup();
             }
-            // Add more components here as needed
+            if (!m_SelectedEntity.HasComponent<MeshRenderer>() && ImGui::MenuItem("Mesh Renderer")) {
+                m_SelectedEntity.AddOrReplaceComponent<MeshRenderer>();
+                ImGui::CloseCurrentPopup();
+            }
+            if (!m_SelectedEntity.HasComponent<Animation>() && ImGui::MenuItem("Animation")) {
+                m_SelectedEntity.AddOrReplaceComponent<Animation>();
+                ImGui::CloseCurrentPopup();
+            }
         });
     }
 
@@ -476,10 +489,26 @@ namespace Luth
 
     void InspectorPanel::DrawMaterial(Material& material)
     {
-        // Material header with name and type
+        // Material header with name, dirty indicator, and Save button
         if (ImGui::BeginChild("##Header", { 0, 30 })) {
             ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
+            if (material.IsDirty())
+                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s* (Material)", material.GetName().c_str());
+            else
+                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
+
+            if (material.IsDirty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Save")) {
+                    nlohmann::json json;
+                    material.Serialize(json);
+                    MaterialAssetData data;
+                    data.JsonData = json;
+                    auto path = AssetDatabase::GetArtifactPath(material.Handle);
+                    AssetSerializer::SerializeMaterial(path, data);
+                    material.ClearDirty();
+                }
+            }
         }
         ImGui::EndChild();
         ImGui::Dummy({ 0, 8 });
@@ -492,8 +521,10 @@ namespace Luth
             if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
                 for (const auto& [name, s] : ShaderLibrary::GetAll()) {
                     bool selected = (s == material.GetShader());
-                    if (ImGui::Selectable(name.c_str(), selected))
+                    if (ImGui::Selectable(name.c_str(), selected)) {
                         material.SetShader(s->Handle);
+                        material.MarkDirty();
+                    }
                     if (selected) ImGui::SetItemDefaultFocus();
                 }
                 ImGui::EndCombo();
@@ -504,7 +535,20 @@ namespace Luth
         }
         
         ImGui::Dummy({ 0, 4 });
-        
+
+        // Albedo color picker (hard-coded until SPIRV-Cross reflection is available)
+        {
+            UI::BeginProperties();
+            glm::vec4 color = material.GetColor();
+            if (UI::PropertyColor("Albedo Color", color)) {
+                material.SetColor(color);
+                material.MarkDirty();
+            }
+            UI::EndProperties();
+        }
+
+        ImGui::Dummy({ 0, 4 });
+
         // Dynamic Uniform Editor
         if (auto shader = material.GetShader())
         {
@@ -553,7 +597,7 @@ namespace Luth
         const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
         if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
             material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
-            //AssetRegistry::SetDirty(material.GetUUID());
+            material.MarkDirty();
         }
 
         if (material.GetRenderMode() == Material::RenderMode::Cutout) {
@@ -562,7 +606,7 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
                 material.SetAlphaCutoff(cutoff);
-                //AssetRegistry::SetDirty(material.GetUUID());
+                material.MarkDirty();
             }
         }
 
@@ -578,14 +622,14 @@ namespace Luth
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                 material.SetBlendSrc(static_cast<Material::BlendFactor>(srcFactor));
-                //AssetRegistry::SetDirty(material.GetUUID());
+                material.MarkDirty();
             }
 
             ImGui::Text("Blend Dst  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
                 material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
-                //AssetRegistry::SetDirty(material.GetUUID());
+                material.MarkDirty();
             }
         }
 
@@ -655,7 +699,7 @@ namespace Luth
                         const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
                         material.SetTexture({ *droppedUUID, type, 0 });
                         material.EnableUseTexture(type, true);
-                        //AssetRegistry::SetDirty(material.GetUUID());
+                        material.MarkDirty();
                     }
                     ImGui::EndDragDropTarget();
                 }
@@ -664,7 +708,7 @@ namespace Luth
                 if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
                     material.SetTexture({ UUID::Invalid(), type, 0 });
                     material.EnableUseTexture(type, false);
-                    //AssetRegistry::SetDirty(material.GetUUID());
+                    material.MarkDirty();
                 }
 
                 // Texture properties
