@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
+#include "luth/memory/MemoryTracker.h"
 #include <atomic>
 #include <vector>
 
@@ -14,14 +15,19 @@ namespace Luth::Memory
         {
             // Allocate first page
             m_Pages.push_back(new byte[m_DefaultPageSize]);
+            m_PageSizes.push_back(m_DefaultPageSize);
+            MemoryTracker::RecordAlloc(Category::FrameLinear, m_DefaultPageSize);
             m_CurrentPage = 0;
             m_CurrentPtr = m_Pages[0];
         }
 
         ~LinearAllocator()
         {
-            for (byte* page : m_Pages)
-                delete[] page;
+            for (size_t i = 0; i < m_Pages.size(); ++i)
+            {
+                MemoryTracker::RecordFree(Category::FrameLinear, m_PageSizes[i]);
+                delete[] m_Pages[i];
+            }
         }
 
         template<typename T, typename... Args>
@@ -48,20 +54,18 @@ namespace Luth::Memory
                 // Allocate new page if needed
                 if (m_CurrentPage >= m_Pages.size())
                 {
-                    // Handle large allocations? For now assume size < PageSize
                     if (size > m_DefaultPageSize)
                     {
-                        // Special case: Large allocation
-                        // We could allocate a dedicated large page, but for now let's just assert/fail or alloc bigger
-                        // Let's alloc a page big enough
                         size_t newSize = std::max(m_DefaultPageSize, size + alignment);
                         m_Pages.push_back(new byte[newSize]);
-                        // Note: This breaks the "DefaultPageSize" assumption for Reset logic if we don't track size
-                        // Simplified: Just alloc default size and crash if too big
+                        m_PageSizes.push_back(newSize);
+                        MemoryTracker::RecordAlloc(Category::FrameLinear, newSize);
                     }
                     else
                     {
                         m_Pages.push_back(new byte[m_DefaultPageSize]);
+                        m_PageSizes.push_back(m_DefaultPageSize);
+                        MemoryTracker::RecordAlloc(Category::FrameLinear, m_DefaultPageSize);
                     }
                 }
                 
@@ -95,6 +99,7 @@ namespace Luth::Memory
 
     private:
         std::vector<byte*> m_Pages;
+        std::vector<size_t> m_PageSizes;  // Actual size per page (for accurate free tracking)
         size_t m_DefaultPageSize;
         
         // Non-atomic for now (Thread-Local usage)

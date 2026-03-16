@@ -20,5 +20,6 @@
 #include "luth/core/Time.h"
 #include "luth/core/Math.h"
 #include "luth/core/Profiler.h"
+#include "luth/memory/MemoryMacros.h"
 
 #include "luth/utils/CustomFormatters.h"

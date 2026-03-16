@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/memory/TaggedPageAllocator.h"
+#include "luth/memory/MemoryTracker.h"
 #include "luth/core/Log.h"
 
 #ifdef _WIN32
@@ -30,6 +31,7 @@ namespace Luth::Memory
         // Free all pages
         for (Page* page : m_FreePages)
         {
+            MemoryTracker::RecordFree(Category::FrameTagged, PAGE_SIZE);
             #ifdef _WIN32
             VirtualFree(page->Base, 0, MEM_RELEASE);
             #endif
@@ -39,6 +41,7 @@ namespace Luth::Memory
 
         for (Page* page : m_UsedPages)
         {
+            MemoryTracker::RecordFree(Category::FrameTagged, PAGE_SIZE);
             #ifdef _WIN32
             VirtualFree(page->Base, 0, MEM_RELEASE);
             #endif
@@ -143,6 +146,8 @@ namespace Luth::Memory
                 delete page;
                 return nullptr;
             }
+
+            MemoryTracker::RecordAlloc(Category::FrameTagged, PAGE_SIZE);
         }
 
         page->Used = 0;

@@ -27,7 +27,7 @@ namespace Luth
         for (CommandAllocator* allocator : m_AllAllocators)
         {
             vkDestroyCommandPool(m_Device, allocator->GetPool(), nullptr);
-            delete allocator;
+            LH_DELETE(Memory::Category::Rendering, allocator);
         }
         
         m_AllAllocators.clear();
@@ -83,7 +83,7 @@ namespace Luth
             return nullptr;
         }
 
-        CommandAllocator* allocator = new CommandAllocator(m_Device, pool);
+        CommandAllocator* allocator = LH_NEW(Memory::Category::Rendering, CommandAllocator, m_Device, pool);
         m_AllAllocators.push_back(allocator);
         return allocator;
     }

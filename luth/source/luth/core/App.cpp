@@ -19,12 +19,14 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/ShaderLibrary.h"
 #include "luth/jobs/IOThread.h"
+#include "luth/memory/MemoryTracker.h"
 
 namespace Luth
 {
     App::App(int argc, char** argv)
     {
         // Core Systems Init
+        Memory::MemoryTracker::Init();
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
@@ -196,6 +198,7 @@ namespace Luth
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
+        Memory::MemoryTracker::Shutdown();
     }
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)

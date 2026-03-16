@@ -14,7 +14,7 @@ namespace Luth
     void UploadContext::Init()
     {
         if (s_Instance) return;
-        s_Instance = new UploadContext();
+        s_Instance = LH_NEW(Memory::Category::Rendering, UploadContext);
         s_Instance->CreateResources();
         LH_CORE_INFO("Upload Context Initialized (Staging: 64MB)");
     }
@@ -34,8 +34,7 @@ namespace Luth
         VulkanAllocator::Unmap(s_Instance->m_StagingAllocation);
         VulkanAllocator::FreeBuffer(s_Instance->m_StagingBuffer, s_Instance->m_StagingAllocation);
 
-        delete s_Instance;
-        s_Instance = nullptr;
+        LH_DELETE(Memory::Category::Rendering, s_Instance);
     }
 
     UploadContext& UploadContext::Get()
