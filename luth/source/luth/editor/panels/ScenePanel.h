@@ -18,9 +18,13 @@ namespace Luth
         EditorCamera() = default;
         EditorCamera(float fov, float aspectRatio, float nearClip, float farClip);
 
-        void OnUpdate(bool rotate, bool pan);
+        void OnUpdate(float dt);
 
-        glm::vec3 GetPosition() const { return CalculatePosition(); }
+        glm::vec3 GetPosition() const { return m_Position; }
+        bool IsFlying() const { return m_IsFlying; }
+
+        void SetLockedEntity(Entity entity);
+        void ClearLockedEntity();
         const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
         const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
         glm::mat4 GetViewProjection() const { return m_ProjectionMatrix * m_ViewMatrix; }
@@ -62,6 +66,16 @@ namespace Luth
         float m_PanSpeed = 200.0f;
         float m_ZoomSpeed = 100.0f;
         glm::vec2 m_LastMousePosition = { 0.0f, 0.0f };
+
+        // Flythrough
+        bool  m_IsFlying        = false;
+        bool  m_WasFlying       = false;
+        float m_FlySpeed        = 5.0f;
+        float m_ShiftMultiplier = 3.0f;
+
+        // Entity tracking (Shift+F)
+        Entity m_LockedEntity;
+        bool   m_IsTrackingEntity = false;
     };
 
     class ScenePanel : public Panel
