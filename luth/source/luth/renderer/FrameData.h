@@ -79,10 +79,12 @@ namespace Luth
             CommandBuffers.push_back(cmd);
         }
 
-        FrameContext() 
+        FrameContext()
             : LogicMemory(10 * 1024 * 1024),   // 10MB per frame for logic
               RenderMemory(10 * 1024 * 1024)    // 10MB per frame for render
-        {}
+        {
+            CommandBuffers.reserve(16);
+        }
 
         void Reset()
         {

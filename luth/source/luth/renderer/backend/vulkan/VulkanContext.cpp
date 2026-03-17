@@ -364,7 +364,8 @@ namespace Luth
         for (auto& func : queue.deletors) {
             func();
         }
-        queue.deletors.clear();
+        // Swap with empty deque to actually free memory (clear() keeps capacity in deque)
+        std::deque<std::function<void()>>{}.swap(queue.deletors);
     }
 
     void VulkanContext::FlushAllDeletionQueues()

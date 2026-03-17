@@ -13,7 +13,7 @@ namespace Luth
         m_Swapchain->Init();
         CreateSyncObjects();
         CreateFrameCommandBuffers();
-        
+
         // Init Command Allocator Pools
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -25,15 +25,14 @@ namespace Luth
     void VulkanBackend::Shutdown()
     {
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        
+
+        DestroySyncObjects();
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroySemaphore(VulkanContext::Get().GetDevice(), m_ImageAvailableSemaphores[i], nullptr);
-            vkDestroySemaphore(VulkanContext::Get().GetDevice(), m_RenderFinishedSemaphores[i], nullptr);
             m_CommandAllocatorPools[i]->Shutdown();
         }
-        
+
         vkDestroyCommandPool(VulkanContext::Get().GetDevice(), m_PrimaryCommandPool, nullptr);
-        
+
         m_FrameTimeline.Shutdown();
         m_Swapchain.reset();
         VulkanContext::Shutdown();
@@ -42,7 +41,7 @@ namespace Luth
     u32 VulkanBackend::AcquireImage(u64 frameIndex)
     {
         m_CurrentFrameIndex = frameIndex % MAX_FRAMES_IN_FLIGHT;
-        
+
         // Update Context Frame Index for Deletion Queue
         VulkanContext::Get().SetCurrentFrameIndex(m_CurrentFrameIndex);
         VulkanContext::Get().GetResourceCache().NewFrame(); // Tick Cache
@@ -53,20 +52,26 @@ namespace Luth
             u64 waitValue = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
             m_FrameTimeline.Wait(waitValue);
         }
-        
+
         // Flush deletions AFTER we know the GPU is done with this frame's resources
         VulkanContext::Get().FlushDeletionQueue();
-        
+
         // Reset Command Allocator Pool for THIS frame
         m_CommandAllocatorPools[m_CurrentFrameIndex]->ResetAll();
-        
+
         // Reset Primary Command Buffer for THIS frame
         vkResetCommandBuffer(m_PrimaryCommandBuffers[m_CurrentFrameIndex], 0);
-        
+
         // Update JobSystem Context
         JobSystem::SetGlobalCommandPool(m_CommandAllocatorPools[m_CurrentFrameIndex].get());
 
-        return m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentFrameIndex]);
+        // Pick next imageAvailable semaphore from the ring (we don't know the image index yet)
+        m_CurrentAcquireSemIndex = m_NextAcquireSemIndex;
+        m_NextAcquireSemIndex = (m_NextAcquireSemIndex + 1) % m_ImageAvailableSemCount;
+
+        u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex]);
+        m_AcquiredImageIndex = imageIndex;
+        return imageIndex;
     }
 
     void* VulkanBackend::GetFrameCommandBuffer(u64 frameIndex)
@@ -78,11 +83,12 @@ namespace Luth
     void VulkanBackend::SubmitFrame(u64 frameIndex, void* commandBuffer)
     {
         VkCommandBuffer cmd = (VkCommandBuffer)commandBuffer;
-        
+
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore waitSemaphores[] = { m_ImageAvailableSemaphores[m_CurrentFrameIndex] };
+        // Wait on the imageAvailable semaphore used for this frame's acquire
+        VkSemaphore waitSemaphores[] = { m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex] };
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
@@ -91,40 +97,46 @@ namespace Luth
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &cmd;
 
-        VkSemaphore signalSemaphores[] = { m_RenderFinishedSemaphores[m_CurrentFrameIndex] };
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
+        // Signal renderFinished for this swapchain image + timeline semaphore
+        // renderFinished is per-swapchain-image: safe because acquiring image N
+        // means presentation released the semaphore previously associated with N.
+        u64 signalValue = frameIndex + 1;
+        VkSemaphore allSignalSemaphores[2] = {
+            m_RenderFinishedSemaphores[m_AcquiredImageIndex],
+            m_FrameTimeline.GetHandle()
+        };
+        u64 allSignalValues[2] = { 0, signalValue }; // 0 is ignored for binary semaphores
 
-        // Timeline Signal
         VkTimelineSemaphoreSubmitInfo timelineInfo{};
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.signalSemaphoreValueCount = 1;
-        u64 signalValue = frameIndex + 1;
-        timelineInfo.pSignalSemaphoreValues = &signalValue;
-        
-        // Correctly setup signal semaphores: RenderFinished (Binary) AND FrameTimeline (Timeline)
-        // Use C-arrays instead of std::vector to avoid per-frame heap allocation.
-        VkSemaphore allSignalSemaphores[2] = { m_RenderFinishedSemaphores[m_CurrentFrameIndex], m_FrameTimeline.GetHandle() };
-        u64 allSignalValues[2] = { 0, signalValue }; // 0 is ignored for binary semaphores
-        
-        submitInfo.signalSemaphoreCount = 2;
-        submitInfo.pSignalSemaphores = allSignalSemaphores;
         timelineInfo.signalSemaphoreValueCount = 2;
         timelineInfo.pSignalSemaphoreValues = allSignalValues;
+
+        submitInfo.signalSemaphoreCount = 2;
+        submitInfo.pSignalSemaphores = allSignalSemaphores;
         submitInfo.pNext = &timelineInfo;
 
         if (!VulkanContext::Get().Submit(submitInfo, VK_NULL_HANDLE))
         {
             LH_CORE_ERROR("Failed to submit frame!");
         }
-        
-        m_Swapchain->Present(m_RenderFinishedSemaphores[m_CurrentFrameIndex]);
+
+        // Present waits on this image's renderFinished semaphore
+        m_Swapchain->Present(m_RenderFinishedSemaphores[m_AcquiredImageIndex]);
     }
 
     void VulkanBackend::OnResize(u32 width, u32 height)
     {
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         m_Swapchain->Recreate(width, height);
+
+        // Recreate semaphores if swapchain image count changed
+        u32 newImageCount = m_Swapchain->GetImageCount();
+        if (newImageCount != m_RenderFinishedSemCount)
+        {
+            DestroySyncObjects();
+            CreateSyncObjects();
+        }
     }
 
     VkDevice VulkanBackend::GetDevice() const
@@ -134,17 +146,45 @@ namespace Luth
 
     void VulkanBackend::CreateSyncObjects()
     {
-        m_ImageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        m_RenderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        u32 imageCount = m_Swapchain->GetImageCount();
+
+        // imageAvailable: ring of (imageCount + 1) semaphores.
+        // At most imageCount can be held by the presentation engine (one per presented image),
+        // so imageCount + 1 guarantees at least one is always free for the next acquire.
+        m_ImageAvailableSemCount = imageCount + 1;
+        m_ImageAvailableSemaphores.resize(m_ImageAvailableSemCount);
+
+        // renderFinished: one per swapchain image, indexed by acquired image index.
+        // When vkAcquireNextImageKHR returns image N, the presentation engine has released
+        // image N's renderFinished semaphore, so it's safe to signal it again.
+        m_RenderFinishedSemCount = imageCount;
+        m_RenderFinishedSemaphores.resize(m_RenderFinishedSemCount);
+
         m_FrameTimeline.Init(0);
+        m_NextAcquireSemIndex = 0;
 
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        for (u32 i = 0; i < m_ImageAvailableSemCount; i++) {
             vkCreateSemaphore(VulkanContext::Get().GetDevice(), &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i]);
+        }
+        for (u32 i = 0; i < m_RenderFinishedSemCount; i++) {
             vkCreateSemaphore(VulkanContext::Get().GetDevice(), &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i]);
         }
+    }
+
+    void VulkanBackend::DestroySyncObjects()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        for (u32 i = 0; i < m_ImageAvailableSemCount; i++)
+            vkDestroySemaphore(device, m_ImageAvailableSemaphores[i], nullptr);
+        for (u32 i = 0; i < m_RenderFinishedSemCount; i++)
+            vkDestroySemaphore(device, m_RenderFinishedSemaphores[i], nullptr);
+        m_ImageAvailableSemaphores.clear();
+        m_RenderFinishedSemaphores.clear();
+        m_ImageAvailableSemCount = 0;
+        m_RenderFinishedSemCount = 0;
     }
 
     void VulkanBackend::CreateFrameCommandBuffers()

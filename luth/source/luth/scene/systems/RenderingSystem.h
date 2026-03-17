@@ -7,6 +7,7 @@
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Material.h"
+#include "luth/renderer/Model.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/FileWatcher.h"
 
@@ -55,6 +56,13 @@ namespace Luth
         PointLightData       pointLights[64];
         int                  numPointLights;
         int                  _pad[3];
+    };
+
+    struct DrawCommand {
+        glm::mat4 modelMatrix;
+        u32 materialSlot;
+        std::shared_ptr<Model> model;
+        u32 meshIndex;
     };
 
     class RenderingSystem : public System
@@ -121,6 +129,11 @@ namespace Luth
 
         // Material SSBO slot tracking (MaterialUUID -> SSBO index)
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
+
+        // Draw command buffers (reused across frames to avoid per-frame heap allocation)
+        std::vector<DrawCommand> m_OpaqueDraws;
+        std::vector<DrawCommand> m_CutoutDraws;
+        std::vector<DrawCommand> m_TransparentDraws;
 
         // Shader hot-reload
         FileWatcher m_ShaderWatcher;

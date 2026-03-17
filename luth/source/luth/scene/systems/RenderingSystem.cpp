@@ -684,17 +684,10 @@ namespace Luth
                 scissor.extent = { res->desc.width, res->desc.height };
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-                // Collect draw commands per render mode
-                struct DrawCommand {
-                    glm::mat4 modelMatrix;
-                    u32 materialSlot;
-                    std::shared_ptr<Model> model;
-                    u32 meshIndex;
-                };
-
-                std::vector<DrawCommand> opaqueDraws;
-                std::vector<DrawCommand> cutoutDraws;
-                std::vector<DrawCommand> transparentDraws;
+                // Collect draw commands per render mode (reuse member vectors to avoid per-frame heap alloc)
+                m_OpaqueDraws.clear();
+                m_CutoutDraws.clear();
+                m_TransparentDraws.clear();
 
                 auto view = registry.view<WorldTransform, MeshRenderer>();
                 for (auto [entity, worldTransform, meshRenderer] : view.each())
@@ -725,10 +718,10 @@ namespace Luth
 
                     switch (mode)
                     {
-                        case Material::RenderMode::Cutout:      cutoutDraws.push_back(dc);      break;
+                        case Material::RenderMode::Cutout:      m_CutoutDraws.push_back(dc);      break;
                         case Material::RenderMode::Transparent:
-                        case Material::RenderMode::Fade:        transparentDraws.push_back(dc); break;
-                        default:                                opaqueDraws.push_back(dc);       break;
+                        case Material::RenderMode::Fade:        m_TransparentDraws.push_back(dc); break;
+                        default:                                m_OpaqueDraws.push_back(dc);       break;
                     }
                 }
 
@@ -764,9 +757,9 @@ namespace Luth
                     }
                 };
 
-                DrawBatch(opaqueDraws,       Material::RenderMode::Opaque);
-                DrawBatch(cutoutDraws,        Material::RenderMode::Cutout);
-                DrawBatch(transparentDraws,   Material::RenderMode::Transparent);
+                DrawBatch(m_OpaqueDraws,       Material::RenderMode::Opaque);
+                DrawBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
+                DrawBatch(m_TransparentDraws, Material::RenderMode::Transparent);
             }
         );
         return outputHandle;
