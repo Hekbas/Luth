@@ -21,6 +21,10 @@ namespace Luth
 
     void Renderer::Shutdown()
     {
+        // Wait for all GPU work to complete BEFORE destroying any resources.
+        // MaterialSystem::Shutdown() frees its SSBO buffer directly (no deferred
+        // deletion), so in-flight command buffers must have finished first.
+        WaitForGPU();
         MaterialSystem::Shutdown();
         if (s_Backend) {
             s_Backend->Shutdown();

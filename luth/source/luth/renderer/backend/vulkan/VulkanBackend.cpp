@@ -103,13 +103,14 @@ namespace Luth
         timelineInfo.pSignalSemaphoreValues = &signalValue;
         
         // Correctly setup signal semaphores: RenderFinished (Binary) AND FrameTimeline (Timeline)
-        std::vector<VkSemaphore> allSignalSemaphores = { m_RenderFinishedSemaphores[m_CurrentFrameIndex], m_FrameTimeline.GetHandle() };
-        std::vector<u64> allSignalValues = { 0, signalValue }; // 0 is ignored for binary semaphores
+        // Use C-arrays instead of std::vector to avoid per-frame heap allocation.
+        VkSemaphore allSignalSemaphores[2] = { m_RenderFinishedSemaphores[m_CurrentFrameIndex], m_FrameTimeline.GetHandle() };
+        u64 allSignalValues[2] = { 0, signalValue }; // 0 is ignored for binary semaphores
         
         submitInfo.signalSemaphoreCount = 2;
-        submitInfo.pSignalSemaphores = allSignalSemaphores.data();
+        submitInfo.pSignalSemaphores = allSignalSemaphores;
         timelineInfo.signalSemaphoreValueCount = 2;
-        timelineInfo.pSignalSemaphoreValues = allSignalValues.data();
+        timelineInfo.pSignalSemaphoreValues = allSignalValues;
         submitInfo.pNext = &timelineInfo;
 
         if (!VulkanContext::Get().Submit(submitInfo, VK_NULL_HANDLE))

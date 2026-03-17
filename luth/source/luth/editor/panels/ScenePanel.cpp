@@ -20,6 +20,13 @@ namespace Luth
     ScenePanel::ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem)
         : m_RenderingSystem(renderingSystem)
     {
+        m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
+        m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+
+        EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) {
+            HandleRenderResize(e);
+        });
+
         LH_CORE_INFO("Created Scene panel");
     }
 
@@ -30,13 +37,6 @@ namespace Luth
             m_SceneDS = VK_NULL_HANDLE;
         }
         m_LastSceneTex.reset();
-
-        m_EditorCamera = EditorCamera(70, 1.77, 0.1, 10000);
-        m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
-
-        EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) { 
-            HandleRenderResize(e);
-        });
     }
 
     void ScenePanel::OnInit()
@@ -56,13 +56,18 @@ namespace Luth
         if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-            // Viewport sizing
-            const Vec2 newSize = ToGlmVec2(ImGui::GetContentRegionAvail());
-            if (newSize != m_ViewportSize && newSize.x > 0 && newSize.y > 0) {
-                m_ViewportSize = newSize;
+            // Viewport sizing — compare as integers to avoid an infinite resize
+            // loop caused by float ↔ u32 truncation in the RenderResizeEvent path.
+            const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
+            const u32 newW = (u32)avail.x;
+            const u32 newH = (u32)avail.y;
+            const u32 curW = (u32)m_ViewportSize.x;
+            const u32 curH = (u32)m_ViewportSize.y;
+            if ((newW != curW || newH != curH) && newW > 0 && newH > 0) {
+                m_ViewportSize = { (float)newW, (float)newH };
 
                 // Update rendering system and camera
-                EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newSize.x, newSize.y);
+                EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newW, newH);
             }
 
             // Get final output from active rendering technique
@@ -210,8 +215,8 @@ namespace Luth
         if (e.IsInCategory(EventCategoryRender)) {
             auto& resizeEvent = static_cast<RenderResizeEvent&>(e);
             m_RenderingSystem->Resize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
-            m_EditorCamera.SetViewportSize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
-            m_ViewportSize = { resizeEvent.GetWidth(), resizeEvent.GetHeight() };
+            m_EditorCamera.SetViewportSize((float)resizeEvent.GetWidth(), (float)resizeEvent.GetHeight());
+            m_ViewportSize = { (float)resizeEvent.GetWidth(), (float)resizeEvent.GetHeight() };
             e.m_Handled = true;
             LH_CORE_TRACE("Resized Viewport {0}x{1}", resizeEvent.GetWidth(), resizeEvent.GetHeight());
         }

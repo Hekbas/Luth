@@ -20,16 +20,15 @@ namespace Luth
 
     VkCommandBuffer CommandAllocator::GetBuffer(VkCommandBufferLevel level)
     {
-        // 1. Check cache
-        // Note: We currently don't segregate cache by level.
-        // If we mix primary/secondary, we need to track them separately.
-        // For now, let's assume we always allocate new if the cache is empty or if we want to be safe.
-        // Optimization: Just allocate new for now to avoid complexity.
-        // The pool reset handles recycling.
-        
-        // Actually, we can't reuse buffers from the vector if they were allocated with a different level.
-        // Let's just always allocate for now. The pool handles the memory.
-        
+        // Reuse an already-allocated (but reset) command buffer if available.
+        // After vkResetCommandPool all existing buffers are in the initial state
+        // and can be re-recorded with vkBeginCommandBuffer.
+        if (m_UsedCount < (u32)m_Buffers.size())
+        {
+            return m_Buffers[m_UsedCount++];
+        }
+
+        // No cached buffer available — allocate a new one from the pool.
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_Pool;
@@ -50,10 +49,11 @@ namespace Luth
 
     void CommandAllocator::Reset()
     {
-        // Resetting the pool recycles all buffers at once.
-        // We just reset our index.
+        // Resetting the pool recycles all buffers at once — they return to
+        // the initial state.  Keep the handles so GetBuffer() can reuse them
+        // next frame instead of allocating new ones every time.
         vkResetCommandPool(m_Device, m_Pool, 0);
         m_UsedCount = 0;
-        m_Buffers.clear(); // Since we are re-allocating every time, clear the vector.
+        // NOTE: Do NOT clear m_Buffers — the handles are still valid after pool reset.
     }
 }

@@ -82,8 +82,8 @@ namespace Luth
             s_ImGuiPool = init_info.DescriptorPool;
 
             init_info.Subpass = 0;
-            init_info.MinImageCount = 2;
-            init_info.ImageCount = 2;
+            init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
+            init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
             init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
             init_info.Allocator = nullptr;
             init_info.CheckVkResultFn = nullptr;

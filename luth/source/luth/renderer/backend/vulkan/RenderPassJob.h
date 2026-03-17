@@ -39,17 +39,19 @@ namespace Luth
             job->CommandBuffer = cmd;
 
             // 2. Setup Inheritance for Dynamic Rendering
-            std::vector<VkFormat> colorFormats;
-            for (const auto& att : job->ColorAttachments)
-            {
-                colorFormats.push_back(att.Format);
-            }
+            // Stack array avoids per-frame heap allocation (max 8 color attachments is generous).
+            static constexpr u32 k_MaxColorAttachments = 8;
+            VkFormat colorFormats[k_MaxColorAttachments];
+            u32 colorCount = (u32)job->ColorAttachments.size();
+            LH_CORE_ASSERT(colorCount <= k_MaxColorAttachments, "Too many color attachments!");
+            for (u32 i = 0; i < colorCount; ++i)
+                colorFormats[i] = job->ColorAttachments[i].Format;
 
             VkCommandBufferInheritanceRenderingInfo renderingInheritanceInfo{};
             renderingInheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
             renderingInheritanceInfo.viewMask = 0;
-            renderingInheritanceInfo.colorAttachmentCount = (u32)colorFormats.size();
-            renderingInheritanceInfo.pColorAttachmentFormats = colorFormats.data();
+            renderingInheritanceInfo.colorAttachmentCount = colorCount;
+            renderingInheritanceInfo.pColorAttachmentFormats = colorFormats;
             
             if (job->HasDepth)
             {
