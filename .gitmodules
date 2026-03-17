@@ -13,3 +13,6 @@
 [submodule "luth/extern/source/spdlog"]
 	path = luth/extern/source/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "luth/extern/source/spirv-cross"]
+	path = luth/extern/source/spirv-cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross.git

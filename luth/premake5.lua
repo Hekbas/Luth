@@ -14,7 +14,9 @@ project "Luth"
    defines
    {
       "GLFW_INCLUDE_NONE",
-      "FMT_HEADER_ONLY=1"
+      "FMT_HEADER_ONLY=1",
+      "LUTH_SPIRV_CROSS_ENABLED=1",
+      "SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS"
    }
 
    files
@@ -35,7 +37,8 @@ project "Luth"
       IncludeDir["imguizmo"],
       IncludeDir["spdlog"],
       IncludeDir["tracy"],
-      IncludeDir["vulkan"]
+      IncludeDir["vulkan"],
+      IncludeDir["spirv_cross"]
    }
 
    libdirs
@@ -54,12 +57,10 @@ project "Luth"
       "Tracy",
       "vulkan-1",
       "shaderc_shared",
+      "spirv-cross",
       "ws2_32",
       "dbghelp"
    }
-
-   -- TODO: spirv-cross reflection disabled — Vulkan SDK pre-built libs have ABI mismatch.
-   -- When spirv-cross is built from source, add: links { "spirv-cross-core", "spirv-cross-glsl" }
 
    filter "configurations:Debug"
       defines { "DEBUG", "TRACY_ENABLE", "TRACY_FIBERS" }
