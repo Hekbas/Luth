@@ -104,7 +104,11 @@ namespace Luth
         json["type_settings"] = m_TypeSettings;
 
         std::ofstream file(metaPath);
-        if (!file.is_open()) return false;
+        if (!file.is_open())
+        {
+            LH_CORE_ERROR("MetaFile::Save: Cannot open file for writing: {0}", metaPath.string());
+            return false;
+        }
 
         file << json.dump(4);
         return true;

@@ -33,76 +33,73 @@ namespace Luth
 
         LoadLibraryState();
 
-        std::vector<fs::path> metaFilesToDelete;
+        // Phase 1: Collect all file paths first.
+        // IMPORTANT: We must NOT create files during recursive_directory_iterator traversal,
+        // as modifying a directory during iteration is undefined behavior and can cause skipped files.
+        std::vector<fs::path> metaFiles;
+        std::vector<fs::path> assetFiles;
 
         for (const auto& entry : std::filesystem::recursive_directory_iterator(projectRoot))
         {
             if (!entry.is_regular_file()) continue;
 
             const auto& path = entry.path();
-
-            // 1. Check for orphaned .meta files
             if (path.extension() == ".meta")
+                metaFiles.push_back(path);
+            else
+                assetFiles.push_back(path);
+        }
+
+        // Phase 2: Process asset files — create .meta if missing, register in DB
+        for (const auto& path : assetFiles)
+        {
+            AssetType type = FileSystem::ClassifyFileType(path);
+            if (type == AssetType::None) continue;
+
+            UUID uuid = UUID::Invalid();
+            fs::path metaPath = path;
+            metaPath += ".meta";
+
+            if (fs::exists(metaPath))
             {
-                fs::path assetPath = path;
-                assetPath.replace_extension(""); // Remove .meta to get original asset path
-                if (!fs::exists(assetPath))
-                {
-                    metaFilesToDelete.push_back(path);
-                }
-                continue;
+                MetaFile meta(UUID::Invalid());
+                if (meta.Load(metaPath))
+                    uuid = meta.GetUUID();
+                else
+                    LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {0}", metaPath.string());
             }
 
-            // 2. Process Asset files
-            AssetType type = FileSystem::ClassifyFileType(path);
-            if (type != AssetType::None)
+            if (!uuid.IsValid())
             {
-                UUID uuid;
-                fs::path metaPath = path;
-                metaPath += ".meta";
+                uuid = MetaFile::Create(path, type);
+                LH_CORE_INFO("AssetDatabase: Generated meta file for {0} -> UUID {1}", path.filename().string(), uuid.ToString());
+            }
 
-                if (fs::exists(metaPath))
-                {
-                    MetaFile meta(UUID::Invalid());
-                    if (meta.Load(metaPath))
-                        uuid = meta.GetUUID();
-                    else
-                        LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {0}", metaPath.string());
-                }
-                
-                if (!uuid.IsValid())
-                {
-                    uuid = MetaFile::Create(path, type);
-                    LH_CORE_INFO("AssetDatabase: Generated meta file for {0}", path.filename().string());
-                }
+            s_Assets[uuid] = { path, type };
+            s_PathToUuid[path] = uuid;
 
-                s_Assets[uuid] = { path, type };
-                s_PathToUuid[path] = uuid;
-
-                // Check Hash
-                u64 currentHash = CalculateAssetHash(path, metaPath);
-                if (s_ArtifactHashes[uuid] != currentHash || !fs::exists(GetArtifactPath(uuid)))
-                {
-                    LH_CORE_INFO("AssetDatabase: Re-importing {0}", path.filename().string());
-                    // Trigger synchronous import for simplicity at startup, or queue async
-                    // For now, we just mark it as needing import by removing the hash, AssetManager will handle it on load
-                    // Better: Trigger AssetManager to import it now to ensure Library is up to date
-                    s_ArtifactHashes[uuid] = currentHash; // Optimistically update, assuming AssetManager will succeed or we force it
-                    // We rely on AssetManager::LoadJob checking existence, but here we want to force update if hash changed.
-                    // Since AssetManager::LoadAsync checks artifact existence, we need a way to force re-import.
-                    // Actually, let's just delete the artifact if hash mismatch.
-                    fs::path artifact = GetArtifactPath(uuid);
-                    if (fs::exists(artifact)) fs::remove(artifact);
-                    s_DirtyAssets.push_back(uuid);
-                }
+            // Check Hash
+            u64 currentHash = CalculateAssetHash(path, metaPath);
+            if (s_ArtifactHashes[uuid] != currentHash || !fs::exists(GetArtifactPath(uuid)))
+            {
+                LH_CORE_INFO("AssetDatabase: Re-importing {0}", path.filename().string());
+                s_ArtifactHashes[uuid] = currentHash;
+                fs::path artifact = GetArtifactPath(uuid);
+                if (fs::exists(artifact)) fs::remove(artifact);
+                s_DirtyAssets.push_back(uuid);
             }
         }
 
-        // 3. Delete orphans
-        for (const auto& path : metaFilesToDelete)
+        // Phase 3: Delete orphaned .meta files (source asset was deleted)
+        for (const auto& path : metaFiles)
         {
-            LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {0}", path.filename().string());
-            fs::remove(path);
+            fs::path assetPath = path;
+            assetPath.replace_extension(""); // Remove .meta to get original asset path
+            if (!fs::exists(assetPath))
+            {
+                LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {0}", path.filename().string());
+                fs::remove(path);
+            }
         }
 
         LH_CORE_INFO("AssetDatabase: Initialized with {0} assets", s_Assets.size());

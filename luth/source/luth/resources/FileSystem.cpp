@@ -11,7 +11,7 @@ namespace Luth
 
     void FileSystem::Init(const fs::path& engineRoot)
     {
-        LH_CORE_INFO("Initialized FileSystem");
+        LH_CORE_INFO("Initialized FileSystem ({0})", fs::current_path());
         s_EngineRoot = engineRoot.empty() ? fs::current_path() : engineRoot;
         s_ProjectRoot = fs::current_path();
         s_AssetsRoot = s_ProjectRoot / "assets";

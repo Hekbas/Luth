@@ -85,16 +85,17 @@ namespace Luth
 
         for (u32 i = 0; i < MAX_MATERIALS; ++i)
         {
-            if (m_Slots[i].material && m_Slots[i].dirty)
+            if (m_Slots[i].material && (m_Slots[i].dirty || m_Slots[i].material->IsDirty()))
             {
                 m_Slots[i].material->UpdateGPUData(); // Sync CPU state to GPU struct
                 const GPUMaterialData& data = m_Slots[i].material->GetGPUData();
-                
+
                 // Copy to mapped buffer
                 u8* dst = (u8*)m_MappedData + (i * MATERIAL_SIZE);
                 memcpy(dst, &data, MATERIAL_SIZE);
-                
+
                 m_Slots[i].dirty = false;
+                m_Slots[i].material->ClearDirty();
             }
         }
     }
