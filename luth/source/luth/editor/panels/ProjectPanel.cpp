@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
+#include "luth/editor/Editor.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"
@@ -472,8 +473,8 @@ namespace Luth
             if (node->Type == AssetType::None) {
                 m_CurrentDirNode = node;
             }
-            else {
-                // Open asset?
+            else if (node->Type == AssetType::Scene) {
+                Editor::OpenScene(node->Path);
             }
         }
         else {

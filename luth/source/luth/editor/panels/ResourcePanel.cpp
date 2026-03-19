@@ -168,6 +168,7 @@ namespace Luth
             {"Material", ImVec4(0.2f, 0.9f, 0.4f, 1.0f)},
             {"Shader",   ImVec4(0.9f, 0.3f, 0.3f, 1.0f)},
             {"Font",     ImVec4(0.7f, 0.7f, 0.7f, 1.0f)},
+            {"Scene",    ImVec4(0.7f, 0.4f, 0.9f, 1.0f)},
         };
         return colors.at(type);
     }

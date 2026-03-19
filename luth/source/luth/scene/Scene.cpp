@@ -17,6 +17,25 @@ namespace Luth
         LH_CORE_INFO("Destroyed scene");
     }
 
+    void Scene::Clear()
+    {
+        m_RootEntities.clear();
+
+        // Destroy every entity individually. This keeps the registry's
+        // pool / sparse-set structures intact (non-zero bucket count)
+        // so that subsequent view<>() calls don't hit EnTT's fast_mod
+        // "power of two" assertion.  registry.clear() can reset bucket
+        // counts to 0 in some EnTT versions, which is unsafe.
+        std::vector<entt::entity> all;
+        auto view = m_Registry.view<entt::entity>();
+        view.each([&all](entt::entity e) { all.push_back(e); });
+        for (auto e : all)
+            m_Registry.destroy(e);
+
+        IncrementHierarchyVersion();
+        LH_CORE_TRACE("Scene cleared");
+    }
+
     Entity Scene::CreateEntity(const std::string& name)
     {
         Entity entity = { m_Registry.create(), this };
@@ -54,8 +73,9 @@ namespace Luth
             RemoveFromRoots(entity);
 
         // Finally destroy the entity itself
+        std::string name = entity.GetName();
         m_Registry.destroy(entity);
-        LH_CORE_TRACE("Destroyed entity: {0}", entity.GetName());
+        LH_CORE_TRACE("Destroyed entity: {0}", name);
         IncrementHierarchyVersion();
     }
 

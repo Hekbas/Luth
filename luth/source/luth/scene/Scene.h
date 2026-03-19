@@ -15,6 +15,7 @@ namespace Luth
 
         Entity CreateEntity(const std::string& name = "Entity");
         void DestroyEntity(Entity entity);
+        void Clear();
         Entity DuplicateEntity(Entity original, bool skipParentAddition = false);
         
         void ReorderEntity(Entity entity, Entity target, bool after);
