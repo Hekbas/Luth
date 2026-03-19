@@ -22,7 +22,7 @@ namespace Luth
         Metalness   = 3,
         Roughness   = 4,
         Specular    = 5,
-        Oclusion    = 6,
+        Occlusion   = 6,
         Emissive    = 7,
         Thickness   = 8
     };

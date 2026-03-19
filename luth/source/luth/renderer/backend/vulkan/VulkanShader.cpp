@@ -42,6 +42,24 @@ namespace Luth
         CompileOrGetVulkanBinaries();
     }
 
+    VulkanShader::VulkanShader(const std::vector<u32>& vertSpv, const std::vector<u32>& fragSpv, const fs::path& path)
+        : m_Path(path)
+    {
+        if (!vertSpv.empty())
+        {
+            m_SpirVData[VK_SHADER_STAGE_VERTEX_BIT] = vertSpv;
+            Reflect(VK_SHADER_STAGE_VERTEX_BIT, vertSpv);
+            CreateShaderModule(VK_SHADER_STAGE_VERTEX_BIT, vertSpv);
+        }
+
+        if (!fragSpv.empty())
+        {
+            m_SpirVData[VK_SHADER_STAGE_FRAGMENT_BIT] = fragSpv;
+            Reflect(VK_SHADER_STAGE_FRAGMENT_BIT, fragSpv);
+            CreateShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, fragSpv);
+        }
+    }
+
     VulkanShader::~VulkanShader()
     {
         VkDevice device = VulkanContext::Get().GetDevice();

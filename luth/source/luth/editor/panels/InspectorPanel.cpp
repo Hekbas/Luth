@@ -513,14 +513,17 @@ namespace Luth
         ImGui::EndChild();
         ImGui::Dummy({ 0, 8 });
 
-        // Shader selection
+        // Shader selection (always show combo, even if current shader is missing)
         ImGui::Text("Shader     ");
         ImGui::SameLine();
-        if (auto shader = material.GetShader()) {
+        {
+            auto shader = material.GetShader();
+            std::string currentName = shader ? shader->GetName() : "<none>";
+
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::BeginCombo("##Shader", shader->GetName().c_str())) {
+            if (ImGui::BeginCombo("##Shader", currentName.c_str())) {
                 for (const auto& [name, s] : ShaderLibrary::GetAll()) {
-                    bool selected = (s == material.GetShader());
+                    bool selected = shader && (s->Handle == material.GetShaderUUID());
                     if (ImGui::Selectable(name.c_str(), selected)) {
                         material.SetShader(s->Handle);
                         material.MarkDirty();
@@ -529,9 +532,6 @@ namespace Luth
                 }
                 ImGui::EndCombo();
             }
-        }
-        else {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Missing Shader");
         }
         
         ImGui::Dummy({ 0, 4 });
@@ -737,7 +737,7 @@ namespace Luth
         DrawTextureProperty(MapType::Metalness, "Metallic");
         DrawTextureProperty(MapType::Roughness, "Roughness");
         DrawTextureProperty(MapType::Specular, "Specular");
-        DrawTextureProperty(MapType::Oclusion, "Oclusion");
+        DrawTextureProperty(MapType::Occlusion, "Occlusion");
         DrawTextureProperty(MapType::Emissive, "Emissive");
         DrawTextureProperty(MapType::Thickness, "Thickness");
     }

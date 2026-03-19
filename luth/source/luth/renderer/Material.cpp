@@ -46,15 +46,9 @@ namespace Luth
         // Standard PBR often packs Metal/Rough/AO.
         // For now, map Metalness slot to MetalRoughIndex.
         
-        m_GPUData.occlusionIndex = GetIndex(MapType::Oclusion);
+        m_GPUData.occlusionIndex = GetIndex(MapType::Occlusion);
         
         // 2. Update Factors
-        // Color is set directly via SetColor() — only override from uniforms if reflection is active
-        glm::vec4 uniformColor;
-        if (GetUniformData("u_Color", &uniformColor, sizeof(glm::vec4)))
-            m_GPUData.color = uniformColor;
-        // else: keep m_GPUData.color as-is (set via SetColor() or deserialized default)
-
         float uniformMetal;
         m_GPUData.metalness = GetUniformData("u_Metalness", &uniformMetal, sizeof(float))
             ? uniformMetal : m_GPUData.metalness;
@@ -67,7 +61,7 @@ namespace Luth
         m_GPUData.flags = 0;
         if (GetTextureByType(MapType::Normal)    && IsUseMapEnabled(MapType::Normal))    m_GPUData.flags |= (1 << 0); // HAS_NORMAL
         if (GetTextureByType(MapType::Metalness) && IsUseMapEnabled(MapType::Metalness)) m_GPUData.flags |= (1 << 1); // HAS_METALROUGH
-        if (GetTextureByType(MapType::Oclusion)  && IsUseMapEnabled(MapType::Oclusion))  m_GPUData.flags |= (1 << 2); // HAS_OCCLUSION
+        if (GetTextureByType(MapType::Occlusion)  && IsUseMapEnabled(MapType::Occlusion))  m_GPUData.flags |= (1 << 2); // HAS_OCCLUSION
         if (GetTextureByType(MapType::Diffuse)   && IsUseMapEnabled(MapType::Diffuse))   m_GPUData.flags |= (1 << 3); // HAS_DIFFUSE
         if (GetTextureByType(MapType::Emissive)  && IsUseMapEnabled(MapType::Emissive))  m_GPUData.flags |= (1 << 4); // HAS_EMISSIVE
     }
@@ -260,7 +254,7 @@ namespace Luth
             case MapType::Metalness: return "Metalness";
             case MapType::Roughness: return "Roughness";
             case MapType::Specular:  return "Specular";
-            case MapType::Oclusion:  return "Oclusion";
+            case MapType::Occlusion:  return "Occlusion";
             default: return "Unknown";
         }
     }

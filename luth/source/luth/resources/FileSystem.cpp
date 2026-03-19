@@ -85,6 +85,7 @@ namespace Luth
             { ".tga",     AssetType::Texture  },
             { ".mat",     AssetType::Material },
             { ".glsl",    AssetType::Shader   },
+            { ".vert",    AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             // { ".ini",     AssetType::Config   }
         };

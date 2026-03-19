@@ -16,6 +16,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/Buffer.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/resources/AssetDatabase.h"
 #include "luth/renderer/ShaderCompiler.h"
 #include "luth/renderer/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
@@ -42,11 +43,23 @@ namespace Luth
             InitGlobalUniforms();
             InitShadowResources();
 
-            // Create and register shaders via Shader asset (compiles + reflects)
-            auto pbrShader = Shader::Create(FileSystem::AssetsPath() / "shaders/pbr.vert");
+            // Load shaders via AssetManager (imports + caches SPIR-V on first run)
+            UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::AssetsPath() / "shaders/pbr.vert");
+            auto pbrShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(pbrUUID));
+            if (!pbrShader)
+            {
+                LH_CORE_ERROR("Failed to load PBR shader via AssetManager!");
+                return;
+            }
             ShaderLibrary::Register("pbr", pbrShader);
 
-            auto shadowShader = Shader::Create(FileSystem::AssetsPath() / "shaders/shadowDepth.vert");
+            UUID shadowUUID = AssetDatabase::GetUUID(FileSystem::AssetsPath() / "shaders/shadowDepth.vert");
+            auto shadowShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(shadowUUID));
+            if (!shadowShader)
+            {
+                LH_CORE_ERROR("Failed to load shadow shader via AssetManager!");
+                return;
+            }
             ShaderLibrary::Register("shadowDepth", shadowShader);
 
             // Extract SPIR-V for pipeline creation

@@ -5,9 +5,11 @@
 #include "luth/resources/importers/TextureImporter.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
+#include "luth/resources/importers/ShaderImporter.h"
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Material.h"
+#include "luth/renderer/Shader.h"
 #include "luth/core/Time.h"
 
 namespace Luth
@@ -27,6 +29,7 @@ namespace Luth
         s_Importers[AssetType::Texture] = std::make_unique<TextureImporter>();
         s_Importers[AssetType::Model] = std::make_unique<ModelImporter>();
         s_Importers[AssetType::Material] = std::make_unique<MaterialImporter>();
+        s_Importers[AssetType::Shader] = std::make_unique<ShaderImporter>();
     }
 
     void AssetManager::Shutdown()
@@ -98,6 +101,11 @@ namespace Luth
             auto matData = std::make_unique<MaterialAssetData>();
             if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
         }
+        else if (info.Type == AssetType::Shader)
+        {
+            auto shaderData = std::make_unique<ShaderAssetData>();
+            if (AssetSerializer::DeserializeShader(artifactPath, *shaderData)) data = std::move(shaderData);
+        }
 
         if (!data) return nullptr;
 
@@ -119,6 +127,11 @@ namespace Luth
             auto material = std::make_shared<Material>();
             material->Deserialize(matData->JsonData);
             newAsset = material;
+        }
+        else if (info.Type == AssetType::Shader)
+        {
+            auto* shaderData = static_cast<ShaderAssetData*>(data.get());
+            newAsset = Shader::Create(shaderData->VertexSpirV, shaderData->FragmentSpirV, info.Path);
         }
 
         if (newAsset) { 
@@ -218,6 +231,10 @@ namespace Luth
                 auto matData = std::make_unique<MaterialAssetData>();
                 if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
             }
+            else if (req->Type == AssetType::Shader) {
+                auto shaderData = std::make_unique<ShaderAssetData>();
+                if (AssetSerializer::DeserializeShader(artifactPath, *shaderData)) data = std::move(shaderData);
+            }
         }
 
         // Push to upload queue regardless of success to clear the loading flag on main thread
@@ -266,6 +283,11 @@ namespace Luth
                     auto material = std::make_shared<Material>();
                     material->Deserialize(matData->JsonData);
                     newAsset = material;
+                }
+                else if (upload.Type == AssetType::Shader)
+                {
+                    auto* shaderData = static_cast<ShaderAssetData*>(upload.Data.get());
+                    newAsset = Shader::Create(shaderData->VertexSpirV, shaderData->FragmentSpirV, {});
                 }
             }
 
