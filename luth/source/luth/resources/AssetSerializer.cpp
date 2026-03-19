@@ -22,6 +22,10 @@ namespace Luth
         texHeader.Height = data.Height;
         texHeader.Format = (u32)data.Format;
         texHeader.SizeBytes = (u32)data.Pixels.size();
+        texHeader.GenerateMipmaps = data.Settings.GenerateMipmaps ? 1 : 0;
+        texHeader.WrapMode = (u32)data.Settings.WrapMode;
+        texHeader.MinFilter = (u32)data.Settings.MinFilter;
+        texHeader.MagFilter = (u32)data.Settings.MagFilter;
         out.write((char*)&texHeader, sizeof(TextureHeader));
 
         out.write((char*)data.Pixels.data(), data.Pixels.size());
@@ -43,6 +47,10 @@ namespace Luth
         outData.Width = texHeader.Width;
         outData.Height = texHeader.Height;
         outData.Format = (TextureFormat)texHeader.Format;
+        outData.Settings.GenerateMipmaps = texHeader.GenerateMipmaps != 0;
+        outData.Settings.WrapMode = (TextureWrapMode)texHeader.WrapMode;
+        outData.Settings.MinFilter = (TextureFilterMode)texHeader.MinFilter;
+        outData.Settings.MagFilter = (TextureFilterMode)texHeader.MagFilter;
         outData.Pixels.resize(texHeader.SizeBytes);
         in.read((char*)outData.Pixels.data(), texHeader.SizeBytes);
 

@@ -10,6 +10,7 @@ namespace Luth
     public:
         VKTexture(const fs::path& path);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data);
+        VKTexture(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings);
         virtual ~VKTexture();
 
         virtual void Bind(u32 slot = 0) const override;
@@ -28,7 +29,7 @@ namespace Luth
         virtual std::pair<TextureFilterMode, TextureFilterMode> GetFilterMode() const override { return { m_MinFilter, m_MagFilter }; }
         virtual void SetFilterMode(TextureFilterMode min, TextureFilterMode mag) override;
 
-        virtual int GetMipLevels() const override { return 1; }
+        virtual int GetMipLevels() const override { return m_MipLevels; }
         virtual void GenerateMipmaps() override {}
 
         VkImage GetImage() const { return m_Image; }
@@ -49,6 +50,8 @@ namespace Luth
         TextureFormat m_Format;
         TextureWrapMode m_WrapMode = TextureWrapMode::Repeat;
         TextureFilterMode m_MinFilter = TextureFilterMode::Linear, m_MagFilter = TextureFilterMode::Linear;
+
+        u32 m_MipLevels = 1;
 
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;

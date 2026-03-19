@@ -26,6 +26,10 @@ namespace Luth
         u32 Height;
         u32 Format; // TextureFormat enum
         u32 SizeBytes;
+        u32 GenerateMipmaps; // bool as u32 for alignment
+        u32 WrapMode;        // TextureWrapMode enum
+        u32 MinFilter;       // TextureFilterMode enum
+        u32 MagFilter;       // TextureFilterMode enum
     };
 
     struct MeshHeader

@@ -14,6 +14,7 @@
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/renderer/ShaderLibrary.h"
+#include "luth/resources/MetaFile.h"
 
 namespace Luth
 {
@@ -763,13 +764,33 @@ namespace Luth
         ImGui::EndChild();
         ImGui::Dummy({ 0, 8 });
 
-        // Properties table
-        static int wrapMode = (int)texture.GetWrapMode();
-        const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
+        // Per-texture state: reset combos when the selected texture changes
+        static UUID s_LastTextureUUID;
+        static int wrapMode = 0;
+        static int minFilter = 0;
+        static int magFilter = 0;
+        static bool generateMipmaps = true;
 
-        static int minFilter = (int)texture.GetFilterMode().first;
-        static int magFilter = (int)texture.GetFilterMode().second;
-        const char* filterModes[] = { "Nearest", "Linear", "Linear Mipmap", "Nearest Mipmap" };
+        if (texture.Handle != s_LastTextureUUID)
+        {
+            s_LastTextureUUID = texture.Handle;
+            wrapMode = (int)texture.GetWrapMode();
+            minFilter = (int)texture.GetFilterMode().first;
+            magFilter = (int)texture.GetFilterMode().second;
+
+            // Read generate_mipmaps from .meta
+            generateMipmaps = true;
+            fs::path metaPath = texture.GetPath().string() + ".meta";
+            MetaFile meta(texture.Handle);
+            if (meta.Load(metaPath))
+            {
+                auto& ts = meta.GetTypeSettings();
+                if (ts.contains("generate_mipmaps")) generateMipmaps = ts["generate_mipmaps"].get<bool>();
+            }
+        }
+
+        const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
+        const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
 
         if (ImGui::BeginTable("TextureProps", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextRow();
@@ -799,9 +820,15 @@ namespace Luth
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Generate Mipmaps");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Checkbox("##GenMips", &generateMipmaps);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
             ImGui::Text("Wrap Mode");
             ImGui::TableSetColumnIndex(1);
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             ImGui::Combo("##Wrap Mode", &wrapMode, wrapModes, IM_ARRAYSIZE(wrapModes));
 
             ImGui::TableNextRow();
@@ -822,12 +849,32 @@ namespace Luth
         }
         ImGui::Dummy({ 0, 8 });
 
-        // Apply button
-		ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Apply").x - ImGui::GetStyle().ItemSpacing.x);
+        // Apply button — saves settings to .meta and triggers reimport
+        ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Apply").x - ImGui::GetStyle().ItemSpacing.x);
         if (ImGui::Button("Apply")) {
-            // TODO: Apply texture settings here
-            texture.SetWrapMode((TextureWrapMode)wrapMode);
-            //texture.SetFilterMode((TextureFilterMode)filterMode, (TextureFilterMode)filterMode);
+            fs::path metaPath = texture.GetPath().string() + ".meta";
+            MetaFile meta(texture.Handle);
+            if (meta.Load(metaPath))
+            {
+                auto& ts = meta.GetTypeSettings();
+                ts["generate_mipmaps"] = generateMipmaps;
+                ts["wrap_mode"] = wrapMode;
+                ts["filter_min"] = minFilter;
+                ts["filter_mag"] = magFilter;
+                meta.Save(metaPath);
+
+                // Delete artifact to force reimport with new settings
+                fs::path artifactPath = AssetDatabase::GetArtifactPath(texture.Handle);
+                if (fs::exists(artifactPath))
+                    fs::remove(artifactPath);
+
+                // Reimport and reload — evict from cache so next access recreates with new settings
+                AssetManager::Import(texture.Handle);
+                AssetManager::Evict(texture.Handle);
+
+                // Force combo state refresh on next frame
+                s_LastTextureUUID = UUID::Invalid();
+            }
         }
 
         // Padding

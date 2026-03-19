@@ -27,6 +27,9 @@ namespace Luth
                 settings["generate_mipmaps"] = true;
                 settings["compression_format"] = "BC7";
                 settings["srgb"] = true;
+                settings["wrap_mode"] = 0;   // TextureWrapMode::Repeat
+                settings["filter_min"] = 0;  // TextureFilterMode::Linear
+                settings["filter_mag"] = 0;  // TextureFilterMode::Linear
                 break;
 
             case AssetType::Model:

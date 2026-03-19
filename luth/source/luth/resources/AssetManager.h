@@ -50,6 +50,9 @@ namespace Luth
         static bool IsLoaded(UUID handle);
         static bool IsLoading(UUID handle);
 
+        // Removes a specific asset from the cache (forces reload on next access)
+        static void Evict(UUID handle);
+
         // Unloads assets that are only referenced by the AssetManager
         static void Trim();
 

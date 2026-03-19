@@ -32,6 +32,32 @@ namespace Luth
         return fmt == TextureFormat::D32_Float || fmt == TextureFormat::D24_Unorm_S8_Uint;
     }
 
+    static VkSamplerAddressMode ToVkWrapMode(TextureWrapMode mode)
+    {
+        switch (mode)
+        {
+            case TextureWrapMode::Repeat:         return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            case TextureWrapMode::ClampToEdge:    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            case TextureWrapMode::MirroredRepeat: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+            default:                              return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        }
+    }
+
+    static VkFilter ToVkFilter(TextureFilterMode mode)
+    {
+        switch (mode)
+        {
+            case TextureFilterMode::Linear:
+            case TextureFilterMode::LinearMipmapLinear:
+                return VK_FILTER_LINEAR;
+            case TextureFilterMode::Nearest:
+            case TextureFilterMode::NearestMipmapNearest:
+                return VK_FILTER_NEAREST;
+            default:
+                return VK_FILTER_LINEAR;
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
@@ -49,6 +75,9 @@ namespace Luth
             m_Height = height;
             m_Format = TextureFormat::RGBA8;
 
+            // Default: generate mipmaps for textures loaded from file
+            m_MipLevels = static_cast<u32>(std::floor(std::log2(std::max(m_Width, m_Height)))) + 1;
+
             CreateImage(data);
             CreateViewAndSampler();
 
@@ -63,6 +92,18 @@ namespace Luth
     VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, const void* data)
         : m_Width(width), m_Height(height), m_Format(format)
     {
+        // No settings: render targets / depth textures stay at mipLevels = 1
+        CreateImage(data);
+        CreateViewAndSampler();
+    }
+
+    VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings)
+        : m_Width(width), m_Height(height), m_Format(format),
+          m_WrapMode(settings.WrapMode), m_MinFilter(settings.MinFilter), m_MagFilter(settings.MagFilter)
+    {
+        if (settings.GenerateMipmaps && data && !IsDepthFormat(format))
+            m_MipLevels = static_cast<u32>(std::floor(std::log2(std::max(m_Width, m_Height)))) + 1;
+
         CreateImage(data);
         CreateViewAndSampler();
     }
@@ -95,13 +136,27 @@ namespace Luth
         const bool isDepth = IsDepthFormat(m_Format);
         VkFormat vkFmt = ToVkFormat(m_Format);
 
+        // Check blit support for mipmap generation
+        if (m_MipLevels > 1)
+        {
+            VkFormatProperties formatProps;
+            vkGetPhysicalDeviceFormatProperties(VulkanContext::Get().GetPhysicalDevice(), vkFmt, &formatProps);
+            bool canBlit = (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+                        && (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
+            if (!canBlit)
+            {
+                LH_CORE_WARN("VKTexture: Format does not support blit, falling back to mipLevels=1");
+                m_MipLevels = 1;
+            }
+        }
+
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.extent.width = m_Width;
         imageInfo.extent.height = m_Height;
         imageInfo.extent.depth = 1;
-        imageInfo.mipLevels = 1;
+        imageInfo.mipLevels = m_MipLevels;
         imageInfo.arrayLayers = 1;
         imageInfo.format = vkFmt;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -111,13 +166,13 @@ namespace Luth
 
         if (isDepth)
         {
-            // Depth textures: attachment + sampled (for shadow maps / post-process reads)
             imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
                             | VK_IMAGE_USAGE_SAMPLED_BIT;
         }
         else
         {
             imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                            | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
                             | VK_IMAGE_USAGE_SAMPLED_BIT
                             | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         }
@@ -143,7 +198,7 @@ namespace Luth
             VulkanAllocator::Unmap(stagingAlloc);
 
             VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-                // Transition to Transfer Dst
+                // Transition ALL mip levels to Transfer Dst
                 VkImageMemoryBarrier barrier{};
                 barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -153,7 +208,7 @@ namespace Luth
                 barrier.image = m_Image;
                 barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 barrier.subresourceRange.baseMipLevel = 0;
-                barrier.subresourceRange.levelCount = 1;
+                barrier.subresourceRange.levelCount = m_MipLevels;
                 barrier.subresourceRange.baseArrayLayer = 0;
                 barrier.subresourceRange.layerCount = 1;
                 barrier.srcAccessMask = 0;
@@ -162,6 +217,7 @@ namespace Luth
                 vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                     0, 0, nullptr, 0, nullptr, 1, &barrier);
 
+                // Copy mip 0 from staging buffer
                 VkBufferImageCopy region{};
                 region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 region.imageSubresource.mipLevel = 0;
@@ -172,14 +228,85 @@ namespace Luth
                 vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-                // Transition to Shader Read
-                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                // Generate mip chain via vkCmdBlitImage
+                if (m_MipLevels > 1)
+                {
+                    i32 mipWidth = static_cast<i32>(m_Width);
+                    i32 mipHeight = static_cast<i32>(m_Height);
 
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                    0, 0, nullptr, 0, nullptr, 1, &barrier);
+                    for (u32 i = 1; i < m_MipLevels; i++)
+                    {
+                        // Transition mip i-1: TRANSFER_DST → TRANSFER_SRC
+                        barrier.subresourceRange.baseMipLevel = i - 1;
+                        barrier.subresourceRange.levelCount = 1;
+                        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+                        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                        // Blit from mip i-1 to mip i
+                        VkImageBlit blit{};
+                        blit.srcOffsets[0] = { 0, 0, 0 };
+                        blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+                        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                        blit.srcSubresource.mipLevel = i - 1;
+                        blit.srcSubresource.baseArrayLayer = 0;
+                        blit.srcSubresource.layerCount = 1;
+
+                        i32 nextWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+                        i32 nextHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+
+                        blit.dstOffsets[0] = { 0, 0, 0 };
+                        blit.dstOffsets[1] = { nextWidth, nextHeight, 1 };
+                        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                        blit.dstSubresource.mipLevel = i;
+                        blit.dstSubresource.baseArrayLayer = 0;
+                        blit.dstSubresource.layerCount = 1;
+
+                        vkCmdBlitImage(cmd,
+                            m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            1, &blit, VK_FILTER_LINEAR);
+
+                        // Transition mip i-1: TRANSFER_SRC → SHADER_READ_ONLY
+                        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                        mipWidth = nextWidth;
+                        mipHeight = nextHeight;
+                    }
+
+                    // Transition last mip level: TRANSFER_DST → SHADER_READ_ONLY
+                    barrier.subresourceRange.baseMipLevel = m_MipLevels - 1;
+                    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        0, 0, nullptr, 0, nullptr, 1, &barrier);
+                }
+                else
+                {
+                    // Single mip: just transition to Shader Read
+                    barrier.subresourceRange.baseMipLevel = 0;
+                    barrier.subresourceRange.levelCount = 1;
+                    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        0, 0, nullptr, 0, nullptr, 1, &barrier);
+                }
             });
 
             VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
@@ -210,7 +337,7 @@ namespace Luth
                 barrier.image = m_Image;
                 barrier.subresourceRange.aspectMask = aspect;
                 barrier.subresourceRange.baseMipLevel = 0;
-                barrier.subresourceRange.levelCount = 1;
+                barrier.subresourceRange.levelCount = m_MipLevels;
                 barrier.subresourceRange.baseArrayLayer = 0;
                 barrier.subresourceRange.layerCount = 1;
                 barrier.srcAccessMask = 0;
@@ -238,7 +365,7 @@ namespace Luth
         viewInfo.format = vkFmt;
         viewInfo.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.levelCount = m_MipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
@@ -253,13 +380,15 @@ namespace Luth
             return;
         }
 
+        VkSamplerAddressMode vkWrap = ToVkWrapMode(m_WrapMode);
+
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = VK_FILTER_LINEAR;
-        samplerInfo.minFilter = VK_FILTER_LINEAR;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.magFilter = ToVkFilter(m_MagFilter);
+        samplerInfo.minFilter = ToVkFilter(m_MinFilter);
+        samplerInfo.addressModeU = vkWrap;
+        samplerInfo.addressModeV = vkWrap;
+        samplerInfo.addressModeW = vkWrap;
         samplerInfo.anisotropyEnable = VK_TRUE;
         samplerInfo.maxAnisotropy = VulkanContext::Get().GetPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
         samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -267,6 +396,8 @@ namespace Luth
         samplerInfo.compareEnable = VK_FALSE;
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.minLod = 0.0f;
+        samplerInfo.maxLod = static_cast<float>(m_MipLevels);
 
         vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_Sampler);
 
