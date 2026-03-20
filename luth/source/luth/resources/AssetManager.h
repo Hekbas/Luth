@@ -50,6 +50,9 @@ namespace Luth
         static bool IsLoaded(UUID handle);
         static bool IsLoading(UUID handle);
 
+        // Returns true if an importer is registered for this asset type
+        static bool HasImporter(AssetType type);
+
         // Removes a specific asset from the cache (forces reload on next access)
         static void Evict(UUID handle);
 

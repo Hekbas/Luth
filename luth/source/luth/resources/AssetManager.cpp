@@ -159,6 +159,11 @@ namespace Luth
         }
     }
 
+    bool AssetManager::HasImporter(AssetType type)
+    {
+        return s_Importers.find(type) != s_Importers.end();
+    }
+
     bool AssetManager::IsLoaded(UUID handle)
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);
