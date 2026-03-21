@@ -20,6 +20,7 @@ namespace Luth
             case TextureFormat::R8:              return VK_FORMAT_R8_UNORM;
             case TextureFormat::RGB8:            return VK_FORMAT_R8G8B8_UNORM;
             case TextureFormat::RGBA8:           return VK_FORMAT_R8G8B8A8_UNORM;
+            case TextureFormat::RGBA16F:         return VK_FORMAT_R16G16B16A16_SFLOAT;
             case TextureFormat::RGBA32F:         return VK_FORMAT_R32G32B32A32_SFLOAT;
             case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
@@ -410,6 +411,7 @@ namespace Luth
         switch (m_Format)
         {
             case TextureFormat::RGBA8:   return "RGBA8";
+            case TextureFormat::RGBA16F: return "RGBA16F";
             case TextureFormat::RGBA32F: return "RGBA32F";
             case TextureFormat::D32_Float: return "D32_Float";
             default: return "Unknown";

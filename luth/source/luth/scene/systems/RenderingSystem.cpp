@@ -39,7 +39,8 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            m_SceneColor = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
+            m_SceneColor = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
+            m_LDROutput  = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
 
             InitGlobalUniforms();
             InitShadowResources();
@@ -84,6 +85,22 @@ namespace Luth
                 return;
             }
 
+            // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
+            {
+                auto shadersPath = FileSystem::AssetsPath() / "shaders";
+                m_FullscreenVertSpv    = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
+                m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
+                m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
+                m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
+
+                if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
+                    m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty())
+                {
+                    LH_CORE_ERROR("Failed to compile post-process shaders!");
+                }
+            }
+
+            InitPostProcessResources();
             CreatePipelines();
 
             // Shader reload callback — rebuilds pipelines when a shader is reloaded
@@ -102,6 +119,9 @@ namespace Luth
 
                 m_Pipelines.clear();
                 m_ShadowPipeline.reset();
+                m_BloomExtractPipeline.reset();
+                m_BloomBlurPipeline.reset();
+                m_PostProcessPipeline.reset();
                 CreatePipelines();
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
             });
@@ -134,6 +154,12 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        if (m_PPSampler)
+            vkDestroySampler(device, m_PPSampler, nullptr);
+        if (m_PPDescSetLayout)
+            vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
+        if (m_PPDescPool)
+            vkDestroyDescriptorPool(device, m_PPDescPool, nullptr);
         if (m_ShadowSampler)
             vkDestroySampler(device, m_ShadowSampler, nullptr);
         if (m_LightSetLayout)
@@ -282,6 +308,183 @@ namespace Luth
         vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
     }
 
+    void RenderingSystem::InitPostProcessResources()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        u32 w = m_SceneColor->GetWidth();
+        u32 h = m_SceneColor->GetHeight();
+
+        // Bloom textures (half-res)
+        m_BloomA = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
+        m_BloomB = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
+
+        // Post-process UBO
+        m_PostProcessUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(PostProcessUBO));
+
+        // Linear clamp sampler
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        vkCreateSampler(device, &samplerInfo, nullptr, &m_PPSampler);
+
+        // Descriptor set layout: [sampler2D, sampler2D, UBO]
+        VkDescriptorSetLayoutBinding bindings[3] = {};
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = 3;
+        layoutInfo.pBindings = bindings;
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_PPDescSetLayout);
+
+        // Descriptor pool: 4 sets × (2 samplers + 1 UBO)
+        VkDescriptorPoolSize poolSizes[2] = {};
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[0].descriptorCount = 8; // 4 sets × 2 sampler bindings
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSizes[1].descriptorCount = 4; // 4 sets × 1 UBO binding
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = 4;
+        poolInfo.poolSizeCount = 2;
+        poolInfo.pPoolSizes = poolSizes;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_PPDescPool);
+
+        // Allocate 4 descriptor sets
+        VkDescriptorSetLayout setLayouts[4] = { m_PPDescSetLayout, m_PPDescSetLayout, m_PPDescSetLayout, m_PPDescSetLayout };
+        VkDescriptorSet sets[4];
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = m_PPDescPool;
+        allocInfo.descriptorSetCount = 4;
+        allocInfo.pSetLayouts = setLayouts;
+        vkAllocateDescriptorSets(device, &allocInfo, sets);
+
+        m_BloomExtractDescSet = sets[0];
+        m_BloomBlurHDescSet   = sets[1];
+        m_BloomBlurVDescSet   = sets[2];
+        m_CompositeDescSet    = sets[3];
+
+        UpdatePostProcessDescriptors();
+    }
+
+    void RenderingSystem::UpdatePostProcessDescriptors()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        auto sceneVk  = std::static_pointer_cast<VKTexture>(m_SceneColor);
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
+
+        VkDescriptorBufferInfo uboInfo{};
+        uboInfo.buffer = m_PostProcessUBOBuffer->GetVulkanBuffer();
+        uboInfo.offset = 0;
+        uboInfo.range  = sizeof(PostProcessUBO);
+
+        // Helper: write a combined image sampler descriptor
+        auto MakeImageInfo = [this](VkImageView view) -> VkDescriptorImageInfo {
+            VkDescriptorImageInfo info{};
+            info.sampler     = m_PPSampler;
+            info.imageView   = view;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            return info;
+        };
+
+        // BloomExtract: binding 0 = SceneColor, binding 1 = unused (BloomA as placeholder), binding 2 = UBO
+        VkDescriptorImageInfo bloomExtractImg0 = MakeImageInfo(sceneVk->GetImageView());
+        VkDescriptorImageInfo bloomExtractImg1 = MakeImageInfo(bloomAVk->GetImageView());
+
+        // BloomBlurH: binding 0 = BloomA, binding 1 = unused, binding 2 = UBO
+        VkDescriptorImageInfo blurHImg0 = MakeImageInfo(bloomAVk->GetImageView());
+        VkDescriptorImageInfo blurHImg1 = MakeImageInfo(bloomBVk->GetImageView());
+
+        // BloomBlurV: binding 0 = BloomB, binding 1 = unused, binding 2 = UBO
+        VkDescriptorImageInfo blurVImg0 = MakeImageInfo(bloomBVk->GetImageView());
+        VkDescriptorImageInfo blurVImg1 = MakeImageInfo(bloomAVk->GetImageView());
+
+        // Composite: binding 0 = SceneColor (HDR), binding 1 = BloomA (blurred), binding 2 = UBO
+        VkDescriptorImageInfo compImg0 = MakeImageInfo(sceneVk->GetImageView());
+        VkDescriptorImageInfo compImg1 = MakeImageInfo(bloomAVk->GetImageView());
+
+        // Write all 4 sets (3 writes each = 12 total)
+        VkWriteDescriptorSet writes[12] = {};
+        int idx = 0;
+
+        auto AddWrite = [&](VkDescriptorSet set, u32 binding, VkDescriptorType type,
+                           VkDescriptorImageInfo* imgInfo, VkDescriptorBufferInfo* bufInfo) {
+            writes[idx].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[idx].dstSet = set;
+            writes[idx].dstBinding = binding;
+            writes[idx].descriptorCount = 1;
+            writes[idx].descriptorType = type;
+            writes[idx].pImageInfo = imgInfo;
+            writes[idx].pBufferInfo = bufInfo;
+            idx++;
+        };
+
+        // BloomExtract set
+        AddWrite(m_BloomExtractDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg0, nullptr);
+        AddWrite(m_BloomExtractDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg1, nullptr);
+        AddWrite(m_BloomExtractDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+
+        // BloomBlurH set
+        AddWrite(m_BloomBlurHDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg0, nullptr);
+        AddWrite(m_BloomBlurHDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg1, nullptr);
+        AddWrite(m_BloomBlurHDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+
+        // BloomBlurV set
+        AddWrite(m_BloomBlurVDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg0, nullptr);
+        AddWrite(m_BloomBlurVDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg1, nullptr);
+        AddWrite(m_BloomBlurVDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+
+        // Composite set
+        AddWrite(m_CompositeDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg0, nullptr);
+        AddWrite(m_CompositeDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg1, nullptr);
+        AddWrite(m_CompositeDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+
+        vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
+    }
+
+    void RenderingSystem::UpdatePostProcessUBO()
+    {
+        PostProcessUBO ubo{};
+        ubo.bloomThreshold      = m_PostProcessSettings.bloomThreshold;
+        ubo.bloomStrength       = m_PostProcessSettings.bloomStrength;
+        ubo.exposure            = m_PostProcessSettings.exposure;
+        ubo.contrast            = m_PostProcessSettings.contrast;
+        ubo.saturation          = m_PostProcessSettings.saturation;
+        ubo.tonemapOp           = static_cast<int>(m_PostProcessSettings.tonemapOp);
+        ubo.vignetteAmount      = m_PostProcessSettings.vignetteAmount;
+        ubo.vignetteHardness    = m_PostProcessSettings.vignetteHardness;
+        ubo.grainAmount         = m_PostProcessSettings.grainAmount;
+        ubo.sharpness           = m_PostProcessSettings.sharpness;
+        ubo.chromaticAberration = m_PostProcessSettings.chromaticAberration;
+        ubo.time                = Time::GetTime();
+        ubo.shadowBalance       = m_PostProcessSettings.shadowBalance;
+        ubo.midtoneBalance      = m_PostProcessSettings.midtoneBalance;
+        ubo.highlightBalance    = m_PostProcessSettings.highlightBalance;
+        m_PostProcessUBOBuffer->SetData(&ubo, sizeof(PostProcessUBO));
+    }
+
     // =========================================================================
     // Pipeline creation
     // =========================================================================
@@ -315,7 +518,7 @@ namespace Luth
 
         // ---- PBR geometry pipelines ----
         PipelineConfig baseConfig;
-        baseConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+        baseConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
         baseConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
         baseConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         baseConfig.bindingDescriptions = bindingDescs;
@@ -370,6 +573,63 @@ namespace Luth
         shadowConfig.pushConstantRanges = { pushConstantRange };
 
         m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, layouts);
+
+        // ---- Post-process pipelines ----
+        if (!m_FullscreenVertSpv.empty() && m_PPDescSetLayout != VK_NULL_HANDLE)
+        {
+            std::vector<VkDescriptorSetLayout> ppLayouts = { m_PPDescSetLayout };
+
+            // Bloom extract: push constant = float threshold + pad
+            if (!m_BloomExtractFragSpv.empty())
+            {
+                VkPushConstantRange bloomExtractPC{};
+                bloomExtractPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                bloomExtractPC.offset = 0;
+                bloomExtractPC.size = sizeof(float) * 4; // threshold + pad[3]
+
+                PipelineConfig bloomExtractConfig;
+                bloomExtractConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+                bloomExtractConfig.depthFormat = VK_FORMAT_UNDEFINED;
+                bloomExtractConfig.depthTest = false; bloomExtractConfig.depthWrite = false;
+                bloomExtractConfig.blendEnabled = false;
+                bloomExtractConfig.cullMode = VK_CULL_MODE_NONE;
+                bloomExtractConfig.pushConstantRanges = { bloomExtractPC };
+                m_BloomExtractPipeline = std::make_unique<VKPipeline>(
+                    bloomExtractConfig, m_FullscreenVertSpv, m_BloomExtractFragSpv, ppLayouts);
+            }
+
+            // Bloom blur: push constant = vec2 direction + pad
+            if (!m_BloomBlurFragSpv.empty())
+            {
+                VkPushConstantRange bloomBlurPC{};
+                bloomBlurPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                bloomBlurPC.offset = 0;
+                bloomBlurPC.size = sizeof(float) * 4; // direction.xy + pad[2]
+
+                PipelineConfig bloomBlurConfig;
+                bloomBlurConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+                bloomBlurConfig.depthFormat = VK_FORMAT_UNDEFINED;
+                bloomBlurConfig.depthTest = false; bloomBlurConfig.depthWrite = false;
+                bloomBlurConfig.blendEnabled = false;
+                bloomBlurConfig.cullMode = VK_CULL_MODE_NONE;
+                bloomBlurConfig.pushConstantRanges = { bloomBlurPC };
+                m_BloomBlurPipeline = std::make_unique<VKPipeline>(
+                    bloomBlurConfig, m_FullscreenVertSpv, m_BloomBlurFragSpv, ppLayouts);
+            }
+
+            // PostProcess composite: no push constants, UBO at binding 2
+            if (!m_PostProcessFragSpv.empty())
+            {
+                PipelineConfig ppConfig;
+                ppConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // LDR output
+                ppConfig.depthFormat = VK_FORMAT_UNDEFINED;
+                ppConfig.depthTest = false; ppConfig.depthWrite = false;
+                ppConfig.blendEnabled = false;
+                ppConfig.cullMode = VK_CULL_MODE_NONE;
+                m_PostProcessPipeline = std::make_unique<VKPipeline>(
+                    ppConfig, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
+            }
+        }
     }
 
     u32 RenderingSystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
@@ -520,11 +780,16 @@ namespace Luth
             // Upload dirty materials
             MaterialSystem::Update(VK_NULL_HANDLE);
 
+            // Upload post-process settings
+            UpdatePostProcessUBO();
+
             RG::RenderGraph rg(*m_FrameAllocator);
 
-            RG::ResourceHandle shadowMap  = AddShadowPass(rg, registry);
-            RG::ResourceHandle sceneColor = AddGeometryPass(rg, registry, shadowMap);
-            AddImGuiPass(rg, sceneColor);
+            RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
+            RG::ResourceHandle sceneColor  = AddGeometryPass(rg, registry, shadowMap);
+            RG::ResourceHandle bloomResult = AddBloomPasses(rg, sceneColor);
+            RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, sceneColor, bloomResult);
+            AddImGuiPass(rg, ldrOutput);
 
             rg.Compile();
             Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex());
@@ -648,7 +913,7 @@ namespace Luth
                 desc.name   = "SceneColor";
                 desc.width  = m_SceneColor->GetWidth();
                 desc.height = m_SceneColor->GetHeight();
-                desc.format = RG::TextureFormat::RGBA8_Unorm;
+                desc.format = RG::TextureFormat::RGBA16_Float;
 
                 auto vkTex = std::static_pointer_cast<VKTexture>(m_SceneColor);
                 data.outputTex = rg.ImportResource(desc,
@@ -788,6 +1053,204 @@ namespace Luth
         return outputHandle;
     }
 
+    RG::ResourceHandle RenderingSystem::AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
+    {
+        if (!m_BloomExtractPipeline || !m_BloomBlurPipeline || !m_BloomA || !m_BloomB)
+            return {}; // Post-process not initialized, skip bloom
+
+        struct BloomPassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle input;
+        };
+
+        u32 halfW = m_BloomA->GetWidth();
+        u32 halfH = m_BloomA->GetHeight();
+
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
+
+        // --- Bloom Extract: SceneColor -> BloomA ---
+        RG::ResourceHandle bloomAHandle;
+        rg.AddPass<BloomPassData>("BloomExtract",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "BloomA";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomAVk->GetImage(), (void*)bloomAVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+
+                data.input = builder.Read(sceneColor);
+                bloomAHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomExtractPipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomExtractPipeline->GetLayout(), 0, 1, &m_BloomExtractDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { m_PostProcessSettings.bloomThreshold, 0, 0, 0 };
+                vkCmdPushConstants(cmd, m_BloomExtractPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        // --- Bloom Blur Horizontal: BloomA -> BloomB ---
+        RG::ResourceHandle bloomBHandle;
+        rg.AddPass<BloomPassData>("BloomBlurH",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "BloomB";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomBVk->GetImage(), (void*)bloomBVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+
+                data.input = builder.Read(bloomAHandle);
+                bloomBHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomBlurPipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_BloomBlurHDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { 1.0f / (float)halfW, 0.0f, 0.0f, 0.0f };
+                vkCmdPushConstants(cmd, m_BloomBlurPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        // --- Bloom Blur Vertical: BloomB -> BloomA ---
+        RG::ResourceHandle finalBloomHandle;
+        rg.AddPass<BloomPassData>("BloomBlurV",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                // Re-import BloomA with a new identity for the second write
+                RG::TextureDesc desc;
+                desc.name   = "BloomAFinal";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomAVk->GetImage(), (void*)bloomAVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+
+                data.input = builder.Read(bloomBHandle);
+                finalBloomHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomBlurPipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_BloomBlurVDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { 0.0f, 1.0f / (float)halfH, 0.0f, 0.0f };
+                vkCmdPushConstants(cmd, m_BloomBlurPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        return finalBloomHandle;
+    }
+
+    RG::ResourceHandle RenderingSystem::AddPostProcessPass(
+        RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
+    {
+        if (!m_PostProcessPipeline || !m_LDROutput)
+            return sceneColor; // Fallback: pass HDR scene color through
+
+        struct PostProcessPassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle hdrInput;
+            RG::ResourceHandle bloomInput;
+        };
+
+        RG::ResourceHandle outputHandle;
+        auto ldrVk = std::static_pointer_cast<VKTexture>(m_LDROutput);
+
+        rg.AddPass<PostProcessPassData>("PostProcess",
+            [&](PostProcessPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "LDROutput";
+                desc.width  = m_LDROutput->GetWidth();
+                desc.height = m_LDROutput->GetHeight();
+                desc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)ldrVk->GetImage(), (void*)ldrVk->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+                data.output = builder.Write(data.output);
+
+                data.hdrInput = builder.Read(sceneColor);
+                if (bloomResult.IsValid())
+                    data.bloomInput = builder.Read(bloomResult);
+
+                outputHandle = data.output;
+            },
+            [this](PostProcessPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_PostProcessPipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_PostProcessPipeline->GetLayout(), 0, 1, &m_CompositeDescSet, 0, nullptr);
+
+                u32 w = m_LDROutput->GetWidth();
+                u32 h = m_LDROutput->GetHeight();
+
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        return outputHandle;
+    }
+
     void RenderingSystem::AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
         struct ImGuiPassData {
@@ -831,6 +1294,12 @@ namespace Luth
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         if (m_SceneColor && width > 0 && height > 0)
-            m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA8);
+        {
+            m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA16F);
+            m_LDROutput  = Texture::Create(width, height, TextureFormat::RGBA8);
+            m_BloomA     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+            m_BloomB     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+            UpdatePostProcessDescriptors();
+        }
     }
 }

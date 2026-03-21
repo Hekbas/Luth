@@ -8,6 +8,7 @@
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Model.h"
+#include "luth/renderer/PostProcessSettings.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/FileWatcher.h"
 
@@ -74,7 +75,9 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
-        std::shared_ptr<Texture> GetSceneColor() const { return m_SceneColor; }
+        std::shared_ptr<Texture> GetSceneColor() const { return m_LDROutput ? m_LDROutput : m_SceneColor; }
+        PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
+        const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
@@ -82,13 +85,18 @@ namespace Luth
     private:
         void InitGlobalUniforms();
         void InitShadowResources();
+        void InitPostProcessResources();
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
+        void UpdatePostProcessUBO();
+        void UpdatePostProcessDescriptors();
         void CreatePipelines();
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
         RG::ResourceHandle AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle);
+        RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
+        RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         // Memory
@@ -134,6 +142,37 @@ namespace Luth
         std::vector<DrawCommand> m_OpaqueDraws;
         std::vector<DrawCommand> m_CutoutDraws;
         std::vector<DrawCommand> m_TransparentDraws;
+
+        // Post-process settings & UBO
+        PostProcessSettings m_PostProcessSettings;
+        std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
+
+        // LDR output (post-tonemapped, for ScenePanel display)
+        std::shared_ptr<Texture> m_LDROutput;
+
+        // Bloom textures (half-res RGBA16F, persistent)
+        std::shared_ptr<Texture> m_BloomA;
+        std::shared_ptr<Texture> m_BloomB;
+
+        // Post-process sampler + descriptors
+        VkSampler              m_PPSampler = VK_NULL_HANDLE;
+        VkDescriptorPool       m_PPDescPool = VK_NULL_HANDLE;
+        VkDescriptorSetLayout  m_PPDescSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet        m_BloomExtractDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet        m_BloomBlurHDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet        m_BloomBlurVDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet        m_CompositeDescSet = VK_NULL_HANDLE;
+
+        // Post-process pipelines
+        std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
+        std::unique_ptr<VKPipeline> m_BloomBlurPipeline;
+        std::unique_ptr<VKPipeline> m_PostProcessPipeline;
+
+        // Post-process shader SPIR-V
+        std::vector<u32> m_FullscreenVertSpv;
+        std::vector<u32> m_BloomExtractFragSpv;
+        std::vector<u32> m_BloomBlurFragSpv;
+        std::vector<u32> m_PostProcessFragSpv;
 
         // Shader hot-reload
         FileWatcher m_ShaderWatcher;

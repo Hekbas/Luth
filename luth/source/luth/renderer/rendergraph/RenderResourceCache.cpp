@@ -79,6 +79,7 @@ namespace Luth::RG
         // Map format
         if (desc.format == TextureFormat::RGBA8_Unorm) imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
         else if (desc.format == TextureFormat::BGRA8_Unorm) imageInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
+        else if (desc.format == TextureFormat::RGBA16_Float) imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
         else if (desc.format == TextureFormat::D32_Float) imageInfo.format = VK_FORMAT_D32_SFLOAT;
         else if (desc.format == TextureFormat::D24_Unorm_S8_Uint) imageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
         else imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // Fallback
