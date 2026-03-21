@@ -52,9 +52,12 @@ namespace Luth
 		static void SetMatrixStyle();
         static void SetRandomStyle();
 
-        static ImFont* GetMainFont() { return m_MainFont; }
-        static ImFont* GetFARegular() { return m_FARegular; }
-        static ImFont* GetFASolid() { return m_FASolid; }
+        static ImFont*  GetMainFont()     { return m_MainFont; }
+        static ImFont*  GetFARegular()    { return m_FARegular; }
+        static ImFont*  GetFASolid()      { return m_FASolid; }
+        static ImFont*& MainFontRef()     { return m_MainFont; }
+        static ImFont*& FARegularRef()    { return m_FARegular; }
+        static ImFont*& FASolidRef()      { return m_FASolid; }
 
         // Scene management
         static void SetActiveScene(std::shared_ptr<Scene> scene);

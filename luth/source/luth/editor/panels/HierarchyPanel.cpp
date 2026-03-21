@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
-#include "luth/editor/panels/InspectorPanel.h"
+#include "luth/editor/EditorSelection.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Systems.h"
 #include "luth/utils/LuthIcons.h"
@@ -426,10 +426,7 @@ namespace Luth
     void HierarchyPanel::SetSelectedEntity(Entity entity)
     {
         m_Selection = entity;
-        // Sync with Inspector
-        if (auto* inspector = Editor::GetPanel<InspectorPanel>()) {
-            inspector->SetSelectedEntity(entity);
-        }
+        EditorSelection::SelectEntity(entity);
     }
 
     void HierarchyPanel::RenameEntity(Entity entity)

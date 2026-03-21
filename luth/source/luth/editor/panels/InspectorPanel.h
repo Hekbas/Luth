@@ -1,15 +1,13 @@
 #pragma once
 
 #include "luth/editor/Editor.h"
-#include "luth/core/UUID.h"
-#include "luth/scene/Entity.h"
+#include "luth/editor/EditorSelection.h"
+#include "luth/editor/inspectors/ModelViewer.h"
+#include "luth/editor/inspectors/MaterialEditor.h"
+#include "luth/editor/inspectors/TextureEditor.h"
 
 namespace Luth
 {
-    class Model;
-	class Material;
-	class Texture;
-
     class InspectorPanel : public Panel
     {
     public:
@@ -18,33 +16,18 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
-        void SetSelectedEntity(Entity entity) {
-            m_SelectedEntity = entity;
-            m_SelectedResource = {};
-        }
-        void SetSelectedResource(UUID resource) {
-            m_SelectedResource = resource;
-            m_SelectedEntity = {};
-        }
-        void SetSelectedResourceNone() {
-            m_SelectedResource = {};
-        }
-
     private:
 
-        void DrawEntityComponents();
+        void DrawEntityComponents(Entity entity);
 
         template<typename T, typename UIFunction>
         void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction);
 
-        void DrawResourceProperties();
-		void DrawModel(Model& model);
-		void DrawMaterial(Material& material);
-		void DrawTexture(Texture& texture);
-
+        void DrawResourceProperties(UUID resource);
 
     private:
-        Entity m_SelectedEntity;
-        UUID m_SelectedResource;
+        ModelViewer    m_ModelViewer;
+        MaterialEditor m_MaterialEditor;
+        TextureEditor  m_TextureEditor;
     };
 }

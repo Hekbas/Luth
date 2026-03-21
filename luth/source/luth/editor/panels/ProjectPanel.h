@@ -23,8 +23,6 @@ namespace Luth
         bool IsOpen = false;
     };
 
-	class InspectorPanel;
-
     class ProjectPanel : public Panel
     {
     public:
@@ -63,7 +61,6 @@ namespace Luth
         const char* GetIcon(AssetType type, bool isDirectory) const;
 
         // Runtime state
-		InspectorPanel* m_InspectorPanel = nullptr;
         fs::path m_AssetsPath;
 
         std::unique_ptr<DirectoryNode> m_RootNode;

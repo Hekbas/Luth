@@ -32,6 +32,18 @@ namespace Luth::UI
     // Asset Slot with Drag & Drop support
     bool PropertyAsset(const char* label, UUID& assetHandle, AssetType type);
 
+    // Combo selector (wraps the common pattern used for enums/mode selection)
+    // Works inside BeginProperties/EndProperties table context
+    bool PropertyCombo(const char* label, int& currentIndex, const char* const items[], int count);
+
+    // Read-only info table (for metadata, model stats, texture properties, etc.)
+    void BeginInfoTable(const char* id);
+    void InfoRow(const char* label, const char* fmt, ...);
+    void EndInfoTable();
+
+    // Texture preview with aspect-ratio preservation
+    void TexturePreview(const std::shared_ptr<Texture>& texture, float maxWidth = 0.0f);
+
     // Helper to get ImGui Texture ID (Handles Vulkan Descriptor creation/caching)
     ImTextureID GetTextureID(const std::shared_ptr<Texture>& texture);
 

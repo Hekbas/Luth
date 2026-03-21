@@ -270,6 +270,67 @@ namespace Luth::UI
         return changed;
     }
 
+    bool PropertyCombo(const char* label, int& currentIndex, const char* const items[], int count)
+    {
+        DrawLabel(label);
+        std::string id = "##" + std::string(label);
+        bool changed = ImGui::Combo(id.c_str(), &currentIndex, items, count);
+        ImGui::PopItemWidth();
+        return changed;
+    }
+
+    void BeginInfoTable(const char* id)
+    {
+        ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchSame);
+    }
+
+    void InfoRow(const char* label, const char* fmt, ...)
+    {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("%s", label);
+        ImGui::TableSetColumnIndex(1);
+
+        va_list args;
+        va_start(args, fmt);
+        ImGui::TextV(fmt, args);
+        va_end(args);
+    }
+
+    void EndInfoTable()
+    {
+        ImGui::EndTable();
+    }
+
+    void TexturePreview(const std::shared_ptr<Texture>& texture, float maxWidth)
+    {
+        if (!texture) return;
+
+        float imageAR = (float)texture->GetHeight() / (float)texture->GetWidth();
+        float availWidth = maxWidth > 0.0f ? maxWidth : ImGui::GetContentRegionAvail().x;
+        float availHeight = ImGui::GetContentRegionAvail().y;
+        float availAR = availHeight / availWidth;
+        float previewWidth, previewHeight;
+        ImVec2 offset;
+
+        if (availAR > 1.0f) {
+            previewWidth = availWidth;
+            previewHeight = previewWidth * imageAR;
+            offset = { 0, (availHeight - previewHeight) / 2.0f };
+        }
+        else {
+            previewHeight = availHeight;
+            previewWidth = previewHeight / imageAR;
+            offset = { (availWidth - previewWidth) / 2.0f, 0 };
+        }
+
+        if (ImGui::BeginChild("PreviewRegion", { availWidth, 0 })) {
+            ImGui::SetCursorPos(offset);
+            ImGui::Image(GetTextureID(texture), { previewWidth, previewHeight }, { 0, 1 }, { 1, 0 });
+        }
+        ImGui::EndChild();
+    }
+
     // File-scope so ClearTextureCache() can access it
     static std::unordered_map<void*, std::pair<VkDescriptorSet, std::weak_ptr<Texture>>> s_TextureCache;
 

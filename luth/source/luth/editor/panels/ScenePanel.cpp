@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
-#include "luth/editor/panels/HierarchyPanel.h"
+#include "luth/editor/EditorSelection.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/platform/RenderEvent.h"
@@ -41,14 +41,13 @@ namespace Luth
 
     void ScenePanel::OnInit()
     {
-        m_SelectedEntity = Editor::GetPanel<HierarchyPanel>()->GetSelectedEntity();
+        m_SelectedEntity = EditorSelection::GetSelectedEntity();
     }
 
     void ScenePanel::OnRender()
     {
-        // Sync selection from Hierarchy
-        if (auto hierarchy = Editor::GetPanel<HierarchyPanel>())
-            m_SelectedEntity = hierarchy->GetSelectedEntity();
+        // Sync selection
+        m_SelectedEntity = EditorSelection::GetSelectedEntity();
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");

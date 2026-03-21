@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
-#include "luth/editor/panels/InspectorPanel.h"
+#include "luth/editor/EditorSelection.h"
 #include "luth/editor/Editor.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -21,7 +21,6 @@ namespace Luth
 
     void ProjectPanel::OnInit()
     {
-        m_InspectorPanel = Editor::GetPanel<InspectorPanel>();
         m_AssetsPath = FileSystem::AssetsPath();
         Refresh();
     }
@@ -479,7 +478,7 @@ namespace Luth
         }
         else {
             if (node->Type != AssetType::None) {
-                m_InspectorPanel->SetSelectedResource(node->Handle);
+                EditorSelection::SelectResource(node->Handle);
             }
         }
     }
