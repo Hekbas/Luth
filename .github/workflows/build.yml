@@ -1,32 +1,67 @@
-name: Windows Premake Build
+name: Build
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   build:
     runs-on: windows-latest
 
+    strategy:
+      matrix:
+        config: [Debug, Release, Dist]
+
     steps:
-    - name: Checkout repository + submodules
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
-    - name: Run premake batch script
+    - name: Cache submodules
+      uses: actions/cache@v4
+      with:
+        path: |
+          luth/extern/source
+          luthien/extern/source
+        key: submodules-${{ hashFiles('.gitmodules') }}
+
+    - name: Run premake
       shell: cmd
       run: |
-        cd scripts/setup
+        cd scripts\setup
         setup_windows.bat
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
 
-    - name: Build Debug x64
-      run: msbuild /p:Configuration=Debug /p:Platform=x64 /p:WindowsTargetPlatformVersion=10.0 Luth.sln
+    - name: Cache build intermediates
+      uses: actions/cache@v4
+      with:
+        path: bin-int
+        key: build-int-${{ matrix.config }}-${{ hashFiles('**/*.h', '**/*.cpp', '**/*.lua') }}
+        restore-keys: |
+          build-int-${{ matrix.config }}-
 
-    - name: Build Release x64
-      run: msbuild /p:Configuration=Release /p:Platform=x64 /p:WindowsTargetPlatformVersion=10.0 Luth.sln
+    - name: Build ${{ matrix.config }} x64
+      run: >
+        msbuild Luth.sln
+        /p:Configuration=${{ matrix.config }}
+        /p:Platform=x64
+        /p:WindowsTargetPlatformVersion=10.0
+        /m
+
+    - name: Upload Release artifacts
+      if: matrix.config == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: luth-release-x64
+        retention-days: 14
+        path: |
+          bin/windows-x86_64/Release/Luthien/Luthien.exe
+          bin/windows-x86_64/Release/Luthien/shaderc_shared.dll
+          bin/windows-x86_64/Release/Sandbox/Sandbox.exe
+          bin/windows-x86_64/Release/Sandbox/shaderc_shared.dll
+          bin/windows-x86_64/Release/Luth/Luth.lib
