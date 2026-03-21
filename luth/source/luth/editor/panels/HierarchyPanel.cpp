@@ -471,7 +471,11 @@ namespace Luth
             mr.ModelUUID = assetUuid;
             mr.MeshIndex = (u32)i;
             mr.isSkinned = model->IsSkinned();
-            if (i < model->GetMaterials().size()) mr.MaterialUUID = model->GetMaterials()[i];
+            if (i < model->GetMaterials().size()) {
+                mr.MaterialUUID = model->GetMaterials()[i];
+                if (mr.MaterialUUID.IsValid())
+                    AssetManager::LoadAsync(mr.MaterialUUID);
+            }
         }
         SetSelectedEntity(root);
     }

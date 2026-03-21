@@ -85,7 +85,7 @@ namespace Luth
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
         void CreatePipelines();
-        u32  EnsureMaterialRegistered(Material* material);
+        u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
         RG::ResourceHandle AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle);

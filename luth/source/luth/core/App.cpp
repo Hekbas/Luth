@@ -185,6 +185,9 @@ namespace Luth
         AssetDatabase::Shutdown();
         ShaderLibrary::Shutdown();
 
+        // Release scene-held asset references before GPU resource cleanup
+        if (m_Scene) m_Scene->Clear();
+
         // Flush deferred GPU resource deletions queued by asset/shader destructors
         Renderer::FlushDeletionQueues();
 

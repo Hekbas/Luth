@@ -34,6 +34,10 @@ namespace Luth
 
     void MaterialSystem::Shutdown()
     {
+        // Release shared_ptr references to materials before destroying GPU resources
+        m_Slots.clear();
+        m_FreeIndices.clear();
+
         VkDevice device = VulkanContext::Get().GetDevice();
 
         vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
@@ -43,7 +47,7 @@ namespace Luth
         VulkanAllocator::FreeBuffer(m_Buffer, m_Allocation);
     }
 
-    u32 MaterialSystem::RegisterMaterial(Material* material)
+    u32 MaterialSystem::RegisterMaterial(std::shared_ptr<Material> material)
     {
         std::lock_guard<std::mutex> lock(m_Lock);
 

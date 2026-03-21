@@ -295,6 +295,13 @@ namespace Luth
                     auto material = std::make_shared<Material>();
                     material->Deserialize(matData->JsonData);
                     newAsset = material;
+
+                    // Load texture dependencies referenced by this material
+                    for (const auto& map : material->GetTextures())
+                    {
+                        if (map.Uuid.IsValid())
+                            LoadAsync(map.Uuid);
+                    }
                 }
                 else if (upload.Type == AssetType::Shader)
                 {

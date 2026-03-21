@@ -1,6 +1,9 @@
 #include "luthpch.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
+#include "luth/renderer/Material.h"
+#include "luth/renderer/Texture.h"
+#include "luth/resources/AssetManager.h"
 
 namespace Luth
 {
@@ -19,6 +22,7 @@ namespace Luth
 
     void Scene::Clear()
     {
+        ReleaseAllAssets();
         m_RootEntities.clear();
 
         // Destroy every entity individually. This keeps the registry's
@@ -250,5 +254,35 @@ namespace Luth
 
         // Generate the new name
         return base + " (" + std::to_string(newNumber) + ")";
+    }
+
+    void Scene::HoldAsset(UUID uuid, std::shared_ptr<Asset> asset)
+    {
+        m_HeldAssets[uuid] = asset;
+
+        // If it's a material, also hold its referenced textures
+        if (asset->GetType() == AssetType::Material)
+        {
+            auto mat = std::static_pointer_cast<Material>(asset);
+            for (const auto& map : mat->GetTextures())
+            {
+                if (map.Uuid.IsValid())
+                {
+                    auto tex = AssetManager::GetAsset<Texture>(map.Uuid);
+                    if (tex)
+                        m_HeldAssets[map.Uuid] = tex;
+                }
+            }
+        }
+    }
+
+    void Scene::ReleaseAsset(UUID uuid)
+    {
+        m_HeldAssets.erase(uuid);
+    }
+
+    void Scene::ReleaseAllAssets()
+    {
+        m_HeldAssets.clear();
     }
 }

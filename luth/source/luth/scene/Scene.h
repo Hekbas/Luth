@@ -1,6 +1,10 @@
 #pragma once
 
+#include "luth/core/UUID.h"
+#include "luth/resources/Asset.h"
 #include <string>
+#include <unordered_map>
+#include <memory>
 #include <entt/entt.hpp>
 
 namespace Luth
@@ -38,9 +42,14 @@ namespace Luth
         auto GetAllEntitiesWith() { return m_Registry.view<Components...>(); }
 
         const std::vector<Entity>& GetRootEntities() const { return m_RootEntities; }
-        
+
         u32 GetHierarchyVersion() const { return m_HierarchyVersion; }
         void IncrementHierarchyVersion() { m_HierarchyVersion++; }
+
+        // Asset lifetime: keeps shared_ptrs alive so Trim() won't evict in-use assets
+        void HoldAsset(UUID uuid, std::shared_ptr<Asset> asset);
+        void ReleaseAsset(UUID uuid);
+        void ReleaseAllAssets();
 
     private:
         std::string GenerateUniqueName(Entity entity);
@@ -51,6 +60,7 @@ namespace Luth
         entt::registry m_Registry;
         std::vector<Entity> m_RootEntities;
         u32 m_HierarchyVersion = 0;
+        std::unordered_map<UUID, std::shared_ptr<Asset>, UUIDHash> m_HeldAssets;
         
         friend class Entity;
     };

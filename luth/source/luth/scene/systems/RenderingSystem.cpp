@@ -4,6 +4,7 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
+#include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/MaterialSystem.h"
@@ -371,7 +372,7 @@ namespace Luth
         m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, layouts);
     }
 
-    u32 RenderingSystem::EnsureMaterialRegistered(Material* material)
+    u32 RenderingSystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
     {
         auto it = m_MaterialSlotMap.find(material->Handle);
         if (it != m_MaterialSlotMap.end())
@@ -497,14 +498,23 @@ namespace Luth
             // Global UBO second (reads m_CachedLightSpaceMatrix)
             UpdateGlobalUniforms();
 
-            // Register materials for all visible entities
+            // Register materials and hold assets for all visible entities
             auto matView = registry.view<WorldTransform, MeshRenderer>();
             for (auto [entity, wt, mr] : matView.each())
             {
+                if (mr.ModelUUID.IsValid())
+                {
+                    auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+                    if (model)
+                        scene->HoldAsset(mr.ModelUUID, model);
+                }
                 if (!mr.MaterialUUID.IsValid()) continue;
                 auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
                 if (material)
-                    EnsureMaterialRegistered(material.get());
+                {
+                    scene->HoldAsset(mr.MaterialUUID, material);
+                    EnsureMaterialRegistered(material);
+                }
             }
 
             // Upload dirty materials

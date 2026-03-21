@@ -6,6 +6,7 @@
 #include <vector>
 #include <deque>
 #include <mutex>
+#include <memory>
 
 // Forward declare VMA types
 typedef struct VmaAllocation_T* VmaAllocation;
@@ -26,7 +27,7 @@ namespace Luth
 
         // Registers a material and returns its index in the global buffer.
         // If the material is already registered, updates it.
-        static u32 RegisterMaterial(Material* material);
+        static u32 RegisterMaterial(std::shared_ptr<Material> material);
         
         // Unregisters a material (frees the slot).
         static void UnregisterMaterial(u32 index);
@@ -43,7 +44,7 @@ namespace Luth
 
         struct MaterialSlot
         {
-            Material* material = nullptr;
+            std::shared_ptr<Material> material;
             bool dirty = false;
         };
 
