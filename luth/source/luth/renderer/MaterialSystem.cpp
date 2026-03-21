@@ -89,14 +89,21 @@ namespace Luth
 
         for (u32 i = 0; i < MAX_MATERIALS; ++i)
         {
-            if (m_Slots[i].material && (m_Slots[i].dirty || m_Slots[i].material->IsDirty()))
-            {
-                m_Slots[i].material->UpdateGPUData(); // Sync CPU state to GPU struct
-                const GPUMaterialData& data = m_Slots[i].material->GetGPUData();
+            if (!m_Slots[i].material) continue;
 
-                // Copy to mapped buffer
+            // Always refresh GPU data to pick up newly-loaded texture bindless indices
+            GPUMaterialData oldData = m_Slots[i].material->GetGPUData();
+            m_Slots[i].material->UpdateGPUData();
+            const GPUMaterialData& newData = m_Slots[i].material->GetGPUData();
+
+            bool needsUpload = m_Slots[i].dirty
+                || m_Slots[i].material->IsDirty()
+                || memcmp(&oldData, &newData, MATERIAL_SIZE) != 0;
+
+            if (needsUpload)
+            {
                 u8* dst = (u8*)m_MappedData + (i * MATERIAL_SIZE);
-                memcpy(dst, &data, MATERIAL_SIZE);
+                memcpy(dst, &newData, MATERIAL_SIZE);
 
                 m_Slots[i].dirty = false;
                 m_Slots[i].material->ClearDirty();
