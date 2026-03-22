@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "VulkanBackend.h"
 #include "VulkanContext.h"
+#include "PipelineCache.h"
 #include "luth/core/Log.h"
 #include "luth/jobs/JobSystem.h"
 
@@ -9,6 +10,7 @@ namespace Luth
     void VulkanBackend::Init(void* windowHandle)
     {
         VulkanContext::Init(windowHandle);
+        PipelineCache::Init();
         m_Swapchain = std::make_unique<VulkanSwapchain>(windowHandle);
         m_Swapchain->Init();
         CreateSyncObjects();
@@ -35,6 +37,7 @@ namespace Luth
 
         m_FrameTimeline.Shutdown();
         m_Swapchain.reset();
+        PipelineCache::Shutdown();
         VulkanContext::Shutdown();
     }
 

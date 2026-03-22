@@ -10,6 +10,7 @@
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Model.h"
+#include "luth/renderer/PipelineManager.h"
 #include "luth/renderer/PostProcessSettings.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/FileWatcher.h"
@@ -138,8 +139,8 @@ namespace Luth
         std::vector<u32>            m_ShadowVertSpv;
         std::vector<u32>            m_ShadowFragSpv;
 
-        // PBR Pipelines (one per RenderMode)
-        std::unordered_map<Material::RenderMode, std::unique_ptr<VKPipeline>> m_Pipelines;
+        // PBR Pipeline Manager (keyed by {shaderUUID, renderMode})
+        PipelineManager m_GeoPipelineManager;
         std::vector<u32> m_PBRVertSpv;
         std::vector<u32> m_PBRFragSpv;
 

@@ -117,7 +117,11 @@ namespace Luth
                     m_ShadowFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
                 }
 
-                m_Pipelines.clear();
+                if (name == "pbr") {
+                    m_GeoPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
+                } else {
+                    m_GeoPipelineManager.Clear();
+                }
                 m_ShadowPipeline.reset();
                 m_BloomExtractPipeline.reset();
                 m_BloomBlurPipeline.reset();
@@ -520,36 +524,36 @@ namespace Luth
             m_LightSetLayout
         };
 
-        // ---- PBR geometry pipelines ----
-        PipelineConfig baseConfig;
-        baseConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
-        baseConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
-        baseConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        baseConfig.bindingDescriptions = bindingDescs;
-        baseConfig.attributeDescriptions = attribDescs;
-        baseConfig.pushConstantRanges = { pushConstantRange };
+        // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
+        m_GeoPipelineManager.Init(layouts,
+            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode) -> PipelineConfig
+            {
+                PipelineConfig config;
+                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+                config.depthFormat = VK_FORMAT_D32_SFLOAT;
+                config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                config.bindingDescriptions = bindingDescs;
+                config.attributeDescriptions = attribDescs;
+                config.pushConstantRanges = { pushConstantRange };
 
-        {
-            PipelineConfig config = baseConfig;
-            config.depthTest = true; config.depthWrite = true;
-            config.blendEnabled = false; config.cullMode = VK_CULL_MODE_BACK_BIT;
-            m_Pipelines[Material::RenderMode::Opaque] =
-                std::make_unique<VKPipeline>(config, m_PBRVertSpv, m_PBRFragSpv, layouts);
-        }
-        {
-            PipelineConfig config = baseConfig;
-            config.depthTest = true; config.depthWrite = true;
-            config.blendEnabled = false; config.cullMode = VK_CULL_MODE_NONE;
-            m_Pipelines[Material::RenderMode::Cutout] =
-                std::make_unique<VKPipeline>(config, m_PBRVertSpv, m_PBRFragSpv, layouts);
-        }
-        {
-            PipelineConfig config = baseConfig;
-            config.depthTest = true; config.depthWrite = false;
-            config.blendEnabled = true; config.cullMode = VK_CULL_MODE_NONE;
-            m_Pipelines[Material::RenderMode::Transparent] =
-                std::make_unique<VKPipeline>(config, m_PBRVertSpv, m_PBRFragSpv, layouts);
-        }
+                switch (mode)
+                {
+                    case Material::RenderMode::Opaque:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false; config.cullMode = VK_CULL_MODE_BACK_BIT;
+                        break;
+                    case Material::RenderMode::Cutout:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false; config.cullMode = VK_CULL_MODE_NONE;
+                        break;
+                    case Material::RenderMode::Transparent:
+                    case Material::RenderMode::Fade:
+                        config.depthTest = true; config.depthWrite = false;
+                        config.blendEnabled = true; config.cullMode = VK_CULL_MODE_NONE;
+                        break;
+                }
+                return config;
+            });
 
         // ---- Shadow pipeline (depth-only, position attribute only) ----
         // Same stride as full vertex, but only declare the position attribute.
@@ -974,7 +978,9 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                auto& opaquePipeline = m_Pipelines[Material::RenderMode::Opaque];
+                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, Material::RenderMode::Opaque, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) return;
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
@@ -1046,10 +1052,11 @@ namespace Luth
                 {
                     if (draws.empty()) return;
 
-                    auto pipeIt = m_Pipelines.find(mode);
-                    if (pipeIt == m_Pipelines.end() || !pipeIt->second) return;
+                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, mode, m_PBRVertSpv, m_PBRFragSpv);
+                    if (!pipeline) return;
 
-                    pipeIt->second->Bind(cmd);
+                    pipeline->Bind(cmd);
 
                     for (const auto& dc : draws)
                     {

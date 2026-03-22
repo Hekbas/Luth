@@ -19,6 +19,7 @@
 | Asset Lifetime Fix | Scene holds shared_ptrs to prevent GC eviction, MaterialSystem shared_ptr, full async load chain, VMA shutdown fix | 2026-03-21 |
 | 5-E — Frame Debugger | GPUTimerPool, RenderGraphSnapshot, split-panel UI, event slider, named texture registry | 2026-03-22 |
 | 5-D — Post-Processing | HDR pipeline (RGBA16F), bloom (extract + Gaussian blur), tonemapping (4 operators), vignette, grain, CA | 2026-03-22 |
+| 5-F — Pipeline Cache + Variants | VkPipelineCache disk persistence (cache/pipeline.bin), PipelineManager keyed by {shaderUUID, renderMode} with lazy creation and targeted hot-reload invalidation | 2026-03-22 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
 
@@ -26,23 +27,10 @@
 
 ## Upcoming Phases
 
-### Phase 5-F — Pipeline Cache + Variants
-Avoid redundant pipeline compilation, support runtime pipeline variants keyed by `{shaderUUID, renderMode}`.
-
-> Full spec: [`phases/5F-pipeline-cache.md`](phases/5F-pipeline-cache.md)
-
 ### Phase 5-G — Skybox + IBL
 IBL-compatible skybox, cubemap import (equirectangular HDR → cubemap), irradiance/pre-filtered env maps, BRDF LUT.
 
 > Full spec: [`phases/5G-skybox-ibl.md`](phases/5G-skybox-ibl.md)
-
-### Recommended Order
-
-```
-5-F (Pipeline Cache) → 5-G (Skybox + IBL)
-```
-
-**Rationale:** Pipeline cache is quick and improves startup time. Skybox/IBL requires mipmaps (done) and PBR shader (done).
 
 ---
 

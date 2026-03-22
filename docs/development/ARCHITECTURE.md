@@ -72,7 +72,7 @@
 | Frame Debugger | GPU timers, pass tree, pipeline state, texture preview |
 | Mipmaps | `vkCmdBlitImage` chain, per-texture `.meta` settings |
 | Scene serialization | JSON `.luth` format, native file dialogs |
-| Pipeline cache | Not started |
+| Pipeline cache | VkPipelineCache disk persistence + PipelineManager (lazy, keyed by shader+mode) |
 | Skybox / IBL | Not started |
 | AA | Not started |
 
