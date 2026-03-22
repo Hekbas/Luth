@@ -13,6 +13,8 @@
 // Forward declare VMA struct
 struct VmaAllocation_T;
 
+namespace Luth { class GPUTimerPool; }
+
 namespace Luth::RG
 {
     class RenderGraph;
@@ -155,7 +157,7 @@ namespace Luth::RG
         void Compile();
         
         // Execute: Serial pass iteration with parallel inner recording
-        void Execute(VkCommandBuffer primaryCmd);
+        void Execute(VkCommandBuffer primaryCmd, Luth::GPUTimerPool* timers = nullptr);
 
         // Internal API for Builder
         ResourceHandle RegisterResource(const TextureDesc& desc);

@@ -9,6 +9,7 @@
 namespace Luth
 {
     namespace RG { class RenderGraph; }
+    class GPUTimerPool;
 
     class Renderer
     {
@@ -27,7 +28,7 @@ namespace Luth
         static void BeginFrame(u64 frameIndex);
         static void EndFrame();
         
-        static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex);
+        static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers = nullptr);
         static void OnResize(u32 width, u32 height);
 
         static RenderBackend* GetBackend() { return s_Backend.get(); }

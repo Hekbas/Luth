@@ -20,6 +20,7 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/panels/ProfilerPanel.h"
+#include "luth/editor/panels/FrameDebuggerPanel.h"
 #include "luth/editor/UI.h"
 #include "luth/editor/EditorStyle.h"
 
@@ -118,6 +119,7 @@ namespace Luth
         AddPanel(new ScenePanel(rs));
         AddPanel(new RenderPanel());
         AddPanel(new ProfilerPanel());
+        AddPanel(new FrameDebuggerPanel());
 
         // Init all panels
         for (auto& panel : s_Panels)

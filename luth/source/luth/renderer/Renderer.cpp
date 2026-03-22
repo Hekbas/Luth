@@ -62,18 +62,18 @@ namespace Luth
         s_Backend->OnResize(width, height);
     }
 
-    void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex)
+    void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers)
     {
         // Get the primary command buffer for this frame
         VkCommandBuffer primaryCmd = (VkCommandBuffer)s_Backend->GetFrameCommandBuffer(frameIndex);
-        
+
         // Begin Primary
         VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(primaryCmd, &beginInfo);
-        
+
         // Execute the render graph — barriers + recording + secondary execution
-        graph.Execute(primaryCmd);
+        graph.Execute(primaryCmd, timers);
         
         // Present Barrier for Swapchain Image
         auto* vkBackend = static_cast<VulkanBackend*>(s_Backend.get());

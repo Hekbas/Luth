@@ -3,8 +3,10 @@
 #include "luth/scene/System.h"
 #include "luth/memory/Memory.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Model.h"
@@ -82,6 +84,9 @@ namespace Luth
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
 
+        const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
+        std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
+
     private:
         void InitGlobalUniforms();
         void InitShadowResources();
@@ -92,6 +97,9 @@ namespace Luth
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
+
+        RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
+        void RegisterNamedTextures();
 
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
         RG::ResourceHandle AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle);
@@ -178,6 +186,11 @@ namespace Luth
         FileWatcher m_ShaderWatcher;
         std::mutex m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
+
+        // Frame debugger data
+        RG::RenderGraphSnapshot m_GraphSnapshot;
+        GPUTimerPool m_GPUTimers;
+        std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
     };
 
 }

@@ -144,6 +144,9 @@ namespace Luth
                 }
             });
             m_ShaderWatcher.Start(true);
+
+            m_GPUTimers.Init(16);
+            RegisterNamedTextures();
         }
     }
 
@@ -151,6 +154,7 @@ namespace Luth
     {
         m_ShaderWatcher.Stop();
         ShaderLibrary::SetReloadCallback(nullptr);
+        m_GPUTimers.Shutdown();
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -792,7 +796,32 @@ namespace Luth
             AddImGuiPass(rg, ldrOutput);
 
             rg.Compile();
-            Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex());
+
+            // Capture render graph snapshot for Frame Debugger panel
+            m_GraphSnapshot = CaptureSnapshot(rg);
+
+            // Read GPU timing from completed frames and fill snapshot
+            std::vector<float> gpuTimes;
+            u32 nonCulledCount = 0;
+            for (auto& p : m_GraphSnapshot.passes)
+                if (!p.culled) nonCulledCount++;
+
+            m_GPUTimers.ReadResults(nonCulledCount, gpuTimes);
+            float totalMs = 0.0f;
+            u32 timerIdx = 0;
+            for (auto& p : m_GraphSnapshot.passes)
+            {
+                if (p.culled) continue;
+                if (timerIdx < (u32)gpuTimes.size())
+                {
+                    p.gpuTimeMs = gpuTimes[timerIdx];
+                    if (gpuTimes[timerIdx] > 0.0f) totalMs += gpuTimes[timerIdx];
+                }
+                timerIdx++;
+            }
+            m_GraphSnapshot.totalGpuTimeMs = totalMs;
+
+            Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
 
             return;
         }
@@ -1288,18 +1317,179 @@ namespace Luth
     }
 
     // =========================================================================
+    // Frame Debugger helpers
+    // =========================================================================
+
+    RG::RenderGraphSnapshot RenderingSystem::CaptureSnapshot(const RG::RenderGraph& rg)
+    {
+        RG::RenderGraphSnapshot snapshot;
+
+        // Snapshot resources
+        auto& resources = const_cast<RG::RenderGraph&>(rg).GetResources();
+        snapshot.resources.reserve(resources.size());
+        for (auto& res : resources)
+        {
+            RG::ResourceSnapshot rs;
+            rs.name        = res.desc.name;
+            rs.width       = res.desc.width;
+            rs.height      = res.desc.height;
+            rs.format      = res.desc.format;
+            rs.isExternal  = res.external;
+            rs.isTransient = res.isTransient;
+            snapshot.resources.push_back(std::move(rs));
+        }
+
+        // Snapshot passes
+        auto& passes = rg.GetPasses();
+        snapshot.passes.reserve(passes.size());
+        for (auto& pass : passes)
+        {
+            RG::PassSnapshot ps;
+            ps.name                = pass.name;
+            ps.culled              = pass.culled;
+            ps.numColorAttachments = (u32)pass.colorAttachments.size();
+            ps.hasDepth            = pass.hasDepth;
+
+            for (auto& r : pass.reads)
+            {
+                RG::PassSnapshotResource sr;
+                sr.index = r.index;
+                sr.name  = (r.index > 0 && r.index <= resources.size()) ? resources[r.index - 1].desc.name : "?";
+                ps.reads.push_back(std::move(sr));
+            }
+
+            for (auto& w : pass.writes)
+            {
+                RG::PassSnapshotResource sw;
+                sw.index = w.index;
+                sw.name  = (w.index > 0 && w.index <= resources.size()) ? resources[w.index - 1].desc.name : "?";
+                ps.writes.push_back(std::move(sw));
+            }
+
+            // Compute primaryOutputIndex from first color write, or depth if depth-only pass
+            if (!pass.colorAttachments.empty())
+            {
+                u32 idx = pass.colorAttachments[0].handle.index;
+                if (idx > 0 && idx <= resources.size())
+                    ps.primaryOutputIndex = (int)(idx - 1);
+            }
+            else if (pass.hasDepth)
+            {
+                u32 idx = pass.depthAttachment.handle.index;
+                if (idx > 0 && idx <= resources.size())
+                    ps.primaryOutputIndex = (int)(idx - 1);
+            }
+
+            snapshot.passes.push_back(std::move(ps));
+        }
+
+        // Compute geometry stats from draw command vectors (from previous frame's recording)
+        u32 totalDraws = (u32)(m_OpaqueDraws.size() + m_CutoutDraws.size() + m_TransparentDraws.size());
+        u32 totalIndices = 0;
+        auto sumIndices = [&](const std::vector<DrawCommand>& draws) {
+            for (auto& dc : draws)
+            {
+                if (!dc.model) continue;
+                auto mesh = dc.model->GetMesh(dc.meshIndex);
+                if (mesh && mesh->GetIndexBuffer())
+                    totalIndices += mesh->GetIndexBuffer()->GetCount();
+            }
+        };
+        sumIndices(m_OpaqueDraws);
+        sumIndices(m_CutoutDraws);
+        sumIndices(m_TransparentDraws);
+
+        // Enrich per-pass pipeline state (known at RenderingSystem level, not RenderGraph)
+        for (auto& ps : snapshot.passes)
+        {
+            if (ps.culled) continue;
+
+            if (ps.name == "ShadowPass")
+            {
+                ps.depthTest = true; ps.depthWrite = true;
+                ps.blendEnabled = false;
+                ps.cullMode = VK_CULL_MODE_FRONT_BIT;
+                ps.shaderName = "shadowDepth";
+                ps.drawCalls = totalDraws;
+                ps.indices = totalIndices;
+            }
+            else if (ps.name == "GeometryPass")
+            {
+                ps.depthTest = true; ps.depthWrite = true;
+                ps.blendEnabled = false;
+                ps.cullMode = VK_CULL_MODE_BACK_BIT;
+                ps.shaderName = "pbr";
+                ps.drawCalls = totalDraws;
+                ps.indices = totalIndices;
+            }
+            else if (ps.name == "BloomExtract")
+            {
+                ps.depthTest = false; ps.depthWrite = false;
+                ps.blendEnabled = false;
+                ps.cullMode = VK_CULL_MODE_NONE;
+                ps.shaderName = "bloomExtract";
+                ps.drawCalls = 1; ps.indices = 0;
+            }
+            else if (ps.name == "BloomBlurH" || ps.name == "BloomBlurV")
+            {
+                ps.depthTest = false; ps.depthWrite = false;
+                ps.blendEnabled = false;
+                ps.cullMode = VK_CULL_MODE_NONE;
+                ps.shaderName = "bloomBlur";
+                ps.drawCalls = 1; ps.indices = 0;
+            }
+            else if (ps.name == "PostProcess")
+            {
+                ps.depthTest = false; ps.depthWrite = false;
+                ps.blendEnabled = false;
+                ps.cullMode = VK_CULL_MODE_NONE;
+                ps.shaderName = "postprocess";
+                ps.drawCalls = 1; ps.indices = 0;
+            }
+            else if (ps.name == "ImGuiPass")
+            {
+                ps.depthTest = false; ps.depthWrite = false;
+                ps.blendEnabled = true;
+                ps.cullMode = VK_CULL_MODE_NONE;
+                ps.shaderName = "imgui";
+                ps.drawCalls = 0; ps.indices = 0; // ImGui manages its own draws
+            }
+        }
+
+        return snapshot;
+    }
+
+    void RenderingSystem::RegisterNamedTextures()
+    {
+        m_NamedTextures.clear();
+        if (m_ShadowMap)  m_NamedTextures["ShadowMap"]  = m_ShadowMap;
+        if (m_SceneColor) m_NamedTextures["SceneColor"] = m_SceneColor;
+        if (m_LDROutput)  m_NamedTextures["LDROutput"]  = m_LDROutput;
+        if (m_BloomA)     m_NamedTextures["BloomA"]      = m_BloomA;
+        if (m_BloomB)     m_NamedTextures["BloomB"]      = m_BloomB;
+    }
+
+    std::shared_ptr<Texture> RenderingSystem::GetNamedTexture(const std::string& name) const
+    {
+        auto it = m_NamedTextures.find(name);
+        return (it != m_NamedTextures.end()) ? it->second : nullptr;
+    }
+
+    // =========================================================================
     // Resize
     // =========================================================================
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
-        if (m_SceneColor && width > 0 && height > 0)
+        // Guard against unsigned underflow from negative float→u32 casts at startup
+        if (m_SceneColor && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
             m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA16F);
             m_LDROutput  = Texture::Create(width, height, TextureFormat::RGBA8);
             m_BloomA     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             m_BloomB     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             UpdatePostProcessDescriptors();
+            RegisterNamedTextures();
         }
     }
 }
