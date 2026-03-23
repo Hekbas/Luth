@@ -90,10 +90,12 @@ namespace Luth
         if (entity.HasComponent<DirectionalLight>()) {
             auto& dl = entity.GetComponent<DirectionalLight>();
             json dj;
-            dj["color"]       = SerializeVec3(dl.Color);
-            dj["intensity"]   = dl.Intensity;
-            dj["castShadows"] = dl.CastShadows;
-            dj["shadowBias"]  = dl.ShadowBias;
+            dj["color"]           = SerializeVec3(dl.Color);
+            dj["intensity"]       = dl.Intensity;
+            dj["castShadows"]     = dl.CastShadows;
+            dj["shadowBias"]      = dl.ShadowBias;
+            dj["shadowOrthoSize"] = dl.ShadowOrthoSize;
+            dj["shadowDistance"]  = dl.ShadowDistance;
             j["directionalLight"] = dj;
         }
 
@@ -242,10 +244,12 @@ namespace Luth
             if (ej.contains("directionalLight")) {
                 const auto& dj = ej["directionalLight"];
                 auto& dl = entity.AddComponent<DirectionalLight>();
-                dl.Color       = DeserializeVec3(dj.value("color", json::array()), { 1, 1, 1 });
-                dl.Intensity   = dj.value("intensity", 1.0f);
-                dl.CastShadows = dj.value("castShadows", true);
-                dl.ShadowBias  = dj.value("shadowBias", 0.005f);
+                dl.Color           = DeserializeVec3(dj.value("color", json::array()), { 1, 1, 1 });
+                dl.Intensity       = dj.value("intensity", 1.0f);
+                dl.CastShadows     = dj.value("castShadows", true);
+                dl.ShadowBias      = dj.value("shadowBias", 0.005f);
+                dl.ShadowOrthoSize = dj.value("shadowOrthoSize", 200.0f);
+                dl.ShadowDistance   = dj.value("shadowDistance", 200.0f);
             }
 
             // PointLight

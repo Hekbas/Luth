@@ -131,6 +131,8 @@ namespace Luth
         glm::mat4 m_CachedLightSpaceMatrix = glm::mat4(1.0f);
         float     m_CachedShadowBias = 0.005f;
         bool      m_CachedCastShadows = true;
+        float     m_CachedShadowOrtho = 200.0f;
+        float     m_CachedShadowDist  = 200.0f;
 
         // Shadow map
         std::shared_ptr<Texture> m_ShadowMap;

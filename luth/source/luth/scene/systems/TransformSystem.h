@@ -16,49 +16,53 @@ namespace Luth
         {
             entt::registry* registry;
             std::vector<entt::entity>* entities;
+            u32 totalCount;
+            u32 groupSize;
         };
 
         static void UpdateTransformsJob(JobSystem::JobArgs args)
         {
             TransformJobData* data = (TransformJobData*)args.data;
-            entt::entity entity = (*data->entities)[args.jobIndex];
             entt::registry& reg = *data->registry;
 
-            // Safety check: Ensure entity is valid and has required components
-            if (!reg.valid(entity) || !reg.all_of<Component::Transform, Component::WorldTransform>(entity)) return;
+            // Dispatch creates one job per group. Each job processes a range of entities.
+            u32 start = args.jobIndex;
+            u32 end = std::min(start + data->groupSize, data->totalCount);
 
-            auto& transform = reg.get<Component::Transform>(entity);
-            auto& world = reg.get<Component::WorldTransform>(entity);
+            for (u32 i = start; i < end; i++)
+            {
+                entt::entity entity = (*data->entities)[i];
 
-            // 1. Update Local
-            if (transform.IsDirty)
-            {
-                glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
-                transform.LocalMatrix = glm::translate(glm::mat4(1.0f), transform.Position)
-                    * rotation
-                    * glm::scale(glm::mat4(1.0f), transform.Scale);
-            }
+                // Safety check: Ensure entity is valid and has required components
+                if (!reg.valid(entity) || !reg.all_of<Component::Transform, Component::WorldTransform>(entity)) continue;
 
-            // 2. Update World
-            // Parent is guaranteed to be updated because we process by levels
-            if (reg.any_of<Component::Parent>(entity))
-            {
-                entt::entity parent = reg.get<Component::Parent>(entity).m_Parent;
-                const auto& parentWorld = reg.get<Component::WorldTransform>(parent);
-                
-                // Optimization: Check if parent changed? 
-                // For now, simple matrix mult. 
-                // Ideally we track IsDirty propagation, but in parallel we can't easily read parent's dirty flag 
-                // if we cleared it in the previous level's job.
-                // So we just recompute. Matrix mult is cheap.
-                world.Matrix = parentWorld.Matrix * transform.LocalMatrix;
+                auto& transform = reg.get<Component::Transform>(entity);
+                auto& world = reg.get<Component::WorldTransform>(entity);
+
+                // 1. Update Local
+                if (transform.IsDirty)
+                {
+                    glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
+                    transform.LocalMatrix = glm::translate(glm::mat4(1.0f), transform.Position)
+                        * rotation
+                        * glm::scale(glm::mat4(1.0f), transform.Scale);
+                }
+
+                // 2. Update World
+                // Parent is guaranteed to be updated because we process by levels
+                if (reg.any_of<Component::Parent>(entity))
+                {
+                    entt::entity parent = reg.get<Component::Parent>(entity).m_Parent;
+                    const auto& parentWorld = reg.get<Component::WorldTransform>(parent);
+                    world.Matrix = parentWorld.Matrix * transform.LocalMatrix;
+                }
+                else
+                {
+                    world.Matrix = transform.LocalMatrix;
+                }
+
+                transform.IsDirty = false;
             }
-            else
-            {
-                world.Matrix = transform.LocalMatrix;
-            }
-            
-            transform.IsDirty = false;
         }
 
         void Update(Scene* scene) override
@@ -75,14 +79,15 @@ namespace Luth
             JobSystem::Counter counter;
             TransformJobData jobData;
             jobData.registry = &scene->Registry();
+            jobData.groupSize = 64;
 
             for (auto& level : m_Levels)
             {
                 if (level.empty()) continue;
-                
+
                 jobData.entities = &level;
-                // Group size 64 seems reasonable for matrix mults
-                JobSystem::Dispatch((u32)level.size(), 64, UpdateTransformsJob, &jobData, &counter);
+                jobData.totalCount = (u32)level.size();
+                JobSystem::Dispatch(jobData.totalCount, jobData.groupSize, UpdateTransformsJob, &jobData, &counter);
                 JobSystem::WaitForCounter(&counter);
             }
         }

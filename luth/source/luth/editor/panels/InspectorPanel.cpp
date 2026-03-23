@@ -207,6 +207,8 @@ namespace Luth
             UI::Property("Cast Shadows", dirLight.CastShadows);
             if (dirLight.CastShadows) {
                 UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f);
+                UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
+                UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
             }
             UI::EndProperties();
         });
@@ -293,11 +295,10 @@ namespace Luth
     {
         const auto& meta = AssetDatabase::GetMetadata(m_SelectedResource);
 
-        // Handle invalid/deleted assets
+        // Handle invalid/deleted assets — silently clear stale selection
         if (meta.Type == AssetType::None)
         {
-            if (m_SelectedResource.IsValid())
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Asset not found (UUID: %s)", m_SelectedResource.ToString().c_str());
+            EditorSelection::ClearSelection();
             return;
         }
 

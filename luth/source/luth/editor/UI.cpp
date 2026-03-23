@@ -108,11 +108,14 @@ namespace Luth::UI
     {
         DrawLabel(label);
         
-        ImGui::PushMultiItemsWidths(components, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
         float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
+
+        // Subtract button widths from available space so DragFloats don't overflow
+        float totalButtonWidth = components * buttonSize.x;
+        ImGui::PushMultiItemsWidths(components, ImGui::CalcItemWidth() - totalButtonWidth);
 
         bool changed = false;
         const char* axisLabels[] = { "X", "Y", "Z", "W" };

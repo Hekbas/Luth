@@ -55,7 +55,7 @@ namespace Luth
         float uniformRough;
         m_GPUData.roughness = GetUniformData("u_Roughness", &uniformRough, sizeof(float))
             ? uniformRough : m_GPUData.roughness;
-        m_GPUData.alphaCutoff = m_AlphaCutoff;
+        m_GPUData.alphaCutoff = (m_RenderMode == RenderMode::Cutout) ? m_AlphaCutoff : 0.0f;
         
         // Flags — each bit indicates a valid texture is bound for that feature
         m_GPUData.flags = 0;

@@ -103,6 +103,8 @@ namespace Luth::Component
         float Intensity = 1.0f;
         bool CastShadows = true;
         float ShadowBias = 0.005f;
+        float ShadowOrthoSize = 200.0f;
+        float ShadowDistance = 200.0f;
     };
     
     struct PointLight {

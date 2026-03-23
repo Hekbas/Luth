@@ -1343,8 +1343,10 @@ namespace Luth
                 lights.dirLight.direction = glm::normalize(-glm::vec3(wt.Matrix[2]));
                 lights.dirLight.color     = dl.Color;
                 lights.dirLight.intensity = dl.Intensity;
-                m_CachedCastShadows = dl.CastShadows;
-                m_CachedShadowBias  = dl.ShadowBias;
+                m_CachedCastShadows  = dl.CastShadows;
+                m_CachedShadowBias   = dl.ShadowBias;
+                m_CachedShadowOrtho  = dl.ShadowOrthoSize;
+                m_CachedShadowDist   = dl.ShadowDistance;
                 foundDir = true;
             }
         }
@@ -1373,17 +1375,18 @@ namespace Luth
         m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
 
         // Compute light-space matrix (orthographic from directional light)
-        constexpr float orthoSize = 50.0f;
+        float orthoSize = m_CachedShadowOrtho;
+        float shadowDist = m_CachedShadowDist;
         auto scenePanel = Editor::GetPanel<ScenePanel>();
         glm::vec3 camPos = scenePanel ? scenePanel->GetEditorCamera().GetPosition() : glm::vec3(0.0f);
 
         glm::vec3 lightDir = lights.dirLight.direction;
-        glm::vec3 lightPos = camPos - lightDir * 50.0f;
+        glm::vec3 lightPos = camPos - lightDir * shadowDist;
         glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
                        ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
 
         glm::mat4 lightView = glm::lookAt(lightPos, lightPos + lightDir, up);
-        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, -50.0f, 100.0f);
+        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, -shadowDist, shadowDist * 2.0f);
         lightProj[1][1] *= -1.0f; // Vulkan Y-flip
 
         m_CachedLightSpaceMatrix = lightProj * lightView;
