@@ -21,7 +21,9 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float time;
     mat4 lightSpaceMatrix;
     float shadowBias;
-    float _pad[3];
+    float iblIntensity;
+    float skyboxIntensity;
+    float _pad;
 } ubo;
 
 // Push Constants

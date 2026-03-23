@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/RenderPanel.h"
+#include "luth/editor/EditorSettings.h"
 #include "luth/scene/Systems.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/PostProcessSettings.h"
@@ -53,6 +54,13 @@ namespace Luth
         else {
             // Post process ==========================
             auto& pp = m_RS->GetPostProcessSettings();
+
+            // Environment Lighting
+            if (ImGui::CollapsingHeader("Environment Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+                auto& settings = Editor::GetSettings();
+                ImGui::SliderFloat("IBL Intensity", &settings.iblIntensity, 0.0f, 5.0f, "%.2f");
+                ImGui::SliderFloat("Skybox Intensity", &settings.skyboxIntensity, 0.0f, 5.0f, "%.2f");
+            }
 
             // Bloom
             if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {

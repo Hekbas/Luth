@@ -1417,6 +1417,8 @@ namespace Luth
         ubo.time = Time::GetTime();
         ubo.lightSpaceMatrix = m_CachedLightSpaceMatrix;
         ubo.shadowBias = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
+        ubo.iblIntensity    = Editor::GetSettings().iblIntensity;
+        ubo.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
     }

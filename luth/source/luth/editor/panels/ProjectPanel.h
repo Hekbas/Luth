@@ -33,6 +33,9 @@ namespace Luth
 
         void Refresh();
 
+        float GetThumbnailSize() const { return m_ThumbnailSize; }
+        void  SetThumbnailSize(float size) { m_ThumbnailSize = std::clamp(size, 16.0f, 96.0f); }
+
     private:
         std::unique_ptr<DirectoryNode> BuildDirectoryTree(const fs::path& path, DirectoryNode* parent);
         void UpdateSearchResults();

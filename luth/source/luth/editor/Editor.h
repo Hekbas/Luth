@@ -3,6 +3,7 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/platform/Window.h"
 #include "luth/scene/Scene.h"
+#include "luth/editor/EditorSettings.h"
 
 #include <memory>
 #include <filesystem>
@@ -70,6 +71,14 @@ namespace Luth
         static void MarkDirty();
         static bool IsDirty() { return s_IsDirty; }
 
+        // Settings & Layout
+        static EditorSettings& GetSettings() { return s_Settings; }
+        static void LoadSettings();
+        static void SaveSettings();
+        static void SaveLayout(const std::string& name);
+        static void LoadLayout(const std::string& name);
+        static std::vector<std::string> GetLayoutNames();
+
     private:
         static void ProcessShortcuts();
         static void DrawMenuBar();
@@ -88,5 +97,15 @@ namespace Luth
         static inline std::filesystem::path s_ScenePath;
         static inline bool s_IsDirty = false;
         static inline u32 s_LastHierarchyVersion = 0;
+
+        // Settings
+        static inline EditorSettings s_Settings;
+        static inline std::filesystem::path s_SettingsPath;
+
+        // Deferred style change (fonts can't be rebuilt mid-frame)
+        static inline std::string s_PendingStyle;
+
+        // Layout popup state
+        static inline bool s_ShowSaveLayoutPopup = false;
     };
 }
