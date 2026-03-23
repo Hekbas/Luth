@@ -100,17 +100,17 @@ namespace Luth
                         {
                             case ShaderDataType::Float: {
                                 float val = material.Get<float>(name);
-                                if (UI::Property(name.c_str(), val)) material.Set(name, val);
+                                if (UI::Property(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
                                 break;
                             }
                             case ShaderDataType::Float3: {
                                 Vec3 val = material.Get<Vec3>(name);
-                                if (UI::PropertyColor(name.c_str(), val)) material.Set(name, val);
+                                if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
                                 break;
                             }
                             case ShaderDataType::Float4: {
                                 Vec4 val = material.Get<Vec4>(name);
-                                if (UI::PropertyColor(name.c_str(), val)) material.Set(name, val);
+                                if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
                                 break;
                             }
                             default: break;
@@ -121,47 +121,61 @@ namespace Luth
             }
         }
 
-        // Render mode
-        Material::RenderMode currentMode = material.GetRenderMode();
-        int modeIndex = static_cast<int>(currentMode);
-
-        ImGui::Text("Render Mode"); ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
-        if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
-            material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
-            material.MarkDirty();
-        }
-
-        if (material.GetRenderMode() == Material::RenderMode::Cutout) {
-            float cutoff = material.GetAlphaCutoff();
-            ImGui::Text("Alpha Cutoff"); ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
-                material.SetAlphaCutoff(cutoff);
-                material.MarkDirty();
-            }
-        }
-
-        if (material.GetRenderMode() == Material::RenderMode::Transparent ||
-            material.GetRenderMode() == Material::RenderMode::Fade)
+        // Render Settings
+        if (ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            int srcFactor = static_cast<int>(material.GetBlendSrc());
-            int dstFactor = static_cast<int>(material.GetBlendDst());
+            // Render mode
+            Material::RenderMode currentMode = material.GetRenderMode();
+            int modeIndex = static_cast<int>(currentMode);
 
-            const char* blendFactors[] = { "Zero", "One", "SrcAlpha", "OneMinusSrcAlpha" };
-
-            ImGui::Text("Blend Src  "); ImGui::SameLine();
+            ImGui::Text("Render Mode"); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
-                material.SetBlendSrc(static_cast<Material::BlendFactor>(srcFactor));
+            const char* renderModes[] = { "Opaque", "Cutout", "Transparent", "Fade" };
+            if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
+                material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
                 material.MarkDirty();
             }
 
-            ImGui::Text("Blend Dst  "); ImGui::SameLine();
+            if (material.GetRenderMode() == Material::RenderMode::Cutout) {
+                float cutoff = material.GetAlphaCutoff();
+                ImGui::Text("Alpha Cutoff"); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
+                    material.SetAlphaCutoff(cutoff);
+                    material.MarkDirty();
+                }
+            }
+
+            if (material.GetRenderMode() == Material::RenderMode::Transparent ||
+                material.GetRenderMode() == Material::RenderMode::Fade)
+            {
+                int srcFactor = static_cast<int>(material.GetBlendSrc());
+                int dstFactor = static_cast<int>(material.GetBlendDst());
+
+                const char* blendFactors[] = { "Zero", "One", "SrcAlpha", "OneMinusSrcAlpha" };
+
+                ImGui::Text("Blend Src  "); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::Combo("##Blend Src", &srcFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                    material.SetBlendSrc(static_cast<Material::BlendFactor>(srcFactor));
+                    material.MarkDirty();
+                }
+
+                ImGui::Text("Blend Dst  "); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
+                    material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
+                    material.MarkDirty();
+                }
+            }
+
+            // Face culling
+            int cullIndex = static_cast<int>(material.GetCullMode());
+            ImGui::Text("Face Cull  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::Combo("##Blend Dst", &dstFactor, blendFactors, IM_ARRAYSIZE(blendFactors))) {
-                material.SetBlendDst(static_cast<Material::BlendFactor>(dstFactor));
+            const char* cullModes[] = { "Back", "Front", "None" };
+            if (ImGui::Combo("##CullMode", &cullIndex, cullModes, IM_ARRAYSIZE(cullModes))) {
+                material.SetCullMode(static_cast<Material::CullMode>(cullIndex));
                 material.MarkDirty();
             }
         }
@@ -175,10 +189,12 @@ namespace Luth
             std::shared_ptr<Texture> texture;
             bool hasTexture = false;
             UUID textureUUID = UUID::Invalid();
+            u32 uvIndex = 0;
 
             for (const auto& texInfo : textures) {
                 if (texInfo.type == type) {
                     textureUUID = texInfo.Uuid;
+                    uvIndex = texInfo.uvIndex;
                     // Try load if needed for preview
                     if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
                         AssetManager::LoadAsync(texInfo.Uuid);
@@ -230,7 +246,7 @@ namespace Luth
                 if (ImGui::BeginDragDropTarget()) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
                         const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                        material.SetTexture({ *droppedUUID, type, 0 });
+                        material.SetTexture({ *droppedUUID, type, uvIndex });
                         material.EnableUseTexture(type, true);
                         material.MarkDirty();
                     }
@@ -253,16 +269,25 @@ namespace Luth
                     ImGui::EndGroup();
                 }
 
-                // Texture specific properties
-                if (type == MapType::Diffuse) {
-                    ImGui::SameLine();
+                // UV index selector
+                {
+                    int uv = static_cast<int>(uvIndex);
+                    std::string uvId = "##UV_" + std::string(label);
+                    ImGui::Text("UV Channel"); ImGui::SameLine();
+                    ImGui::SetNextItemWidth(80);
+                    if (ImGui::InputInt(uvId.c_str(), &uv, 1, 1)) {
+                        if (uv < 0) uv = 0;
+                        if (uv > 3) uv = 3;
+                        material.SetTexture({ textureUUID, type, static_cast<u32>(uv) });
+                        material.MarkDirty();
+                    }
                 }
 
                 ImGui::Unindent();
                 ImGui::EndDisabled();
             }
             ImGui::Spacing();
-            };
+        };
 
         DrawTextureProperty(MapType::Diffuse, "Albedo");
         DrawTextureProperty(MapType::Alpha, "Alpha");

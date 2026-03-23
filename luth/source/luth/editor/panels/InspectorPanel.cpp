@@ -7,6 +7,7 @@
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Texture.h"
+#include "luth/renderer/Shader.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
@@ -318,6 +319,16 @@ namespace Luth
         }
         ImGui::Dummy({ 0, 4 });
 
+        // Scene and Font don't go through the asset pipeline — display directly
+        if (type == AssetType::Scene) {
+            m_SceneViewer.Draw(m_SelectedResource, meta.Path);
+            return;
+        }
+        if (type == AssetType::Font) {
+            m_FontViewer.Draw(m_SelectedResource, meta.Path);
+            return;
+        }
+
         // Load on inspect if not loaded
         if (!AssetManager::IsLoaded(m_SelectedResource)) {
             if (!AssetManager::IsLoading(m_SelectedResource)) {
@@ -335,6 +346,8 @@ namespace Luth
             if (auto mat = AssetManager::GetAsset<Material>(m_SelectedResource)) m_MaterialEditor.Draw(*mat);
         } else if (type == AssetType::Texture) {
             if (auto tex = AssetManager::GetAsset<Texture>(m_SelectedResource)) m_TextureEditor.Draw(*tex);
+        } else if (type == AssetType::Shader) {
+            if (auto shader = AssetManager::GetAsset<Shader>(m_SelectedResource)) m_ShaderEditor.Draw(*shader);
         }
     }
 }

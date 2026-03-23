@@ -64,6 +64,7 @@ namespace Luth
         
         enum class RenderMode { Opaque, Cutout, Transparent, Fade };
         enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
+        enum class CullMode { Back, Front, None };
 
         // Shader management
         void SetShader(const UUID& uuid);
@@ -145,6 +146,10 @@ namespace Luth
         void SetBlendDst(BlendFactor factor) { m_BlendDst = factor; }
         BlendFactor GetBlendDst() const { return m_BlendDst; }
 
+        // Face culling
+        CullMode GetCullMode() const { return m_CullMode; }
+        void SetCullMode(CullMode mode) { m_CullMode = mode; }
+
         void EnableAlphaFromDiffuse(bool enable) { m_AlphaFromDiffuse = enable; }
         bool IsAlphaFromDiffuseEnabled() const { return m_AlphaFromDiffuse; }
 
@@ -202,6 +207,7 @@ namespace Luth
         BlendFactor m_BlendSrc = BlendFactor::SrcAlpha;
         BlendFactor m_BlendDst = BlendFactor::OneMinusSrcAlpha;
         float m_AlphaCutoff = 0.5f;
+        CullMode m_CullMode = CullMode::Back;
         bool m_AlphaFromDiffuse = false;
         bool m_Dirty = false;
     };

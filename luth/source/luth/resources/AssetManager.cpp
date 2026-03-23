@@ -223,7 +223,9 @@ namespace Luth
             }
             else
             {
-                LH_CORE_ERROR("AssetManager: No importer for type {0}", (int)req->Type);
+                // Font and Scene types are handled directly — not an error
+                if (req->Type != AssetType::Font && req->Type != AssetType::Scene)
+                    LH_CORE_ERROR("AssetManager: No importer for type {0}", (int)req->Type);
             }
         }
 

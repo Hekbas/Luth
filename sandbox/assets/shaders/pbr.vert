@@ -8,7 +8,8 @@ layout(location = 4) in vec3 a_Tangent;
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
-layout(location = 2) out vec2 v_TexCoord;
+layout(location = 2) out vec2 v_TexCoord0;
+layout(location = 6) out vec2 v_TexCoord1;
 layout(location = 3) out mat3 v_TBN;    // consumes locations 3, 4, 5
 
 // Set 0: Global Uniforms
@@ -33,7 +34,8 @@ void main()
 {
     vec4 worldPos = pc.model * vec4(a_Position, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_TexCoord = a_TexCoord0;
+    v_TexCoord0 = a_TexCoord0;
+    v_TexCoord1 = a_TexCoord1;
 
     // Normal matrix (handles non-uniform scale)
     mat3 normalMatrix = mat3(transpose(inverse(pc.model)));

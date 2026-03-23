@@ -2,6 +2,9 @@
 #include "luth/editor/inspectors/ModelViewer.h"
 #include "luth/editor/UI.h"
 #include "luth/renderer/Model.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/resources/MetaFile.h"
 
 namespace Luth
 {
@@ -14,6 +17,66 @@ namespace Luth
         }
         ImGui::EndChild();
         ImGui::Dummy({ 0, 8 });
+
+        // Per-model state: reset when selected model changes
+        if (model.Handle != m_LastModelUUID)
+        {
+            m_LastModelUUID = model.Handle;
+            m_ScaleFactor = 1.0f;
+            m_UpAxis = 1;
+
+            auto modelPath = AssetDatabase::GetMetadata(model.Handle).Path;
+            if (!modelPath.empty())
+            {
+                fs::path metaPath = modelPath.string() + ".meta";
+                MetaFile meta(model.Handle);
+                if (meta.Load(metaPath))
+                {
+                    auto& ts = meta.GetTypeSettings();
+                    if (ts.contains("scale_factor")) m_ScaleFactor = ts["scale_factor"].get<float>();
+                    if (ts.contains("up_axis"))      m_UpAxis = ts["up_axis"].get<int>();
+                }
+            }
+        }
+
+        // Import Settings
+        if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const char* upAxes[] = { "X-Up", "Y-Up", "Z-Up" };
+
+            UI::BeginProperties("ModelImport");
+            UI::Property("Scale Factor", m_ScaleFactor, 0.01f, 0.001f, 1000.0f);
+            UI::PropertyCombo("Up Axis", m_UpAxis, upAxes, IM_ARRAYSIZE(upAxes));
+            UI::EndProperties();
+
+            ImGui::Dummy({ 0, 4 });
+
+            float buttonWidth = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - buttonWidth);
+            if (ImGui::Button("Apply##ModelImport")) {
+                auto modelPath = AssetDatabase::GetMetadata(model.Handle).Path;
+                fs::path metaPath = modelPath.string() + ".meta";
+                MetaFile meta(model.Handle);
+                if (meta.Load(metaPath))
+                {
+                    auto& ts = meta.GetTypeSettings();
+                    ts["scale_factor"] = m_ScaleFactor;
+                    ts["up_axis"] = m_UpAxis;
+                    meta.Save(metaPath);
+
+                    // Force reimport
+                    fs::path artifactPath = AssetDatabase::GetArtifactPath(model.Handle);
+                    if (fs::exists(artifactPath))
+                        fs::remove(artifactPath);
+
+                    AssetManager::Import(model.Handle);
+                    AssetManager::Evict(model.Handle);
+                    m_LastModelUUID = UUID::Invalid();
+                }
+            }
+        }
+
+        ImGui::Dummy({ 0, 4 });
 
         // Get cached model info
         const auto& info = model.GetCachedModelInfo();
@@ -80,7 +143,7 @@ namespace Luth
                         }
 
                         if (isOpen) {
-                            for (int childIndex = 0; childIndex < info.BoneHierarchy.size(); ++childIndex) {
+                            for (int childIndex = 0; childIndex < (int)info.BoneHierarchy.size(); ++childIndex) {
                                 if (info.BoneHierarchy[childIndex].ParentIndex == index) {
                                     DisplayBoneNode(childIndex);
                                 }
@@ -90,7 +153,7 @@ namespace Luth
                     };
 
                     // Find root nodes (parentIndex == -1)
-                    for (int i = 0; i < info.BoneHierarchy.size(); ++i) {
+                    for (int i = 0; i < (int)info.BoneHierarchy.size(); ++i) {
                         if (info.BoneHierarchy[i].ParentIndex == -1) {
                             DisplayBoneNode(i);
                         }

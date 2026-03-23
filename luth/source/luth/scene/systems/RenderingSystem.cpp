@@ -1176,7 +1176,7 @@ namespace Luth
 
         // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
         m_GeoPipelineManager.Init(layouts,
-            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode) -> PipelineConfig
+            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode) -> PipelineConfig
             {
                 PipelineConfig config;
                 config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
@@ -1190,18 +1190,27 @@ namespace Luth
                 {
                     case Material::RenderMode::Opaque:
                         config.depthTest = true; config.depthWrite = true;
-                        config.blendEnabled = false; config.cullMode = VK_CULL_MODE_BACK_BIT;
+                        config.blendEnabled = false;
                         break;
                     case Material::RenderMode::Cutout:
                         config.depthTest = true; config.depthWrite = true;
-                        config.blendEnabled = false; config.cullMode = VK_CULL_MODE_NONE;
+                        config.blendEnabled = false;
                         break;
                     case Material::RenderMode::Transparent:
                     case Material::RenderMode::Fade:
                         config.depthTest = true; config.depthWrite = false;
-                        config.blendEnabled = true; config.cullMode = VK_CULL_MODE_NONE;
+                        config.blendEnabled = true;
                         break;
                 }
+
+                // Apply material cull mode
+                switch (cullMode)
+                {
+                    case Material::CullMode::Back:  config.cullMode = VK_CULL_MODE_BACK_BIT;  break;
+                    case Material::CullMode::Front: config.cullMode = VK_CULL_MODE_FRONT_BIT; break;
+                    case Material::CullMode::None:  config.cullMode = VK_CULL_MODE_NONE;      break;
+                }
+
                 return config;
             });
 
@@ -1661,7 +1670,7 @@ namespace Luth
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, Material::RenderMode::Opaque, m_PBRVertSpv, m_PBRFragSpv);
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) return;
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
@@ -1707,6 +1716,7 @@ namespace Luth
                     dc.meshIndex    = meshRenderer.MeshIndex;
 
                     Material::RenderMode mode = Material::RenderMode::Opaque;
+                    Material::CullMode cullMode = Material::CullMode::Back;
 
                     if (meshRenderer.MaterialUUID.IsValid())
                     {
@@ -1717,8 +1727,10 @@ namespace Luth
                             if (slotIt != m_MaterialSlotMap.end())
                                 dc.materialSlot = slotIt->second;
                             mode = material->GetRenderMode();
+                            cullMode = material->GetCullMode();
                         }
                     }
+                    dc.cullMode = cullMode;
 
                     switch (mode)
                     {
@@ -1733,14 +1745,25 @@ namespace Luth
                 {
                     if (draws.empty()) return;
 
+                    Material::CullMode currentCull = Material::CullMode::Back;
                     auto* pipeline = m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, mode, m_PBRVertSpv, m_PBRFragSpv);
+                        pbrUUID, mode, currentCull, m_PBRVertSpv, m_PBRFragSpv);
                     if (!pipeline) return;
 
                     pipeline->Bind(cmd);
 
                     for (const auto& dc : draws)
                     {
+                        // Rebind pipeline if cull mode changed
+                        if (dc.cullMode != currentCull)
+                        {
+                            currentCull = dc.cullMode;
+                            auto* newPipeline = m_GeoPipelineManager.GetOrCreate(
+                                pbrUUID, mode, currentCull, m_PBRVertSpv, m_PBRFragSpv);
+                            if (!newPipeline) continue;
+                            newPipeline->Bind(cmd);
+                        }
+
                         auto mesh = dc.model->GetMesh(dc.meshIndex);
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());

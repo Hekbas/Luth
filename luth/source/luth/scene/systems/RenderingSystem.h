@@ -67,6 +67,7 @@ namespace Luth
         u32 materialSlot;
         std::shared_ptr<Model> model;
         u32 meshIndex;
+        Material::CullMode cullMode = Material::CullMode::Back;
     };
 
     struct GeometryOutput {

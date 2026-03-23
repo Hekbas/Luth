@@ -10,14 +10,6 @@ namespace Luth
 {
     void TextureEditor::Draw(Texture& texture)
     {
-        // Texture header with name and type
-        if (ImGui::BeginChild("##Header", { 0, 30 })) {
-            ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            ImGui::TextColored({ 0.8f, 0.6f, 0.2f, 1.0f }, "%s (Texture)", texture.GetName().c_str());
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 8 });
-
         // Per-texture state: reset combos when the selected texture changes
         if (texture.Handle != m_LastTextureUUID)
         {
@@ -36,64 +28,65 @@ namespace Luth
                 if (ts.contains("generate_mipmaps")) m_GenerateMipmaps = ts["generate_mipmaps"].get<bool>();
             }
         }
-
-        // Info table
-        UI::BeginInfoTable("TextureProps");
-        UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
-        UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
-        UI::InfoRow("Type",       "%s", "2D");
-        UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
-        UI::EndInfoTable();
+        
+        // ---- Info Section ----
+        if (ImGui::CollapsingHeader("Texture Info", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            UI::BeginInfoTable("TextureProps");
+            UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
+            UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
+            UI::InfoRow("Type",       "%s", "2D");
+            UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
+            UI::EndInfoTable();
+        }
 
         ImGui::Dummy({ 0, 8 });
+        
+        // ---- Settings Section ----
+        if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
+            const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
 
-        // Import settings
-        const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
-        const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
+            UI::BeginProperties("TextureSettings");
+            UI::Property("Generate Mipmaps", m_GenerateMipmaps);
+            UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
+            UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
+            UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
+            UI::EndProperties();
 
-        UI::BeginProperties("TextureSettings");
-        UI::Property("Generate Mipmaps", m_GenerateMipmaps);
-        UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
-        UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
-        UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
-        UI::EndProperties();
-        ImGui::Dummy({ 0, 8 });
+            ImGui::Dummy({ 0, 4 });
 
-        // Apply button — saves settings to .meta and triggers reimport
-        ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Apply").x - ImGui::GetStyle().ItemSpacing.x);
-        if (ImGui::Button("Apply")) {
-            fs::path metaPath = texture.GetPath().string() + ".meta";
-            MetaFile meta(texture.Handle);
-            if (meta.Load(metaPath))
-            {
-                auto& ts = meta.GetTypeSettings();
-                ts["generate_mipmaps"] = m_GenerateMipmaps;
-                ts["wrap_mode"] = m_WrapMode;
-                ts["filter_min"] = m_MinFilter;
-                ts["filter_mag"] = m_MagFilter;
-                meta.Save(metaPath);
+            // Apply button — right-aligned
+            float buttonWidth = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - buttonWidth);
+            if (ImGui::Button("Apply")) {
+                fs::path metaPath = texture.GetPath().string() + ".meta";
+                MetaFile meta(texture.Handle);
+                if (meta.Load(metaPath))
+                {
+                    auto& ts = meta.GetTypeSettings();
+                    ts["generate_mipmaps"] = m_GenerateMipmaps;
+                    ts["wrap_mode"] = m_WrapMode;
+                    ts["filter_min"] = m_MinFilter;
+                    ts["filter_mag"] = m_MagFilter;
+                    meta.Save(metaPath);
 
-                // Delete artifact to force reimport with new settings
-                fs::path artifactPath = AssetDatabase::GetArtifactPath(texture.Handle);
-                if (fs::exists(artifactPath))
-                    fs::remove(artifactPath);
+                    // Delete artifact to force reimport with new settings
+                    fs::path artifactPath = AssetDatabase::GetArtifactPath(texture.Handle);
+                    if (fs::exists(artifactPath))
+                        fs::remove(artifactPath);
 
-                // Reimport and reload — evict from cache so next access recreates with new settings
-                AssetManager::Import(texture.Handle);
-                AssetManager::Evict(texture.Handle);
-
-                // Force state refresh on next frame
-                m_LastTextureUUID = UUID::Invalid();
+                    AssetManager::Import(texture.Handle);
+                    AssetManager::Evict(texture.Handle);
+                    m_LastTextureUUID = UUID::Invalid();
+                }
             }
         }
 
-        // Padding
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4());
-        ImGui::BeginChild("##Padding", { 0, 8 }, ImGuiChildFlags_ResizeY);
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
+        ImGui::Dummy({ 0, 4 });
 
-        // Preview
+        // ---- Preview Section ----
         UI::TexturePreview(std::shared_ptr<Texture>(&texture, [](Texture*){}));
     }
 }
