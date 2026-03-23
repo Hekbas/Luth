@@ -51,7 +51,7 @@ namespace Luth
                 window->SetWindowColors({ 0, 4, 0 }, { 0, 255, 0 }, { 0, 255, 0 });
             }
             else {
-                window->SetWindowColors({ 21, 21, 21 }, { 40, 40, 40 }, { 255, 255, 255 });
+                window->SetWindowColors({ 30, 31, 34 }, { 67, 69, 74 }, { 223, 225, 229 });
             }
         #endif
         
@@ -289,7 +289,7 @@ namespace Luth
             return true;
         }
         else {
-            SetCustomStyle();
+            SetRiderStyle();
             return false;
         }
     }
@@ -310,6 +310,12 @@ namespace Luth
     {
         EditorStyle::LoadFonts({"CourierPrime-Regular.ttf", 14.0f, false, 48.0f});
         EditorStyle::Apply(EditorStyle::Matrix());
+    }
+
+    void Editor::SetRiderStyle()
+    {
+        EditorStyle::LoadFonts({"JetBrainsMono-Regular.ttf", 18.0f, true, 13.0f});
+        EditorStyle::Apply(EditorStyle::Rider());
     }
 
     void Editor::SetRandomStyle()

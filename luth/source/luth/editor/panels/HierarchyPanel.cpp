@@ -130,6 +130,14 @@ namespace Luth
         ImGui::PushID((void*)(uintptr_t)(uint32_t)entity.GetComponent<ID>().m_ID.GetHalf0());
 
         const std::string& name = entity.GetName();
+
+        // Determine icon based on entity components
+        const char* icon = ICON_FA_CIRCLE_DOT;
+        if (entity.HasComponent<Camera>())               icon = ICON_FA_VIDEO;
+        else if (entity.HasComponent<DirectionalLight>()) icon = ICON_FA_SUN;
+        else if (entity.HasComponent<PointLight>())       icon = ICON_FA_LIGHTBULB;
+        else if (entity.HasComponent<Animation>())        icon = ICON_FA_PERSON_RUNNING;
+        else if (entity.HasComponent<MeshRenderer>())     icon = ICON_FA_CUBE;
         
         // Filter logic
         if (strlen(m_SearchFilter) > 0)
@@ -193,7 +201,7 @@ namespace Luth
         else
         {
             // Standard Node
-            opened = ImGui::TreeNodeEx("##Node", flags, "%s", name.c_str());
+            opened = ImGui::TreeNodeEx("##Node", flags, "%s  %s", icon, name.c_str());
         }
 
         // Handle Selection
@@ -222,11 +230,34 @@ namespace Luth
         // Recursion
         if (opened)
         {
+            // Tree connector lines
+            const ImColor treeLineColor = ImColor(80, 80, 80, 128);
+            const float smallOffsetX = -6.0f;
+            const float horizontalLineSize = 10.0f;
+            ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
+            verticalLineStart.x += smallOffsetX;
+            ImVec2 verticalLineEnd = verticalLineStart;
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+
             auto children = entity.GetChildren(); // Copy to avoid iterator invalidation if reordered
             for (auto child : children)
             {
+                ImVec2 currentPos = ImGui::GetCursorScreenPos();
                 DrawEntityNode(child);
+
+                // Draw horizontal connector line
+                const float midpoint = currentPos.y + ImGui::GetFontSize() * 0.5f;
+                drawList->AddLine(
+                    ImVec2(verticalLineStart.x, midpoint),
+                    ImVec2(verticalLineStart.x + horizontalLineSize, midpoint),
+                    treeLineColor);
+                verticalLineEnd.y = midpoint;
             }
+
+            // Draw vertical connector line
+            if (!children.empty())
+                drawList->AddLine(verticalLineStart, verticalLineEnd, treeLineColor);
+
             ImGui::TreePop();
         }
 

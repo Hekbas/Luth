@@ -44,5 +44,6 @@ namespace Luth
         const StylePreset& Custom();
         const StylePreset& Bubblegum();
         const StylePreset& Matrix();
+        const StylePreset& Rider();
     }
 }

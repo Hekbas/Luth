@@ -448,6 +448,7 @@ namespace Luth
             { AssetType::Material, ICON_FA_CIRCLE_HALF_STROKE    },
 			{ AssetType::Shader,   ICON_FA_FILE_CODE             },
 			{ AssetType::Font,     ICON_FA_FONT                  },
+			{ AssetType::Scene,   ICON_FA_FILM                  },
 			{ AssetType::None,  ICON_FA_FILE_CIRCLE_QUESTION  }
         };
         return icons.count(type) ? icons.at(type) : ICON_FILE;

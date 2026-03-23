@@ -53,6 +53,17 @@ namespace Luth
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
         if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
+            // Toolbar
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text(ICON_FA_GAUGE_HIGH);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Camera fly speed (scroll wheel while RMB to adjust)");
+            }
+
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
             // Viewport sizing — compare as integers to avoid an infinite resize
