@@ -1,0 +1,65 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform samplerCube envMap;
+layout(rgba16f, set = 0, binding = 1) writeonly uniform image2DArray irradianceOut;
+
+const float PI = 3.14159265359;
+
+// Get cubemap direction from face index and UV
+vec3 GetCubemapDirection(uint face, vec2 uv)
+{
+    vec2 st = uv * 2.0 - 1.0;
+
+    switch (face)
+    {
+        case 0: return normalize(vec3( 1.0, -st.y, -st.x)); // +X
+        case 1: return normalize(vec3(-1.0, -st.y,  st.x)); // -X
+        case 2: return normalize(vec3( st.x,  1.0,  st.y)); // +Y
+        case 3: return normalize(vec3( st.x, -1.0, -st.y)); // -Y
+        case 4: return normalize(vec3( st.x, -st.y,  1.0)); // +Z
+        case 5: return normalize(vec3(-st.x, -st.y, -1.0)); // -Z
+    }
+    return vec3(0.0);
+}
+
+void main()
+{
+    ivec3 texCoord = ivec3(gl_GlobalInvocationID.xyz);
+    ivec2 texSize = imageSize(irradianceOut).xy;
+
+    if (texCoord.x >= texSize.x || texCoord.y >= texSize.y || texCoord.z >= 6)
+        return;
+
+    vec2 uv = (vec2(texCoord.xy) + 0.5) / vec2(texSize);
+    vec3 N = GetCubemapDirection(texCoord.z, uv);
+
+    // Build tangent frame
+    vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+    vec3 right = normalize(cross(up, N));
+    up = cross(N, right);
+
+    // Hemisphere convolution
+    vec3 irradiance = vec3(0.0);
+    float sampleCount = 0.0;
+
+    const float sampleDelta = 0.025;
+    for (float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta)
+    {
+        for (float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta)
+        {
+            // Spherical to cartesian (tangent space)
+            vec3 tangentSample = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+
+            // Tangent space to world space
+            vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
+
+            irradiance += texture(envMap, sampleVec).rgb * cos(theta) * sin(theta);
+            sampleCount += 1.0;
+        }
+    }
+    irradiance = PI * irradiance / sampleCount;
+
+    imageStore(irradianceOut, texCoord, vec4(irradiance, 1.0));
+}

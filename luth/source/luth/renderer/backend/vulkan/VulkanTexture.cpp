@@ -22,6 +22,7 @@ namespace Luth
             case TextureFormat::RGBA8:           return VK_FORMAT_R8G8B8A8_UNORM;
             case TextureFormat::RGBA16F:         return VK_FORMAT_R16G16B16A16_SFLOAT;
             case TextureFormat::RGBA32F:         return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case TextureFormat::RG16F:           return VK_FORMAT_R16G16_SFLOAT;
             case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             default:                             return VK_FORMAT_R8G8B8A8_UNORM;
@@ -109,6 +110,15 @@ namespace Luth
         CreateViewAndSampler();
     }
 
+    VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, u32 arrayLayers,
+                         VkImageCreateFlags createFlags, u32 mipLevels, VkImageUsageFlags extraUsage)
+        : m_Width(width), m_Height(height), m_Format(format),
+          m_ArrayLayers(arrayLayers), m_CreateFlags(createFlags), m_MipLevels(mipLevels), m_ExtraUsage(extraUsage)
+    {
+        CreateImage(nullptr);
+        CreateViewAndSampler();
+    }
+
     VKTexture::~VKTexture()
     {
         // Unbind from global set (only color textures are in bindless)
@@ -158,12 +168,13 @@ namespace Luth
         imageInfo.extent.height = m_Height;
         imageInfo.extent.depth = 1;
         imageInfo.mipLevels = m_MipLevels;
-        imageInfo.arrayLayers = 1;
+        imageInfo.arrayLayers = m_ArrayLayers;
         imageInfo.format = vkFmt;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.flags = m_CreateFlags;
 
         if (isDepth)
         {
@@ -177,6 +188,7 @@ namespace Luth
                             | VK_IMAGE_USAGE_SAMPLED_BIT
                             | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         }
+        imageInfo.usage |= m_ExtraUsage;
 
         m_Allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Image);
 
@@ -211,7 +223,7 @@ namespace Luth
                 barrier.subresourceRange.baseMipLevel = 0;
                 barrier.subresourceRange.levelCount = m_MipLevels;
                 barrier.subresourceRange.baseArrayLayer = 0;
-                barrier.subresourceRange.layerCount = 1;
+                barrier.subresourceRange.layerCount = m_ArrayLayers;
                 barrier.srcAccessMask = 0;
                 barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
@@ -223,7 +235,7 @@ namespace Luth
                 region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 region.imageSubresource.mipLevel = 0;
                 region.imageSubresource.baseArrayLayer = 0;
-                region.imageSubresource.layerCount = 1;
+                region.imageSubresource.layerCount = m_ArrayLayers;
                 region.imageExtent = { m_Width, m_Height, 1 };
 
                 vkCmdCopyBufferToImage(cmd, stagingBuffer, m_Image,
@@ -255,7 +267,7 @@ namespace Luth
                         blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                         blit.srcSubresource.mipLevel = i - 1;
                         blit.srcSubresource.baseArrayLayer = 0;
-                        blit.srcSubresource.layerCount = 1;
+                        blit.srcSubresource.layerCount = m_ArrayLayers;
 
                         i32 nextWidth = mipWidth > 1 ? mipWidth / 2 : 1;
                         i32 nextHeight = mipHeight > 1 ? mipHeight / 2 : 1;
@@ -265,7 +277,7 @@ namespace Luth
                         blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                         blit.dstSubresource.mipLevel = i;
                         blit.dstSubresource.baseArrayLayer = 0;
-                        blit.dstSubresource.layerCount = 1;
+                        blit.dstSubresource.layerCount = m_ArrayLayers;
 
                         vkCmdBlitImage(cmd,
                             m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -340,7 +352,7 @@ namespace Luth
                 barrier.subresourceRange.baseMipLevel = 0;
                 barrier.subresourceRange.levelCount = m_MipLevels;
                 barrier.subresourceRange.baseArrayLayer = 0;
-                barrier.subresourceRange.layerCount = 1;
+                barrier.subresourceRange.layerCount = m_ArrayLayers;
                 barrier.srcAccessMask = 0;
                 barrier.dstAccessMask = dstAccess;
 
@@ -357,24 +369,33 @@ namespace Luth
     void VKTexture::CreateViewAndSampler()
     {
         const bool isDepth = IsDepthFormat(m_Format);
+        const bool isCubemap = (m_ArrayLayers == 6) && (m_CreateFlags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
         VkFormat vkFmt = ToVkFormat(m_Format);
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = m_Image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.viewType = isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = vkFmt;
         viewInfo.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = m_MipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
+        viewInfo.subresourceRange.layerCount = m_ArrayLayers;
 
         vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &m_ImageView);
 
         // Depth textures don't get a generic sampler registered in bindless.
         // Their sampling (e.g. shadow PCF) is set up externally with a dedicated VkSampler.
         if (isDepth)
+        {
+            m_Sampler = VK_NULL_HANDLE;
+            m_BindlessIndex = 0;
+            return;
+        }
+
+        // Cubemap textures are bound to dedicated descriptor bindings, not bindless.
+        if (isCubemap)
         {
             m_Sampler = VK_NULL_HANDLE;
             m_BindlessIndex = 0;
@@ -406,6 +427,33 @@ namespace Luth
         m_BindlessIndex = VulkanContext::Get().GetBindlessSet().BindTexture(m_ImageView, m_Sampler);
     }
 
+    VkImageView VKTexture::CreateMipView(u32 mipLevel, bool forStorage) const
+    {
+        VkFormat vkFmt = ToVkFormat(m_Format);
+        bool isCubemap = (m_ArrayLayers == 6) && (m_CreateFlags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = m_Image;
+        // Compute shaders use image2DArray (Dim=2D, Arrayed=1) → need VK_IMAGE_VIEW_TYPE_2D_ARRAY
+        if (isCubemap && forStorage)
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        else if (isCubemap)
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        else
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = vkFmt;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = mipLevel;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = m_ArrayLayers;
+
+        VkImageView view = VK_NULL_HANDLE;
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &view);
+        return view;
+    }
+
     std::string VKTexture::GetFormatString() const
     {
         switch (m_Format)
@@ -413,6 +461,7 @@ namespace Luth
             case TextureFormat::RGBA8:   return "RGBA8";
             case TextureFormat::RGBA16F: return "RGBA16F";
             case TextureFormat::RGBA32F: return "RGBA32F";
+            case TextureFormat::RG16F:   return "RG16F";
             case TextureFormat::D32_Float: return "D32_Float";
             default: return "Unknown";
         }

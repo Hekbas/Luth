@@ -11,6 +11,9 @@ namespace Luth
         VKTexture(const fs::path& path);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings);
+        // Cubemap / storage image constructor (no data upload — filled via compute or blit)
+        VKTexture(u32 width, u32 height, TextureFormat format, u32 arrayLayers,
+                  VkImageCreateFlags createFlags, u32 mipLevels, VkImageUsageFlags extraUsage = 0);
         virtual ~VKTexture();
 
         virtual void Bind(u32 slot = 0) const override;
@@ -35,7 +38,12 @@ namespace Luth
         VkImage GetImage() const { return m_Image; }
         VkImageView GetImageView() const { return m_ImageView; }
         VkSampler GetSampler() const { return m_Sampler; }
-        
+        u32 GetArrayLayers() const { return m_ArrayLayers; }
+
+        // Create a view for a single mip level (all array layers). Caller must destroy the returned view.
+        // forStorage: use VK_IMAGE_VIEW_TYPE_2D_ARRAY instead of CUBE for compute storage image bindings.
+        VkImageView CreateMipView(u32 mipLevel, bool forStorage = false) const;
+
         // Bindless Support
         virtual u32 GetBindlessIndex() const override { return m_BindlessIndex; }
 
@@ -52,6 +60,9 @@ namespace Luth
         TextureFilterMode m_MinFilter = TextureFilterMode::Linear, m_MagFilter = TextureFilterMode::Linear;
 
         u32 m_MipLevels = 1;
+        u32 m_ArrayLayers = 1;
+        VkImageCreateFlags m_CreateFlags = 0;
+        VkImageUsageFlags m_ExtraUsage = 0;
 
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;
