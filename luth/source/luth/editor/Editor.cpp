@@ -314,7 +314,7 @@ namespace Luth
 
     void Editor::SetRiderStyle()
     {
-        EditorStyle::LoadFonts({"JetBrainsMono-Regular.ttf", 18.0f, true, 13.0f});
+        EditorStyle::LoadFonts({"JetBrainsMono-Regular.ttf", 16.0f, true, 14.0f});
         EditorStyle::Apply(EditorStyle::Rider());
     }
 

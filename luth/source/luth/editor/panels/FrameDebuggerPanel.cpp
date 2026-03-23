@@ -238,7 +238,7 @@ namespace Luth
                 if (pass.gpuTimeMs >= 0.0f)
                 {
                     if (pass.drawCalls > 0)
-                        snprintf(infoBuf, sizeof(infoBuf), "%u draws  %.2f ms", pass.drawCalls, pass.gpuTimeMs);
+                        snprintf(infoBuf, sizeof(infoBuf), "%u  %.2f ms", pass.drawCalls, pass.gpuTimeMs);
                     else
                         snprintf(infoBuf, sizeof(infoBuf), "%.2f ms", pass.gpuTimeMs);
                 }

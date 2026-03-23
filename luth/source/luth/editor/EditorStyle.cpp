@@ -69,6 +69,8 @@ namespace Luth::EditorStyle
     {
         ImGuiStyle& style = ImGui::GetStyle();
 
+        style.DockingSeparatorSize = preset.DockingSeparatorSize;
+        
         style.WindowRounding    = preset.WindowRounding;
         style.ChildRounding     = preset.ChildRounding;
         style.FrameRounding     = preset.FrameRounding;
@@ -326,13 +328,15 @@ namespace Luth::EditorStyle
             s.Name = "Rider";
 
             // Rider is very flat — minimal rounding, compact spacing
-            s.WindowRounding = 2.0f; s.ChildRounding = 0.0f; s.FrameRounding = 2.0f;
-            s.GrabRounding = 2.0f; s.PopupRounding = 2.0f; s.ScrollbarRounding = 2.0f; s.TabRounding = 0.0f;
+            s.DockingSeparatorSize = 0.0f;
+            
+            s.WindowRounding = 2.0f; s.ChildRounding = 6.0f; s.FrameRounding = 3.0f;
+            s.GrabRounding = 3.0f; s.PopupRounding = 3.0f; s.ScrollbarRounding = 3.0f; s.TabRounding = 0.0f;
 
-            s.WindowBorderSize = 1.0f; s.ChildBorderSize = 1.0f; s.PopupBorderSize = 1.0f;
+            s.WindowBorderSize = 0.0f; s.ChildBorderSize = 0.0f; s.PopupBorderSize = 1.0f;
             s.FrameBorderSize = 0.0f; s.TabBorderSize = 0.0f;
 
-            s.WindowPadding = {6,6}; s.FramePadding = {4,3}; s.ItemSpacing = {6,3};
+            s.WindowPadding = {2,2}; s.FramePadding = {3,3}; s.ItemSpacing = {4,4};
             s.ItemInnerSpacing = {4,4}; s.TouchExtraPadding = {0,0};
             s.IndentSpacing = 16; s.ScrollbarSize = 12; s.GrabMinSize = 10;
             s.Alpha = 1.0f;
@@ -347,60 +351,93 @@ namespace Luth::EditorStyle
             // Select:  #2E436E (dark blue tint for selected items)
 
             auto& c = s.Colors;
-            c[ImGuiCol_Text]                   = {0.74f, 0.75f, 0.77f, 1.00f}; // #BCBEC4
-            c[ImGuiCol_TextDisabled]           = {0.44f, 0.45f, 0.48f, 1.00f}; // #6F737A
-            c[ImGuiCol_WindowBg]               = {0.17f, 0.18f, 0.19f, 1.00f}; // #2B2D30
-            c[ImGuiCol_ChildBg]                = {0.12f, 0.12f, 0.13f, 1.00f}; // #1E1F22
-            c[ImGuiCol_PopupBg]                = {0.17f, 0.18f, 0.19f, 0.98f}; // #2B2D30
-            c[ImGuiCol_Border]                 = {0.22f, 0.23f, 0.25f, 1.00f}; // #393B40
+
+            // Base Text Colors
+            c[ImGuiCol_Text]                   = {0.74f, 0.74f, 0.74f, 1.00f}; // #bdbdbd
+            c[ImGuiCol_TextDisabled]           = {0.47f, 0.47f, 0.47f, 1.00f}; // #787878
+
+            // Backgrounds
+            c[ImGuiCol_WindowBg]               = {0.15f, 0.16f, 0.17f, 1.00f}; // #26282b
+            c[ImGuiCol_ChildBg]                = {0.10f, 0.10f, 0.11f, 1.00f}; // #191a1c
+            c[ImGuiCol_PopupBg]                = {0.14f, 0.18f, 0.27f, 0.98f}; // #232E46
+
+            // Borders (Mapped from TEARLINE_COLOR)
+            c[ImGuiCol_Border]                 = {0.25f, 0.25f, 0.25f, 1.00f}; // #404040
             c[ImGuiCol_BorderShadow]           = {0.00f, 0.00f, 0.00f, 0.00f};
-            c[ImGuiCol_FrameBg]                = {0.12f, 0.12f, 0.13f, 1.00f}; // #1E1F22 (dark, like Rider inputs)
-            c[ImGuiCol_FrameBgHovered]         = {0.15f, 0.15f, 0.17f, 1.00f}; // very subtle brighten
-            c[ImGuiCol_FrameBgActive]          = {0.18f, 0.19f, 0.21f, 1.00f}; // slightly brighter, no blue
-            c[ImGuiCol_TitleBg]                = {0.12f, 0.12f, 0.13f, 1.00f}; // #1E1F22
-            c[ImGuiCol_TitleBgActive]          = {0.12f, 0.12f, 0.13f, 1.00f}; // same — flat
-            c[ImGuiCol_TitleBgCollapsed]       = {0.12f, 0.12f, 0.13f, 0.75f};
-            c[ImGuiCol_MenuBarBg]              = {0.12f, 0.12f, 0.13f, 1.00f}; // #1E1F22
-            c[ImGuiCol_ScrollbarBg]            = {0.12f, 0.12f, 0.13f, 0.00f}; // transparent
-            c[ImGuiCol_ScrollbarGrab]          = {0.30f, 0.31f, 0.33f, 0.60f}; // subtle
-            c[ImGuiCol_ScrollbarGrabHovered]   = {0.36f, 0.37f, 0.39f, 0.80f};
-            c[ImGuiCol_ScrollbarGrabActive]    = {0.42f, 0.43f, 0.45f, 0.80f};
-            c[ImGuiCol_CheckMark]              = {0.29f, 0.53f, 0.78f, 1.00f}; // #4A88C7
-            c[ImGuiCol_SliderGrab]             = {0.29f, 0.53f, 0.78f, 1.00f}; // #4A88C7
-            c[ImGuiCol_SliderGrabActive]       = {0.36f, 0.60f, 0.85f, 1.00f};
-            c[ImGuiCol_Button]                 = {0.17f, 0.18f, 0.19f, 1.00f}; // flat, matches window bg
-            c[ImGuiCol_ButtonHovered]          = {0.22f, 0.23f, 0.25f, 1.00f}; // subtle gray brighten, NO blue
-            c[ImGuiCol_ButtonActive]           = {0.26f, 0.27f, 0.29f, 1.00f}; // gray press
-            c[ImGuiCol_Header]                 = {0.17f, 0.18f, 0.19f, 1.00f}; // flat — same as window bg
-            c[ImGuiCol_HeaderHovered]          = {0.22f, 0.23f, 0.25f, 1.00f}; // subtle gray, NO blue
-            c[ImGuiCol_HeaderActive]           = {0.18f, 0.26f, 0.43f, 1.00f}; // #2E436E dark blue tint (selected)
-            c[ImGuiCol_Separator]              = {0.22f, 0.23f, 0.25f, 1.00f}; // #393B40
-            c[ImGuiCol_SeparatorHovered]       = {0.30f, 0.31f, 0.33f, 1.00f}; // gray
-            c[ImGuiCol_SeparatorActive]        = {0.36f, 0.37f, 0.39f, 1.00f}; // gray
-            c[ImGuiCol_ResizeGrip]             = {0.22f, 0.23f, 0.25f, 0.20f};
-            c[ImGuiCol_ResizeGripHovered]      = {0.30f, 0.31f, 0.33f, 0.60f};
-            c[ImGuiCol_ResizeGripActive]       = {0.36f, 0.37f, 0.39f, 0.90f};
-            c[ImGuiCol_Tab]                    = {0.12f, 0.12f, 0.13f, 1.00f}; // #1E1F22 inactive
-            c[ImGuiCol_TabHovered]             = {0.20f, 0.21f, 0.22f, 1.00f}; // subtle gray hover
-            c[ImGuiCol_TabActive]              = {0.17f, 0.18f, 0.19f, 1.00f}; // #2B2D30 matches window
-            c[ImGuiCol_TabSelectedOverline]    = {0.29f, 0.53f, 0.78f, 1.00f}; // #4A88C7 — THE blue accent
-            c[ImGuiCol_TabUnfocused]           = {0.12f, 0.12f, 0.13f, 1.00f};
-            c[ImGuiCol_TabUnfocusedActive]     = {0.15f, 0.15f, 0.16f, 1.00f};
-            c[ImGuiCol_DockingPreview]         = {0.29f, 0.53f, 0.78f, 0.40f};
-            c[ImGuiCol_DockingEmptyBg]         = {0.12f, 0.12f, 0.13f, 1.00f};
-            c[ImGuiCol_PlotLines]              = {0.53f, 0.54f, 0.57f, 1.00f}; // gray lines
-            c[ImGuiCol_PlotLinesHovered]       = {0.29f, 0.53f, 0.78f, 1.00f};
-            c[ImGuiCol_PlotHistogram]          = {0.29f, 0.53f, 0.78f, 0.80f}; // blue bars
-            c[ImGuiCol_PlotHistogramHovered]   = {0.36f, 0.60f, 0.85f, 1.00f};
-            c[ImGuiCol_TableHeaderBg]          = {0.14f, 0.14f, 0.15f, 1.00f};
-            c[ImGuiCol_TableBorderStrong]      = {0.22f, 0.23f, 0.25f, 1.00f};
-            c[ImGuiCol_TableBorderLight]       = {0.18f, 0.19f, 0.20f, 1.00f};
-            c[ImGuiCol_TextSelectedBg]         = {0.18f, 0.26f, 0.43f, 0.60f}; // #2E436E
-            c[ImGuiCol_DragDropTarget]         = {0.29f, 0.53f, 0.78f, 0.90f};
-            c[ImGuiCol_NavHighlight]           = {0.29f, 0.53f, 0.78f, 0.80f};
-            c[ImGuiCol_NavWindowingHighlight]  = {1.00f, 1.00f, 1.00f, 0.70f};
+
+            // Inputs / Frames
+            c[ImGuiCol_FrameBg]                = {0.13f, 0.14f, 0.14f, 1.00f}; // #202424
+            c[ImGuiCol_FrameBgHovered]         = {0.16f, 0.23f, 0.37f, 1.00f}; // #293A5F
+            c[ImGuiCol_FrameBgActive]          = {0.03f, 0.20f, 0.37f, 1.00f}; // #08335E
+
+            // Titles & Menus (Flat layout)
+            c[ImGuiCol_TitleBg]                = {0.10f, 0.10f, 0.11f, 1.00f}; // #191A1C
+            c[ImGuiCol_TitleBgActive]          = {0.10f, 0.10f, 0.11f, 1.00f}; // #191A1C
+            c[ImGuiCol_TitleBgCollapsed]       = {0.10f, 0.10f, 0.11f, 0.75f};
+            c[ImGuiCol_MenuBarBg]              = {0.10f, 0.10f, 0.11f, 1.00f}; // #191A1C
+
+            // Scrollbars
+            c[ImGuiCol_ScrollbarBg]            = {0.10f, 0.10f, 0.11f, 0.00f}; // Transparent over background
+            c[ImGuiCol_ScrollbarGrab]          = {0.41f, 0.41f, 0.41f, 0.60f}; // #686868
+            c[ImGuiCol_ScrollbarGrabHovered]   = {0.47f, 0.47f, 0.47f, 0.80f}; // #787878
+            c[ImGuiCol_ScrollbarGrabActive]    = {0.52f, 0.52f, 0.52f, 0.80f}; // #858585
+
+            // Accents / Grabs
+            c[ImGuiCol_CheckMark]              = {0.42f, 0.58f, 0.92f, 1.00f}; // #6C95EB
+            c[ImGuiCol_SliderGrab]             = {0.42f, 0.58f, 0.92f, 1.00f}; // #6C95EB
+            c[ImGuiCol_SliderGrabActive]       = {0.53f, 0.69f, 0.98f, 1.00f}; // Brightened blue
+
+            // Buttons
+            c[ImGuiCol_Button]                 = {0.13f, 0.14f, 0.14f, 1.00f}; // #202424
+            c[ImGuiCol_ButtonHovered]          = {0.14f, 0.18f, 0.27f, 1.00f}; // #232E46
+            c[ImGuiCol_ButtonActive]           = {0.03f, 0.20f, 0.37f, 1.00f}; // #08335E
+
+            // Headers / TreeNodes
+            c[ImGuiCol_Header]                 = {0.13f, 0.14f, 0.14f, 1.00f}; // #202424
+            c[ImGuiCol_HeaderHovered]          = {0.14f, 0.18f, 0.27f, 1.00f}; // #232E46
+            c[ImGuiCol_HeaderActive]           = {0.03f, 0.20f, 0.37f, 1.00f}; // #08335E
+
+            // Separators
+            c[ImGuiCol_Separator]              = {0.25f, 0.25f, 0.25f, 1.00f}; // #404040
+            c[ImGuiCol_SeparatorHovered]       = {0.41f, 0.41f, 0.41f, 1.00f}; // #686868
+            c[ImGuiCol_SeparatorActive]        = {0.42f, 0.58f, 0.92f, 1.00f}; // #6C95EB (Blue accent on active drag)
+
+            // Resizing
+            c[ImGuiCol_ResizeGrip]             = {0.25f, 0.25f, 0.25f, 0.20f};
+            c[ImGuiCol_ResizeGripHovered]      = {0.41f, 0.41f, 0.41f, 0.60f};
+            c[ImGuiCol_ResizeGripActive]       = {0.42f, 0.58f, 0.92f, 0.90f}; // Blue accent
+
+            // Tabs
+            c[ImGuiCol_Tab]                    = {0.10f, 0.10f, 0.11f, 1.00f}; // #191A1C (Inactive background)
+            c[ImGuiCol_TabHovered]             = {0.14f, 0.18f, 0.27f, 1.00f}; // #232E46
+            c[ImGuiCol_TabActive]              = {0.13f, 0.14f, 0.14f, 1.00f}; // #202424 (Active blends with window)
+            c[ImGuiCol_TabSelectedOverline]    = {0.42f, 0.58f, 0.92f, 1.00f}; // #6C95EB (The thin blue active line)
+            c[ImGuiCol_TabUnfocused]           = {0.10f, 0.10f, 0.11f, 1.00f};
+            c[ImGuiCol_TabUnfocusedActive]     = {0.13f, 0.14f, 0.14f, 1.00f};
+
+            // Docking
+            c[ImGuiCol_DockingPreview]         = {0.42f, 0.58f, 0.92f, 0.40f};
+            c[ImGuiCol_DockingEmptyBg]         = {0.10f, 0.10f, 0.11f, 1.00f};
+
+            // Plots
+            c[ImGuiCol_PlotLines]              = {0.52f, 0.77f, 0.42f, 1.00f}; // #85C46C (Green comment color)
+            c[ImGuiCol_PlotLinesHovered]       = {0.42f, 0.58f, 0.92f, 1.00f}; // #6C95EB
+            c[ImGuiCol_PlotHistogram]          = {0.42f, 0.58f, 0.92f, 0.80f}; // #6C95EB
+            c[ImGuiCol_PlotHistogramHovered]   = {0.53f, 0.69f, 0.98f, 1.00f};
+
+            // Tables
+            c[ImGuiCol_TableHeaderBg]          = {0.13f, 0.14f, 0.14f, 1.00f};
+            c[ImGuiCol_TableBorderStrong]      = {0.25f, 0.25f, 0.25f, 1.00f}; // #404040
+            c[ImGuiCol_TableBorderLight]       = {0.15f, 0.15f, 0.15f, 1.00f};
+
+            // Misc
+            c[ImGuiCol_TextSelectedBg]         = {0.03f, 0.20f, 0.37f, 0.60f}; // #08335E
+            c[ImGuiCol_DragDropTarget]         = {0.42f, 0.58f, 0.92f, 0.90f};
+            c[ImGuiCol_NavHighlight]           = {0.42f, 0.58f, 0.92f, 0.80f};
+            c[ImGuiCol_NavWindowingHighlight]  = {0.94f, 0.94f, 0.94f, 0.70f}; // #F0F0F0
             c[ImGuiCol_NavWindowingDimBg]      = {0.80f, 0.80f, 0.80f, 0.20f};
             c[ImGuiCol_ModalWindowDimBg]       = {0.00f, 0.00f, 0.00f, 0.50f};
+
             return s;
         }();
         return p;
