@@ -25,6 +25,7 @@ namespace Luth
             case TextureFormat::RG16F:           return VK_FORMAT_R16G16_SFLOAT;
             case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
+            case TextureFormat::R32_Uint:        return VK_FORMAT_R32_UINT;
             default:                             return VK_FORMAT_R8G8B8A8_UNORM;
         }
     }
@@ -402,6 +403,25 @@ namespace Luth
             return;
         }
 
+        // Integer textures (e.g. R32_Uint entity ID buffer) need nearest filtering
+        // and are not registered in bindless (sampled via dedicated descriptor).
+        if (m_Format == TextureFormat::R32_Uint)
+        {
+            VkSamplerCreateInfo intSamplerInfo{};
+            intSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            intSamplerInfo.magFilter = VK_FILTER_NEAREST;
+            intSamplerInfo.minFilter = VK_FILTER_NEAREST;
+            intSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            intSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            intSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            intSamplerInfo.anisotropyEnable = VK_FALSE;
+            intSamplerInfo.unnormalizedCoordinates = VK_FALSE;
+            intSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(VulkanContext::Get().GetDevice(), &intSamplerInfo, nullptr, &m_Sampler);
+            m_BindlessIndex = 0;
+            return;
+        }
+
         VkSamplerAddressMode vkWrap = ToVkWrapMode(m_WrapMode);
 
         VkSamplerCreateInfo samplerInfo{};
@@ -463,6 +483,7 @@ namespace Luth
             case TextureFormat::RGBA32F: return "RGBA32F";
             case TextureFormat::RG16F:   return "RG16F";
             case TextureFormat::D32_Float: return "D32_Float";
+            case TextureFormat::R32_Uint:  return "R32_Uint";
             default: return "Unknown";
         }
     }

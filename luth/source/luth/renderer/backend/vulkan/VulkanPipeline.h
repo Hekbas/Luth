@@ -28,6 +28,7 @@ namespace Luth
         VkFrontFace frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         
         VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;
     };
 
     class VKPipeline

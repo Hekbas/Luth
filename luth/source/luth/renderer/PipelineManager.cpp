@@ -15,19 +15,20 @@ namespace Luth
     }
 
     VKPipeline* PipelineManager::GetOrCreate(const UUID& shaderUUID, Material::RenderMode mode, Material::CullMode cullMode,
+                                              VkPolygonMode polygonMode,
                                               const std::vector<u32>& vertSpv, const std::vector<u32>& fragSpv)
     {
-        PipelineKey key{ shaderUUID, mode, cullMode };
+        PipelineKey key{ shaderUUID, mode, cullMode, polygonMode };
         auto it = m_Pipelines.find(key);
         if (it != m_Pipelines.end())
             return it->second.get();
 
-        PipelineConfig config = m_ConfigFactory(mode, cullMode);
+        PipelineConfig config = m_ConfigFactory(mode, cullMode, polygonMode);
         auto pipeline = std::make_unique<VKPipeline>(config, vertSpv, fragSpv, m_Layouts);
         VKPipeline* ptr = pipeline.get();
         m_Pipelines.emplace(key, std::move(pipeline));
 
-        LH_CORE_INFO("Created pipeline variant: shader={} mode={} cull={}", shaderUUID.ToString(), static_cast<int>(mode), static_cast<int>(cullMode));
+        LH_CORE_INFO("Created pipeline variant: shader={} mode={} cull={} poly={}", shaderUUID.ToString(), static_cast<int>(mode), static_cast<int>(cullMode), static_cast<int>(polygonMode));
         return ptr;
     }
 

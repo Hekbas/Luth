@@ -85,7 +85,7 @@ namespace Luth
         rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.polygonMode = config.polygonMode;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = config.cullMode;
         rasterizer.frontFace = config.frontFace;
@@ -101,24 +101,36 @@ namespace Luth
         depthStencil.depthWriteEnable = config.depthWrite ? VK_TRUE : VK_FALSE;
         depthStencil.depthCompareOp = config.depthCompareOp;
 
-        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-        colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttachment.blendEnable = config.blendEnabled ? VK_TRUE : VK_FALSE;
-        // Standard Alpha Blending
-        if (config.blendEnabled) {
-            colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-            colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-            colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        // One blend state per color attachment (Vulkan requires matching count)
+        std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(config.colorFormats.size());
+        for (size_t i = 0; i < blendAttachments.size(); ++i)
+        {
+            auto& att = blendAttachments[i];
+            att = {};
+            att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+            // Integer formats (R32_UINT, etc.) do not support color attachment blending
+            bool isIntegerFormat = (config.colorFormats[i] == VK_FORMAT_R32_UINT  ||
+                                    config.colorFormats[i] == VK_FORMAT_R32_SINT  ||
+                                    config.colorFormats[i] == VK_FORMAT_R8_UINT   ||
+                                    config.colorFormats[i] == VK_FORMAT_R16_UINT);
+
+            att.blendEnable = (config.blendEnabled && !isIntegerFormat) ? VK_TRUE : VK_FALSE;
+            if (att.blendEnable) {
+                att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+                att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                att.colorBlendOp = VK_BLEND_OP_ADD;
+                att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+                att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+                att.alphaBlendOp = VK_BLEND_OP_ADD;
+            }
         }
 
         VkPipelineColorBlendStateCreateInfo colorBlending{};
         colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
         colorBlending.logicOpEnable = VK_FALSE;
-        colorBlending.attachmentCount = (u32)config.colorFormats.size();
-        colorBlending.pAttachments = config.colorFormats.empty() ? nullptr : &colorBlendAttachment;
+        colorBlending.attachmentCount = (u32)blendAttachments.size();
+        colorBlending.pAttachments = blendAttachments.empty() ? nullptr : blendAttachments.data();
 
         std::vector<VkDynamicState> dynamicStates = {
             VK_DYNAMIC_STATE_VIEWPORT,

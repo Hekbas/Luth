@@ -198,6 +198,8 @@ namespace Luth
         // Features
         VkPhysicalDeviceFeatures deviceFeatures{};
         deviceFeatures.samplerAnisotropy = VK_TRUE;
+        deviceFeatures.fillModeNonSolid = VK_TRUE;
+        deviceFeatures.independentBlend = VK_TRUE;
 
         // Vulkan 1.2 Features (Descriptor Indexing for Bindless)
         VkPhysicalDeviceVulkan12Features features12{};

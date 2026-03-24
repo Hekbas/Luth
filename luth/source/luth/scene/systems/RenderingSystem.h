@@ -35,10 +35,14 @@ namespace Luth
         float     _pad;
     };
 
+    enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
+
     struct ObjectPushConstants {
         glm::mat4 modelMatrix;  // 64 bytes
         u32 materialIndex;      // 4 bytes — index into material SSBO
-        u32 _pad[3];            // 12 bytes padding (80 total)
+        u32 shadeMode;          // 4 bytes
+        u32 entityID;           // 4 bytes — entity index for picking
+        u32 _pad;               // 4 bytes padding (80 total)
     };
 
     // ---- Light data structs (mirrored in pbr.frag Set 3) ----
@@ -69,12 +73,14 @@ namespace Luth
         u32 materialSlot;
         std::shared_ptr<Model> model;
         u32 meshIndex;
+        u32 entityIndex = 0;
         Material::CullMode cullMode = Material::CullMode::Back;
     };
 
     struct GeometryOutput {
         RG::ResourceHandle color;
         RG::ResourceHandle depth;
+        RG::ResourceHandle entityID;
     };
 
     class RenderingSystem : public System
@@ -96,6 +102,19 @@ namespace Luth
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
         std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
 
+        u32 GetTriangleCount() const { return m_VisibleTriCount; }
+
+        ShadeMode GetShadeMode() const { return m_ShadeMode; }
+        void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
+
+        // Mouse picking
+        void RequestPick(int x, int y);
+        bool HasPickResult() const { return m_PickResultReady; }
+        entt::entity ConsumePickResult();
+
+        // Selection outline
+        void SetSelectedEntity(entt::entity e) { m_SelectedEntity = e; }
+
     private:
         void InitGlobalUniforms();
         void InitShadowResources();
@@ -116,6 +135,7 @@ namespace Luth
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
+        RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, RG::ResourceHandle entityIDHandle);
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         // Memory
@@ -124,6 +144,10 @@ namespace Luth
         // Scene color + depth output
         std::shared_ptr<Texture> m_SceneColor;
         std::shared_ptr<Texture> m_SceneDepth;
+
+        // Entity ID buffer (R32_UINT, for mouse picking + selection outline)
+        std::shared_ptr<Texture> m_EntityIDBuffer;
+        std::vector<entt::entity> m_EntityLookup; // index 0 = entt::null
 
         // Global UBO (Set 0)
         std::shared_ptr<VKUniformBuffer> m_GlobalUniformBuffer;
@@ -196,6 +220,15 @@ namespace Luth
         std::vector<u32> m_BloomBlurFragSpv;
         std::vector<u32> m_PostProcessFragSpv;
 
+        // Outline pass resources
+        std::unique_ptr<VKPipeline>  m_OutlinePipeline;
+        std::vector<u32>             m_OutlineFragSpv;
+        VkDescriptorPool             m_OutlineDescPool      = VK_NULL_HANDLE;
+        VkDescriptorSetLayout        m_OutlineDescSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet              m_OutlineDescSet       = VK_NULL_HANDLE;
+        VkSampler                    m_OutlineSampler       = VK_NULL_HANDLE;
+        entt::entity                 m_SelectedEntity       = entt::null;
+
         // IBL resources
         std::shared_ptr<Texture> m_IrradianceMap;    // 32x32 cubemap, RGBA16F
         std::shared_ptr<Texture> m_PrefilteredMap;    // 128x128 cubemap, RGBA16F, 5 mips
@@ -212,6 +245,16 @@ namespace Luth
         FileWatcher m_ShaderWatcher;
         std::mutex m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
+
+        // Stats
+        u32 m_VisibleTriCount = 0;
+        ShadeMode m_ShadeMode = ShadeMode::Lit;
+
+        // Mouse picking state
+        bool m_PickPending = false;
+        bool m_PickResultReady = false;
+        glm::ivec2 m_PickCoord = { 0, 0 };
+        entt::entity m_PickedEntity = entt::null;
 
         // Frame debugger data
         RG::RenderGraphSnapshot m_GraphSnapshot;

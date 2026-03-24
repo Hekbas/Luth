@@ -48,6 +48,7 @@ namespace Luth
     {
         // Sync selection
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
+        m_RenderingSystem->SetSelectedEntity(m_SelectedEntity ? (entt::entity)m_SelectedEntity : entt::null);
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
@@ -62,6 +63,30 @@ namespace Luth
                 ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Camera fly speed (scroll wheel while RMB to adjust)");
+
+                // Triangle count
+                ImGui::SameLine();
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine();
+                u32 triCount = m_RenderingSystem->GetTriangleCount();
+                if (triCount >= 1000000)
+                    ImGui::Text(ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
+                else if (triCount >= 1000)
+                    ImGui::Text(ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
+                else
+                    ImGui::Text(ICON_FA_SHAPES "  %u tris", triCount);
+
+                // Shade mode dropdown
+                ImGui::SameLine();
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine();
+                ImGui::Text(ICON_FA_EYE);
+                ImGui::SameLine();
+                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
+                int currentMode = static_cast<int>(m_RenderingSystem->GetShadeMode());
+                ImGui::SetNextItemWidth(90.0f);
+                if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
+                    m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
             }
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -111,6 +136,37 @@ namespace Luth
 
             // Handle gizmos
             DrawGizmos();
+
+            // Mouse picking — LMB click in viewport (not on gizmo)
+            if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
+                && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
+            {
+                auto [mx, my] = ImGui::GetMousePos();
+                ImVec2 winPos = ImGui::GetWindowPos();
+                // Account for toolbar height: content region starts after toolbar
+                ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
+                int px = (int)(mx - winPos.x - contentMin.x);
+                int py = (int)(my - winPos.y - contentMin.y);
+                m_RenderingSystem->RequestPick(px, py);
+            }
+
+            // Consume pick result
+            if (m_RenderingSystem->HasPickResult())
+            {
+                entt::entity picked = m_RenderingSystem->ConsumePickResult();
+                if (picked != entt::null && m_Context)
+                {
+                    Entity entity(picked, m_Context.get());
+                    if (entity.IsValid())
+                        EditorSelection::SelectEntity(entity);
+                    else
+                        EditorSelection::ClearSelection();
+                }
+                else
+                {
+                    EditorSelection::ClearSelection();
+                }
+            }
 
             // Camera Control
             ImGui::SetNavCursorVisible(!m_EditorCamera.IsFlying());

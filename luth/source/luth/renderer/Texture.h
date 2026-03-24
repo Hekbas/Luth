@@ -12,7 +12,8 @@ namespace Luth
         None = 0,
         R8, RGB8, RGBA8, RGBA16F, RGBA32F,
         RG16F,
-        D32_Float, D24_Unorm_S8_Uint // Added Depth formats
+        D32_Float, D24_Unorm_S8_Uint, // Added Depth formats
+        R32_Uint
     };
 
     enum class TextureWrapMode {

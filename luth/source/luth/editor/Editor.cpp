@@ -431,6 +431,8 @@ namespace Luth
         // Update panels that hold scene context
         if (auto* hp = GetPanel<HierarchyPanel>())
             hp->SetContext(scene);
+        if (auto* sp = GetPanel<ScenePanel>())
+            sp->SetContext(scene);
     }
 
     void Editor::NewScene()

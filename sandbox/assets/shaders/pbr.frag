@@ -8,6 +8,7 @@ layout(location = 6) in vec2 v_TexCoord1;
 layout(location = 3) in mat3 v_TBN;    // locations 3, 4, 5
 
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out uint outEntityID;
 
 // ---------- Descriptor Sets ----------
 
@@ -77,6 +78,8 @@ layout(set = 3, binding = 1) uniform sampler2DShadow shadowMap;
 layout(push_constant) uniform PushConstants {
     mat4 model;
     uint materialIndex;
+    uint shadeMode;
+    uint entityID;
 } pc;
 
 // ---------- Flag Constants ----------
@@ -249,6 +252,19 @@ void main()
         metallic  *= mrSample.b;
     }
     roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
+
+    // --- Always write entity ID for picking ---
+    outEntityID = pc.entityID;
+
+    // --- Shade mode overrides ---
+    if (pc.shadeMode == 1u) { outColor = vec4(albedo.rgb, 1.0); return; }  // Unlit
+    if (pc.shadeMode == 3u) { outColor = vec4(N * 0.5 + 0.5, 1.0); return; }  // Normals
+    if (pc.shadeMode == 4u) {  // EntityID debug visualization
+        float id = float(pc.entityID);
+        vec3 idColor = vec3(fract(id * 0.123), fract(id * 0.456), fract(id * 0.789));
+        outColor = vec4(idColor, 1.0);
+        return;
+    }
 
     // --- Ambient Occlusion ---
     float ao = 1.0;

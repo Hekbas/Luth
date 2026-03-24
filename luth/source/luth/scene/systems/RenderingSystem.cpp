@@ -41,9 +41,10 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            m_SceneColor = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
-            m_SceneDepth = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
-            m_LDROutput  = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
+            m_SceneColor    = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
+            m_SceneDepth    = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
+            m_LDROutput     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
+            m_EntityIDBuffer = Texture::Create(viewportWidth, viewportHeight, TextureFormat::R32_Uint);
 
             InitGlobalUniforms();
             InitShadowResources();
@@ -95,9 +96,11 @@ namespace Luth
                 m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
                 m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
                 m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
+                m_OutlineFragSpv       = ShaderCompiler::Compile(shadersPath / "outline.frag");
 
                 if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
-                    m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty())
+                    m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
+                    m_OutlineFragSpv.empty())
                 {
                     LH_CORE_ERROR("Failed to compile post-process shaders!");
                 }
@@ -131,6 +134,7 @@ namespace Luth
                 m_BloomExtractPipeline.reset();
                 m_BloomBlurPipeline.reset();
                 m_PostProcessPipeline.reset();
+                m_OutlinePipeline.reset();
                 CreatePipelines();
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
             });
@@ -167,6 +171,12 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        if (m_OutlineSampler)
+            vkDestroySampler(device, m_OutlineSampler, nullptr);
+        if (m_OutlineDescSetLayout)
+            vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
+        if (m_OutlineDescPool)
+            vkDestroyDescriptorPool(device, m_OutlineDescPool, nullptr);
         if (m_PPSampler)
             vkDestroySampler(device, m_PPSampler, nullptr);
         if (m_PPDescSetLayout)
@@ -320,7 +330,7 @@ namespace Luth
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler     = m_ShadowSampler;
         shadowImgInfo.imageView   = vkShadowTex->GetImageView();
-        shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet writes[2] = {};
 
@@ -418,6 +428,69 @@ namespace Luth
         m_CompositeDescSet    = sets[3];
 
         UpdatePostProcessDescriptors();
+
+        // ---- Outline pass resources ----
+        {
+            // Nearest-neighbor sampler for integer entity ID texture
+            VkSamplerCreateInfo outlineSamplerInfo{};
+            outlineSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            outlineSamplerInfo.magFilter = VK_FILTER_NEAREST;
+            outlineSamplerInfo.minFilter = VK_FILTER_NEAREST;
+            outlineSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            outlineSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            outlineSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            outlineSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(device, &outlineSamplerInfo, nullptr, &m_OutlineSampler);
+
+            // Descriptor set layout: binding 0 = usampler2D (entity ID)
+            VkDescriptorSetLayoutBinding outlineBinding{};
+            outlineBinding.binding = 0;
+            outlineBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            outlineBinding.descriptorCount = 1;
+            outlineBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            VkDescriptorSetLayoutCreateInfo outlineLayoutInfo{};
+            outlineLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            outlineLayoutInfo.bindingCount = 1;
+            outlineLayoutInfo.pBindings = &outlineBinding;
+            vkCreateDescriptorSetLayout(device, &outlineLayoutInfo, nullptr, &m_OutlineDescSetLayout);
+
+            // Descriptor pool: 1 set, 1 sampler
+            VkDescriptorPoolSize outlinePoolSize{};
+            outlinePoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            outlinePoolSize.descriptorCount = 1;
+
+            VkDescriptorPoolCreateInfo outlinePoolInfo{};
+            outlinePoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            outlinePoolInfo.maxSets = 1;
+            outlinePoolInfo.poolSizeCount = 1;
+            outlinePoolInfo.pPoolSizes = &outlinePoolSize;
+            vkCreateDescriptorPool(device, &outlinePoolInfo, nullptr, &m_OutlineDescPool);
+
+            // Allocate descriptor set
+            VkDescriptorSetAllocateInfo outlineAllocInfo{};
+            outlineAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            outlineAllocInfo.descriptorPool = m_OutlineDescPool;
+            outlineAllocInfo.descriptorSetCount = 1;
+            outlineAllocInfo.pSetLayouts = &m_OutlineDescSetLayout;
+            vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_OutlineDescSet);
+
+            // Write descriptor: entity ID buffer
+            auto vkEntityID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+            VkDescriptorImageInfo entityIDImgInfo{};
+            entityIDImgInfo.sampler     = m_OutlineSampler;
+            entityIDImgInfo.imageView   = vkEntityID->GetImageView();
+            entityIDImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet outlineWrite{};
+            outlineWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            outlineWrite.dstSet = m_OutlineDescSet;
+            outlineWrite.dstBinding = 0;
+            outlineWrite.descriptorCount = 1;
+            outlineWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            outlineWrite.pImageInfo = &entityIDImgInfo;
+            vkUpdateDescriptorSets(device, 1, &outlineWrite, 0, nullptr);
+        }
     }
 
     void RenderingSystem::UpdatePostProcessDescriptors()
@@ -1176,15 +1249,16 @@ namespace Luth
 
         // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
         m_GeoPipelineManager.Init(layouts,
-            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode) -> PipelineConfig
+            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
-                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
                 config.depthFormat = VK_FORMAT_D32_SFLOAT;
                 config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
                 config.bindingDescriptions = bindingDescs;
                 config.attributeDescriptions = attribDescs;
                 config.pushConstantRanges = { pushConstantRange };
+                config.polygonMode = polygonMode;
 
                 switch (mode)
                 {
@@ -1318,6 +1392,27 @@ namespace Luth
                 m_PostProcessPipeline = std::make_unique<VKPipeline>(
                     ppConfig, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
             }
+        }
+
+        // ---- Outline pipeline ----
+        if (!m_FullscreenVertSpv.empty() && !m_OutlineFragSpv.empty() && m_OutlineDescSetLayout != VK_NULL_HANDLE)
+        {
+            std::vector<VkDescriptorSetLayout> outlineLayouts = { m_OutlineDescSetLayout };
+
+            VkPushConstantRange outlinePC{};
+            outlinePC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            outlinePC.offset = 0;
+            outlinePC.size = sizeof(float) * 8; // selectedEntityID(u32) + outlineWidth(f32) + texelSize(vec2) + outlineColor(vec4) = 32 bytes
+
+            PipelineConfig outlineConfig;
+            outlineConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // writes to LDR output with blending
+            outlineConfig.depthFormat = VK_FORMAT_UNDEFINED;
+            outlineConfig.depthTest = false; outlineConfig.depthWrite = false;
+            outlineConfig.blendEnabled = true; // alpha blend the outline on top
+            outlineConfig.cullMode = VK_CULL_MODE_NONE;
+            outlineConfig.pushConstantRanges = { outlinePC };
+            m_OutlinePipeline = std::make_unique<VKPipeline>(
+                outlineConfig, m_FullscreenVertSpv, m_OutlineFragSpv, outlineLayouts);
         }
     }
 
@@ -1480,11 +1575,12 @@ namespace Luth
             RG::RenderGraph rg(*m_FrameAllocator);
 
             RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
-            auto [sceneColor, sceneDepth]  = AddGeometryPass(rg, registry, shadowMap);
-            RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, sceneColor, sceneDepth);
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap);
+            RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
             RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, skyboxColor, bloomResult);
-            AddImGuiPass(rg, ldrOutput);
+            RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, geoOutput.entityID);
+            AddImGuiPass(rg, finalOutput);
 
             rg.Compile();
 
@@ -1513,6 +1609,66 @@ namespace Luth
             m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
             Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
+
+            // --- Mouse picking readback (immediate, single pixel) ---
+            if (m_PickPending)
+            {
+                m_PickPending = false;
+                int px = m_PickCoord.x;
+                int py = m_PickCoord.y;
+
+                if (px >= 0 && py >= 0 && px < (int)m_EntityIDBuffer->GetWidth() && py < (int)m_EntityIDBuffer->GetHeight())
+                {
+                    auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+
+                    // Create a small staging buffer for readback
+                    VkBuffer stagingBuf;
+                    VkBufferCreateInfo bufInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+                    bufInfo.size = sizeof(u32);
+                    bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                    VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(bufInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, stagingBuf);
+
+                    VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
+                    {
+                        // Transition entity ID image to transfer src
+                        VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+                        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                        barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+                        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                        barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                        barrier.image = vkID->GetImage();
+                        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+                        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                        dep.imageMemoryBarrierCount = 1;
+                        dep.pImageMemoryBarriers = &barrier;
+                        vkCmdPipelineBarrier2(cmd, &dep);
+
+                        // Copy single pixel
+                        VkBufferImageCopy region{};
+                        region.bufferOffset = 0;
+                        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                        region.imageOffset = { px, py, 0 };
+                        region.imageExtent = { 1, 1, 1 };
+                        vkCmdCopyImageToBuffer(cmd, vkID->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuf, 1, &region);
+                    });
+
+                    // Read the result
+                    void* mapped = VulkanAllocator::Map(stagingAlloc);
+                    u32 entityIdx = *reinterpret_cast<u32*>(mapped);
+                    VulkanAllocator::Unmap(stagingAlloc);
+                    VulkanAllocator::FreeBuffer(stagingBuf, stagingAlloc);
+
+                    if (entityIdx > 0 && entityIdx < (u32)m_EntityLookup.size())
+                        m_PickedEntity = m_EntityLookup[entityIdx];
+                    else
+                        m_PickedEntity = entt::null;
+
+                    m_PickResultReady = true;
+                }
+            }
 
             return;
         }
@@ -1620,6 +1776,7 @@ namespace Luth
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
+            RG::ResourceHandle entityIDTex;
             RG::ResourceHandle depthTex;
             RG::ResourceHandle shadowTex;
         };
@@ -1641,6 +1798,19 @@ namespace Luth
                     (void*)vkTex->GetImageView(),
                     RG::ResourceState::ShaderResource);
 
+                // Entity ID buffer (R32_UINT)
+                RG::TextureDesc idDesc;
+                idDesc.name   = "EntityID";
+                idDesc.width  = m_EntityIDBuffer->GetWidth();
+                idDesc.height = m_EntityIDBuffer->GetHeight();
+                idDesc.format = RG::TextureFormat::R32_Uint;
+
+                auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+                data.entityIDTex = rg.ImportResource(idDesc,
+                    (void*)vkID->GetImage(),
+                    (void*)vkID->GetImageView(),
+                    RG::ResourceState::Undefined);
+
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SceneDepth";
                 depthDesc.width  = m_SceneDepth->GetWidth();
@@ -1659,20 +1829,27 @@ namespace Luth
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
                 data.outputTex = builder.Write(data.outputTex);
 
+                VkClearValue idClear{};
+                idClear.color.uint32[0] = 0;
+                data.entityIDTex = builder.Write(data.entityIDTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
+
                 // Declare dependency on the shadow map (triggers depth→shader_read barrier)
                 if (shadowMapHandle.IsValid())
                     data.shadowTex = builder.Read(shadowMapHandle);
 
-                output.color = data.outputTex;
-                output.depth = data.depthTex;
+                output.color    = data.outputTex;
+                output.depth    = data.depthTex;
+                output.entityID = data.entityIDTex;
             },
             [this, &registry](GeometryPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, m_PBRVertSpv, m_PBRFragSpv);
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) return;
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
@@ -1703,19 +1880,32 @@ namespace Luth
                 m_OpaqueDraws.clear();
                 m_CutoutDraws.clear();
                 m_TransparentDraws.clear();
+                m_VisibleTriCount = 0;
+
+                // Build entity lookup table (index 0 = null sentinel)
+                m_EntityLookup.clear();
+                m_EntityLookup.push_back(entt::null);
 
                 auto view = registry.view<WorldTransform, MeshRenderer>();
                 for (auto [entity, worldTransform, meshRenderer] : view.each())
                 {
                     auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
                     if (!model) continue;
-                    if (!model->GetMesh(meshRenderer.MeshIndex)) continue;
+                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
+                    if (!mesh) continue;
+
+                    if (auto ib = mesh->GetIndexBuffer())
+                        m_VisibleTriCount += ib->GetCount() / 3;
+
+                    u32 entityIdx = (u32)m_EntityLookup.size();
+                    m_EntityLookup.push_back(entity);
 
                     DrawCommand dc;
                     dc.modelMatrix  = worldTransform.Matrix;
                     dc.materialSlot = 0;
                     dc.model        = model;
                     dc.meshIndex    = meshRenderer.MeshIndex;
+                    dc.entityIndex  = entityIdx;
 
                     Material::RenderMode mode = Material::RenderMode::Opaque;
                     Material::CullMode cullMode = Material::CullMode::Back;
@@ -1749,7 +1939,7 @@ namespace Luth
 
                     Material::CullMode currentCull = Material::CullMode::Back;
                     auto* pipeline = m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, mode, currentCull, m_PBRVertSpv, m_PBRFragSpv);
+                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                     if (!pipeline) return;
 
                     pipeline->Bind(cmd);
@@ -1761,7 +1951,7 @@ namespace Luth
                         {
                             currentCull = dc.cullMode;
                             auto* newPipeline = m_GeoPipelineManager.GetOrCreate(
-                                pbrUUID, mode, currentCull, m_PBRVertSpv, m_PBRFragSpv);
+                                pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                             if (!newPipeline) continue;
                             newPipeline->Bind(cmd);
                         }
@@ -1774,6 +1964,8 @@ namespace Luth
                         ObjectPushConstants pc{};
                         pc.modelMatrix  = dc.modelMatrix;
                         pc.materialIndex = dc.materialSlot;
+                        pc.shadeMode = static_cast<u32>(m_ShadeMode);
+                        pc.entityID  = dc.entityIndex;
 
                         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -2052,6 +2244,93 @@ namespace Luth
         return outputHandle;
     }
 
+    RG::ResourceHandle RenderingSystem::AddOutlinePass(
+        RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, RG::ResourceHandle entityIDHandle)
+    {
+        if (!m_OutlinePipeline || !m_LDROutput)
+            return ldrOutput;
+
+        struct OutlinePassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle entityIDInput;
+        };
+
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<OutlinePassData>("OutlinePass",
+            [&](OutlinePassData& data, RG::RenderPassBuilder& builder)
+            {
+                // Write to LDR output (alpha-blend outline on top)
+                data.output = builder.Write(ldrOutput,
+                    VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+
+                // Read entity ID buffer as sampled texture
+                data.entityIDInput = builder.Read(entityIDHandle);
+
+                outputHandle = data.output;
+            },
+            [this](OutlinePassData& data, RG::RenderPassContext& ctx)
+            {
+                // Look up the selected entity's index in the entity lookup table
+                // (must happen at execute time — m_EntityLookup is populated by the geometry pass)
+                u32 selectedIdx = 0;
+                if (m_SelectedEntity != entt::null)
+                {
+                    for (u32 i = 1; i < (u32)m_EntityLookup.size(); ++i)
+                    {
+                        if (m_EntityLookup[i] == m_SelectedEntity)
+                        {
+                            selectedIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_OutlinePipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_OutlinePipeline->GetLayout(), 0, 1, &m_OutlineDescSet, 0, nullptr);
+
+                u32 w = m_LDROutput->GetWidth();
+                u32 h = m_LDROutput->GetHeight();
+
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                // Push constants: selectedEntityID, outlineWidth, texelSize, outlineColor
+                struct OutlinePushConstants {
+                    u32   selectedEntityID;
+                    float outlineWidth;
+                    float texelSizeX;
+                    float texelSizeY;
+                    float outlineColorR;
+                    float outlineColorG;
+                    float outlineColorB;
+                    float outlineColorA;
+                } pc;
+
+                pc.selectedEntityID = selectedIdx;
+                pc.outlineWidth     = 2.0f;
+                pc.texelSizeX       = 1.0f / (float)w;
+                pc.texelSizeY       = 1.0f / (float)h;
+                pc.outlineColorR    = 1.0f; // Orange outline
+                pc.outlineColorG    = 0.6f;
+                pc.outlineColorB    = 0.0f;
+                pc.outlineColorA    = 1.0f;
+
+                vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        return outputHandle;
+    }
+
     void RenderingSystem::AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
         struct ImGuiPassData {
@@ -2246,6 +2525,7 @@ namespace Luth
         if (m_SceneColor)    m_NamedTextures["SceneColor"]    = m_SceneColor;
         if (m_SceneDepth)    m_NamedTextures["SceneDepth"]    = m_SceneDepth;
         if (m_LDROutput)     m_NamedTextures["LDROutput"]     = m_LDROutput;
+        if (m_EntityIDBuffer)m_NamedTextures["EntityID"]     = m_EntityIDBuffer;
         if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
         if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
         if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
@@ -2260,6 +2540,23 @@ namespace Luth
     }
 
     // =========================================================================
+    // Mouse Picking
+    // =========================================================================
+
+    void RenderingSystem::RequestPick(int x, int y)
+    {
+        m_PickCoord = { x, y };
+        m_PickPending = true;
+        m_PickResultReady = false;
+    }
+
+    entt::entity RenderingSystem::ConsumePickResult()
+    {
+        m_PickResultReady = false;
+        return m_PickedEntity;
+    }
+
+    // =========================================================================
     // Resize
     // =========================================================================
 
@@ -2268,12 +2565,33 @@ namespace Luth
         // Guard against unsigned underflow from negative float→u32 casts at startup
         if (m_SceneColor && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            m_SceneColor = Texture::Create(width, height, TextureFormat::RGBA16F);
-            m_SceneDepth = Texture::Create(width, height, TextureFormat::D32_Float);
-            m_LDROutput  = Texture::Create(width, height, TextureFormat::RGBA8);
+            m_SceneColor    = Texture::Create(width, height, TextureFormat::RGBA16F);
+            m_SceneDepth    = Texture::Create(width, height, TextureFormat::D32_Float);
+            m_LDROutput     = Texture::Create(width, height, TextureFormat::RGBA8);
+            m_EntityIDBuffer = Texture::Create(width, height, TextureFormat::R32_Uint);
             m_BloomA     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             m_BloomB     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             UpdatePostProcessDescriptors();
+
+            // Update outline descriptor with new entity ID buffer
+            if (m_OutlineDescSet && m_OutlineSampler)
+            {
+                auto vkEntityID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+                VkDescriptorImageInfo entityIDImgInfo{};
+                entityIDImgInfo.sampler     = m_OutlineSampler;
+                entityIDImgInfo.imageView   = vkEntityID->GetImageView();
+                entityIDImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet outlineWrite{};
+                outlineWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                outlineWrite.dstSet = m_OutlineDescSet;
+                outlineWrite.dstBinding = 0;
+                outlineWrite.descriptorCount = 1;
+                outlineWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                outlineWrite.pImageInfo = &entityIDImgInfo;
+                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &outlineWrite, 0, nullptr);
+            }
+
             RegisterNamedTextures();
         }
     }
