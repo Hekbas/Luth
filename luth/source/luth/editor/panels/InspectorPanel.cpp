@@ -80,6 +80,9 @@ namespace Luth
             ImGui::Dummy({ 0, 4 });
         }
 
+        // Track the active material for the entity inspector
+        UUID activeMaterialUUID = UUID::Invalid();
+
         // Draw each component with a collapsible UI section
         #if defined(DEBUG)
         DrawComponent<ID>("ID", m_SelectedEntity, [](Entity entity, ID& component) {
@@ -114,11 +117,12 @@ namespace Luth
         #endif
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
-            UI::BeginProperties();
-            if (UI::Property("Position", transform.Position)) { transform.IsDirty = true; Editor::MarkDirty(); }
-            if (UI::Property("Rotation", transform.Rotation)) { transform.IsDirty = true; Editor::MarkDirty(); }
-            if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) { transform.IsDirty = true; Editor::MarkDirty(); }
-            UI::EndProperties();
+            if (UI::BeginProperties()) {
+                if (UI::Property("Position", transform.Position)) { transform.IsDirty = true; Editor::MarkDirty(); }
+                if (UI::Property("Rotation", transform.Rotation)) { transform.IsDirty = true; Editor::MarkDirty(); }
+                if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) { transform.IsDirty = true; Editor::MarkDirty(); }
+                UI::EndProperties();
+            }
         });
 
         DrawComponent<Camera>("Camera", m_SelectedEntity, [](Entity e, Camera& camera) {
@@ -172,35 +176,38 @@ namespace Luth
             if (ImGui::DragFloat("##Aspect", &camera.AspectRatio, 0.01f, 0.1f, 10.0f)) { camera.IsDirty = true; Editor::MarkDirty(); }
         });
 
-        DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [](Entity entity, MeshRenderer& meshRenderer) {
-            UI::BeginProperties();
+        DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [&](Entity entity, MeshRenderer& meshRenderer) {
+            if (UI::BeginProperties()) {
 
-            if (UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model))
-                Editor::MarkDirty();
+                if (UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model))
+                    Editor::MarkDirty();
 
-            // Ensure model is loaded to get mesh count
-            if (meshRenderer.ModelUUID.IsValid() && !AssetManager::IsLoaded(meshRenderer.ModelUUID) && !AssetManager::IsLoading(meshRenderer.ModelUUID))
-                 AssetManager::LoadAsync(meshRenderer.ModelUUID);
+                // Ensure model is loaded to get mesh count
+                if (meshRenderer.ModelUUID.IsValid() && !AssetManager::IsLoaded(meshRenderer.ModelUUID) && !AssetManager::IsLoading(meshRenderer.ModelUUID))
+                     AssetManager::LoadAsync(meshRenderer.ModelUUID);
 
-            if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
-                int meshIndex = (int)meshRenderer.MeshIndex;
-                if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1)) {
-                    meshRenderer.MeshIndex = (u32)meshIndex;
+                if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
+                    int meshIndex = (int)meshRenderer.MeshIndex;
+                    if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1)) {
+                        meshRenderer.MeshIndex = (u32)meshIndex;
+                        Editor::MarkDirty();
+                    }
+                }
+
+                if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
+                {
+                    // Update model's material list if possible
+                    if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
+                    {
+                        model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
+                    }
                     Editor::MarkDirty();
                 }
+
+                UI::EndProperties();
             }
 
-            if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
-            {
-                // Update model's material list if possible
-                if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
-                {
-                    model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
-                }
-                Editor::MarkDirty();
-            }
-
-            UI::EndProperties();
+            activeMaterialUUID = meshRenderer.MaterialUUID;
         });
 
         DrawComponent<Animation>("Animation", m_SelectedEntity, [](Entity entity, Animation& animation) {
@@ -210,27 +217,29 @@ namespace Luth
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
-            UI::BeginProperties();
             bool changed = false;
-            changed |= UI::PropertyColor("Color", dirLight.Color);
-            changed |= UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
-            changed |= UI::Property("Cast Shadows", dirLight.CastShadows);
-            if (dirLight.CastShadows) {
-                changed |= UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f);
-                changed |= UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
-                changed |= UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
+            if (UI::BeginProperties()) {
+                changed |= UI::PropertyColor("Color", dirLight.Color);
+                changed |= UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
+                changed |= UI::Property("Cast Shadows", dirLight.CastShadows);
+                if (dirLight.CastShadows) {
+                    changed |= UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f);
+                    changed |= UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
+                    changed |= UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
+                }
+                UI::EndProperties();
             }
-            UI::EndProperties();
             if (changed) Editor::MarkDirty();
         });
 
         DrawComponent<PointLight>("Point Light", m_SelectedEntity, [](Entity entity, PointLight& pointLight) {
-            UI::BeginProperties();
             bool changed = false;
-            changed |= UI::PropertyColor("Color", pointLight.Color);
-            changed |= UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f);
-            changed |= UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f);
-            UI::EndProperties();
+            if (UI::BeginProperties()) {
+                changed |= UI::PropertyColor("Color", pointLight.Color);
+                changed |= UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f);
+                changed |= UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f);
+                UI::EndProperties();
+            }
             if (changed) Editor::MarkDirty();
         });
 
@@ -274,33 +283,37 @@ namespace Luth
                 ImGui::CloseCurrentPopup();
             }
         });
+
+        if (activeMaterialUUID.IsValid()) {
+            if (!AssetManager::IsLoaded(activeMaterialUUID) && !AssetManager::IsLoading(activeMaterialUUID))
+                AssetManager::LoadAsync(activeMaterialUUID);
+
+            if (auto mat = AssetManager::GetAsset<Material>(activeMaterialUUID)) {
+                ImGui::Dummy({ 0, 8 });
+                ImGui::Separator();
+                ImGui::Dummy({ 0, 4 });
+                m_MaterialEditor.Draw(*mat);
+            }
+        }
     }
 
     template<typename T, typename UIFunction>
     void InspectorPanel::DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
-        const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed
-            | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding;
-
         if (entity.HasComponent<T>()) {
-            bool open = ImGui::TreeNodeEx(name.c_str(), treeNodeFlags);
-
-            // Right-click to open context menu
-            std::string popId = "##Pop_" + name;
-            if (ImGui::BeginPopupContextItem(popId.c_str())) {
+            auto contextMenu = [&]() {
                 constexpr bool enabled = (std::is_same_v<T, Transform> || std::is_same_v<T, ID>) ? false : true;
                 if (ImGui::MenuItem("Remove component", nullptr, nullptr, enabled)) {
                     entity.RemoveComponent<T>();
                 }
-                ImGui::EndPopup();
-            }
+            };
+
+            bool open = UI::BeginCollapsingHeader(name.c_str(), true, contextMenu);
 
             if (open) {
                 uiFunction(entity, entity.GetComponent<T>());
-                ImGui::TreePop();
+                UI::EndCollapsingHeader();
             }
-
-            ImGui::Dummy({ 0, 4 });
         }
     }
 
@@ -318,7 +331,7 @@ namespace Luth
         AssetType type = meta.Type;
 
         // Always show Metadata
-        if (ImGui::CollapsingHeader("Asset Metadata", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Asset Metadata", true))
         {
             if (ImGui::BeginTable("Metadata", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
             {
@@ -328,6 +341,7 @@ namespace Luth
                 ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("Path"); ImGui::TableSetColumnIndex(1); ImGui::TextWrapped("%s", meta.Path.string().c_str());
                 ImGui::EndTable();
             }
+            UI::EndCollapsingHeader();
         }
         ImGui::Dummy({ 0, 4 });
 

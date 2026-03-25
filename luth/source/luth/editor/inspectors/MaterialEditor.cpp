@@ -71,58 +71,8 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Albedo color picker
-        {
-            UI::BeginProperties();
-            glm::vec4 color = material.GetColor();
-            if (UI::PropertyColor("Albedo Color", color)) {
-                material.SetColor(color);
-                material.MarkDirty();
-            }
-            UI::EndProperties();
-        }
-
-        ImGui::Dummy({ 0, 4 });
-
-        // Dynamic Uniform Editor
-        if (auto shader = material.GetShader())
-        {
-            if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                UI::BeginProperties();
-                for (const auto& [buffName, buffer] : shader->GetBuffers())
-                {
-                    if (buffer.Set != 1) continue; // Only edit Material set
-
-                    for (const auto& [name, uniform] : buffer.Uniforms)
-                    {
-                        switch (uniform.Type)
-                        {
-                            case ShaderDataType::Float: {
-                                float val = material.Get<float>(name);
-                                if (UI::Property(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
-                                break;
-                            }
-                            case ShaderDataType::Float3: {
-                                Vec3 val = material.Get<Vec3>(name);
-                                if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
-                                break;
-                            }
-                            case ShaderDataType::Float4: {
-                                Vec4 val = material.Get<Vec4>(name);
-                                if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
-                                break;
-                            }
-                            default: break;
-                        }
-                    }
-                }
-                UI::EndProperties();
-            }
-        }
-
-        // Render Settings
-        if (ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        // Surface Settings
+        if (UI::BeginCollapsingHeader("Surface Settings", true))
         {
             // Render mode
             Material::RenderMode currentMode = material.GetRenderMode();
@@ -134,16 +84,6 @@ namespace Luth
             if (ImGui::Combo("##RenderMode", &modeIndex, renderModes, IM_ARRAYSIZE(renderModes))) {
                 material.SetRenderMode(static_cast<Material::RenderMode>(modeIndex));
                 material.MarkDirty();
-            }
-
-            if (material.GetRenderMode() == Material::RenderMode::Cutout) {
-                float cutoff = material.GetAlphaCutoff();
-                ImGui::Text("Alpha Cutoff"); ImGui::SameLine();
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                if (ImGui::SliderFloat("##Alpha Cutoff", &cutoff, 0.0f, 1.0f)) {
-                    material.SetAlphaCutoff(cutoff);
-                    material.MarkDirty();
-                }
             }
 
             if (material.GetRenderMode() == Material::RenderMode::Transparent ||
@@ -178,125 +118,236 @@ namespace Luth
                 material.SetCullMode(static_cast<Material::CullMode>(cullIndex));
                 material.MarkDirty();
             }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 4 });
 
-        // Texture properties with collapsable headers
-        const auto& textures = material.GetTextures();
+        // Surface Inputs
+        if (UI::BeginCollapsingHeader("Surface Inputs", true))
+        {
+            if (ImGui::BeginTable("SurfaceInputsTable", 4, ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn("Texture", ImGuiTableColumnFlags_WidthFixed, 36.0f);
+                ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("UV", ImGuiTableColumnFlags_WidthFixed, 30.0f);
 
-        auto DrawTextureProperty = [&](MapType type, const char* label) {
-            std::shared_ptr<Texture> texture;
-            bool hasTexture = false;
-            UUID textureUUID = UUID::Invalid();
-            u32 uvIndex = 0;
+                const auto& textures = material.GetTextures();
 
-            for (const auto& texInfo : textures) {
-                if (texInfo.type == type) {
-                    textureUUID = texInfo.Uuid;
-                    uvIndex = texInfo.uvIndex;
-                    // Try load if needed for preview
-                    if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
-                        AssetManager::LoadAsync(texInfo.Uuid);
+                auto DrawSurfaceInput = [&](MapType type, const char* label, std::function<void()> drawControl) {
+                    ImGui::TableNextRow();
 
-                    if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
-                        hasTexture = true;
-                        break;
+                    std::shared_ptr<Texture> texture;
+                    bool hasTexture = false;
+                    UUID textureUUID = UUID::Invalid();
+                    u32 uvIndex = 0;
+
+                    for (const auto& texInfo : textures) {
+                        if (texInfo.type == type) {
+                            textureUUID = texInfo.Uuid;
+                            uvIndex = texInfo.uvIndex;
+                            if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
+                                AssetManager::LoadAsync(texInfo.Uuid);
+
+                            if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
+                                hasTexture = true;
+                                break;
+                            }
+                        }
                     }
-                }
-            }
 
-            // Header setup
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed |
-                ImGuiTreeNodeFlags_AllowItemOverlap |
-                ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                ImGuiTreeNodeFlags_DefaultOpen;
+                    ImGui::PushID(label);
 
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
-            bool headerOpen = ImGui::CollapsingHeader(label, flags);
+                    // 1. Label column
+                    ImGui::TableNextColumn();
+                    ImGui::AlignTextToFramePadding();
+                    bool enabled = material.IsUseMapEnabled(type);
+                    ImGui::Text("%s", label);
 
-            // Checkbox control
-            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 12);
-            std::string toggleId = "##Toggle_" + std::string(label);
-            bool enabled = material.IsUseMapEnabled(type);
-            if (ImGui::Checkbox(toggleId.c_str(), &enabled)) {
-                material.EnableUseMap(type, enabled);
-            }
+                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness);
+                    
+                    // 2. Texture slot
+                    ImGui::TableNextColumn();
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                    std::string textureId = "##Texture_" + std::string(label);
+                    
+                    ImVec2 buttonSize(24, 24);
+                    if (hasTexture) {
+                        ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), buttonSize, { 0, 1 }, { 1, 0 });
+                    }
+                    else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
+                        ImGui::Button("...", buttonSize);
+                    }
+                    else {
+                        ImGui::Button(textureId.c_str(), buttonSize);
+                    }
+                    ImGui::PopStyleVar();
 
-            ImGui::PopStyleVar();
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                            const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                            material.SetTexture({ *droppedUUID, type, uvIndex });
+                            material.EnableUseTexture(type, true);
+                            material.EnableUseMap(type, true);
+                            material.MarkDirty();
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
 
-            if (headerOpen) {
-                ImGui::BeginDisabled(!enabled);
-                ImGui::Indent();
-
-                // Texture slot with drag-drop support
-                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-                std::string textureId = "##Texture_" + std::string(label);
-                if (hasTexture) {
-                    ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), { 32, 32 }, { 0, 1 }, { 1, 0 });
-                }
-                else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
-                    ImGui::Button("...", { 32, 32 }); // Loading placeholder
-                }
-                else {
-                    ImGui::Button(textureId.c_str(), { 32, 32 });
-                }
-                ImGui::PopStyleVar();
-
-                if (ImGui::BeginDragDropTarget()) {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                        const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                        material.SetTexture({ *droppedUUID, type, uvIndex });
-                        material.EnableUseTexture(type, true);
+                    if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                        material.SetTexture({ UUID::Invalid(), type, 0 });
+                        material.EnableUseTexture(type, false);
+                        material.EnableUseMap(type, false);
                         material.MarkDirty();
                     }
-                    ImGui::EndDragDropTarget();
-                }
 
-                // [SUPR] Handle texture deletion
-                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                    material.SetTexture({ UUID::Invalid(), type, 0 });
-                    material.EnableUseTexture(type, false);
-                    material.MarkDirty();
-                }
+                    if (hasTexture && ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::Text("%s", texture->GetName().c_str());
+                        ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
+                        ImGui::EndTooltip();
+                    }
 
-                // Texture properties
-                if (hasTexture) {
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Text("%s", texture->GetName().c_str());
-                    ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
-                    ImGui::EndGroup();
-                }
+                    // 3. Control column
+                    ImGui::TableNextColumn();
+                    ImGui::PushItemWidth(-1);
+                    if (drawControl) drawControl();
+                    else ImGui::Dummy(buttonSize);
+                    ImGui::PopItemWidth();
 
-                // UV index selector
-                {
+                    // 4. UV Channel
+                    ImGui::TableNextColumn();
+                    ImGui::PushItemWidth(-1);
                     int uv = static_cast<int>(uvIndex);
                     std::string uvId = "##UV_" + std::string(label);
-                    ImGui::Text("UV Channel"); ImGui::SameLine();
-                    ImGui::SetNextItemWidth(80);
-                    if (ImGui::InputInt(uvId.c_str(), &uv, 1, 1)) {
+                    // Hide step buttons with 0 step
+                    if (ImGui::InputInt(uvId.c_str(), &uv, 0, 0)) {
                         if (uv < 0) uv = 0;
                         if (uv > 3) uv = 3;
                         material.SetTexture({ textureUUID, type, static_cast<u32>(uv) });
                         material.MarkDirty();
                     }
-                }
+                    ImGui::PopItemWidth();
 
-                ImGui::Unindent();
-                ImGui::EndDisabled();
+                    ImGui::EndDisabled();
+
+                    if (ImGui::BeginPopupContextItem("RowContext"))
+                    {
+                        if (type != MapType::Diffuse) {
+                            if (ImGui::MenuItem(enabled ? "Disable Map" : "Enable Map")) {
+                                material.EnableUseMap(type, !enabled);
+                                material.MarkDirty();
+                            }
+                        }
+                        if (ImGui::MenuItem("Clear Texture")) {
+                            material.SetTexture({ UUID::Invalid(), type, 0 });
+                            material.EnableUseTexture(type, false);
+                            material.MarkDirty();
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    ImGui::PopID();
+                };
+
+                DrawSurfaceInput(MapType::Diffuse, "Albedo", [&]() {
+                    glm::vec4 color = material.GetColor();
+                    if (ImGui::ColorEdit4("##AlbedoColor", &color.x, ImGuiColorEditFlags_NoInputs)) {
+                        material.SetColor(color);
+                        material.MarkDirty();
+                    }
+                });
+
+                DrawSurfaceInput(MapType::Alpha, "Alpha", [&]() {
+                    if (material.GetRenderMode() == Material::RenderMode::Cutout) {
+                        float cutoff = material.GetAlphaCutoff();
+                        if (ImGui::SliderFloat("##AlphaCutoff", &cutoff, 0.0f, 1.0f, "%.2f")) {
+                            material.SetAlphaCutoff(cutoff);
+                            material.MarkDirty();
+                        }
+                    } else {
+                        ImGui::Dummy({0, 24});
+                    }
+                });
+
+                DrawSurfaceInput(MapType::Normal, "Normal", nullptr);
+
+                DrawSurfaceInput(MapType::Metalness, "Metallic", [&]() {
+                    float met = material.Get<float>("u_Metalness", 0.0f);
+                    if (ImGui::SliderFloat("##Met", &met, 0.0f, 1.0f, "%.2f")) {
+                        material.Set("u_Metalness", met);
+                        material.MarkDirty();
+                    }
+                });
+
+                DrawSurfaceInput(MapType::Roughness, "Roughness", [&]() {
+                    float ro = material.Get<float>("u_Roughness", 0.5f);
+                    if (ImGui::SliderFloat("##Rou", &ro, 0.0f, 1.0f, "%.2f")) {
+                        material.Set("u_Roughness", ro);
+                        material.MarkDirty();
+                    }
+                });
+
+                DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
+                DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
+                DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
+                    glm::vec3 emColor = material.Get<glm::vec3>("u_EmissiveColor", glm::vec3(0.0f));
+                    if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_NoInputs)) {
+                        material.Set("u_EmissiveColor", emColor);
+                        material.MarkDirty();
+                    }
+                });
+
+                DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
+
+                ImGui::EndTable();
             }
-            ImGui::Spacing();
-        };
+            UI::EndCollapsingHeader();
+        }
 
-        DrawTextureProperty(MapType::Diffuse, "Albedo");
-        DrawTextureProperty(MapType::Alpha, "Alpha");
-        DrawTextureProperty(MapType::Normal, "Normal");
-        DrawTextureProperty(MapType::Metalness, "Metallic");
-        DrawTextureProperty(MapType::Roughness, "Roughness");
-        DrawTextureProperty(MapType::Specular, "Specular");
-        DrawTextureProperty(MapType::Occlusion, "Occlusion");
-        DrawTextureProperty(MapType::Emissive, "Emissive");
-        DrawTextureProperty(MapType::Thickness, "Thickness");
+        ImGui::Dummy({ 0, 4 });
+
+        // Dynamic Uniform Editor (Properties)
+        if (auto shader = material.GetShader())
+        {
+            if (UI::BeginCollapsingHeader("Properties", true))
+            {
+                if (UI::BeginProperties()) {
+                    for (const auto& [buffName, buffer] : shader->GetBuffers())
+                    {
+                        if (buffer.Set != 1) continue; // Only edit Material set
+
+                        for (const auto& [name, uniform] : buffer.Uniforms)
+                        {
+                            // Skip uniforms already displayed in Surface Inputs
+                            if (name == "u_Metalness" || name == "u_Roughness" || name == "u_EmissiveColor")
+                                continue;
+
+                            switch (uniform.Type)
+                            {
+                                case ShaderDataType::Float: {
+                                    float val = material.Get<float>(name);
+                                    if (UI::Property(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
+                                    break;
+                                }
+                                case ShaderDataType::Float3: {
+                                    Vec3 val = material.Get<Vec3>(name);
+                                    if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
+                                    break;
+                                }
+                                case ShaderDataType::Float4: {
+                                    Vec4 val = material.Get<Vec4>(name);
+                                    if (UI::PropertyColor(name.c_str(), val)) { material.Set(name, val); material.MarkDirty(); }
+                                    break;
+                                }
+                                default: break;
+                            }
+                        }
+                    }
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+        }
     }
 }
