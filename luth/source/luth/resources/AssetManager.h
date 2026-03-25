@@ -57,7 +57,8 @@ namespace Luth
         static void Evict(UUID handle);
 
         // Unloads assets that are only referenced by the AssetManager
-        static void Trim();
+        // Returns the number of evicted assets. force=true skips the 5s timeout.
+        static u32 Trim(bool force = false);
 
     private:
         struct LoadRequest {

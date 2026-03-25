@@ -336,7 +336,7 @@ namespace Luth::EditorStyle
             s.WindowBorderSize = 0.0f; s.ChildBorderSize = 0.0f; s.PopupBorderSize = 1.0f;
             s.FrameBorderSize = 0.0f; s.TabBorderSize = 0.0f;
 
-            s.WindowPadding = {2,2}; s.FramePadding = {3,3}; s.ItemSpacing = {4,4};
+            s.WindowPadding = {2,2}; s.FramePadding = {3,3}; s.ItemSpacing = {8,4};
             s.ItemInnerSpacing = {4,4}; s.TouchExtraPadding = {0,0};
             s.IndentSpacing = 16; s.ScrollbarSize = 12; s.GrabMinSize = 10;
             s.Alpha = 1.0f;

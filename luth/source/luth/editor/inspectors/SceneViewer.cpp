@@ -10,7 +10,7 @@ namespace Luth
     void SceneViewer::Draw(const UUID& sceneUUID, const fs::path& scenePath)
     {
         // Scene Info
-        if (ImGui::CollapsingHeader("Scene Info", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Scene Info", true))
         {
             size_t fileSize = 0;
             int entityCount = 0;
@@ -33,18 +33,20 @@ namespace Luth
                 }
             }
 
-            UI::BeginInfoTable("SceneProps");
-            UI::InfoRow("Entities", "%d", entityCount);
+            if (UI::BeginInfoTable("SceneProps")) {
+                UI::InfoRow("Entities", "%d", entityCount);
 
-            // Format file size
-            if (fileSize < 1024)
-                UI::InfoRow("File Size", "%d B", (int)fileSize);
-            else if (fileSize < 1024 * 1024)
-                UI::InfoRow("File Size", "%.1f KB", fileSize / 1024.0f);
-            else
-                UI::InfoRow("File Size", "%.1f MB", fileSize / (1024.0f * 1024.0f));
+                // Format file size
+                if (fileSize < 1024)
+                    UI::InfoRow("File Size", "%d B", (int)fileSize);
+                else if (fileSize < 1024 * 1024)
+                    UI::InfoRow("File Size", "%.1f KB", fileSize / 1024.0f);
+                else
+                    UI::InfoRow("File Size", "%.1f MB", fileSize / (1024.0f * 1024.0f));
 
-            UI::EndInfoTable();
+                UI::EndInfoTable();
+            }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 8 });

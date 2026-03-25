@@ -27,7 +27,7 @@ namespace Luth
         }
 
         // Reflection Data
-        if (ImGui::CollapsingHeader("Reflection", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Reflection", true))
         {
             // Uniform Buffers
             const auto& buffers = shader.GetBuffers();
@@ -88,12 +88,13 @@ namespace Luth
                 }
                 ImGui::Unindent();
             }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 4 });
 
         // Source Code (read-only)
-        if (ImGui::CollapsingHeader("Source Code"))
+        if (UI::BeginCollapsingHeader("Source Code"))
         {
             if (!m_SourceCode.empty())
             {
@@ -107,6 +108,7 @@ namespace Luth
             {
                 ImGui::TextDisabled("Source file not found");
             }
+            UI::EndCollapsingHeader();
         }
     }
 }

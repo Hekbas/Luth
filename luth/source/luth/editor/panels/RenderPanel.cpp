@@ -5,6 +5,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/PostProcessSettings.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/editor/UI.h"
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -56,20 +57,22 @@ namespace Luth
             auto& pp = m_RS->GetPostProcessSettings();
 
             // Environment Lighting
-            if (ImGui::CollapsingHeader("Environment Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (UI::BeginCollapsingHeader("Environment Lighting", true)) {
                 auto& settings = Editor::GetSettings();
                 ImGui::SliderFloat("IBL Intensity", &settings.iblIntensity, 0.0f, 5.0f, "%.2f");
                 ImGui::SliderFloat("Skybox Intensity", &settings.skyboxIntensity, 0.0f, 5.0f, "%.2f");
+                UI::EndCollapsingHeader();
             }
 
             // Bloom
-            if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (UI::BeginCollapsingHeader("Bloom", true)) {
                 ImGui::SliderFloat("Threshold", &pp.bloomThreshold, 0.0f, 5.0f);
                 ImGui::SliderFloat("Strength", &pp.bloomStrength, 0.0f, 2.0f);
+                UI::EndCollapsingHeader();
             }
 
             // Tone Mapping
-            if (ImGui::CollapsingHeader("Tone Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (UI::BeginCollapsingHeader("Tone Mapping", true)) {
                 const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2" };
                 int currentOp = static_cast<int>(pp.tonemapOp);
                 if (ImGui::Combo("Operator", &currentOp, operators, IM_ARRAYSIZE(operators)))
@@ -78,26 +81,30 @@ namespace Luth
                 ImGui::SliderFloat("Exposure", &pp.exposure, 0.1f, 10.0f, "%.2f");
                 ImGui::SliderFloat("Contrast", &pp.contrast, 0.5f, 2.0f, "%.2f");
                 ImGui::SliderFloat("Saturation", &pp.saturation, 0.0f, 2.0f, "%.2f");
+                UI::EndCollapsingHeader();
             }
 
             // Color Balance
-            if (ImGui::CollapsingHeader("Color Balance")) {
+            if (UI::BeginCollapsingHeader("Color Balance")) {
                 ImGui::ColorEdit3("Shadows", glm::value_ptr(pp.shadowBalance));
                 ImGui::ColorEdit3("Midtones", glm::value_ptr(pp.midtoneBalance));
                 ImGui::ColorEdit3("Highlights", glm::value_ptr(pp.highlightBalance));
+                UI::EndCollapsingHeader();
             }
 
             // Vignette
-            if (ImGui::CollapsingHeader("Vignette")) {
+            if (UI::BeginCollapsingHeader("Vignette")) {
                 ImGui::SliderFloat("Amount", &pp.vignetteAmount, 0.0f, 1.0f);
                 ImGui::SliderFloat("Hardness", &pp.vignetteHardness, 0.0f, 1.0f);
+                UI::EndCollapsingHeader();
             }
 
             // Others
-            if (ImGui::CollapsingHeader("Effects")) {
+            if (UI::BeginCollapsingHeader("Effects")) {
                 ImGui::SliderFloat("Grain", &pp.grainAmount, 0.0f, 0.2f, "%.3f");
                 ImGui::SliderFloat("Sharpness", &pp.sharpness, -1.0f, 1.0f);
                 ImGui::SliderFloat("Chromatic Aberration", &pp.chromaticAberration, 0.0f, 0.02f, "%.4f");
+                UI::EndCollapsingHeader();
             }
         }
 

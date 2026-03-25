@@ -40,14 +40,15 @@ namespace Luth
         }
 
         // Import Settings
-        if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Import Settings", true))
         {
             const char* upAxes[] = { "X-Up", "Y-Up", "Z-Up" };
 
-            UI::BeginProperties("ModelImport");
-            UI::Property("Scale Factor", m_ScaleFactor, 0.01f, 0.001f, 1000.0f);
-            UI::PropertyCombo("Up Axis", m_UpAxis, upAxes, IM_ARRAYSIZE(upAxes));
-            UI::EndProperties();
+            if (UI::BeginProperties("ModelImport")) {
+                UI::Property("Scale Factor", m_ScaleFactor, 0.01f, 0.001f, 1000.0f);
+                UI::PropertyCombo("Up Axis", m_UpAxis, upAxes, IM_ARRAYSIZE(upAxes));
+                UI::EndProperties();
+            }
 
             ImGui::Dummy({ 0, 4 });
 
@@ -74,6 +75,7 @@ namespace Luth
                     m_LastModelUUID = UUID::Invalid();
                 }
             }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 4 });
@@ -82,19 +84,21 @@ namespace Luth
         const auto& info = model.GetCachedModelInfo();
 
         // Basic model info section
-        if (ImGui::CollapsingHeader("Model Info", ImGuiTreeNodeFlags_DefaultOpen)) {
-            UI::BeginInfoTable("ModelProps");
-            UI::InfoRow("Meshes",    "%d", info.TotalMeshCount);
-            UI::InfoRow("Vertices",  "%d", info.TotalVertexCount);
-            UI::InfoRow("Indices",   "%d", info.TotalIndexCount);
-            UI::InfoRow("Materials", "%d", info.MaterialCount);
-            UI::InfoRow("Skinned",   "%s", info.IsSkinned ? "Yes" : "No");
-            UI::EndInfoTable();
+        if (UI::BeginCollapsingHeader("Model Info", true)) {
+            if (UI::BeginInfoTable("ModelProps")) {
+                UI::InfoRow("Meshes",    "%d", info.TotalMeshCount);
+                UI::InfoRow("Vertices",  "%d", info.TotalVertexCount);
+                UI::InfoRow("Indices",   "%d", info.TotalIndexCount);
+                UI::InfoRow("Materials", "%d", info.MaterialCount);
+                UI::InfoRow("Skinned",   "%s", info.IsSkinned ? "Yes" : "No");
+                UI::EndInfoTable();
+            }
+            UI::EndCollapsingHeader();
         }
         ImGui::Dummy({ 0, 4 });
 
         // Meshes section
-        if (ImGui::CollapsingHeader("Meshes")) {
+        if (UI::BeginCollapsingHeader("Meshes")) {
             if (ImGui::BeginTable("MeshesTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                 ImGui::TableSetupColumn("Name");
                 ImGui::TableSetupColumn("Vertices");
@@ -116,13 +120,14 @@ namespace Luth
 
                 ImGui::EndTable();
             }
+            UI::EndCollapsingHeader();
         }
         ImGui::Dummy({ 0, 4 });
 
         // Skinned model specific sections
         if (info.IsSkinned) {
             // Bones section
-            if (ImGui::CollapsingHeader("Bones")) {
+            if (UI::BeginCollapsingHeader("Bones")) {
                 ImGui::Text("Total Bones: %d", info.BoneCount);
 
                 if (ImGui::TreeNode("Bone Hierarchy")) {
@@ -161,11 +166,12 @@ namespace Luth
 
                     ImGui::TreePop();
                 }
+                UI::EndCollapsingHeader();
             }
             ImGui::Dummy({ 0, 4 });
 
             // Animations section
-            if (ImGui::CollapsingHeader("Animations")) {
+            if (UI::BeginCollapsingHeader("Animations")) {
                 ImGui::Text("Total Animations: %d", info.AnimationCount);
 
                 if (ImGui::BeginTable("AnimationsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
@@ -186,6 +192,7 @@ namespace Luth
 
                     ImGui::EndTable();
                 }
+                UI::EndCollapsingHeader();
             }
         }
     }

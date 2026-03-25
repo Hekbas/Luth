@@ -183,24 +183,27 @@ namespace Luth
         s_LoadingAssets.erase(handle);
     }
 
-    void AssetManager::Trim()
+    u32 AssetManager::Trim(bool force)
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);
         f32 currentTime = Time::GetTime();
-        const f32 timeout = 5.0f; // Keep unused assets for 5 seconds
+        const f32 timeout = 5.0f;
+        u32 evicted = 0;
 
         for (auto it = s_Assets.begin(); it != s_Assets.end(); )
         {
-            // If use_count is 1, it means only s_Assets holds a reference
-            if (it->second.use_count() == 1 && (currentTime - it->second->LastAccessedTime > timeout))
+            if (it->second.use_count() == 1 &&
+                (force || (currentTime - it->second->LastAccessedTime > timeout)))
             {
                 it = s_Assets.erase(it);
+                ++evicted;
             }
             else
             {
                 ++it;
             }
         }
+        return evicted;
     }
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)

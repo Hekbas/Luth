@@ -270,7 +270,7 @@ namespace Luth
         auto& pass = snapshot.passes[m_SelectedPassIndex];
 
         // ── Output Preview ──
-        if (ImGui::CollapsingHeader("Output", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Output", true))
         {
             int previewIdx = m_SelectedResourceIndex;
             if (previewIdx < 0) previewIdx = pass.primaryOutputIndex;
@@ -324,12 +324,13 @@ namespace Luth
             {
                 ImGui::TextDisabled("No output resource");
             }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Spacing();
 
         // ── Details ──
-        if (ImGui::CollapsingHeader("Details", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Details", true))
         {
             ImGui::Indent(4.0f);
 
@@ -408,12 +409,13 @@ namespace Luth
             }
 
             ImGui::Unindent(4.0f);
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Spacing();
 
         // ── Resources ──
-        if (ImGui::CollapsingHeader("Resources"))
+        if (UI::BeginCollapsingHeader("Resources"))
         {
             ImGui::Indent(4.0f);
 
@@ -442,6 +444,7 @@ namespace Luth
             }
 
             ImGui::Unindent(4.0f);
+            UI::EndCollapsingHeader();
         }
     }
 }

@@ -8,11 +8,14 @@
 #include <string>
 #include <glm/glm.hpp>
 #include <imgui.h>
+#include <functional>
 
 namespace Luth::UI
 {
-    // Layout
-    void BeginProperties(const char* id = "Properties");
+    bool BeginCollapsingHeader(const char* label, bool defaultOpen = false, const std::function<void()>& contextMenu = nullptr);
+    void EndCollapsingHeader();
+
+    bool BeginProperties(const char* id = "Properties");
     void EndProperties();
 
     // Widgets
@@ -37,7 +40,7 @@ namespace Luth::UI
     bool PropertyCombo(const char* label, int& currentIndex, const char* const items[], int count);
 
     // Read-only info table (for metadata, model stats, texture properties, etc.)
-    void BeginInfoTable(const char* id);
+    bool BeginInfoTable(const char* id);
     void InfoRow(const char* label, const char* fmt, ...);
     void EndInfoTable();
 

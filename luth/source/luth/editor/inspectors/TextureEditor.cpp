@@ -30,30 +30,33 @@ namespace Luth
         }
         
         // ---- Info Section ----
-        if (ImGui::CollapsingHeader("Texture Info", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Texture Info", true))
         {
-            UI::BeginInfoTable("TextureProps");
-            UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
-            UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
-            UI::InfoRow("Type",       "%s", "2D");
-            UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
-            UI::EndInfoTable();
+            if (UI::BeginInfoTable("TextureProps")) {
+                UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
+                UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
+                UI::InfoRow("Type",       "%s", "2D");
+                UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
+                UI::EndInfoTable();
+            }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 8 });
         
         // ---- Settings Section ----
-        if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        if (UI::BeginCollapsingHeader("Import Settings", true))
         {
             const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
             const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
 
-            UI::BeginProperties("TextureSettings");
-            UI::Property("Generate Mipmaps", m_GenerateMipmaps);
-            UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
-            UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
-            UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
-            UI::EndProperties();
+            if (UI::BeginProperties("TextureSettings")) {
+                UI::Property("Generate Mipmaps", m_GenerateMipmaps);
+                UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
+                UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
+                UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
+                UI::EndProperties();
+            }
 
             ImGui::Dummy({ 0, 4 });
 
@@ -82,6 +85,7 @@ namespace Luth
                     m_LastTextureUUID = UUID::Invalid();
                 }
             }
+            UI::EndCollapsingHeader();
         }
 
         ImGui::Dummy({ 0, 4 });
