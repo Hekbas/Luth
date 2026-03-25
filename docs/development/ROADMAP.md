@@ -20,17 +20,14 @@
 | 5-E — Frame Debugger | GPUTimerPool, RenderGraphSnapshot, split-panel UI, event slider, named texture registry | 2026-03-22 |
 | 5-D — Post-Processing | HDR pipeline (RGBA16F), bloom (extract + Gaussian blur), tonemapping (4 operators), vignette, grain, CA | 2026-03-22 |
 | 5-F — Pipeline Cache + Variants | VkPipelineCache disk persistence (cache/pipeline.bin), PipelineManager keyed by {shaderUUID, renderMode} with lazy creation and targeted hot-reload invalidation | 2026-03-22 |
+| 5-G — Skybox + IBL | HDR equirect→cubemap, irradiance convolution, pre-filtered env map (5 mips), BRDF LUT, PBR split-sum ambient, skybox pass (depth=1.0 trick), Set 0 expanded to 4 bindings | 2026-03-23 |
+| 6 — Polish & Editor QOL | Bug fixes (transform dispatch, alpha cutoff, shadows), Rider theme, inspector overhaul, editor persistence/layouts, mouse picking + selection outline + shade modes, profiler rework | 2026-03-25 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
 
 ---
 
 ## Upcoming Phases
-
-### Phase 5-G — Skybox + IBL
-IBL-compatible skybox, cubemap import (equirectangular HDR → cubemap), irradiance/pre-filtered env maps, BRDF LUT.
-
-> Full spec: [`phases/5G-skybox-ibl.md`](phases/5G-skybox-ibl.md)
 
 ---
 

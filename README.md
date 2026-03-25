@@ -39,6 +39,28 @@ So, I started Luth from scratch to explore high-performance architecture: fiber-
 
 ---
 
+## Shuddup! how build??
+
+**Prerequisites:**
+- **OS**: Windows 10/11
+- **Compiler**: MSVC (v143+) or Clang (C++20 compliant)
+- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com)
+
+**Steps:**
+1.  **Clone the repository + submodules**
+    ```bash
+    git clone --recursive https://github.com/Hekbas/Luth.git
+    ```
+2.  **Generate Project Files**:
+    Run the setup script to run Premake:
+    ```bash
+    scripts/setup/setup_windows.bat
+    ```
+3.  **Build**:
+    Open the generated solution `Luth.sln` and build the project.
+
+---
+
 ## Technical Architecture
 
 Luth moves away from standard C++ patterns (RAII everywhere, heavy STL usage, single-threaded contexts) in favor of **Data-Oriented Design** and **Fiber-Based Concurrency**.
@@ -47,7 +69,7 @@ Luth moves away from standard C++ patterns (RAII everywhere, heavy STL usage, si
 Instead of spawning OS threads for specific tasks (like a "Render Thread" or "Audio Thread"), Luth treats the CPU as a generic pool of workers.
 * **N:M Threading:** The engine spawns one Worker Thread per CPU core. Logical tasks are wrapped in **Fibers** (lightweight user-mode stacks) that can migrate between workers.
 * **Zero Blocking:** The engine is designed to never sleep. If a job needs to wait for a dependency (or the GPU), it yields execution to the scheduler, which immediately swaps in another fiber. This keeps CPU saturation near 100%.
-* **Naughty Dog Inspiration:** The scheduler implementation utilizes **Adaptive Mutexes** (spinning briefly before yielding) and **Atomic Counters** for synchronization to avoid priority inversion.
+* **Naughty Dog Inspiration:** The scheduler uses **SpinLocks** (fast-path test-and-set with `_mm_pause()` spin loops) and **Atomic Counters** for synchronization, keeping all critical sections short enough to never require OS-level blocking.
 
 ### 2. Pipelined Frame Execution
 To hide latency, the engine pipelines execution across three distinct stages running in parallel. At any given moment $T$, the engine is processing three frames simultaneously:
@@ -66,27 +88,48 @@ The renderer is built for modern hardware, focusing on reducing driver overhead.
 * **Dynamic Rendering:** Eliminates legacy `VkRenderPass` and `VkFramebuffer` objects.
 * **Timeline Semaphores:** Replaces `vkWaitForFences`. A dedicated **Poller Job** runs on the CPU, querying semaphore values and waking up dependent fibers only when the GPU has finished a specific workload.
 
+### 5. Render Graph
+Instead of hardcoding render pass order, Luth builds a **DAG** (directed acyclic graph) of render passes each frame. Passes declare their resource reads and writes through a `RenderPassBuilder`; the graph then automatically solves pipeline barriers, culls unused passes, and computes resource lifetimes. Passes execute in topological order, with parallel command buffer recording within each pass across worker threads.
+
 ---
 
-## Build Instructions
+## Features
 
-**Prerequisites:**
-- **OS**: Windows 10/11
-- **Compiler**: MSVC (v143+) or Clang (C++20 compliant)
-- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com)
+### Rendering
+* **Physically-Based Rendering:** Cook-Torrance BRDF with metallic/roughness workflow. Material data packed into a GPU SSBO (Set 2) with per-RenderMode pipeline variants (Opaque, Cutout, Transparent).
+* **Lighting & Shadows:** Directional light via UBO (Set 3), 2048² depth shadow map with PCF 3×3 soft filtering, ECS-driven light collection.
+* **Image-Based Lighting:** HDR equirectangular-to-cubemap conversion, diffuse irradiance convolution, pre-filtered specular environment map (5 mip levels), BRDF integration LUT. Split-sum approximation for PBR ambient lighting. Skybox rendered as a fullscreen pass with depth = 1.0 trick.
+* **Post-Processing:** Full HDR pipeline (RGBA16F). Bloom (brightness extract + two-pass Gaussian blur), tonemapping (Reinhard, ACES, Uncharted 2, exposure), vignette, film grain, chromatic aberration.
+* **Shader System:** ShaderLibrary singleton with SPIR-V asset pipeline — `.glsl` sources compiled to SPIR-V artifacts with stable UUIDs via `.meta` files. Hot-reload via FileWatcher with SPIRV-Cross reflection.
+* **Pipeline Cache:** VkPipelineCache persisted to disk for faster startup. Centralized PipelineManager with lazy variant creation keyed by shader and render state, with targeted invalidation on shader hot-reload.
+* **Mipmap Generation:** vkCmdBlitImage chain with per-texture settings pipeline (`.meta` → importer → artifact → GPU texture), sampler maxLod control.
 
-**Steps:**
-1.  **Clone the repository + submodules**
-    ```bash
-    git clone --recursive https://github.com/Hekbas/Luth.git
-    ```
-2.  **Generate Project Files**:
-    Run the setup script to run Premake:
-    ```bash
-    scripts/setup_windows.bat
-    ```
-3.  **Build**:
-    Open the generated solution `Luth.sln` and build the project.
+### Asset Pipeline & Tools
+* **Scene Serialization:** Custom JSON `.luth` format with native file dialogs, editor File menu shortcuts, and dirty tracking.
+* **Asset Database:** UUID-based asset registry with `.meta` sidecar files, importers for shaders/textures/models/materials, and artifact caching.
+* **Frame Debugger:** Unity-style split-panel debugger with GPU timestamp queries (triple-buffered VkQueryPool), render graph pass inspector with timing bars, intermediate texture preview, and pipeline state display.
+
+### Editor
+* **Material Inspector:** Full material property editor with save/dirty tracking, Add Component workflow, directional light shadow controls, albedo color picker.
+* **Scene Interaction:** Mouse picking via ID buffer, selection outline rendering, multiple shade modes (Lit, Wireframe, Unlit), triangle count overlay.
+* **Editor Persistence:** Save/restore window layouts and editor settings across sessions, improved UI theme.
+* **Profiler:** Per-system timing breakdown with reworked panel layout.
+
+---
+
+## Roadmap
+
+Planned features (not yet scoped):
+* Deferred GBuffer rendering and SSAO
+* Anti-aliasing (FXAA / TAA)
+* Cascaded shadow maps
+* Global illumination (screen-space or probe-based)
+* Volumetric fog / haze
+* Physics (Jolt integration, jobified)
+* GPU particle system (compute shaders)
+* Animation improvements (blend trees, IK)
+* Scripting (C# or Lua)
+* Undo/redo, play mode, asset streaming
 
 ---
 
@@ -106,18 +149,3 @@ LUTH Engine is built on the shoulders of giants:
 * [**assimp**](https://github.com/assimp/assimp): Asset importing (Models).
 * [**stb_image**](https://github.com/nothings/stb): Image loading.
 * [**nlohmann/json**](https://github.com/nlohmann/json): JSON serialization.
-
----
-
-## Current State & Roadmap
-
-The engine has recently undergone a massive architectural reboot to fully implement the **Fiber/Vulkan integration** described above. 
-
-**Completed Core Features:**
-* Complete lock-free Job System using Win32 Fibers and Chase-Lev work-stealing deques.
-* Custom memory allocators (Linear Frame Packets, Tagged Page Allocator) avoiding `std::mutex` and `new`/`delete` in the hot path.
-* Fully pipelined frame execution `Game(N) -> Render(N-1) -> GPU(N-2)`.
-* Vulkan 1.3 backend featuring Dynamic Rendering and Timeline Semaphores.
-* Parallel Render Graph utilizing worker threads for secondary command buffer recording.
-
-Development is currently focused on expanding the rendering features (PBR, cascaded shadow maps, post-processing) and building the asset streaming pipeline.
