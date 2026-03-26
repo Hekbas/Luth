@@ -8,42 +8,20 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/MaterialImporter.h"
+#include "luth/core/Time.h"
+#include "luth/jobs/IOThread.h"
 
 namespace Luth
 {
     void MaterialEditor::Draw(Material& material)
     {
-        // Material header with name, dirty indicator, and Save button
+        // Material header with name and unsaved indicator
         if (ImGui::BeginChild("##Header", { 0, 30 })) {
             ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            if (material.IsDirty())
+            if (material.NeedsSave())
                 ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s* (Material)", material.GetName().c_str());
             else
                 ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
-
-            if (material.IsDirty()) {
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Save")) {
-                    nlohmann::json json;
-                    material.Serialize(json);
-
-                    // Write source .mat file
-                    auto sourcePath = AssetDatabase::GetMetadata(material.Handle).Path;
-                    if (!sourcePath.empty())
-                    {
-                        std::ofstream file(sourcePath);
-                        file << json.dump(4);
-                    }
-
-                    // Write binary artifact
-                    MaterialAssetData data;
-                    data.JsonData = json;
-                    auto artifactPath = AssetDatabase::GetArtifactPath(material.Handle);
-                    AssetSerializer::SerializeMaterial(artifactPath, data);
-
-                    material.ClearDirty();
-                }
-            }
         }
         ImGui::EndChild();
         ImGui::Dummy({ 0, 8 });
@@ -349,5 +327,75 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
         }
+
+        // --- Auto-save debounce ---
+        if (material.NeedsSave() && !m_PendingSave)
+        {
+            m_PendingSave = true;
+            m_SaveTimer = 0.0f;
+            m_PendingHandle = material.Handle;
+        }
+
+        if (m_PendingSave)
+        {
+            if (m_PendingHandle != material.Handle)
+            {
+                // Material changed — reset
+                m_PendingSave = false;
+                m_SaveTimer = 0.0f;
+            }
+            else if (ImGui::IsAnyItemActive())
+            {
+                // User still interacting — hold the timer
+                m_SaveTimer = 0.0f;
+            }
+            else
+            {
+                m_SaveTimer += Time::UnscaledDeltaTime();
+                if (m_SaveTimer >= kAutoSaveDelay)
+                {
+                    SaveMaterial(material);
+                    m_PendingSave = false;
+                    m_SaveTimer = 0.0f;
+                }
+            }
+        }
+    }
+
+    void MaterialEditor::SaveMaterial(Material& material)
+    {
+        nlohmann::json json;
+        material.Serialize(json);
+
+        // Write source .mat file (async)
+        auto sourcePath = AssetDatabase::GetMetadata(material.Handle).Path;
+        if (!sourcePath.empty())
+        {
+            std::string jsonStr = json.dump(4);
+            std::vector<u8> buf(jsonStr.begin(), jsonStr.end());
+            IOThread::WriteFile(sourcePath.string(), std::move(buf));
+        }
+
+        // Write binary artifact (async) — build blob in-memory
+        auto artifactPath = AssetDatabase::GetArtifactPath(material.Handle);
+        {
+            AssetHeader header;
+            header.Type = AssetType::Material;
+
+            std::string jsonStr = json.dump();
+            u32 size = static_cast<u32>(jsonStr.size());
+
+            std::vector<u8> blob;
+            blob.resize(sizeof(AssetHeader) + sizeof(u32) + size);
+
+            u8* dst = blob.data();
+            memcpy(dst, &header, sizeof(AssetHeader));        dst += sizeof(AssetHeader);
+            memcpy(dst, &size, sizeof(u32));                  dst += sizeof(u32);
+            memcpy(dst, jsonStr.data(), size);
+
+            IOThread::WriteFile(artifactPath.string(), std::move(blob));
+        }
+
+        material.ClearNeedsSave();
     }
 }

@@ -178,9 +178,11 @@ namespace Luth
         void UpdateGPUData(); // Updates m_GPUData from internal state/maps
 
         // Dirty tracking
-        bool IsDirty() const { return m_Dirty; }
-        void MarkDirty() { m_Dirty = true; }
-        void ClearDirty() { m_Dirty = false; }
+        bool IsGpuDirty() const { return m_GpuDirty; }
+        bool NeedsSave()  const { return m_NeedsSave; }
+        void MarkDirty()        { m_GpuDirty = true; m_NeedsSave = true; }
+        void ClearGpuDirty()    { m_GpuDirty = false; }
+        void ClearNeedsSave()   { m_NeedsSave = false; }
 
         // Serialization/Deserialization
         void Serialize(nlohmann::json& json) const;
@@ -209,7 +211,8 @@ namespace Luth
         float m_AlphaCutoff = 0.5f;
         CullMode m_CullMode = CullMode::Back;
         bool m_AlphaFromDiffuse = false;
-        bool m_Dirty = false;
+        bool m_GpuDirty  = false;
+        bool m_NeedsSave = false;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const MapType type) {

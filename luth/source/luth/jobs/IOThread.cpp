@@ -12,6 +12,8 @@ namespace Luth
     std::atomic<bool> IOThread::s_Running = false;
     std::deque<IOThread::Request> IOThread::s_Queue;
     std::mutex IOThread::s_QueueLock;
+    std::deque<IOThread::WriteRequest> IOThread::s_WriteQueue;
+    std::mutex IOThread::s_WriteQueueLock;
     std::condition_variable IOThread::s_WakeCondition;
 
     void IOThread::Init()
@@ -28,6 +30,9 @@ namespace Luth
         s_Running = false;
         s_WakeCondition.notify_all();
         if (s_Thread.joinable()) s_Thread.join();
+
+        // Flush any remaining writes that were queued after the thread stopped
+        FlushWrites();
     }
 
     void IOThread::ReadFile(const std::string& path, std::function<void(std::vector<u8>)> callback)
@@ -37,6 +42,32 @@ namespace Luth
             s_Queue.push_back({ path, callback });
         }
         s_WakeCondition.notify_one();
+    }
+
+    void IOThread::WriteFile(const std::string& path, std::vector<u8> data)
+    {
+        {
+            std::lock_guard<std::mutex> lock(s_WriteQueueLock);
+            s_WriteQueue.push_back({ path, std::move(data) });
+        }
+        s_WakeCondition.notify_one();
+    }
+
+    void IOThread::FlushWrites()
+    {
+        std::deque<WriteRequest> pending;
+        {
+            std::lock_guard<std::mutex> lock(s_WriteQueueLock);
+            pending.swap(s_WriteQueue);
+        }
+        for (auto& wreq : pending)
+        {
+            std::ofstream file(wreq.Path, std::ios::binary);
+            if (file.is_open())
+                file.write((const char*)wreq.Data.data(), wreq.Data.size());
+            else
+                LH_CORE_ERROR("IOThread: Failed to write file: {0}", wreq.Path);
+        }
     }
 
     // -------------------------------------------------------------------------------
@@ -84,23 +115,51 @@ namespace Luth
         while (s_Running)
         {
             Request req;
-            bool found = false;
+            bool foundRead = false;
 
             {
                 std::unique_lock<std::mutex> lock(s_QueueLock);
-                s_WakeCondition.wait(lock, [] { return !s_Queue.empty() || !s_Running; });
+                s_WakeCondition.wait(lock, [] {
+                    bool hasWrite = false;
+                    { std::lock_guard<std::mutex> wl(s_WriteQueueLock); hasWrite = !s_WriteQueue.empty(); }
+                    return !s_Queue.empty() || hasWrite || !s_Running;
+                });
 
-                if (!s_Running && s_Queue.empty()) break;
+                if (!s_Running && s_Queue.empty()) { FlushWrites(); break; }
 
                 if (!s_Queue.empty())
                 {
                     req = s_Queue.front();
                     s_Queue.pop_front();
-                    found = true;
+                    foundRead = true;
                 }
             }
 
-            if (found)
+            // Process writes (fire-and-forget)
+            {
+                WriteRequest wreq;
+                bool foundWrite = false;
+                {
+                    std::lock_guard<std::mutex> lock(s_WriteQueueLock);
+                    if (!s_WriteQueue.empty())
+                    {
+                        wreq = std::move(s_WriteQueue.front());
+                        s_WriteQueue.pop_front();
+                        foundWrite = true;
+                    }
+                }
+                if (foundWrite)
+                {
+                    LH_PROFILE_SCOPE("IO Write");
+                    std::ofstream file(wreq.Path, std::ios::binary);
+                    if (file.is_open())
+                        file.write((const char*)wreq.Data.data(), wreq.Data.size());
+                    else
+                        LH_CORE_ERROR("IOThread: Failed to write file: {0}", wreq.Path);
+                }
+            }
+
+            if (foundRead)
             {
                 LH_PROFILE_SCOPE("IO Read");
 

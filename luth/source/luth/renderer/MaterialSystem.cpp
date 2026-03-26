@@ -97,7 +97,7 @@ namespace Luth
             const GPUMaterialData& newData = m_Slots[i].material->GetGPUData();
 
             bool needsUpload = m_Slots[i].dirty
-                || m_Slots[i].material->IsDirty()
+                || m_Slots[i].material->IsGpuDirty()
                 || memcmp(&oldData, &newData, MATERIAL_SIZE) != 0;
 
             if (needsUpload)
@@ -106,7 +106,7 @@ namespace Luth
                 memcpy(dst, &newData, MATERIAL_SIZE);
 
                 m_Slots[i].dirty = false;
-                m_Slots[i].material->ClearDirty();
+                m_Slots[i].material->ClearGpuDirty();
             }
         }
     }
