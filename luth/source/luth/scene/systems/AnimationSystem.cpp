@@ -195,6 +195,58 @@ namespace Luth
                 : localTransforms[i];
         }
 
+        // Persist global transforms for attachments and AABB
+        anim.GlobalBoneTransforms = globalTransforms;
+
+        // Compute animated AABB from bind-pose AABB corners transformed by each bone
+        if (meshRenderer.MeshIndex < model->GetMeshesData().size())
+        {
+            const AABB& bindAABB = model->GetMeshesData()[meshRenderer.MeshIndex].BindPoseAABB;
+            if (bindAABB.IsValid())
+            {
+                AABB animated;
+                Vec3 corners[8] = {
+                    { bindAABB.Min.x, bindAABB.Min.y, bindAABB.Min.z },
+                    { bindAABB.Max.x, bindAABB.Min.y, bindAABB.Min.z },
+                    { bindAABB.Min.x, bindAABB.Max.y, bindAABB.Min.z },
+                    { bindAABB.Max.x, bindAABB.Max.y, bindAABB.Min.z },
+                    { bindAABB.Min.x, bindAABB.Min.y, bindAABB.Max.z },
+                    { bindAABB.Max.x, bindAABB.Min.y, bindAABB.Max.z },
+                    { bindAABB.Min.x, bindAABB.Max.y, bindAABB.Max.z },
+                    { bindAABB.Max.x, bindAABB.Max.y, bindAABB.Max.z },
+                };
+
+                for (u32 b = 0; b < boneCount; b++)
+                {
+                    for (u32 c = 0; c < 8; c++)
+                    {
+                        Vec3 transformed = Vec3(globalTransforms[b] * Vec4(corners[c], 1.0f));
+                        animated.Expand(transformed);
+                    }
+                }
+
+                // Transform to world space
+                auto& worldTransform = registry.get<WorldTransform>(entity);
+                AABB worldAABB;
+                Vec3 worldCorners[8] = {
+                    { animated.Min.x, animated.Min.y, animated.Min.z },
+                    { animated.Max.x, animated.Min.y, animated.Min.z },
+                    { animated.Min.x, animated.Max.y, animated.Min.z },
+                    { animated.Max.x, animated.Max.y, animated.Min.z },
+                    { animated.Min.x, animated.Min.y, animated.Max.z },
+                    { animated.Max.x, animated.Min.y, animated.Max.z },
+                    { animated.Min.x, animated.Max.y, animated.Max.z },
+                    { animated.Max.x, animated.Max.y, animated.Max.z },
+                };
+                for (u32 c = 0; c < 8; c++)
+                {
+                    Vec3 wp = Vec3(worldTransform.Matrix * Vec4(worldCorners[c], 1.0f));
+                    worldAABB.Expand(wp);
+                }
+                anim.AnimatedAABB = worldAABB;
+            }
+        }
+
         // Skin matrix computation
         for (u32 i = 0; i < boneCount; i++)
             skinMatrices[i] = globalTransforms[i] * skeleton.Bones[i].InverseBindPose;

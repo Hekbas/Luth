@@ -106,6 +106,8 @@ namespace Luth::Component
         // Runtime (not serialized)
         u32 BoneBufferOffset = UINT32_MAX;  // SSBO base index
         bool BufferAllocated = false;
+        std::vector<Mat4> GlobalBoneTransforms;  // per-frame, for attachments/AABB
+        AABB AnimatedAABB;                       // world-space animated bounds
     };
 
     struct DirectionalLight {
