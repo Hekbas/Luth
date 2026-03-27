@@ -90,6 +90,18 @@ namespace Luth
             j["animation"]       = aj;
         }
 
+        if (entity.HasComponent<BoneAttachment>()) {
+            auto& ba = entity.GetComponent<BoneAttachment>();
+            json baj;
+            if (ba.TargetEntity) {
+                baj["targetUUID"] = ba.TargetEntity.GetComponent<ID>().m_ID.ToString();
+            }
+            baj["boneName"]      = ba.BoneName;
+            baj["localOffset"]   = SerializeVec3(ba.LocalOffset);
+            baj["localRotation"] = SerializeVec3(ba.LocalRotation);
+            j["boneAttachment"]  = baj;
+        }
+
         if (entity.HasComponent<DirectionalLight>()) {
             auto& dl = entity.GetComponent<DirectionalLight>();
             json dj;
@@ -186,7 +198,8 @@ namespace Luth
 
         // ── Pass 1: Create all entities, populate components ────
         std::unordered_map<std::string, Entity> uuidToEntity;
-        std::vector<std::pair<Entity, std::string>> parentLinks; // {child, parentUUID}
+        std::vector<std::pair<Entity, std::string>> parentLinks;     // {child, parentUUID}
+        std::vector<std::pair<Entity, std::string>> attachmentLinks; // {child, targetUUID}
 
         for (const auto& ej : root["entities"]) {
             std::string tag = ej.value("tag", "Entity");
@@ -246,6 +259,18 @@ namespace Luth
                 a.Playing        = aj.value("playing", false);
             }
 
+            // BoneAttachment
+            if (ej.contains("boneAttachment")) {
+                const auto& baj = ej["boneAttachment"];
+                auto& ba = entity.AddComponent<BoneAttachment>();
+                ba.BoneName      = baj.value("boneName", "");
+                ba.LocalOffset   = DeserializeVec3(baj.value("localOffset", json::array()), Vec3(0));
+                ba.LocalRotation = DeserializeVec3(baj.value("localRotation", json::array()), Vec3(0));
+                std::string targetUUID = baj.value("targetUUID", "");
+                if (!targetUUID.empty())
+                    attachmentLinks.push_back({ entity, targetUUID });
+            }
+
             // DirectionalLight
             if (ej.contains("directionalLight")) {
                 const auto& dj = ej["directionalLight"];
@@ -285,6 +310,18 @@ namespace Luth
             else {
                 LH_CORE_WARN("SceneSerializer::Load — parent UUID '{}' not found for entity '{}'",
                     parentUUID, child.GetName());
+            }
+        }
+
+        // Resolve bone attachment targets
+        for (auto& [child, targetUUID] : attachmentLinks) {
+            auto it = uuidToEntity.find(targetUUID);
+            if (it != uuidToEntity.end()) {
+                child.GetComponent<BoneAttachment>().TargetEntity = it->second;
+            }
+            else {
+                LH_CORE_WARN("SceneSerializer::Load — BoneAttachment target UUID '{}' not found for '{}'",
+                    targetUUID, child.GetName());
             }
         }
 

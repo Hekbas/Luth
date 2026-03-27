@@ -113,6 +113,14 @@ namespace Luth::Component
         std::function<void(entt::entity, const std::string&)> OnAnimEvent;
     };
 
+    struct BoneAttachment {
+        Entity TargetEntity;              // Entity with Animation component
+        i32 BoneIndex = -1;               // Resolved at runtime from BoneName
+        std::string BoneName;             // Serialized; resolved to BoneIndex via Skeleton::FindBone
+        Vec3 LocalOffset = Vec3(0.0f);
+        Vec3 LocalRotation = Vec3(0.0f);  // Euler degrees offset in bone space
+    };
+
     struct DirectionalLight {
         Vec3 Color = Vec3(1.0f);
         float Intensity = 1.0f;

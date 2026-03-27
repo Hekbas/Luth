@@ -143,6 +143,55 @@ namespace Luth
                     anim.OnAnimEvent(entity, evt.Name);
             }
         }
+
+        // Process bone attachments (main thread, after all evaluation)
+        auto attachView = registry.view<BoneAttachment, Transform, WorldTransform>();
+        for (auto [entity, attachment, transform, world] : attachView.each())
+        {
+            if (!attachment.TargetEntity) continue;
+            entt::entity targetHandle = (entt::entity)attachment.TargetEntity;
+            if (!registry.valid(targetHandle)) continue;
+            if (!registry.any_of<Animation>(targetHandle)) continue;
+            if (!registry.any_of<WorldTransform>(targetHandle)) continue;
+
+            auto& targetAnim = registry.get<Animation>(targetHandle);
+            auto& targetWorld = registry.get<WorldTransform>(targetHandle);
+
+            // Lazy resolve BoneName -> BoneIndex
+            if (attachment.BoneIndex == -1 && !attachment.BoneName.empty())
+            {
+                auto model = AssetManager::GetAsset<Model>(targetAnim.ModelUUID);
+                if (model)
+                    attachment.BoneIndex = model->GetSkeleton().FindBone(attachment.BoneName);
+            }
+
+            if (attachment.BoneIndex < 0 ||
+                (u32)attachment.BoneIndex >= (u32)targetAnim.GlobalBoneTransforms.size())
+                continue;
+
+            // Bone world transform
+            Mat4 boneWorld = targetWorld.Matrix * targetAnim.GlobalBoneTransforms[attachment.BoneIndex];
+
+            // Apply local offset
+            Mat4 offset = ComposeTransform(
+                attachment.LocalOffset,
+                glm::quat(glm::radians(attachment.LocalRotation)),
+                Vec3(1.0f));
+            Mat4 finalMatrix = boneWorld * offset;
+
+            // Decompose back to Transform
+            Vec3 pos, scl;
+            Quat rot;
+            DecomposeTransform(finalMatrix, pos, rot, scl);
+            transform.Position = pos;
+            transform.Rotation = glm::degrees(glm::eulerAngles(rot));
+            transform.Scale = scl;
+            transform.IsDirty = false;
+
+            // Write directly to WorldTransform to avoid one-frame lag
+            // (TransformSystem already ran this frame)
+            world.Matrix = finalMatrix;
+        }
     }
 
     void AnimationSystem::EvaluateAnimJob(JobSystem::JobArgs args)
