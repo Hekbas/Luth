@@ -184,10 +184,7 @@ namespace Luth
         ShaderLibrary::SetReloadCallback(nullptr);
         m_GPUTimers.Shutdown();
 
-        // Free all bone matrix blocks before shutting down the buffer
-        for (auto& [uuid, block] : m_BoneBlockMap)
-            BoneMatrixBuffer::FreeBlock(block);
-        m_BoneBlockMap.clear();
+        // Bone blocks now owned by AnimationSystem — just shut down the buffer
         BoneMatrixBuffer::Shutdown();
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -1858,16 +1855,11 @@ namespace Luth
 
                     if (isSkinned)
                     {
-                        auto it = m_BoneBlockMap.find(meshRenderer.ModelUUID);
-                        if (it == m_BoneBlockMap.end())
+                        if (registry.any_of<Component::Animation>(entity))
                         {
-                            u32 block = BoneMatrixBuffer::AllocateBlock();
-                            m_BoneBlockMap[meshRenderer.ModelUUID] = block;
-                            boneOffset = block;
-                        }
-                        else
-                        {
-                            boneOffset = it->second;
+                            auto& anim = registry.get<Component::Animation>(entity);
+                            if (anim.BufferAllocated)
+                                boneOffset = anim.BoneBufferOffset;
                         }
                     }
 
@@ -2073,16 +2065,11 @@ namespace Luth
                         && model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned)
                     {
                         dc.isSkinned = true;
-                        auto it = m_BoneBlockMap.find(meshRenderer.ModelUUID);
-                        if (it == m_BoneBlockMap.end())
+                        if (registry.any_of<Component::Animation>(entity))
                         {
-                            u32 block = BoneMatrixBuffer::AllocateBlock();
-                            m_BoneBlockMap[meshRenderer.ModelUUID] = block;
-                            dc.boneOffset = block;
-                        }
-                        else
-                        {
-                            dc.boneOffset = it->second;
+                            auto& anim = registry.get<Component::Animation>(entity);
+                            if (anim.BufferAllocated)
+                                dc.boneOffset = anim.BoneBufferOffset;
                         }
                     }
 

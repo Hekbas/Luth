@@ -96,6 +96,16 @@ namespace Luth::Component
         Animation(UUID uuid) : ModelUUID(uuid) {}
         UUID ModelUUID;
         i32 AnimationIndex = 0;
+
+        // Playback state
+        f32 CurrentTime = 0.0f;   // seconds
+        f32 Speed = 1.0f;
+        bool Playing = true;
+        bool Loop = true;
+
+        // Runtime (not serialized)
+        u32 BoneBufferOffset = UINT32_MAX;  // SSBO base index
+        bool BufferAllocated = false;
     };
 
     struct DirectionalLight {

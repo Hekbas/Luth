@@ -187,8 +187,7 @@ namespace Luth
         std::vector<u32> m_PBRFragSpv;
         std::vector<u32> m_PBRSkinnedVertSpv;
 
-        // Bone block tracking (ModelUUID -> SSBO base index)
-        std::unordered_map<UUID, u32, UUIDHash> m_BoneBlockMap;
+        // Bone blocks now owned by Animation component (per-entity)
 
         // Material SSBO slot tracking (MaterialUUID -> SSBO index)
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;

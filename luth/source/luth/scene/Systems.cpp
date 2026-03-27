@@ -13,8 +13,8 @@ namespace Luth
     void Systems::Init() {
         LH_CORE_INFO("Initializing Systems...");
         AddSystem<TransformSystem>();
+        AddSystem<AnimationSystem>();
         AddSystem<CameraSystem>();
-        //AddSystem<AnimationSystem>();
         AddSystem<RenderingSystem>();
     }
 

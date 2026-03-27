@@ -84,6 +84,9 @@ namespace Luth
             json aj;
             aj["modelUUID"]      = a.ModelUUID.ToString();
             aj["animationIndex"] = a.AnimationIndex;
+            aj["speed"]          = a.Speed;
+            aj["loop"]           = a.Loop;
+            aj["playing"]        = false;  // Always save as paused
             j["animation"]       = aj;
         }
 
@@ -238,6 +241,9 @@ namespace Luth
                 auto& a = entity.AddComponent<Animation>();
                 a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
                 a.AnimationIndex = aj.value("animationIndex", 0);
+                a.Speed          = aj.value("speed", 1.0f);
+                a.Loop           = aj.value("loop", true);
+                a.Playing        = aj.value("playing", false);
             }
 
             // DirectionalLight
