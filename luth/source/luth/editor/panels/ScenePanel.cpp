@@ -115,6 +115,15 @@ namespace Luth
                 ImGui::SetNextItemWidth(90.0f);
                 if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
                     m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
+
+                // Controls overlay toggle
+                ImGui::SameLine();
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine();
+                if (ImGui::Button(m_ShowControlsOverlay ? ICON_FA_KEYBOARD "##OverlayOn" : ICON_FA_KEYBOARD "##OverlayOff"))
+                    m_ShowControlsOverlay = !m_ShowControlsOverlay;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay");
             }
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -214,6 +223,70 @@ namespace Luth
                 }
 
                 m_EditorCamera.OnUpdate(Time::DeltaTime());
+            }
+
+            // Controls overlay (bottom-left)
+            if (m_ShowControlsOverlay && m_IsHovered && m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
+            {
+                std::vector<std::string> pressedKeys;
+                
+                // Mouse
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))   pressedKeys.push_back("LMB");
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Right))  pressedKeys.push_back("RMB");
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) pressedKeys.push_back("MMB");
+
+                // Modifiers
+                if (ImGui::GetIO().KeyCtrl)  pressedKeys.push_back("Ctrl");
+                if (ImGui::GetIO().KeyShift) pressedKeys.push_back("Shift");
+                if (ImGui::GetIO().KeyAlt)   pressedKeys.push_back("Alt");
+                
+                // Other keys
+                for (int keyInt = ImGuiKey_NamedKey_BEGIN; keyInt < ImGuiKey_NamedKey_END; keyInt++)
+                {
+                    ImGuiKey key = static_cast<ImGuiKey>(keyInt);
+                    // Skip modifiers and mouse buttons as we added them grouped above
+                    if (key == ImGuiKey_LeftCtrl || key == ImGuiKey_RightCtrl || key == ImGuiKey_ModCtrl || key == ImGuiKey_ReservedForModCtrl ||
+                        key == ImGuiKey_LeftShift || key == ImGuiKey_RightShift || key == ImGuiKey_ModShift || key == ImGuiKey_ReservedForModShift ||
+                        key == ImGuiKey_LeftAlt || key == ImGuiKey_RightAlt || key == ImGuiKey_ModAlt || key == ImGuiKey_ReservedForModAlt ||
+                        key == ImGuiKey_LeftSuper || key == ImGuiKey_RightSuper || key == ImGuiKey_ModSuper || key == ImGuiKey_ReservedForModSuper ||
+                        key == ImGuiKey_MouseLeft || key == ImGuiKey_MouseRight || key == ImGuiKey_MouseMiddle ||
+                        key == ImGuiKey_MouseX1 || key == ImGuiKey_MouseX2)
+                        continue;
+
+                    if (ImGui::IsKeyDown(key))
+                    {
+                        const char* name = ImGui::GetKeyName(key);
+                        if (name) pressedKeys.push_back(name);
+                    }
+                }
+
+                if (!pressedKeys.empty())
+                {
+                    ImGui::PushFont(Editor::GetMainFont());
+                    std::string displayText = "";
+                    for (size_t i = 0; i < pressedKeys.size(); i++) {
+                        displayText += pressedKeys[i];
+                        if (i < pressedKeys.size() - 1) displayText += " + ";
+                    }
+
+                    float pad = 12.0f;
+                    ImVec2 textSize = ImGui::CalcTextSize(displayText.c_str());
+                    float boxW = textSize.x + pad * 2.0f;
+                    float boxH = textSize.y + pad * 2.0f;
+
+                    ImVec2 winPos = ImGui::GetWindowPos();
+                    ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
+                    float vpBottom = winPos.y + contentMin.y + m_ViewportSize.y + 27;
+                    float vpLeft   = winPos.x + contentMin.x;
+
+                    ImVec2 boxMin = { vpLeft + pad, vpBottom - boxH - pad };
+                    ImVec2 boxMax = { vpLeft + pad + boxW, vpBottom - pad };
+
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(boxMin, boxMax, IM_COL32(0.2, 0.2, 0.2, 128), 8.0f);
+                    dl->AddText({ boxMin.x + pad, boxMin.y + pad }, IM_COL32(255, 255, 255, 255), displayText.c_str());
+                    ImGui::PopFont();
+                }
             }
 
             ImGui::PopStyleVar();

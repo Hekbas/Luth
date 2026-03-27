@@ -28,7 +28,8 @@ namespace Luth
         float cameraShiftMult     = 3.0f;
 
         // Editor panels
-        float thumbnailSize   = 64.0f;
+        float thumbnailSize        = 64.0f;
+        bool  showControlsOverlay  = true;
 
         // Scene persistence
         std::string lastSceneUUID;

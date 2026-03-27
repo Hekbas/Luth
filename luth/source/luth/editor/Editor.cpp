@@ -136,8 +136,10 @@ namespace Luth
             panel->OnInit();
 
         // Apply persisted panel settings
-        if (auto* sp = GetPanel<ScenePanel>())
+        if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().ApplySettings(s_Settings);
+            sp->SetShowControlsOverlay(s_Settings.showControlsOverlay);
+        }
         if (auto* pp = GetPanel<ProjectPanel>())
             pp->SetThumbnailSize(s_Settings.thumbnailSize);
     }
@@ -145,8 +147,10 @@ namespace Luth
     void Editor::Shutdown()
     {
         // Sync panel state → settings before saving
-        if (auto* sp = GetPanel<ScenePanel>())
+        if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().SyncToSettings(s_Settings);
+            s_Settings.showControlsOverlay = sp->GetShowControlsOverlay();
+        }
         if (auto* pp = GetPanel<ProjectPanel>())
             s_Settings.thumbnailSize = pp->GetThumbnailSize();
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();

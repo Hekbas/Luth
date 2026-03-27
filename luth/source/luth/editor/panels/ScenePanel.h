@@ -125,6 +125,9 @@ namespace Luth
 
         EditorCamera& GetEditorCamera() { return m_EditorCamera; }
 
+        bool GetShowControlsOverlay() const { return m_ShowControlsOverlay; }
+        void SetShowControlsOverlay(bool show) { m_ShowControlsOverlay = show; }
+
     private:
         void HandleRenderResize(Event& e);
         void DrawGizmos();
@@ -144,5 +147,8 @@ namespace Luth
         // Gizmo state
         Entity m_SelectedEntity;
         int m_GizmoType = -1; // -1 = None, or ImGuizmo::OPERATION
+
+        // Controls overlay
+        bool m_ShowControlsOverlay = true;
     };
 }

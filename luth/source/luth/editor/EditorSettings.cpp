@@ -35,7 +35,8 @@ namespace Luth
             settings.cameraPanSpeed      = j.value("cameraPanSpeed", settings.cameraPanSpeed);
             settings.cameraZoomSpeed     = j.value("cameraZoomSpeed", settings.cameraZoomSpeed);
             settings.cameraShiftMult     = j.value("cameraShiftMult", settings.cameraShiftMult);
-            settings.thumbnailSize   = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.thumbnailSize       = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.showControlsOverlay = j.value("showControlsOverlay", settings.showControlsOverlay);
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
@@ -65,7 +66,8 @@ namespace Luth
             j["cameraPanSpeed"]      = settings.cameraPanSpeed;
             j["cameraZoomSpeed"]     = settings.cameraZoomSpeed;
             j["cameraShiftMult"]     = settings.cameraShiftMult;
-            j["thumbnailSize"]   = settings.thumbnailSize;
+            j["thumbnailSize"]       = settings.thumbnailSize;
+            j["showControlsOverlay"] = settings.showControlsOverlay;
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 
             std::ofstream file(path);
