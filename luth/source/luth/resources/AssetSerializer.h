@@ -37,8 +37,9 @@ namespace Luth
         u32 VertexCount;
         u32 IndexCount;
         u32 MaterialIndex;
+        u32 IsSkinned;    // bool as u32 for alignment
         // Followed by:
-        // - Vertex Data (VertexCount * sizeof(Vertex))
+        // - Vertex Data (VertexCount * sizeof(Vertex) or sizeof(SkinnedVertex))
         // - Index Data (IndexCount * sizeof(u32))
     };
 
@@ -46,9 +47,14 @@ namespace Luth
     {
         u32 MeshCount;
         u32 MaterialCount;
+        u32 IsSkinned;       // V2+: model-level skinned flag
+        u32 BoneCount;       // V2+: number of bones in skeleton
+        u32 AnimationCount;  // V2+: number of animation clips
         // Followed by:
-        // - MeshHeader + Data [MeshCount]
         // - Material UUIDs [MaterialCount]
+        // - MeshHeader + Data [MeshCount]
+        // - (V2+) Skeleton bones [BoneCount]
+        // - (V2+) Animation clips [AnimationCount]
     };
 
     struct ShaderHeader

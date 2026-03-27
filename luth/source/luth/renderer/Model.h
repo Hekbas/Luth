@@ -2,6 +2,8 @@
 
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Mesh.h"
+#include "luth/renderer/Skeleton.h"
+#include "luth/renderer/AnimationClip.h"
 #include "luth/resources/Asset.h"
 
 #include <string>
@@ -19,11 +21,23 @@ namespace Luth
         glm::vec3 Tangent;
     };
 
+    struct SkinnedVertex {
+        glm::vec3  Position;
+        glm::vec3  Normal;
+        glm::vec2  TexCoord0;
+        glm::vec2  TexCoord1;
+        glm::vec3  Tangent;
+        glm::ivec4 BoneIDs    = glm::ivec4(-1);
+        glm::vec4  BoneWeights = glm::vec4(0.0f);
+    };
+
     struct MeshData {
         std::vector<Vertex> Vertices;
+        std::vector<SkinnedVertex> SkinnedVertices;
         std::vector<uint32_t> Indices;
         uint32_t MaterialIndex = 0;
         std::string Name;
+        bool IsSkinned = false;
     };
 
     struct MeshInfo {
@@ -72,6 +86,8 @@ namespace Luth
         virtual ~Model() = default;
 
         static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials);
+        static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials,
+            const Skeleton& skeleton, const std::vector<AnimationClip>& clips, bool isSkinned);
         
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
         const std::vector<std::shared_ptr<Mesh>>& GetMeshes() const { return m_Meshes; }
@@ -88,6 +104,15 @@ namespace Luth
 
         bool IsSkinned() const { return m_IsSkinned; }
         void SetIsSkinned(bool value) { m_IsSkinned = value; }
+
+        // Skeleton & Animation
+        const Skeleton& GetSkeleton() const { return m_Skeleton; }
+        Skeleton& GetSkeleton() { return m_Skeleton; }
+        const std::vector<AnimationClip>& GetAnimationClips() const { return m_AnimationClips; }
+        std::vector<AnimationClip>& GetAnimationClips() { return m_AnimationClips; }
+        const AnimationClip* GetAnimationClip(u32 index) const {
+            return (index < m_AnimationClips.size()) ? &m_AnimationClips[index] : nullptr;
+        }
 
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
@@ -107,5 +132,8 @@ namespace Luth
         std::vector<UUID> m_Materials;
 
         bool m_IsSkinned = false;
+
+        Skeleton m_Skeleton;
+        std::vector<AnimationClip> m_AnimationClips;
     };
 }

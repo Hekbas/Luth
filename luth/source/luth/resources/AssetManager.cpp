@@ -119,7 +119,11 @@ namespace Luth
         else if (info.Type == AssetType::Model)
         {
             auto* modelData = static_cast<ModelAssetData*>(data.get());
-            newAsset = Model::Create(modelData->Meshes, modelData->Materials);
+            if (modelData->IsSkinned)
+                newAsset = Model::Create(modelData->Meshes, modelData->Materials,
+                    modelData->SkeletonData, modelData->AnimationClips, true);
+            else
+                newAsset = Model::Create(modelData->Meshes, modelData->Materials);
         }
         else if (info.Type == AssetType::Material)
         {
@@ -292,7 +296,11 @@ namespace Luth
                 else if (upload.Type == AssetType::Model)
                 {
                     auto* modelData = static_cast<ModelAssetData*>(upload.Data.get());
-                    newAsset = Model::Create(modelData->Meshes, modelData->Materials);
+                    if (modelData->IsSkinned)
+                        newAsset = Model::Create(modelData->Meshes, modelData->Materials,
+                            modelData->SkeletonData, modelData->AnimationClips, true);
+                    else
+                        newAsset = Model::Create(modelData->Meshes, modelData->Materials);
                 }
                 else if (upload.Type == AssetType::Material)
                 {

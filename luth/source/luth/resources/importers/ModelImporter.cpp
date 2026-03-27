@@ -6,12 +6,15 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetSerializer.h"
 #include "luth/renderer/Material.h"
+#include "luth/renderer/Skeleton.h"
+#include "luth/renderer/AnimationClip.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <assimp/GltfMaterial.h>
 #include <fstream>
+#include <queue>
 
 namespace Luth
 {
@@ -25,28 +28,23 @@ namespace Luth
             int upSign = 1, frontSign = 1;
             bool hasUp = false, hasFront = false;
 
-            // Extract axis information from metadata
             hasUp = scene->mMetaData->Get("UpAxis", upAxis);
             hasFront = scene->mMetaData->Get("FrontAxis", frontAxis);
 
-            // Handle sign
             if (hasUp) { upSign = upAxis >= 0 ? 1 : -1; upAxis = abs(upAxis); }
             if (hasFront) { frontSign = frontAxis >= 0 ? 1 : -1; frontAxis = abs(frontAxis); }
 
-            // Common case: Convert Z-up to Y-up
-            if (hasUp && upAxis == 2) {  // Z-up
+            if (hasUp && upAxis == 2) {
                 correction = glm::rotate(correction, glm::radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
-                // Adjust front axis if needed (convert from Y-forward to -Z-forward)
-                if (hasFront && frontAxis == 1) {  // Y-front
+                if (hasFront && frontAxis == 1) {
                     correction = glm::rotate(correction, glm::radians(90.0f), Vec3(0.0f, 0.0f, 1.0f));
                 }
             }
 
-            // Handle coordinate system handedness if needed
             if (scene->mMetaData->HasKey("AxisMode")) {
                 int axisMode;
                 if (scene->mMetaData->Get("AxisMode", axisMode)) {
-                    if (axisMode == 2) {  // Right-handed to left-handed
+                    if (axisMode == 2) {
                         correction = glm::scale(correction, Vec3(-1.0f, 1.0f, 1.0f));
                     }
                 }
@@ -55,46 +53,274 @@ namespace Luth
         return correction;
     }
 
-    static MeshData ProcessMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
+    // --- Skeleton Extraction ---
+
+    static bool SceneHasBones(const aiScene* scene)
+    {
+        for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
+            if (scene->mMeshes[i]->HasBones())
+                return true;
+        }
+        return false;
+    }
+
+    // Collect all bone names and inverse bind poses from all meshes
+    static void CollectBoneData(const aiScene* scene,
+        std::unordered_map<std::string, Mat4>& boneInvBindPoses)
+    {
+        for (unsigned int mi = 0; mi < scene->mNumMeshes; ++mi) {
+            aiMesh* mesh = scene->mMeshes[mi];
+            if (!mesh->HasBones()) continue;
+
+            for (unsigned int bi = 0; bi < mesh->mNumBones; ++bi) {
+                aiBone* bone = mesh->mBones[bi];
+                std::string name = bone->mName.C_Str();
+                if (boneInvBindPoses.find(name) == boneInvBindPoses.end()) {
+                    boneInvBindPoses[name] = AiMat4ToGLM(bone->mOffsetMatrix);
+                }
+            }
+        }
+    }
+
+    // BFS from root to build skeleton in topological order
+    // Include nodes that are bones OR ancestors of bones
+    static void ExtractSkeleton(const aiScene* scene, Skeleton& skeleton, const Mat4& axisCorrection)
+    {
+        std::unordered_map<std::string, Mat4> boneInvBindPoses;
+        CollectBoneData(scene, boneInvBindPoses);
+
+        if (boneInvBindPoses.empty()) return;
+
+        // First pass: mark all nodes that are bones or ancestors of bones
+        std::unordered_set<const aiNode*> relevantNodes;
+
+        // Find all bone nodes and mark their ancestor chains
+        std::function<const aiNode*(const aiNode*, const std::string&)> FindNode;
+        FindNode = [&](const aiNode* node, const std::string& name) -> const aiNode* {
+            if (std::string(node->mName.C_Str()) == name) return node;
+            for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+                auto result = FindNode(node->mChildren[i], name);
+                if (result) return result;
+            }
+            return nullptr;
+        };
+
+        for (const auto& [boneName, _] : boneInvBindPoses) {
+            const aiNode* boneNode = FindNode(scene->mRootNode, boneName);
+            if (!boneNode) continue;
+
+            // Walk up to root, marking all ancestors
+            const aiNode* current = boneNode;
+            while (current) {
+                if (relevantNodes.count(current)) break; // Already marked
+                relevantNodes.insert(current);
+                current = current->mParent;
+            }
+        }
+
+        // BFS to build skeleton in topological order (parents before children)
+        struct QueueEntry {
+            const aiNode* node;
+            i32 parentIndex;
+        };
+
+        std::queue<QueueEntry> bfsQueue;
+        bfsQueue.push({ scene->mRootNode, -1 });
+
+        while (!bfsQueue.empty()) {
+            auto [node, parentIdx] = bfsQueue.front();
+            bfsQueue.pop();
+
+            if (!relevantNodes.count(node)) continue;
+
+            std::string name = node->mName.C_Str();
+
+            BoneInfo info;
+            info.Name = name;
+            info.ParentIndex = parentIdx;
+            info.LocalBindPose = AiMat4ToGLM(node->mTransformation);
+
+            // Apply axis correction to root node's local bind pose
+            if (parentIdx == -1) {
+                info.LocalBindPose = axisCorrection * info.LocalBindPose;
+            }
+
+            auto it = boneInvBindPoses.find(name);
+            if (it != boneInvBindPoses.end()) {
+                info.InverseBindPose = it->second;
+            }
+            // else: structural node (armature), keep identity inverse bind pose
+
+            i32 currentIndex = static_cast<i32>(skeleton.Bones.size());
+            skeleton.BoneNameToIndex[name] = currentIndex;
+            skeleton.Bones.push_back(info);
+
+            // Enqueue children
+            for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+                if (relevantNodes.count(node->mChildren[i])) {
+                    bfsQueue.push({ node->mChildren[i], currentIndex });
+                }
+            }
+        }
+
+        LH_CORE_INFO("ModelImporter: Extracted skeleton with {0} bones ({1} actual bones, rest structural)",
+            skeleton.BoneCount(), boneInvBindPoses.size());
+    }
+
+    // --- Bone Weight Extraction ---
+
+    static void ExtractBoneWeights(aiMesh* mesh, MeshData& data, const Skeleton& skeleton)
+    {
+        u32 vertexCount = static_cast<u32>(data.SkinnedVertices.size());
+
+        // Temporary per-vertex bone influence counters
+        std::vector<u32> influenceCount(vertexCount, 0);
+
+        for (unsigned int bi = 0; bi < mesh->mNumBones; ++bi) {
+            aiBone* bone = mesh->mBones[bi];
+            std::string boneName = bone->mName.C_Str();
+            i32 boneIndex = skeleton.FindBone(boneName);
+
+            if (boneIndex < 0) {
+                LH_CORE_WARN("ModelImporter: Bone '{0}' not found in skeleton", boneName);
+                continue;
+            }
+
+            for (unsigned int wi = 0; wi < bone->mNumWeights; ++wi) {
+                u32 vertexId = bone->mWeights[wi].mVertexId;
+                f32 weight = bone->mWeights[wi].mWeight;
+
+                if (vertexId >= vertexCount || weight <= 0.0f) continue;
+
+                u32& count = influenceCount[vertexId];
+                if (count < MAX_BONES_PER_VERTEX) {
+                    data.SkinnedVertices[vertexId].BoneIDs[count] = boneIndex;
+                    data.SkinnedVertices[vertexId].BoneWeights[count] = weight;
+                    count++;
+                }
+            }
+        }
+
+        // Normalize weights and fix vertices with no influences
+        for (u32 i = 0; i < vertexCount; ++i) {
+            auto& sv = data.SkinnedVertices[i];
+
+            if (influenceCount[i] == 0) {
+                // No bone influences — bind to first bone with full weight
+                sv.BoneIDs = glm::ivec4(0, 0, 0, 0);
+                sv.BoneWeights = Vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                continue;
+            }
+
+            // Normalize weights to sum to 1.0
+            f32 total = sv.BoneWeights.x + sv.BoneWeights.y + sv.BoneWeights.z + sv.BoneWeights.w;
+            if (total > 0.0f && std::abs(total - 1.0f) > 0.001f) {
+                sv.BoneWeights /= total;
+            }
+        }
+    }
+
+    // --- Animation Clip Extraction ---
+
+    static void ExtractAnimationClips(const aiScene* scene, const Skeleton& skeleton,
+        std::vector<AnimationClip>& clips)
+    {
+        for (unsigned int ai = 0; ai < scene->mNumAnimations; ++ai) {
+            aiAnimation* anim = scene->mAnimations[ai];
+
+            AnimationClip clip;
+            clip.Name = anim->mName.C_Str();
+            if (clip.Name.empty()) clip.Name = "Animation_" + std::to_string(ai);
+            clip.Duration = static_cast<f32>(anim->mDuration);
+            clip.TicksPerSecond = static_cast<f32>(anim->mTicksPerSecond);
+            if (clip.TicksPerSecond <= 0.0f) clip.TicksPerSecond = 25.0f;
+
+            for (unsigned int ci = 0; ci < anim->mNumChannels; ++ci) {
+                aiNodeAnim* channel = anim->mChannels[ci];
+                std::string nodeName = channel->mNodeName.C_Str();
+
+                i32 boneIndex = skeleton.FindBone(nodeName);
+                if (boneIndex < 0) continue; // Not a bone we track
+
+                BoneTrack track;
+                track.BoneIndex = boneIndex;
+
+                // Position keyframes
+                track.Positions.reserve(channel->mNumPositionKeys);
+                for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k) {
+                    VectorKey key;
+                    key.Time = static_cast<f32>(channel->mPositionKeys[k].mTime);
+                    key.Value = AiVec3ToGLM(channel->mPositionKeys[k].mValue);
+                    track.Positions.push_back(key);
+                }
+
+                // Rotation keyframes
+                track.Rotations.reserve(channel->mNumRotationKeys);
+                for (unsigned int k = 0; k < channel->mNumRotationKeys; ++k) {
+                    QuatKey key;
+                    key.Time = static_cast<f32>(channel->mRotationKeys[k].mTime);
+                    key.Value = AiQuatToGLM(channel->mRotationKeys[k].mValue);
+                    track.Rotations.push_back(key);
+                }
+
+                // Scale keyframes
+                track.Scales.reserve(channel->mNumScalingKeys);
+                for (unsigned int k = 0; k < channel->mNumScalingKeys; ++k) {
+                    VectorKey key;
+                    key.Time = static_cast<f32>(channel->mScalingKeys[k].mTime);
+                    key.Value = AiVec3ToGLM(channel->mScalingKeys[k].mValue);
+                    track.Scales.push_back(key);
+                }
+
+                clip.Tracks.push_back(std::move(track));
+
+                // Detect root motion: root bone (index 0 or 1) has translation keyframes
+                if (boneIndex <= 1 && channel->mNumPositionKeys > 1) {
+                    clip.HasRootMotion = true;
+                }
+            }
+
+            clips.push_back(std::move(clip));
+        }
+
+        LH_CORE_INFO("ModelImporter: Extracted {0} animation clips", clips.size());
+    }
+
+    // --- Mesh Processing ---
+
+    static MeshData ProcessStaticMesh(aiMesh* mesh, const aiScene* scene, const Mat4& transform)
     {
         MeshData data;
         data.Name = mesh->mName.C_Str();
         data.MaterialIndex = mesh->mMaterialIndex;
+        data.IsSkinned = false;
 
-        // Vertices
         data.Vertices.reserve(mesh->mNumVertices);
         for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
             Vertex vertex;
-            
-            // Position
+
             Vec4 pos = transform * Vec4(AiVec3ToGLM(mesh->mVertices[i]), 1.0f);
             vertex.Position = Vec3(pos);
 
-            // Normal (Transform with Normal Matrix)
             Mat3 normalMatrix = ConvertToNormalMatrix(transform);
             if (mesh->HasNormals())
                 vertex.Normal = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
             else
                 vertex.Normal = Vec3(0.0f);
 
-            // Texture Coordinates
-            if (mesh->mTextureCoords[0]) {
+            if (mesh->mTextureCoords[0])
                 vertex.TexCoord0 = Vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
-            } else {
+            else
                 vertex.TexCoord0 = Vec2(0.0f);
-            }
 
-            // Tangents
-            if (mesh->HasTangentsAndBitangents()) {
+            if (mesh->HasTangentsAndBitangents())
                 vertex.Tangent = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
-            } else {
+            else
                 vertex.Tangent = Vec3(0.0f);
-            }
 
             data.Vertices.push_back(vertex);
         }
 
-        // Indices
         for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
             aiFace face = mesh->mFaces[i];
             for (unsigned int j = 0; j < face.mNumIndices; j++)
@@ -104,17 +330,72 @@ namespace Luth
         return data;
     }
 
-    static void ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform, std::vector<MeshData>& outMeshes)
+    // For skinned meshes: do NOT bake node transforms into vertices (skeleton handles that)
+    static MeshData ProcessSkinnedMesh(aiMesh* mesh, const aiScene* scene, const Skeleton& skeleton)
+    {
+        MeshData data;
+        data.Name = mesh->mName.C_Str();
+        data.MaterialIndex = mesh->mMaterialIndex;
+        data.IsSkinned = true;
+
+        data.SkinnedVertices.reserve(mesh->mNumVertices);
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+            SkinnedVertex vertex;
+
+            // No transform baking — positions stay in mesh-local space
+            vertex.Position = AiVec3ToGLM(mesh->mVertices[i]);
+
+            if (mesh->HasNormals())
+                vertex.Normal = AiVec3ToGLM(mesh->mNormals[i]);
+            else
+                vertex.Normal = Vec3(0.0f);
+
+            if (mesh->mTextureCoords[0])
+                vertex.TexCoord0 = Vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+            else
+                vertex.TexCoord0 = Vec2(0.0f);
+
+            if (mesh->HasTangentsAndBitangents())
+                vertex.Tangent = AiVec3ToGLM(mesh->mTangents[i]);
+            else
+                vertex.Tangent = Vec3(0.0f);
+
+            // BoneIDs and BoneWeights initialized to defaults by SkinnedVertex constructor
+            data.SkinnedVertices.push_back(vertex);
+        }
+
+        // Indices
+        for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+            aiFace face = mesh->mFaces[i];
+            for (unsigned int j = 0; j < face.mNumIndices; j++)
+                data.Indices.push_back(face.mIndices[j]);
+        }
+
+        // Extract bone weights
+        if (mesh->HasBones()) {
+            ExtractBoneWeights(mesh, data, skeleton);
+        }
+
+        return data;
+    }
+
+    static void ProcessNode(aiNode* node, const aiScene* scene, const Mat4& parentTransform,
+        std::vector<MeshData>& outMeshes, bool isSkinned, const Skeleton& skeleton)
     {
         Mat4 transform = parentTransform * AiMat4ToGLM(node->mTransformation);
 
         for (unsigned int i = 0; i < node->mNumMeshes; i++) {
             aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            outMeshes.push_back(ProcessMesh(mesh, scene, transform));
+
+            if (isSkinned && mesh->HasBones()) {
+                outMeshes.push_back(ProcessSkinnedMesh(mesh, scene, skeleton));
+            } else {
+                outMeshes.push_back(ProcessStaticMesh(mesh, scene, transform));
+            }
         }
 
         for (unsigned int i = 0; i < node->mNumChildren; i++) {
-            ProcessNode(node->mChildren[i], scene, transform, outMeshes);
+            ProcessNode(node->mChildren[i], scene, transform, outMeshes, isSkinned, skeleton);
         }
     }
 
@@ -297,10 +578,12 @@ namespace Luth
         ctx.MaterialDir = source.parent_path() / (source.stem().string() + "_Materials");
 
         Assimp::Importer importer;
-        // Important: Read file with flags to generate what we need
-        const aiScene* scene = importer.ReadFile(source.string(),
-            aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |
-            aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices);
+
+        u32 flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |
+            aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
+            aiProcess_LimitBoneWeights; // Limit to 4 bones per vertex
+
+        const aiScene* scene = importer.ReadFile(source.string(), flags);
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             LH_CORE_ERROR("ModelImporter: Failed to load model {0} : {1}", source.string(), importer.GetErrorString());
@@ -318,9 +601,19 @@ namespace Luth
             ctx.MaterialUUIDs[i] = ProcessMaterial(ctx, scene->mMaterials[i], i);
         }
 
-        // 3. Process Geometry
+        // 3. Extract Skeleton (if model has bones)
         ModelAssetData modelData;
-        ProcessNode(scene->mRootNode, scene, AxisCorrectionMatrix(scene), modelData.Meshes);
+        Mat4 axisCorrection = AxisCorrectionMatrix(scene);
+        bool isSkinned = SceneHasBones(scene);
+        modelData.IsSkinned = isSkinned;
+
+        if (isSkinned) {
+            ExtractSkeleton(scene, modelData.SkeletonData, axisCorrection);
+            ExtractAnimationClips(scene, modelData.SkeletonData, modelData.AnimationClips);
+        }
+
+        // 4. Process Geometry
+        ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
         modelData.Materials = ctx.MaterialUUIDs;
 
         return AssetSerializer::SerializeModel(destination, modelData);

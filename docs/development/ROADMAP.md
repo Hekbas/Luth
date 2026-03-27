@@ -27,7 +27,15 @@
 
 ---
 
-## Upcoming Phases
+## Current Phase: 7 — Animation System
+
+| Sub-Phase | Summary | Status |
+|-----------|---------|--------|
+| 7A — Data Extraction | Skeleton, AnimationClip, SkinnedVertex structs. Assimp extraction (skeleton hierarchy, bone weights, keyframes). V2 binary serialization. ModelViewer populated from real data. | Complete (2026-03-27) |
+| 7B — GPU Skinning | BoneMatrixBuffer SSBO, skinned vertex/shadow shaders, pipeline variants | Planned |
+| 7C — Evaluation & Playback | Keyframe sampling, hierarchy propagation, job-parallel eval, dynamic AABB, events, bone sockets | Planned |
+| 7D — Blending & Root Motion | Crossfade, layered blending, bone masks, root motion extraction | Planned |
+| 7E — Editor Integration | Animation inspector, timeline scrubbing, bone debug visualization | Planned |
 
 ---
 
@@ -44,7 +52,7 @@
 ### Gameplay Systems
 - Physics engine (Jolt integration, jobified)
 - Particle system (GPU compute)
-- Animation system improvements (blend trees, IK)
+- Animation Phase 8: DQS, morph targets, IK, state machines, animation LODs
 - Prefab system (reusable entity templates)
 - Scripting (C# via Mono, or Lua)
 

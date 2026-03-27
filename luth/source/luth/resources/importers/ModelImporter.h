@@ -1,16 +1,19 @@
 #pragma once
 
 #include "luth/resources/AssetImporter.h"
-#include "luth/renderer/Model.h" // For MeshData struct
+#include "luth/renderer/Model.h"
+#include "luth/renderer/Skeleton.h"
+#include "luth/renderer/AnimationClip.h"
 
 namespace Luth
 {
     struct ModelAssetData : public AssetData
     {
-        // We reuse the MeshData struct from Model.h for now
         std::vector<MeshData> Meshes;
         std::vector<UUID> Materials;
-        // Add skeleton/animation data here later
+        Skeleton SkeletonData;
+        std::vector<AnimationClip> AnimationClips;
+        bool IsSkinned = false;
     };
 
     class ModelImporter : public AssetImporter

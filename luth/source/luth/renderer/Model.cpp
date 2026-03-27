@@ -15,47 +15,104 @@ namespace Luth
         return model;
     }
 
+    std::shared_ptr<Model> Model::Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials,
+        const Skeleton& skeleton, const std::vector<AnimationClip>& clips, bool isSkinned)
+    {
+        auto model = std::make_shared<Model>();
+        model->m_MeshesData = meshData;
+        model->m_Materials = materials;
+        model->m_Skeleton = skeleton;
+        model->m_AnimationClips = clips;
+        model->m_IsSkinned = isSkinned;
+        model->ProcessMeshData();
+        return model;
+    }
+
     void Model::ProcessMeshData()
     {
         // Upload to GPU (Main Thread)
         for (const auto& data : m_MeshesData)
         {
-            auto vb = VertexBuffer::Create(data.Vertices.data(), data.Vertices.size() * sizeof(Vertex));
-            
-            vb->SetLayout({
-                { ShaderDataType::Float3, "a_Position"  },
-                { ShaderDataType::Float3, "a_Normal"    },
-                { ShaderDataType::Float2, "a_TexCoord0" },
-                { ShaderDataType::Float2, "a_TexCoord1" },
-                { ShaderDataType::Float3, "a_Tangent"   } 
-            });
+            std::shared_ptr<VertexBuffer> vb;
+
+            if (data.IsSkinned && !data.SkinnedVertices.empty())
+            {
+                vb = VertexBuffer::Create(data.SkinnedVertices.data(),
+                    data.SkinnedVertices.size() * sizeof(SkinnedVertex));
+
+                vb->SetLayout({
+                    { ShaderDataType::Float3, "a_Position"    },
+                    { ShaderDataType::Float3, "a_Normal"      },
+                    { ShaderDataType::Float2, "a_TexCoord0"   },
+                    { ShaderDataType::Float2, "a_TexCoord1"   },
+                    { ShaderDataType::Float3, "a_Tangent"     },
+                    { ShaderDataType::Int4,   "a_BoneIDs"     },
+                    { ShaderDataType::Float4, "a_BoneWeights" }
+                });
+            }
+            else
+            {
+                vb = VertexBuffer::Create(data.Vertices.data(),
+                    data.Vertices.size() * sizeof(Vertex));
+
+                vb->SetLayout({
+                    { ShaderDataType::Float3, "a_Position"  },
+                    { ShaderDataType::Float3, "a_Normal"    },
+                    { ShaderDataType::Float2, "a_TexCoord0" },
+                    { ShaderDataType::Float2, "a_TexCoord1" },
+                    { ShaderDataType::Float3, "a_Tangent"   }
+                });
+            }
 
             auto ib = IndexBuffer::Create(data.Indices.data(), data.Indices.size());
             m_Meshes.push_back(Mesh::Create(vb, ib));
         }
-        
+
         CacheModelInfo();
     }
 
     ModelInfo Model::GetModelInfo() const
     {
         ModelInfo info;
-        // info.Path = m_Path; // Path is managed by AssetDatabase
         info.IsSkinned = m_IsSkinned;
         info.TotalMeshCount = (u32)m_Meshes.size();
         info.MaterialCount = (u32)m_Materials.size();
-        
+
         // Calculate totals
         for (const auto& meshData : m_MeshesData) {
-            info.TotalVertexCount += static_cast<uint32_t>(meshData.Vertices.size());
-            info.TotalIndexCount += static_cast<uint32_t>(meshData.Indices.size());
+            u32 vertCount = meshData.IsSkinned
+                ? static_cast<u32>(meshData.SkinnedVertices.size())
+                : static_cast<u32>(meshData.Vertices.size());
+
+            info.TotalVertexCount += vertCount;
+            info.TotalIndexCount += static_cast<u32>(meshData.Indices.size());
 
             MeshInfo meshInfo;
             meshInfo.Name = meshData.Name;
-            meshInfo.VertexCount = static_cast<uint32_t>(meshData.Vertices.size());
-            meshInfo.IndexCount = static_cast<uint32_t>(meshData.Indices.size());
+            meshInfo.VertexCount = vertCount;
+            meshInfo.IndexCount = static_cast<u32>(meshData.Indices.size());
             meshInfo.MaterialIndex = meshData.MaterialIndex;
             info.Meshes.push_back(meshInfo);
+        }
+
+        // Populate skeleton info
+        info.BoneCount = m_Skeleton.BoneCount();
+        info.AnimationCount = static_cast<u32>(m_AnimationClips.size());
+
+        for (const auto& bone : m_Skeleton.Bones) {
+            BoneNodeInfo bni;
+            bni.Name = bone.Name;
+            bni.ParentIndex = bone.ParentIndex;
+            bni.BoneIndex = static_cast<int>(info.BoneHierarchy.size());
+            info.BoneHierarchy.push_back(bni);
+        }
+
+        for (const auto& clip : m_AnimationClips) {
+            AnimationInfo ai;
+            ai.Name = clip.Name;
+            ai.Duration = static_cast<double>(clip.Duration);
+            ai.TicksPerSecond = static_cast<double>(clip.TicksPerSecond);
+            info.Animations.push_back(ai);
         }
 
         return info;
