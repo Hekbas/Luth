@@ -21,6 +21,9 @@ namespace Luth
         float cameraFlySpeed  = 5.0f;
         float thumbnailSize   = 64.0f;
 
+        // Scene persistence
+        std::string lastSceneUUID;
+
         static EditorSettings Load(const std::filesystem::path& path);
         static void Save(const EditorSettings& settings, const std::filesystem::path& path);
     };

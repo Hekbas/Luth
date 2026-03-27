@@ -10,6 +10,7 @@
 #include "luth/renderer/RenderBackend.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
+#include "luth/resources/AssetDatabase.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
@@ -148,6 +149,7 @@ namespace Luth
             s_Settings.cameraFlySpeed = sp->GetEditorCamera().GetFlySpeed();
         if (auto* pp = GetPanel<ProjectPanel>())
             s_Settings.thumbnailSize = pp->GetThumbnailSize();
+        s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();
 
         SaveSettings();
 
@@ -433,6 +435,19 @@ namespace Luth
             hp->SetContext(scene);
         if (auto* sp = GetPanel<ScenePanel>())
             sp->SetContext(scene);
+
+        // Load last opened scene (on first call from App::Init, s_ActiveScene is now valid)
+        if (!s_Settings.lastSceneUUID.empty())
+        {
+            UUID sceneUUID = UUID::FromString(s_Settings.lastSceneUUID);
+            if (sceneUUID.IsValid() && AssetDatabase::Exists(sceneUUID))
+            {
+                const auto& meta = AssetDatabase::GetMetadata(sceneUUID);
+                if (!meta.Path.empty() && fs::exists(meta.Path))
+                    OpenScene(meta.Path);
+            }
+            s_Settings.lastSceneUUID.clear(); // One-shot: don't re-trigger on subsequent SetActiveScene calls
+        }
     }
 
     void Editor::NewScene()
@@ -464,6 +479,7 @@ namespace Luth
             s_ScenePath = path;
             s_IsDirty = false;
             s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
+            s_Settings.lastSceneUUID = AssetDatabase::GetUUID(path).ToString();
         }
     }
 

@@ -29,6 +29,7 @@ namespace Luth
             settings.skyboxIntensity = j.value("skyboxIntensity", settings.skyboxIntensity);
             settings.cameraFlySpeed  = j.value("cameraFlySpeed", settings.cameraFlySpeed);
             settings.thumbnailSize   = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
         }
@@ -51,6 +52,7 @@ namespace Luth
             j["skyboxIntensity"] = settings.skyboxIntensity;
             j["cameraFlySpeed"]  = settings.cameraFlySpeed;
             j["thumbnailSize"]   = settings.thumbnailSize;
+            j["lastSceneUUID"]   = settings.lastSceneUUID;
 
             std::ofstream file(path);
             file << j.dump(4);

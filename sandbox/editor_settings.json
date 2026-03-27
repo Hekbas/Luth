@@ -1,8 +1,9 @@
 {
     "activeLayout": "Layout_1",
-    "activeStyle": "Rider",
+    "activeStyle": "Custom",
     "cameraFlySpeed": 50.0,
-    "iblIntensity": 0.15000000596046448,
+    "iblIntensity": 0.20000000298023224,
+    "lastSceneUUID": "31005dcd-9165-4620-9238-16784b473e1d",
     "skyboxIntensity": 0.15000000596046448,
     "thumbnailSize": 16.0
 }
