@@ -321,6 +321,10 @@ namespace Luth
             data.Vertices.push_back(vertex);
         }
 
+        // Compute bind-pose AABB from vertex positions
+        for (const auto& v : data.Vertices)
+            data.BindPoseAABB.Expand(v.Position);
+
         for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
             aiFace face = mesh->mFaces[i];
             for (unsigned int j = 0; j < face.mNumIndices; j++)
@@ -363,6 +367,10 @@ namespace Luth
             // BoneIDs and BoneWeights initialized to defaults by SkinnedVertex constructor
             data.SkinnedVertices.push_back(vertex);
         }
+
+        // Compute bind-pose AABB from vertex positions
+        for (const auto& v : data.SkinnedVertices)
+            data.BindPoseAABB.Expand(v.Position);
 
         // Indices
         for (unsigned int i = 0; i < mesh->mNumFaces; i++) {

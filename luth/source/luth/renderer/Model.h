@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/Math.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Mesh.h"
 #include "luth/renderer/Skeleton.h"
@@ -38,6 +39,7 @@ namespace Luth
         uint32_t MaterialIndex = 0;
         std::string Name;
         bool IsSkinned = false;
+        AABB BindPoseAABB;
     };
 
     struct MeshInfo {

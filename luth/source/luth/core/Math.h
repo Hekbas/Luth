@@ -14,6 +14,7 @@
 #include <assimp/matrix4x4.h>
 #include <assimp/quaternion.h>
 #include <array>
+#include <limits>
 
 namespace Luth
 {
@@ -101,6 +102,24 @@ namespace Luth
         glm::decompose(transform, scale, rotation, translation, skew, perspective);
         rotation = glm::conjugate(rotation);
     }
+
+    // Axis-Aligned Bounding Box
+    struct AABB {
+        Vec3 Min = Vec3(std::numeric_limits<float>::max());
+        Vec3 Max = Vec3(-std::numeric_limits<float>::max());
+
+        void Expand(const Vec3& point) {
+            Min = glm::min(Min, point);
+            Max = glm::max(Max, point);
+        }
+        void Expand(const AABB& other) {
+            Min = glm::min(Min, other.Min);
+            Max = glm::max(Max, other.Max);
+        }
+        Vec3 Center() const { return (Min + Max) * 0.5f; }
+        Vec3 Extents() const { return (Max - Min) * 0.5f; }
+        bool IsValid() const { return Min.x <= Max.x; }
+    };
 
     // Frustum culling
     struct Frustum {

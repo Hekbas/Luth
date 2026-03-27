@@ -275,9 +275,13 @@ namespace Luth
                 if (mesh.IsSkinned) {
                     mesh.SkinnedVertices.resize(meshHeader.VertexCount);
                     in.read((char*)mesh.SkinnedVertices.data(), meshHeader.VertexCount * sizeof(SkinnedVertex));
+                    for (const auto& v : mesh.SkinnedVertices)
+                        mesh.BindPoseAABB.Expand(v.Position);
                 } else {
                     mesh.Vertices.resize(meshHeader.VertexCount);
                     in.read((char*)mesh.Vertices.data(), meshHeader.VertexCount * sizeof(Vertex));
+                    for (const auto& v : mesh.Vertices)
+                        mesh.BindPoseAABB.Expand(v.Position);
                 }
 
                 mesh.Indices.resize(meshHeader.IndexCount);
@@ -329,6 +333,8 @@ namespace Luth
 
                 mesh.Vertices.resize(vertexCount);
                 in.read((char*)mesh.Vertices.data(), vertexCount * sizeof(Vertex));
+                for (const auto& v : mesh.Vertices)
+                    mesh.BindPoseAABB.Expand(v.Position);
 
                 mesh.Indices.resize(indexCount);
                 in.read((char*)mesh.Indices.data(), indexCount * sizeof(u32));
