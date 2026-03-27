@@ -5,6 +5,7 @@
 #include "luth/core/UUID.h"
 
 #include <entt/entt.hpp>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -106,8 +107,10 @@ namespace Luth::Component
         // Runtime (not serialized)
         u32 BoneBufferOffset = UINT32_MAX;  // SSBO base index
         bool BufferAllocated = false;
+        f32 PreviousTime = 0.0f;            // for event crossing detection
         std::vector<Mat4> GlobalBoneTransforms;  // per-frame, for attachments/AABB
         AABB AnimatedAABB;                       // world-space animated bounds
+        std::function<void(entt::entity, const std::string&)> OnAnimEvent;
     };
 
     struct DirectionalLight {

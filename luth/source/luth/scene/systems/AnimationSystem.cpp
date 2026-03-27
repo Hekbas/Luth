@@ -76,7 +76,7 @@ namespace Luth
             }
         }
 
-        // Advance time
+        // Advance time (capture previous for event detection)
         f32 dt = Time::DeltaTime();
         for (auto entity : entities)
         {
@@ -90,6 +90,7 @@ namespace Luth
             if (!clip) continue;
 
             f32 duration = clip->GetDurationSeconds();
+            anim.PreviousTime = anim.CurrentTime;
             anim.CurrentTime += dt * anim.Speed;
 
             if (anim.Loop)
@@ -116,6 +117,32 @@ namespace Luth
         JobSystem::Counter counter;
         JobSystem::Dispatch(jobData.totalCount, 1, EvaluateAnimJob, &jobData, &counter);
         JobSystem::WaitForCounter(&counter);
+
+        // Fire animation events (main thread — safe to modify ECS)
+        for (auto entity : entities)
+        {
+            auto& anim = registry.get<Animation>(entity);
+            if (!anim.OnAnimEvent) continue;
+
+            auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
+            if (!model) continue;
+            const AnimationClip* clip = model->GetAnimationClip(anim.AnimationIndex);
+            if (!clip || clip->Events.empty()) continue;
+
+            f32 tps = (clip->TicksPerSecond > 0.0f) ? clip->TicksPerSecond : 25.0f;
+            f32 prev = anim.PreviousTime;
+            f32 curr = anim.CurrentTime;
+
+            for (const auto& evt : clip->Events)
+            {
+                f32 evtSec = evt.Time / tps;
+                bool fired = (prev <= curr)
+                    ? (evtSec > prev && evtSec <= curr)        // normal forward
+                    : (evtSec > prev || evtSec <= curr);       // loop wrap-around
+                if (fired)
+                    anim.OnAnimEvent(entity, evt.Name);
+            }
+        }
     }
 
     void AnimationSystem::EvaluateAnimJob(JobSystem::JobArgs args)
