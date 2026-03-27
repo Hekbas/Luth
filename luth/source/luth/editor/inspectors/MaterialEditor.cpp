@@ -11,10 +11,18 @@
 #include "luth/core/Time.h"
 #include "luth/jobs/IOThread.h"
 
+#include <imgui/imgui_internal.h>
+
 namespace Luth
 {
     void MaterialEditor::Draw(Material& material)
     {
+        // Guard: skip all widget calls when the parent window is clipped/collapsed.
+        // Without this, ImGui::BeginChild/EndChild can crash if the host window
+        // is not expecting child submissions (e.g. during rapid dock/undock).
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        if (window->SkipItems) return;
+
         // Material header with name and unsaved indicator
         if (ImGui::BeginChild("##Header", { 0, 30 })) {
             ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
