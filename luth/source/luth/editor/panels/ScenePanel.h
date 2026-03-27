@@ -39,6 +39,34 @@ namespace Luth
         glm::vec3 GetRightDirection() const;
         glm::vec3 GetUpDirection() const;
 
+        // Settings accessors
+        float GetFOV() const { return m_FOV; }
+        void  SetFOV(float fov) { m_FOV = fov; UpdateProjection(); }
+        float GetNearClip() const { return m_NearClip; }
+        void  SetNearClip(float v) { m_NearClip = v; UpdateProjection(); }
+        float GetFarClip() const { return m_FarClip; }
+        void  SetFarClip(float v) { m_FarClip = v; UpdateProjection(); }
+        float GetRotationSpeed() const { return m_RotationSpeed; }
+        void  SetRotationSpeed(float v) { m_RotationSpeed = v; }
+        float GetPanSpeed() const { return m_PanSpeed; }
+        void  SetPanSpeed(float v) { m_PanSpeed = v; }
+        float GetZoomSpeed() const { return m_ZoomSpeed; }
+        void  SetZoomSpeed(float v) { m_ZoomSpeed = v; }
+        float GetShiftMultiplier() const { return m_ShiftMultiplier; }
+        void  SetShiftMultiplier(float v) { m_ShiftMultiplier = v; }
+
+        // Ref accessors for ImGui sliders
+        float& GetFOVRef() { return m_FOV; }
+        float& GetNearClipRef() { return m_NearClip; }
+        float& GetFarClipRef() { return m_FarClip; }
+        float& GetRotationSpeedRef() { return m_RotationSpeed; }
+        float& GetPanSpeedRef() { return m_PanSpeed; }
+        float& GetZoomSpeedRef() { return m_ZoomSpeed; }
+        float& GetShiftMultiplierRef() { return m_ShiftMultiplier; }
+
+        void ApplySettings(const struct EditorSettings& s);
+        void SyncToSettings(struct EditorSettings& s) const;
+
     private:
         void UpdateProjection();
         void UpdateView();

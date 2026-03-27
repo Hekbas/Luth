@@ -137,7 +137,7 @@ namespace Luth
 
         // Apply persisted panel settings
         if (auto* sp = GetPanel<ScenePanel>())
-            sp->GetEditorCamera().SetFlySpeed(s_Settings.cameraFlySpeed);
+            sp->GetEditorCamera().ApplySettings(s_Settings);
         if (auto* pp = GetPanel<ProjectPanel>())
             pp->SetThumbnailSize(s_Settings.thumbnailSize);
     }
@@ -146,7 +146,7 @@ namespace Luth
     {
         // Sync panel state → settings before saving
         if (auto* sp = GetPanel<ScenePanel>())
-            s_Settings.cameraFlySpeed = sp->GetEditorCamera().GetFlySpeed();
+            sp->GetEditorCamera().SyncToSettings(s_Settings);
         if (auto* pp = GetPanel<ProjectPanel>())
             s_Settings.thumbnailSize = pp->GetThumbnailSize();
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();

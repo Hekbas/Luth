@@ -2,6 +2,7 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/EditorSelection.h"
+#include "luth/editor/EditorSettings.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/platform/RenderEvent.h"
@@ -63,6 +64,33 @@ namespace Luth
                 ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Camera fly speed (scroll wheel while RMB to adjust)");
+
+                // Camera settings popup
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_GEAR "##CamSettings"))
+                    ImGui::OpenPopup("CameraSettingsPopup");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Camera settings");
+
+                if (ImGui::BeginPopup("CameraSettingsPopup"))
+                {
+                    ImGui::PushFont(Editor::GetMainFont());
+                    ImGui::Text("Camera Settings");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    if (ImGui::SliderFloat("FOV", &m_EditorCamera.GetFOVRef(), 30.0f, 120.0f, "%.0f"))
+                        m_EditorCamera.SetFOV(m_EditorCamera.GetFOV()); // triggers projection update
+                    ImGui::SliderFloat("Near Clip", &m_EditorCamera.GetNearClipRef(), 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat("Far Clip", &m_EditorCamera.GetFarClipRef(), 100.0f, 50000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::Separator();
+                    ImGui::SliderFloat("Rotation Speed", &m_EditorCamera.GetRotationSpeedRef(), 1000.0f, 50000.0f, "%.0f");
+                    ImGui::SliderFloat("Pan Speed", &m_EditorCamera.GetPanSpeedRef(), 10.0f, 1000.0f, "%.0f");
+                    ImGui::SliderFloat("Zoom Speed", &m_EditorCamera.GetZoomSpeedRef(), 10.0f, 500.0f, "%.0f");
+                    ImGui::SliderFloat("Shift Multiplier", &m_EditorCamera.GetShiftMultiplierRef(), 1.0f, 10.0f, "%.1f");
+                    ImGui::PopFont();
+                    ImGui::EndPopup();
+                }
 
                 // Triangle count
                 ImGui::SameLine();
@@ -486,5 +514,28 @@ namespace Luth
 
     glm::quat EditorCamera::GetOrientation() const {
         return glm::quatLookAt(GetForwardDirection(), glm::vec3(0.0f, 1.0f, 0.0f));
+    }
+
+    void EditorCamera::ApplySettings(const EditorSettings& s) {
+        m_FlySpeed        = s.cameraFlySpeed;
+        m_FOV             = s.cameraFOV;
+        m_NearClip        = s.cameraNearClip;
+        m_FarClip         = s.cameraFarClip;
+        m_RotationSpeed   = s.cameraRotationSpeed;
+        m_PanSpeed        = s.cameraPanSpeed;
+        m_ZoomSpeed       = s.cameraZoomSpeed;
+        m_ShiftMultiplier = s.cameraShiftMult;
+        UpdateProjection();
+    }
+
+    void EditorCamera::SyncToSettings(EditorSettings& s) const {
+        s.cameraFlySpeed      = m_FlySpeed;
+        s.cameraFOV           = m_FOV;
+        s.cameraNearClip      = m_NearClip;
+        s.cameraFarClip       = m_FarClip;
+        s.cameraRotationSpeed = m_RotationSpeed;
+        s.cameraPanSpeed      = m_PanSpeed;
+        s.cameraZoomSpeed     = m_ZoomSpeed;
+        s.cameraShiftMult     = m_ShiftMultiplier;
     }
 }
