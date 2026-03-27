@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/HierarchyPanel.h"
+#include "luth/editor/EditorColors.h"
 #include "luth/editor/EditorSelection.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Systems.h"
@@ -231,7 +232,7 @@ namespace Luth
         if (opened)
         {
             // Tree connector lines
-            const ImColor treeLineColor = ImColor(80, 80, 80, 128);
+            const ImColor treeLineColor = EditorColors::TreeLine;
             const float smallOffsetX = -6.0f;
             const float horizontalLineSize = 10.0f;
             ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
@@ -308,7 +309,7 @@ namespace Luth
                     
                     // Draw visual indicators
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
-                    ImU32 highlightColor = IM_COL32(0, 255, 255, 255); // Cyan
+                    ImU32 highlightColor = EditorColors::DragHighlight;
 
                     if (isReorderingTop)
                     {

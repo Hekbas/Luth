@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/ProjectPanel.h"
+#include "luth/editor/EditorColors.h"
 #include "luth/editor/EditorSelection.h"
 #include "luth/editor/Editor.h"
 #include "luth/resources/AssetDatabase.h"
@@ -204,7 +205,7 @@ namespace Luth
         ImGui::Text(node->Name.c_str());
         
         // Visual line settings
-        const ImColor treeLineColor = ImColor(128, 128, 128, 128);
+        const ImColor treeLineColor = EditorColors::TreeLineProject;
         const float smallOffsetX = -6.0f;
         ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
         ImDrawList* drawList = ImGui::GetWindowDrawList();

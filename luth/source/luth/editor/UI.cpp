@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "UI.h"
 #include "luth/editor/Editor.h"
+#include "luth/editor/EditorColors.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/Renderer.h"
@@ -239,10 +240,10 @@ namespace Luth::UI
         bool changed = false;
         const char* axisLabels[] = { "X", "Y", "Z", "W" };
         const ImVec4 axisColors[] = {
-            { 0.8f, 0.1f, 0.15f, 1.0f }, // Red
-            { 0.2f, 0.7f, 0.2f, 1.0f },  // Green
-            { 0.1f, 0.25f, 0.8f, 1.0f }, // Blue
-            { 0.3f, 0.3f, 0.3f, 1.0f }   // Grey
+            EditorColors::AxisX,
+            EditorColors::AxisY,
+            EditorColors::AxisZ,
+            EditorColors::AxisW
         };
 
         for (int i = 0; i < components; i++)
