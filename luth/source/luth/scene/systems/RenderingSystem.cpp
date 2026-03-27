@@ -8,6 +8,7 @@
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/MaterialSystem.h"
+#include "luth/renderer/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -89,6 +90,16 @@ namespace Luth
                 return;
             }
 
+            // Load skinned vertex shaders via ShaderCompiler
+            {
+                auto shadersPath = FileSystem::AssetsPath() / "shaders";
+                m_PBRSkinnedVertSpv     = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
+                m_ShadowSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+
+                if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
+                    LH_CORE_ERROR("Failed to compile skinned shaders!");
+            }
+
             // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
             {
                 auto shadersPath = FileSystem::AssetsPath() / "shaders";
@@ -106,6 +117,7 @@ namespace Luth
                 }
             }
 
+            BoneMatrixBuffer::Init();
             InitPostProcessResources();
             InitIBLResources();
             CreatePipelines();
@@ -126,10 +138,13 @@ namespace Luth
 
                 if (name == "pbr") {
                     m_GeoPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
+                    m_GeoSkinnedPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
                 } else {
                     m_GeoPipelineManager.Clear();
+                    m_GeoSkinnedPipelineManager.Clear();
                 }
                 m_ShadowPipeline.reset();
+                m_ShadowSkinnedPipeline.reset();
                 m_SkyboxPipeline.reset();
                 m_BloomExtractPipeline.reset();
                 m_BloomBlurPipeline.reset();
@@ -168,6 +183,12 @@ namespace Luth
         m_ShaderWatcher.Stop();
         ShaderLibrary::SetReloadCallback(nullptr);
         m_GPUTimers.Shutdown();
+
+        // Free all bone matrix blocks before shutting down the buffer
+        for (auto& [uuid, block] : m_BoneBlockMap)
+            BoneMatrixBuffer::FreeBlock(block);
+        m_BoneBlockMap.clear();
+        BoneMatrixBuffer::Shutdown();
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -1239,12 +1260,13 @@ namespace Luth
         pushConstantRange.offset = 0;
         pushConstantRange.size = sizeof(ObjectPushConstants);
 
-        // 4-set layout shared by all pipelines
+        // 5-set layout shared by geometry/shadow/skybox pipelines
         std::vector<VkDescriptorSetLayout> layouts = {
-            m_GlobalSetLayout,
-            VulkanContext::Get().GetBindlessSet().GetLayout(),
-            MaterialSystem::GetDescriptorSetLayout(),
-            m_LightSetLayout
+            m_GlobalSetLayout,                                    // Set 0
+            VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
+            MaterialSystem::GetDescriptorSetLayout(),            // Set 2
+            m_LightSetLayout,                                    // Set 3
+            BoneMatrixBuffer::GetDescriptorSetLayout()           // Set 4
         };
 
         // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
@@ -1314,6 +1336,78 @@ namespace Luth
         shadowConfig.pushConstantRanges = { pushConstantRange };
 
         m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, layouts);
+
+        // ---- Skinned geometry pipeline manager ----
+        BufferLayout skinnedVertexLayout = {
+            { ShaderDataType::Float3, "a_Position"    },
+            { ShaderDataType::Float3, "a_Normal"      },
+            { ShaderDataType::Float2, "a_TexCoord0"   },
+            { ShaderDataType::Float2, "a_TexCoord1"   },
+            { ShaderDataType::Float3, "a_Tangent"     },
+            { ShaderDataType::Int4,   "a_BoneIDs"     },
+            { ShaderDataType::Float4, "a_BoneWeights" }
+        };
+
+        auto skinnedBindingDescs = skinnedVertexLayout.GetBindingDescriptions();
+        auto skinnedAttribDescs  = skinnedVertexLayout.GetAttributeDescriptions();
+
+        m_GeoSkinnedPipelineManager.Init(layouts,
+            [skinnedBindingDescs, skinnedAttribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+            {
+                PipelineConfig config;
+                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
+                config.depthFormat = VK_FORMAT_D32_SFLOAT;
+                config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                config.bindingDescriptions = skinnedBindingDescs;
+                config.attributeDescriptions = skinnedAttribDescs;
+                config.pushConstantRanges = { pushConstantRange };
+                config.polygonMode = polygonMode;
+
+                switch (mode)
+                {
+                    case Material::RenderMode::Opaque:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false;
+                        break;
+                    case Material::RenderMode::Cutout:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false;
+                        break;
+                    case Material::RenderMode::Transparent:
+                    case Material::RenderMode::Fade:
+                        config.depthTest = true; config.depthWrite = false;
+                        config.blendEnabled = true;
+                        break;
+                }
+
+                switch (cullMode)
+                {
+                    case Material::CullMode::Back:  config.cullMode = VK_CULL_MODE_BACK_BIT;  break;
+                    case Material::CullMode::Front: config.cullMode = VK_CULL_MODE_FRONT_BIT; break;
+                    case Material::CullMode::None:  config.cullMode = VK_CULL_MODE_NONE;      break;
+                }
+
+                return config;
+            });
+
+        // ---- Skinned shadow pipeline (depth-only, full skinned vertex stride) ----
+        if (!m_ShadowSkinnedVertSpv.empty())
+        {
+            // Full skinned vertex layout — all 7 attributes declared so stride = 84 bytes
+            PipelineConfig shadowSkinnedConfig;
+            shadowSkinnedConfig.colorFormats = {};
+            shadowSkinnedConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
+            shadowSkinnedConfig.depthTest = true; shadowSkinnedConfig.depthWrite = true;
+            shadowSkinnedConfig.blendEnabled = false;
+            shadowSkinnedConfig.cullMode = VK_CULL_MODE_FRONT_BIT;
+            shadowSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            shadowSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
+            shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
+            shadowSkinnedConfig.pushConstantRanges = { pushConstantRange };
+
+            m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
+                shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, layouts);
+        }
 
         // ---- Skybox pipeline ----
         if (!m_SkyboxVertSpv.empty() && !m_SkyboxFragSpv.empty())
@@ -1715,18 +1809,21 @@ namespace Luth
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); return; }
-                m_ShadowPipeline->Bind(cmd);
 
-                // Bind all 4 sets (sets 1-3 are unused in shadow pass but layout requires them)
+                // Bind all 5 descriptor sets
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
                 };
+
+                // Start with static pipeline bound
+                m_ShadowPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_ShadowPipeline->GetLayout(), 0, 4, sets, 0, nullptr);
+                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
                 // Shadow map viewport
                 VkViewport viewport{};
@@ -1738,6 +1835,8 @@ namespace Luth
                 VkRect2D scissor{};
                 scissor.extent = { 2048, 2048 };
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                bool currentSkinned = false;
 
                 auto view = registry.view<WorldTransform, MeshRenderer>();
                 for (auto [entity, worldTransform, meshRenderer] : view.each())
@@ -1751,11 +1850,55 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
 
+                    // Check per-mesh skinning
+                    bool isSkinned = false;
+                    u32 boneOffset = 0;
+                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
+                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
+
+                    if (isSkinned)
+                    {
+                        auto it = m_BoneBlockMap.find(meshRenderer.ModelUUID);
+                        if (it == m_BoneBlockMap.end())
+                        {
+                            u32 block = BoneMatrixBuffer::AllocateBlock();
+                            m_BoneBlockMap[meshRenderer.ModelUUID] = block;
+                            boneOffset = block;
+                        }
+                        else
+                        {
+                            boneOffset = it->second;
+                        }
+                    }
+
+                    // Switch pipeline if skinned state changed
+                    if (isSkinned != currentSkinned)
+                    {
+                        currentSkinned = isSkinned;
+                        if (isSkinned && m_ShadowSkinnedPipeline)
+                        {
+                            m_ShadowSkinnedPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_ShadowSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                        else
+                        {
+                            m_ShadowPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                    }
+
+                    VkPipelineLayout activeLayout = (currentSkinned && m_ShadowSkinnedPipeline)
+                        ? m_ShadowSkinnedPipeline->GetLayout()
+                        : m_ShadowPipeline->GetLayout();
+
                     ObjectPushConstants pc{};
                     pc.modelMatrix   = worldTransform.Matrix;
                     pc.materialIndex = 0;
+                    pc.boneOffset    = boneOffset;
 
-                    vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                    vkCmdPushConstants(cmd, activeLayout,
                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                         0, sizeof(ObjectPushConstants), &pc);
 
@@ -1853,16 +1996,17 @@ namespace Luth
                 if (!opaquePipeline) return;
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
-                // Bind all 4 descriptor sets
+                // Bind all 5 descriptor sets
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    pipelineLayout, 0, 4, sets, 0, nullptr);
+                    pipelineLayout, 0, 5, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
 
@@ -1924,6 +2068,24 @@ namespace Luth
                     }
                     dc.cullMode = cullMode;
 
+                    // Detect per-mesh skinning
+                    if (meshRenderer.MeshIndex < model->GetMeshesData().size()
+                        && model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned)
+                    {
+                        dc.isSkinned = true;
+                        auto it = m_BoneBlockMap.find(meshRenderer.ModelUUID);
+                        if (it == m_BoneBlockMap.end())
+                        {
+                            u32 block = BoneMatrixBuffer::AllocateBlock();
+                            m_BoneBlockMap[meshRenderer.ModelUUID] = block;
+                            dc.boneOffset = block;
+                        }
+                        else
+                        {
+                            dc.boneOffset = it->second;
+                        }
+                    }
+
                     switch (mode)
                     {
                         case Material::RenderMode::Cutout:      m_CutoutDraws.push_back(dc);      break;
@@ -1938,6 +2100,7 @@ namespace Luth
                     if (draws.empty()) return;
 
                     Material::CullMode currentCull = Material::CullMode::Back;
+                    bool currentSkinned = false;
                     auto* pipeline = m_GeoPipelineManager.GetOrCreate(
                         pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                     if (!pipeline) return;
@@ -1946,12 +2109,23 @@ namespace Luth
 
                     for (const auto& dc : draws)
                     {
-                        // Rebind pipeline if cull mode changed
-                        if (dc.cullMode != currentCull)
+                        // Rebind pipeline if cull mode or skinned state changed
+                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
                         {
                             currentCull = dc.cullMode;
-                            auto* newPipeline = m_GeoPipelineManager.GetOrCreate(
-                                pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                            currentSkinned = dc.isSkinned;
+
+                            VKPipeline* newPipeline = nullptr;
+                            if (currentSkinned)
+                            {
+                                newPipeline = m_GeoSkinnedPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv);
+                            }
+                            else
+                            {
+                                newPipeline = m_GeoPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                            }
                             if (!newPipeline) continue;
                             newPipeline->Bind(cmd);
                         }
@@ -1966,6 +2140,7 @@ namespace Luth
                         pc.materialIndex = dc.materialSlot;
                         pc.shadeMode = static_cast<u32>(m_ShadeMode);
                         pc.entityID  = dc.entityIndex;
+                        pc.boneOffset = dc.boneOffset;
 
                         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -2015,16 +2190,17 @@ namespace Luth
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
 
-                // Bind all 4 descriptor sets (skybox only uses set 0)
+                // Bind all 5 descriptor sets (skybox only uses set 0, others required by layout)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_SkyboxPipeline->GetLayout(), 0, 4, sets, 0, nullptr);
+                    m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport viewport{};

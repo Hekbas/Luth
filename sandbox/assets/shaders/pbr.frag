@@ -80,6 +80,7 @@ layout(push_constant) uniform PushConstants {
     uint materialIndex;
     uint shadeMode;
     uint entityID;
+    uint boneOffset;
 } pc;
 
 // ---------- Flag Constants ----------

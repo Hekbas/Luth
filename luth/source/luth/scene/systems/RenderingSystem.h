@@ -42,7 +42,7 @@ namespace Luth
         u32 materialIndex;      // 4 bytes — index into material SSBO
         u32 shadeMode;          // 4 bytes
         u32 entityID;           // 4 bytes — entity index for picking
-        u32 _pad;               // 4 bytes padding (80 total)
+        u32 boneOffset;          // 4 bytes — base index into BoneMatrices SSBO (0 for static)
     };
 
     // ---- Light data structs (mirrored in pbr.frag Set 3) ----
@@ -75,6 +75,8 @@ namespace Luth
         u32 meshIndex;
         u32 entityIndex = 0;
         Material::CullMode cullMode = Material::CullMode::Back;
+        bool isSkinned = false;
+        u32 boneOffset = 0;
     };
 
     struct GeometryOutput {
@@ -173,13 +175,20 @@ namespace Luth
 
         // Shadow pipeline (depth-only)
         std::unique_ptr<VKPipeline> m_ShadowPipeline;
+        std::unique_ptr<VKPipeline> m_ShadowSkinnedPipeline;
         std::vector<u32>            m_ShadowVertSpv;
         std::vector<u32>            m_ShadowFragSpv;
+        std::vector<u32>            m_ShadowSkinnedVertSpv;
 
         // PBR Pipeline Manager (keyed by {shaderUUID, renderMode})
         PipelineManager m_GeoPipelineManager;
+        PipelineManager m_GeoSkinnedPipelineManager;
         std::vector<u32> m_PBRVertSpv;
         std::vector<u32> m_PBRFragSpv;
+        std::vector<u32> m_PBRSkinnedVertSpv;
+
+        // Bone block tracking (ModelUUID -> SSBO base index)
+        std::unordered_map<UUID, u32, UUIDHash> m_BoneBlockMap;
 
         // Material SSBO slot tracking (MaterialUUID -> SSBO index)
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;

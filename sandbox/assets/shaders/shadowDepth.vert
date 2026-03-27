@@ -20,6 +20,9 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
 layout(push_constant) uniform PushConstants {
     mat4 model;
     uint materialIndex;
+    uint shadeMode;
+    uint entityID;
+    uint boneOffset;
 } pc;
 
 void main()
