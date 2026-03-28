@@ -488,12 +488,19 @@ namespace Luth
 
     void HierarchyPanel::InstantiateModel(UUID assetUuid, Entity parent)
     {
+        using namespace Component;
+
         auto model = AssetManager::GetAsset<Model>(assetUuid);
         if (!model) return;
 
         Entity root = m_Context->CreateEntity(model->GetName());
         if (parent.IsValid()) root.SetParent(parent);
 
+        // Add Animation component for skinned models
+        if (model->IsSkinned())
+            root.AddComponent<Animation>(assetUuid);
+
+        // Create child entity per mesh
         const auto& meshes = model->GetMeshes();
         for (size_t i = 0; i < meshes.size(); i++)
         {
@@ -509,6 +516,27 @@ namespace Luth
                     AssetManager::LoadAsync(mr.MaterialUUID);
             }
         }
+
+        // Create bone hierarchy entities for skinned models
+        if (model->IsSkinned() && !model->GetSkeleton().IsEmpty())
+        {
+            const auto& skeleton = model->GetSkeleton();
+            u32 boneCount = skeleton.BoneCount();
+            std::vector<Entity> boneEntities(boneCount);
+
+            for (u32 i = 0; i < boneCount; i++)
+            {
+                const auto& bone = skeleton.Bones[i];
+                Entity boneEntity = m_Context->CreateEntity(bone.Name);
+                boneEntities[i] = boneEntity;
+
+                if (bone.ParentIndex >= 0 && bone.ParentIndex < (i32)boneCount)
+                    boneEntity.SetParent(boneEntities[bone.ParentIndex]);
+                else
+                    boneEntity.SetParent(root);
+            }
+        }
+
         SetSelectedEntity(root);
     }
 }

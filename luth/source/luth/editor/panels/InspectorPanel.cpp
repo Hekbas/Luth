@@ -187,6 +187,7 @@ namespace Luth
                      AssetManager::LoadAsync(meshRenderer.ModelUUID);
 
                 if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
+
                     int meshIndex = (int)meshRenderer.MeshIndex;
                     if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1)) {
                         meshRenderer.MeshIndex = (u32)meshIndex;
@@ -211,9 +212,161 @@ namespace Luth
         });
 
         DrawComponent<Animation>("Animation", m_SelectedEntity, [](Entity entity, Animation& animation) {
-			// TODO: Implement animation component properties
-			if (ImGui::SliderInt("##Animation Index", &animation.AnimationIndex, 0, 20, "Index: %d", ImGuiSliderFlags_AlwaysClamp))
+            // Auto-sync ModelUUID from MeshRenderer if not set
+            if (!animation.ModelUUID.IsValid() && entity.HasComponent<MeshRenderer>()) {
+                auto& mr = entity.GetComponent<MeshRenderer>();
+                if (mr.ModelUUID.IsValid())
+                    animation.ModelUUID = mr.ModelUUID;
+            }
+
+            // Resolve model
+            if (!animation.ModelUUID.IsValid()) {
+                ImGui::TextDisabled("No model assigned");
+                return;
+            }
+            if (!AssetManager::IsLoaded(animation.ModelUUID)) {
+                if (!AssetManager::IsLoading(animation.ModelUUID))
+                    AssetManager::LoadAsync(animation.ModelUUID);
+                ImGui::TextDisabled("Loading model...");
+                return;
+            }
+            auto model = AssetManager::GetAsset<Model>(animation.ModelUUID);
+            if (!model || !model->IsSkinned()) {
+                ImGui::TextDisabled("Model has no animations");
+                return;
+            }
+
+            const auto& clips = model->GetAnimationClips();
+            int clipCount = (int)clips.size();
+            if (clipCount == 0) {
+                ImGui::TextDisabled("No animation clips");
+                return;
+            }
+
+            // Clip selector
+            std::vector<const char*> clipNames(clipCount);
+            for (int i = 0; i < clipCount; i++)
+                clipNames[i] = clips[i].Name.c_str();
+
+            animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
+            if (ImGui::Combo("Clip##Anim", &animation.AnimationIndex, clipNames.data(), clipCount)) {
+                animation.CurrentTime = 0.0f;
                 Editor::MarkDirty();
+            }
+
+            const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+            if (!clip) return;
+            f32 duration = clip->GetDurationSeconds();
+
+            // Transport controls
+            if (animation.Playing) {
+                if (ImGui::Button(ICON_FA_PAUSE "##AnimPause"))
+                    animation.Playing = false;
+            } else {
+                if (ImGui::Button(ICON_FA_PLAY "##AnimPlay"))
+                    animation.Playing = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_STOP "##AnimStop")) {
+                animation.Playing = false;
+                animation.CurrentTime = 0.0f;
+            }
+
+            // Speed slider
+            if (ImGui::SliderFloat("Speed##Anim", &animation.Speed, 0.0f, 5.0f, "%.2f"))
+                Editor::MarkDirty();
+
+            // Loop toggle
+            if (ImGui::Checkbox("Loop##Anim", &animation.Loop))
+                Editor::MarkDirty();
+
+            // Timeline scrubber
+            if (duration > 0.0f) {
+                if (ImGui::SliderFloat("Timeline##Anim", &animation.CurrentTime, 0.0f, duration, "%.2f s"))
+                    Editor::MarkDirty();
+            }
+
+            // Frame counter
+            f32 tps = (clip->TicksPerSecond > 0.0f) ? clip->TicksPerSecond : 25.0f;
+            int frame = (int)(animation.CurrentTime * tps);
+            int totalFrames = (int)clip->Duration;
+            ImGui::Text("Frame: %d / %d", frame, totalFrames);
+
+            // Show Bones toggle
+            ImGui::Checkbox("Show Bones##AnimDebug", &Editor::GetSettings().showBoneDebug);
+        });
+
+        DrawComponent<BoneAttachment>("Bone Attachment", m_SelectedEntity, [](Entity entity, BoneAttachment& attachment) {
+            Scene* scene = entity.GetScene();
+            if (!scene) return;
+
+            // Target entity combo — list all entities with Animation + Tag
+            auto& registry = scene->Registry();
+            std::vector<entt::entity> animEntities;
+            std::vector<std::string> entityNames;
+            int currentIndex = -1;
+
+            auto view = registry.view<Animation, Tag>();
+            for (auto e : view) {
+                animEntities.push_back(e);
+                entityNames.push_back(registry.get<Tag>(e).m_Tag);
+                if (attachment.TargetEntity && (entt::entity)attachment.TargetEntity == e)
+                    currentIndex = (int)animEntities.size() - 1;
+            }
+
+            std::string preview = (currentIndex >= 0) ? entityNames[currentIndex] : "None";
+            if (ImGui::BeginCombo("Target##BoneAttach", preview.c_str())) {
+                if (ImGui::Selectable("None", currentIndex < 0)) {
+                    attachment.TargetEntity = {};
+                    attachment.BoneIndex = -1;
+                    attachment.BoneName = "";
+                    Editor::MarkDirty();
+                }
+                for (int i = 0; i < (int)animEntities.size(); i++) {
+                    bool selected = (i == currentIndex);
+                    if (ImGui::Selectable(entityNames[i].c_str(), selected)) {
+                        attachment.TargetEntity = Entity(animEntities[i], scene);
+                        attachment.BoneIndex = -1;
+                        attachment.BoneName = "";
+                        Editor::MarkDirty();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            // Bone name dropdown
+            if (attachment.TargetEntity && attachment.TargetEntity.IsValid()
+                && attachment.TargetEntity.HasComponent<Animation>())
+            {
+                auto& targetAnim = attachment.TargetEntity.GetComponent<Animation>();
+                if (auto model = AssetManager::GetAsset<Model>(targetAnim.ModelUUID)) {
+                    const auto& skeleton = model->GetSkeleton();
+                    if (!skeleton.IsEmpty()) {
+                        int boneCount = (int)skeleton.BoneCount();
+                        std::vector<const char*> boneNames(boneCount);
+                        for (int i = 0; i < boneCount; i++)
+                            boneNames[i] = skeleton.Bones[i].Name.c_str();
+
+                        int boneIdx = skeleton.FindBone(attachment.BoneName);
+                        if (boneIdx < 0) boneIdx = 0;
+
+                        if (ImGui::Combo("Bone##BoneAttach", &boneIdx, boneNames.data(), boneCount)) {
+                            attachment.BoneName = skeleton.Bones[boneIdx].Name;
+                            attachment.BoneIndex = -1; // Force re-resolve by AnimationSystem
+                            Editor::MarkDirty();
+                        }
+                    }
+                }
+            }
+
+            // Local offset and rotation
+            if (UI::BeginProperties("BoneAttachProps")) {
+                if (UI::Property("Local Offset", attachment.LocalOffset))
+                    Editor::MarkDirty();
+                if (UI::Property("Local Rotation", attachment.LocalRotation))
+                    Editor::MarkDirty();
+                UI::EndProperties();
+            }
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
@@ -279,7 +432,14 @@ namespace Luth
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<Animation>() && ImGui::MenuItem("Animation")) {
-                m_SelectedEntity.AddOrReplaceComponent<Animation>();
+                UUID modelUUID;
+                if (m_SelectedEntity.HasComponent<MeshRenderer>())
+                    modelUUID = m_SelectedEntity.GetComponent<MeshRenderer>().ModelUUID;
+                m_SelectedEntity.AddOrReplaceComponent<Animation>(modelUUID);
+                ImGui::CloseCurrentPopup();
+            }
+            if (!m_SelectedEntity.HasComponent<BoneAttachment>() && ImGui::MenuItem("Bone Attachment")) {
+                m_SelectedEntity.AddOrReplaceComponent<BoneAttachment>();
                 ImGui::CloseCurrentPopup();
             }
         });

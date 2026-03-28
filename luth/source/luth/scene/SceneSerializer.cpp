@@ -86,7 +86,7 @@ namespace Luth
             aj["animationIndex"] = a.AnimationIndex;
             aj["speed"]          = a.Speed;
             aj["loop"]           = a.Loop;
-            aj["playing"]        = false;  // Always save as paused
+            aj["playing"]        = a.Playing;
             j["animation"]       = aj;
         }
 

@@ -35,8 +35,9 @@ namespace Luth
 
         auto& registry = scene->Registry();
 
-        // Collect all entities with Animation + MeshRenderer + WorldTransform
-        auto view = registry.view<Animation, MeshRenderer, WorldTransform>();
+        // Collect all entities with Animation + WorldTransform (MeshRenderer not required —
+        // parent entity owns Animation, children own MeshRenderer)
+        auto view = registry.view<Animation, WorldTransform>();
         std::vector<entt::entity> entities;
         entities.reserve(view.size_hint());
         for (auto entity : view)
@@ -205,16 +206,24 @@ namespace Luth
         auto& registry = *data->registry;
 
         auto& anim = registry.get<Animation>(entity);
-        auto& meshRenderer = registry.get<MeshRenderer>(entity);
 
-        if (!anim.BufferAllocated) return;
+        if (!anim.BufferAllocated)
+        {
+            LH_CORE_WARN("AnimationSystem: Entity has Animation but BufferAllocated=false");
+            return;
+        }
 
         auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
-        if (!model) return;
+        if (!model)
+        {
+            LH_CORE_WARN("AnimationSystem: Model asset not loaded for UUID {}", anim.ModelUUID.ToString());
+            return;
+        }
 
         const Skeleton& skeleton = model->GetSkeleton();
         if (skeleton.IsEmpty())
         {
+            LH_CORE_WARN("AnimationSystem: Skeleton is empty for model '{}'", model->GetName());
             // No skeleton — upload identity
             Mat4 identity(1.0f);
             BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, &identity, 1);
@@ -275,9 +284,13 @@ namespace Luth
         anim.GlobalBoneTransforms = globalTransforms;
 
         // Compute animated AABB from bind-pose AABB corners transformed by each bone
-        if (meshRenderer.MeshIndex < model->GetMeshesData().size())
+        // Use the first skinned mesh's AABB (parent entity may not have MeshRenderer)
+        u32 aabbMeshIdx = 0;
+        if (registry.any_of<MeshRenderer>(entity))
+            aabbMeshIdx = registry.get<MeshRenderer>(entity).MeshIndex;
+        if (aabbMeshIdx < model->GetMeshesData().size())
         {
-            const AABB& bindAABB = model->GetMeshesData()[meshRenderer.MeshIndex].BindPoseAABB;
+            const AABB& bindAABB = model->GetMeshesData()[aabbMeshIdx].BindPoseAABB;
             if (bindAABB.IsValid())
             {
                 AABB animated;
@@ -329,6 +342,15 @@ namespace Luth
 
         // Upload to SSBO
         BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, skinMatrices.data(), boneCount);
+
+        // Diagnostic: confirm bone upload (remove after verification)
+        static bool s_LoggedOnce = false;
+        if (!s_LoggedOnce)
+        {
+            LH_CORE_INFO("AnimationSystem: Uploaded {} bone matrices for '{}' (clip has {} tracks)",
+                boneCount, model->GetName(), clip ? (u32)clip->Tracks.size() : 0);
+            s_LoggedOnce = true;
+        }
     }
 
     // --- Keyframe binary search (VectorKey) ---

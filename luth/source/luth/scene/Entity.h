@@ -79,6 +79,8 @@ namespace Luth
         bool IsDescendantOf(Entity potentialAncestor) const;
         bool IsAncestorOf(Entity potentialDescendant) const;
 
+        Scene* GetScene() const { return m_Scene; }
+
         void SetActive(bool active) { isActive = active; }
         bool IsActive() const { return isActive; }
 

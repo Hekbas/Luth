@@ -105,16 +105,30 @@ namespace Luth
             return nullptr;
         };
 
-        for (const auto& [boneName, _] : boneInvBindPoses) {
-            const aiNode* boneNode = FindNode(scene->mRootNode, boneName);
-            if (!boneNode) continue;
-
-            // Walk up to root, marking all ancestors
-            const aiNode* current = boneNode;
+        auto MarkNodeAndAncestors = [&](const aiNode* node) {
+            const aiNode* current = node;
             while (current) {
                 if (relevantNodes.count(current)) break; // Already marked
                 relevantNodes.insert(current);
                 current = current->mParent;
+            }
+        };
+
+        // Mark actual bone nodes and their ancestors
+        for (const auto& [boneName, _] : boneInvBindPoses) {
+            const aiNode* boneNode = FindNode(scene->mRootNode, boneName);
+            if (!boneNode) continue;
+            MarkNodeAndAncestors(boneNode);
+        }
+
+        // Mark nodes targeted by animation channels (handles $AssimpFbx$ intermediate nodes)
+        for (unsigned int ai = 0; ai < scene->mNumAnimations; ++ai) {
+            const aiAnimation* anim = scene->mAnimations[ai];
+            for (unsigned int ci = 0; ci < anim->mNumChannels; ++ci) {
+                std::string channelName = anim->mChannels[ci]->mNodeName.C_Str();
+                const aiNode* channelNode = FindNode(scene->mRootNode, channelName);
+                if (channelNode)
+                    MarkNodeAndAncestors(channelNode);
             }
         }
 
@@ -240,7 +254,10 @@ namespace Luth
                 std::string nodeName = channel->mNodeName.C_Str();
 
                 i32 boneIndex = skeleton.FindBone(nodeName);
-                if (boneIndex < 0) continue; // Not a bone we track
+                if (boneIndex < 0) {
+                    LH_CORE_WARN("ModelImporter: Animation channel '{}' not found in skeleton — skipping", nodeName);
+                    continue;
+                }
 
                 BoneTrack track;
                 track.BoneIndex = boneIndex;
@@ -586,6 +603,7 @@ namespace Luth
         ctx.MaterialDir = source.parent_path() / (source.stem().string() + "_Materials");
 
         Assimp::Importer importer;
+        importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
 
         u32 flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |
             aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |

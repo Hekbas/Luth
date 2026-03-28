@@ -174,20 +174,35 @@ namespace Luth
             if (UI::BeginCollapsingHeader("Animations")) {
                 ImGui::Text("Total Animations: %d", info.AnimationCount);
 
-                if (ImGui::BeginTable("AnimationsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                const auto& clips = model.GetAnimationClips();
+
+                if (ImGui::BeginTable("AnimationsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn("Name");
-                    ImGui::TableSetupColumn("Duration");
+                    ImGui::TableSetupColumn("Duration (ticks)");
+                    ImGui::TableSetupColumn("Duration (s)");
                     ImGui::TableSetupColumn("TPS");
+                    ImGui::TableSetupColumn("Events");
                     ImGui::TableHeadersRow();
 
-                    for (const auto& anim : info.Animations) {
+                    for (size_t i = 0; i < info.Animations.size(); i++) {
+                        const auto& anim = info.Animations[i];
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         ImGui::Text("%s", anim.Name.c_str());
                         ImGui::TableNextColumn();
                         ImGui::Text("%.2f", anim.Duration);
                         ImGui::TableNextColumn();
+                        if (i < clips.size())
+                            ImGui::Text("%.2f", clips[i].GetDurationSeconds());
+                        else
+                            ImGui::Text("-");
+                        ImGui::TableNextColumn();
                         ImGui::Text("%.2f", anim.TicksPerSecond);
+                        ImGui::TableNextColumn();
+                        if (i < clips.size())
+                            ImGui::Text("%d", (int)clips[i].Events.size());
+                        else
+                            ImGui::Text("-");
                     }
 
                     ImGui::EndTable();

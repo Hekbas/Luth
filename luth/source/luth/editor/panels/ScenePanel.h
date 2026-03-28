@@ -131,6 +131,7 @@ namespace Luth
     private:
         void HandleRenderResize(Event& e);
         void DrawGizmos();
+        void DrawBoneDebugOverlay();
 
         std::shared_ptr<Scene> m_Context;
         std::shared_ptr<RenderingSystem> m_RenderingSystem;

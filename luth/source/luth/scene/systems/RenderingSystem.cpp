@@ -1855,9 +1855,17 @@ namespace Luth
 
                     if (isSkinned)
                     {
+                        // Find Animation on this entity or parent
+                        entt::entity animEntity = entt::null;
                         if (registry.any_of<Component::Animation>(entity))
-                        {
-                            auto& anim = registry.get<Component::Animation>(entity);
+                            animEntity = entity;
+                        else if (registry.any_of<Component::Parent>(entity)) {
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
+                                animEntity = parentEnt;
+                        }
+                        if (animEntity != entt::null) {
+                            auto& anim = registry.get<Component::Animation>(animEntity);
                             if (anim.BufferAllocated)
                                 boneOffset = anim.BoneBufferOffset;
                         }
@@ -2065,9 +2073,17 @@ namespace Luth
                         && model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned)
                     {
                         dc.isSkinned = true;
+                        // Find Animation on this entity or parent
+                        entt::entity animEntity = entt::null;
                         if (registry.any_of<Component::Animation>(entity))
-                        {
-                            auto& anim = registry.get<Component::Animation>(entity);
+                            animEntity = entity;
+                        else if (registry.any_of<Component::Parent>(entity)) {
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
+                                animEntity = parentEnt;
+                        }
+                        if (animEntity != entt::null) {
+                            auto& anim = registry.get<Component::Animation>(animEntity);
                             if (anim.BufferAllocated)
                                 dc.boneOffset = anim.BoneBufferOffset;
                         }

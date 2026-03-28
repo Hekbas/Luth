@@ -20,6 +20,7 @@
 #include "luth/renderer/ShaderLibrary.h"
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
+#include "luth/scene/systems/AnimationSystem.h"
 
 namespace Luth
 {
@@ -159,6 +160,7 @@ namespace Luth
             }
 
             Systems::Update<TransformSystem>();
+            Systems::Update<AnimationSystem>();
             Systems::Update<RenderingSystem>();
 
             // ── Step 5: End Frame (Submit + Present) ──

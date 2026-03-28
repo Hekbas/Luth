@@ -30,6 +30,7 @@ namespace Luth
         // Editor panels
         float thumbnailSize        = 64.0f;
         bool  showControlsOverlay  = true;
+        bool  showBoneDebug        = false;
 
         // Scene persistence
         std::string lastSceneUUID;

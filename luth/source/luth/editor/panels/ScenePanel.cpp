@@ -8,6 +8,8 @@
 #include "luth/platform/RenderEvent.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/renderer/Model.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include <backends/imgui_impl_vulkan.h>
@@ -173,6 +175,9 @@ namespace Luth
 
             // Handle gizmos
             DrawGizmos();
+
+            // Bone debug overlay
+            DrawBoneDebugOverlay();
 
             // Mouse picking — LMB click in viewport (not on gizmo)
             if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
@@ -379,6 +384,89 @@ namespace Luth
             if (ImGui::IsKeyPressed(ImGuiKey_R))
                 m_GizmoType = ImGuizmo::OPERATION::SCALE;
         }
+    }
+
+    void ScenePanel::DrawBoneDebugOverlay()
+    {
+        if (!Editor::GetSettings().showBoneDebug) return;
+
+        Entity selectedEntity = EditorSelection::GetSelectedEntity();
+        if (!selectedEntity || !selectedEntity.IsValid()) return;
+
+        // Find the entity that owns Animation — selected entity or its parent
+        Entity animEntity = selectedEntity;
+        if (!animEntity.HasComponent<Animation>() && animEntity.HasParent()) {
+            Entity parent = animEntity.GetParent();
+            if (parent && parent.HasComponent<Animation>())
+                animEntity = parent;
+        }
+        if (!animEntity.HasComponent<Animation>()) return;
+        if (!animEntity.HasComponent<WorldTransform>()) return;
+
+        auto& anim = animEntity.GetComponent<Animation>();
+        auto& worldTransform = animEntity.GetComponent<WorldTransform>();
+
+        if (anim.GlobalBoneTransforms.empty()) return;
+
+        auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
+        if (!model) return;
+        const auto& skeleton = model->GetSkeleton();
+        if (skeleton.IsEmpty()) return;
+
+        // VP matrix from editor camera
+        Mat4 viewProj = m_EditorCamera.GetViewProjection();
+
+        // Viewport screen rect
+        ImVec2 winPos = ImGui::GetWindowPos();
+        ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
+        ImVec2 vpMin = { winPos.x + contentMin.x, winPos.y + contentMin.y };
+        ImVec2 vpMax = { vpMin.x + m_ViewportSize.x, vpMin.y + m_ViewportSize.y };
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(vpMin, vpMax, true);
+
+        u32 boneCount = skeleton.BoneCount();
+        u32 transformCount = (u32)anim.GlobalBoneTransforms.size();
+        u32 count = std::min(boneCount, transformCount);
+
+        // Project bone world positions to screen coords
+        auto ProjectToScreen = [&](Vec3 worldPos) -> ImVec2 {
+            Vec4 clipPos = viewProj * Vec4(worldPos, 1.0f);
+            if (clipPos.w <= 0.001f) return { -1.0f, -1.0f };
+            Vec3 ndc = Vec3(clipPos) / clipPos.w;
+            float screenX = vpMin.x + (ndc.x * 0.5f + 0.5f) * m_ViewportSize.x;
+            float screenY = vpMin.y + (-ndc.y * 0.5f + 0.5f) * m_ViewportSize.y;
+            return { screenX, screenY };
+        };
+
+        std::vector<ImVec2> screenPositions(count);
+        std::vector<bool> visible(count, false);
+
+        for (u32 i = 0; i < count; i++) {
+            Vec3 boneLocalPos = Vec3(anim.GlobalBoneTransforms[i][3]);
+            Vec3 boneWorldPos = Vec3(worldTransform.Matrix * Vec4(boneLocalPos, 1.0f));
+            screenPositions[i] = ProjectToScreen(boneWorldPos);
+            visible[i] = (screenPositions[i].x >= vpMin.x && screenPositions[i].x <= vpMax.x
+                       && screenPositions[i].y >= vpMin.y && screenPositions[i].y <= vpMax.y);
+        }
+
+        ImU32 lineColor  = IM_COL32(0, 255, 128, 200);
+        ImU32 jointColor = IM_COL32(255, 255, 0, 255);
+
+        for (u32 i = 0; i < count; i++) {
+            i32 parentIdx = skeleton.Bones[i].ParentIndex;
+            if (parentIdx >= 0 && parentIdx < (i32)count) {
+                if (visible[i] || visible[parentIdx]) {
+                    drawList->AddLine(screenPositions[parentIdx], screenPositions[i],
+                                      lineColor, 2.0f);
+                }
+            }
+            if (visible[i]) {
+                drawList->AddCircleFilled(screenPositions[i], 3.0f, jointColor);
+            }
+        }
+
+        drawList->PopClipRect();
     }
 
     void ScenePanel::HandleRenderResize(Event& e)
