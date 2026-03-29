@@ -18,6 +18,34 @@
 
 namespace Luth
 {
+    // --- Import Settings Serialization ---
+
+    ModelImportSettings ModelImportSettings::FromJson(const nlohmann::json& j)
+    {
+        ModelImportSettings s;
+        s.ImportNormals       = j.value("import_normals", true);
+        s.ImportTangents      = j.value("import_tangents", false);
+        s.OptimizeMesh        = j.value("optimize_mesh", true);
+        s.ScaleFactor         = j.value("scale_factor", 1.0f);
+        s.UpAxis              = j.value("up_axis", -1);
+        s.BakeAxisConversion  = j.value("bake_axis_conversion", true);
+        s.SkinMeshTransform   = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
+        return s;
+    }
+
+    nlohmann::json ModelImportSettings::ToJson() const
+    {
+        return {
+            { "import_normals",       ImportNormals },
+            { "import_tangents",      ImportTangents },
+            { "optimize_mesh",        OptimizeMesh },
+            { "scale_factor",         ScaleFactor },
+            { "up_axis",              UpAxis },
+            { "bake_axis_conversion", BakeAxisConversion },
+            { "skin_mesh_transform",  static_cast<int>(SkinMeshTransform) }
+        };
+    }
+
     // --- Helpers ---
     static Mat4 AxisCorrectionMatrix(const aiScene* scene)
     {
@@ -53,6 +81,59 @@ namespace Luth
         return correction;
     }
 
+    static bool IsNearIdentity(const Mat4& m, float tolerance = 0.01f)
+    {
+        Mat4 identity(1.0f);
+        float diff = 0.0f;
+        for (int c = 0; c < 4; c++)
+            for (int r = 0; r < 4; r++)
+                diff += std::abs(m[c][r] - identity[c][r]);
+        return diff <= tolerance;
+    }
+
+    // Walk the scene graph from root to the first skinned mesh node,
+    // accumulating aiNode::mTransformation along the path.
+    // This captures any DCC-baked rotations on mesh nodes that mOffsetMatrix
+    // doesn't account for (it lives in mesh-local space).
+    static Mat4 ComputeMeshSpaceCorrection(const aiScene* scene)
+    {
+        // Find the first mesh that has bones
+        for (unsigned int mi = 0; mi < scene->mNumMeshes; ++mi) {
+            if (!scene->mMeshes[mi]->HasBones()) continue;
+
+            // Find which node hosts this mesh
+            std::function<const aiNode*(const aiNode*, unsigned int)> FindMeshNode;
+            FindMeshNode = [&](const aiNode* node, unsigned int meshIndex) -> const aiNode* {
+                for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+                    if (node->mMeshes[i] == meshIndex) return node;
+                }
+                for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+                    auto result = FindMeshNode(node->mChildren[i], meshIndex);
+                    if (result) return result;
+                }
+                return nullptr;
+            };
+
+            const aiNode* meshNode = FindMeshNode(scene->mRootNode, mi);
+            if (!meshNode) continue;
+
+            // Accumulate transforms from root to mesh node (inclusive)
+            std::vector<const aiNode*> chain;
+            const aiNode* current = meshNode;
+            while (current) {
+                chain.push_back(current);
+                current = current->mParent;
+            }
+
+            Mat4 accumulated(1.0f);
+            for (int i = static_cast<int>(chain.size()) - 1; i >= 0; --i) {
+                accumulated = accumulated * AiMat4ToGLM(chain[i]->mTransformation);
+            }
+            return accumulated;
+        }
+        return Mat4(1.0f);
+    }
+
     // --- Skeleton Extraction ---
 
     static bool SceneHasBones(const aiScene* scene)
@@ -84,7 +165,10 @@ namespace Luth
 
     // BFS from root to build skeleton in topological order
     // Include nodes that are bones OR ancestors of bones
-    static void ExtractSkeleton(const aiScene* scene, Skeleton& skeleton, const Mat4& axisCorrection)
+    // meshSpaceCorrection: accumulated transform from root to the skinned mesh node,
+    // used to lift bone poses from mesh-local space into engine space.
+    static void ExtractSkeleton(const aiScene* scene, Skeleton& skeleton,
+        const Mat4& axisCorrection, const Mat4& meshSpaceCorrection)
     {
         std::unordered_map<std::string, Mat4> boneInvBindPoses;
         CollectBoneData(scene, boneInvBindPoses);
@@ -176,9 +260,69 @@ namespace Luth
                 }
             }
         }
+        
+        // --- Fix FBX Export Pose Issue ---
+        // FBX files store the current timeline frame in mTransformation, NOT the T-pose.
+        // We must reverse-engineer the true T-pose from mOffsetMatrix to fix the "double animation" glitch.
+        
+        // 1. Strip the axis correction off the root temporarily so we are in pure Assimp space
+        for (auto& bone : skeleton.Bones) {
+            if (bone.ParentIndex == -1) {
+                bone.LocalBindPose = glm::inverse(axisCorrection) * bone.LocalBindPose;
+            }
+        }
+
+        // 2. Reconstruct true global poses from Assimp's Offset matrices
+        std::vector<Mat4> trueGlobalBindPoses(skeleton.BoneCount(), Mat4(1.0f));
+        for (u32 i = 0; i < skeleton.BoneCount(); ++i) {
+            auto it = boneInvBindPoses.find(skeleton.Bones[i].Name);
+            if (it != boneInvBindPoses.end()) {
+                // mOffsetMatrix transforms from Mesh-local to Bone space. Its inverse is the
+                // Bone Global Transform in mesh-local space. Multiply by meshSpaceCorrection
+                // to lift into engine space (matching the space where vertices are baked).
+                trueGlobalBindPoses[i] = meshSpaceCorrection * glm::inverse(it->second);
+            } else {
+                // Structural node (no offset matrix): fallback to the exported pose
+                i32 parent = skeleton.Bones[i].ParentIndex;
+                Mat4 local = skeleton.Bones[i].LocalBindPose;
+                trueGlobalBindPoses[i] = (parent >= 0) ? (trueGlobalBindPoses[parent] * local) : local;
+            }
+        }
+
+        // 3. Convert true global poses back to true local poses, and re-apply axis correction to root
+        for (u32 i = 0; i < skeleton.BoneCount(); ++i) {
+            i32 parent = skeleton.Bones[i].ParentIndex;
+            if (parent >= 0) {
+                skeleton.Bones[i].LocalBindPose = glm::inverse(trueGlobalBindPoses[parent]) * trueGlobalBindPoses[i];
+            } else {
+                skeleton.Bones[i].LocalBindPose = axisCorrection * trueGlobalBindPoses[i];
+            }
+        }
 
         LH_CORE_INFO("ModelImporter: Extracted skeleton with {0} bones ({1} actual bones, rest structural)",
             skeleton.BoneCount(), boneInvBindPoses.size());
+    }
+
+    // Recompute InverseBindPose from our own hierarchy to guarantee consistency.
+    // Assimp's mOffsetMatrix was computed against its internal hierarchy, which may
+    // differ from ours (e.g. when $AssimpFbx$ intermediate nodes are included, or
+    // axis correction is applied to the root). By deriving InverseBindPose from our
+    // LocalBindPose chain, we guarantee skin[i] = I at bind pose.
+    static void RecomputeInverseBindPoses(Skeleton& skeleton)
+    {
+        u32 boneCount = skeleton.BoneCount();
+        if (boneCount == 0) return;
+
+        std::vector<Mat4> globalBindPose(boneCount);
+        for (u32 i = 0; i < boneCount; i++)
+        {
+            i32 parent = skeleton.Bones[i].ParentIndex;
+            globalBindPose[i] = (parent >= 0)
+                ? globalBindPose[parent] * skeleton.Bones[i].LocalBindPose
+                : skeleton.Bones[i].LocalBindPose;
+
+            skeleton.Bones[i].InverseBindPose = glm::inverse(globalBindPose[i]);
+        }
     }
 
     // --- Bone Weight Extraction ---
@@ -351,23 +495,27 @@ namespace Luth
         return data;
     }
 
-    // For skinned meshes: do NOT bake node transforms into vertices (skeleton handles that)
-    static MeshData ProcessSkinnedMesh(aiMesh* mesh, const aiScene* scene, const Skeleton& skeleton)
+    // For skinned meshes: bake mesh node transform into vertices so they match
+    // the skeleton's coordinate space (InverseBindPose is recomputed from our hierarchy).
+    static MeshData ProcessSkinnedMesh(aiMesh* mesh, const aiScene* scene,
+        const Skeleton& skeleton, const Mat4& meshTransform)
     {
         MeshData data;
         data.Name = mesh->mName.C_Str();
         data.MaterialIndex = mesh->mMaterialIndex;
         data.IsSkinned = true;
 
+        Mat3 normalMatrix = ConvertToNormalMatrix(meshTransform);
+
         data.SkinnedVertices.reserve(mesh->mNumVertices);
         for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
             SkinnedVertex vertex;
 
-            // No transform baking — positions stay in mesh-local space
-            vertex.Position = AiVec3ToGLM(mesh->mVertices[i]);
+            Vec4 pos = meshTransform * Vec4(AiVec3ToGLM(mesh->mVertices[i]), 1.0f);
+            vertex.Position = Vec3(pos);
 
             if (mesh->HasNormals())
-                vertex.Normal = AiVec3ToGLM(mesh->mNormals[i]);
+                vertex.Normal = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
             else
                 vertex.Normal = Vec3(0.0f);
 
@@ -377,7 +525,7 @@ namespace Luth
                 vertex.TexCoord0 = Vec2(0.0f);
 
             if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = AiVec3ToGLM(mesh->mTangents[i]);
+                vertex.Tangent = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
                 vertex.Tangent = Vec3(0.0f);
 
@@ -413,7 +561,7 @@ namespace Luth
             aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
             if (isSkinned && mesh->HasBones()) {
-                outMeshes.push_back(ProcessSkinnedMesh(mesh, scene, skeleton));
+                outMeshes.push_back(ProcessSkinnedMesh(mesh, scene, skeleton, transform));
             } else {
                 outMeshes.push_back(ProcessStaticMesh(mesh, scene, transform));
             }
@@ -596,6 +744,15 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
+        // Load import settings from .meta file
+        ModelImportSettings settings;
+        {
+            fs::path metaPath = source.string() + ".meta";
+            MetaFile meta(UUID{});
+            if (meta.Load(metaPath))
+                settings = ModelImportSettings::FromJson(meta.GetTypeSettings());
+        }
+
         // Setup Context
         ImportContext ctx;
         ctx.SourcePath = source;
@@ -605,9 +762,12 @@ namespace Luth
         Assimp::Importer importer;
         importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
 
-        u32 flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |
-            aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
-            aiProcess_LimitBoneWeights; // Limit to 4 bones per vertex
+        // Build Assimp post-process flags from settings
+        u32 flags = aiProcess_Triangulate | aiProcess_FlipUVs
+            | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
+        if (settings.ImportNormals)  flags |= aiProcess_GenSmoothNormals;
+        if (settings.ImportTangents) flags |= aiProcess_CalcTangentSpace;
+        if (settings.OptimizeMesh)   flags |= aiProcess_OptimizeMeshes;
 
         const aiScene* scene = importer.ReadFile(source.string(), flags);
 
@@ -630,11 +790,31 @@ namespace Luth
         // 3. Extract Skeleton (if model has bones)
         ModelAssetData modelData;
         Mat4 axisCorrection = AxisCorrectionMatrix(scene);
+
+        // Apply scale factor to axis correction
+        if (std::abs(settings.ScaleFactor - 1.0f) > 1e-4f)
+            axisCorrection = glm::scale(axisCorrection, Vec3(settings.ScaleFactor));
+
         bool isSkinned = SceneHasBones(scene);
         modelData.IsSkinned = isSkinned;
 
         if (isSkinned) {
-            ExtractSkeleton(scene, modelData.SkeletonData, axisCorrection);
+            // Compute mesh-space correction based on import settings.
+            // This captures DCC-baked rotations on mesh nodes that mOffsetMatrix
+            // (which lives in mesh-local space) doesn't account for.
+            Mat4 meshSpaceCorrection(1.0f);
+            using Mode = ModelImportSettings::MeshTransformMode;
+            if (settings.SkinMeshTransform == Mode::Bake) {
+                meshSpaceCorrection = ComputeMeshSpaceCorrection(scene);
+            } else if (settings.SkinMeshTransform == Mode::Auto) {
+                Mat4 candidate = ComputeMeshSpaceCorrection(scene);
+                if (!IsNearIdentity(candidate))
+                    meshSpaceCorrection = candidate;
+            }
+            // Mode::Identity leaves it as mat4(1.0f) — legacy behavior
+
+            ExtractSkeleton(scene, modelData.SkeletonData, axisCorrection, meshSpaceCorrection);
+            RecomputeInverseBindPoses(modelData.SkeletonData);
             ExtractAnimationClips(scene, modelData.SkeletonData, modelData.AnimationClips);
         }
 

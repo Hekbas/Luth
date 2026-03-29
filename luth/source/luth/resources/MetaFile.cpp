@@ -36,6 +36,10 @@ namespace Luth
                 settings["import_normals"] = true;
                 settings["import_tangents"] = false;
                 settings["optimize_mesh"] = true;
+                settings["scale_factor"] = 1.0f;
+                settings["up_axis"] = -1;              // -1 = auto-detect
+                settings["bake_axis_conversion"] = true;
+                settings["skin_mesh_transform"] = 0;   // Auto
                 break;
 
             case AssetType::Material:

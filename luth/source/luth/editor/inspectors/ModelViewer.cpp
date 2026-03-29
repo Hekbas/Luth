@@ -22,8 +22,7 @@ namespace Luth
         if (model.Handle != m_LastModelUUID)
         {
             m_LastModelUUID = model.Handle;
-            m_ScaleFactor = 1.0f;
-            m_UpAxis = 1;
+            m_Settings = ModelImportSettings{};
 
             auto modelPath = AssetDatabase::GetMetadata(model.Handle).Path;
             if (!modelPath.empty())
@@ -31,22 +30,35 @@ namespace Luth
                 fs::path metaPath = modelPath.string() + ".meta";
                 MetaFile meta(model.Handle);
                 if (meta.Load(metaPath))
-                {
-                    auto& ts = meta.GetTypeSettings();
-                    if (ts.contains("scale_factor")) m_ScaleFactor = ts["scale_factor"].get<float>();
-                    if (ts.contains("up_axis"))      m_UpAxis = ts["up_axis"].get<int>();
-                }
+                    m_Settings = ModelImportSettings::FromJson(meta.GetTypeSettings());
             }
         }
 
         // Import Settings
         if (UI::BeginCollapsingHeader("Import Settings", true))
         {
-            const char* upAxes[] = { "X-Up", "Y-Up", "Z-Up" };
+            const char* upAxes[] = { "Auto", "X-Up", "Y-Up", "Z-Up" };
+            const char* meshTransformModes[] = { "Auto", "Bake", "Identity (Legacy)" };
 
             if (UI::BeginProperties("ModelImport")) {
-                UI::Property("Scale Factor", m_ScaleFactor, 0.01f, 0.001f, 1000.0f);
-                UI::PropertyCombo("Up Axis", m_UpAxis, upAxes, IM_ARRAYSIZE(upAxes));
+                UI::Property("Scale Factor", m_Settings.ScaleFactor, 0.01f, 0.001f, 1000.0f);
+
+                // Up axis: offset by 1 for the "Auto" entry (-1 maps to index 0)
+                int upAxisUI = m_Settings.UpAxis + 1;
+                if (UI::PropertyCombo("Up Axis", upAxisUI, upAxes, IM_ARRAYSIZE(upAxes)))
+                    m_Settings.UpAxis = upAxisUI - 1;
+
+                UI::Property("Import Normals", m_Settings.ImportNormals);
+                UI::Property("Import Tangents", m_Settings.ImportTangents);
+                UI::Property("Optimize Mesh", m_Settings.OptimizeMesh);
+
+                ImGui::Separator();
+                ImGui::TextDisabled("Skinning");
+
+                int meshTransformInt = static_cast<int>(m_Settings.SkinMeshTransform);
+                if (UI::PropertyCombo("Mesh Transform", meshTransformInt, meshTransformModes, IM_ARRAYSIZE(meshTransformModes)))
+                    m_Settings.SkinMeshTransform = static_cast<ModelImportSettings::MeshTransformMode>(meshTransformInt);
+
                 UI::EndProperties();
             }
 
@@ -60,9 +72,7 @@ namespace Luth
                 MetaFile meta(model.Handle);
                 if (meta.Load(metaPath))
                 {
-                    auto& ts = meta.GetTypeSettings();
-                    ts["scale_factor"] = m_ScaleFactor;
-                    ts["up_axis"] = m_UpAxis;
+                    meta.GetTypeSettings() = m_Settings.ToJson();
                     meta.Save(metaPath);
 
                     // Force reimport
