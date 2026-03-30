@@ -2,6 +2,7 @@
 
 #include "luth/core/Math.h"
 #include "luth/scene/Entity.h"
+#include "luth/scene/AnimationController.h"
 #include "luth/core/UUID.h"
 
 #include <entt/entt.hpp>

@@ -90,6 +90,32 @@ namespace Luth
             j["animation"]       = aj;
         }
 
+        if (entity.HasComponent<AnimationController>()) {
+            auto& ctrl = entity.GetComponent<AnimationController>();
+            json cj;
+            cj["currentClipIndex"]          = ctrl.CurrentClipIndex;
+            cj["applyRootMotion"]           = ctrl.ApplyRootMotion;
+            cj["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
+
+            json layersJson = json::array();
+            for (const auto& layer : ctrl.Layers) {
+                json lj;
+                lj["clipIndex"] = layer.ClipIndex;
+                lj["speed"]     = layer.Speed;
+                lj["weight"]    = layer.Weight;
+                lj["loop"]      = layer.Loop;
+                if (!layer.BoneMask.empty()) {
+                    json maskJson = json::array();
+                    for (u32 i = 0; i < (u32)layer.BoneMask.size(); i++)
+                        if (layer.BoneMask[i]) maskJson.push_back(i);
+                    lj["boneMask"] = maskJson;
+                }
+                layersJson.push_back(lj);
+            }
+            cj["layers"] = layersJson;
+            j["animationController"] = cj;
+        }
+
         if (entity.HasComponent<BoneAttachment>()) {
             auto& ba = entity.GetComponent<BoneAttachment>();
             json baj;
@@ -257,6 +283,40 @@ namespace Luth
                 a.Speed          = aj.value("speed", 1.0f);
                 a.Loop           = aj.value("loop", true);
                 a.Playing        = aj.value("playing", false);
+            }
+
+            // AnimationController
+            if (ej.contains("animationController")) {
+                const auto& cj = ej["animationController"];
+                auto& ctrl = entity.AddComponent<AnimationController>();
+                ctrl.CurrentClipIndex          = cj.value("currentClipIndex", 0);
+                ctrl.ApplyRootMotion           = cj.value("applyRootMotion", false);
+                ctrl.DefaultTransitionDuration = cj.value("defaultTransitionDuration", 0.2f);
+
+                if (cj.contains("layers")) {
+                    for (const auto& lj : cj["layers"]) {
+                        BlendLayer layer;
+                        layer.ClipIndex = lj.value("clipIndex", -1);
+                        layer.Speed     = lj.value("speed", 1.0f);
+                        layer.Weight    = lj.value("weight", 1.0f);
+                        layer.Loop      = lj.value("loop", true);
+                        if (lj.contains("boneMask")) {
+                            // Sparse mask: array of bone indices that are enabled
+                            // We'll reconstruct the full vector once skeleton is available.
+                            // For now, find the max index to size the vector.
+                            const auto& maskJson = lj["boneMask"];
+                            if (!maskJson.empty()) {
+                                u32 maxIdx = 0;
+                                for (const auto& idx : maskJson)
+                                    maxIdx = std::max(maxIdx, idx.get<u32>());
+                                layer.BoneMask.resize(maxIdx + 1, false);
+                                for (const auto& idx : maskJson)
+                                    layer.BoneMask[idx.get<u32>()] = true;
+                            }
+                        }
+                        ctrl.Layers.push_back(std::move(layer));
+                    }
+                }
             }
 
             // BoneAttachment

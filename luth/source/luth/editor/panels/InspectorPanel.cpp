@@ -369,6 +369,155 @@ namespace Luth
             }
         });
 
+        DrawComponent<AnimationController>("Animation Controller", m_SelectedEntity, [](Entity entity, AnimationController& ctrl) {
+            // Require Animation component for model access
+            if (!entity.HasComponent<Animation>()) {
+                ImGui::TextDisabled("Requires Animation component");
+                return;
+            }
+            auto& anim = entity.GetComponent<Animation>();
+            if (!anim.ModelUUID.IsValid()) {
+                ImGui::TextDisabled("No model assigned");
+                return;
+            }
+            auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
+            if (!model || !model->IsSkinned()) {
+                ImGui::TextDisabled("Model has no animations");
+                return;
+            }
+
+            const auto& clips = model->GetAnimationClips();
+            int clipCount = (int)clips.size();
+            if (clipCount == 0) {
+                ImGui::TextDisabled("No animation clips");
+                return;
+            }
+
+            std::vector<const char*> clipNames(clipCount);
+            for (int i = 0; i < clipCount; i++)
+                clipNames[i] = clips[i].Name.c_str();
+
+            // Current clip selector (base layer)
+            int currentClip = ctrl.CurrentClipIndex;
+            currentClip = std::clamp(currentClip, 0, clipCount - 1);
+            if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
+                ctrl.Play(currentClip);
+                Editor::MarkDirty();
+            }
+
+            // Root motion
+            if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
+                Editor::MarkDirty();
+
+            // Default transition duration
+            if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
+                Editor::MarkDirty();
+
+            ImGui::Separator();
+            ImGui::Text("Layers");
+
+            // Ensure at least one layer
+            if (ctrl.Layers.empty()) {
+                ctrl.Layers.resize(1);
+                ctrl.Layers[0].ClipIndex = ctrl.CurrentClipIndex;
+            }
+
+            for (u32 layerIdx = 0; layerIdx < (u32)ctrl.Layers.size(); layerIdx++) {
+                auto& layer = ctrl.Layers[layerIdx];
+                std::string layerLabel = (layerIdx == 0) ? "Base Layer" : "Layer " + std::to_string(layerIdx);
+
+                ImGui::PushID((int)layerIdx);
+                if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                    // Clip selector
+                    int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
+                    if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
+                        layer.ClipIndex = layerClip;
+                        layer.CurrentTime = 0.0f;
+                        Editor::MarkDirty();
+                    }
+
+                    // Weight (not shown for base layer — always 1.0)
+                    if (layerIdx > 0) {
+                        if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
+                            Editor::MarkDirty();
+                    }
+
+                    // Speed
+                    if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                        Editor::MarkDirty();
+
+                    // Loop
+                    if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
+                        Editor::MarkDirty();
+
+                    // Bone mask (only for override layers)
+                    if (layerIdx > 0) {
+                        const auto& skeleton = model->GetSkeleton();
+                        u32 boneCount = skeleton.BoneCount();
+
+                        if (ImGui::TreeNode("Bone Mask##Layer")) {
+                            // Resize mask if needed
+                            if (layer.BoneMask.size() != boneCount)
+                                layer.BoneMask.resize(boneCount, layer.BoneMask.empty());
+
+                            bool allEnabled = true;
+                            bool noneEnabled = true;
+                            for (u32 b = 0; b < boneCount; b++) {
+                                if (layer.BoneMask[b]) noneEnabled = false;
+                                else allEnabled = false;
+                            }
+
+                            if (ImGui::Button("All")) {
+                                std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), true);
+                                Editor::MarkDirty();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("None")) {
+                                std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), false);
+                                Editor::MarkDirty();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Clear Mask")) {
+                                layer.BoneMask.clear();
+                                Editor::MarkDirty();
+                            }
+
+                            for (u32 b = 0; b < boneCount; b++) {
+                                bool enabled = layer.BoneMask[b];
+                                if (ImGui::Checkbox(skeleton.Bones[b].Name.c_str(), &enabled)) {
+                                    layer.BoneMask[b] = enabled;
+                                    Editor::MarkDirty();
+                                }
+                            }
+                            ImGui::TreePop();
+                        }
+                    }
+
+                    // Remove button (not for base layer)
+                    if (layerIdx > 0) {
+                        if (ImGui::Button("Remove Layer")) {
+                            ctrl.Layers.erase(ctrl.Layers.begin() + layerIdx);
+                            Editor::MarkDirty();
+                            ImGui::TreePop();
+                            ImGui::PopID();
+                            break;
+                        }
+                    }
+
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+
+            // Add layer button
+            if (ImGui::Button("+ Add Layer##Ctrl")) {
+                BlendLayer newLayer;
+                newLayer.ClipIndex = 0;
+                ctrl.Layers.push_back(newLayer);
+                Editor::MarkDirty();
+            }
+        });
+
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
             bool changed = false;
             if (UI::BeginProperties()) {
@@ -440,6 +589,20 @@ namespace Luth
             }
             if (!m_SelectedEntity.HasComponent<BoneAttachment>() && ImGui::MenuItem("Bone Attachment")) {
                 m_SelectedEntity.AddOrReplaceComponent<BoneAttachment>();
+                ImGui::CloseCurrentPopup();
+            }
+            if (m_SelectedEntity.HasComponent<Animation>() &&
+                !m_SelectedEntity.HasComponent<AnimationController>() &&
+                ImGui::MenuItem("Animation Controller"))
+            {
+                auto& ctrl = m_SelectedEntity.AddOrReplaceComponent<AnimationController>();
+                auto& a = m_SelectedEntity.GetComponent<Animation>();
+                BlendLayer baseLayer;
+                baseLayer.ClipIndex = a.AnimationIndex;
+                baseLayer.Speed = a.Speed;
+                baseLayer.Loop = a.Loop;
+                ctrl.Layers.push_back(baseLayer);
+                ctrl.CurrentClipIndex = a.AnimationIndex;
                 ImGui::CloseCurrentPopup();
             }
         });

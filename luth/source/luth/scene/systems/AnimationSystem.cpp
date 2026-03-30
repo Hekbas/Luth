@@ -9,6 +9,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace Luth
 {
@@ -82,6 +83,11 @@ namespace Luth
         for (auto entity : entities)
         {
             auto& anim = registry.get<Animation>(entity);
+
+            // Entities with AnimationController have their own time advancement below
+            if (registry.any_of<AnimationController>(entity))
+                continue;
+
             if (!anim.Playing) continue;
 
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
@@ -107,6 +113,75 @@ namespace Luth
                     anim.Playing = false;
                 }
             }
+        }
+
+        // Advance time for entities with AnimationController
+        for (auto entity : entities)
+        {
+            if (!registry.any_of<AnimationController>(entity))
+                continue;
+
+            auto& anim = registry.get<Animation>(entity);
+            auto& ctrl = registry.get<AnimationController>(entity);
+
+            if (!anim.Playing) continue;
+
+            auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
+            if (!model) continue;
+
+            const auto& clips = model->GetAnimationClips();
+
+            // Helper to advance a layer's time
+            auto advanceLayerTime = [&](BlendLayer& layer) {
+                if (layer.ClipIndex < 0 || (u32)layer.ClipIndex >= clips.size()) return;
+                f32 dur = clips[layer.ClipIndex].GetDurationSeconds();
+                layer.CurrentTime += dt * layer.Speed;
+                if (layer.Loop)
+                {
+                    if (dur > 0.0f)
+                        layer.CurrentTime = std::fmod(layer.CurrentTime, dur);
+                }
+                else
+                {
+                    if (layer.CurrentTime >= dur)
+                        layer.CurrentTime = dur;
+                }
+            };
+
+            // Advance each blend layer
+            for (auto& layer : ctrl.Layers)
+                advanceLayerTime(layer);
+
+            // Advance active transition (from-clip time)
+            if (ctrl.ActiveTransition)
+            {
+                auto& t = *ctrl.ActiveTransition;
+                t.Elapsed += dt;
+
+                // Advance from-clip time
+                if (t.FromClip >= 0 && (u32)t.FromClip < clips.size())
+                {
+                    f32 fromDur = clips[t.FromClip].GetDurationSeconds();
+                    t.FromTime += dt * t.FromSpeed;
+                    if (t.FromLoop && fromDur > 0.0f)
+                        t.FromTime = std::fmod(t.FromTime, fromDur);
+                    else if (t.FromTime >= fromDur)
+                        t.FromTime = fromDur;
+                }
+
+                // Complete transition
+                if (t.Elapsed >= t.Duration)
+                    ctrl.ActiveTransition.reset();
+            }
+
+            // Reset root motion delta
+            ctrl.RootMotionDelta = Vec3(0.0f);
+
+            // Sync Animation component for event detection
+            anim.PreviousTime = anim.CurrentTime;
+            if (!ctrl.Layers.empty())
+                anim.CurrentTime = ctrl.Layers[0].CurrentTime;
+            anim.AnimationIndex = ctrl.CurrentClipIndex;
         }
 
         // Dispatch evaluation jobs (one entity per job)
@@ -143,6 +218,23 @@ namespace Luth
                 if (fired)
                     anim.OnAnimEvent(entity, evt.Name);
             }
+        }
+
+        // Apply root motion deltas (main thread, after all evaluation)
+        for (auto entity : entities)
+        {
+            if (!registry.any_of<AnimationController>(entity)) continue;
+            if (!registry.any_of<Transform>(entity)) continue;
+
+            auto& ctrl = registry.get<AnimationController>(entity);
+            if (!ctrl.ApplyRootMotion) continue;
+            if (glm::length2(ctrl.RootMotionDelta) < 1e-10f) continue;
+
+            auto& transform = registry.get<Transform>(entity);
+            Quat entityRot = glm::quat(glm::radians(transform.Rotation));
+            Vec3 worldDelta = entityRot * ctrl.RootMotionDelta;
+            transform.Position += worldDelta;
+            transform.IsDirty = true;
         }
 
         // Process bone attachments (main thread, after all evaluation)
@@ -224,31 +316,32 @@ namespace Luth
         if (skeleton.IsEmpty())
         {
             LH_CORE_WARN("AnimationSystem: Skeleton is empty for model '{}'", model->GetName());
-            // No skeleton — upload identity
             Mat4 identity(1.0f);
             BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, &identity, 1);
             return;
         }
 
+        // Branch: blended path when AnimationController is present
+        if (registry.any_of<AnimationController>(entity))
+        {
+            EvaluateBlended(registry, entity, model, skeleton, anim);
+            return;
+        }
+
+        // --- Single-clip path (unchanged from 7C) ---
         u32 boneCount = skeleton.BoneCount();
         const AnimationClip* clip = model->GetAnimationClip(anim.AnimationIndex);
 
-        // Allocate intermediate arrays
         std::vector<Mat4> localTransforms(boneCount, Mat4(1.0f));
-        std::vector<Mat4> globalTransforms(boneCount);
-        std::vector<Mat4> skinMatrices(boneCount);
 
         if (clip && !clip->Tracks.empty())
         {
-            // Convert time to ticks
             f32 tps = (clip->TicksPerSecond > 0.0f) ? clip->TicksPerSecond : 25.0f;
             f32 tickTime = anim.CurrentTime * tps;
 
-            // Initialize all bones to their local bind pose
             for (u32 i = 0; i < boneCount; i++)
                 localTransforms[i] = skeleton.Bones[i].LocalBindPose;
 
-            // Override with animated tracks
             for (const auto& track : clip->Tracks)
             {
                 if (track.BoneIndex < 0 || (u32)track.BoneIndex >= boneCount) continue;
@@ -257,19 +350,30 @@ namespace Luth
                 Quat rot = SampleRotation(track, tickTime);
                 Vec3 scl = SampleScale(track, tickTime);
 
-                Mat4 T = glm::translate(Mat4(1.0f), pos);
-                Mat4 R = glm::toMat4(rot);
-                Mat4 S = glm::scale(Mat4(1.0f), scl);
-
-                localTransforms[track.BoneIndex] = T * R * S;
+                localTransforms[track.BoneIndex] = ComposeTransform(pos, rot, scl);
             }
         }
         else
         {
-            // No clip — use bind pose
             for (u32 i = 0; i < boneCount; i++)
                 localTransforms[i] = skeleton.Bones[i].LocalBindPose;
         }
+
+        PropagateAndUpload(skeleton, localTransforms, anim, registry, entity, model);
+    }
+
+    // --- Shared tail: hierarchy propagation, AABB, skin matrices, SSBO upload ---
+    void AnimationSystem::PropagateAndUpload(
+        const Skeleton& skeleton,
+        const std::vector<Mat4>& localTransforms,
+        Animation& anim,
+        entt::registry& registry,
+        entt::entity entity,
+        const std::shared_ptr<Model>& model)
+    {
+        u32 boneCount = skeleton.BoneCount();
+        std::vector<Mat4> globalTransforms(boneCount);
+        std::vector<Mat4> skinMatrices(boneCount);
 
         // Hierarchy propagation (bones stored in topological order)
         for (u32 i = 0; i < boneCount; i++)
@@ -283,8 +387,7 @@ namespace Luth
         // Persist global transforms for attachments and AABB
         anim.GlobalBoneTransforms = globalTransforms;
 
-        // Compute animated AABB from bind-pose AABB corners transformed by each bone
-        // Use the first skinned mesh's AABB (parent entity may not have MeshRenderer)
+        // Compute animated AABB
         u32 aabbMeshIdx = 0;
         if (registry.any_of<MeshRenderer>(entity))
             aabbMeshIdx = registry.get<MeshRenderer>(entity).MeshIndex;
@@ -314,7 +417,6 @@ namespace Luth
                     }
                 }
 
-                // Transform to world space
                 auto& worldTransform = registry.get<WorldTransform>(entity);
                 AABB worldAABB;
                 Vec3 worldCorners[8] = {
@@ -342,15 +444,206 @@ namespace Luth
 
         // Upload to SSBO
         BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, skinMatrices.data(), boneCount);
+    }
 
-        // Diagnostic: confirm bone upload (remove after verification)
-        static bool s_LoggedOnce = false;
-        if (!s_LoggedOnce)
+    // --- SQT blending helpers (Phase 7D) ---
+
+    void AnimationSystem::SampleClipSQT(
+        const AnimationClip& clip,
+        const Skeleton& skeleton,
+        f32 timeSeconds,
+        std::vector<BonePose>& outPoses)
+    {
+        u32 boneCount = skeleton.BoneCount();
+        outPoses.resize(boneCount);
+
+        // Initialize from bind pose (decompose LocalBindPose into SQT)
+        for (u32 i = 0; i < boneCount; i++)
+            DecomposeTransform(skeleton.Bones[i].LocalBindPose,
+                outPoses[i].Position, outPoses[i].Rotation, outPoses[i].Scale);
+
+        if (clip.Tracks.empty()) return;
+
+        f32 tps = (clip.TicksPerSecond > 0.0f) ? clip.TicksPerSecond : 25.0f;
+        f32 tickTime = timeSeconds * tps;
+
+        for (const auto& track : clip.Tracks)
         {
-            LH_CORE_INFO("AnimationSystem: Uploaded {} bone matrices for '{}' (clip has {} tracks)",
-                boneCount, model->GetName(), clip ? (u32)clip->Tracks.size() : 0);
-            s_LoggedOnce = true;
+            if (track.BoneIndex < 0 || (u32)track.BoneIndex >= boneCount) continue;
+
+            outPoses[track.BoneIndex].Position = SamplePosition(track, tickTime);
+            outPoses[track.BoneIndex].Rotation = SampleRotation(track, tickTime);
+            outPoses[track.BoneIndex].Scale    = SampleScale(track, tickTime);
         }
+    }
+
+    void AnimationSystem::BlendPoses(
+        const std::vector<BonePose>& a,
+        const std::vector<BonePose>& b,
+        f32 alpha,
+        std::vector<BonePose>& result,
+        const std::vector<bool>& boneMask)
+    {
+        u32 count = (u32)std::min(a.size(), b.size());
+        result.resize(count);
+
+        for (u32 i = 0; i < count; i++)
+        {
+            // Skip masked-out bones (leave result unchanged)
+            if (!boneMask.empty() && i < boneMask.size() && !boneMask[i])
+            {
+                if (&result != &a)
+                    result[i] = a[i];
+                continue;
+            }
+
+            result[i].Position = glm::mix(a[i].Position, b[i].Position, alpha);
+            result[i].Rotation = glm::slerp(a[i].Rotation, b[i].Rotation, alpha);
+            result[i].Scale    = glm::mix(a[i].Scale, b[i].Scale, alpha);
+        }
+    }
+
+    void AnimationSystem::PosesToLocalTransforms(
+        const std::vector<BonePose>& poses,
+        std::vector<Mat4>& outLocal)
+    {
+        outLocal.resize(poses.size());
+        for (u32 i = 0; i < (u32)poses.size(); i++)
+            outLocal[i] = ComposeTransform(poses[i].Position, poses[i].Rotation, poses[i].Scale);
+    }
+
+    void AnimationSystem::EvaluateBlended(
+        entt::registry& registry,
+        entt::entity entity,
+        const std::shared_ptr<Model>& model,
+        const Skeleton& skeleton,
+        Animation& anim)
+    {
+        auto& ctrl = registry.get<AnimationController>(entity);
+        u32 boneCount = skeleton.BoneCount();
+        const auto& clips = model->GetAnimationClips();
+
+        if (ctrl.Layers.empty())
+        {
+            // No layers configured — fall back to bind pose
+            std::vector<Mat4> localTransforms(boneCount);
+            for (u32 i = 0; i < boneCount; i++)
+                localTransforms[i] = skeleton.Bones[i].LocalBindPose;
+            PropagateAndUpload(skeleton, localTransforms, anim, registry, entity, model);
+            return;
+        }
+
+        // --- Step 1: Sample base pose ---
+        std::vector<BonePose> basePoses;
+
+        if (ctrl.ActiveTransition)
+        {
+            // Crossfade: blend from-clip and to-clip
+            auto& t = *ctrl.ActiveTransition;
+            f32 alpha = glm::clamp(t.Elapsed / t.Duration, 0.0f, 1.0f);
+
+            std::vector<BonePose> fromPoses, toPoses;
+
+            if (t.FromClip >= 0 && (u32)t.FromClip < clips.size())
+                SampleClipSQT(clips[t.FromClip], skeleton, t.FromTime, fromPoses);
+            else
+            {
+                fromPoses.resize(boneCount);
+                for (u32 i = 0; i < boneCount; i++)
+                    DecomposeTransform(skeleton.Bones[i].LocalBindPose,
+                        fromPoses[i].Position, fromPoses[i].Rotation, fromPoses[i].Scale);
+            }
+
+            if (ctrl.Layers[0].ClipIndex >= 0 && (u32)ctrl.Layers[0].ClipIndex < clips.size())
+                SampleClipSQT(clips[ctrl.Layers[0].ClipIndex], skeleton, ctrl.Layers[0].CurrentTime, toPoses);
+            else
+                toPoses = fromPoses;
+
+            BlendPoses(fromPoses, toPoses, alpha, basePoses, {});
+        }
+        else
+        {
+            // No transition — sample base layer directly
+            if (ctrl.Layers[0].ClipIndex >= 0 && (u32)ctrl.Layers[0].ClipIndex < clips.size())
+                SampleClipSQT(clips[ctrl.Layers[0].ClipIndex], skeleton, ctrl.Layers[0].CurrentTime, basePoses);
+            else
+            {
+                basePoses.resize(boneCount);
+                for (u32 i = 0; i < boneCount; i++)
+                    DecomposeTransform(skeleton.Bones[i].LocalBindPose,
+                        basePoses[i].Position, basePoses[i].Rotation, basePoses[i].Scale);
+            }
+        }
+
+        // --- Step 2: Layered override (layers 1+) ---
+        for (u32 layerIdx = 1; layerIdx < (u32)ctrl.Layers.size(); layerIdx++)
+        {
+            const auto& layer = ctrl.Layers[layerIdx];
+            if (layer.Weight <= 0.0f || layer.ClipIndex < 0 || (u32)layer.ClipIndex >= clips.size())
+                continue;
+
+            std::vector<BonePose> layerPoses;
+            SampleClipSQT(clips[layer.ClipIndex], skeleton, layer.CurrentTime, layerPoses);
+            BlendPoses(basePoses, layerPoses, layer.Weight, basePoses, layer.BoneMask);
+        }
+
+        // --- Step 3: Root motion ---
+        if (ctrl.ApplyRootMotion && boneCount > 0)
+        {
+            i32 baseClipIdx = ctrl.Layers[0].ClipIndex;
+            if (baseClipIdx >= 0 && (u32)baseClipIdx < clips.size() && clips[baseClipIdx].HasRootMotion)
+            {
+                const AnimationClip& baseClip = clips[baseClipIdx];
+                f32 tps = (baseClip.TicksPerSecond > 0.0f) ? baseClip.TicksPerSecond : 25.0f;
+
+                // Find root bone's position track
+                const BoneTrack* rootTrack = nullptr;
+                for (const auto& track : baseClip.Tracks)
+                {
+                    if (track.BoneIndex == 0) { rootTrack = &track; break; }
+                }
+
+                if (rootTrack && !rootTrack->Positions.empty())
+                {
+                    f32 currTime = ctrl.Layers[0].CurrentTime;
+                    f32 prevTime = anim.PreviousTime;
+
+                    Vec3 currRootPos = SamplePosition(*rootTrack, currTime * tps);
+                    Vec3 prevRootPos = SamplePosition(*rootTrack, prevTime * tps);
+
+                    Vec3 delta;
+                    if (currTime < prevTime && ctrl.Layers[0].Loop)
+                    {
+                        // Loop wrap: two-segment delta
+                        Vec3 endPos  = SamplePosition(*rootTrack, baseClip.Duration);
+                        Vec3 startPos = SamplePosition(*rootTrack, 0.0f);
+                        delta = (endPos - prevRootPos) + (currRootPos - startPos);
+                    }
+                    else
+                    {
+                        delta = currRootPos - prevRootPos;
+                    }
+
+                    // Write delta (XZ only — Y stays on the bone for vertical movement)
+                    ctrl.RootMotionDelta = Vec3(delta.x, 0.0f, delta.z);
+
+                    // Zero out root bone XZ to prevent double-movement
+                    // Keep Y so the character still bobs vertically
+                    Vec3 bindRootPos;
+                    Quat bindRootRot;
+                    Vec3 bindRootScl;
+                    DecomposeTransform(skeleton.Bones[0].LocalBindPose,
+                        bindRootPos, bindRootRot, bindRootScl);
+                    basePoses[0].Position.x = bindRootPos.x;
+                    basePoses[0].Position.z = bindRootPos.z;
+                }
+            }
+        }
+
+        // --- Step 4: Convert to Mat4 and propagate ---
+        std::vector<Mat4> localTransforms;
+        PosesToLocalTransforms(basePoses, localTransforms);
+        PropagateAndUpload(skeleton, localTransforms, anim, registry, entity, model);
     }
 
     // --- Keyframe binary search (VectorKey) ---
