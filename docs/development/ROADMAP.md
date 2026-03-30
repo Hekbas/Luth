@@ -33,9 +33,9 @@
 |-----------|---------|--------|
 | 7A — Data Extraction | Skeleton, AnimationClip, SkinnedVertex structs. Assimp extraction (skeleton hierarchy, bone weights, keyframes). V2 binary serialization. ModelViewer populated from real data. | Complete (2026-03-27) |
 | 7B — GPU Skinning | BoneMatrixBuffer SSBO (Set 4, 128×256 mat4, 2MB), pbr_skinned.vert + shadowDepth_skinned.vert with LBS, 5-set pipeline layout, dual PipelineManagers (static/skinned), per-mesh skinning detection. Skinned meshes render in bind pose. | Complete (2026-03-27) |
-| 7C — Evaluation & Playback | Keyframe sampling, hierarchy propagation, job-parallel eval, dynamic AABB, events, bone sockets | Planned |
-| 7D — Blending & Root Motion | Crossfade, layered blending, bone masks, root motion extraction | Planned |
-| 7E — Editor Integration | Animation inspector, timeline scrubbing, bone debug visualization | Planned |
+| 7C — Evaluation & Playback | AnimationSystem with fiber-parallel keyframe sampling (binary search + lerp/slerp), skeleton hierarchy propagation, per-entity bone block ownership (moved from RenderingSystem), SSBO upload. AABB struct + bind-pose/animated bounding boxes. Animation events with crossing detection (loop wrap-around). BoneAttachment component with lazy name resolution, post-eval transform write, serialization with deferred UUID resolution. | Complete (2026-03-28) |
+| 7D — Blending & Root Motion | AnimationController component with SQT-space blending. Crossfade transitions (both clips advance, alpha ramp). Layered override with per-bone masks. Root motion extraction (XZ delta from root bone track, loop-wrap two-segment handling, main-thread application with entity rotation). PropagateAndUpload shared tail extracted from single-clip path. Full serialization (layers, sparse bone masks, root motion flag). Editor inspector (layer list, clip/weight/speed/loop per layer, bone mask checkboxes, Add Component entry). Backward compatible — entities without controller use unchanged 7C path. | Complete (2026-03-30) |
+| 7E — Editor Integration | Animation inspector (clip selector, transport, timeline scrubber, frame counter), BoneAttachment inspector, bone debug overlay, model instantiation with Animation component and bone hierarchy entities, ModelViewer animation table. Fixed AnimationSystem/RenderingSystem parent-child traversal, Assimp $AssimpFbx$ skeleton extraction, SceneSerializer Playing state. | Complete (2026-03-29) |
 
 ---
 
