@@ -12,12 +12,19 @@ namespace Luth
     std::unordered_map<std::filesystem::path, UUID> AssetDatabase::s_PathToUuid;
     std::mutex AssetDatabase::s_Mutex;
     std::vector<UUID> AssetDatabase::s_DirtyAssets;
-    
+
+    std::unique_ptr<FileWatcher> AssetDatabase::s_FileWatcher;
+    std::vector<std::pair<fs::path, FileWatcher::FileStatus>> AssetDatabase::s_PendingChanges;
+    std::mutex AssetDatabase::s_PendingMutex;
+    std::vector<AssetDatabase::ChangeCallback> AssetDatabase::s_ChangeCallbacks;
+    fs::path AssetDatabase::s_ProjectRoot;
+
     static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
 
     void AssetDatabase::Init(const std::filesystem::path& projectRoot)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
+        s_ProjectRoot = fs::absolute(projectRoot);
         s_Assets.clear();
         s_PathToUuid.clear();
         s_DirtyAssets.clear();
@@ -111,11 +118,14 @@ namespace Luth
 
     void AssetDatabase::Shutdown()
     {
+        StopWatching();
+
         std::lock_guard<std::mutex> lock(s_Mutex);
         s_Assets.clear();
         s_PathToUuid.clear();
         s_DirtyAssets.clear();
         s_ArtifactHashes.clear();
+        s_ChangeCallbacks.clear();
     }
 
     const AssetMetadata& AssetDatabase::GetMetadata(UUID uuid)
@@ -190,7 +200,7 @@ namespace Luth
 
     u64 AssetDatabase::CalculateAssetHash(const fs::path& source, const fs::path& meta)
     {
-        // Simple timestamp + size hash for now. 
+        // Simple timestamp + size hash for now.
         // In production, read file content or use CRC32 of content.
         u64 hash = 0;
         if (fs::exists(source)) {
@@ -201,5 +211,131 @@ namespace Luth
             hash ^= fs::last_write_time(meta).time_since_epoch().count();
         }
         return hash;
+    }
+
+    // ── File System Watching ───────────────────────────────────────────────────
+
+    void AssetDatabase::StartWatching()
+    {
+        if (s_FileWatcher) return;
+        if (s_ProjectRoot.empty()) return;
+
+        s_FileWatcher = std::make_unique<FileWatcher>(1.0f);
+        s_FileWatcher->AddWatch(s_ProjectRoot);
+
+        s_FileWatcher->SetCallback([](const fs::path& path, FileWatcher::FileStatus status) {
+            // Skip .meta files — managed internally
+            if (path.extension() == ".meta") return;
+
+            // Skip the Library/ directory (artifacts, state)
+            if (path.string().find("Library") != std::string::npos) return;
+
+            std::lock_guard<std::mutex> lock(s_PendingMutex);
+            s_PendingChanges.push_back({ path, status });
+        });
+
+        // initialScan=true: populate baseline without firing callbacks for existing files
+        s_FileWatcher->Start(true);
+        LH_CORE_INFO("AssetDatabase: File watcher started on '{}'", s_ProjectRoot.string());
+    }
+
+    void AssetDatabase::StopWatching()
+    {
+        if (s_FileWatcher) {
+            s_FileWatcher->Stop();
+            s_FileWatcher.reset();
+        }
+    }
+
+    void AssetDatabase::AddChangeCallback(ChangeCallback cb)
+    {
+        s_ChangeCallbacks.push_back(std::move(cb));
+    }
+
+    void AssetDatabase::ProcessPendingChanges()
+    {
+        // Drain queue under pending-mutex (short lock, watcher thread may be writing)
+        std::vector<std::pair<fs::path, FileWatcher::FileStatus>> batch;
+        {
+            std::lock_guard<std::mutex> lock(s_PendingMutex);
+            if (s_PendingChanges.empty()) return;
+            batch.swap(s_PendingChanges);
+        }
+
+        bool anyChange = false;
+
+        for (auto& [path, status] : batch)
+        {
+            if (status == FileWatcher::FileStatus::Created)
+            {
+                AssetType type = FileSystem::ClassifyFileType(path);
+                if (type == AssetType::None) continue;
+
+                // Might already be registered (importer wrote it, watcher caught it)
+                if (GetUUID(path).IsValid()) continue;
+
+                UUID uuid = UUID::Invalid();
+                fs::path metaPath = path; metaPath += ".meta";
+                if (fs::exists(metaPath)) {
+                    MetaFile meta(UUID::Invalid());
+                    if (meta.Load(metaPath))
+                        uuid = meta.GetUUID();
+                }
+                if (!uuid.IsValid())
+                    uuid = MetaFile::Create(path, type);
+
+                RegisterAsset(path, uuid, type);
+                LH_CORE_INFO("AssetDatabase: Hot-added '{}'", path.filename().string());
+
+                if (AssetManager::HasImporter(type)) {
+                    std::lock_guard<std::mutex> lock(s_Mutex);
+                    s_DirtyAssets.push_back(uuid);
+                }
+                anyChange = true;
+            }
+            else if (status == FileWatcher::FileStatus::Modified)
+            {
+                UUID uuid = GetUUID(path);
+                if (!uuid.IsValid()) continue;
+
+                fs::path metaPath = path; metaPath += ".meta";
+                u64 newHash = CalculateAssetHash(path, metaPath);
+
+                {
+                    std::lock_guard<std::mutex> lock(s_Mutex);
+                    if (s_ArtifactHashes[uuid] == newHash) continue; // unchanged
+                    s_ArtifactHashes[uuid] = newHash;
+
+                    fs::path artifact = GetArtifactPath(uuid);
+                    if (fs::exists(artifact)) fs::remove(artifact);
+
+                    s_DirtyAssets.push_back(uuid);
+                }
+                LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
+                anyChange = true;
+            }
+            else if (status == FileWatcher::FileStatus::Deleted)
+            {
+                UUID uuid = GetUUID(path);
+                if (!uuid.IsValid()) continue;
+
+                // Clean up artifact and .meta
+                fs::path artifact = GetArtifactPath(uuid);
+                if (fs::exists(artifact)) fs::remove(artifact);
+
+                fs::path metaPath = path; metaPath += ".meta";
+                if (fs::exists(metaPath)) fs::remove(metaPath);
+
+                UnregisterAsset(uuid);
+                LH_CORE_INFO("AssetDatabase: Hot-removed '{}'", path.filename().string());
+                anyChange = true;
+            }
+        }
+
+        if (anyChange) {
+            SaveLibraryState();
+            for (auto& cb : s_ChangeCallbacks)
+                cb();
+        }
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/resources/AssetImporter.h"
+#include "luth/resources/importers/ImportReport.h"
 #include "luth/renderer/Model.h"
 #include "luth/renderer/Skeleton.h"
 #include "luth/renderer/AnimationClip.h"
@@ -46,5 +47,8 @@ namespace Luth
     {
     public:
         bool Import(const std::filesystem::path& source, const std::filesystem::path& destination) override;
+
+        // Returns the report from the most recent Import() call (thread-safe read after import completes)
+        static ImportReport GetLastImportReport();
     };
 }

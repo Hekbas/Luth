@@ -24,18 +24,45 @@ namespace Luth
     {
         m_AssetsPath = FileSystem::AssetsPath();
         Refresh();
+
+        // Register for hot-reload notifications from the file watcher
+        AssetDatabase::AddChangeCallback([this]() { m_NeedsRefresh = true; });
+        AssetDatabase::StartWatching();
+    }
+
+    static DirectoryNode* FindNodeByPath(DirectoryNode* root, const fs::path& target)
+    {
+        if (!root || target.empty()) return nullptr;
+        if (root->Path == target) return root;
+        for (auto& sub : root->SubDirectories) {
+            if (auto* found = FindNodeByPath(sub.get(), target))
+                return found;
+        }
+        return nullptr;
     }
 
     void ProjectPanel::Refresh()
     {
+        // Preserve current navigation position across tree rebuilds
+        fs::path currentPath = m_CurrentDirNode ? m_CurrentDirNode->Path : fs::path{};
+
         m_RootNode = BuildDirectoryTree(m_AssetsPath, nullptr);
-        m_CurrentDirNode = m_RootNode.get();
+
+        m_CurrentDirNode = FindNodeByPath(m_RootNode.get(), currentPath);
+        if (!m_CurrentDirNode)
+            m_CurrentDirNode = m_RootNode.get();
+
         if (m_IsSearching)
             UpdateSearchResults();
     }
 
     void ProjectPanel::OnRender()
     {
+        if (m_NeedsRefresh) {
+            Refresh();
+            m_NeedsRefresh = false;
+        }
+
         ImGui::PushFont(Editor::GetFASolid());
         std::string project = ICON_FA_FOLDER + std::string("  Project");
 

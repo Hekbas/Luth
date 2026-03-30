@@ -9,6 +9,7 @@
 #include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/panels/ScenePanel.h"
+#include "luth/editor/panels/ProjectPanel.h"
 #include "luth/scene/Systems.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
@@ -150,7 +151,8 @@ namespace Luth
             Editor::BeginFrame();
             OnUpdate();
             AssetManager::Update();
-            Editor::Render(); 
+            AssetDatabase::ProcessPendingChanges();
+            Editor::Render();
             Editor::EndFrame();
 
             if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -238,8 +240,23 @@ namespace Luth
         m_Running = false;
     }
 
+    // Common image extensions used when scanning for textures to copy alongside a model
+    static bool IsImageExtension(const fs::path& ext)
+    {
+        static const std::unordered_set<std::string> s_Exts = {
+            ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tiff", ".tif"
+        };
+        std::string lower = ext.string();
+        for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
+        return s_Exts.contains(lower);
+    }
+
     void App::OnFileDrop(FileDropEvent& e)
     {
+        // Determine destination directory: use the ProjectPanel's current folder
+        auto* panel = Editor::GetPanel<ProjectPanel>();
+        fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
+
         for (const auto& srcPath : e.GetPaths()) {
             try {
                 if (!fs::exists(srcPath)) {
@@ -253,11 +270,57 @@ namespace Luth
                     continue;
                 }
 
-                fs::path destPath = FileSystem::GetPath(resType, srcPath.stem().string(), true);
-                FileSystem::CreateDirectories(destPath.parent_path());
+                // 1. Copy the asset itself into the current panel directory
+                fs::path destPath = destDir / srcPath.filename();
+                FileSystem::CreateDirectories(destDir);
                 fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing);
                 LH_CORE_INFO("Imported {0} to {1}", srcPath.filename().string(), destPath.string());
+
+                // 2. For models: also copy adjacent textures so the importer can find them
+                if (resType == AssetType::Model) {
+                    fs::path texDestDir = destDir / (srcPath.stem().string() + "_Textures");
+                    fs::path srcDir = srcPath.parent_path();
+
+                    // Collect texture dirs to scan: source dir + common sibling names
+                    std::vector<fs::path> scanDirs = { srcDir };
+                    static const char* k_SiblingDirs[] = {
+                        "textures", "Textures", "texture", "Texture",
+                        "tex",      "Tex",      "maps",   "Maps",
+                        "images",   "Images"
+                    };
+                    for (const char* sub : k_SiblingDirs) {
+                        fs::path candidate = srcDir / sub;
+                        if (fs::exists(candidate) && fs::is_directory(candidate))
+                            scanDirs.push_back(candidate);
+                    }
+
+                    bool copiedAny = false;
+                    for (const auto& dir : scanDirs) {
+                        for (const auto& entry : fs::directory_iterator(dir)) {
+                            if (!entry.is_regular_file()) continue;
+                            if (!IsImageExtension(entry.path().extension())) continue;
+
+                            if (!copiedAny) {
+                                fs::create_directories(texDestDir);
+                                copiedAny = true;
+                            }
+
+                            fs::path imgDest = texDestDir / entry.path().filename();
+                            if (!fs::exists(imgDest))
+                                fs::copy_file(entry.path(), imgDest, fs::copy_options::skip_existing);
+                        }
+                    }
+                    if (copiedAny)
+                        LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
+                }
+
+                // 3. Register in AssetDatabase and trigger immediate import
                 UUID newUuid = MetaFile::Create(destPath, resType);
+                AssetDatabase::RegisterAsset(destPath, newUuid, resType);
+
+                if (AssetManager::HasImporter(resType))
+                    AssetManager::Import(newUuid);
+
                 LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
             }
             catch (const fs::filesystem_error& err) {

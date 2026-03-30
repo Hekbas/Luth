@@ -107,5 +107,8 @@ namespace Luth
 
         // Layout popup state
         static inline bool s_ShowSaveLayoutPopup = false;
+
+        // Texture remap dialog state (deferred open from menu)
+        static inline bool s_ShowTextureRemapDialog = false;
     };
 }

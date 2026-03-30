@@ -24,6 +24,8 @@
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/panels/ProfilerPanel.h"
 #include "luth/editor/panels/FrameDebuggerPanel.h"
+#include "luth/editor/panels/TextureRemapDialog.h"
+#include "luth/resources/importers/ModelImporter.h"
 #include "luth/editor/UI.h"
 #include "luth/editor/EditorStyle.h"
 #include "luth/editor/EditorSettings.h"
@@ -308,6 +310,19 @@ namespace Luth
         // Render all panels
         for (auto& panel : s_Panels)
             panel->OnRender();
+
+        // Check if a model import completed with unresolved textures
+        {
+            static fs::path s_LastReportedModel;
+            const ImportReport& report = ModelImporter::GetLastImportReport();
+            if (report.HasUnresolved() && report.ModelPath != s_LastReportedModel) {
+                s_LastReportedModel = report.ModelPath;
+                TextureRemapDialog::Open(report);
+            }
+        }
+
+        // Draw texture remap modal (no-op when closed)
+        TextureRemapDialog::Draw();
 
         ImGui::End();
     }
@@ -661,6 +676,18 @@ namespace Luth
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Assets")) {
+                const ImportReport& report = ModelImporter::GetLastImportReport();
+                bool hasUnresolved = report.HasUnresolved();
+
+                if (!hasUnresolved) ImGui::BeginDisabled();
+                if (ImGui::MenuItem("Resolve Missing Textures..."))
+                    s_ShowTextureRemapDialog = true;
+                if (!hasUnresolved) ImGui::EndDisabled();
+
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("View")) {
                 // Style submenu — deferred to next BeginFrame (font atlas can't change mid-frame)
                 if (ImGui::BeginMenu("Style")) {
@@ -699,6 +726,14 @@ namespace Luth
             }
 
             ImGui::EndMenuBar();
+        }
+
+        // Texture remap popup — deferred open from menu
+        if (s_ShowTextureRemapDialog) {
+            const ImportReport& report = ModelImporter::GetLastImportReport();
+            if (report.HasUnresolved())
+                TextureRemapDialog::Open(report);
+            s_ShowTextureRemapDialog = false;
         }
 
         // Save Layout popup — rendered outside menu scope so ImGui can track it

@@ -36,6 +36,8 @@ namespace Luth
         float GetThumbnailSize() const { return m_ThumbnailSize; }
         void  SetThumbnailSize(float size) { m_ThumbnailSize = std::clamp(size, 16.0f, 96.0f); }
 
+        fs::path GetCurrentDirectory() const { return m_CurrentDirNode ? m_CurrentDirNode->Path : m_AssetsPath; }
+
     private:
         std::unique_ptr<DirectoryNode> BuildDirectoryTree(const fs::path& path, DirectoryNode* parent);
         void UpdateSearchResults();
@@ -79,5 +81,7 @@ namespace Luth
         float m_ThumbnailSize = 64.0f;
         float m_Padding = 16.0f;
         static constexpr float k_ListModeThreshold = 16.0f;
+
+        bool m_NeedsRefresh = false;
     };
 }

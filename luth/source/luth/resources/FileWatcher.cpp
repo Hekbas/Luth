@@ -50,12 +50,18 @@ namespace Luth
             for (const auto& watchPath : m_WatchPaths) {
                 if (!fs::exists(watchPath)) continue;
 
-                for (auto& entry : fs::recursive_directory_iterator(watchPath)) {
-                    if (entry.is_regular_file()) {
-                        const auto& path = entry.path();
-                        m_Paths[path] = fs::last_write_time(path);
+                try {
+                    for (auto& entry : fs::recursive_directory_iterator(
+                        watchPath, fs::directory_options::skip_permission_denied))
+                    {
+                        if (entry.is_regular_file()) {
+                            std::error_code ec;
+                            auto wt = fs::last_write_time(entry.path(), ec);
+                            if (!ec)
+                                m_Paths[entry.path()] = wt;
+                        }
                     }
-                }
+                } catch (...) {}
             }
             m_InitialScanComplete = true;
         }
@@ -67,17 +73,25 @@ namespace Luth
             for (const auto& watchPath : m_WatchPaths) {
                 if (!fs::exists(watchPath)) continue;
 
-                // Process directory recursively
+                // Process directory recursively — guarded against mid-traversal deletion
                 std::vector<fs::path> currentPaths;
-                for (auto& entry : fs::recursive_directory_iterator(watchPath)) {
-                    if (entry.is_regular_file()) {
-                        currentPaths.push_back(entry.path());
+                try {
+                    for (auto& entry : fs::recursive_directory_iterator(
+                        watchPath, fs::directory_options::skip_permission_denied))
+                    {
+                        if (entry.is_regular_file())
+                            currentPaths.push_back(entry.path());
                     }
+                } catch (...) {
+                    // Directory deleted mid-scan; treat all tracked files as potentially stale.
+                    // Next poll cycle will reconcile.
+                    continue;
                 }
 
-                // Check for deleted files
+                // Check for deleted files — use unordered_set for O(1) lookups
+                std::unordered_set<fs::path> currentSet(currentPaths.begin(), currentPaths.end());
                 for (auto it = m_Paths.begin(); it != m_Paths.end();) {
-                    if (std::find(currentPaths.begin(), currentPaths.end(), it->first) == currentPaths.end()) {
+                    if (currentSet.find(it->first) == currentSet.end()) {
                         if (m_Callback) m_Callback(it->first, FileStatus::Deleted);
                         it = m_Paths.erase(it);
                     }
@@ -88,7 +102,9 @@ namespace Luth
 
                 // Check for created/modified files
                 for (const auto& path : currentPaths) {
-                    auto currentWriteTime = fs::last_write_time(path);
+                    std::error_code ec;
+                    auto currentWriteTime = fs::last_write_time(path, ec);
+                    if (ec) continue; // File vanished between scan and timestamp read; skip
 
                     if (!m_Paths.count(path)) {
                         m_Paths[path] = currentWriteTime;

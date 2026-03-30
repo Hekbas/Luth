@@ -5,6 +5,8 @@
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetSerializer.h"
+#include "luth/resources/importers/TextureResolver.h"
+#include "luth/resources/importers/ImportReport.h"
 #include "luth/renderer/Material.h"
 #include "luth/renderer/Skeleton.h"
 #include "luth/renderer/AnimationClip.h"
@@ -18,6 +20,14 @@
 
 namespace Luth
 {
+    // --- Import Report (cleared each import, readable by editor) ---
+    static ImportReport s_LastImportReport;
+
+    ImportReport ModelImporter::GetLastImportReport()
+    {
+        return s_LastImportReport;
+    }
+
     // --- Import Settings Serialization ---
 
     ModelImportSettings ModelImportSettings::FromJson(const nlohmann::json& j)
@@ -682,7 +692,7 @@ namespace Luth
 
         // Textures
         matJson["textures"] = nlohmann::json::array();
-        
+
         auto TryAddTexture = [&](aiTextureType aiType, MapType luthType) {
             if (aiMat->GetTextureCount(aiType) > 0) {
                 aiString path;
@@ -690,20 +700,30 @@ namespace Luth
                     std::string pathStr = path.C_Str();
                     UUID texUUID = UUID::Invalid();
 
-                    // Check embedded map
+                    // 1. Check embedded textures ("*0", "*1", ...)
                     if (ctx.TexturePathToUUID.count(pathStr)) {
                         texUUID = ctx.TexturePathToUUID[pathStr];
                     }
-                    // Check external file
                     else {
-                        fs::path texPath = ctx.SourcePath.parent_path() / pathStr;
-                        if (fs::exists(texPath)) {
-                            texUUID = AssetDatabase::GetUUID(texPath);
+                        // 2. Multi-strategy filesystem search
+                        ResolveResult result = ResolveTexturePath(ctx.SourcePath.parent_path(), pathStr);
+                        if (!result.ResolvedPath.empty()) {
+                            texUUID = AssetDatabase::GetUUID(result.ResolvedPath);
                             if (!texUUID.IsValid()) {
-                                // Auto-import external texture
-                                texUUID = MetaFile::Create(texPath, AssetType::Texture);
-                                AssetDatabase::RegisterAsset(texPath, texUUID, AssetType::Texture);
+                                texUUID = MetaFile::Create(result.ResolvedPath, AssetType::Texture);
+                                AssetDatabase::RegisterAsset(result.ResolvedPath, texUUID, AssetType::Texture);
                             }
+                            if (result.Strategy != "direct") {
+                                LH_CORE_INFO("ModelImporter: Found texture via '{}' strategy: {} -> {}",
+                                    result.Strategy, pathStr, result.ResolvedPath.filename().string());
+                            }
+                        }
+                        else {
+                            // LH_CORE_WARN("ModelImporter: Could not find texture '{}' for material '{}' ({})",
+                            //     pathStr, matName, Material::ToString(luthType));
+                            s_LastImportReport.Unresolved.push_back({
+                                matName, matPath, pathStr, luthType
+                            });
                         }
                     }
 
@@ -743,6 +763,10 @@ namespace Luth
     bool ModelImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
         LH_PROFILE_FUNCTION();
+
+        // Reset import report
+        s_LastImportReport.Clear();
+        s_LastImportReport.ModelPath = source;
 
         // Load import settings from .meta file
         ModelImportSettings settings;
@@ -785,6 +809,12 @@ namespace Luth
         ctx.MaterialUUIDs.resize(scene->mNumMaterials);
         for (unsigned int i = 0; i < scene->mNumMaterials; i++) {
             ctx.MaterialUUIDs[i] = ProcessMaterial(ctx, scene->mMaterials[i], i);
+        }
+
+        if (s_LastImportReport.HasUnresolved()) {
+            LH_CORE_WARN("ModelImporter: {} texture(s) could not be resolved for '{}'."
+                " Use the Texture Remap dialog to assign them.",
+                s_LastImportReport.Unresolved.size(), source.filename().string());
         }
 
         // 3. Extract Skeleton (if model has bones)

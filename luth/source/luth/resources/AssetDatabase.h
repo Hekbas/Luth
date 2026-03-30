@@ -2,9 +2,13 @@
 
 #include "luth/core/UUID.h"
 #include "luth/resources/Asset.h"
+#include "luth/resources/FileWatcher.h"
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 namespace Luth
 {
@@ -34,6 +38,13 @@ namespace Luth
         static const std::unordered_map<UUID, AssetMetadata, UUIDHash>& GetRegistry() { return s_Assets; }
         static const std::vector<UUID>& GetDirtyAssets() { return s_DirtyAssets; }
 
+        // Hot reload — file system watching
+        using ChangeCallback = std::function<void()>;
+        static void StartWatching();
+        static void StopWatching();
+        static void ProcessPendingChanges();              // Call once per frame on main thread
+        static void AddChangeCallback(ChangeCallback cb); // Notified after each batch of changes
+
     private:
         static void LoadLibraryState();
         static void SaveLibraryState();
@@ -43,5 +54,13 @@ namespace Luth
         static std::unordered_map<std::filesystem::path, UUID> s_PathToUuid;
         static std::vector<UUID> s_DirtyAssets;
         static std::mutex s_Mutex;
+
+        // File watcher state
+        static std::unique_ptr<FileWatcher> s_FileWatcher;
+        static std::vector<std::pair<fs::path, FileWatcher::FileStatus>> s_PendingChanges;
+        static std::mutex s_PendingMutex;
+        static std::vector<ChangeCallback> s_ChangeCallbacks;
+
+        static fs::path s_ProjectRoot; // Stored so we can filter Library/ dir
     };
 }
