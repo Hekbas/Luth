@@ -41,8 +41,24 @@ namespace Luth
 
         if (ImGui::Begin(project.c_str()))
         {
+            float availWidth = ImGui::GetContentRegionAvail().x;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float sliderWidth = std::min(availWidth * 0.1f, 100.0f);
+            float pathBarWidth = availWidth - sliderWidth - spacing;
+            if (pathBarWidth < 10.0f) pathBarWidth = 10.0f;
+
+            // Top bar with path and slider
+            DrawPathBar(pathBarWidth);
+            ImGui::SameLine();
+            
+            ImGui::BeginChild("##SliderBar", ImVec2(sliderWidth, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), ImGuiChildFlags_Border);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::SliderFloat("##Size", &m_ThumbnailSize, 16.0f, 96.0f, "");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Icon Size");
+            ImGui::EndChild();
+
             // Left panel - directory tree
-            ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_ResizeX);
+            ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_Border | ImGuiChildFlags_ResizeX);
             
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS " Search...", m_SearchBuffer, sizeof(m_SearchBuffer))) {
@@ -51,32 +67,16 @@ namespace Luth
             }
             ImGui::Separator();
 
+            ImGui::BeginChild("##TreeScroll", ImVec2(0, 0));
             DrawTree();
+            ImGui::EndChild();
+
             ImGui::EndChild();
 
             ImGui::SameLine();
 
-            // Right panel - Split view
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 0));
-            ImGui::BeginChild("##ProjectSplitView", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
-            ImGui::PopStyleColor();
-
-            // Top bar with path and slider
-            float availWidth = ImGui::GetContentRegionAvail().x;
-            float spacing = ImGui::GetStyle().ItemSpacing.x;
-            float sliderWidth = std::min(availWidth * 0.1f, 100.0f);
-            float pathBarWidth = availWidth - sliderWidth - spacing;
-            if (pathBarWidth < 10.0f) pathBarWidth = 10.0f;
-
-            DrawPathBar(pathBarWidth);
-            ImGui::SameLine();
-            
-            ImGui::SetNextItemWidth(sliderWidth);
-            ImGui::SliderFloat("##Size", &m_ThumbnailSize, 16.0f, 96.0f, "");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Icon Size");
-
-            // Directory contents
-            ImGui::BeginChild("##ProjectContent", ImVec2(0, 0), true);
+            // Right panel - directory contents
+            ImGui::BeginChild("##ProjectContent", ImVec2(0, 0), ImGuiChildFlags_Border);
 
             if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl)
             {
@@ -88,8 +88,6 @@ namespace Luth
             }
 
             DrawContent();
-            ImGui::EndChild();
-
             ImGui::EndChild();
         }
         ImGui::End();
@@ -221,24 +219,8 @@ namespace Luth
 
             for (auto& child : node->SubDirectories) {
                 auto currentPos = ImGui::GetCursorScreenPos();
-
-                // Calculate horizontal line size
-                float horizontalTreeLineSize = 20.0f;
-                if (!child->SubDirectories.empty())
-                    horizontalTreeLineSize *= 0.5f;
-
-                // Draw child node
                 DrawTreeNode(child.get());
-
-                // Draw horizontal line
-                const ImRect childRect = ImRect(currentPos, currentPos + ImVec2(0.0f, ImGui::GetFontSize()));
-                const float midpoint = (childRect.Min.y + childRect.Max.y) * 0.5f;
-                drawList->AddLine(
-                    ImVec2(verticalLineStart.x, midpoint),
-                    ImVec2(verticalLineStart.x + horizontalTreeLineSize, midpoint),
-                    treeLineColor);
-
-                verticalLineEnd.y = midpoint;
+                verticalLineEnd.y = currentPos.y + ImGui::GetFontSize() * 0.5f;
             }
 
             // Draw vertical line
@@ -252,7 +234,7 @@ namespace Luth
     {
         if (!m_CurrentDirNode) return;
 
-        ImGui::BeginChild("##PathBar", ImVec2(width, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), false);
+        ImGui::BeginChild("##PathBar", ImVec2(width, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), ImGuiChildFlags_Border);
 
         // Store path segments in reverse order (from current to root)
         std::vector<DirectoryNode*> pathSegments;
@@ -362,8 +344,11 @@ namespace Luth
         if (isGrid)
         {
             ImGui::BeginGroup();
-            ImGui::PushFont(Editor::GetFASolid());
-            
+            if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
+                ImGui::PushFont(Editor::GetFARegular());
+            else
+                ImGui::PushFont(Editor::GetFASolid());
+
             // Colorize icon
             if (!isDirectory) {
                 Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
@@ -408,7 +393,10 @@ namespace Luth
         {
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
 
-            ImGui::PushFont(Editor::GetFASolid());
+            if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
+                ImGui::PushFont(Editor::GetFARegular());
+            else
+                ImGui::PushFont(Editor::GetFASolid());
             if (!isDirectory) {
                 Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
                 ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
