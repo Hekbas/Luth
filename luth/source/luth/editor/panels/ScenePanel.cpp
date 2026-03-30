@@ -3,6 +3,7 @@
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/EditorSelection.h"
 #include "luth/editor/EditorSettings.h"
+#include "luth/editor/EditorColors.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/platform/RenderEvent.h"
@@ -52,6 +53,8 @@ namespace Luth
         // Sync selection
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
         m_RenderingSystem->SetSelectedEntity(m_SelectedEntity ? (entt::entity)m_SelectedEntity : entt::null);
+        auto& oc = EditorColors::SelectionOutline;
+        m_RenderingSystem->SetOutlineColor(oc.x, oc.y, oc.z, oc.w);
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");

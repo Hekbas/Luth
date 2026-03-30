@@ -2495,10 +2495,10 @@ namespace Luth
                 pc.outlineWidth     = 2.0f;
                 pc.texelSizeX       = 1.0f / (float)w;
                 pc.texelSizeY       = 1.0f / (float)h;
-                pc.outlineColorR    = 1.0f; // Orange outline
-                pc.outlineColorG    = 0.6f;
-                pc.outlineColorB    = 0.0f;
-                pc.outlineColorA    = 1.0f;
+                pc.outlineColorR    = m_OutlineColor.r;
+                pc.outlineColorG    = m_OutlineColor.g;
+                pc.outlineColorB    = m_OutlineColor.b;
+                pc.outlineColorA    = m_OutlineColor.a;
 
                 vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);

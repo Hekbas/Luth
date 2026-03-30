@@ -116,6 +116,7 @@ namespace Luth
 
         // Selection outline
         void SetSelectedEntity(entt::entity e) { m_SelectedEntity = e; }
+        void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
 
     private:
         void InitGlobalUniforms();
@@ -236,6 +237,7 @@ namespace Luth
         VkDescriptorSet              m_OutlineDescSet       = VK_NULL_HANDLE;
         VkSampler                    m_OutlineSampler       = VK_NULL_HANDLE;
         entt::entity                 m_SelectedEntity       = entt::null;
+        glm::vec4                    m_OutlineColor         = { 1.0f, 0.6f, 0.0f, 1.0f };
 
         // IBL resources
         std::shared_ptr<Texture> m_IrradianceMap;    // 32x32 cubemap, RGBA16F

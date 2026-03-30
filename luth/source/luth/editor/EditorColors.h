@@ -20,5 +20,14 @@ namespace Luth
 
         // Drag-and-drop highlight (hierarchy reparenting)
         static inline ImU32 DragHighlight = IM_COL32(0, 255, 255, 255); // Cyan
+
+        // Selection outline (used by RenderingSystem outline pass)
+        static inline ImVec4 SelectionOutline = { 1.0f, 0.6f, 0.0f, 1.0f }; // Orange
+
+        // Status colors
+        static inline ImVec4 ErrorRed      = { 0.9f, 0.2f, 0.2f, 1.0f };
+        static inline ImVec4 WarningYellow = { 0.9f, 0.8f, 0.2f, 1.0f };
+        static inline ImVec4 SuccessGreen  = { 0.2f, 0.9f, 0.4f, 1.0f };
+        static inline ImVec4 InfoBlue      = { 0.4f, 0.6f, 0.9f, 1.0f };
     };
 }
