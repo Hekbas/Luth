@@ -149,13 +149,18 @@ namespace Luth
 
     void ProjectPanel::RecursiveSearch(DirectoryNode* node, const std::string& query)
     {
-        for (auto& dir : node->SubDirectories) RecursiveSearch(dir.get(), query);
+        for (auto& dir : node->SubDirectories) {
+            std::string dirName = dir->Name;
+            std::transform(dirName.begin(), dirName.end(), dirName.begin(), ::tolower);
+            if (dirName.find(query) != std::string::npos)
+                m_SearchResults.push_back(dir.get());
+            RecursiveSearch(dir.get(), query);
+        }
         for (auto& file : node->Files) {
             std::string name = file->Name;
             std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-            if (name.find(query) != std::string::npos) {
+            if (name.find(query) != std::string::npos)
                 m_SearchResults.push_back(file.get());
-            }
         }
     }
 
