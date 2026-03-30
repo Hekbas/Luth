@@ -7,6 +7,7 @@
 #include "luth/utils/LuthIcons.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
+#include "luth/resources/FileSystem.h"
 #include "luth/renderer/Model.h"
 
 #include <imgui.h>
@@ -140,28 +141,33 @@ namespace Luth
         else if (entity.HasComponent<Animation>())        icon = ICON_FA_PERSON_RUNNING;
         else if (entity.HasComponent<MeshRenderer>())     icon = ICON_FA_CUBE;
         
-        // Filter logic
-        if (strlen(m_SearchFilter) > 0)
+        // Filter: skip subtrees with no matching descendants
+        if (strlen(m_SearchFilter) > 0 && !SubtreeMatchesFilter(entity, m_SearchFilter))
         {
-            // Simple substring search (case sensitive for now, can be improved)
-            if (name.find(m_SearchFilter) == std::string::npos)
-            {
-                // If parent doesn't match, maybe children do? 
-                // For simplicity in this snippet, we just hide if no match. 
-                // A proper implementation would recurse and return 'bool shouldDraw'.
-                // Skipping for brevity to focus on interaction logic.
-            }
+            ImGui::PopID();
+            return;
         }
 
-        ImGuiTreeNodeFlags flags = 
-            ImGuiTreeNodeFlags_OpenOnArrow | 
+        ImGuiTreeNodeFlags flags =
+            ImGuiTreeNodeFlags_OpenOnArrow |
             ImGuiTreeNodeFlags_SpanAvailWidth |
             ImGuiTreeNodeFlags_FramePadding;
 
         if (m_Selection == entity) flags |= ImGuiTreeNodeFlags_Selected;
-        
+
         bool hasChildren = !entity.GetChildren().empty();
         if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
+
+        // Force open if this node doesn't match but a descendant does
+        if (strlen(m_SearchFilter) > 0 && hasChildren)
+        {
+            std::string nameLower = name;
+            std::string filterLower = m_SearchFilter;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+            if (nameLower.find(filterLower) == std::string::npos)
+                ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+        }
 
         // Handle Renaming State
         bool isRenamingThis = (m_IsRenaming && m_RenamingEntity == entity);
@@ -414,26 +420,83 @@ namespace Luth
 
         if (ImGui::BeginMenu("3D Object"))
         {
-            if (ImGui::MenuItem("Cube")) { 
-                m_DeferredActions.push_back([this, parent]() {
-                    // TODO: Create Cube logic
+            auto spawnPrimitive = [this](const char* relPath, const char* name, Entity parent) {
+                UUID uuid = AssetDatabase::GetUUID(FileSystem::AssetsPath(relPath));
+                if (!uuid.IsValid()) return;
+                if (AssetManager::IsLoaded(uuid))
+                    InstantiateModel(uuid, parent);
+                else {
+                    AssetManager::LoadAsync(uuid);
+                    m_PendingInstantiations.push_back({ uuid, parent });
+                }
+            };
+
+            if (ImGui::MenuItem("Plane")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Plane.fbx", "Plane", parent);
                 });
             }
-            if (ImGui::MenuItem("Sphere")) { 
-                m_DeferredActions.push_back([this, parent]() {
-                    // TODO: Create Sphere logic
+            if (ImGui::MenuItem("Cube")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Cube.fbx", "Cube", parent);
                 });
             }
+            if (ImGui::MenuItem("Sphere")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Sphere.fbx", "Sphere", parent);
+                });
+            }
+            if (ImGui::MenuItem("Icosphere")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Icosphere.fbx", "Icosphere", parent);
+                });
+            }
+            if (ImGui::MenuItem("Cylinder")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Cylinder.fbx", "Cylinder", parent);
+                });
+            }
+            if (ImGui::MenuItem("Cone")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Cone.fbx", "Cone", parent);
+                });
+            }
+            if (ImGui::MenuItem("Torus")) {
+                m_DeferredActions.push_back([this, parent, spawnPrimitive]() {
+                    spawnPrimitive("models/primitives/Torus.fbx", "Torus", parent);
+                });
+            }
+            
             ImGui::EndMenu();
         }
         
+        if (ImGui::MenuItem("Camera"))
+        {
+            m_DeferredActions.push_back([this, parent]() {
+                auto cam = m_Context->CreateEntity("Camera");
+                if (parent) cam.SetParent(parent);
+                cam.AddComponent<Camera>();
+                SetSelectedEntity(cam);
+            });
+        }
+
         if (ImGui::BeginMenu("Light"))
         {
-            if (ImGui::MenuItem("Directional Light")) { 
+            if (ImGui::MenuItem("Directional Light")) {
                 m_DeferredActions.push_back([this, parent]() {
                     auto light = m_Context->CreateEntity("Directional Light");
+                    if (parent) light.SetParent(parent);
                     light.AddComponent<DirectionalLight>();
                     light.GetComponent<Transform>().Rotation = Vec3(-45.0f, 0.0f, 0.0f);
+                    SetSelectedEntity(light);
+                });
+            }
+            if (ImGui::MenuItem("Point Light"))
+            {
+                m_DeferredActions.push_back([this, parent]() {
+                    auto light = m_Context->CreateEntity("Point Light");
+                    if (parent) light.SetParent(parent);
+                    light.AddComponent<PointLight>();
                     SetSelectedEntity(light);
                 });
             }
@@ -484,6 +547,23 @@ namespace Luth
     bool HierarchyPanel::IsDescendant(Entity potentialDescendant, Entity potentialAncestor)
     {
         return potentialDescendant.IsDescendantOf(potentialAncestor);
+    }
+
+    bool HierarchyPanel::SubtreeMatchesFilter(Entity entity, const char* filter)
+    {
+        std::string nameLower = entity.GetName();
+        std::string filterLower = filter;
+        std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+        std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+        if (nameLower.find(filterLower) != std::string::npos)
+            return true;
+
+        for (auto child : entity.GetChildren())
+        {
+            if (SubtreeMatchesFilter(child, filter))
+                return true;
+        }
+        return false;
     }
 
     void HierarchyPanel::InstantiateModel(UUID assetUuid, Entity parent)

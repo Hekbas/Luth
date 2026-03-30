@@ -37,6 +37,7 @@ namespace Luth
         void DeleteSelectedEntity();
         bool IsDescendant(Entity potentialDescendant, Entity potentialAncestor);
         void InstantiateModel(UUID modelUUID, Entity parent);
+        bool SubtreeMatchesFilter(Entity entity, const char* filter);
 
     private:
         std::shared_ptr<Scene> m_Context;
