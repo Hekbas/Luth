@@ -142,6 +142,15 @@ namespace Luth
         }
         if (auto* pp = GetPanel<ProjectPanel>())
             pp->SetThumbnailSize(s_Settings.thumbnailSize);
+
+        // Reload skybox if settings specify a non-default path
+        if (s_Settings.skyboxPath != "textures/environment.hdr" && !s_Settings.skyboxPath.empty()) {
+            fs::path skyboxAbsPath = fs::path(s_Settings.skyboxPath).is_absolute()
+                ? fs::path(s_Settings.skyboxPath)
+                : FileSystem::AssetsPath() / s_Settings.skyboxPath;
+            if (fs::exists(skyboxAbsPath))
+                rs->ReloadSkybox(skyboxAbsPath);
+        }
     }
 
     void Editor::Shutdown()

@@ -16,6 +16,7 @@ namespace Luth
         // IBL / Environment
         float iblIntensity    = 1.0f;
         float skyboxIntensity = 1.0f;
+        std::string skyboxPath = "textures/environment.hdr";
 
         // Editor camera
         float cameraFlySpeed      = 5.0f;

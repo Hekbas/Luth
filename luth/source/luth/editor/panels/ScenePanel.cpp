@@ -4,6 +4,8 @@
 #include "luth/editor/EditorSelection.h"
 #include "luth/editor/EditorSettings.h"
 #include "luth/editor/EditorColors.h"
+#include "luth/platform/FileDialog.h"
+#include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/platform/RenderEvent.h"
@@ -93,6 +95,47 @@ namespace Luth
                     ImGui::SliderFloat("Pan Speed", &m_EditorCamera.GetPanSpeedRef(), 10.0f, 1000.0f, "%.0f");
                     ImGui::SliderFloat("Zoom Speed", &m_EditorCamera.GetZoomSpeedRef(), 10.0f, 500.0f, "%.0f");
                     ImGui::SliderFloat("Shift Multiplier", &m_EditorCamera.GetShiftMultiplierRef(), 1.0f, 10.0f, "%.1f");
+                    ImGui::PopFont();
+                    ImGui::EndPopup();
+                }
+
+                // Environment settings popup
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_SUN "##EnvSettings"))
+                    ImGui::OpenPopup("EnvironmentSettingsPopup");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Environment settings");
+
+                if (ImGui::BeginPopup("EnvironmentSettingsPopup"))
+                {
+                    ImGui::PushFont(Editor::GetMainFont());
+                    ImGui::Text("Environment");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    auto& settings = Editor::GetSettings();
+
+                    // Display current skybox path
+                    ImGui::Text("HDR: %s", settings.skyboxPath.c_str());
+
+                    if (ImGui::Button("Browse HDR..."))
+                    {
+                        auto result = FileDialog::OpenFile("HDR Environment\0*.hdr;*.exr\0All Files\0*.*\0");
+                        if (result.has_value())
+                        {
+                            // Store relative to assets path if inside it
+                            fs::path absPath = result.value();
+                            fs::path assetsPath = FileSystem::AssetsPath();
+                            auto rel = fs::relative(absPath, assetsPath);
+                            if (!rel.empty() && rel.string().find("..") == std::string::npos)
+                                settings.skyboxPath = rel.generic_string();
+                            else
+                                settings.skyboxPath = absPath.generic_string();
+
+                            m_RenderingSystem->ReloadSkybox(absPath);
+                            Editor::MarkDirty();
+                        }
+                    }
                     ImGui::PopFont();
                     ImGui::EndPopup();
                 }

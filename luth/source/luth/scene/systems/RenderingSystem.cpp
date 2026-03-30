@@ -119,7 +119,7 @@ namespace Luth
 
             BoneMatrixBuffer::Init();
             InitPostProcessResources();
-            InitIBLResources();
+            InitIBLResources(FileSystem::AssetsPath() / "textures" / "environment.hdr");
             CreatePipelines();
 
             // Shader reload callback — rebuilds pipelines when a shader is reloaded
@@ -694,13 +694,12 @@ namespace Luth
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    void RenderingSystem::InitIBLResources()
+    void RenderingSystem::InitIBLResources(const fs::path& hdrPath)
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         auto shadersPath = FileSystem::AssetsPath() / "shaders";
 
         // ---- 1. Load HDR environment map ----
-        fs::path hdrPath = FileSystem::AssetsPath() / "textures" / "environment.hdr";
         int hdrW, hdrH, hdrChannels;
         stbi_set_flip_vertically_on_load(1);
         float* hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
@@ -1232,6 +1231,26 @@ namespace Luth
         }
 
         LH_CORE_INFO("IBL: Precomputation complete (irradiance 32x32, prefiltered 128x128, BRDF LUT 512x512)");
+    }
+
+    void RenderingSystem::ReloadSkybox(const fs::path& hdrPath)
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        vkDeviceWaitIdle(device);
+
+        // Destroy old IBL sampler (textures freed by shared_ptr reset in InitIBLResources)
+        if (m_IBLSampler) {
+            vkDestroySampler(device, m_IBLSampler, nullptr);
+            m_IBLSampler = VK_NULL_HANDLE;
+        }
+
+        InitIBLResources(hdrPath);
+
+        // Rebuild skybox pipeline (new prefiltered map may have different mip count)
+        m_SkyboxPipeline.reset();
+        CreatePipelines();
+
+        LH_CORE_INFO("Skybox reloaded from '{}'", hdrPath.string());
     }
 
     // =========================================================================

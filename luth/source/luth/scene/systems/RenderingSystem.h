@@ -118,11 +118,14 @@ namespace Luth
         void SetSelectedEntity(entt::entity e) { m_SelectedEntity = e; }
         void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
 
+        // Skybox / IBL
+        void ReloadSkybox(const std::filesystem::path& hdrPath);
+
     private:
         void InitGlobalUniforms();
         void InitShadowResources();
         void InitPostProcessResources();
-        void InitIBLResources();
+        void InitIBLResources(const std::filesystem::path& hdrPath);
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
         void UpdatePostProcessUBO();
