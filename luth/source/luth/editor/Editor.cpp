@@ -11,6 +11,8 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/Material.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
@@ -493,6 +495,23 @@ namespace Luth
             s_IsDirty = false;
             s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
             s_Settings.lastSceneUUID = AssetDatabase::GetUUID(path).ToString();
+
+            // Eagerly kick off loading for all assets referenced by the scene
+            auto view = s_ActiveScene->GetAllEntitiesWith<Component::MeshRenderer>();
+            for (auto entity : view) {
+                const auto& mr = view.get<Component::MeshRenderer>(entity);
+                if (mr.ModelUUID.IsValid())
+                    AssetManager::LoadAsync(mr.ModelUUID);
+                if (mr.MaterialUUID.IsValid()) {
+                    auto mat = std::static_pointer_cast<Material>(
+                        AssetManager::LoadImmediate(mr.MaterialUUID));
+                    if (mat) {
+                        for (const auto& mapInfo : mat->GetTextures())
+                            if (mapInfo.Uuid.IsValid())
+                                AssetManager::LoadAsync(mapInfo.Uuid);
+                    }
+                }
+            }
         }
     }
 
