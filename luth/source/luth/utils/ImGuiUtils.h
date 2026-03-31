@@ -45,27 +45,15 @@ namespace Luth
     {
         LH_CORE_ASSERT(str_id != nullptr, "Dropdown button requires an explicit ID!");
 
-        // Generate unique ID based on label
-        ImGuiID id = ImGui::GetID(str_id);
-        static std::unordered_map<ImGuiID, bool> openStates;
-        static std::unordered_map<ImGuiID, ImVec2> buttonPositions;
-
-        bool pressed = false;
+        ImGui::PushID(str_id);
 
         // Button
         if (ImGui::Button(label))
         {
-            buttonPositions[id] = ImGui::GetItemRectMin();
-            buttonPositions[id].y += ImGui::GetFrameHeight();
-            openStates[id] = true;
-        }
-
-        // Handle popup opening
-        if (openStates[id])
-        {
-            ImGui::SetNextWindowPos(buttonPositions[id]);
+            ImVec2 popupPos = ImGui::GetItemRectMin();
+            popupPos.y += ImGui::GetFrameHeight();
+            ImGui::SetNextWindowPos(popupPos);
             ImGui::OpenPopup("##PopupButtonMenu");
-            openStates[id] = false;
         }
 
         // Draw popup
@@ -76,6 +64,8 @@ namespace Luth
             menuContents();
             ImGui::EndPopup();
         }
+
+        ImGui::PopID();
 
         // Return true only if the popup is open now
         return menuActive;
