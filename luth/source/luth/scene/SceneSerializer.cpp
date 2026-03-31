@@ -85,7 +85,7 @@ namespace Luth
             aj["modelUUID"]      = a.ModelUUID.ToString();
             aj["animationIndex"] = a.AnimationIndex;
             aj["speed"]          = a.Speed;
-            aj["loop"]           = a.Loop;
+            aj["loopMode"]       = static_cast<int>(a.LoopMode);
             aj["playing"]        = a.Playing;
             j["animation"]       = aj;
         }
@@ -281,7 +281,10 @@ namespace Luth
                 a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
                 a.AnimationIndex = aj.value("animationIndex", 0);
                 a.Speed          = aj.value("speed", 1.0f);
-                a.Loop           = aj.value("loop", true);
+                if (aj.contains("loopMode"))
+                    a.LoopMode = static_cast<AnimationLoopMode>(aj.value("loopMode", 1));
+                else
+                    a.LoopMode = aj.value("loop", true) ? AnimationLoopMode::One : AnimationLoopMode::Off;
                 a.Playing        = aj.value("playing", false);
             }
 

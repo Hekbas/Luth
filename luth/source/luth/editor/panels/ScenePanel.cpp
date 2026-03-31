@@ -11,6 +11,7 @@
 #include "luth/platform/RenderEvent.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
+#include "luth/editor/UI.h"
 #include "luth/renderer/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -183,28 +184,37 @@ namespace Luth
                     ImGui::PushFont(Editor::GetMainFont());
 
                     // Fly speed
-                    ImGui::Text("Fly Speed");
-                    ImGui::SetNextItemWidth(180.0f);
-                    ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+                    if (UI::BeginProperties("CamSpeedProps")) {
+                        UI::Property("Fly Speed", m_EditorCamera.GetFlySpeedRef(), 0.1f, 0.1f, 200.0f);
+                        UI::EndProperties();
+                    }
 
                     ImGui::Separator();
 
                     // Camera settings
                     ImGui::Text("Camera");
                     ImGui::Spacing();
-                    if (ImGui::SliderFloat("FOV", &m_EditorCamera.GetFOVRef(), 30.0f, 120.0f, "%.0f"))
-                        m_EditorCamera.SetFOV(m_EditorCamera.GetFOV());
-                    ImGui::SliderFloat("Near Clip", &m_EditorCamera.GetNearClipRef(), 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SliderFloat("Far Clip", &m_EditorCamera.GetFarClipRef(), 100.0f, 50000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+                    
+                    if (UI::BeginProperties("CameraProps")) {
+                        if (UI::Property("FOV", m_EditorCamera.GetFOVRef(), 1.0f, 30.0f, 120.0f))
+                            m_EditorCamera.SetFOV(m_EditorCamera.GetFOV());
+                        UI::Property("Near Clip", m_EditorCamera.GetNearClipRef(), 0.01f, 0.01f, 10.0f);
+                        UI::Property("Far Clip", m_EditorCamera.GetFarClipRef(), 1.0f, 100.0f, 50000.0f);
+                        UI::EndProperties();
+                    }
 
                     ImGui::Separator();
 
                     ImGui::Text("Controls");
                     ImGui::Spacing();
-                    ImGui::SliderFloat("Rotation Speed", &m_EditorCamera.GetRotationSpeedRef(), 1000.0f, 50000.0f, "%.0f");
-                    ImGui::SliderFloat("Pan Speed", &m_EditorCamera.GetPanSpeedRef(), 10.0f, 1000.0f, "%.0f");
-                    ImGui::SliderFloat("Zoom Speed", &m_EditorCamera.GetZoomSpeedRef(), 10.0f, 500.0f, "%.0f");
-                    ImGui::SliderFloat("Shift Multiplier", &m_EditorCamera.GetShiftMultiplierRef(), 1.0f, 10.0f, "%.1f");
+                    
+                    if (UI::BeginProperties("ControlsProps")) {
+                        UI::Property("Rotation Speed", m_EditorCamera.GetRotationSpeedRef(), 10.0f, 1000.0f, 50000.0f);
+                        UI::Property("Pan Speed", m_EditorCamera.GetPanSpeedRef(), 1.0f, 10.0f, 1000.0f);
+                        UI::Property("Zoom Speed", m_EditorCamera.GetZoomSpeedRef(), 1.0f, 10.0f, 500.0f);
+                        UI::Property("Shift Multiplier", m_EditorCamera.GetShiftMultiplierRef(), 0.1f, 1.0f, 10.0f);
+                        UI::EndProperties();
+                    }
                     
                     ImGui::PopFont();
                 });

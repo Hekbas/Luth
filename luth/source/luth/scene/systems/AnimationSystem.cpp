@@ -100,12 +100,20 @@ namespace Luth
             anim.PreviousTime = anim.CurrentTime;
             anim.CurrentTime += dt * anim.Speed;
 
-            if (anim.Loop)
+            if (anim.LoopMode == AnimationLoopMode::One)
             {
                 if (duration > 0.0f)
                     anim.CurrentTime = std::fmod(anim.CurrentTime, duration);
             }
-            else
+            else if (anim.LoopMode == AnimationLoopMode::All)
+            {
+                if (anim.CurrentTime >= duration)
+                {
+                    anim.AnimationIndex = (anim.AnimationIndex + 1) % model->GetAnimationClips().size();
+                    anim.CurrentTime = 0.0f;
+                }
+            }
+            else // Off
             {
                 if (anim.CurrentTime >= duration)
                 {

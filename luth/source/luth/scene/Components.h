@@ -12,6 +12,8 @@
 
 namespace Luth::Component
 {
+    enum class AnimationLoopMode { Off = 0, One = 1, All = 2 };
+
     struct ID {
         UUID m_ID;
 
@@ -103,7 +105,7 @@ namespace Luth::Component
         f32 CurrentTime = 0.0f;   // seconds
         f32 Speed = 1.0f;
         bool Playing = true;
-        bool Loop = true;
+        AnimationLoopMode LoopMode = AnimationLoopMode::One;
 
         // Runtime (not serialized)
         u32 BoneBufferOffset = UINT32_MAX;  // SSBO base index

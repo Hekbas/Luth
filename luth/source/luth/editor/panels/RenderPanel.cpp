@@ -59,51 +59,69 @@ namespace Luth
             // Environment Lighting
             if (UI::BeginCollapsingHeader("Environment Lighting", true)) {
                 auto& settings = Editor::GetSettings();
-                ImGui::SliderFloat("IBL Intensity", &settings.iblIntensity, 0.0f, 5.0f, "%.2f");
-                ImGui::SliderFloat("Skybox Intensity", &settings.skyboxIntensity, 0.0f, 5.0f, "%.2f");
+                if (UI::BeginProperties("EnvLightProps")) {
+                    UI::Property("IBL Intensity", settings.iblIntensity, 0.01f, 0.0f, 5.0f);
+                    UI::Property("Skybox Intensity", settings.skyboxIntensity, 0.01f, 0.0f, 5.0f);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
             // Bloom
             if (UI::BeginCollapsingHeader("Bloom", true)) {
-                ImGui::SliderFloat("Threshold", &pp.bloomThreshold, 0.0f, 5.0f);
-                ImGui::SliderFloat("Strength", &pp.bloomStrength, 0.0f, 2.0f);
+                if (UI::BeginProperties("BloomProps")) {
+                    UI::Property("Threshold", pp.bloomThreshold, 0.01f, 0.0f, 5.0f);
+                    UI::Property("Strength", pp.bloomStrength, 0.01f, 0.0f, 2.0f);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
             // Tone Mapping
             if (UI::BeginCollapsingHeader("Tone Mapping", true)) {
-                const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2" };
-                int currentOp = static_cast<int>(pp.tonemapOp);
-                if (ImGui::Combo("Operator", &currentOp, operators, IM_ARRAYSIZE(operators)))
-                    pp.tonemapOp = static_cast<TonemapOperator>(currentOp);
+                if (UI::BeginProperties("ToneMapProps")) {
+                    const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2" };
+                    int currentOp = static_cast<int>(pp.tonemapOp);
+                    if (UI::PropertyCombo("Operator", currentOp, operators, IM_ARRAYSIZE(operators)))
+                        pp.tonemapOp = static_cast<TonemapOperator>(currentOp);
 
-                ImGui::SliderFloat("Exposure", &pp.exposure, 0.1f, 10.0f, "%.2f");
-                ImGui::SliderFloat("Contrast", &pp.contrast, 0.5f, 2.0f, "%.2f");
-                ImGui::SliderFloat("Saturation", &pp.saturation, 0.0f, 2.0f, "%.2f");
+                    UI::Property("Exposure", pp.exposure, 0.01f, 0.1f, 10.0f);
+                    UI::Property("Contrast", pp.contrast, 0.01f, 0.5f, 2.0f);
+                    UI::Property("Saturation", pp.saturation, 0.01f, 0.0f, 2.0f);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
             // Color Balance
             if (UI::BeginCollapsingHeader("Color Balance")) {
-                ImGui::ColorEdit3("Shadows", glm::value_ptr(pp.shadowBalance));
-                ImGui::ColorEdit3("Midtones", glm::value_ptr(pp.midtoneBalance));
-                ImGui::ColorEdit3("Highlights", glm::value_ptr(pp.highlightBalance));
+                if (UI::BeginProperties("ColorBalProps")) {
+                    UI::PropertyColor("Shadows", pp.shadowBalance);
+                    UI::PropertyColor("Midtones", pp.midtoneBalance);
+                    UI::PropertyColor("Highlights", pp.highlightBalance);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
             // Vignette
             if (UI::BeginCollapsingHeader("Vignette")) {
-                ImGui::SliderFloat("Amount", &pp.vignetteAmount, 0.0f, 1.0f);
-                ImGui::SliderFloat("Hardness", &pp.vignetteHardness, 0.0f, 1.0f);
+                if (UI::BeginProperties("VignetteProps")) {
+                    UI::Property("Amount", pp.vignetteAmount, 0.01f, 0.0f, 1.0f);
+                    UI::Property("Hardness", pp.vignetteHardness, 0.01f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
             // Others
             if (UI::BeginCollapsingHeader("Effects")) {
-                ImGui::SliderFloat("Grain", &pp.grainAmount, 0.0f, 0.2f, "%.3f");
-                ImGui::SliderFloat("Sharpness", &pp.sharpness, -1.0f, 1.0f);
-                ImGui::SliderFloat("Chromatic Aberration", &pp.chromaticAberration, 0.0f, 0.02f, "%.4f");
+                if (UI::BeginProperties("EffectsProps")) {
+                    UI::Property("Grain", pp.grainAmount, 0.001f, 0.0f, 0.2f);
+                    UI::Property("Sharpness", pp.sharpness, 0.01f, -1.0f, 1.0f);
+                    UI::Property("Chromatic Aberration", pp.chromaticAberration, 0.001f, 0.0f, 0.02f);
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
         }

@@ -126,54 +126,32 @@ namespace Luth
         });
 
         DrawComponent<Camera>("Camera", m_SelectedEntity, [](Entity e, Camera& camera) {
-            // Projection type combo box
-            const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
-            const char* currentProjectionType = projectionTypeStrings[(int)camera.Projection];
-
-            ImGui::Text("Projection"); ImGui::SameLine();
-            if (ImGui::BeginCombo("##Projection", currentProjectionType)) {
-                for (int i = 0; i < 2; i++) {
-                    bool isSelected = currentProjectionType == projectionTypeStrings[i];
-                    if (ImGui::Selectable(projectionTypeStrings[i], isSelected)) {
-                        camera.Projection = (Camera::ProjectionType)i;
-                        camera.IsDirty = true;
-                        Editor::MarkDirty();
-                    }
-                    if (isSelected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
+            if (UI::BeginProperties("CameraProps")) {
+                const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
+                int currentProj = (int)camera.Projection;
+                if (UI::PropertyCombo("Projection", currentProj, projectionTypeStrings, 2)) {
+                    camera.Projection = (Camera::ProjectionType)currentProj;
+                    camera.IsDirty = true;
+                    Editor::MarkDirty();
                 }
-                ImGui::EndCombo();
-            }
 
-            // Perspective settings
-            if (camera.Projection == Camera::ProjectionType::Perspective) {
                 bool changed = false;
-                ImGui::Text("FOV "); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##FOV", &camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
-                ImGui::Text("Near"); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##Near", &camera.NearClip, 0.01f, 0.01f, camera.FarClip);
-                ImGui::Text("Far "); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##Far", &camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
+                if (camera.Projection == Camera::ProjectionType::Perspective) {
+                    changed |= UI::Property("FOV", camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
+                    changed |= UI::Property("Near", camera.NearClip, 0.01f, 0.01f, camera.FarClip);
+                    changed |= UI::Property("Far", camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
+                }
+                else {
+                    changed |= UI::Property("Size", camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
+                    changed |= UI::Property("Near", camera.OrthographicNear, 0.01f);
+                    changed |= UI::Property("Far", camera.OrthographicFar, 0.01f);
+                }
+
+                changed |= UI::Property("Aspect", camera.AspectRatio, 0.01f, 0.1f, 10.0f);
 
                 if (changed) { camera.IsDirty = true; Editor::MarkDirty(); }
+                UI::EndProperties();
             }
-            // Orthographic settings
-            else {
-                bool changed = false;
-                ImGui::Text("Size"); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
-                ImGui::Text("Near"); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##Near", &camera.OrthographicNear, 0.01f);
-                ImGui::Text("Far "); ImGui::SameLine();
-                changed |= ImGui::DragFloat("##Far", &camera.OrthographicFar, 0.01f);
-
-                if (changed) { camera.IsDirty = true; Editor::MarkDirty(); }
-            }
-
-            // Aspect ratio (could be auto-calculated from viewport)
-            ImGui::Text("Aspect"); ImGui::SameLine();
-            if (ImGui::DragFloat("##Aspect", &camera.AspectRatio, 0.01f, 0.1f, 10.0f)) { camera.IsDirty = true; Editor::MarkDirty(); }
         });
 
         DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [&](Entity entity, MeshRenderer& meshRenderer) {
@@ -249,51 +227,94 @@ namespace Luth
                 clipNames[i] = clips[i].Name.c_str();
 
             animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
-            if (ImGui::Combo("Clip##Anim", &animation.AnimationIndex, clipNames.data(), clipCount)) {
-                animation.CurrentTime = 0.0f;
-                Editor::MarkDirty();
+            
+            if (UI::BeginProperties("AnimProps")) {
+                if (UI::PropertyCombo("Clip", animation.AnimationIndex, clipNames.data(), clipCount)) {
+                    animation.CurrentTime = 0.0f;
+                    Editor::MarkDirty();
+                }
+
+                const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+                if (clip) {
+                    f32 duration = clip->GetDurationSeconds();
+
+                    if (UI::Property("Speed", animation.Speed, 0.05f, 0.0f, 5.0f))
+                        Editor::MarkDirty();
+
+                    if (duration > 0.0f) {
+                        if (UI::Property("Timeline", animation.CurrentTime, 0.01f, 0.0f, duration))
+                            Editor::MarkDirty();
+                    }
+                }
+
+                if (UI::Property("Show Bones", Editor::GetSettings().showBoneDebug))
+                    Editor::MarkDirty();
+
+                UI::EndProperties();
             }
 
             const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
             if (!clip) return;
-            f32 duration = clip->GetDurationSeconds();
 
             // Transport controls
+            ImGui::Dummy({ 0, 4 });
+            
+            float buttonWidth = 32.0f;
+            float spacing = 4.0f;
+            float totalWidth = (buttonWidth * 3) + (spacing * 2);
+            AlignItemToCenter(totalWidth);
+
+            ImGui::BeginGroup();
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, 4.0f));
+
             if (animation.Playing) {
-                if (ImGui::Button(ICON_FA_PAUSE "##AnimPause"))
+                if (ImGui::Button(ICON_FA_PAUSE "##AnimPause", ImVec2(buttonWidth, 24)))
                     animation.Playing = false;
             } else {
-                if (ImGui::Button(ICON_FA_PLAY "##AnimPlay"))
+                if (ImGui::Button(ICON_FA_PLAY "##AnimPlay", ImVec2(buttonWidth, 24)))
                     animation.Playing = true;
             }
             ImGui::SameLine();
-            if (ImGui::Button(ICON_FA_STOP "##AnimStop")) {
+            
+            if (ImGui::Button(ICON_FA_STOP "##AnimStop", ImVec2(buttonWidth, 24))) {
                 animation.Playing = false;
                 animation.CurrentTime = 0.0f;
             }
+            ImGui::SameLine();
 
-            // Speed slider
-            if (ImGui::SliderFloat("Speed##Anim", &animation.Speed, 0.0f, 5.0f, "%.2f"))
-                Editor::MarkDirty();
-
-            // Loop toggle
-            if (ImGui::Checkbox("Loop##Anim", &animation.Loop))
-                Editor::MarkDirty();
-
-            // Timeline scrubber
-            if (duration > 0.0f) {
-                if (ImGui::SliderFloat("Timeline##Anim", &animation.CurrentTime, 0.0f, duration, "%.2f s"))
-                    Editor::MarkDirty();
+            // Loop off/one/all toggle
+            const char* loopIcon = ICON_FA_ARROW_RIGHT; // Off
+            const char* loopTooltip = "Loop: Off";
+            if (animation.LoopMode == AnimationLoopMode::One) {
+                loopIcon = ICON_FA_ARROW_ROTATE_RIGHT;
+                loopTooltip = "Loop: One";
             }
+            else if (animation.LoopMode == AnimationLoopMode::All) {
+                loopIcon = ICON_FA_ARROWS_ROTATE;
+                loopTooltip = "Loop: All";
+            }
+            
+            if (ImGui::Button(loopIcon, ImVec2(buttonWidth, 24))) {
+                int next = ((int)animation.LoopMode + 1) % 3;
+                animation.LoopMode = (AnimationLoopMode)next;
+                Editor::MarkDirty();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", loopTooltip);
 
-            // Frame counter
+            ImGui::PopStyleVar(2);
+            ImGui::EndGroup();
+
+            ImGui::Dummy({ 0, 4 });
+            
             f32 tps = (clip->TicksPerSecond > 0.0f) ? clip->TicksPerSecond : 25.0f;
             int frame = (int)(animation.CurrentTime * tps);
             int totalFrames = (int)clip->Duration;
-            ImGui::Text("Frame: %d / %d", frame, totalFrames);
-
-            // Show Bones toggle
-            ImGui::Checkbox("Show Bones##AnimDebug", &Editor::GetSettings().showBoneDebug);
+            
+            AlignItemToCenter(100);
+            ImGui::TextDisabled("Frame: %d / %d", frame, totalFrames);
+            ImGui::Dummy({ 0, 4 });
         });
 
         DrawComponent<BoneAttachment>("Bone Attachment", m_SelectedEntity, [](Entity entity, BoneAttachment& attachment) {
@@ -304,67 +325,67 @@ namespace Luth
             auto& registry = scene->Registry();
             std::vector<entt::entity> animEntities;
             std::vector<std::string> entityNames;
-            int currentIndex = -1;
+            
+            // "None" option first
+            entityNames.push_back("None");
 
+            int currentIndex = 0;
             auto view = registry.view<Animation, Tag>();
             for (auto e : view) {
                 animEntities.push_back(e);
                 entityNames.push_back(registry.get<Tag>(e).m_Tag);
                 if (attachment.TargetEntity && (entt::entity)attachment.TargetEntity == e)
-                    currentIndex = (int)animEntities.size() - 1;
+                    currentIndex = (int)animEntities.size(); // 1-based index relates to entityNames
             }
 
-            std::string preview = (currentIndex >= 0) ? entityNames[currentIndex] : "None";
-            if (ImGui::BeginCombo("Target##BoneAttach", preview.c_str())) {
-                if (ImGui::Selectable("None", currentIndex < 0)) {
-                    attachment.TargetEntity = {};
-                    attachment.BoneIndex = -1;
-                    attachment.BoneName = "";
-                    Editor::MarkDirty();
-                }
-                for (int i = 0; i < (int)animEntities.size(); i++) {
-                    bool selected = (i == currentIndex);
-                    if (ImGui::Selectable(entityNames[i].c_str(), selected)) {
-                        attachment.TargetEntity = Entity(animEntities[i], scene);
+            std::vector<const char*> entityNamePtrs(entityNames.size());
+            for(size_t i = 0; i < entityNames.size(); i++)
+                entityNamePtrs[i] = entityNames[i].c_str();
+
+            if (UI::BeginProperties("BoneAttachProps")) {
+                if (UI::PropertyCombo("Target", currentIndex, entityNamePtrs.data(), (int)entityNamePtrs.size())) {
+                    if (currentIndex == 0) {
+                        attachment.TargetEntity = {};
                         attachment.BoneIndex = -1;
                         attachment.BoneName = "";
-                        Editor::MarkDirty();
+                    } else {
+                        attachment.TargetEntity = Entity(animEntities[currentIndex - 1], scene);
+                        attachment.BoneIndex = -1;
+                        attachment.BoneName = "";
                     }
+                    Editor::MarkDirty();
                 }
-                ImGui::EndCombo();
-            }
 
-            // Bone name dropdown
-            if (attachment.TargetEntity && attachment.TargetEntity.IsValid()
-                && attachment.TargetEntity.HasComponent<Animation>())
-            {
-                auto& targetAnim = attachment.TargetEntity.GetComponent<Animation>();
-                if (auto model = AssetManager::GetAsset<Model>(targetAnim.ModelUUID)) {
-                    const auto& skeleton = model->GetSkeleton();
-                    if (!skeleton.IsEmpty()) {
-                        int boneCount = (int)skeleton.BoneCount();
-                        std::vector<const char*> boneNames(boneCount);
-                        for (int i = 0; i < boneCount; i++)
-                            boneNames[i] = skeleton.Bones[i].Name.c_str();
+                // Bone name dropdown
+                if (attachment.TargetEntity && attachment.TargetEntity.IsValid()
+                    && attachment.TargetEntity.HasComponent<Animation>())
+                {
+                    auto& targetAnim = attachment.TargetEntity.GetComponent<Animation>();
+                    if (auto model = AssetManager::GetAsset<Model>(targetAnim.ModelUUID)) {
+                        const auto& skeleton = model->GetSkeleton();
+                        if (!skeleton.IsEmpty()) {
+                            int boneCount = (int)skeleton.BoneCount();
+                            std::vector<const char*> boneNames(boneCount);
+                            for (int i = 0; i < boneCount; i++)
+                                boneNames[i] = skeleton.Bones[i].Name.c_str();
 
-                        int boneIdx = skeleton.FindBone(attachment.BoneName);
-                        if (boneIdx < 0) boneIdx = 0;
+                            int boneIdx = skeleton.FindBone(attachment.BoneName);
+                            if (boneIdx < 0) boneIdx = 0;
 
-                        if (ImGui::Combo("Bone##BoneAttach", &boneIdx, boneNames.data(), boneCount)) {
-                            attachment.BoneName = skeleton.Bones[boneIdx].Name;
-                            attachment.BoneIndex = -1; // Force re-resolve by AnimationSystem
-                            Editor::MarkDirty();
+                            if (UI::PropertyCombo("Bone", boneIdx, boneNames.data(), boneCount)) {
+                                attachment.BoneName = skeleton.Bones[boneIdx].Name;
+                                attachment.BoneIndex = -1; // Force re-resolve by AnimationSystem
+                                Editor::MarkDirty();
+                            }
                         }
                     }
                 }
-            }
 
-            // Local offset and rotation
-            if (UI::BeginProperties("BoneAttachProps")) {
                 if (UI::Property("Local Offset", attachment.LocalOffset))
                     Editor::MarkDirty();
                 if (UI::Property("Local Rotation", attachment.LocalRotation))
                     Editor::MarkDirty();
+                    
                 UI::EndProperties();
             }
         });
@@ -600,7 +621,7 @@ namespace Luth
                 BlendLayer baseLayer;
                 baseLayer.ClipIndex = a.AnimationIndex;
                 baseLayer.Speed = a.Speed;
-                baseLayer.Loop = a.Loop;
+                baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
                 ctrl.Layers.push_back(baseLayer);
                 ctrl.CurrentClipIndex = a.AnimationIndex;
                 ImGui::CloseCurrentPopup();
