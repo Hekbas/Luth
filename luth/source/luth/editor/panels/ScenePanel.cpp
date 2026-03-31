@@ -62,68 +62,99 @@ namespace Luth
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
         if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
-            // Toolbar
+            // Toolbar — Left | Mid | Right
             {
+                const float toolbarWidth = ImGui::GetContentRegionAvail().x;
+                const float framePad = ImGui::GetStyle().FramePadding.x;
+                const float itemSpacing = ImGui::GetStyle().ItemSpacing.x;
+                const float btnSize = ImGui::GetFrameHeight();
+                const float sepWidth = 2.0f + itemSpacing * 2.0f;
+
+                // --- Accent color for active tool button ---
+                ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+                ImVec4 normalCol = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+
+                auto ToolButton = [&](const char* icon, const char* id, const char* tooltip, int gizmoOp) {
+                    bool isActive = (m_GizmoType == gizmoOp);
+                    if (isActive) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
+                    }
+                    std::string label = std::string(icon) + id;
+                    if (ImGui::Button(label.c_str(), { btnSize, btnSize }))
+                        m_GizmoType = gizmoOp;
+                    if (isActive)
+                        ImGui::PushStyleColor(ImGuiCol_Border, activeCol); // pop below
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", tooltip);
+                    if (isActive)
+                        ImGui::PopStyleColor(3); // Button, ButtonHovered, Border
+                };
+
+                // ======= LEFT: Gizmo tools =======
                 ImGui::AlignTextToFramePadding();
-                ImGui::Text(ICON_FA_GAUGE_HIGH);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(120.0f);
-                ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Camera fly speed (scroll wheel while RMB to adjust)");
+                ToolButton(ICON_FA_CROSSHAIRS, "##Select", "Select (Q)", -1);
+                ImGui::SameLine(0, 2.0f);
+                ToolButton(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "##Translate", "Translate (W)", ImGuizmo::OPERATION::TRANSLATE);
+                ImGui::SameLine(0, 2.0f);
+                ToolButton(ICON_FA_ROTATE, "##Rotate", "Rotate (E)", ImGuizmo::OPERATION::ROTATE);
+                ImGui::SameLine(0, 2.0f);
+                ToolButton(ICON_FA_EXPAND, "##Scale", "Scale (R)", ImGuizmo::OPERATION::SCALE);
 
-                // Camera settings popup
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_GEAR "##CamSettings"))
-                    ImGui::OpenPopup("CameraSettingsPopup");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Camera settings");
 
-                if (ImGui::BeginPopup("CameraSettingsPopup"))
-                {
+                // ======= MID: Stats / View (centered) =======
+                // Pre-calculate mid section width
+                u32 triCount = m_RenderingSystem->GetTriangleCount();
+                char triText[64];
+                if (triCount >= 1000000)
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
+                else if (triCount >= 1000)
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
+                else
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %u tris", triCount);
+
+                float triTextW = ImGui::CalcTextSize(triText).x;
+                float eyeIconW = ImGui::CalcTextSize(ICON_FA_EYE).x;
+                float comboW = 90.0f;
+                float sunIconW = ImGui::CalcTextSize(ICON_FA_SUN).x;
+                float midWidth = triTextW + sepWidth + eyeIconW + itemSpacing + comboW + sunIconW;
+
+                float midStart = (toolbarWidth - midWidth) * 0.5f;
+                float cursorX = ImGui::GetCursorPosX();
+                if (midStart > cursorX)
+                    ImGui::SameLine(midStart);
+                else
+                    ImGui::SameLine();
+
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%s", triText);
+
+                ImGui::SameLine();
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine();
+
+                ImGui::Text(ICON_FA_EYE);
+                ImGui::SameLine();
+                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
+                int currentMode = static_cast<int>(m_RenderingSystem->GetShadeMode());
+                ImGui::SetNextItemWidth(comboW);
+                if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
+                    m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
+                
+                ImGui::SameLine();
+                
+                // Environment
+                ButtonDropdown(ICON_FA_SUN, "##Environment", [this]() {
                     ImGui::PushFont(Editor::GetMainFont());
-                    ImGui::Text("Camera Settings");
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    if (ImGui::SliderFloat("FOV", &m_EditorCamera.GetFOVRef(), 30.0f, 120.0f, "%.0f"))
-                        m_EditorCamera.SetFOV(m_EditorCamera.GetFOV()); // triggers projection update
-                    ImGui::SliderFloat("Near Clip", &m_EditorCamera.GetNearClipRef(), 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::SliderFloat("Far Clip", &m_EditorCamera.GetFarClipRef(), 100.0f, 50000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-                    ImGui::Separator();
-                    ImGui::SliderFloat("Rotation Speed", &m_EditorCamera.GetRotationSpeedRef(), 1000.0f, 50000.0f, "%.0f");
-                    ImGui::SliderFloat("Pan Speed", &m_EditorCamera.GetPanSpeedRef(), 10.0f, 1000.0f, "%.0f");
-                    ImGui::SliderFloat("Zoom Speed", &m_EditorCamera.GetZoomSpeedRef(), 10.0f, 500.0f, "%.0f");
-                    ImGui::SliderFloat("Shift Multiplier", &m_EditorCamera.GetShiftMultiplierRef(), 1.0f, 10.0f, "%.1f");
-                    ImGui::PopFont();
-                    ImGui::EndPopup();
-                }
-
-                // Environment settings popup
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_SUN "##EnvSettings"))
-                    ImGui::OpenPopup("EnvironmentSettingsPopup");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Environment settings");
-
-                if (ImGui::BeginPopup("EnvironmentSettingsPopup"))
-                {
-                    ImGui::PushFont(Editor::GetMainFont());
-                    ImGui::Text("Environment");
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
+                    
                     auto& settings = Editor::GetSettings();
-
-                    // Display current skybox path
                     ImGui::Text("HDR: %s", settings.skyboxPath.c_str());
-
                     if (ImGui::Button("Browse HDR..."))
                     {
                         auto result = FileDialog::OpenFile("HDR Environment\0*.hdr;*.exr\0All Files\0*.*\0");
                         if (result.has_value())
                         {
-                            // Store relative to assets path if inside it
                             fs::path absPath = result.value();
                             fs::path assetsPath = FileSystem::AssetsPath();
                             auto rel = fs::relative(absPath, assetsPath);
@@ -136,39 +167,71 @@ namespace Luth
                             Editor::MarkDirty();
                         }
                     }
+
                     ImGui::PopFont();
-                    ImGui::EndPopup();
-                }
+                });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Environment");
 
-                // Triangle count
-                ImGui::SameLine();
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine();
-                u32 triCount = m_RenderingSystem->GetTriangleCount();
-                if (triCount >= 1000000)
-                    ImGui::Text(ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
-                else if (triCount >= 1000)
-                    ImGui::Text(ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
-                else
-                    ImGui::Text(ICON_FA_SHAPES "  %u tris", triCount);
+                // ======= RIGHT: Camera & Overlay (right-aligned) =======
+                float rightWidth = btnSize*3 + sepWidth + itemSpacing*2;
+                float rightStart = toolbarWidth - rightWidth + ImGui::GetStyle().WindowPadding.x;
+                ImGui::SameLine(rightStart);
 
-                // Shade mode dropdown
-                ImGui::SameLine();
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine();
-                ImGui::Text(ICON_FA_EYE);
-                ImGui::SameLine();
-                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
-                int currentMode = static_cast<int>(m_RenderingSystem->GetShadeMode());
-                ImGui::SetNextItemWidth(90.0f);
-                if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
-                    m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
+                // Camera settings
+                ButtonDropdown(ICON_FA_CAMERA, "##CamPopup", [this]() {
+                    ImGui::PushFont(Editor::GetMainFont());
 
+                    // Fly speed
+                    ImGui::Text("Fly Speed");
+                    ImGui::SetNextItemWidth(180.0f);
+                    ImGui::SliderFloat("##CamSpeed", &m_EditorCamera.GetFlySpeedRef(), 0.1f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+
+                    ImGui::Separator();
+
+                    // Camera settings
+                    ImGui::Text("Camera");
+                    ImGui::Spacing();
+                    if (ImGui::SliderFloat("FOV", &m_EditorCamera.GetFOVRef(), 30.0f, 120.0f, "%.0f"))
+                        m_EditorCamera.SetFOV(m_EditorCamera.GetFOV());
+                    ImGui::SliderFloat("Near Clip", &m_EditorCamera.GetNearClipRef(), 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat("Far Clip", &m_EditorCamera.GetFarClipRef(), 100.0f, 50000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+
+                    ImGui::Separator();
+
+                    ImGui::Text("Controls");
+                    ImGui::Spacing();
+                    ImGui::SliderFloat("Rotation Speed", &m_EditorCamera.GetRotationSpeedRef(), 1000.0f, 50000.0f, "%.0f");
+                    ImGui::SliderFloat("Pan Speed", &m_EditorCamera.GetPanSpeedRef(), 10.0f, 1000.0f, "%.0f");
+                    ImGui::SliderFloat("Zoom Speed", &m_EditorCamera.GetZoomSpeedRef(), 10.0f, 500.0f, "%.0f");
+                    ImGui::SliderFloat("Shift Multiplier", &m_EditorCamera.GetShiftMultiplierRef(), 1.0f, 10.0f, "%.1f");
+                    
+                    ImGui::PopFont();
+                });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Camera settings");
+
+                ImGui::SameLine();
+                
+                // Gizmo visibility dropdown
+                ButtonDropdown(ICON_FA_EYE, "##GizmoVis", [this]() {
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
+                    ImGui::PushFont(Editor::GetMainFont());
+                    ImGui::Checkbox("Transform Gizmo", &m_ShowTransformGizmo);
+                    ImGui::Checkbox("Bone Debug", &Editor::GetSettings().showBoneDebug);
+                    ImGui::PopFont();
+                    ImGui::PopStyleVar();
+                });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Gizmo visibility");
+                
+                ImGui::SameLine();
+                
                 // Controls overlay toggle
                 ImGui::SameLine();
                 ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
                 ImGui::SameLine();
-                if (ImGui::Button(m_ShowControlsOverlay ? ICON_FA_KEYBOARD "##OverlayOn" : ICON_FA_KEYBOARD "##OverlayOff"))
+                if (ImGui::Button(m_ShowControlsOverlay ? ICON_FA_KEYBOARD "##OverlayOn" : ICON_FA_KEYBOARD "##OverlayOff", { btnSize, btnSize }))
                     m_ShowControlsOverlay = !m_ShowControlsOverlay;
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay");
@@ -189,6 +252,11 @@ namespace Luth
                 // Update rendering system and camera
                 EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newW, newH);
             }
+
+            // Update viewport bounds for gizmos & mouse picking
+            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
+            m_ViewportBounds[0] = cursorScreenPos;
+            m_ViewportBounds[1] = { cursorScreenPos.x + m_ViewportSize.x, cursorScreenPos.y + m_ViewportSize.y };
 
             // Get final output from active rendering technique
             if (auto texture = m_RenderingSystem->GetSceneColor())
@@ -230,12 +298,11 @@ namespace Luth
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
             {
                 auto [mx, my] = ImGui::GetMousePos();
-                ImVec2 winPos = ImGui::GetWindowPos();
-                // Account for toolbar height: content region starts after toolbar
-                ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
-                int px = (int)(mx - winPos.x - contentMin.x);
-                int py = (int)(my - winPos.y - contentMin.y);
-                m_RenderingSystem->RequestPick(px, py);
+                int px = (int)(mx - m_ViewportBounds[0].x);
+                int py = (int)(my - m_ViewportBounds[0].y);
+                // Ensure click is inside viewport
+                if (px >= 0 && px < m_ViewportSize.x && py >= 0 && py < m_ViewportSize.y)
+                    m_RenderingSystem->RequestPick(px, py);
             }
 
             // Consume pick result
@@ -325,10 +392,8 @@ namespace Luth
                     float boxW = textSize.x + pad * 2.0f;
                     float boxH = textSize.y + pad * 2.0f;
 
-                    ImVec2 winPos = ImGui::GetWindowPos();
-                    ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
-                    float vpBottom = winPos.y + contentMin.y + m_ViewportSize.y + 27;
-                    float vpLeft   = winPos.x + contentMin.x;
+                    float vpBottom = m_ViewportBounds[1].y;
+                    float vpLeft   = m_ViewportBounds[0].x;
 
                     ImVec2 boxMin = { vpLeft + pad, vpBottom - boxH - pad };
                     ImVec2 boxMax = { vpLeft + pad + boxW, vpBottom - pad };
@@ -360,9 +425,8 @@ namespace Luth
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::SetDrawlist();
 
-        float windowWidth = (float)ImGui::GetWindowWidth();
-        float windowHeight = (float)ImGui::GetWindowHeight();
-        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+        // Use the exact viewport bounds calculated during OnRender
+        ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportSize.x, m_ViewportSize.y);
 
         // Camera
         const glm::mat4& view = m_EditorCamera.GetViewMatrix();
@@ -386,36 +450,40 @@ namespace Luth
              // For now, let's trust the system update loop which runs before Render.
         }
 
-        // Snapping
-        bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
-        float snapValue = 0.5f; // Snap to 0.5m for translation/scale
-        if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
-            snapValue = 45.0f; // Snap to 45 degrees for rotation
-
-        float snapValues[3] = { snapValue, snapValue, snapValue };
-
-        ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
-            (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(worldMatrix),
-            nullptr, snap ? snapValues : nullptr);
-
-        if (ImGuizmo::IsUsing())
+        // Only draw & interact with the manipulator when visible and a tool is active
+        if (m_ShowTransformGizmo && m_GizmoType != -1)
         {
-            // Convert back to Local Space
-            glm::mat4 localMatrix = worldMatrix;
-            if (m_SelectedEntity.HasParent())
+            // Snapping
+            bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
+            float snapValue = 0.5f; // Snap to 0.5m for translation/scale
+            if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+                snapValue = 45.0f; // Snap to 45 degrees for rotation
+
+            float snapValues[3] = { snapValue, snapValue, snapValue };
+
+            ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
+                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(worldMatrix),
+                nullptr, snap ? snapValues : nullptr);
+
+            if (ImGuizmo::IsUsing())
             {
-                Entity parent = m_SelectedEntity.GetParent();
-                glm::mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
-                localMatrix = glm::inverse(parentWorld) * worldMatrix;
+                // Convert back to Local Space
+                glm::mat4 localMatrix = worldMatrix;
+                if (m_SelectedEntity.HasParent())
+                {
+                    Entity parent = m_SelectedEntity.GetParent();
+                    glm::mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
+                    localMatrix = glm::inverse(parentWorld) * worldMatrix;
+                }
+
+                float translation[3], rotation[3], scale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(localMatrix), translation, rotation, scale);
+
+                tc.Position = glm::make_vec3(translation);
+                tc.Rotation = glm::make_vec3(rotation);
+                tc.Scale = glm::make_vec3(scale);
+                tc.IsDirty = true;
             }
-
-            float translation[3], rotation[3], scale[3];
-            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(localMatrix), translation, rotation, scale);
-
-            tc.Position = glm::make_vec3(translation);
-            tc.Rotation = glm::make_vec3(rotation);
-            tc.Scale = glm::make_vec3(scale);
-            tc.IsDirty = true;
         }
 
         // Gizmo Shortcuts
@@ -463,10 +531,8 @@ namespace Luth
         Mat4 viewProj = m_EditorCamera.GetViewProjection();
 
         // Viewport screen rect
-        ImVec2 winPos = ImGui::GetWindowPos();
-        ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
-        ImVec2 vpMin = { winPos.x + contentMin.x, winPos.y + contentMin.y };
-        ImVec2 vpMax = { vpMin.x + m_ViewportSize.x, vpMin.y + m_ViewportSize.y };
+        ImVec2 vpMin = m_ViewportBounds[0];
+        ImVec2 vpMax = m_ViewportBounds[1];
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         drawList->PushClipRect(vpMin, vpMax, true);

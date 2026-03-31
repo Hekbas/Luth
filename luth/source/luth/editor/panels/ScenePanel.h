@@ -138,6 +138,7 @@ namespace Luth
         EditorCamera m_EditorCamera;
 
         Vec2 m_ViewportSize = { 0.0f, 0.0f };
+        ImVec2 m_ViewportBounds[2];
         bool m_IsFocused = false;
         bool m_IsHovered = false;
 
@@ -148,6 +149,7 @@ namespace Luth
         // Gizmo state
         Entity m_SelectedEntity;
         int m_GizmoType = -1; // -1 = None, or ImGuizmo::OPERATION
+        bool m_ShowTransformGizmo = true;
 
         // Controls overlay
         bool m_ShowControlsOverlay = true;
