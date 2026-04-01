@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/scene/System.h"
+#include "luth/scene/Entity.h"
 #include "luth/memory/Memory.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
@@ -17,6 +18,7 @@
 
 #include <entt/entt.hpp>
 #include <unordered_map>
+#include <unordered_set>
 #include <set>
 #include <mutex>
 
@@ -85,6 +87,11 @@ namespace Luth
         RG::ResourceHandle entityID;
     };
 
+    struct SelectionMaskOutput {
+        RG::ResourceHandle mask;
+        RG::ResourceHandle depth;
+    };
+
     class RenderingSystem : public System
     {
     public:
@@ -115,7 +122,6 @@ namespace Luth
         entt::entity ConsumePickResult();
 
         // Selection outline
-        void SetSelectedEntity(entt::entity e) { m_SelectedEntity = e; }
         void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
 
         // Skybox / IBL
@@ -141,8 +147,11 @@ namespace Luth
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
-        RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, RG::ResourceHandle entityIDHandle);
+        SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry);
+        RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
+
+        void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
         // Memory
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
@@ -232,6 +241,15 @@ namespace Luth
         std::vector<u32> m_BloomBlurFragSpv;
         std::vector<u32> m_PostProcessFragSpv;
 
+        // Selection mask pass resources
+        std::shared_ptr<Texture>        m_SelectionMask;      // RGBA8 — .r = 1.0 for selected
+        std::shared_ptr<Texture>        m_SelectionDepth;     // D32_Float — depth of selected geometry
+        std::unique_ptr<VKPipeline>     m_SelectionMaskPipeline;
+        std::unique_ptr<VKPipeline>     m_SelectionMaskSkinnedPipeline;
+        std::vector<u32>                m_SelectionMaskVertSpv;
+        std::vector<u32>                m_SelectionMaskFragSpv;
+        std::vector<u32>                m_SelectionMaskSkinnedVertSpv;
+
         // Outline pass resources
         std::unique_ptr<VKPipeline>  m_OutlinePipeline;
         std::vector<u32>             m_OutlineFragSpv;
@@ -239,7 +257,6 @@ namespace Luth
         VkDescriptorSetLayout        m_OutlineDescSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet              m_OutlineDescSet       = VK_NULL_HANDLE;
         VkSampler                    m_OutlineSampler       = VK_NULL_HANDLE;
-        entt::entity                 m_SelectedEntity       = entt::null;
         glm::vec4                    m_OutlineColor         = { 1.0f, 0.6f, 0.0f, 1.0f };
 
         // IBL resources

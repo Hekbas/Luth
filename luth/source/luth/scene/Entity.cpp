@@ -71,6 +71,14 @@ namespace Luth
         return {};
     }
 
+    Entity Entity::GetRoot() const
+    {
+        Entity current = *this;
+        while (current.HasParent())
+            current = current.GetParent();
+        return current;
+    }
+
     std::vector<Entity> Entity::GetChildren() const
     {
         if (HasComponent<Children>())

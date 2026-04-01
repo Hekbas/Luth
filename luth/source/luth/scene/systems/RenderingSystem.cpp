@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/editor/Editor.h"
+#include "luth/editor/EditorSelection.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
@@ -42,10 +43,12 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            m_SceneColor    = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
-            m_SceneDepth    = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
-            m_LDROutput     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
+            m_SceneColor     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
+            m_SceneDepth     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
+            m_LDROutput      = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
             m_EntityIDBuffer = Texture::Create(viewportWidth, viewportHeight, TextureFormat::R32_Uint);
+            m_SelectionMask  = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
+            m_SelectionDepth = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
 
             InitGlobalUniforms();
             InitShadowResources();
@@ -93,11 +96,16 @@ namespace Luth
             // Load skinned vertex shaders via ShaderCompiler
             {
                 auto shadersPath = FileSystem::AssetsPath() / "shaders";
-                m_PBRSkinnedVertSpv     = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
-                m_ShadowSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+                m_PBRSkinnedVertSpv            = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
+                m_ShadowSkinnedVertSpv         = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+                m_SelectionMaskVertSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
+                m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
+                m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
 
                 if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
                     LH_CORE_ERROR("Failed to compile skinned shaders!");
+                if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty())
+                    LH_CORE_ERROR("Failed to compile selection mask shaders!");
             }
 
             // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
@@ -150,6 +158,8 @@ namespace Luth
                 m_BloomBlurPipeline.reset();
                 m_PostProcessPipeline.reset();
                 m_OutlinePipeline.reset();
+                m_SelectionMaskPipeline.reset();
+                m_SelectionMaskSkinnedPipeline.reset();
                 CreatePipelines();
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
             });
@@ -449,7 +459,7 @@ namespace Luth
 
         // ---- Outline pass resources ----
         {
-            // Nearest-neighbor sampler for integer entity ID texture
+            // Nearest-neighbor sampler for mask and depth textures
             VkSamplerCreateInfo outlineSamplerInfo{};
             outlineSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
             outlineSamplerInfo.magFilter = VK_FILTER_NEAREST;
@@ -460,23 +470,34 @@ namespace Luth
             outlineSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
             vkCreateSampler(device, &outlineSamplerInfo, nullptr, &m_OutlineSampler);
 
-            // Descriptor set layout: binding 0 = usampler2D (entity ID)
-            VkDescriptorSetLayoutBinding outlineBinding{};
-            outlineBinding.binding = 0;
-            outlineBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            outlineBinding.descriptorCount = 1;
-            outlineBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            // Descriptor set layout: 3 sampler bindings
+            VkDescriptorSetLayoutBinding bindings[3] = {};
+            // Binding 0: sampler2D (selection mask)
+            bindings[0].binding = 0;
+            bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            // Binding 1: sampler2D (selection depth)
+            bindings[1].binding = 1;
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            // Binding 2: sampler2D (scene depth)
+            bindings[2].binding = 2;
+            bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[2].descriptorCount = 1;
+            bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
             VkDescriptorSetLayoutCreateInfo outlineLayoutInfo{};
             outlineLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            outlineLayoutInfo.bindingCount = 1;
-            outlineLayoutInfo.pBindings = &outlineBinding;
+            outlineLayoutInfo.bindingCount = 3;
+            outlineLayoutInfo.pBindings = bindings;
             vkCreateDescriptorSetLayout(device, &outlineLayoutInfo, nullptr, &m_OutlineDescSetLayout);
 
-            // Descriptor pool: 1 set, 1 sampler
+            // Descriptor pool: 1 set, 3 combined image samplers
             VkDescriptorPoolSize outlinePoolSize{};
             outlinePoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            outlinePoolSize.descriptorCount = 1;
+            outlinePoolSize.descriptorCount = 3;
 
             VkDescriptorPoolCreateInfo outlinePoolInfo{};
             outlinePoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -493,21 +514,49 @@ namespace Luth
             outlineAllocInfo.pSetLayouts = &m_OutlineDescSetLayout;
             vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_OutlineDescSet);
 
-            // Write descriptor: entity ID buffer
-            auto vkEntityID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
-            VkDescriptorImageInfo entityIDImgInfo{};
-            entityIDImgInfo.sampler     = m_OutlineSampler;
-            entityIDImgInfo.imageView   = vkEntityID->GetImageView();
-            entityIDImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            // Write all 3 descriptors: selection mask, selection depth, scene depth
+            auto vkMask      = std::static_pointer_cast<VKTexture>(m_SelectionMask);
+            auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
+            auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_SceneDepth);
 
-            VkWriteDescriptorSet outlineWrite{};
-            outlineWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            outlineWrite.dstSet = m_OutlineDescSet;
-            outlineWrite.dstBinding = 0;
-            outlineWrite.descriptorCount = 1;
-            outlineWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            outlineWrite.pImageInfo = &entityIDImgInfo;
-            vkUpdateDescriptorSets(device, 1, &outlineWrite, 0, nullptr);
+            VkDescriptorImageInfo maskImgInfo{};
+            maskImgInfo.sampler     = m_OutlineSampler;
+            maskImgInfo.imageView   = vkMask->GetImageView();
+            maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo selDepthImgInfo{};
+            selDepthImgInfo.sampler     = m_OutlineSampler;
+            selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
+            selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo scnDepthImgInfo{};
+            scnDepthImgInfo.sampler     = m_OutlineSampler;
+            scnDepthImgInfo.imageView   = vkScnDepth->GetImageView();
+            scnDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet writes[3] = {};
+            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[0].dstSet = m_OutlineDescSet;
+            writes[0].dstBinding = 0;
+            writes[0].descriptorCount = 1;
+            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[0].pImageInfo = &maskImgInfo;
+
+            writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[1].dstSet = m_OutlineDescSet;
+            writes[1].dstBinding = 1;
+            writes[1].descriptorCount = 1;
+            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[1].pImageInfo = &selDepthImgInfo;
+
+            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[2].dstSet = m_OutlineDescSet;
+            writes[2].dstBinding = 2;
+            writes[2].descriptorCount = 1;
+            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[2].pImageInfo = &scnDepthImgInfo;
+
+            vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
         }
     }
 
@@ -1425,6 +1474,42 @@ namespace Luth
                 shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, layouts);
         }
 
+        // ---- Selection mask pipeline (static) ----
+        if (!m_SelectionMaskVertSpv.empty() && !m_SelectionMaskFragSpv.empty())
+        {
+            PipelineConfig maskConfig;
+            maskConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+            maskConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
+            maskConfig.depthTest = true; maskConfig.depthWrite = true;
+            maskConfig.blendEnabled = false;
+            maskConfig.cullMode = VK_CULL_MODE_BACK_BIT;
+            maskConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            maskConfig.bindingDescriptions = shadowBindingDescs;
+            maskConfig.attributeDescriptions = shadowAttribDescs;
+            maskConfig.pushConstantRanges = { pushConstantRange };
+
+            m_SelectionMaskPipeline = std::make_unique<VKPipeline>(
+                maskConfig, m_SelectionMaskVertSpv, m_SelectionMaskFragSpv, layouts);
+        }
+
+        // ---- Selection mask pipeline (skinned) ----
+        if (!m_SelectionMaskSkinnedVertSpv.empty() && !m_SelectionMaskFragSpv.empty())
+        {
+            PipelineConfig maskSkinnedConfig;
+            maskSkinnedConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+            maskSkinnedConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
+            maskSkinnedConfig.depthTest = true; maskSkinnedConfig.depthWrite = true;
+            maskSkinnedConfig.blendEnabled = false;
+            maskSkinnedConfig.cullMode = VK_CULL_MODE_BACK_BIT;
+            maskSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            maskSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
+            maskSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
+            maskSkinnedConfig.pushConstantRanges = { pushConstantRange };
+
+            m_SelectionMaskSkinnedPipeline = std::make_unique<VKPipeline>(
+                maskSkinnedConfig, m_SelectionMaskSkinnedVertSpv, m_SelectionMaskFragSpv, layouts);
+        }
+
         // ---- Skybox pipeline ----
         if (!m_SkyboxVertSpv.empty() && !m_SkyboxFragSpv.empty())
         {
@@ -1512,7 +1597,7 @@ namespace Luth
             VkPushConstantRange outlinePC{};
             outlinePC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
             outlinePC.offset = 0;
-            outlinePC.size = sizeof(float) * 8; // selectedEntityID(u32) + outlineWidth(f32) + texelSize(vec2) + outlineColor(vec4) = 32 bytes
+            outlinePC.size = sizeof(float) * 8; // outlineWidth + texelSize(vec2) + outlineColor(vec4) + occludedAlpha = 32 bytes
 
             PipelineConfig outlineConfig;
             outlineConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // writes to LDR output with blending
@@ -1686,10 +1771,11 @@ namespace Luth
 
             RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap);
+            auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
             RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, skyboxColor, bloomResult);
-            RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, geoOutput.entityID);
+            RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth);
             AddImGuiPass(rg, finalOutput);
 
             rg.Compile();
@@ -2442,15 +2528,196 @@ namespace Luth
         return outputHandle;
     }
 
+    void RenderingSystem::CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const
+    {
+        for (const auto& entity : selected)
+        {
+            if (!entity || !entity.IsValid()) continue;
+            outHandles.insert((entt::entity)entity);
+            // Recursively include children so outline wraps entire subtrees
+            for (const auto& child : entity.GetChildren())
+            {
+                std::vector<Entity> childVec = { child };
+                CollectSelectedHandles(childVec, outHandles);
+            }
+        }
+    }
+
+    SelectionMaskOutput RenderingSystem::AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry)
+    {
+        struct SelectionMaskPassData {
+            RG::ResourceHandle maskTex;
+            RG::ResourceHandle depthTex;
+        };
+
+        SelectionMaskOutput output;
+
+        rg.AddPass<SelectionMaskPassData>("SelectionMaskPass",
+            [&](SelectionMaskPassData& data, RG::RenderPassBuilder& builder)
+            {
+                // Import selection mask (RGBA8)
+                auto vkMask = std::static_pointer_cast<VKTexture>(m_SelectionMask);
+                RG::TextureDesc maskDesc;
+                maskDesc.name   = "SelectionMask";
+                maskDesc.width  = m_SelectionMask->GetWidth();
+                maskDesc.height = m_SelectionMask->GetHeight();
+                maskDesc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.maskTex = rg.ImportResource(maskDesc,
+                    (void*)vkMask->GetImage(), (void*)vkMask->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue colorClear{};
+                colorClear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+                data.maskTex = builder.Write(data.maskTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, colorClear);
+
+                // Import selection depth (D32_Float)
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
+                RG::TextureDesc depthDesc;
+                depthDesc.name   = "SelectionDepth";
+                depthDesc.width  = m_SelectionDepth->GetWidth();
+                depthDesc.height = m_SelectionDepth->GetHeight();
+                depthDesc.format = RG::TextureFormat::D32_Float;
+
+                data.depthTex = rg.ImportResource(depthDesc,
+                    (void*)vkDepth->GetImage(), (void*)vkDepth->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue depthClear{};
+                depthClear.depthStencil = { 1.0f, 0 };
+                data.depthTex = builder.WriteDepth(data.depthTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+
+                output.mask  = data.maskTex;
+                output.depth = data.depthTex;
+            },
+            [this, &registry](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
+            {
+                if (!m_SelectionMaskPipeline) return;
+
+                // Build set of selected entity handles (including descendants)
+                std::unordered_set<entt::entity> selectedSet;
+                CollectSelectedHandles(EditorSelection::GetSelectedEntities(), selectedSet);
+                if (selectedSet.empty()) return;
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                // Bind descriptor sets (same 5 sets as geometry/shadow passes)
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = {
+                    m_GlobalDescriptorSet,
+                    bindlessSet,
+                    MaterialSystem::GetDescriptorSet(),
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
+                };
+
+                m_SelectionMaskPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+
+                u32 w = m_SelectionMask->GetWidth();
+                u32 h = m_SelectionMask->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                bool currentSkinned = false;
+
+                auto view = registry.view<WorldTransform, MeshRenderer>();
+                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                {
+                    // Only draw selected entities
+                    if (selectedSet.find(entity) == selectedSet.end()) continue;
+
+                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
+                    if (!model) continue;
+                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
+                    if (!mesh) continue;
+
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                    if (!vb || !ib) continue;
+
+                    // Check per-mesh skinning
+                    bool isSkinned = false;
+                    u32 boneOffset = 0;
+                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
+                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
+
+                    if (isSkinned)
+                    {
+                        entt::entity animEntity = entt::null;
+                        if (registry.any_of<Component::Animation>(entity))
+                            animEntity = entity;
+                        else if (registry.any_of<Component::Parent>(entity)) {
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
+                                animEntity = parentEnt;
+                        }
+                        if (animEntity != entt::null) {
+                            auto& anim = registry.get<Component::Animation>(animEntity);
+                            if (anim.BufferAllocated)
+                                boneOffset = anim.BoneBufferOffset;
+                        }
+                    }
+
+                    // Switch pipeline if skinned state changed
+                    if (isSkinned != currentSkinned)
+                    {
+                        currentSkinned = isSkinned;
+                        if (isSkinned && m_SelectionMaskSkinnedPipeline)
+                        {
+                            m_SelectionMaskSkinnedPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                        else
+                        {
+                            m_SelectionMaskPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                    }
+
+                    VkPipelineLayout activeLayout = (currentSkinned && m_SelectionMaskSkinnedPipeline)
+                        ? m_SelectionMaskSkinnedPipeline->GetLayout()
+                        : m_SelectionMaskPipeline->GetLayout();
+
+                    ObjectPushConstants pc{};
+                    pc.modelMatrix   = worldTransform.Matrix;
+                    pc.materialIndex = 0;
+                    pc.boneOffset    = boneOffset;
+
+                    vkCmdPushConstants(cmd, activeLayout,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, sizeof(ObjectPushConstants), &pc);
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                }
+            }
+        );
+
+        return output;
+    }
+
     RG::ResourceHandle RenderingSystem::AddOutlinePass(
-        RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, RG::ResourceHandle entityIDHandle)
+        RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth)
     {
         if (!m_OutlinePipeline || !m_LDROutput)
             return ldrOutput;
 
         struct OutlinePassData {
             RG::ResourceHandle output;
-            RG::ResourceHandle entityIDInput;
+            RG::ResourceHandle maskInput;
+            RG::ResourceHandle selDepthInput;
+            RG::ResourceHandle scnDepthInput;
         };
 
         RG::ResourceHandle outputHandle;
@@ -2462,28 +2729,15 @@ namespace Luth
                 data.output = builder.Write(ldrOutput,
                     VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
 
-                // Read entity ID buffer as sampled texture
-                data.entityIDInput = builder.Read(entityIDHandle);
+                // Read selection mask, selection depth, and scene depth
+                data.maskInput     = builder.Read(maskOutput.mask);
+                data.selDepthInput = builder.Read(maskOutput.depth);
+                data.scnDepthInput = builder.Read(sceneDepth);
 
                 outputHandle = data.output;
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
-                // Look up the selected entity's index in the entity lookup table
-                // (must happen at execute time — m_EntityLookup is populated by the geometry pass)
-                u32 selectedIdx = 0;
-                if (m_SelectedEntity != entt::null)
-                {
-                    for (u32 i = 1; i < (u32)m_EntityLookup.size(); ++i)
-                    {
-                        if (m_EntityLookup[i] == m_SelectedEntity)
-                        {
-                            selectedIdx = i;
-                            break;
-                        }
-                    }
-                }
-
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_OutlinePipeline->Bind(cmd);
 
@@ -2498,9 +2752,8 @@ namespace Luth
                 VkRect2D sc{}; sc.extent = { w, h };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                // Push constants: selectedEntityID, outlineWidth, texelSize, outlineColor
+                // Push constants: outlineWidth, texelSize, outlineColor, occludedAlpha
                 struct OutlinePushConstants {
-                    u32   selectedEntityID;
                     float outlineWidth;
                     float texelSizeX;
                     float texelSizeY;
@@ -2508,16 +2761,17 @@ namespace Luth
                     float outlineColorG;
                     float outlineColorB;
                     float outlineColorA;
+                    float occludedAlpha;
                 } pc;
 
-                pc.selectedEntityID = selectedIdx;
-                pc.outlineWidth     = 2.0f;
+                pc.outlineWidth     = 1.5f;
                 pc.texelSizeX       = 1.0f / (float)w;
                 pc.texelSizeY       = 1.0f / (float)h;
                 pc.outlineColorR    = m_OutlineColor.r;
                 pc.outlineColorG    = m_OutlineColor.g;
                 pc.outlineColorB    = m_OutlineColor.b;
                 pc.outlineColorA    = m_OutlineColor.a;
+                pc.occludedAlpha    = 0.65f;
 
                 vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
@@ -2769,25 +3023,55 @@ namespace Luth
             m_EntityIDBuffer = Texture::Create(width, height, TextureFormat::R32_Uint);
             m_BloomA     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             m_BloomB     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+            m_SelectionMask  = Texture::Create(width, height, TextureFormat::RGBA8);
+            m_SelectionDepth = Texture::Create(width, height, TextureFormat::D32_Float);
             UpdatePostProcessDescriptors();
 
-            // Update outline descriptor with new entity ID buffer
+            // Update outline descriptors with new mask + depth buffers
             if (m_OutlineDescSet && m_OutlineSampler)
             {
-                auto vkEntityID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
-                VkDescriptorImageInfo entityIDImgInfo{};
-                entityIDImgInfo.sampler     = m_OutlineSampler;
-                entityIDImgInfo.imageView   = vkEntityID->GetImageView();
-                entityIDImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                auto vkMask      = std::static_pointer_cast<VKTexture>(m_SelectionMask);
+                auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
+                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
 
-                VkWriteDescriptorSet outlineWrite{};
-                outlineWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                outlineWrite.dstSet = m_OutlineDescSet;
-                outlineWrite.dstBinding = 0;
-                outlineWrite.descriptorCount = 1;
-                outlineWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                outlineWrite.pImageInfo = &entityIDImgInfo;
-                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &outlineWrite, 0, nullptr);
+                VkDescriptorImageInfo maskImgInfo{};
+                maskImgInfo.sampler     = m_OutlineSampler;
+                maskImgInfo.imageView   = vkMask->GetImageView();
+                maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkDescriptorImageInfo selDepthImgInfo{};
+                selDepthImgInfo.sampler     = m_OutlineSampler;
+                selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
+                selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkDescriptorImageInfo sceneDepthImgInfo{};
+                sceneDepthImgInfo.sampler     = m_OutlineSampler;
+                sceneDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
+                sceneDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet writes[3] = {};
+                writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[0].dstSet = m_OutlineDescSet;
+                writes[0].dstBinding = 0;
+                writes[0].descriptorCount = 1;
+                writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[0].pImageInfo = &maskImgInfo;
+
+                writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[1].dstSet = m_OutlineDescSet;
+                writes[1].dstBinding = 1;
+                writes[1].descriptorCount = 1;
+                writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[1].pImageInfo = &selDepthImgInfo;
+
+                writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[2].dstSet = m_OutlineDescSet;
+                writes[2].dstBinding = 2;
+                writes[2].descriptorCount = 1;
+                writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[2].pImageInfo = &sceneDepthImgInfo;
+
+                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
             }
 
             RegisterNamedTextures();

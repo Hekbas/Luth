@@ -53,9 +53,8 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
-        // Sync selection
+        // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
-        m_RenderingSystem->SetSelectedEntity(m_SelectedEntity ? (entt::entity)m_SelectedEntity : entt::null);
         auto& oc = EditorColors::SelectionOutline;
         m_RenderingSystem->SetOutlineColor(oc.x, oc.y, oc.z, oc.w);
 
@@ -315,17 +314,47 @@ namespace Luth
                     m_RenderingSystem->RequestPick(px, py);
             }
 
-            // Consume pick result
+            // Consume pick result — hierarchy-aware + multi-select
             if (m_RenderingSystem->HasPickResult())
             {
                 entt::entity picked = m_RenderingSystem->ConsumePickResult();
                 if (picked != entt::null && m_Context)
                 {
-                    Entity entity(picked, m_Context.get());
-                    if (entity.IsValid())
-                        EditorSelection::SelectEntity(entity);
+                    Entity rawEntity(picked, m_Context.get());
+                    if (rawEntity.IsValid())
+                    {
+                        bool ctrlHeld  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+                        bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
+
+                        if (ctrlHeld)
+                        {
+                            // Ctrl+Click: toggle exact entity (no hierarchy traversal)
+                            EditorSelection::ToggleEntity(rawEntity);
+                        }
+                        else if (shiftHeld)
+                        {
+                            // Shift+Click: add exact entity to selection
+                            EditorSelection::AddEntity(rawEntity);
+                        }
+                        else
+                        {
+                            // Plain click: hierarchy-aware selection
+                            Entity root = rawEntity.GetRoot();
+                            Entity lastRaw = EditorSelection::GetLastRawPick();
+
+                            // Drill-down: if root is already selected and clicking same mesh again, select child
+                            if (EditorSelection::IsSelected(root) && lastRaw == rawEntity && rawEntity != root)
+                                EditorSelection::SelectEntity(rawEntity);
+                            else
+                                EditorSelection::SelectEntity(root);
+                        }
+
+                        EditorSelection::SetLastRawPick(rawEntity);
+                    }
                     else
+                    {
                         EditorSelection::ClearSelection();
+                    }
                 }
                 else
                 {

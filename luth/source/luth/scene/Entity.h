@@ -76,6 +76,7 @@ namespace Luth
         bool HasParent() const { return GetParent().operator bool(); }
         std::vector<Entity> GetChildren() const;
 
+        Entity GetRoot() const;
         bool IsDescendantOf(Entity potentialAncestor) const;
         bool IsAncestorOf(Entity potentialDescendant) const;
 

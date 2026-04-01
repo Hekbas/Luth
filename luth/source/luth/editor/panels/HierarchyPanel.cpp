@@ -30,6 +30,9 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         if (ImGui::Begin(ICON_FA_LIST "  Hierarchy") && m_Context)
         {
+            // Sync primary selection from EditorSelection (may have changed via viewport)
+            m_Selection = EditorSelection::GetSelectedEntity();
+
             DrawTopBar();
             ImGui::Separator();
 
@@ -46,7 +49,8 @@ namespace Luth
                 {
                     m_IsRenaming = false;
                     m_RenamingEntity = {};
-                    SetSelectedEntity({});
+                    EditorSelection::ClearSelection();
+                    m_Selection = {};
                 }
             }
             
@@ -71,7 +75,8 @@ namespace Luth
                     // Only deselect if we didn't click an item (ImGui handles this via IsItemClicked check inside DrawEntityNode)
                     // But since we are after the loop, we check if we are hovering the window background
                     if (!ImGui::IsAnyItemHovered()) {
-                        SetSelectedEntity({});
+                        EditorSelection::ClearSelection();
+                        m_Selection = {};
                         m_IsRenaming = false;
                     }
                 }
@@ -153,7 +158,7 @@ namespace Luth
             ImGuiTreeNodeFlags_SpanAvailWidth |
             ImGuiTreeNodeFlags_FramePadding;
 
-        if (m_Selection == entity) flags |= ImGuiTreeNodeFlags_Selected;
+        if (EditorSelection::IsSelected(entity)) flags |= ImGuiTreeNodeFlags_Selected;
 
         bool hasChildren = !entity.GetChildren().empty();
         if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
@@ -211,11 +216,21 @@ namespace Luth
             opened = ImGui::TreeNodeEx("##Node", flags, "%s  %s", icon, name.c_str());
         }
 
-        // Handle Selection
+        // Handle Selection (with Ctrl/Shift multi-select)
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         {
-            SetSelectedEntity(entity);
-            
+            bool ctrlHeld  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+            bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
+
+            if (ctrlHeld)
+                EditorSelection::ToggleEntity(entity);
+            else if (shiftHeld)
+                EditorSelection::AddEntity(entity);
+            else
+                SetSelectedEntity(entity);
+
+            m_Selection = EditorSelection::GetSelectedEntity();
+
             // Double click to rename (Unity style)
             if (ImGui::IsMouseDoubleClicked(0)) {
                 RenameEntity(entity);
