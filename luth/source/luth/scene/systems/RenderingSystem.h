@@ -5,6 +5,7 @@
 #include "luth/memory/Memory.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
+#include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
@@ -81,6 +82,8 @@ namespace Luth
         u32 boneOffset = 0;
     };
 
+    enum class DebuggerState : u8 { Inactive, CaptureRequested, Frozen };
+
     struct GeometryOutput {
         RG::ResourceHandle color;
         RG::ResourceHandle depth;
@@ -127,6 +130,14 @@ namespace Luth
         // Skybox / IBL
         void ReloadSkybox(const std::filesystem::path& hdrPath);
 
+        // Frame debugger capture
+        void RequestCapture()   { if (m_DebuggerState == DebuggerState::Inactive) m_DebuggerState = DebuggerState::CaptureRequested; }
+        void ExitCapture()      { m_DebuggerState = DebuggerState::Inactive; m_CapturedFrame.Clear(); }
+        DebuggerState GetDebuggerState() const { return m_DebuggerState; }
+        const RG::CapturedFrame& GetCapturedFrame() const { return m_CapturedFrame; }
+        void SetDebuggerDrawLimit(u32 limit) { m_DebuggerDrawLimit = limit; }
+        u32  GetDebuggerDrawLimit() const    { return m_DebuggerDrawLimit; }
+
     private:
         void InitGlobalUniforms();
         void InitShadowResources();
@@ -152,6 +163,17 @@ namespace Luth
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
+
+        // Frame debugger re-recording
+        void RenderCapturedFrame(u32 maxDrawCalls, Scene* scene);
+        RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
+        void InitDebugBlitResources();
+
+        // Capture helpers (called during normal recording when CaptureRequested)
+        void BeginCapturePass(const std::string& name, const std::string& activeTarget, bool isDepth, const RG::CapturedPipelineState& ps);
+        void EndCapturePass();
+        void CaptureDrawCall(const std::string& passName, const std::string& meshName, const std::string& entityName,
+                             u32 entityIndex, u32 indexCount, const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps);
 
         // Memory
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
@@ -290,6 +312,27 @@ namespace Luth
         RG::RenderGraphSnapshot m_GraphSnapshot;
         GPUTimerPool m_GPUTimers;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
+
+        // Frame debugger capture state
+        DebuggerState      m_DebuggerState     = DebuggerState::Inactive;
+        RG::CapturedFrame  m_CapturedFrame;
+        u32                m_DebuggerDrawLimit  = UINT32_MAX;
+        u32                m_ReplayDrawCounter  = 0;
+
+        // Captured draw commands for re-recording (copied at freeze time)
+        std::vector<DrawCommand> m_CapturedOpaqueDraws;
+        std::vector<DrawCommand> m_CapturedCutoutDraws;
+        std::vector<DrawCommand> m_CapturedTransparentDraws;
+
+        // Debug blit resources (rescue blit for truncated frames)
+        std::unique_ptr<VKPipeline>  m_DebugBlitPipeline;
+        std::unique_ptr<VKPipeline>  m_DebugDepthPipeline;
+        std::vector<u32>             m_DebugBlitFragSpv;
+        std::vector<u32>             m_DebugDepthFragSpv;
+        VkDescriptorPool             m_DebugBlitDescPool      = VK_NULL_HANDLE;
+        VkDescriptorSetLayout        m_DebugBlitDescSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet              m_DebugBlitDescSet       = VK_NULL_HANDLE;
+        VkSampler                    m_DebugBlitSampler       = VK_NULL_HANDLE;
     };
 
 }

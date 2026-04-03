@@ -1735,6 +1735,21 @@ namespace Luth
 
         m_FrameAllocator->Reset();
 
+        // --- Frame Debugger: Frozen state → re-render captured frame ---
+        if (m_DebuggerState == DebuggerState::Frozen)
+        {
+            if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
+            {
+                UpdateGlobalUniforms(); // camera may have moved
+                RenderCapturedFrame(m_DebuggerDrawLimit, scene);
+            }
+            return;
+        }
+
+        // --- Frame Debugger: Prepare for capture ---
+        if (m_DebuggerState == DebuggerState::CaptureRequested)
+            m_CapturedFrame.Clear();
+
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
             // Light uniforms first (sets m_CachedLightSpaceMatrix)
@@ -1805,6 +1820,35 @@ namespace Luth
             m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
             Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
+
+            // --- Frame Debugger: Finalize capture and enter frozen state ---
+            if (m_DebuggerState == DebuggerState::CaptureRequested)
+            {
+                // Copy draw command vectors for re-recording
+                m_CapturedOpaqueDraws      = m_OpaqueDraws;
+                m_CapturedCutoutDraws      = m_CutoutDraws;
+                m_CapturedTransparentDraws = m_TransparentDraws;
+
+                // Copy resource and timing info from the graph snapshot
+                m_CapturedFrame.resources      = m_GraphSnapshot.resources;
+                m_CapturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
+
+                // Copy per-pass GPU times into captured passes
+                {
+                    u32 capturedIdx = 0;
+                    for (auto& ps : m_GraphSnapshot.passes)
+                    {
+                        if (ps.culled) continue;
+                        if (capturedIdx < m_CapturedFrame.passes.size())
+                            m_CapturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
+                        capturedIdx++;
+                    }
+                }
+
+                m_CapturedFrame.valid = true;
+                m_DebuggerState       = DebuggerState::Frozen;
+                m_DebuggerDrawLimit   = (u32)m_CapturedFrame.drawCalls.size();
+            }
 
             // --- Mouse picking readback (immediate, single pixel) ---
             if (m_PickPending)
@@ -1910,7 +1954,10 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); return; }
+                BeginCapturePass("ShadowPass", "ShadowMap", true,
+                    { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
+
+                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); EndCapturePass(); return; }
 
                 // Bind all 5 descriptor sets
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -2012,7 +2059,17 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+
+                    // Capture draw call for frame debugger
+                    CaptureDrawCall("ShadowPass",
+                        model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
+                        registry.any_of<Component::Tag>(entity) ? registry.get<Component::Tag>(entity).m_Tag : "Entity",
+                        0, ib->GetCount(), pc,
+                        { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
+                          VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
                 }
+
+                EndCapturePass();
             }
         );
 
@@ -2094,11 +2151,14 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
                 VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                BeginCapturePass("GeometryPass", "SceneColor", false,
+                    { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
+
+                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                if (!opaquePipeline) return;
+                if (!opaquePipeline) { EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                 // Bind all 5 descriptor sets
@@ -2259,12 +2319,34 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                         vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+
+                        // Capture for frame debugger
+                        if (m_DebuggerState == DebuggerState::CaptureRequested)
+                        {
+                            std::string entName = "Entity";
+                            if (dc.entityIndex < m_EntityLookup.size())
+                            {
+                                auto ent = m_EntityLookup[dc.entityIndex];
+                                if (ent != entt::null && registry.valid(ent) && registry.any_of<Component::Tag>(ent))
+                                    entName = registry.get<Component::Tag>(ent).m_Tag;
+                            }
+                            u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
+                                       : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
+                                       : VK_CULL_MODE_NONE;
+                            CaptureDrawCall("GeometryPass",
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(), pc,
+                                { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
+                                  mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade });
+                        }
                     }
                 };
 
                 DrawBatch(m_OpaqueDraws,       Material::RenderMode::Opaque);
                 DrawBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
                 DrawBatch(m_TransparentDraws, Material::RenderMode::Transparent);
+
+                EndCapturePass();
             }
         );
         return output;
@@ -2293,7 +2375,10 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                if (!m_SkyboxPipeline || !m_SkyboxVB) return;
+                BeginCapturePass("SkyboxPass", "SceneColor", false,
+                    { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
+
+                if (!m_SkyboxPipeline || !m_SkyboxVB) { EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
@@ -2325,6 +2410,11 @@ namespace Luth
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
                 vkCmdDraw(cmd, 36, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
+                    { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
+                EndCapturePass();
             }
         );
         return outputHandle;
@@ -2367,6 +2457,9 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("BloomExtract", "BloomA", false,
+                    { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomExtractPipeline->Bind(cmd);
 
@@ -2383,6 +2476,11 @@ namespace Luth
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
+                    { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                EndCapturePass();
             }
         );
 
@@ -2407,6 +2505,9 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("BloomBlurH", "BloomB", false,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomBlurPipeline->Bind(cmd);
 
@@ -2423,6 +2524,11 @@ namespace Luth
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                EndCapturePass();
             }
         );
 
@@ -2448,6 +2554,9 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("BloomBlurV", "BloomAFinal", false,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomBlurPipeline->Bind(cmd);
 
@@ -2464,6 +2573,11 @@ namespace Luth
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                EndCapturePass();
             }
         );
 
@@ -2507,6 +2621,9 @@ namespace Luth
             },
             [this](PostProcessPassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("PostProcess", "LDROutput", false,
+                    { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_PostProcessPipeline->Bind(cmd);
 
@@ -2522,6 +2639,11 @@ namespace Luth
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("PostProcess", "FullscreenTriangle", "PostProcess", 0, 0, dummyPC,
+                    { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                EndCapturePass();
             }
         );
 
@@ -2594,7 +2716,10 @@ namespace Luth
             },
             [this, &registry](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
             {
-                if (!m_SelectionMaskPipeline) return;
+                BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
+                    { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
+
+                if (!m_SelectionMaskPipeline) { EndCapturePass(); return; }
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
@@ -2701,6 +2826,8 @@ namespace Luth
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
                 }
+
+                EndCapturePass();
             }
         );
 
@@ -2738,6 +2865,9 @@ namespace Luth
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("OutlinePass", "LDROutput", false,
+                    { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
+
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_OutlinePipeline->Bind(cmd);
 
@@ -2777,6 +2907,11 @@ namespace Luth
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
+                    { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
+                EndCapturePass();
             }
         );
 
@@ -2812,15 +2947,71 @@ namespace Luth
                 if (sceneColor.IsValid())
                     data.sceneTexture = builder.Read(sceneColor);
             },
-            [&](ImGuiPassData& data, RG::RenderPassContext& ctx)
+            [this](ImGuiPassData& data, RG::RenderPassContext& ctx)
             {
+                BeginCapturePass("ImGuiPass", "Backbuffer", false,
+                    { "imgui", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
                 ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.commandBuffer);
+                EndCapturePass();
             }
         );
     }
 
     // =========================================================================
     // Frame Debugger helpers
+    // =========================================================================
+    //  Frame Debugger Capture Helpers
+    // =========================================================================
+
+    void RenderingSystem::BeginCapturePass(const std::string& name, const std::string& activeTarget,
+                                           bool isDepth, const RG::CapturedPipelineState& ps)
+    {
+        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
+
+        RG::CapturedPass cp;
+        cp.name              = name;
+        cp.firstDrawIndex    = (u32)m_CapturedFrame.drawCalls.size();
+        cp.drawCallCount     = 0;
+        cp.pipelineState     = ps;
+        cp.activeRenderTarget = activeTarget;
+        cp.isDepthTarget     = isDepth;
+        m_CapturedFrame.passes.push_back(std::move(cp));
+    }
+
+    void RenderingSystem::EndCapturePass()
+    {
+        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
+        if (m_CapturedFrame.passes.empty()) return;
+
+        auto& cp = m_CapturedFrame.passes.back();
+        cp.drawCallCount = (u32)m_CapturedFrame.drawCalls.size() - cp.firstDrawIndex;
+    }
+
+    void RenderingSystem::CaptureDrawCall(const std::string& passName, const std::string& meshName,
+                                          const std::string& entityName, u32 entityIndex, u32 indexCount,
+                                          const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps)
+    {
+        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
+
+        RG::CapturedDrawCall cdc;
+        cdc.globalIndex    = (u32)m_CapturedFrame.drawCalls.size();
+        cdc.passIndex      = m_CapturedFrame.passes.empty() ? 0 : (u32)(m_CapturedFrame.passes.size() - 1);
+        cdc.passLocalIndex = m_CapturedFrame.passes.empty() ? 0
+                           : (u32)(m_CapturedFrame.drawCalls.size() - m_CapturedFrame.passes.back().firstDrawIndex);
+        cdc.passName       = passName;
+        cdc.meshName       = meshName;
+        cdc.entityName     = entityName;
+        cdc.entityIndex    = entityIndex;
+        cdc.indexCount     = indexCount;
+        cdc.modelMatrix    = pc.modelMatrix;
+        cdc.materialIndex  = pc.materialIndex;
+        cdc.shadeMode      = pc.shadeMode;
+        cdc.entityID       = pc.entityID;
+        cdc.boneOffset     = pc.boneOffset;
+        cdc.pipelineState  = ps;
+        m_CapturedFrame.drawCalls.push_back(std::move(cdc));
+    }
+
     // =========================================================================
 
     RG::RenderGraphSnapshot RenderingSystem::CaptureSnapshot(const RG::RenderGraph& rg)
@@ -3076,5 +3267,502 @@ namespace Luth
 
             RegisterNamedTextures();
         }
+    }
+
+    // =========================================================================
+    //  Frame Debugger: Re-Recording (Frozen State)
+    // =========================================================================
+
+    void RenderingSystem::InitDebugBlitResources()
+    {
+        if (m_DebugBlitPipeline) return; // Already initialized
+
+        auto shadersPath = FileSystem::AssetsPath() / "shaders";
+        m_DebugBlitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
+        m_DebugDepthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
+
+        if (m_DebugBlitFragSpv.empty() || m_DebugDepthFragSpv.empty() || m_FullscreenVertSpv.empty())
+        {
+            LH_CORE_ERROR("Failed to compile debug blit shaders");
+            return;
+        }
+
+        auto device = VulkanContext::Get().GetDevice();
+
+        // Create sampler
+        VkSamplerCreateInfo samplerCI{};
+        samplerCI.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerCI.magFilter = VK_FILTER_LINEAR;
+        samplerCI.minFilter = VK_FILTER_LINEAR;
+        samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(device, &samplerCI, nullptr, &m_DebugBlitSampler);
+
+        // Descriptor set layout: binding 0 = combined image sampler
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding         = 0;
+        binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding.descriptorCount = 1;
+        binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layoutCI{};
+        layoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutCI.bindingCount = 1;
+        layoutCI.pBindings    = &binding;
+        vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_DebugBlitDescSetLayout);
+
+        // Descriptor pool
+        VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
+        VkDescriptorPoolCreateInfo poolCI{};
+        poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolCI.maxSets       = 1;
+        poolCI.poolSizeCount = 1;
+        poolCI.pPoolSizes    = &poolSize;
+        poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_DebugBlitDescPool);
+
+        // Allocate descriptor set
+        VkDescriptorSetAllocateInfo allocCI{};
+        allocCI.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocCI.descriptorPool     = m_DebugBlitDescPool;
+        allocCI.descriptorSetCount = 1;
+        allocCI.pSetLayouts        = &m_DebugBlitDescSetLayout;
+        vkAllocateDescriptorSets(device, &allocCI, &m_DebugBlitDescSet);
+
+        // Create blit pipeline (color)
+        std::vector<VkDescriptorSetLayout> layouts = { m_DebugBlitDescSetLayout };
+        PipelineConfig blitConfig;
+        blitConfig.depthTest  = false;
+        blitConfig.depthWrite = false;
+        blitConfig.cullMode         = VK_CULL_MODE_NONE;
+        blitConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
+        m_DebugBlitPipeline = std::make_unique<VKPipeline>(
+            blitConfig, m_FullscreenVertSpv, m_DebugBlitFragSpv, layouts);
+
+        // Create depth visualization pipeline
+        PipelineConfig depthConfig;
+        depthConfig.depthTest  = false;
+        depthConfig.depthWrite = false;
+        depthConfig.cullMode         = VK_CULL_MODE_NONE;
+        depthConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
+
+        VkPushConstantRange depthPC{};
+        depthPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        depthPC.offset     = 0;
+        depthPC.size       = sizeof(float) * 2; // near, far
+        depthConfig.pushConstantRanges = { depthPC };
+
+        m_DebugDepthPipeline = std::make_unique<VKPipeline>(
+            depthConfig, m_FullscreenVertSpv, m_DebugDepthFragSpv, layouts);
+    }
+
+    RG::ResourceHandle RenderingSystem::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
+    {
+        if (!m_DebugBlitPipeline || !m_LDROutput) return inputHandle;
+
+        struct DebugBlitData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle input;
+        };
+
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<DebugBlitData>("DebugDisplayBlit",
+            [&](DebugBlitData& data, RG::RenderPassBuilder& builder)
+            {
+                auto ldrVk = std::static_pointer_cast<VKTexture>(m_LDROutput);
+                RG::TextureDesc desc;
+                desc.name   = "LDROutput";
+                desc.width  = m_LDROutput->GetWidth();
+                desc.height = m_LDROutput->GetHeight();
+                desc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)ldrVk->GetImage(), (void*)ldrVk->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+                data.output = builder.Write(data.output);
+
+                data.input = builder.Read(inputHandle);
+                outputHandle = data.output;
+            },
+            [this, isDepth](DebugBlitData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                u32 w = m_LDROutput->GetWidth();
+                u32 h = m_LDROutput->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                if (isDepth && m_DebugDepthPipeline)
+                {
+                    m_DebugDepthPipeline->Bind(cmd);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        m_DebugDepthPipeline->GetLayout(), 0, 1, &m_DebugBlitDescSet, 0, nullptr);
+
+                    float pc[2] = { 0.1f, 200.0f }; // near/far for shadow maps
+                    vkCmdPushConstants(cmd, m_DebugDepthPipeline->GetLayout(),
+                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+                }
+                else
+                {
+                    m_DebugBlitPipeline->Bind(cmd);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        m_DebugBlitPipeline->GetLayout(), 0, 1, &m_DebugBlitDescSet, 0, nullptr);
+                }
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            }
+        );
+
+        return outputHandle;
+    }
+
+    void RenderingSystem::RenderCapturedFrame(u32 maxDrawCalls, Scene* scene)
+    {
+        if (!m_CapturedFrame.valid) return;
+
+        // Ensure debug blit resources are available
+        InitDebugBlitResources();
+
+        auto& registry = scene->Registry();
+        m_ReplayDrawCounter = 0;
+
+        RG::RenderGraph rg(*m_FrameAllocator);
+
+        // Determine which pass the draw limit falls in, to know what render target is active
+        std::string activeTarget = "SceneColor";
+        bool isDepthTarget       = false;
+        bool postProcessReached  = false;
+
+        for (auto& cp : m_CapturedFrame.passes)
+        {
+            u32 passEnd = cp.firstDrawIndex + cp.drawCallCount;
+            if (cp.name == "PostProcess" && maxDrawCalls >= passEnd)
+                postProcessReached = true;
+            if (maxDrawCalls > cp.firstDrawIndex && maxDrawCalls <= passEnd)
+            {
+                activeTarget  = cp.activeRenderTarget;
+                isDepthTarget = cp.isDepthTarget;
+            }
+            else if (maxDrawCalls > passEnd)
+            {
+                activeTarget  = cp.activeRenderTarget;
+                isDepthTarget = cp.isDepthTarget;
+            }
+        }
+
+        // --- Shadow Pass (replay) ---
+        struct ReplayShadowData { RG::ResourceHandle shadowTex; };
+        RG::ResourceHandle shadowHandle;
+
+        rg.AddPass<ReplayShadowData>("ShadowPass",
+            [&](ReplayShadowData& data, RG::RenderPassBuilder& builder)
+            {
+                auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+                RG::TextureDesc desc;
+                desc.name = "ShadowMap"; desc.width = 2048; desc.height = 2048;
+                desc.format = RG::TextureFormat::D32_Float;
+
+                data.shadowTex = rg.ImportResource(desc,
+                    (void*)vkShadowTex->GetImage(), (void*)vkShadowTex->GetImageView(),
+                    RG::ResourceState::Undefined);
+                VkClearValue depthClear{}; depthClear.depthStencil = { 1.0f, 0 };
+                data.shadowTex = builder.WriteDepth(data.shadowTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+                shadowHandle = data.shadowTex;
+            },
+            [this, maxDrawCalls](ReplayShadowData& data, RG::RenderPassContext& ctx)
+            {
+                if (!m_ShadowPipeline) return;
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
+                m_ShadowPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+
+                VkViewport viewport{}; viewport.width = 2048.0f; viewport.height = 2048.0f; viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &viewport);
+                VkRect2D scissor{}; scissor.extent = { 2048, 2048 };
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                bool currentSkinned = false;
+
+                // Re-draw using captured draw commands (all modes together for shadow)
+                auto ReplayShadowDraws = [&](const std::vector<DrawCommand>& draws) {
+                    for (const auto& dc : draws)
+                    {
+                        if (m_ReplayDrawCounter >= maxDrawCalls) return;
+
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        if (!mesh) continue;
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                        if (!vb || !ib) continue;
+
+                        if (dc.isSkinned != currentSkinned)
+                        {
+                            currentSkinned = dc.isSkinned;
+                            if (currentSkinned && m_ShadowSkinnedPipeline) {
+                                m_ShadowSkinnedPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_ShadowSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                            } else {
+                                m_ShadowPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                            }
+                        }
+
+                        VkPipelineLayout activeLayout = (currentSkinned && m_ShadowSkinnedPipeline)
+                            ? m_ShadowSkinnedPipeline->GetLayout() : m_ShadowPipeline->GetLayout();
+
+                        ObjectPushConstants pc{};
+                        pc.modelMatrix   = dc.modelMatrix;
+                        pc.materialIndex = 0;
+                        pc.boneOffset    = dc.boneOffset;
+                        vkCmdPushConstants(cmd, activeLayout,
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ObjectPushConstants), &pc);
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                        m_ReplayDrawCounter++;
+                    }
+                };
+
+                ReplayShadowDraws(m_CapturedOpaqueDraws);
+                ReplayShadowDraws(m_CapturedCutoutDraws);
+                ReplayShadowDraws(m_CapturedTransparentDraws);
+            }
+        );
+
+        // --- Geometry Pass (replay) ---
+        GeometryOutput geoOutput;
+        {
+            struct GeoReplayData {
+                RG::ResourceHandle outputTex, entityIDTex, depthTex, shadowTex;
+            };
+
+            rg.AddPass<GeoReplayData>("GeometryPass",
+                [&](GeoReplayData& data, RG::RenderPassBuilder& builder)
+                {
+                    auto vkTex = std::static_pointer_cast<VKTexture>(m_SceneColor);
+                    RG::TextureDesc desc;
+                    desc.name = "SceneColor"; desc.width = m_SceneColor->GetWidth(); desc.height = m_SceneColor->GetHeight();
+                    desc.format = RG::TextureFormat::RGBA16_Float;
+                    data.outputTex = rg.ImportResource(desc, (void*)vkTex->GetImage(), (void*)vkTex->GetImageView(), RG::ResourceState::ShaderResource);
+
+                    auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+                    RG::TextureDesc idDesc;
+                    idDesc.name = "EntityID"; idDesc.width = m_EntityIDBuffer->GetWidth(); idDesc.height = m_EntityIDBuffer->GetHeight();
+                    idDesc.format = RG::TextureFormat::R32_Uint;
+                    data.entityIDTex = rg.ImportResource(idDesc, (void*)vkID->GetImage(), (void*)vkID->GetImageView(), RG::ResourceState::Undefined);
+
+                    auto vkDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+                    RG::TextureDesc depthDesc;
+                    depthDesc.name = "SceneDepth"; depthDesc.width = m_SceneDepth->GetWidth(); depthDesc.height = m_SceneDepth->GetHeight();
+                    depthDesc.format = RG::TextureFormat::D32_Float;
+                    data.depthTex = rg.ImportResource(depthDesc, (void*)vkDepth->GetImage(), (void*)vkDepth->GetImageView(), RG::ResourceState::Undefined);
+
+                    VkClearValue depthClear{}; depthClear.depthStencil = { 1.0f, 0 };
+                    data.depthTex    = builder.WriteDepth(data.depthTex, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+                    data.outputTex   = builder.Write(data.outputTex);
+                    VkClearValue idClear{}; idClear.color.uint32[0] = 0;
+                    data.entityIDTex = builder.Write(data.entityIDTex, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
+
+                    if (shadowHandle.IsValid()) data.shadowTex = builder.Read(shadowHandle);
+
+                    geoOutput.color = data.outputTex; geoOutput.depth = data.depthTex; geoOutput.entityID = data.entityIDTex;
+                },
+                [this, maxDrawCalls](GeoReplayData& data, RG::RenderPassContext& ctx)
+                {
+                    VkCommandBuffer cmd = ctx.commandBuffer;
+
+                    UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                    VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                    auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                    if (!opaquePipeline) return;
+                    VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
+
+                    VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                    VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 5, sets, 0, nullptr);
+
+                    RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
+                    VkViewport viewport{}; viewport.width = (float)res->desc.width; viewport.height = (float)res->desc.height; viewport.maxDepth = 1.0f;
+                    vkCmdSetViewport(cmd, 0, 1, &viewport);
+                    VkRect2D scissor{}; scissor.extent = { res->desc.width, res->desc.height };
+                    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                    auto DrawBatchReplay = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
+                    {
+                        if (draws.empty() || m_ReplayDrawCounter >= maxDrawCalls) return;
+
+                        Material::CullMode currentCull = Material::CullMode::Back;
+                        bool currentSkinned = false;
+                        auto* pipeline = m_GeoPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                        if (!pipeline) return;
+                        pipeline->Bind(cmd);
+
+                        for (const auto& dc : draws)
+                        {
+                            if (m_ReplayDrawCounter >= maxDrawCalls) return;
+
+                            if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
+                            {
+                                currentCull = dc.cullMode; currentSkinned = dc.isSkinned;
+                                VKPipeline* newPipeline = currentSkinned
+                                    ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
+                                    : m_GeoPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                                if (!newPipeline) continue;
+                                newPipeline->Bind(cmd);
+                            }
+
+                            auto mesh = dc.model->GetMesh(dc.meshIndex);
+                            auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                            auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                            if (!vb || !ib) continue;
+
+                            ObjectPushConstants pc{};
+                            pc.modelMatrix   = dc.modelMatrix;
+                            pc.materialIndex = dc.materialSlot;
+                            pc.shadeMode     = static_cast<u32>(m_ShadeMode);
+                            pc.entityID      = dc.entityIndex;
+                            pc.boneOffset    = dc.boneOffset;
+                            vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                0, sizeof(ObjectPushConstants), &pc);
+
+                            VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                            VkDeviceSize offsets[] = { 0 };
+                            vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                            vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                            vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                            m_ReplayDrawCounter++;
+                        }
+                    };
+
+                    DrawBatchReplay(m_CapturedOpaqueDraws,      Material::RenderMode::Opaque);
+                    DrawBatchReplay(m_CapturedCutoutDraws,      Material::RenderMode::Cutout);
+                    DrawBatchReplay(m_CapturedTransparentDraws, Material::RenderMode::Transparent);
+                }
+            );
+        }
+
+        // --- Skybox Pass (replay) ---
+        RG::ResourceHandle skyboxColor = geoOutput.color;
+        if (m_SkyboxPipeline && m_SkyboxVB && m_ReplayDrawCounter < maxDrawCalls)
+        {
+            struct SkyboxReplayData { RG::ResourceHandle colorTex, depthTex; };
+            rg.AddPass<SkyboxReplayData>("SkyboxPass",
+                [&](SkyboxReplayData& data, RG::RenderPassBuilder& builder) {
+                    data.colorTex = builder.Write(geoOutput.color, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+                    data.depthTex = builder.WriteDepth(geoOutput.depth, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE);
+                    skyboxColor = data.colorTex;
+                },
+                [this, maxDrawCalls](SkyboxReplayData& data, RG::RenderPassContext& ctx) {
+                    if (m_ReplayDrawCounter >= maxDrawCalls) return;
+                    VkCommandBuffer cmd = ctx.commandBuffer;
+                    m_SkyboxPipeline->Bind(cmd);
+                    VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                    VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                    RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
+                    VkViewport vp{}; vp.width = (float)res->desc.width; vp.height = (float)res->desc.height; vp.maxDepth = 1.0f;
+                    vkCmdSetViewport(cmd, 0, 1, &vp);
+                    VkRect2D sc{}; sc.extent = { res->desc.width, res->desc.height };
+                    vkCmdSetScissor(cmd, 0, 1, &sc);
+                    VkBuffer vb = m_SkyboxVB->GetVulkanBuffer(); VkDeviceSize offset = 0;
+                    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
+                    vkCmdDraw(cmd, 36, 1, 0, 0);
+                    m_ReplayDrawCounter++;
+                }
+            );
+        }
+
+        // Determine final output handle for ImGui dependency
+        RG::ResourceHandle finalOutput = skyboxColor;
+
+        // --- Fullscreen passes (bloom, postprocess) - only if draw counter allows ---
+        bool ppReached = false;
+        if (m_ReplayDrawCounter < maxDrawCalls && m_BloomExtractPipeline && m_BloomBlurPipeline && m_BloomA && m_BloomB)
+        {
+            // Simplified: add bloom + postprocess as single draws each
+            RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
+            if (m_ReplayDrawCounter + 3 < maxDrawCalls) // 3 bloom passes
+            {
+                m_ReplayDrawCounter += 3;
+                if (m_PostProcessPipeline && m_LDROutput && m_ReplayDrawCounter < maxDrawCalls)
+                {
+                    finalOutput = AddPostProcessPass(rg, skyboxColor, bloomResult);
+                    m_ReplayDrawCounter++;
+                    ppReached = true;
+                }
+            }
+        }
+
+        // --- Rescue Blit: if we stopped before PostProcess ---
+        if (!ppReached && m_DebugBlitPipeline)
+        {
+            // Update debug blit descriptor set to point to the active render target
+            std::shared_ptr<Texture> activeTexture;
+            bool activeIsDepth = isDepthTarget;
+
+            if (activeTarget == "ShadowMap")       activeTexture = m_ShadowMap;
+            else if (activeTarget == "SceneColor") activeTexture = m_SceneColor;
+            else if (activeTarget == "BloomA" || activeTarget == "BloomAFinal")
+                                                   activeTexture = m_BloomA;
+            else if (activeTarget == "BloomB")     activeTexture = m_BloomB;
+            else                                   activeTexture = m_SceneColor;
+
+            if (activeTexture)
+            {
+                auto vkTex = std::static_pointer_cast<VKTexture>(activeTexture);
+                VkDescriptorImageInfo imgInfo{};
+                imgInfo.sampler     = m_DebugBlitSampler;
+                imgInfo.imageView   = vkTex->GetImageView();
+                imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write{};
+                write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet          = m_DebugBlitDescSet;
+                write.dstBinding      = 0;
+                write.descriptorCount = 1;
+                write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write.pImageInfo      = &imgInfo;
+                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+
+                // Need to get the active target into the render graph as a readable resource
+                RG::TextureDesc inputDesc;
+                inputDesc.name   = activeTarget;
+                inputDesc.width  = activeTexture->GetWidth();
+                inputDesc.height = activeTexture->GetHeight();
+                inputDesc.format = activeIsDepth ? RG::TextureFormat::D32_Float : RG::TextureFormat::RGBA16_Float;
+
+                RG::ResourceHandle inputHandle = rg.ImportResource(inputDesc,
+                    (void*)vkTex->GetImage(), (void*)vkTex->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+
+                finalOutput = AddDebugBlitPass(rg, inputHandle, activeIsDepth);
+            }
+        }
+
+        // --- ImGui Pass (always runs) ---
+        AddImGuiPass(rg, finalOutput);
+
+        rg.Compile();
+
+        // Update the graph snapshot for the panel display
+        m_GraphSnapshot = CaptureSnapshot(rg);
+
+        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 }

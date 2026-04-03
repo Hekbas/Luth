@@ -249,8 +249,8 @@ void main()
     {
         // glTF convention: G = roughness, B = metallic
         vec3 mrSample = texture(globalTextures[nonuniformEXT(mat.metalRoughIndex)], selectUV(mat.flags, UV_SHIFT_METALROUGH)).rgb;
-        roughness *= mrSample.g;
-        metallic  *= mrSample.b;
+        roughness = mrSample.g;
+        metallic  = mrSample.b;
     }
     roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
 
