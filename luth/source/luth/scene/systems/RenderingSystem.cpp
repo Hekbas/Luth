@@ -54,7 +54,7 @@ namespace Luth
             InitShadowResources();
 
             // Load shaders via AssetManager (imports + caches SPIR-V on first run)
-            UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::AssetsPath() / "shaders/pbr.vert");
+            UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
             auto pbrShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(pbrUUID));
             if (!pbrShader)
             {
@@ -63,7 +63,7 @@ namespace Luth
             }
             ShaderLibrary::Register("pbr", pbrShader);
 
-            UUID shadowUUID = AssetDatabase::GetUUID(FileSystem::AssetsPath() / "shaders/shadowDepth.vert");
+            UUID shadowUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/shadowDepth.vert"));
             auto shadowShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(shadowUUID));
             if (!shadowShader)
             {
@@ -95,7 +95,7 @@ namespace Luth
 
             // Load skinned vertex shaders via ShaderCompiler
             {
-                auto shadersPath = FileSystem::AssetsPath() / "shaders";
+                auto shadersPath = FileSystem::EngineAssetsPath("shaders");
                 m_PBRSkinnedVertSpv            = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
                 m_ShadowSkinnedVertSpv         = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
                 m_SelectionMaskVertSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
@@ -110,7 +110,7 @@ namespace Luth
 
             // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
             {
-                auto shadersPath = FileSystem::AssetsPath() / "shaders";
+                auto shadersPath = FileSystem::EngineAssetsPath("shaders");
                 m_FullscreenVertSpv    = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
                 m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
                 m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
@@ -127,7 +127,7 @@ namespace Luth
 
             BoneMatrixBuffer::Init();
             InitPostProcessResources();
-            InitIBLResources(FileSystem::AssetsPath() / "textures" / "environment.hdr");
+            InitIBLResources(FileSystem::ResolveAsset("textures/environment.hdr"));
             CreatePipelines();
 
             // Shader reload callback — rebuilds pipelines when a shader is reloaded
@@ -165,7 +165,7 @@ namespace Luth
             });
 
             // File watcher for shader hot-reload
-            m_ShaderWatcher.AddWatch(FileSystem::AssetsPath() / "shaders");
+            m_ShaderWatcher.AddWatch(FileSystem::EngineAssetsPath("shaders"));
             m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
                 if (status != FileWatcher::FileStatus::Modified) return;
 
@@ -746,7 +746,7 @@ namespace Luth
     void RenderingSystem::InitIBLResources(const fs::path& hdrPath)
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        auto shadersPath = FileSystem::AssetsPath() / "shaders";
+        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
 
         // ---- 1. Load HDR environment map ----
         int hdrW, hdrH, hdrChannels;
@@ -3277,7 +3277,7 @@ namespace Luth
     {
         if (m_DebugBlitPipeline) return; // Already initialized
 
-        auto shadersPath = FileSystem::AssetsPath() / "shaders";
+        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
         m_DebugBlitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
         m_DebugDepthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
 

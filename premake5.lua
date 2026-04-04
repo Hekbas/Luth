@@ -42,10 +42,6 @@ group "Luthien/Extern"
    include "luthien/extern"
 group ""
 
-group "Sandbox"
-   include "Sandbox"
-group ""
-
 group "Tools"
    include "extern/premake"
 group ""

@@ -18,10 +18,11 @@ namespace Luth
     std::mutex AssetDatabase::s_PendingMutex;
     std::vector<AssetDatabase::ChangeCallback> AssetDatabase::s_ChangeCallbacks;
     fs::path AssetDatabase::s_ProjectRoot;
+    fs::path AssetDatabase::s_EngineAssetsRoot;
 
     static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
 
-    void AssetDatabase::Init(const std::filesystem::path& projectRoot)
+    void AssetDatabase::Init(const std::filesystem::path& projectRoot, const std::filesystem::path& engineAssetsRoot)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
         s_ProjectRoot = fs::absolute(projectRoot);
@@ -112,8 +113,51 @@ namespace Luth
             }
         }
 
-        LH_CORE_INFO("AssetDatabase: Initialized with {0} assets", s_Assets.size());
+        LH_CORE_INFO("AssetDatabase: Initialized with {0} project assets", s_Assets.size());
         SaveLibraryState();
+
+        // Phase 4: Scan engine assets (read-only — no reimport, no Library state)
+        s_EngineAssetsRoot = engineAssetsRoot;
+        if (!engineAssetsRoot.empty() && fs::exists(engineAssetsRoot))
+        {
+            u32 engineAssetCount = 0;
+            for (const auto& entry : fs::recursive_directory_iterator(engineAssetsRoot))
+            {
+                if (!entry.is_regular_file()) continue;
+                const auto& path = entry.path();
+                if (path.extension() == ".meta") continue;
+
+                AssetType type = FileSystem::ClassifyFileType(path);
+                if (type == AssetType::None) continue;
+
+                // Skip if already registered (shouldn't happen, but safe)
+                if (s_PathToUuid.count(path)) continue;
+
+                UUID uuid = UUID::Invalid();
+                fs::path metaPath = path;
+                metaPath += ".meta";
+
+                if (fs::exists(metaPath))
+                {
+                    MetaFile meta(UUID::Invalid());
+                    if (meta.Load(metaPath))
+                        uuid = meta.GetUUID();
+                }
+
+                if (!uuid.IsValid())
+                {
+                    uuid = MetaFile::Create(path, type);
+                    LH_CORE_INFO("AssetDatabase: Generated meta for engine asset {0}", path.filename().string());
+                }
+
+                s_Assets[uuid] = { path, type };
+                s_PathToUuid[path] = uuid;
+                engineAssetCount++;
+            }
+            LH_CORE_INFO("AssetDatabase: Registered {0} engine assets from '{1}'",
+                engineAssetCount, engineAssetsRoot.string());
+        }
+
     }
 
     void AssetDatabase::Shutdown()

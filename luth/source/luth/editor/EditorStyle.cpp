@@ -12,7 +12,7 @@ namespace Luth::EditorStyle
 
     static ImFont* LoadIconFont(const char* filename, float size, bool mergeMode)
     {
-        std::string path = FileSystem::GetPath(AssetType::Font, filename).string();
+        std::string path = (FileSystem::EngineAssetsPath("fonts") / filename).string();
         if (!fs::exists(path)) {
             LH_CORE_WARN("Icon font not found: {}", path);
             return nullptr;
@@ -35,7 +35,7 @@ namespace Luth::EditorStyle
         ImGuiIO& io = ImGui::GetIO();
 
         // Main font
-        std::string mainPath = FileSystem::GetPath(AssetType::Font, config.MainFontName).string();
+        std::string mainPath = (FileSystem::EngineAssetsPath("fonts") / config.MainFontName).string();
         if (fs::exists(mainPath)) {
             ImFontConfig fontCfg;
             fontCfg.OversampleH = 3;

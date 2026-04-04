@@ -4,6 +4,7 @@
 #include "luth/platform/Window.h"
 #include "luth/scene/Scene.h"
 #include "luth/editor/EditorSettings.h"
+#include "luth/editor/ProjectLauncher.h"
 
 #include <memory>
 #include <filesystem>
@@ -71,6 +72,10 @@ namespace Luth
         static void MarkDirty();
         static bool IsDirty() { return s_IsDirty; }
 
+        // Project switching
+        static void ShowProjectLauncher();
+        static void OnProjectChanged();
+
         // Settings & Layout
         static EditorSettings& GetSettings() { return s_Settings; }
         static void LoadSettings();
@@ -110,5 +115,8 @@ namespace Luth
 
         // Texture remap dialog state (deferred open from menu)
         static inline bool s_ShowTextureRemapDialog = false;
+
+        // Project launcher
+        static inline bool s_ShowLauncher = false;
     };
 }

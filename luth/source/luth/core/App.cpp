@@ -5,9 +5,11 @@
 #include "luth/platform/Input.h"
 #include "luth/platform/Event.h"
 #include "luth/platform/AppEvent.h"
+#include "luth/core/ProjectFile.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
+#include "luth/editor/ProjectLauncher.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
 #include "luth/scene/Systems.h"
@@ -25,6 +27,34 @@
 
 namespace Luth
 {
+    // Discover the engine root from the executable path.
+    // The exe lives at  <workspace>/bin/<config>/Luthien/Luthien.exe
+    // and the engine at <workspace>/luth/
+    // Walk up from exe directory looking for the luth/ folder.
+    static fs::path DiscoverEngineRoot()
+    {
+        // Start from the executable's directory (= CWD set by VS debugger, or bin path)
+        fs::path dir = fs::current_path();
+
+        // Walk up at most 6 levels to find the workspace that contains "luth/"
+        for (int i = 0; i < 6; ++i)
+        {
+            fs::path candidate = dir / "luth";
+            if (fs::exists(candidate) && fs::is_directory(candidate)
+                && fs::exists(candidate / "assets"))
+            {
+                return candidate;
+            }
+            if (!dir.has_parent_path() || dir == dir.parent_path())
+                break;
+            dir = dir.parent_path();
+        }
+
+        // Fallback: CWD (legacy behavior)
+        LH_CORE_WARN("Could not discover engine root, falling back to CWD");
+        return fs::current_path();
+    }
+
     App::App(int argc, char** argv)
     {
         // Core Systems Init
@@ -32,9 +62,39 @@ namespace Luth
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
-        
-        FileSystem::Init();
-        AssetDatabase::Init(FileSystem::AssetsPath());
+
+        // Discover project and engine roots
+        fs::path engineRoot  = DiscoverEngineRoot();
+        fs::path projectRoot;
+
+        // Try to find a .luthproj file from CLI args or CWD
+        ProjectFile project;
+        fs::path projectHint;
+        for (int i = 1; i < argc; ++i)
+        {
+            fs::path arg(argv[i]);
+            if (arg.extension() == ".luthproj" || fs::is_directory(arg))
+            {
+                projectHint = arg;
+                break;
+            }
+        }
+
+        if (project.Discover(projectHint))
+        {
+            projectRoot = project.ProjectRoot;
+            m_FoundProject = true;
+            LH_CORE_INFO("Using project '{}' at '{}'", project.Name, projectRoot.string());
+        }
+        else
+        {
+            projectRoot = fs::current_path();
+            m_FoundProject = false;
+            LH_CORE_INFO("No .luthproj found, using CWD as project root: {}", projectRoot.string());
+        }
+
+        FileSystem::Init(engineRoot, projectRoot);
+        AssetDatabase::Init(FileSystem::AssetsPath(), FileSystem::EngineAssetsPath());
         AssetManager::Init();
 
         // Import Phase: Process any stale assets found by AssetDatabase
@@ -71,6 +131,16 @@ namespace Luth
 
         Editor::Init(m_Window.get());
         Editor::SetActiveScene(m_Scene);
+
+        // Register current project in recent list and show launcher if needed
+        if (m_FoundProject)
+        {
+            ProjectLauncher::AddRecent(project.Name, project.FilePath);
+        }
+        else
+        {
+            Editor::ShowProjectLauncher();
+        }
 
         // Subscribe to events
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
@@ -119,6 +189,12 @@ namespace Luth
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
+
+            // Check if user selected a project from launcher
+            if (ProjectLauncher::HasPendingProject())
+            {
+                SwitchProject(ProjectLauncher::ConsumePendingProject());
+            }
             
             if (m_Window->IsMinimized())
             {
@@ -258,6 +334,14 @@ namespace Luth
         fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
 
         for (const auto& srcPath : e.GetPaths()) {
+            // Handle .luthproj drops — switch project
+            if (srcPath.extension() == ".luthproj")
+            {
+                ProjectLauncher::AddRecent(srcPath.stem().string(), srcPath);
+                ProjectLauncher::SetPendingProject(srcPath);
+                return;
+            }
+
             try {
                 if (!fs::exists(srcPath)) {
                     LH_CORE_ERROR("Dropped file not found: {0}", srcPath.string());
@@ -330,5 +414,63 @@ namespace Luth
                 LH_CORE_ERROR("Asset processing error: {0} - {1}", srcPath.string(), ex.what());
             }
         }
+    }
+
+    void App::SwitchProject(const fs::path& luthprojPath)
+    {
+        ProjectFile project;
+        if (!project.Load(luthprojPath))
+        {
+            LH_CORE_ERROR("Failed to load project: {}", luthprojPath.string());
+            return;
+        }
+
+        LH_CORE_INFO("Switching to project '{}' at '{}'", project.Name, project.ProjectRoot.string());
+
+        // Stop file watching before reinit
+        AssetDatabase::StopWatching();
+
+        // Save current editor settings before switching
+        Editor::SaveSettings();
+
+        // Clear current scene
+        if (m_Scene) m_Scene->Clear();
+
+        // Reinit FileSystem with new project root (engine root stays the same)
+        FileSystem::Init(FileSystem::EnginePath(), project.ProjectRoot);
+
+        // Reinit asset systems
+        AssetManager::Shutdown();
+        AssetDatabase::Shutdown();
+        AssetDatabase::Init(FileSystem::AssetsPath(), FileSystem::EngineAssetsPath());
+        AssetManager::Init();
+
+        // Import any dirty assets in the new project
+        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
+        if (!dirtyAssets.empty())
+        {
+            std::vector<UUID> assetsToImport = dirtyAssets;
+            LH_CORE_INFO("Importing {} assets from new project...", assetsToImport.size());
+
+            JobSystem::Counter importCounter(0);
+            JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+                std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
+                AssetManager::Import((*assets)[args.jobIndex]);
+            }, &assetsToImport, &importCounter);
+            JobSystem::WaitForCounter(&importCounter);
+        }
+
+        // Restart file watching for new project
+        AssetDatabase::StartWatching();
+
+        // Refresh editor for new project
+        Editor::OnProjectChanged();
+
+        // Add to recent and hide launcher
+        ProjectLauncher::AddRecent(project.Name, project.FilePath);
+        ProjectLauncher::Hide();
+
+        m_FoundProject = true;
+        LH_CORE_INFO("Project switch complete: '{}'", project.Name);
     }
 }

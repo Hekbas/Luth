@@ -37,6 +37,7 @@ namespace Luth
         void OnWindowResize(WindowResizeEvent& e);
         void OnWindowClose(WindowCloseEvent& e);
         void OnFileDrop(FileDropEvent& e);
+        void SwitchProject(const std::filesystem::path& luthprojPath);
 
         std::shared_ptr<Window> m_Window;
         std::shared_ptr<Scene> m_Scene;
@@ -45,6 +46,7 @@ namespace Luth
         FrameData m_FrameData;
 
         bool m_Running = true;
+        bool m_FoundProject = false;
     };
 
     App* CreateApp(int argc, char** argv);

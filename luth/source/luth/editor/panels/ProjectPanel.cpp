@@ -43,6 +43,9 @@ namespace Luth
 
     void ProjectPanel::Refresh()
     {
+        // Re-read assets path (may have changed due to project switch)
+        m_AssetsPath = FileSystem::AssetsPath();
+
         // Preserve current navigation position across tree rebuilds
         fs::path currentPath = m_CurrentDirNode ? m_CurrentDirNode->Path : fs::path{};
 

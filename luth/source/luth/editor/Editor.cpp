@@ -29,6 +29,7 @@
 #include "luth/editor/UI.h"
 #include "luth/editor/EditorStyle.h"
 #include "luth/editor/EditorSettings.h"
+#include "luth/utils/LuthIcons.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -52,6 +53,9 @@ namespace Luth
         
         // Load persisted settings (style, layout, IBL, etc.)
         LoadSettings();
+
+        // Initialize project launcher (loads recent projects list)
+        ProjectLauncher::Init();
 
         // Apply persisted style (or fallback to Rider)
         bool matrix = false;
@@ -151,7 +155,7 @@ namespace Luth
         if (s_Settings.skyboxPath != "textures/environment.hdr" && !s_Settings.skyboxPath.empty()) {
             fs::path skyboxAbsPath = fs::path(s_Settings.skyboxPath).is_absolute()
                 ? fs::path(s_Settings.skyboxPath)
-                : FileSystem::AssetsPath() / s_Settings.skyboxPath;
+                : FileSystem::ResolveAsset(s_Settings.skyboxPath);
             if (fs::exists(skyboxAbsPath))
                 rs->ReloadSkybox(skyboxAbsPath);
         }
@@ -307,9 +311,17 @@ namespace Luth
         // Update window title
         UpdateWindowTitle();
 
-        // Render all panels
-        for (auto& panel : s_Panels)
-            panel->OnRender();
+        // Show launcher or normal editor
+        if (ProjectLauncher::IsVisible())
+        {
+            ProjectLauncher::Render();
+        }
+        else
+        {
+            // Render all panels
+            for (auto& panel : s_Panels)
+                panel->OnRender();
+        }
 
         // Check if a model import completed with unresolved textures
         {
@@ -664,6 +676,20 @@ namespace Luth
     {
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Open Project..."))
+                {
+                    auto path = FileDialog::OpenFile("Luth Project (*.luthproj)\0*.luthproj\0All Files (*.*)\0*.*\0");
+                    if (path.has_value())
+                    {
+                        ProjectLauncher::AddRecent(path.value().stem().string(), path.value());
+                        ProjectLauncher::SetPendingProject(path.value());
+                    }
+                }
+                if (ImGui::MenuItem(ICON_FA_CUBE "  Project Launcher..."))
+                    ShowProjectLauncher();
+
+                ImGui::Separator();
+
                 if (ImGui::MenuItem("New Scene", "Ctrl+N"))
                     NewScene();
                 if (ImGui::MenuItem("Open Scene", "Ctrl+O"))
@@ -782,5 +808,33 @@ namespace Luth
         if (win) {
             glfwSetWindowTitle(win, title.c_str());
         }
+    }
+
+    void Editor::ShowProjectLauncher()
+    {
+        ProjectLauncher::Show();
+    }
+
+    void Editor::OnProjectChanged()
+    {
+        // Reload editor settings from the new project directory
+        LoadSettings();
+
+        // Clear scene state
+        s_ScenePath.clear();
+        s_IsDirty = false;
+
+        // Refresh ProjectPanel to scan new assets directory
+        if (auto* pp = GetPanel<ProjectPanel>())
+        {
+            pp->Refresh();
+            pp->SetThumbnailSize(s_Settings.thumbnailSize);
+        }
+
+        // Reset hierarchy selection
+        if (auto* hp = GetPanel<HierarchyPanel>())
+            hp->SetContext(s_ActiveScene);
+
+        LH_CORE_INFO("Editor: Project changed, panels refreshed");
     }
 }

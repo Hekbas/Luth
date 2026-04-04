@@ -672,7 +672,7 @@ namespace Luth
 
         // Create new Material
         nlohmann::json matJson;
-        UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::AssetsPath() / "shaders/pbr.vert");
+        UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
         matJson["shader"] = pbrUUID.IsValid() ? pbrUUID.ToString() : "";
         matJson["render_mode"] = 0; // Opaque
 

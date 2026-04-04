@@ -22,7 +22,7 @@ namespace Luth
     class AssetDatabase
     {
     public:
-        static void Init(const std::filesystem::path& projectRoot);
+        static void Init(const std::filesystem::path& projectRoot, const std::filesystem::path& engineAssetsRoot = "");
         static void Shutdown();
 
         // Queries
@@ -62,5 +62,6 @@ namespace Luth
         static std::vector<ChangeCallback> s_ChangeCallbacks;
 
         static fs::path s_ProjectRoot; // Stored so we can filter Library/ dir
+        static fs::path s_EngineAssetsRoot; // Engine assets (read-only scanning)
     };
 }
