@@ -2,8 +2,8 @@
 
 ## Completed Phases
 
-| Phase | Summary | Date |
-|-------|---------|------|
+| Phase | Summary | Date       |
+|-------|---------|------------|
 | 1 — Job System Rewrite | Fiber-based scheduler: FLS, Chase-Lev work-stealing, MPMC queues, SpinLock, isolated main thread | 2026-03-07 |
 | 2 — Frame Pipeline | Triple-buffered pipelined execution (Game N / Render N-1 / GPU N-2), unified MAX_FRAMES_IN_FLIGHT=3 | 2026-03-07 |
 | 3 — Render Graph Refactor | DAG compile with dead-pass culling + batched barriers, serial execution with parallel inner recording | 2026-03-07 |
@@ -22,21 +22,12 @@
 | 5-F — Pipeline Cache + Variants | VkPipelineCache disk persistence (cache/pipeline.bin), PipelineManager keyed by {shaderUUID, renderMode} with lazy creation and targeted hot-reload invalidation | 2026-03-22 |
 | 5-G — Skybox + IBL | HDR equirect→cubemap, irradiance convolution, pre-filtered env map (5 mips), BRDF LUT, PBR split-sum ambient, skybox pass (depth=1.0 trick), Set 0 expanded to 4 bindings | 2026-03-23 |
 | 6 — Polish & Editor QOL | Bug fixes (transform dispatch, alpha cutoff, shadows), Rider theme, inspector overhaul, editor persistence/layouts, mouse picking + selection outline + shade modes, profiler rework | 2026-03-25 |
+| 6B — Editor QA Triage | 22-item QA pass: semantic EditorColors, skybox HDR picker, outline children+occluded-fade, recursive hierarchy search, Point Light/Camera context menu entries, primitive geometry creation, project panel folder search, eager scene dep loading, resource panel Font/Scene filters + type icons + column sorting + table polish | 2026-03-30 |
+| 7 — Animation System | Fiber-parallel keyframe sampling, GPU skinning (BoneMatrixBuffer SSBO), SQT blending, crossfade transitions, layered override with bone masks, root motion extraction, bone debug overlay, full editor inspector integration | 2026-03-30 |
 | 8 — Smart Import & Hot Reload | Multi-strategy texture discovery (4 search strategies), ImportReport + TextureRemapDialog, Project Panel hot reload via FileWatcher (1 s polling, Created/Modified/Deleted), drop-to-current-dir, eager texture copy + import on drop, TOCTOU crash fix in FileWatcher, Assets menu "Resolve Missing Textures..." | 2026-03-31 |
+| 9 — Frame Debugger Upgrade | Trigger-based capture, per-draw-call scrubbing, DebuggerState machine (Inactive→CaptureRequested→Frozen), full pass instrumentation, RenderCapturedFrame re-recording, rescue blit for truncated frames, depth linearization shader, rewritten panel UI | 2026-04-03 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
-
----
-
-## Completed Phase: 7 — Animation System
-
-| Sub-Phase | Summary | Status |
-|-----------|---------|--------|
-| 7A — Data Extraction | Skeleton, AnimationClip, SkinnedVertex structs. Assimp extraction (skeleton hierarchy, bone weights, keyframes). V2 binary serialization. ModelViewer populated from real data. | Complete (2026-03-27) |
-| 7B — GPU Skinning | BoneMatrixBuffer SSBO (Set 4, 128×256 mat4, 2MB), pbr_skinned.vert + shadowDepth_skinned.vert with LBS, 5-set pipeline layout, dual PipelineManagers (static/skinned), per-mesh skinning detection. Skinned meshes render in bind pose. | Complete (2026-03-27) |
-| 7C — Evaluation & Playback | AnimationSystem with fiber-parallel keyframe sampling (binary search + lerp/slerp), skeleton hierarchy propagation, per-entity bone block ownership (moved from RenderingSystem), SSBO upload. AABB struct + bind-pose/animated bounding boxes. Animation events with crossing detection (loop wrap-around). BoneAttachment component with lazy name resolution, post-eval transform write, serialization with deferred UUID resolution. | Complete (2026-03-28) |
-| 7D — Blending & Root Motion | AnimationController component with SQT-space blending. Crossfade transitions (both clips advance, alpha ramp). Layered override with per-bone masks. Root motion extraction (XZ delta from root bone track, loop-wrap two-segment handling, main-thread application with entity rotation). PropagateAndUpload shared tail extracted from single-clip path. Full serialization (layers, sparse bone masks, root motion flag). Editor inspector (layer list, clip/weight/speed/loop per layer, bone mask checkboxes, Add Component entry). Backward compatible — entities without controller use unchanged 7C path. | Complete (2026-03-30) |
-| 7E — Editor Integration | Animation inspector (clip selector, transport, timeline scrubber, frame counter), BoneAttachment inspector, bone debug overlay, model instantiation with Animation component and bone hierarchy entities, ModelViewer animation table. Fixed AnimationSystem/RenderingSystem parent-child traversal, Assimp $AssimpFbx$ skeleton extraction, SceneSerializer Playing state. | Complete (2026-03-29) |
 
 ---
 
