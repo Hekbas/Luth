@@ -9,23 +9,56 @@ namespace Luth
     fs::path FileSystem::s_EngineAssetsRoot;
     fs::path FileSystem::s_ProjectRoot;
     fs::path FileSystem::s_AssetsRoot;
+    bool     FileSystem::s_HasProject = false;
 
-    void FileSystem::Init(const fs::path& engineRoot, const fs::path& projectRoot)
+    // ================================================================
+    // Phase 1: Engine-only init (called at startup)
+    // ================================================================
+
+    void FileSystem::InitEngine(const fs::path& engineRoot)
     {
-        // Project root: use provided path, or fall back to CWD
-        s_ProjectRoot = projectRoot.empty() ? fs::current_path() : fs::absolute(projectRoot);
-        s_AssetsRoot  = s_ProjectRoot / "assets";
-
-        // Engine root: use provided path, or fall back to CWD (legacy behavior)
         s_EngineRoot       = engineRoot.empty() ? fs::current_path() : fs::absolute(engineRoot);
         s_EngineAssetsRoot = s_EngineRoot / "assets";
 
-        LH_CORE_INFO("FileSystem: Engine root  = {}", s_EngineRoot.string());
+        // No project yet
+        s_ProjectRoot.clear();
+        s_AssetsRoot.clear();
+        s_HasProject = false;
+
+        LH_CORE_INFO("FileSystem: Engine root = {}", s_EngineRoot.string());
+    }
+
+    // ================================================================
+    // Phase 2: Set project root (called when user selects a project)
+    // ================================================================
+
+    void FileSystem::SetProjectRoot(const fs::path& projectRoot)
+    {
+        s_ProjectRoot = fs::absolute(projectRoot);
+        s_AssetsRoot  = s_ProjectRoot / "assets";
+        s_HasProject  = true;
+
         LH_CORE_INFO("FileSystem: Project root = {}", s_ProjectRoot.string());
         LH_CORE_INFO("FileSystem: Assets root  = {}", s_AssetsRoot.string());
 
         EnsureBaseStructure();
     }
+
+    void FileSystem::ClearProject()
+    {
+        s_ProjectRoot.clear();
+        s_AssetsRoot.clear();
+        s_HasProject = false;
+    }
+
+    bool FileSystem::HasProject()
+    {
+        return s_HasProject;
+    }
+
+    // ================================================================
+    // Path Operations
+    // ================================================================
 
     fs::path FileSystem::GetPath(AssetType type, const fs::path& name, bool addExtension)
     {
@@ -43,12 +76,20 @@ namespace Luth
             return path.lexically_normal();
         }
 
-        // Fall back to project assets
-        fs::path path = s_AssetsRoot / info.directory / name;
-        if (addExtension && !name.has_extension() && !info.extension.empty()) {
-            path += info.extension;
+        // Fall back to project assets (if a project is loaded)
+        if (s_HasProject)
+        {
+            fs::path path = s_AssetsRoot / info.directory / name;
+            if (addExtension && !name.has_extension() && !info.extension.empty()) {
+                path += info.extension;
+            }
+            return path.lexically_normal();
         }
 
+        // No project loaded — return engine path as default
+        fs::path path = enginePath;
+        if (addExtension && !name.has_extension() && !info.extension.empty())
+            path += info.extension;
         return path.lexically_normal();
     }
 
@@ -71,9 +112,12 @@ namespace Luth
     fs::path FileSystem::ResolveAsset(const fs::path& relative)
     {
         // Check project assets first (user can override engine defaults)
-        fs::path projectPath = s_AssetsRoot / relative;
-        if (fs::exists(projectPath))
-            return projectPath.lexically_normal();
+        if (s_HasProject)
+        {
+            fs::path projectPath = s_AssetsRoot / relative;
+            if (fs::exists(projectPath))
+                return projectPath.lexically_normal();
+        }
 
         // Fall back to engine assets
         fs::path enginePath = s_EngineAssetsRoot / relative;
@@ -81,10 +125,16 @@ namespace Luth
             return enginePath.lexically_normal();
 
         // Return project path as default (even if it doesn't exist)
-        return projectPath.lexically_normal();
+        if (s_HasProject)
+            return (s_AssetsRoot / relative).lexically_normal();
+
+        return enginePath.lexically_normal();
     }
 
-    // Platform-specific implementations
+    // ================================================================
+    // Platform / Utility
+    // ================================================================
+
     fs::path FileSystem::PlatformAssetsPath()
     {
         #if defined(_WIN32)
@@ -130,7 +180,6 @@ namespace Luth
             { ".vert",    AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             { ".luth",    AssetType::Scene    },
-            // { ".ini",     AssetType::Config   }
         };
 
         std::string ext = path.extension().string();
@@ -147,6 +196,8 @@ namespace Luth
 
     void FileSystem::EnsureBaseStructure()
     {
+        if (!s_HasProject) return;
+
         for (const auto& [type, info] : GetTypeInfo()) {
             CreateDirectories(s_AssetsRoot / info.directory);
         }
@@ -162,7 +213,6 @@ namespace Luth
             { AssetType::Shader,   { "Shader",   "shaders",   ".glsl", Vec4(0.9f, 0.3f, 0.3f, 1.0f) } },
             { AssetType::Font,     { "Font",     "fonts",     ".ttf",  Vec4(0.5f, 0.5f, 0.5f, 1.0f) } },
             { AssetType::Scene,    { "Scene",    "scenes",    ".luth", Vec4(0.6f, 0.4f, 0.9f, 1.0f) } },
-            // { AssetType::Config,   { "Config",   "config",    ".json", Vec4(0.5f, 0.5f, 0.5f, 1.0f) } }
         };
         return typeInfo;
     }

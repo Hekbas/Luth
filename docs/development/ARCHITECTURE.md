@@ -31,7 +31,8 @@
  │    ├── FrameData .............. Triple-buffered FrameContext
  │    ├── IOThread ............... Dedicated OS thread for disk I/O
  │    ├── EventBus ............... Deferred queue-swap dispatch
- │    └── App .................... Owns EngineLoop
+ │    ├── ProjectFile ............ .luthproj loader/saver, CLI discovery
+ │    └── App .................... Two-phase init: Engine boot → Project load
  │
  ├── [Renderer (Vulkan 1.3)]
  │    ├── RenderGraph ............ DAG Compile → Barrier Inject → Execute
@@ -44,12 +45,14 @@
  │    └── Systems (Transform, Camera, Rendering, Animation)
  │
  ├── [Asset Pipeline]
- │    ├── AssetDatabase, AssetManager
- │    ├── Importers (Model, Texture, Shader)
- │    └── FileSystem, MetaFile
+ │    ├── AssetDatabase .......... Two-phase: InitEngine() → LoadProject()
+ │    ├── AssetManager ........... Async loading, GPU upload queue, GC
+ │    ├── Importers (Model, Texture, Shader, Material)
+ │    └── FileSystem ............. Dual-root: engine assets + project assets
  │
  └── [Editor]
-      ├── Editor, UI
+      ├── Editor, UI, EditorSelection
+      ├── ProjectLauncher ........ Startup project selector, recent projects
       └── Panels (Scene, Hierarchy, Inspector, Project, Console, Render, FrameDebugger)
 ```
 

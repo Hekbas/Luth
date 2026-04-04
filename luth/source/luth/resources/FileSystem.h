@@ -20,10 +20,17 @@ namespace Luth
             Vec4 color;
         };
 
-        /// Initialize with explicit engine and project roots.
-        /// If projectRoot is empty, defaults to CWD.
-        /// engineRoot should point to the luth/ engine directory.
-        static void Init(const fs::path& engineRoot = "", const fs::path& projectRoot = "");
+        /// Phase 1: Initialize engine root only. Call at startup before any project is loaded.
+        static void InitEngine(const fs::path& engineRoot);
+
+        /// Phase 2: Set the project root. Called when a project is selected.
+        static void SetProjectRoot(const fs::path& projectRoot);
+
+        /// Clear project root (when switching away from a project before loading a new one).
+        static void ClearProject();
+
+        /// Returns true if a project is currently loaded.
+        static bool HasProject();
 
         // Path operations
         static fs::path GetPath(AssetType type, const fs::path& name, bool addExtension = true);
@@ -32,11 +39,9 @@ namespace Luth
         static fs::path AssetsPath(const fs::path& relative = "");
 
         /// Returns the engine's internal assets directory (luth/assets/).
-        /// Engine shaders, fonts, and icons live here.
         static fs::path EngineAssetsPath(const fs::path& relative = "");
 
         /// Search project assets first, then engine assets.
-        /// Returns the first existing path, or project path if neither exists.
         static fs::path ResolveAsset(const fs::path& relative);
 
         // Platform paths
@@ -60,5 +65,6 @@ namespace Luth
         static fs::path s_EngineAssetsRoot;   // luth/assets/
         static fs::path s_ProjectRoot;        // User project directory
         static fs::path s_AssetsRoot;         // <project>/assets/
+        static bool     s_HasProject;
     };
 }

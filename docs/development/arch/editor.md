@@ -13,9 +13,17 @@ ImGui-based editor with modular panel architecture, docking layout, asset drag-d
 - Loads fonts (main + FontAwesome icons)
 - Creates and registers all panels
 
+**Two-phase startup:**
+- Phase 1: Editor initializes with ImGui + panels. No project needed. ProjectPanel shows "No project loaded".
+- Phase 2: When a project is loaded via `Editor::OnProjectChanged()`, panels refresh, settings reload, and the editor enters normal operation.
+
 **Scene management:** `NewScene()`, `OpenScene(path)`, `SaveScene()`, `SaveSceneAs()`
 - Dirty detection via hierarchy version tracking
 - Keyboard shortcuts: Ctrl+N/O/S, Ctrl+Shift+S
+
+**Project management:** `ShowProjectLauncher()`, `OnProjectChanged()`
+- File menu: Open Project, Project Launcher
+- `OnProjectChanged()` — reloads editor settings, clears scene, refreshes ProjectPanel and HierarchyPanel
 
 **Frame integration:** Editor::Render() is called during App::OnUpdate(). ImGui draw data is consumed by `RenderingSystem::AddImGuiPass()` in the render graph.
 
@@ -62,6 +70,18 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 - Drag-drop source: sends `ASSET_UUID` payload
 - Context menu: create folder/material, delete, rename
 - Search: real-time recursive case-insensitive
+- Guards against no-project state: shows "No project loaded" placeholder when `FileSystem::HasProject()` is false
+
+### ProjectLauncher — Startup Project Selector
+- ImGui overlay, shown when no project is auto-discovered on startup
+- Also accessible via `File > Project Launcher...`
+- **Header:** Luth logo + "Projects" title + "Add" (open existing) + "+ New" (create) buttons
+- **Recent projects:** Stored in `%APPDATA%/Luth/recent_projects.json`, max 10 entries
+- **Project rows:** Name, relative time ("7 hours ago"), version, path
+- **New Project dialog:** Name + location, creates directory structure + `.luthproj`
+- **Interaction:** Double-click a project to open it. Right-click to remove from list.
+- **Pending mechanism:** Sets a pending path consumed by `App::LoadProject()` in the main loop
+- **Drag-drop:** `.luthproj` files dropped on the editor window trigger a project switch
 
 ### RenderPanel — Post-Processing Controls
 - Bloom: threshold, strength

@@ -22,7 +22,15 @@ namespace Luth
     class AssetDatabase
     {
     public:
-        static void Init(const std::filesystem::path& projectRoot, const std::filesystem::path& engineAssetsRoot = "");
+        /// Phase 1: Register engine-internal assets (shaders, fonts). No project needed.
+        static void InitEngine(const std::filesystem::path& engineAssetsRoot);
+
+        /// Phase 2: Scan a project's assets directory. Can be called multiple times (project switching).
+        static void LoadProject(const std::filesystem::path& projectAssetsRoot);
+
+        /// Clear project-specific assets (keeps engine assets). Used during project switching.
+        static void UnloadProject();
+
         static void Shutdown();
 
         // Queries
@@ -42,8 +50,8 @@ namespace Luth
         using ChangeCallback = std::function<void()>;
         static void StartWatching();
         static void StopWatching();
-        static void ProcessPendingChanges();              // Call once per frame on main thread
-        static void AddChangeCallback(ChangeCallback cb); // Notified after each batch of changes
+        static void ProcessPendingChanges();
+        static void AddChangeCallback(ChangeCallback cb);
 
     private:
         static void LoadLibraryState();
@@ -61,7 +69,7 @@ namespace Luth
         static std::mutex s_PendingMutex;
         static std::vector<ChangeCallback> s_ChangeCallbacks;
 
-        static fs::path s_ProjectRoot; // Stored so we can filter Library/ dir
-        static fs::path s_EngineAssetsRoot; // Engine assets (read-only scanning)
+        static fs::path s_ProjectRoot;
+        static fs::path s_EngineAssetsRoot;
     };
 }

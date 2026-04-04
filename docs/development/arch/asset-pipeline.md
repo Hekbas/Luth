@@ -7,17 +7,22 @@ UUID-based asset system with two-stage loading (import → deserialize), async-f
 ## Data Flow
 
 ```
-Source File (.fbx, .png, .mat, .vert)
-  ↓
-AssetDatabase::Init() — crawls assets/, assigns UUIDs via .meta files
-  ↓
-Importer::Import() — source → binary artifact (Library/Artifacts/{uuid}.luth)
-  ↓
-AssetSerializer::Deserialize() — artifact → CPU data (AssetData*)
-  ↓
-GPU Resource Creation — Texture::Create(), Model::Create(), etc. (main thread only)
-  ↓
-AssetManager cache — shared_ptr<Asset> in s_Assets map
+Engine Boot (Phase 1):
+  FileSystem::InitEngine(engineRoot)  — sets luth/ as engine root
+  AssetDatabase::InitEngine(luth/assets/) — registers engine shaders, fonts
+  AssetManager::Init()
+
+Project Load (Phase 2, after user selects a project):
+  FileSystem::SetProjectRoot(projectRoot) — sets project root + assets path
+  AssetDatabase::LoadProject(assets/) — crawls project assets/, assigns UUIDs via .meta
+      ↓
+  Importer::Import() — source → binary artifact (Library/Artifacts/{uuid}.luth)
+      ↓
+  AssetSerializer::Deserialize() — artifact → CPU data (AssetData*)
+      ↓
+  GPU Resource Creation — Texture::Create(), Model::Create(), etc. (main thread only)
+      ↓
+  AssetManager cache — shared_ptr<Asset> in s_Assets map
 ```
 
 ## Core Components
@@ -26,7 +31,9 @@ AssetManager cache — shared_ptr<Asset> in s_Assets map
 - **`s_Assets`** — `unordered_map<UUID, AssetMetadata>` — main registry
 - **`s_PathToUuid`** — reverse lookup (path → UUID)
 - **`s_DirtyAssets`** — assets needing reimport (stale artifact hash)
-- **`Init(projectRoot)`** — 3-phase scan: collect paths → register + create .meta → cleanup orphaned .meta
+- **`InitEngine(engineAssetsRoot)`** — Phase 1: registers engine-internal assets (shaders, fonts)
+- **`LoadProject(projectAssetsRoot)`** — Phase 2: 3-phase scan of project assets (collect → register → cleanup orphaned .meta)
+- **`UnloadProject()`** — removes project assets from registry, keeps engine assets intact
 - Hash: XOR of file modification time + size, persisted in `Library/State.json`
 
 ### MetaFile (.asset.meta JSON sidecar)
@@ -58,7 +65,13 @@ AssetManager cache — shared_ptr<Asset> in s_Assets map
 **GC:** `Trim()` runs every 2 seconds. Evicts assets where `use_count == 1` and stale > 5 seconds. Scene holds shared_ptrs via `HoldAsset()` to prevent eviction of in-use assets.
 
 ### FileSystem (Static)
-- Path management: `s_ProjectRoot`, `s_AssetsRoot`, `s_EngineRoot`
+- **Dual-root architecture:**
+  - `s_EngineRoot` / `s_EngineAssetsRoot` — engine shaders, fonts (luth/assets/)
+  - `s_ProjectRoot` / `s_AssetsRoot` — user project assets (set when project is loaded)
+- **`InitEngine(engineRoot)`** — Phase 1: sets engine root only
+- **`SetProjectRoot(projectRoot)`** — Phase 2: sets project root, creates base directory structure
+- **`HasProject()`** — returns whether a project is currently loaded
+- **`ResolveAsset(relative)`** — searches project assets first, falls back to engine assets
 - `ClassifyFileType(path)` — extension → AssetType mapping
 - Type info: directory name, extension, UI color per asset type
 
@@ -89,18 +102,35 @@ All artifacts start with `AssetHeader { magic='LUTH', version=1, type }`. Type-s
 - Detects file creation/modification/deletion via mtime comparison
 - Callbacks trigger reimport or shader hot-reload
 
-## Artifact Cache Structure
+## Directory Structure
 
 ```
-project/
-├── assets/          ← source files + .meta sidecars
+luth/                        ← engine (always available)
+├── assets/                  ← engine-internal assets
+│   ├── shaders/             ← PBR, shadow, post-processing shaders
+│   └── fonts/               ← editor fonts + icons
+└── source/                  ← engine source code
+
+<project>/                   ← user project (loaded via ProjectLauncher)
+├── <name>.luthproj          ← project definition file (JSON)
+├── assets/                  ← project source files + .meta sidecars
 │   ├── models/
 │   ├── textures/
 │   ├── materials/
-│   ├── shaders/
-│   ├── fonts/
-│   └── scenes/
+│   ├── scenes/
+│   └── shaders/
 └── Library/
-    ├── Artifacts/   ← binary .luth files keyed by UUID
-    └── State.json   ← artifact hash map (modification time + size)
+    ├── Artifacts/           ← binary .luth files keyed by UUID
+    └── State.json           ← artifact hash map
 ```
+
+## .luthproj File
+
+```json
+{
+  "name": "MyProject",
+  "version": "0.1"
+}
+```
+
+Discovered via CLI arg, drag-drop, or the Project Launcher. The engine walks up from CWD to find the `luth/` engine root, but the project root is always explicitly selected.

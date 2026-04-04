@@ -27,16 +27,14 @@
 
 namespace Luth
 {
-    // Discover the engine root from the executable path.
-    // The exe lives at  <workspace>/bin/<config>/Luthien/Luthien.exe
-    // and the engine at <workspace>/luth/
-    // Walk up from exe directory looking for the luth/ folder.
+    // ================================================================
+    // Engine Root Discovery
+    // ================================================================
+
     static fs::path DiscoverEngineRoot()
     {
-        // Start from the executable's directory (= CWD set by VS debugger, or bin path)
         fs::path dir = fs::current_path();
 
-        // Walk up at most 6 levels to find the workspace that contains "luth/"
         for (int i = 0; i < 6; ++i)
         {
             fs::path candidate = dir / "luth";
@@ -50,25 +48,49 @@ namespace Luth
             dir = dir.parent_path();
         }
 
-        // Fallback: CWD (legacy behavior)
         LH_CORE_WARN("Could not discover engine root, falling back to CWD");
         return fs::current_path();
     }
 
+    // ================================================================
+    // Phase 1: Engine Boot (no project needed)
+    // ================================================================
+
     App::App(int argc, char** argv)
     {
-        // Core Systems Init
+        // 1. Core systems
         Memory::MemoryTracker::Init();
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
 
-        // Discover project and engine roots
-        fs::path engineRoot  = DiscoverEngineRoot();
-        fs::path projectRoot;
+        // 2. Engine root + engine assets
+        fs::path engineRoot = DiscoverEngineRoot();
+        FileSystem::InitEngine(engineRoot);
+        AssetDatabase::InitEngine(FileSystem::EngineAssetsPath());
+        AssetManager::Init();
 
-        // Try to find a .luthproj file from CLI args or CWD
-        ProjectFile project;
+        // 3. Window + Renderer
+        WindowSpec ws = ParseCommandLineArgs(argc, argv);
+        SetAppTitle(ws);
+        m_Window = Window::Create(ws);
+        Input::Init();
+
+        Renderer::Init(m_Window->GetNativeWindow());
+        Renderer::SetFrameData(&m_FrameData);
+        ShaderLibrary::Init();
+        
+        // 4. Scene & Systems (RenderingSystem loads engine shaders — no project needed)
+        m_Scene = std::make_shared<Scene>();
+        Systems::Init();
+        Systems::SetScene(m_Scene.get());
+
+        // 5. Editor + Launcher
+        Editor::Init(m_Window.get());
+        Editor::SetActiveScene(m_Scene);
+        ProjectLauncher::Init();
+
+        // 6. Check CLI args for a .luthproj to open immediately
         fs::path projectHint;
         for (int i = 1; i < argc; ++i)
         {
@@ -80,65 +102,24 @@ namespace Luth
             }
         }
 
-        if (project.Discover(projectHint))
+        // Try to auto-discover project from CLI arg or CWD
+        if (!projectHint.empty())
         {
-            projectRoot = project.ProjectRoot;
-            m_FoundProject = true;
-            LH_CORE_INFO("Using project '{}' at '{}'", project.Name, projectRoot.string());
+            ProjectFile project;
+            if (project.Discover(projectHint))
+            {
+                LoadProject(project.FilePath);
+            }
+            else
+            {
+                LH_CORE_WARN("CLI project hint not found: {}", projectHint.string());
+                Editor::ShowProjectLauncher();
+            }
         }
         else
         {
-            projectRoot = fs::current_path();
-            m_FoundProject = false;
-            LH_CORE_INFO("No .luthproj found, using CWD as project root: {}", projectRoot.string());
-        }
-
-        FileSystem::Init(engineRoot, projectRoot);
-        AssetDatabase::Init(FileSystem::AssetsPath(), FileSystem::EngineAssetsPath());
-        AssetManager::Init();
-
-        // Import Phase: Process any stale assets found by AssetDatabase
-        const auto& dirtyAssetsRef = AssetDatabase::GetDirtyAssets();
-        if (!dirtyAssetsRef.empty())
-        {
-            std::vector<UUID> assetsToImport = dirtyAssetsRef;
-            
-            LH_CORE_INFO("Importing {0} assets in parallel...", assetsToImport.size());
-            
-            JobSystem::Counter importCounter(0);
-            
-            JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
-                std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
-                AssetManager::Import((*assets)[args.jobIndex]);
-            }, &assetsToImport, &importCounter);
-
-            JobSystem::WaitForCounter(&importCounter);
-        }
-
-        WindowSpec ws = ParseCommandLineArgs(argc, argv);
-        SetAppTitle(ws);
-        m_Window = Window::Create(ws);
-        Input::Init();
-
-        Renderer::Init(m_Window->GetNativeWindow());
-        Renderer::SetFrameData(&m_FrameData);
-        ShaderLibrary::Init();
-        
-        // Scene & Systems
-        m_Scene = std::make_shared<Scene>();
-        Systems::Init();
-        Systems::SetScene(m_Scene.get());
-
-        Editor::Init(m_Window.get());
-        Editor::SetActiveScene(m_Scene);
-
-        // Register current project in recent list and show launcher if needed
-        if (m_FoundProject)
-        {
-            ProjectLauncher::AddRecent(project.Name, project.FilePath);
-        }
-        else
-        {
+            // No project specified — show the launcher
+            LH_CORE_INFO("No project specified -- showing Project Launcher");
             Editor::ShowProjectLauncher();
         }
 
@@ -185,7 +166,7 @@ namespace Luth
             
             u64 frameIndex = m_FrameData.GetFrameIndex();
 
-            // ── Step 1: OS Message Pump (Main thread only, V2) ──
+            // ── Step 1: OS Message Pump ──
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
@@ -193,7 +174,7 @@ namespace Luth
             // Check if user selected a project from launcher
             if (ProjectLauncher::HasPendingProject())
             {
-                SwitchProject(ProjectLauncher::ConsumePendingProject());
+                LoadProject(ProjectLauncher::ConsumePendingProject());
             }
             
             if (m_Window->IsMinimized())
@@ -203,31 +184,31 @@ namespace Luth
             }
 
             // ── Step 2: GPU Reclaim (N-2) ──
-            // For the first few frames, there's nothing to reclaim
             FrameContext& currentFrame = m_FrameData.Current();
             if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             {
                 FrameContext& gpuFrame = m_FrameData.GPU();
-                // V6: Check if GPU(N-2) is done. If not, current frame uses overflow.
-                // For now, the blocking wait in AcquireImage handles this.
-                // When PollerJobs are wired (Phase 3+), this becomes non-blocking.
             }
 
             // ── Step 3: Begin Vulkan Frame ──
-            // Acquires swapchain image, waits on timeline for this slot's previous use
             Renderer::BeginFrame(frameIndex);
 
-            // Reset frame resources now that GPU is done with this slot
             currentFrame.Reset();
             currentFrame.Params.DeltaTime = Time::DeltaTime();
             currentFrame.Params.TotalTime = Time::GetTime();
             currentFrame.Params.FrameNumber = frameIndex;
 
-            // ── Step 4: Game Logic ──
+            // ── Step 4: Game Logic + Editor ──
             Editor::BeginFrame();
             OnUpdate();
-            AssetManager::Update();
-            AssetDatabase::ProcessPendingChanges();
+
+            // Only update project-dependent systems when a project is loaded
+            if (m_ProjectLoaded)
+            {
+                AssetManager::Update();
+                AssetDatabase::ProcessPendingChanges();
+            }
+
             Editor::Render();
             Editor::EndFrame();
 
@@ -237,6 +218,7 @@ namespace Luth
                 ImGui::RenderPlatformWindowsDefault();
             }
 
+            // Scene systems always run (RenderingSystem must present the swapchain)
             Systems::Update<TransformSystem>();
             Systems::Update<AnimationSystem>();
             Systems::Update<RenderingSystem>();
@@ -253,9 +235,12 @@ namespace Luth
         Close();
     }
 
+    // ================================================================
+    // Shutdown
+    // ================================================================
+
     void App::Close()
     {
-        // Wait for all GPU work to finish before destroying any resources
         Renderer::WaitForGPU();
 
 		Editor::Shutdown();
@@ -265,16 +250,11 @@ namespace Luth
         AssetDatabase::Shutdown();
         ShaderLibrary::Shutdown();
 
-        // Release scene-held asset references before GPU resource cleanup
         if (m_Scene) m_Scene->Clear();
 
-        // Flush deferred GPU resource deletions queued by asset/shader destructors
         Renderer::FlushDeletionQueues();
-
         Renderer::Shutdown();
 
-        // Destroy the window after Vulkan (surface must outlive swapchain),
-        // but Editor::Shutdown already removed ImGui callbacks so no stale dispatch.
         if (m_Window) {
             m_Window->Shutdown();
         }
@@ -284,6 +264,72 @@ namespace Luth
         JobSystem::Shutdown();
         Memory::MemoryTracker::Shutdown();
     }
+
+    // ================================================================
+    // Project Loading
+    // ================================================================
+
+    void App::LoadProject(const fs::path& luthprojPath)
+    {
+        ProjectFile project;
+        if (!project.Load(luthprojPath))
+        {
+            LH_CORE_ERROR("Failed to load project: {}", luthprojPath.string());
+            return;
+        }
+
+        LH_CORE_INFO("Loading project '{}' at '{}'", project.Name, project.ProjectRoot.string());
+
+        // If switching away from an existing project, clean up first
+        if (m_ProjectLoaded)
+        {
+            Editor::SaveSettings();
+            AssetDatabase::UnloadProject();
+            if (m_Scene) m_Scene->Clear();
+        }
+
+        // Set the project root in FileSystem
+        FileSystem::SetProjectRoot(project.ProjectRoot);
+
+        // Scan project assets
+        AssetDatabase::LoadProject(FileSystem::AssetsPath());
+
+        // Import dirty assets
+        ImportDirtyAssets();
+
+        // Start watching for file changes
+        AssetDatabase::StartWatching();
+
+        // Refresh the editor for the new project
+        Editor::OnProjectChanged();
+
+        // Track in recent projects and hide launcher
+        ProjectLauncher::AddRecent(project.Name, project.FilePath);
+        ProjectLauncher::Hide();
+
+        m_ProjectLoaded = true;
+        LH_CORE_INFO("Project loaded: '{}'", project.Name);
+    }
+
+    void App::ImportDirtyAssets()
+    {
+        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
+        if (dirtyAssets.empty()) return;
+
+        std::vector<UUID> assetsToImport = dirtyAssets;
+        LH_CORE_INFO("Importing {} assets...", assetsToImport.size());
+
+        JobSystem::Counter importCounter(0);
+        JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+            std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
+            AssetManager::Import((*assets)[args.jobIndex]);
+        }, &assetsToImport, &importCounter);
+        JobSystem::WaitForCounter(&importCounter);
+    }
+
+    // ================================================================
+    // Utility
+    // ================================================================
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
@@ -316,7 +362,10 @@ namespace Luth
         m_Running = false;
     }
 
-    // Common image extensions used when scanning for textures to copy alongside a model
+    // ================================================================
+    // File Drop Handling
+    // ================================================================
+
     static bool IsImageExtension(const fs::path& ext)
     {
         static const std::unordered_set<std::string> s_Exts = {
@@ -329,10 +378,6 @@ namespace Luth
 
     void App::OnFileDrop(FileDropEvent& e)
     {
-        // Determine destination directory: use the ProjectPanel's current folder
-        auto* panel = Editor::GetPanel<ProjectPanel>();
-        fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
-
         for (const auto& srcPath : e.GetPaths()) {
             // Handle .luthproj drops — switch project
             if (srcPath.extension() == ".luthproj")
@@ -341,6 +386,16 @@ namespace Luth
                 ProjectLauncher::SetPendingProject(srcPath);
                 return;
             }
+        }
+
+        // Regular asset drops require a loaded project
+        if (!m_ProjectLoaded) return;
+
+        auto* panel = Editor::GetPanel<ProjectPanel>();
+        fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
+
+        for (const auto& srcPath : e.GetPaths()) {
+            if (srcPath.extension() == ".luthproj") continue; // Already handled
 
             try {
                 if (!fs::exists(srcPath)) {
@@ -354,18 +409,15 @@ namespace Luth
                     continue;
                 }
 
-                // 1. Copy the asset itself into the current panel directory
                 fs::path destPath = destDir / srcPath.filename();
                 FileSystem::CreateDirectories(destDir);
                 fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing);
                 LH_CORE_INFO("Imported {0} to {1}", srcPath.filename().string(), destPath.string());
 
-                // 2. For models: also copy adjacent textures so the importer can find them
                 if (resType == AssetType::Model) {
                     fs::path texDestDir = destDir / (srcPath.stem().string() + "_Textures");
                     fs::path srcDir = srcPath.parent_path();
 
-                    // Collect texture dirs to scan: source dir + common sibling names
                     std::vector<fs::path> scanDirs = { srcDir };
                     static const char* k_SiblingDirs[] = {
                         "textures", "Textures", "texture", "Texture",
@@ -398,7 +450,6 @@ namespace Luth
                         LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
                 }
 
-                // 3. Register in AssetDatabase and trigger immediate import
                 UUID newUuid = MetaFile::Create(destPath, resType);
                 AssetDatabase::RegisterAsset(destPath, newUuid, resType);
 
@@ -414,63 +465,5 @@ namespace Luth
                 LH_CORE_ERROR("Asset processing error: {0} - {1}", srcPath.string(), ex.what());
             }
         }
-    }
-
-    void App::SwitchProject(const fs::path& luthprojPath)
-    {
-        ProjectFile project;
-        if (!project.Load(luthprojPath))
-        {
-            LH_CORE_ERROR("Failed to load project: {}", luthprojPath.string());
-            return;
-        }
-
-        LH_CORE_INFO("Switching to project '{}' at '{}'", project.Name, project.ProjectRoot.string());
-
-        // Stop file watching before reinit
-        AssetDatabase::StopWatching();
-
-        // Save current editor settings before switching
-        Editor::SaveSettings();
-
-        // Clear current scene
-        if (m_Scene) m_Scene->Clear();
-
-        // Reinit FileSystem with new project root (engine root stays the same)
-        FileSystem::Init(FileSystem::EnginePath(), project.ProjectRoot);
-
-        // Reinit asset systems
-        AssetManager::Shutdown();
-        AssetDatabase::Shutdown();
-        AssetDatabase::Init(FileSystem::AssetsPath(), FileSystem::EngineAssetsPath());
-        AssetManager::Init();
-
-        // Import any dirty assets in the new project
-        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
-        if (!dirtyAssets.empty())
-        {
-            std::vector<UUID> assetsToImport = dirtyAssets;
-            LH_CORE_INFO("Importing {} assets from new project...", assetsToImport.size());
-
-            JobSystem::Counter importCounter(0);
-            JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
-                std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
-                AssetManager::Import((*assets)[args.jobIndex]);
-            }, &assetsToImport, &importCounter);
-            JobSystem::WaitForCounter(&importCounter);
-        }
-
-        // Restart file watching for new project
-        AssetDatabase::StartWatching();
-
-        // Refresh editor for new project
-        Editor::OnProjectChanged();
-
-        // Add to recent and hide launcher
-        ProjectLauncher::AddRecent(project.Name, project.FilePath);
-        ProjectLauncher::Hide();
-
-        m_FoundProject = true;
-        LH_CORE_INFO("Project switch complete: '{}'", project.Name);
     }
 }

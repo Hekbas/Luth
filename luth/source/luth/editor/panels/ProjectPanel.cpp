@@ -22,6 +22,8 @@ namespace Luth
 
     void ProjectPanel::OnInit()
     {
+        if (!FileSystem::HasProject()) return;
+
         m_AssetsPath = FileSystem::AssetsPath();
         Refresh();
 
@@ -61,16 +63,27 @@ namespace Luth
 
     void ProjectPanel::OnRender()
     {
-        if (m_NeedsRefresh) {
-            Refresh();
-            m_NeedsRefresh = false;
-        }
-
         ImGui::PushFont(Editor::GetFASolid());
         std::string project = ICON_FA_FOLDER + std::string("  Project");
 
         if (ImGui::Begin(project.c_str()))
         {
+            if (!FileSystem::HasProject())
+            {
+                ImGui::PopFont();
+                float avail = ImGui::GetContentRegionAvail().y;
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + avail * 0.4f);
+                float w = ImGui::CalcTextSize("No project loaded").x;
+                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - w) * 0.5f);
+                ImGui::TextDisabled("No project loaded");
+                ImGui::End();
+                return;
+            }
+
+            if (m_NeedsRefresh) {
+                Refresh();
+                m_NeedsRefresh = false;
+            }
             float availWidth = ImGui::GetContentRegionAvail().x;
             float spacing = ImGui::GetStyle().ItemSpacing.x;
             float sliderWidth = std::min(availWidth * 0.1f, 100.0f);

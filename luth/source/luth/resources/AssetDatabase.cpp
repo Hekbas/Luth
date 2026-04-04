@@ -22,32 +22,90 @@ namespace Luth
 
     static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
 
-    void AssetDatabase::Init(const std::filesystem::path& projectRoot, const std::filesystem::path& engineAssetsRoot)
+    // ================================================================
+    // Phase 1: Engine-only init (register shaders, fonts)
+    // ================================================================
+
+    void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
-        s_ProjectRoot = fs::absolute(projectRoot);
+
+        s_EngineAssetsRoot = engineAssetsRoot;
         s_Assets.clear();
         s_PathToUuid.clear();
         s_DirtyAssets.clear();
 
-        if (!fs::exists(projectRoot))
+        if (engineAssetsRoot.empty() || !fs::exists(engineAssetsRoot))
         {
-            LH_CORE_WARN("AssetDatabase: Project root does not exist: {0}", projectRoot.string());
+            LH_CORE_WARN("AssetDatabase: Engine assets root not found: {}", engineAssetsRoot.string());
             return;
         }
 
-        // Ensure Library exists
-        fs::create_directories(FileSystem::ProjectPath("Library/Artifacts"));
+        u32 engineAssetCount = 0;
+        for (const auto& entry : fs::recursive_directory_iterator(engineAssetsRoot))
+        {
+            if (!entry.is_regular_file()) continue;
+            const auto& path = entry.path();
+            if (path.extension() == ".meta") continue;
 
+            AssetType type = FileSystem::ClassifyFileType(path);
+            if (type == AssetType::None) continue;
+
+            UUID uuid = UUID::Invalid();
+            fs::path metaPath = path;
+            metaPath += ".meta";
+
+            if (fs::exists(metaPath))
+            {
+                MetaFile meta(UUID::Invalid());
+                if (meta.Load(metaPath))
+                    uuid = meta.GetUUID();
+            }
+
+            if (!uuid.IsValid())
+            {
+                uuid = MetaFile::Create(path, type);
+                LH_CORE_INFO("AssetDatabase: Generated meta for engine asset {}", path.filename().string());
+            }
+
+            s_Assets[uuid] = { path, type };
+            s_PathToUuid[path] = uuid;
+            engineAssetCount++;
+        }
+
+        LH_CORE_INFO("AssetDatabase: Registered {} engine assets", engineAssetCount);
+    }
+
+    // ================================================================
+    // Phase 2: Load project assets (called when user selects a project)
+    // ================================================================
+
+    void AssetDatabase::LoadProject(const std::filesystem::path& projectAssetsRoot)
+    {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+
+        s_ProjectRoot = fs::absolute(projectAssetsRoot).parent_path();
+        // projectAssetsRoot IS the <project>/assets/ path, but s_ProjectRoot should be <project>/
+        // Actually, let's derive it from FileSystem which already has the project root
+        s_ProjectRoot = FileSystem::ProjectPath();
+
+        s_DirtyAssets.clear();
+
+        if (!fs::exists(projectAssetsRoot))
+        {
+            LH_CORE_WARN("AssetDatabase: Project assets root does not exist: {}", projectAssetsRoot.string());
+            return;
+        }
+
+        // Ensure Library exists for this project
+        fs::create_directories(FileSystem::ProjectPath("Library/Artifacts"));
         LoadLibraryState();
 
         // Phase 1: Collect all file paths first.
-        // IMPORTANT: We must NOT create files during recursive_directory_iterator traversal,
-        // as modifying a directory during iteration is undefined behavior and can cause skipped files.
         std::vector<fs::path> metaFiles;
         std::vector<fs::path> assetFiles;
 
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(projectRoot))
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(projectAssetsRoot))
         {
             if (!entry.is_regular_file()) continue;
 
@@ -57,6 +115,8 @@ namespace Luth
             else
                 assetFiles.push_back(path);
         }
+
+        u32 projectAssetCount = 0;
 
         // Phase 2: Process asset files — create .meta if missing, register in DB
         for (const auto& path : assetFiles)
@@ -74,17 +134,18 @@ namespace Luth
                 if (meta.Load(metaPath))
                     uuid = meta.GetUUID();
                 else
-                    LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {0}", metaPath.string());
+                    LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {}", metaPath.string());
             }
 
             if (!uuid.IsValid())
             {
                 uuid = MetaFile::Create(path, type);
-                LH_CORE_INFO("AssetDatabase: Generated meta file for {0} -> UUID {1}", path.filename().string(), uuid.ToString());
+                LH_CORE_INFO("AssetDatabase: Generated meta file for {} -> UUID {}", path.filename().string(), uuid.ToString());
             }
 
             s_Assets[uuid] = { path, type };
             s_PathToUuid[path] = uuid;
+            projectAssetCount++;
 
             // Only check hash/reimport for types that have importers
             if (AssetManager::HasImporter(type))
@@ -92,7 +153,7 @@ namespace Luth
                 u64 currentHash = CalculateAssetHash(path, metaPath);
                 if (s_ArtifactHashes[uuid] != currentHash || !fs::exists(GetArtifactPath(uuid)))
                 {
-                    LH_CORE_INFO("AssetDatabase: Re-importing {0}", path.filename().string());
+                    LH_CORE_INFO("AssetDatabase: Re-importing {}", path.filename().string());
                     s_ArtifactHashes[uuid] = currentHash;
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);
@@ -105,60 +166,55 @@ namespace Luth
         for (const auto& path : metaFiles)
         {
             fs::path assetPath = path;
-            assetPath.replace_extension(""); // Remove .meta to get original asset path
+            assetPath.replace_extension("");
             if (!fs::exists(assetPath))
             {
-                LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {0}", path.filename().string());
+                LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {}", path.filename().string());
                 fs::remove(path);
             }
         }
 
-        LH_CORE_INFO("AssetDatabase: Initialized with {0} project assets", s_Assets.size());
+        LH_CORE_INFO("AssetDatabase: Scanned {} project assets", projectAssetCount);
         SaveLibraryState();
+    }
 
-        // Phase 4: Scan engine assets (read-only — no reimport, no Library state)
-        s_EngineAssetsRoot = engineAssetsRoot;
-        if (!engineAssetsRoot.empty() && fs::exists(engineAssetsRoot))
+    // ================================================================
+    // Unload project assets (keeps engine assets intact)
+    // ================================================================
+
+    void AssetDatabase::UnloadProject()
+    {
+        StopWatching();
+
+        std::lock_guard<std::mutex> lock(s_Mutex);
+
+        // Remove all non-engine assets from the registry
+        std::vector<UUID> toRemove;
+        for (const auto& [uuid, meta] : s_Assets)
         {
-            u32 engineAssetCount = 0;
-            for (const auto& entry : fs::recursive_directory_iterator(engineAssetsRoot))
-            {
-                if (!entry.is_regular_file()) continue;
-                const auto& path = entry.path();
-                if (path.extension() == ".meta") continue;
-
-                AssetType type = FileSystem::ClassifyFileType(path);
-                if (type == AssetType::None) continue;
-
-                // Skip if already registered (shouldn't happen, but safe)
-                if (s_PathToUuid.count(path)) continue;
-
-                UUID uuid = UUID::Invalid();
-                fs::path metaPath = path;
-                metaPath += ".meta";
-
-                if (fs::exists(metaPath))
-                {
-                    MetaFile meta(UUID::Invalid());
-                    if (meta.Load(metaPath))
-                        uuid = meta.GetUUID();
-                }
-
-                if (!uuid.IsValid())
-                {
-                    uuid = MetaFile::Create(path, type);
-                    LH_CORE_INFO("AssetDatabase: Generated meta for engine asset {0}", path.filename().string());
-                }
-
-                s_Assets[uuid] = { path, type };
-                s_PathToUuid[path] = uuid;
-                engineAssetCount++;
-            }
-            LH_CORE_INFO("AssetDatabase: Registered {0} engine assets from '{1}'",
-                engineAssetCount, engineAssetsRoot.string());
+            // Keep assets whose path starts with the engine assets root
+            std::string pathStr = meta.Path.string();
+            std::string engineStr = s_EngineAssetsRoot.string();
+            if (pathStr.rfind(engineStr, 0) != 0) // Not under engine root
+                toRemove.push_back(uuid);
         }
 
+        for (const auto& uuid : toRemove)
+        {
+            s_PathToUuid.erase(s_Assets[uuid].Path);
+            s_Assets.erase(uuid);
+        }
+
+        s_DirtyAssets.clear();
+        s_ArtifactHashes.clear();
+        s_ProjectRoot.clear();
+
+        LH_CORE_INFO("AssetDatabase: Project unloaded, {} engine assets remain", s_Assets.size());
     }
+
+    // ================================================================
+    // Shutdown
+    // ================================================================
 
     void AssetDatabase::Shutdown()
     {
@@ -171,6 +227,10 @@ namespace Luth
         s_ArtifactHashes.clear();
         s_ChangeCallbacks.clear();
     }
+
+    // ================================================================
+    // Queries & Registration
+    // ================================================================
 
     const AssetMetadata& AssetDatabase::GetMetadata(UUID uuid)
     {
@@ -216,6 +276,10 @@ namespace Luth
         }
     }
 
+    // ================================================================
+    // Library State Persistence
+    // ================================================================
+
     void AssetDatabase::LoadLibraryState()
     {
         fs::path path = FileSystem::ProjectPath("Library/State.json");
@@ -232,6 +296,8 @@ namespace Luth
 
     void AssetDatabase::SaveLibraryState()
     {
+        if (!FileSystem::HasProject()) return;
+
         nlohmann::json json;
         for (const auto& [uuid, hash] : s_ArtifactHashes) {
             json[uuid.ToString()] = hash;
@@ -244,8 +310,6 @@ namespace Luth
 
     u64 AssetDatabase::CalculateAssetHash(const fs::path& source, const fs::path& meta)
     {
-        // Simple timestamp + size hash for now.
-        // In production, read file content or use CRC32 of content.
         u64 hash = 0;
         if (fs::exists(source)) {
             hash ^= fs::last_write_time(source).time_since_epoch().count();
@@ -257,7 +321,9 @@ namespace Luth
         return hash;
     }
 
-    // ── File System Watching ───────────────────────────────────────────────────
+    // ================================================================
+    // File System Watching
+    // ================================================================
 
     void AssetDatabase::StartWatching()
     {
@@ -268,17 +334,13 @@ namespace Luth
         s_FileWatcher->AddWatch(s_ProjectRoot);
 
         s_FileWatcher->SetCallback([](const fs::path& path, FileWatcher::FileStatus status) {
-            // Skip .meta files — managed internally
             if (path.extension() == ".meta") return;
-
-            // Skip the Library/ directory (artifacts, state)
             if (path.string().find("Library") != std::string::npos) return;
 
             std::lock_guard<std::mutex> lock(s_PendingMutex);
             s_PendingChanges.push_back({ path, status });
         });
 
-        // initialScan=true: populate baseline without firing callbacks for existing files
         s_FileWatcher->Start(true);
         LH_CORE_INFO("AssetDatabase: File watcher started on '{}'", s_ProjectRoot.string());
     }
@@ -298,7 +360,6 @@ namespace Luth
 
     void AssetDatabase::ProcessPendingChanges()
     {
-        // Drain queue under pending-mutex (short lock, watcher thread may be writing)
         std::vector<std::pair<fs::path, FileWatcher::FileStatus>> batch;
         {
             std::lock_guard<std::mutex> lock(s_PendingMutex);
@@ -314,8 +375,6 @@ namespace Luth
             {
                 AssetType type = FileSystem::ClassifyFileType(path);
                 if (type == AssetType::None) continue;
-
-                // Might already be registered (importer wrote it, watcher caught it)
                 if (GetUUID(path).IsValid()) continue;
 
                 UUID uuid = UUID::Invalid();
@@ -347,7 +406,7 @@ namespace Luth
 
                 {
                     std::lock_guard<std::mutex> lock(s_Mutex);
-                    if (s_ArtifactHashes[uuid] == newHash) continue; // unchanged
+                    if (s_ArtifactHashes[uuid] == newHash) continue;
                     s_ArtifactHashes[uuid] = newHash;
 
                     fs::path artifact = GetArtifactPath(uuid);
@@ -363,7 +422,6 @@ namespace Luth
                 UUID uuid = GetUUID(path);
                 if (!uuid.IsValid()) continue;
 
-                // Clean up artifact and .meta
                 fs::path artifact = GetArtifactPath(uuid);
                 if (fs::exists(artifact)) fs::remove(artifact);
 
