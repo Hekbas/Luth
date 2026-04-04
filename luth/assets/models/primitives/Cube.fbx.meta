@@ -1,0 +1,14 @@
+{
+    "dependencies": [],
+    "type_settings": {
+        "bake_axis_conversion": true,
+        "import_normals": true,
+        "import_tangents": false,
+        "optimize_mesh": true,
+        "scale_factor": 1.0,
+        "skin_mesh_transform": 0,
+        "up_axis": -1
+    },
+    "uuid": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40",
+    "version": 1
+}

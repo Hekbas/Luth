@@ -1,0 +1,24 @@
+{
+    "alpha_cutoff": 0.5,
+    "alpha_from_diffuse": 0,
+    "blend_dst": 3,
+    "blend_src": 2,
+    "color": [
+        0.06048387289047241,
+        0.06048387289047241,
+        0.06048387289047241,
+        1.0
+    ],
+    "cull_mode": 0,
+    "render_mode": 0,
+    "shader": "dce001da-6901-4c29-bfd5-0ba5df122c23",
+    "textures": [],
+    "uniforms": {
+        "u_AlbedoColor": [
+            0.800000011920929,
+            0.800000011920929,
+            0.800000011920929,
+            1.0
+        ]
+    }
+}

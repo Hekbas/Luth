@@ -436,7 +436,7 @@ namespace Luth
         if (ImGui::BeginMenu("3D Object"))
         {
             auto spawnPrimitive = [this](const char* relPath, const char* name, Entity parent) {
-                UUID uuid = AssetDatabase::GetUUID(FileSystem::AssetsPath(relPath));
+                UUID uuid = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath(relPath));
                 if (!uuid.IsValid()) return;
                 if (AssetManager::IsLoaded(uuid))
                     InstantiateModel(uuid, parent);
