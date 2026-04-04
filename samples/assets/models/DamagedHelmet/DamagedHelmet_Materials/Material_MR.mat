@@ -1,0 +1,62 @@
+{
+    "alpha_cutoff": 0.5,
+    "alpha_from_diffuse": 0,
+    "blend_dst": 3,
+    "blend_src": 2,
+    "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ],
+    "cull_mode": 0,
+    "render_mode": 0,
+    "shader": "dce001da-6901-4c29-bfd5-0ba5df122c23",
+    "textures": [
+        {
+            "type": 0,
+            "useTexture": true,
+            "uuid": "fe934b08-e362-48cc-85ac-4fe16b654843",
+            "uv": 0
+        },
+        {
+            "type": 2,
+            "useTexture": true,
+            "uuid": "b780ba20-ea0c-472a-97ad-ad7b9a5d78df",
+            "uv": 0
+        },
+        {
+            "type": 7,
+            "useTexture": true,
+            "uuid": "f8b647c3-1ede-4901-bd9f-bf8b4845b7da",
+            "uv": 0
+        },
+        {
+            "type": 6,
+            "useTexture": true,
+            "uuid": "bcc3ea39-17f2-4d33-8563-d2ffd39bd885",
+            "uv": 0
+        },
+        {
+            "type": 3,
+            "useTexture": true,
+            "uuid": "5b0ae536-710f-466a-a0dc-926ff192ea3b",
+            "uv": 0
+        },
+        {
+            "type": 4,
+            "useTexture": false,
+            "uuid": "00000000-0000-0000-0000-000000000000",
+            "uv": 0
+        }
+    ],
+    "uniforms": {
+        "u_AlbedoColor": [
+            0.800000011920929,
+            0.800000011920929,
+            0.800000011920929,
+            1.0
+        ],
+        "u_Roughness": 0.5
+    }
+}
