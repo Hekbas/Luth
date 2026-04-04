@@ -23,9 +23,7 @@ jobs:
     - name: Cache submodules
       uses: actions/cache@v4
       with:
-        path: |
-          luth/extern/source
-          luthien/extern/source
+        path: luth/extern/source
         key: submodules-${{ hashFiles('.gitmodules') }}
 
     - name: Run premake
@@ -62,6 +60,4 @@ jobs:
         path: |
           bin/windows-x86_64/Release/Luthien/Luthien.exe
           bin/windows-x86_64/Release/Luthien/shaderc_shared.dll
-          bin/windows-x86_64/Release/Sandbox/Sandbox.exe
-          bin/windows-x86_64/Release/Sandbox/shaderc_shared.dll
           bin/windows-x86_64/Release/Luth/Luth.lib
