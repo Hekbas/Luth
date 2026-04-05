@@ -3,11 +3,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Hekbas/Luth/actions"><img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/Hekbas/Luth/build.yml?style=for-the-badge"></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-informational.svg?style=for-the-badge">
-  <img alt="Language" src="https://img.shields.io/badge/language-C++20-blue.svg?style=for-the-badge">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge">
-  <img alt="Status" src="https://img.shields.io/badge/status-Active%20Development-green.svg?style=for-the-badge">
+  <a href="https://github.com/Hekbas/Luth/releases/latest">
+    <img alt="Version" src="https://img.shields.io/github/v/release/Hekbas/Luth?style=for-the-badge&color=007ec6">
+  </a>
+  <a href="https://github.com/Hekbas/Luth/actions">
+    <img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/Hekbas/Luth/build.yml?style=for-the-badge">
+  </a>
+  
+</br>
+  <img alt="Language" src="https://img.shields.io/badge/Language-C++20-2b2d31.svg?style=for-the-badge&logo=c%2B%2B">
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows-2b2d31.svg?style=for-the-badge&logo=windows">
+
+  <a href="https://github.com/Hekbas/Luth/blob/main/LICENSE">
+    <img alt="License" src="https://img.shields.io/badge/License-MIT-2b2d31.svg?style=for-the-badge">
+  </a>
 </p>
 
 <p align="center">
@@ -96,40 +105,60 @@ Instead of hardcoding render pass order, Luth builds a **DAG** (directed acyclic
 ## Features
 
 ### Rendering
-* **Physically-Based Rendering:** Cook-Torrance BRDF with metallic/roughness workflow. Material data packed into a GPU SSBO (Set 2) with per-RenderMode pipeline variants (Opaque, Cutout, Transparent).
-* **Lighting & Shadows:** Directional light via UBO (Set 3), 2048² depth shadow map with PCF 3×3 soft filtering, ECS-driven light collection.
-* **Image-Based Lighting:** HDR equirectangular-to-cubemap conversion, diffuse irradiance convolution, pre-filtered specular environment map (5 mip levels), BRDF integration LUT. Split-sum approximation for PBR ambient lighting. Skybox rendered as a fullscreen pass with depth = 1.0 trick.
-* **Post-Processing:** Full HDR pipeline (RGBA16F). Bloom (brightness extract + two-pass Gaussian blur), tonemapping (Reinhard, ACES, Uncharted 2, exposure), vignette, film grain, chromatic aberration.
-* **Shader System:** ShaderLibrary singleton with SPIR-V asset pipeline — `.glsl` sources compiled to SPIR-V artifacts with stable UUIDs via `.meta` files. Hot-reload via FileWatcher with SPIRV-Cross reflection.
-* **Pipeline Cache:** VkPipelineCache persisted to disk for faster startup. Centralized PipelineManager with lazy variant creation keyed by shader and render state, with targeted invalidation on shader hot-reload.
-* **Mipmap Generation:** vkCmdBlitImage chain with per-texture settings pipeline (`.meta` → importer → artifact → GPU texture), sampler maxLod control.
 
-### Asset Pipeline & Tools
-* **Scene Serialization:** Custom JSON `.luth` format with native file dialogs, editor File menu shortcuts, and dirty tracking.
-* **Asset Database:** UUID-based asset registry with `.meta` sidecar files, importers for shaders/textures/models/materials, and artifact caching.
-* **Frame Debugger:** Unity-style split-panel debugger with GPU timestamp queries (triple-buffered VkQueryPool), render graph pass inspector with timing bars, intermediate texture preview, and pipeline state display.
+| | |
+|---|---|
+| **PBR** | Cook-Torrance BRDF, metallic/roughness workflow, material SSBO with render mode variants (Opaque, Cutout, Transparent) |
+| **Lighting** | Directional light, 2048² shadow map with PCF 3x3 soft filtering |
+| **IBL** | HDR skybox, diffuse irradiance, pre-filtered specular (5 mips), BRDF LUT, split-sum ambient |
+| **Post-Processing** | HDR pipeline, bloom, tonemapping (Reinhard/ACES/Uncharted 2/exposure), vignette, film grain, chromatic aberration |
+| **Shaders** | SPIR-V asset pipeline with stable UUIDs, hot-reload via FileWatcher, SPIRV-Cross reflection |
+| **Pipeline Cache** | Disk-persisted VkPipelineCache, lazy variant creation, targeted hot-reload invalidation |
+| **Mipmaps** | Per-texture settings pipeline with sampler maxLod control |
+
+### Animation
+
+| | |
+|---|---|
+| **Sampling** | Fiber-parallel keyframe evaluation across worker threads |
+| **GPU Skinning** | Bone matrix SSBO, vertex shader skinning |
+| **Blending** | SQT interpolation, crossfade transitions, layered override with bone masks |
+| **Root Motion** | Automatic extraction and application to entity transform |
+| **Debug** | Bone overlay visualization in editor viewport |
+
+### Asset Pipeline
+
+| | |
+|---|---|
+| **Asset Database** | UUID-based registry with `.meta` sidecar files, importers for shaders/textures/models/materials |
+| **Smart Import** | Multi-strategy texture discovery, drag-and-drop with eager import, texture remap dialog |
+| **Hot Reload** | FileWatcher-based live reload for shaders, textures, and project files |
+| **Scene Format** | Custom JSON `.luth` format with dirty tracking and native file dialogs |
 
 ### Editor
-* **Material Inspector:** Full material property editor with save/dirty tracking, Add Component workflow, directional light shadow controls, albedo color picker.
-* **Scene Interaction:** Mouse picking via ID buffer, selection outline rendering, multiple shade modes (Lit, Wireframe, Unlit), triangle count overlay.
-* **Editor Persistence:** Save/restore window layouts and editor settings across sessions, improved UI theme.
-* **Profiler:** Per-system timing breakdown with reworked panel layout.
+
+| | |
+|---|---|
+| **Scene Interaction** | Mouse picking (ID buffer), selection outlines with occluded fade, shade modes (Lit/Wireframe/Unlit) |
+| **Inspector** | Material editor, animation controls, light/shadow settings, Add Component workflow |
+| **Frame Debugger** | Trigger-based capture, per-draw-call scrubbing, depth visualization, pass timing, texture preview |
+| **Project Panel** | Folder navigation, search, hot reload, context menus for entity/primitive creation |
+| **Profiler** | Per-system timing breakdown with fiber-aware instrumentation |
+| **Persistence** | Window layouts, editor settings, and panel state saved across sessions |
 
 ---
 
 ## Roadmap
 
-Planned features (not yet scoped):
-* Deferred GBuffer rendering and SSAO
-* Anti-aliasing (FXAA / TAA)
-* Cascaded shadow maps
-* Global illumination (screen-space or probe-based)
-* Volumetric fog / haze
-* Physics (Jolt integration, jobified)
-* GPU particle system (compute shaders)
-* Animation improvements (blend trees, IK)
-* Scripting (C# or Lua)
-* Undo/redo, play mode, asset streaming
+See the full [development roadmap](docs/development/ROADMAP.md) for completed phases and version history.
+
+### Future Ideas
+
+**Rendering** — Deferred GBuffer, SSAO, FXAA/TAA, cascaded shadow maps, global illumination, volumetric fog
+
+**Gameplay** — Physics (Jolt, jobified), GPU particle system, animation blend trees & IK, prefab system, scripting (C#/Lua)
+
+**Editor** — Undo/redo, play mode, asset streaming
 
 ---
 
