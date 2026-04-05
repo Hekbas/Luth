@@ -159,7 +159,7 @@ namespace Luth
                     
                     ImVec2 buttonSize(24, 24);
                     if (hasTexture) {
-                        ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), buttonSize, { 0, 1 }, { 1, 0 });
+                        ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), buttonSize, { 0, 0 }, { 1, 1 });
                     }
                     else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
                         ImGui::Button("...", buttonSize);
