@@ -30,13 +30,19 @@ namespace Luth
 
         if (ImGui::Begin(inspector.c_str()))
         {
-            Entity selectedEntity = EditorSelection::GetSelectedEntity();
+            // Clear lock if entity becomes invalid
+            if (m_IsLocked && !m_LockedEntity.IsValid()) {
+                m_IsLocked = false;
+                m_LockedEntity = {};
+            }
+
+            Entity selectedEntity = m_IsLocked ? m_LockedEntity : EditorSelection::GetSelectedEntity();
             UUID selectedResource = EditorSelection::GetSelectedResource();
 
             if (selectedEntity) {
                 DrawEntityComponents(selectedEntity);
             }
-            else if (selectedResource.IsValid()) {
+            else if (!m_IsLocked && selectedResource.IsValid()) {
                 DrawResourceProperties(selectedResource);
             }
         }
@@ -50,7 +56,7 @@ namespace Luth
         if (m_SelectedEntity.HasComponent<Tag>()) {
             auto& tag = m_SelectedEntity.GetComponent<Tag>();
 
-            // Create a horizontal group for checkbox + name
+            // Horizontal group: [checkbox] [name...............] [lock]
             ImGui::BeginGroup();
 
             // Checkbox for active state
@@ -59,22 +65,36 @@ namespace Luth
                 m_SelectedEntity.SetActive(isActive);
                 Editor::MarkDirty();
             }
-
-            // Tooltip and spacing
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
-            }
             ImGui::SameLine();
 
-            // Name field
+            // Name field — reserve right margin for the lock button
+            float lockBtnWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+            ImGui::PushItemWidth(-lockBtnWidth);
             char buffer[256];
             strncpy(buffer, tag.m_Tag.c_str(), sizeof(buffer) - 1);
             buffer[sizeof(buffer) - 1] = 0;
-            ImGui::PushItemWidth(-1);
             if (ImGui::InputText("##Name", buffer, sizeof(buffer))) {
                 tag.m_Tag = std::string(buffer);
                 Editor::MarkDirty();
             }
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+
+            // Lock button — right-anchored in the same row
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            const char* lockIcon = m_IsLocked ? ICON_FA_LOCK : ICON_FA_LOCK_OPEN;
+            if (ImGui::Button(lockIcon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
+                m_IsLocked = !m_IsLocked;
+                if (m_IsLocked)
+                    m_LockedEntity = EditorSelection::GetSelectedEntity();
+                else
+                    m_LockedEntity = {};
+            }
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(m_IsLocked ? "Unlock Inspector" : "Lock to Current Entity");
 
             ImGui::EndGroup();
             ImGui::Dummy({ 0, 4 });

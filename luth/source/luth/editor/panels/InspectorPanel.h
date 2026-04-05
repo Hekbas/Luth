@@ -28,6 +28,10 @@ namespace Luth
 
         void DrawResourceProperties(UUID resource);
 
+        // Lock feature — keeps inspector pinned to a specific entity
+        bool   m_IsLocked = false;
+        Entity m_LockedEntity;
+
     private:
         ModelViewer    m_ModelViewer;
         MaterialEditor m_MaterialEditor;
