@@ -28,6 +28,7 @@
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/editor/UI.h"
 #include "luth/editor/EditorStyle.h"
+#include "luth/core/Version.h"
 #include "luth/editor/EditorSettings.h"
 #include "luth/utils/LuthIcons.h"
 
@@ -793,7 +794,7 @@ namespace Luth
     {
         if (!s_Window) return;
 
-        std::string title = "Luth 0.1 [Vulkan]";
+        std::string title = Luth::GetFullTitleString();
         if (!s_ScenePath.empty()) {
             title += " - " + s_ScenePath.filename().string();
         }

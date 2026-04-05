@@ -3,6 +3,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/editor/EditorColors.h"
 #include "luth/core/ProjectFile.h"
+#include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/utils/LuthIcons.h"
@@ -97,7 +98,7 @@ namespace Luth
                 RecentProject rp;
                 rp.Name       = entry.value("name", "Untitled");
                 rp.Path       = entry.value("path", "");
-                rp.Version    = entry.value("version", "0.1");
+                rp.Version    = entry.value("version", Luth::GetVersionString());
                 rp.LastOpened = entry.value("lastOpened", (int64_t)0);
                 if (!rp.Path.empty() && fs::exists(rp.Path))
                     s_RecentProjects.push_back(rp);
@@ -140,12 +141,12 @@ namespace Luth
         std::string absPath = fs::absolute(luthprojPath).string();
 
         // Try to read version from the .luthproj file
-        std::string version = "0.1";
+        std::string version = Luth::GetVersionString();
         try {
             if (fs::exists(luthprojPath)) {
                 std::ifstream f(luthprojPath);
                 nlohmann::json pj = nlohmann::json::parse(f);
-                version = pj.value("version", "0.1");
+                version = pj.value("version", Luth::GetVersionString());
             }
         } catch (...) {}
 

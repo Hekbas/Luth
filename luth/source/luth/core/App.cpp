@@ -6,6 +6,7 @@
 #include "luth/platform/Event.h"
 #include "luth/platform/AppEvent.h"
 #include "luth/core/ProjectFile.h"
+#include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
@@ -339,8 +340,7 @@ namespace Luth
 
     void App::SetAppTitle(WindowSpec& ws)
     {
-		std::string title = "Luth 0.1";
-        title += " [Vulkan]";
+		std::string title = Luth::GetFullTitleString();
 
 #ifdef _WIN32
 		title += " - Windows";

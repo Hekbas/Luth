@@ -1,5 +1,7 @@
 #pragma once
 
+#include "luth/core/Version.h"
+
 #include <filesystem>
 #include <string>
 
@@ -10,7 +12,7 @@ namespace Luth
     struct ProjectFile
     {
         std::string Name    = "Untitled";
-        std::string Version = "0.1";
+        std::string Version = Luth::GetVersionString();
 
         // Derived at load time — not serialized
         std::filesystem::path FilePath;      // Absolute path to the .luthproj file
