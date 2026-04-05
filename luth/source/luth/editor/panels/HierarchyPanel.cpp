@@ -252,10 +252,9 @@ namespace Luth
         // Recursion
         if (opened)
         {
-            // Tree connector lines
+            // Vertical-only tree connector line (matches ProjectPanel style)
             const ImColor treeLineColor = EditorColors::TreeLine;
             const float smallOffsetX = -6.0f;
-            const float horizontalLineSize = 10.0f;
             ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
             verticalLineStart.x += smallOffsetX;
             ImVec2 verticalLineEnd = verticalLineStart;
@@ -266,17 +265,10 @@ namespace Luth
             {
                 ImVec2 currentPos = ImGui::GetCursorScreenPos();
                 DrawEntityNode(child);
-
-                // Draw horizontal connector line
-                const float midpoint = currentPos.y + ImGui::GetFontSize() * 0.5f;
-                drawList->AddLine(
-                    ImVec2(verticalLineStart.x, midpoint),
-                    ImVec2(verticalLineStart.x + horizontalLineSize, midpoint),
-                    treeLineColor);
-                verticalLineEnd.y = midpoint;
+                verticalLineEnd.y = currentPos.y + ImGui::GetFontSize() * 0.5f;
             }
 
-            // Draw vertical connector line
+            // Draw vertical trunk line
             if (!children.empty())
                 drawList->AddLine(verticalLineStart, verticalLineEnd, treeLineColor);
 
