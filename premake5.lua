@@ -38,9 +38,6 @@ group "Luthien"
    include "Luthien"
 group ""
 
-group "Luthien/Extern"
-   include "luthien/extern"
-group ""
 
 group "Tools"
    include "extern/premake"
