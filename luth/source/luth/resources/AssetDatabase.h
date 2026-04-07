@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <vector>
 
@@ -71,5 +72,6 @@ namespace Luth
 
         static fs::path s_ProjectRoot;
         static fs::path s_EngineAssetsRoot;
+        static std::unordered_set<UUID, UUIDHash> s_EngineUUIDs;
     };
 }

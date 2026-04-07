@@ -19,6 +19,7 @@ namespace Luth
     std::vector<AssetDatabase::ChangeCallback> AssetDatabase::s_ChangeCallbacks;
     fs::path AssetDatabase::s_ProjectRoot;
     fs::path AssetDatabase::s_EngineAssetsRoot;
+    std::unordered_set<UUID, UUIDHash> AssetDatabase::s_EngineUUIDs;
 
     static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
 
@@ -34,6 +35,7 @@ namespace Luth
         s_Assets.clear();
         s_PathToUuid.clear();
         s_DirtyAssets.clear();
+        s_EngineUUIDs.clear();
 
         if (engineAssetsRoot.empty() || !fs::exists(engineAssetsRoot))
         {
@@ -70,8 +72,12 @@ namespace Luth
 
             s_Assets[uuid] = { path, type };
             s_PathToUuid[path] = uuid;
+            s_EngineUUIDs.insert(uuid);
             engineAssetCount++;
         }
+
+        // Ensure engine artifact cache directory exists
+        fs::create_directories(FileSystem::EnginePath("Library/Artifacts"));
 
         LH_CORE_INFO("AssetDatabase: Registered {} engine assets", engineAssetCount);
     }
@@ -226,6 +232,7 @@ namespace Luth
         s_DirtyAssets.clear();
         s_ArtifactHashes.clear();
         s_ChangeCallbacks.clear();
+        s_EngineUUIDs.clear();
     }
 
     // ================================================================
@@ -249,6 +256,8 @@ namespace Luth
 
     std::filesystem::path AssetDatabase::GetArtifactPath(UUID uuid)
     {
+        if (s_EngineUUIDs.count(uuid))
+            return FileSystem::EnginePath("Library/Artifacts") / (uuid.ToString() + ".luth");
         return FileSystem::ProjectPath("Library/Artifacts") / (uuid.ToString() + ".luth");
     }
 
