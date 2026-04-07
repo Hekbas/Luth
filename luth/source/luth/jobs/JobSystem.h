@@ -40,8 +40,22 @@ namespace Luth::JobSystem
     };
 
     // ===================================================================================
+    // Worker State (per-thread, for profiler visualization)
+    // ===================================================================================
+
+    enum class WorkerState : u8
+    {
+        Idle,
+        Running,
+        Stealing,
+        Sleeping
+    };
+
+    // ===================================================================================
     // Runtime Stats
     // ===================================================================================
+
+    static constexpr u32 MAX_WORKER_THREADS = 64;
 
     struct Stats
     {
@@ -50,6 +64,14 @@ namespace Luth::JobSystem
         u32 FreeFibers;
         u32 PeakFibers;
         u32 HighQueueSize;
+        WorkerState PerThreadState[MAX_WORKER_THREADS];
+
+        // Per-frame aggregated counters (reset each frame)
+        u32 JobsExecuted;
+        u32 StealAttempts;
+        u32 StealSuccesses;
+        u32 FiberYields;
+        u32 ReadyFiberCount;
     };
 
     // ===================================================================================

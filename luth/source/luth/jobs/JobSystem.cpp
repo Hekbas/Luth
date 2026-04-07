@@ -104,9 +104,43 @@ namespace Luth::JobSystem
 
         // Stats
         std::atomic<u32> PeakFibers = 0;
+
+        // Per-worker state (separate from WorkerData to avoid breaking move semantics)
+        std::atomic<WorkerState> WorkerStates[MAX_WORKER_THREADS]{};
+        std::atomic<WorkerState> WorkerPeakStates[MAX_WORKER_THREADS]{};
+
+        // Per-frame counters (reset by ResetFrameStats)
+        std::atomic<u32> FrameJobsExecuted = 0;
+        std::atomic<u32> FrameStealAttempts = 0;
+        std::atomic<u32> FrameStealSuccesses = 0;
+        std::atomic<u32> FrameFiberYields = 0;
     };
 
     static SchedulerData s_Data;
+
+    // Priority: Running(3) > Stealing(2) > Idle(1) > Sleeping(0)
+    static u8 WorkerStatePriority(WorkerState s)
+    {
+        switch (s) {
+            case WorkerState::Running:  return 3;
+            case WorkerState::Stealing: return 2;
+            case WorkerState::Idle:     return 1;
+            default:                    return 0;
+        }
+    }
+
+    static void SetWorkerState(u32 index, WorkerState state)
+    {
+        s_Data.WorkerStates[index].store(state, std::memory_order_relaxed);
+
+        // Update peak: only overwrite if new state has higher priority
+        WorkerState current = s_Data.WorkerPeakStates[index].load(std::memory_order_relaxed);
+        while (WorkerStatePriority(state) > WorkerStatePriority(current))
+        {
+            if (s_Data.WorkerPeakStates[index].compare_exchange_weak(current, state, std::memory_order_relaxed))
+                break;
+        }
+    }
 
     // -------------------------------------------------------------------------------
     // Worker Thread ID (safe to use thread_local for this ONE variable because
@@ -257,6 +291,8 @@ namespace Luth::JobSystem
             // Decrement counter
             if (jobPtr->CounterPtr)
                 DecrementCounter(jobPtr->CounterPtr);
+
+            s_Data.FrameJobsExecuted.fetch_add(1, std::memory_order_relaxed);
         }
 
         // Mark finished
@@ -302,6 +338,7 @@ namespace Luth::JobSystem
 
             if (readyFiber)
             {
+                SetWorkerState(workerIndex, WorkerState::Running);
                 // Swap FLS to the resumed fiber's context
                 JobContext* fiberCtx = GetFiberContext(readyFiber);
                 fiberCtx->ThreadIndex = workerIndex; // Update thread index (may have migrated)
@@ -337,6 +374,7 @@ namespace Luth::JobSystem
             // ---- Priority 4: Steal from other workers (FIFO — load balance) ----
             else
             {
+                s_Data.FrameStealAttempts.fetch_add(1, std::memory_order_relaxed);
                 u32 victimStart = workerIndex + 1;
                 for (u32 i = 0; i < s_Data.ThreadCount; ++i)
                 {
@@ -345,6 +383,8 @@ namespace Luth::JobSystem
 
                     if (s_Data.Workers[victim].LocalDeque->TrySteal(job))
                     {
+                        SetWorkerState(workerIndex, WorkerState::Stealing);
+                        s_Data.FrameStealSuccesses.fetch_add(1, std::memory_order_relaxed);
                         foundJob = true;
                         break;
                     }
@@ -353,6 +393,7 @@ namespace Luth::JobSystem
 
             if (foundJob)
             {
+                SetWorkerState(workerIndex, WorkerState::Running);
                 // Get a fiber from the pool
                 Fiber* fiber = AllocateFiber();
                 if (!fiber)
@@ -408,6 +449,7 @@ namespace Luth::JobSystem
                 }
 
                 // Sleep until generation changes (new work arrives)
+                SetWorkerState(workerIndex, WorkerState::Sleeping);
                 WaitOnAddress(
                     s_Data.HighQueue.GetGenerationPtr(),
                     &gen,
@@ -500,6 +542,15 @@ namespace Luth::JobSystem
     void ResetFrameStats()
     {
         s_Data.PeakFibers = 0;
+        s_Data.FrameJobsExecuted = 0;
+        s_Data.FrameStealAttempts = 0;
+        s_Data.FrameStealSuccesses = 0;
+        s_Data.FrameFiberYields = 0;
+
+        // Worker 0 is the main thread — always Running (drives the frame loop)
+        s_Data.WorkerPeakStates[0].store(WorkerState::Running, std::memory_order_relaxed);
+        for (u32 i = 1; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i)
+            s_Data.WorkerPeakStates[i].store(WorkerState::Sleeping, std::memory_order_relaxed);
     }
 
     void Execute(JobFunction function, void* data, Counter* counter, Priority priority)
@@ -666,6 +717,8 @@ namespace Luth::JobSystem
         if (currentFiber == &s_Data.Workers[t_WorkerIndex].SchedulerFiber)
             return; // Already in scheduler
 
+        s_Data.FrameFiberYields.fetch_add(1, std::memory_order_relaxed);
+
         // Push to ready list (so it gets picked up again)
         {
             SpinLockGuard lock(s_Data.ReadyFibersLock);
@@ -684,13 +737,23 @@ namespace Luth::JobSystem
 
     Stats GetStats()
     {
-        return {
-            s_Data.ThreadCount,
-            MAX_FIBERS,
-            s_Data.FreeFiberCount,
-            s_Data.PeakFibers.load(std::memory_order_relaxed),
-            0 // TODO: HighQueue size query
-        };
+        Stats stats{};
+        stats.ThreadCount = s_Data.ThreadCount;
+        stats.TotalFibers = MAX_FIBERS;
+        stats.FreeFibers  = s_Data.FreeFiberCount;
+        stats.PeakFibers  = s_Data.PeakFibers.load(std::memory_order_relaxed);
+        stats.HighQueueSize = s_Data.HighQueue.GetSize();
+
+        for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i)
+            stats.PerThreadState[i] = s_Data.WorkerPeakStates[i].load(std::memory_order_relaxed);
+
+        stats.JobsExecuted   = s_Data.FrameJobsExecuted.load(std::memory_order_relaxed);
+        stats.StealAttempts   = s_Data.FrameStealAttempts.load(std::memory_order_relaxed);
+        stats.StealSuccesses  = s_Data.FrameStealSuccesses.load(std::memory_order_relaxed);
+        stats.FiberYields     = s_Data.FrameFiberYields.load(std::memory_order_relaxed);
+        stats.ReadyFiberCount = s_Data.ReadyFiberCount;
+
+        return stats;
     }
 
     u32 GetWorkerThreadId()

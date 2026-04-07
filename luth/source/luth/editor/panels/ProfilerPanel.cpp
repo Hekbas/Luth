@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "ProfilerPanel.h"
 #include "luth/jobs/JobSystem.h"
+#include "luth/editor/EditorColors.h"
 #include "luth/core/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/Systems.h"
@@ -55,7 +56,10 @@ namespace Luth
         double absBytes = (double)(bytes < 0 ? -bytes : bytes);
         const char* sign = bytes < 0 ? "-" : "";
 
-        if (absBytes >= 1024.0 * 1024.0)
+        // 1 GB = 1024 * 1024 * 1024 bytes
+        if (absBytes >= 1024.0 * 1024.0 * 1024.0)
+            snprintf(buf, bufSize, "%s%.2f GB", sign, absBytes / (1024.0 * 1024.0 * 1024.0));
+        else if (absBytes >= 1024.0 * 1024.0)
             snprintf(buf, bufSize, "%s%.2f MB", sign, absBytes / (1024.0 * 1024.0));
         else if (absBytes >= 1024.0)
             snprintf(buf, bufSize, "%s%.2f KB", sign, absBytes / 1024.0);
@@ -73,6 +77,24 @@ namespace Luth
         if (ImGui::Begin(title.c_str()))
         {
             // ================================================================
+            // Per-frame sampling (worker states + job counters)
+            // ================================================================
+            {
+                JobSystem::Stats stats = JobSystem::GetStats();
+                m_WorkerThreadCount = stats.ThreadCount;
+                m_CachedJobsExecuted = stats.JobsExecuted;
+                m_CachedStealSuccesses = stats.StealSuccesses;
+
+                for (u32 i = 0; i < stats.ThreadCount && i < JobSystem::MAX_WORKER_THREADS; ++i)
+                    m_WorkerStateHistory[i][m_WorkerHistoryHead] = stats.PerThreadState[i];
+                m_WorkerHistoryHead = (m_WorkerHistoryHead + 1) % WORKER_HISTORY_FRAMES;
+
+                // GPU frame time from render graph snapshot
+                if (auto rs = Systems::GetSystem<RenderingSystem>())
+                    m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
+            }
+
+            // ================================================================
             // Update cached stats at 10Hz
             // ================================================================
             m_UpdateTimer += Time::UnscaledDeltaTime();
@@ -85,253 +107,512 @@ namespace Luth
                 std::rotate(m_FrameTimeHistory.begin(), m_FrameTimeHistory.begin() + 1, m_FrameTimeHistory.end());
                 m_FrameTimeHistory.back() = m_FrameTime;
 
-                // Min/max/avg over history
                 m_FrameTimeMin = *std::min_element(m_FrameTimeHistory.begin(), m_FrameTimeHistory.end());
                 m_FrameTimeMax = *std::max_element(m_FrameTimeHistory.begin(), m_FrameTimeHistory.end());
                 float sum = 0.0f;
                 for (float v : m_FrameTimeHistory) sum += v;
                 m_FrameTimeAvg = sum / (float)m_FrameTimeHistory.size();
 
-                // Memory snapshot
                 m_MemSnapshot = Memory::MemoryTracker::GetSnapshot();
                 std::rotate(m_MemoryHistory.begin(), m_MemoryHistory.begin() + 1, m_MemoryHistory.end());
                 m_MemoryHistory.back() = (float)m_MemSnapshot.TotalCurrent / (1024.0f * 1024.0f);
 
-                // GPU stats
                 m_GPUStats = VulkanAllocator::GetStats();
 
-                // Trim feedback countdown
                 if (m_TrimFeedbackTimer > 0.0f)
                     m_TrimFeedbackTimer -= 0.1f;
             }
 
+            // Helper lambdas
+            auto WorkerStateColor = [](JobSystem::WorkerState state) -> ImU32 {
+                switch (state) {
+                    case JobSystem::WorkerState::Running:  return EditorColors::WorkerRunning;
+                    case JobSystem::WorkerState::Stealing: return EditorColors::WorkerStealing;
+                    case JobSystem::WorkerState::Sleeping: return EditorColors::WorkerSleeping;
+                    default:                               return EditorColors::WorkerIdle;
+                }
+            };
+
+            auto WorkerStateName = [](JobSystem::WorkerState state) -> const char* {
+                switch (state) {
+                    case JobSystem::WorkerState::Running:  return "Running";
+                    case JobSystem::WorkerState::Stealing: return "Stealing";
+                    case JobSystem::WorkerState::Sleeping: return "Sleeping";
+                    default:                               return "Idle";
+                }
+            };
+
             // ================================================================
-            // Overview Header
+            // Overview — CPU/GPU Frame Budget Bars
             // ================================================================
             if (UI::BeginCollapsingHeader("Overview", true))
             {
-                    // FPS & frame time
-                    ImGui::TextColored(FrameTimeColor(m_FrameTime), "FPS: %.1f", m_FPS);
-                    ImGui::SameLine();
-                    ImGui::TextColored(FrameTimeColor(m_FrameTime), "  Frame Time: %.3f ms", m_FrameTime);
+                // Align text vertically with the adjacent input field for visual consistency.
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("FPS Target");
+                ImGui::SameLine();
 
-                    // Frame time graph
-                    char overlay[32];
-                    snprintf(overlay, sizeof(overlay), "avg %.1f ms", m_FrameTimeAvg);
-                    ImGui::PlotLines("##FrameTimes", m_FrameTimeHistory.data(), (int)m_FrameTimeHistory.size(),
-                        0, overlay, 0.0f, 33.0f, ImVec2(0, 50));
+                // Configure a draggable integer input for the target FPS.
+                // Conditionally format the display string to show "None" when the target is 0.
+                ImGui::PushItemWidth(50.0f);
+                const char* format = (m_TargetFPS == 0) ? "None" : "%d";
+                if (ImGui::DragInt("##TargetFPS", &m_TargetFPS, 1.0f, 0, 999, format))
+                {
+                    // Clamp the target FPS to prevent invalid negative values.
+                    m_TargetFPS = std::max(m_TargetFPS, 0);
 
-                    // Min/max/avg annotations
-                    ImGui::TextColored(FrameTimeColor(m_FrameTimeMin), "Min: %.1f ms", m_FrameTimeMin);
-                    ImGui::SameLine();
-                    ImGui::TextColored(FrameTimeColor(m_FrameTimeMax), "  Max: %.1f ms", m_FrameTimeMax);
-                    ImGui::SameLine();
-                    ImGui::TextColored(FrameTimeColor(m_FrameTimeAvg), "  Avg: %.1f ms", m_FrameTimeAvg);
+                    // Recalculate the frame budget (in milliseconds). 
+                    // Default the visual budget line to 16.67ms (60 FPS) if no target is specified.
+                    m_FrameBudgetMs = m_TargetFPS > 0 ? 1000.0f / (float)m_TargetFPS : 16.67f; 
+                }
+                ImGui::PopItemWidth();
 
-                    ImGui::Separator();
+                // Format the current FPS for the right-aligned live statistics readout.
+                char liveStatsBuf[64];
+                snprintf(liveStatsBuf, sizeof(liveStatsBuf), "%.0f", m_FPS);
 
-                    // Memory summary
-                    char buf1[64], buf2[64];
-                    ImGui::Text("Memory: %s (Peak: %s)",
-                        FormatBytes(m_MemSnapshot.TotalCurrent, buf1, sizeof(buf1)),
-                        FormatBytes(m_MemSnapshot.TotalPeak, buf2, sizeof(buf2)));
+                // Calculate the required horizontal offset to right-align the statistics text.
+                float textWidth = ImGui::CalcTextSize(liveStatsBuf).x;
+                float spaceAvailable = ImGui::GetContentRegionAvail().x;
 
-                    // GPU summary
-                    float usedMB = (float)m_GPUStats.UsedBytes / (1024.0f * 1024.0f);
-                    float freeMB = (float)m_GPUStats.FreeBytes / (1024.0f * 1024.0f);
-                    float totalMB = usedMB + freeMB;
-                    ImGui::Text("GPU: %.1f / %.1f MB", usedMB, totalMB);
-                    if (totalMB > 0.0f)
-                        ColoredProgressBar(usedMB / totalMB, ImVec2(-1, 0), nullptr);
+                // Note: If the parent container or graph utilizes a fixed width, 
+                // `spaceAvailable` should be replaced with that specific metric.
+                if (spaceAvailable > textWidth)
+                {
+                    ImGui::SameLine(spaceAvailable - textWidth);
+                }
+                else
+                {
+                    // Fallback to standard inline placement if layout space is constrained.
+                    ImGui::SameLine(); 
+                }
 
-                    ImGui::Separator();
+                // Render the statistics text, applying a dynamic color based on current frame time performance.
+                ImGui::TextColored(FrameTimeColor(m_FrameTime), "%s", liveStatsBuf);
 
-                    // Job system summary
-                    JobSystem::Stats stats = JobSystem::GetStats();
-                    ImGui::Text("Jobs Queued: %d  |  Fibers: %d/%d",
-                        stats.HighQueueSize, stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
+                // CPU/GPU budget bars
+                float barHeight = 20.0f;
+                float availWidth = ImGui::GetContentRegionAvail().x;
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+                // CPU bar
+                {
+                    ImVec2 cursor = ImGui::GetCursorScreenPos();
+                    float ratio = m_FrameTime / m_FrameBudgetMs;
+                    float barWidth = std::min(ratio, 1.5f) / 1.5f * availWidth;
+                    bool overBudget = m_TargetFPS > 0 && m_FrameTime > m_FrameBudgetMs;
+                    ImU32 barColor = overBudget ? IM_COL32(200, 60, 60, 255) : IM_COL32(80, 180, 80, 255);
+
+                    // Background
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + availWidth, cursor.y + barHeight), IM_COL32(40, 40, 40, 255), 2.0f);
+                    // Fill
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + barWidth, cursor.y + barHeight), barColor, 2.0f);
+                    // Budget line
+                    if (m_TargetFPS > 0) {
+                        float budgetX = cursor.x + (1.0f / 1.5f) * availWidth;
+                        drawList->AddLine(ImVec2(budgetX, cursor.y), ImVec2(budgetX, cursor.y + barHeight), IM_COL32(255, 255, 255, 180), 1.0f);
+                    }
+                    // Label
+                    char cpuLabel[32];
+                    snprintf(cpuLabel, sizeof(cpuLabel), "CPU: %.1f ms", m_FrameTime);
+                    drawList->AddText(ImVec2(cursor.x + 4, cursor.y + 2), IM_COL32(255, 255, 255, 255), cpuLabel);
+
+                    ImGui::Dummy(ImVec2(availWidth, barHeight + 2));
+                }
+
+                // GPU bar
+                {
+                    ImVec2 cursor = ImGui::GetCursorScreenPos();
+                    float gpuTime = m_GPUFrameTimeMs > 0.0f ? m_GPUFrameTimeMs : 0.0f;
+                    float ratio = gpuTime / m_FrameBudgetMs;
+                    float barWidth = std::min(ratio, 1.5f) / 1.5f * availWidth;
+                    bool overBudget = m_TargetFPS > 0 && gpuTime > m_FrameBudgetMs;
+                    ImU32 barColor = overBudget ? IM_COL32(200, 60, 60, 255) : IM_COL32(60, 120, 200, 255);
+
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + availWidth, cursor.y + barHeight), IM_COL32(40, 40, 40, 255), 2.0f);
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + barWidth, cursor.y + barHeight), barColor, 2.0f);
+                    if (m_TargetFPS > 0) {
+                        float budgetX = cursor.x + (1.0f / 1.5f) * availWidth;
+                        drawList->AddLine(ImVec2(budgetX, cursor.y), ImVec2(budgetX, cursor.y + barHeight), IM_COL32(255, 255, 255, 180), 1.0f);
+                    }
+                    char gpuLabel[32];
+                    snprintf(gpuLabel, sizeof(gpuLabel), "GPU: %.1f ms", gpuTime);
+                    drawList->AddText(ImVec2(cursor.x + 4, cursor.y + 2), IM_COL32(255, 255, 255, 255), gpuLabel);
+
+                    ImGui::Dummy(ImVec2(availWidth, barHeight + 2));
+                }
+
+                ImGui::Separator();
+                
+                float graphWidth = ImGui::GetContentRegionAvail().x;
+                
+                // Frame time graph
+                ImGui::PlotLines("##FrameTimes", m_FrameTimeHistory.data(), (int)m_FrameTimeHistory.size(),
+                    0, nullptr, 0.0f, m_FrameBudgetMs * 2.0f, ImVec2(graphWidth, 40));
+
+                ImGui::TextColored(FrameTimeColor(m_FrameTimeMin), "Min: %.1f ms", m_FrameTimeMin);
+                ImGui::SameLine();
+                ImGui::TextColored(FrameTimeColor(m_FrameTimeAvg), "  Avg: %.1f ms", m_FrameTimeAvg);
+                ImGui::SameLine();
+                ImGui::TextColored(FrameTimeColor(m_FrameTimeMax), "  Max: %.1f ms", m_FrameTimeMax);
 
                 UI::EndCollapsingHeader();
             }
 
             // ============================================================
-            // CPU Header
+            // CPU — Worker Timeline Swimlanes
             // ============================================================
             if (UI::BeginCollapsingHeader("CPU"))
             {
-                    JobSystem::Stats stats = JobSystem::GetStats();
+                // --- Summary Line with Right-Aligned Legend Tooltip ---
+                char summaryBuf[128];
+                snprintf(summaryBuf, sizeof(summaryBuf), "%d workers  |  %d jobs  |  %d steals",
+                    m_WorkerThreadCount, m_CachedJobsExecuted, m_CachedStealSuccesses);
+                    
+                ImGui::TextDisabled("%s", summaryBuf);
 
-                    if (UI::BeginInfoTable("JobStats")) {
-                        UI::InfoRow("Worker Threads", "%d", stats.ThreadCount);
-                        UI::InfoRow("Active Fibers", "%d / %d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
-                        UI::InfoRow("Peak Fibers", "%d", stats.PeakFibers);
-                        UI::InfoRow("Queued Jobs", "%d", stats.HighQueueSize);
-                        UI::EndInfoTable();
-                    }
+                // Calculate space to right-align the legend marker
+                const char* legendMarker = "(?)";
+                float markerWidth = ImGui::CalcTextSize(legendMarker).x;
+                float spaceAvailable = ImGui::GetContentRegionAvail().x;
 
+                if (spaceAvailable > markerWidth)
+                {
+                    ImGui::SameLine(ImGui::GetCursorPosX() + spaceAvailable - markerWidth);
+                }
+                else
+                {
+                    ImGui::SameLine(); 
+                }
+
+                ImGui::TextDisabled("%s", legendMarker);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::TextUnformatted("Worker States");
                     ImGui::Separator();
 
-                    // Queue load
-                    ImGui::Text("Queue Load");
-                    float queueRatio = (float)stats.HighQueueSize / 100.0f;
-                    ColoredProgressBar(queueRatio, ImVec2(-1, 0), nullptr);
-
-                    // Fiber pool
-                    ImGui::Text("Fiber Pool");
-                    float fiberRatio = (float)(stats.TotalFibers - stats.FreeFibers) / (float)stats.TotalFibers;
-                    char fiberOverlay[32];
-                    snprintf(fiberOverlay, sizeof(fiberOverlay), "%d/%d", stats.TotalFibers - stats.FreeFibers, stats.TotalFibers);
-                    ColoredProgressBar(fiberRatio, ImVec2(-1, 0), fiberOverlay);
-
-                    ImGui::Separator();
-
-                    // Worker thread grid
-                    ImGui::Text("Workers");
-                    ImDrawList* drawList = ImGui::GetWindowDrawList();
-                    ImVec2 cursor = ImGui::GetCursorScreenPos();
-                    const float squareSize = 16.0f;
-                    const float spacing = 2.0f;
-
-                    for (u32 i = 0; i < stats.ThreadCount; ++i)
+                    if (ImGui::BeginTable("WorkerLegendTable", 2, ImGuiTableFlags_SizingStretchProp))
                     {
-                        float x = cursor.x + i * (squareSize + spacing);
-                        float y = cursor.y;
+                        ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 14.0f);
+                        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch);
 
-                        // All workers currently report "Running" — green
-                        ImU32 color = IM_COL32(138, 219, 0, 255);
+                        struct LegendItem { const char* name; ImU32 color; };
+                        const LegendItem legendData[] = {
+                            { "Running",  Luth::EditorColors::WorkerRunning },
+                            { "Stealing", Luth::EditorColors::WorkerStealing },
+                            { "Idle",     Luth::EditorColors::WorkerIdle },
+                            { "Sleeping", Luth::EditorColors::WorkerSleeping }
+                        };
 
-                        drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + squareSize, y + squareSize), color, 2.0f);
+                        float textLineHeight = ImGui::GetTextLineHeight();
+                        float colorBoxSize = textLineHeight * 0.8f;
+                        float verticalOffset = (textLineHeight - colorBoxSize) * 0.5f;
 
-                        // Invisible button for tooltip
-                        ImGui::SetCursorScreenPos(ImVec2(x, y));
-                        char btnId[16];
-                        snprintf(btnId, sizeof(btnId), "##w%d", i);
-                        ImGui::InvisibleButton(btnId, ImVec2(squareSize, squareSize));
-                        if (ImGui::IsItemHovered())
+                        for (int i = 0; i < 4; ++i)
                         {
-                            ImGui::BeginTooltip();
-                            ImGui::Text("Worker %d: Running", i);
-                            ImGui::EndTooltip();
+                            ImGui::TableNextRow();
+                            ImGui::PushID(i);
+
+                            // Column 0: Color Box
+                            ImGui::TableSetColumnIndex(0);
+                            float startY = ImGui::GetCursorPosY();
+                            ImGui::SetCursorPosY(startY + verticalOffset);
+                            
+                            ImVec4 col = ImGui::ColorConvertU32ToFloat4(legendData[i].color);
+                            ImGui::ColorButton("##wc", col, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, ImVec2(colorBoxSize, colorBoxSize));
+
+                            // Column 1: State Name
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::SetCursorPosY(startY);
+                            ImGui::TextUnformatted(legendData[i].name);
+
+                            ImGui::PopID();
                         }
-                        if (i < stats.ThreadCount - 1)
-                            ImGui::SameLine(0.0f, spacing);
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTooltip();
+                }
+
+                ImGui::Separator();
+
+                // --- Timeline Rendering ---
+                float availWidth = ImGui::GetContentRegionAvail().x;
+                float segWidth = availWidth / (float)WORKER_HISTORY_FRAMES;
+                if (segWidth < 1.0f) segWidth = 1.0f;
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+                const float mainBarHeight = 20.0f;
+                const float workerBarHeight = 8.0f;
+                const float workerGap = 1.0f;
+
+                // Main thread bar (worker 0)
+                ImGui::Text("Main Thread");
+                {
+                    ImVec2 cursor = ImGui::GetCursorScreenPos();
+                    for (u32 f = 0; f < WORKER_HISTORY_FRAMES; ++f)
+                    {
+                        u32 histIdx = (m_WorkerHistoryHead + f) % WORKER_HISTORY_FRAMES;
+                        float x = cursor.x + f * segWidth;
+                        ImU32 color = WorkerStateColor(m_WorkerStateHistory[0][histIdx]);
+                        drawList->AddRectFilled(ImVec2(x, cursor.y), ImVec2(x + segWidth, cursor.y + mainBarHeight), color);
+                    }
+                    ImGui::InvisibleButton("##main_bar", ImVec2(availWidth, mainBarHeight));
+                    if (ImGui::IsItemHovered())
+                    {
+                        float mouseX = ImGui::GetMousePos().x - ImGui::GetItemRectMin().x;
+                        u32 frame = (u32)(mouseX / segWidth);
+                        if (frame < WORKER_HISTORY_FRAMES)
+                        {
+                            u32 histIdx = (m_WorkerHistoryHead + frame) % WORKER_HISTORY_FRAMES;
+                            ImGui::SetTooltip("Main Thread: %s", WorkerStateName(m_WorkerStateHistory[0][histIdx]));
+                        }
+                    }
+                }
+
+                ImGui::Dummy(ImVec2(0, 4));
+
+                // Worker bars (1..N-1)
+                if (m_WorkerThreadCount > 1)
+                {
+                    ImGui::Text("Workers");
+                    ImVec2 startCursor = ImGui::GetCursorScreenPos();
+                    float totalHeight = (m_WorkerThreadCount - 1) * (workerBarHeight + workerGap);
+
+                    for (u32 w = 1; w < m_WorkerThreadCount && w < JobSystem::MAX_WORKER_THREADS; ++w)
+                    {
+                        float yOffset = (w - 1) * (workerBarHeight + workerGap);
+                        for (u32 f = 0; f < WORKER_HISTORY_FRAMES; ++f)
+                        {
+                            u32 histIdx = (m_WorkerHistoryHead + f) % WORKER_HISTORY_FRAMES;
+                            float x = startCursor.x + f * segWidth;
+                            float y = startCursor.y + yOffset;
+                            ImU32 color = WorkerStateColor(m_WorkerStateHistory[w][histIdx]);
+                            drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + segWidth, y + workerBarHeight), color);
+                        }
                     }
 
-                    // Advance cursor past the grid
-                    ImGui::SetCursorScreenPos(ImVec2(cursor.x, cursor.y + squareSize + spacing));
-                    ImGui::Dummy(ImVec2(0, 0));
+                    ImGui::InvisibleButton("##worker_bars", ImVec2(availWidth, totalHeight));
+                    if (ImGui::IsItemHovered())
+                    {
+                        float mouseX = ImGui::GetMousePos().x - ImGui::GetItemRectMin().x;
+                        float mouseY = ImGui::GetMousePos().y - ImGui::GetItemRectMin().y;
+                        u32 frame = (u32)(mouseX / segWidth);
+                        u32 worker = 1 + (u32)(mouseY / (workerBarHeight + workerGap));
+                        if (frame < WORKER_HISTORY_FRAMES && worker < m_WorkerThreadCount)
+                        {
+                            u32 histIdx = (m_WorkerHistoryHead + frame) % WORKER_HISTORY_FRAMES;
+                            ImGui::SetTooltip("Worker %d: %s", worker, WorkerStateName(m_WorkerStateHistory[worker][histIdx]));
+                        }
+                    }
+                }
 
                 UI::EndCollapsingHeader();
             }
 
             // ============================================================
-            // Memory Header
+            // Memory — Stacked Bar Chart
             // ============================================================
             if (UI::BeginCollapsingHeader("Memory"))
             {
-                    char buf1[64], buf2[64];
+                char buf1[64], buf2[64];
+                ImGui::Text("Total: %s (Peak: %s)",
+                    FormatBytes(m_MemSnapshot.TotalCurrent, buf1, sizeof(buf1)),
+                    FormatBytes(m_MemSnapshot.TotalPeak, buf2, sizeof(buf2)));
 
-                    // Total tracked memory
-                    ImGui::Text("Total Tracked: %s (Peak: %s)",
-                        FormatBytes(m_MemSnapshot.TotalCurrent, buf1, sizeof(buf1)),
-                        FormatBytes(m_MemSnapshot.TotalPeak, buf2, sizeof(buf2)));
+                // Memory history graph
+                // 1. Find the current peak memory usage
+                float maxMem = 0.0f;
+                for (float mem : m_MemoryHistory)
+                {
+                    maxMem = std::max(mem, maxMem);
+                }
 
-                    // Memory graph
-                    ImGui::PlotLines("##MemoryUsage", m_MemoryHistory.data(), (int)m_MemoryHistory.size(),
-                        0, "Total MB", 0.0f, 0.0f, ImVec2(0, 40));
+                // 2. Add a small buffer. 
+                // If your memory hits exactly 128MB, this pushes it slightly over 
+                // so the math below snaps the ceiling to 256MB, giving you headroom.
+                float targetMax = maxMem * 1.2f;
 
-                    ImGui::Separator();
+                // 3. Snap to the next power of 2 using base-2 math
+                // e.g., if targetMax is 140: log2(140) = ~7.12 -> ceil(7.12) = 8 -> exp2(8) = 256
+                float dynamicMax = std::exp2(std::ceil(std::log2(targetMax)));
 
-                    // Per-category table
-                    if (ImGui::BeginTable("MemCategories", 5,
-                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+                // 4. Enforce your absolute minimum baseline of 64 MB
+                dynamicMax = std::max(64.0f, dynamicMax);
+                
+                // 5. Fetch the exact width available in the current container/panel
+                float graphWidth = ImGui::GetContentRegionAvail().x;
+                
+                // 6. Render the plot
+                ImGui::PlotLines("##MemoryUsage", 
+                    m_MemoryHistory.data(), 
+                    (int)m_MemoryHistory.size(),
+                    0, 
+                    nullptr,     
+                    0.0f,           // scale_min: anchor to 0
+                    dynamicMax,     // scale_max: snaps to 64, 128, 256, 512, etc.
+                    ImVec2(graphWidth, 40));
+
+                ImGui::Separator();
+            
+                // Category color lookup
+                const ImU32 categoryColors[] = {
+                    EditorColors::MemGeneral,
+                    EditorColors::MemRendering,
+                    EditorColors::MemScene,
+                    EditorColors::MemJobs,
+                    EditorColors::MemResources,
+                    EditorColors::MemEditor,
+                    EditorColors::MemFrameLinear,
+                    EditorColors::MemFrameTagged,
+                    EditorColors::MemGPU
+                };
+
+                // Stacked horizontal bar
+                float barHeight = 20.0f;
+                float availWidth = ImGui::GetContentRegionAvail().x;
+                ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+                // Background
+                drawList->AddRectFilled(cursor, ImVec2(cursor.x + availWidth, cursor.y + barHeight), IM_COL32(40, 40, 40, 255), 2.0f);
+
+                i64 totalBytes = m_MemSnapshot.TotalCurrent > 0 ? m_MemSnapshot.TotalCurrent : 1;
+                float xOffset = 0.0f;
+
+                struct SegmentInfo { u8 catIndex; float x; float width; };
+                SegmentInfo segments[9]{};
+                u32 segCount = 0;
+
+                for (u8 i = 0; i < static_cast<u8>(Memory::Category::Count); ++i)
+                {
+                    i64 current = m_MemSnapshot.Categories[i].Current;
+                    if (current <= 0) continue;
+
+                    float segWidth = ((float)current / (float)totalBytes) * availWidth;
+                    if (segWidth < 1.0f) segWidth = 1.0f;
+
+                    drawList->AddRectFilled(
+                        ImVec2(cursor.x + xOffset, cursor.y),
+                        ImVec2(cursor.x + xOffset + segWidth, cursor.y + barHeight),
+                        categoryColors[i]);
+
+                    segments[segCount++] = { i, xOffset, segWidth };
+                    xOffset += segWidth;
+                }
+
+                // Invisible button for tooltip
+                ImGui::InvisibleButton("##membar", ImVec2(availWidth, barHeight));
+                if (ImGui::IsItemHovered())
+                {
+                    float mouseX = ImGui::GetMousePos().x - ImGui::GetItemRectMin().x;
+                    for (u32 s = 0; s < segCount; ++s)
                     {
-                        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_None, 2.0f);
-                        ImGui::TableSetupColumn("Current",  ImGuiTableColumnFlags_None, 1.5f);
-                        ImGui::TableSetupColumn("Peak",     ImGuiTableColumnFlags_None, 1.5f);
-                        ImGui::TableSetupColumn("Alloc",   ImGuiTableColumnFlags_None, 1.0f);
-                        ImGui::TableSetupColumn("Free",    ImGuiTableColumnFlags_None, 1.0f);
-                        ImGui::TableHeadersRow();
-
-                        for (u8 i = 0; i < static_cast<u8>(Memory::Category::Count); ++i)
+                        if (mouseX >= segments[s].x && mouseX < segments[s].x + segments[s].width)
                         {
-                            auto& entry = m_MemSnapshot.Categories[i];
-
-                            if (entry.Allocs == 0 && entry.Current == 0)
-                                continue;
-
-                            ImGui::TableNextRow();
-
-                            bool potentialLeak = (entry.Current > 0) && (entry.Frees < entry.Allocs);
-
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", Memory::MemoryTracker::GetCategoryName(static_cast<Memory::Category>(i)));
-
-                            ImGui::TableNextColumn();
-                            if (entry.Current < 0)
-                                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", FormatBytes(entry.Current, buf1, sizeof(buf1)));
-                            else
-                                ImGui::Text("%s", FormatBytes(entry.Current, buf1, sizeof(buf1)));
-
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%s", FormatBytes(entry.Peak, buf1, sizeof(buf1)));
-
-                            ImGui::TableNextColumn();
-                            ImGui::Text("%u", entry.Allocs);
-
-                            ImGui::TableNextColumn();
-                            if (potentialLeak)
-                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "%u", entry.Frees);
-                            else
-                                ImGui::Text("%u", entry.Frees);
+                            i64 current = m_MemSnapshot.Categories[segments[s].catIndex].Current;
+                            float pct = (float)current / (float)totalBytes * 100.0f;
+                            ImGui::SetTooltip("%s: %s (%.1f%%)",
+                                Memory::MemoryTracker::GetCategoryName(static_cast<Memory::Category>(segments[s].catIndex)),
+                                FormatBytes(current, buf1, sizeof(buf1)), pct);
+                            break;
                         }
-
-                        ImGui::EndTable();
                     }
+                }
 
-                    ImGui::Separator();
+                // Legend (colored dots + name + size)
+                ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
+                if (ImGui::BeginTable("MemoryLegendTable", 2, tableFlags))
+                {
+                    // Column 0 (Name) takes up the remaining space, Column 1 (Size) has a fixed minimum width
+                    ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
 
-                    // Trim buttons
-                    if (ImGui::Button("Trim Unused Assets"))
+                    // Calculate dynamic sizing for the color box so it scales safely with UI font sizes
+                    float textLineHeight = ImGui::GetTextLineHeight();
+                    float colorBoxSize = textLineHeight * 0.8f; 
+                    float verticalOffset = (textLineHeight - colorBoxSize) * 0.5f;
+
+                    for (u32 s = 0; s < segCount; ++s)
                     {
-                        m_LastTrimCount = AssetManager::Trim(false);
-                        m_TrimFeedbackTimer = 3.0f;
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Force Trim"))
-                    {
-                        m_LastTrimCount = AssetManager::Trim(true);
-                        m_TrimFeedbackTimer = 3.0f;
-                    }
+                        ImGui::PushID(s);
+                        ImGui::TableNextRow();
 
-                    if (m_TrimFeedbackTimer > 0.0f)
-                    {
-                        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Evicted %u assets", m_LastTrimCount);
+                        u8 catIdx = segments[s].catIndex;
+                        ImVec4 col = ImGui::ColorConvertU32ToFloat4(categoryColors[catIdx]);
+
+                        // --- Column 0: Color Box + Category Name ---
+                        ImGui::TableSetColumnIndex(0);
+
+                        // Push cursor down slightly to vertically center the color box with the text
+                        float startY = ImGui::GetCursorPosY();
+                        ImGui::SetCursorPosY(startY + verticalOffset);
+                        
+                        ImGui::ColorButton("##mc", col, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, ImVec2(colorBoxSize, colorBoxSize));
+                        
+                        ImGui::SameLine();
+                        ImGui::SetCursorPosY(startY); // Reset Y cursor back to normal for the text
+                        ImGui::TextUnformatted(Memory::MemoryTracker::GetCategoryName(static_cast<Memory::Category>(catIdx)));
+
+                        // --- Column 1: Size (Right-aligned) ---
+                        ImGui::TableSetColumnIndex(1);
+                        
+                        char buf1[32];
+                        const char* sizeText = FormatBytes(m_MemSnapshot.Categories[catIdx].Current, buf1, sizeof(buf1));
+                        
+                        // Calculate the width of the text to push it cleanly to the right edge of the column
+                        float textWidth = ImGui::CalcTextSize(sizeText).x;
+                        float columnWidth = ImGui::GetColumnWidth();
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (columnWidth - textWidth));
+                        
+                        ImGui::TextUnformatted(sizeText);
+
+                        ImGui::PopID();
                     }
+                    ImGui::EndTable();
+                }
+
+                ImGui::Separator();
+
+                // Trim buttons
+                if (ImGui::Button("Trim Unused Assets"))
+                {
+                    m_LastTrimCount = AssetManager::Trim(false);
+                    m_TrimFeedbackTimer = 3.0f;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Force Trim"))
+                {
+                    m_LastTrimCount = AssetManager::Trim(true);
+                    m_TrimFeedbackTimer = 3.0f;
+                }
+
+                if (m_TrimFeedbackTimer > 0.0f)
+                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Evicted %u assets", m_LastTrimCount);
 
                 UI::EndCollapsingHeader();
             }
 
             // ============================================================
-            // GPU Header
+            // GPU Memory
             // ============================================================
-            if (UI::BeginCollapsingHeader("GPU"))
+            if (UI::BeginCollapsingHeader("GPU Memory"))
             {
-                    float usedMB  = (float)m_GPUStats.UsedBytes / (1024.0f * 1024.0f);
-                    float freeMB  = (float)m_GPUStats.FreeBytes / (1024.0f * 1024.0f);
-                    float totalMB = usedMB + freeMB;
+                float usedMB  = (float)m_GPUStats.UsedBytes / (1024.0f * 1024.0f);
+                float freeMB  = (float)m_GPUStats.FreeBytes / (1024.0f * 1024.0f);
+                float totalMB = usedMB + freeMB;
 
-                    if (UI::BeginInfoTable("GPUMem")) {
-                        UI::InfoRow("Used",        "%.2f MB", usedMB);
-                        UI::InfoRow("Free",        "%.2f MB", freeMB);
-                        UI::InfoRow("Total",       "%.2f MB", totalMB);
-                        UI::InfoRow("Allocations", "%u", m_GPUStats.AllocationCount);
-                        UI::InfoRow("Blocks",      "%u", m_GPUStats.BlockCount);
-                        UI::EndInfoTable();
-                    }
+                if (UI::BeginInfoTable("GPUMem")) {
+                    UI::InfoRow("Used",        "%.2f MB", usedMB);
+                    UI::InfoRow("Free",        "%.2f MB", freeMB);
+                    UI::InfoRow("Total",       "%.2f MB", totalMB);
+                    UI::InfoRow("Allocations", "%u", m_GPUStats.AllocationCount);
+                    UI::InfoRow("Blocks",      "%u", m_GPUStats.BlockCount);
+                    UI::EndInfoTable();
+                }
 
-                    if (totalMB > 0.0f)
-                        ColoredProgressBar(usedMB / totalMB, ImVec2(-1, 0), nullptr);
+                if (totalMB > 0.0f)
+                    ColoredProgressBar(usedMB / totalMB, ImVec2(-1, 0), nullptr);
 
                 UI::EndCollapsingHeader();
             }

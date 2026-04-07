@@ -3,7 +3,9 @@
 #include "luth/editor/Editor.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/jobs/JobSystem.h"
 #include <vector>
+#include <array>
 
 namespace Luth
 {
@@ -36,6 +38,19 @@ namespace Luth
 
         // GPU stats cache
         GPUMemoryStats m_GPUStats{};
+        float m_GPUFrameTimeMs = 0.0f;
+
+        // Target FPS budget
+        int   m_TargetFPS = 60;
+        float m_FrameBudgetMs = 16.67f;
+
+        // Worker timeline history (sampled every frame)
+        static constexpr u32 WORKER_HISTORY_FRAMES = 200;
+        std::array<std::array<JobSystem::WorkerState, WORKER_HISTORY_FRAMES>, JobSystem::MAX_WORKER_THREADS> m_WorkerStateHistory{};
+        u32 m_WorkerHistoryHead = 0;
+        u32 m_WorkerThreadCount = 0;
+        u32 m_CachedJobsExecuted = 0;
+        u32 m_CachedStealSuccesses = 0;
 
         // Trim feedback
         u32   m_LastTrimCount = 0;

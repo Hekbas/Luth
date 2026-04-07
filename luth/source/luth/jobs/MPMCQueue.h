@@ -127,6 +127,13 @@ namespace Luth
             return enq == deq;
         }
 
+        u32 GetSize() const
+        {
+            u32 enq = m_EnqueuePos.load(std::memory_order_relaxed);
+            u32 deq = m_DequeuePos.load(std::memory_order_relaxed);
+            return enq - deq;
+        }
+
     private:
         struct Cell
         {
