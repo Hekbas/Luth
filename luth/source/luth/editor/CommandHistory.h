@@ -33,6 +33,12 @@ namespace Luth
         // Clear history (on scene change)
         static void Clear();
 
+        // Read-only stack access (for debug panel)
+        static const std::vector<std::unique_ptr<ICommand>>& GetUndoStack() { return s_UndoStack; }
+        static const std::vector<std::unique_ptr<ICommand>>& GetRedoStack() { return s_RedoStack; }
+        static bool IsInCompound() { return s_InCompound; }
+        static const char* GetCompoundName() { return s_CompoundName; }
+
     private:
         static inline std::vector<std::unique_ptr<ICommand>> s_UndoStack;
         static inline std::vector<std::unique_ptr<ICommand>> s_RedoStack;

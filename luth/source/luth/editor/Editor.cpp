@@ -25,6 +25,7 @@
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/panels/ProfilerPanel.h"
 #include "luth/editor/panels/FrameDebuggerPanel.h"
+#include "luth/editor/panels/HistoryPanel.h"
 #include "luth/editor/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/editor/UI.h"
@@ -140,6 +141,7 @@ namespace Luth
         AddPanel(new RenderPanel());
         AddPanel(new ProfilerPanel());
         AddPanel(new FrameDebuggerPanel());
+        AddPanel(new HistoryPanel());
 
         // Init all panels
         for (auto& panel : s_Panels)

@@ -49,6 +49,8 @@ namespace Luth
         }
         const char* GetName() const override { return m_Name; }
         bool IsEmpty() const { return m_Commands.empty(); }
+        size_t GetChildCount() const { return m_Commands.size(); }
+        const std::vector<std::unique_ptr<ICommand>>& GetChildren() const { return m_Commands; }
 
     private:
         const char* m_Name;
@@ -66,8 +68,12 @@ namespace Luth
     public:
         ComponentPropertyCommand(const char* name, Scene* scene, entt::entity entity,
                                  T C::*member, T oldValue, T newValue)
-            : m_Name(name), m_Scene(scene), m_Entity(entity),
-              m_Member(member), m_OldValue(std::move(oldValue)), m_NewValue(std::move(newValue)) {}
+            : m_Name(name), m_Scene(scene),
+              m_Member(member), m_OldValue(std::move(oldValue)), m_NewValue(std::move(newValue))
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
 
         void Execute() override { Apply(m_NewValue); }
         void Undo()    override { Apply(m_OldValue); }
@@ -76,7 +82,7 @@ namespace Luth
 
         bool CanMerge(const ICommand& other) const override {
             auto* o = dynamic_cast<const ComponentPropertyCommand<C, T>*>(&other);
-            return o && o->m_Entity == m_Entity && o->m_Member == m_Member;
+            return o && o->m_EntityUUID == m_EntityUUID && o->m_Member == m_Member;
         }
         void MergeWith(const ICommand& other) override {
             m_NewValue = static_cast<const ComponentPropertyCommand<C, T>&>(other).m_NewValue;
@@ -84,7 +90,9 @@ namespace Luth
 
     private:
         void Apply(const T& value) {
-            auto& comp = m_Scene->Registry().get<C>(m_Entity);
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
+            auto& comp = e.GetComponent<C>();
             comp.*m_Member = value;
             if constexpr (requires(C c) { c.IsDirty = true; }) {
                 comp.IsDirty = true;
@@ -93,7 +101,7 @@ namespace Luth
 
         const char* m_Name;
         Scene* m_Scene;
-        entt::entity m_Entity;
+        UUID m_EntityUUID;
         T C::*m_Member;
         T m_OldValue;
         T m_NewValue;
@@ -240,21 +248,31 @@ namespace Luth
     {
     public:
         ComponentAddCommand(const char* name, Scene* scene, entt::entity entity)
-            : m_Name(name), m_Scene(scene), m_Entity(entity) {}
+            : m_Name(name), m_Scene(scene)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
 
         ComponentAddCommand(const char* name, Scene* scene, entt::entity entity, T initValue)
-            : m_Name(name), m_Scene(scene), m_Entity(entity),
-              m_InitValue(std::move(initValue)), m_HasInitValue(true) {}
+            : m_Name(name), m_Scene(scene),
+              m_InitValue(std::move(initValue)), m_HasInitValue(true)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
 
         void Execute() override {
-            Entity e{ m_Entity, m_Scene };
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
             if (m_HasInitValue)
                 e.AddOrReplaceComponent<T>(m_InitValue);
             else
                 e.AddOrReplaceComponent<T>();
         }
         void Undo() override {
-            Entity e{ m_Entity, m_Scene };
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
             if (e.HasComponent<T>())
                 e.RemoveComponent<T>();
         }
@@ -264,7 +282,7 @@ namespace Luth
     private:
         const char* m_Name;
         Scene* m_Scene;
-        entt::entity m_Entity;
+        UUID m_EntityUUID;
         T m_InitValue{};
         bool m_HasInitValue = false;
     };
@@ -274,17 +292,23 @@ namespace Luth
     {
     public:
         ComponentRemoveCommand(const char* name, Scene* scene, entt::entity entity)
-            : m_Name(name), m_Scene(scene), m_Entity(entity) {}
+            : m_Name(name), m_Scene(scene)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
 
         void Execute() override {
-            Entity e{ m_Entity, m_Scene };
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
             if (e.HasComponent<T>()) {
                 m_SavedValue = e.GetComponent<T>();
                 e.RemoveComponent<T>();
             }
         }
         void Undo() override {
-            Entity e{ m_Entity, m_Scene };
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
             e.AddOrReplaceComponent<T>(m_SavedValue);
         }
         void Redo() override { Execute(); }
@@ -293,7 +317,7 @@ namespace Luth
     private:
         const char* m_Name;
         Scene* m_Scene;
-        entt::entity m_Entity;
+        UUID m_EntityUUID;
         T m_SavedValue{};
     };
 
