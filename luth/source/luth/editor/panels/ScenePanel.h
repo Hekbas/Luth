@@ -151,6 +151,12 @@ namespace Luth
         int m_GizmoType = -1; // -1 = None, or ImGuizmo::OPERATION
         bool m_ShowTransformGizmo = true;
 
+        // Gizmo drag tracking (for undo coalescing)
+        bool m_WasUsingGizmo = false;
+        Vec3 m_GizmoStartPos{};
+        Vec3 m_GizmoStartRot{};
+        Vec3 m_GizmoStartScale{};
+
         // Controls overlay
         bool m_ShowControlsOverlay = true;
     };

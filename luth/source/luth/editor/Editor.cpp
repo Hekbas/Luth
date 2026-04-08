@@ -16,6 +16,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
+#include "luth/editor/CommandHistory.h"
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
@@ -468,6 +469,7 @@ namespace Luth
     void Editor::SetActiveScene(std::shared_ptr<Scene> scene)
     {
         s_ActiveScene = scene;
+        CommandHistory::Clear();
         s_LastHierarchyVersion = scene ? scene->GetHierarchyVersion() : 0;
 
         // Update Systems raw pointer so TransformSystem/RenderingSystem use the correct scene
@@ -499,6 +501,7 @@ namespace Luth
 
         // Clear all entities
         s_ActiveScene->Clear();
+        CommandHistory::Clear();
 
         s_ScenePath.clear();
         s_IsDirty = false;
@@ -519,6 +522,7 @@ namespace Luth
         if (!s_ActiveScene) return;
 
         if (SceneSerializer::Load(*s_ActiveScene, path)) {
+            CommandHistory::Clear();
             s_ScenePath = path;
             s_IsDirty = false;
             s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
@@ -660,7 +664,15 @@ namespace Luth
         bool shift = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
 
         if (ctrl) {
-            if (ImGui::IsKeyPressed(ImGuiKey_N, false))
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+                if (shift)
+                    CommandHistory::Redo();
+                else
+                    CommandHistory::Undo();
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+                CommandHistory::Redo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_N, false))
                 NewScene();
             else if (ImGui::IsKeyPressed(ImGuiKey_O, false))
                 OpenScene();
@@ -700,6 +712,14 @@ namespace Luth
                     SaveScene();
                 if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
                     SaveSceneAs();
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Edit")) {
+                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, CommandHistory::CanUndo()))
+                    CommandHistory::Undo();
+                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, CommandHistory::CanRedo()))
+                    CommandHistory::Redo();
                 ImGui::EndMenu();
             }
 

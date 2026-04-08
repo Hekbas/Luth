@@ -2,6 +2,8 @@
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/EditorSelection.h"
+#include "luth/editor/Command.h"
+#include "luth/editor/CommandHistory.h"
 #include "luth/editor/EditorSettings.h"
 #include "luth/editor/EditorColors.h"
 #include "luth/platform/FileDialog.h"
@@ -504,7 +506,16 @@ namespace Luth
                 (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(worldMatrix),
                 nullptr, snap ? snapValues : nullptr);
 
-            if (ImGuizmo::IsUsing())
+            bool isUsing = ImGuizmo::IsUsing();
+
+            // Capture transform at drag start
+            if (isUsing && !m_WasUsingGizmo) {
+                m_GizmoStartPos   = tc.Position;
+                m_GizmoStartRot   = tc.Rotation;
+                m_GizmoStartScale = tc.Scale;
+            }
+
+            if (isUsing)
             {
                 // Convert back to Local Space
                 glm::mat4 localMatrix = worldMatrix;
@@ -523,6 +534,16 @@ namespace Luth
                 tc.Scale = glm::make_vec3(scale);
                 tc.IsDirty = true;
             }
+
+            // Push command at drag end
+            if (!isUsing && m_WasUsingGizmo) {
+                CommandHistory::Execute(std::make_unique<GizmoTransformCommand>(
+                    m_Context.get(), (entt::entity)m_SelectedEntity,
+                    m_GizmoStartPos, m_GizmoStartRot, m_GizmoStartScale,
+                    tc.Position, tc.Rotation, tc.Scale));
+            }
+
+            m_WasUsingGizmo = isUsing;
         }
 
         // Gizmo Shortcuts

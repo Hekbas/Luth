@@ -10,6 +10,8 @@
 #include "luth/resources/importers/MaterialImporter.h"
 #include "luth/core/Time.h"
 #include "luth/jobs/IOThread.h"
+#include "luth/editor/Command.h"
+#include "luth/editor/CommandHistory.h"
 
 #include <imgui/imgui_internal.h>
 
@@ -336,9 +338,14 @@ namespace Luth
             }
         }
 
-        // --- Auto-save debounce ---
+        // --- Auto-save debounce + Undo snapshot ---
         if (material.NeedsSave() && !m_PendingSave)
         {
+            // Capture undo snapshot before any changes
+            if (!m_HasUndoSnapshot || m_PendingHandle != material.Handle) {
+                material.Serialize(m_UndoSnapshot);
+                m_HasUndoSnapshot = true;
+            }
             m_PendingSave = true;
             m_SaveTimer = 0.0f;
             m_PendingHandle = material.Handle;
@@ -351,6 +358,7 @@ namespace Luth
                 // Material changed — reset
                 m_PendingSave = false;
                 m_SaveTimer = 0.0f;
+                m_HasUndoSnapshot = false;
             }
             else if (ImGui::IsAnyItemActive())
             {
@@ -362,6 +370,15 @@ namespace Luth
                 m_SaveTimer += Time::UnscaledDeltaTime();
                 if (m_SaveTimer >= kAutoSaveDelay)
                 {
+                    // Push undo command with old/new state
+                    if (m_HasUndoSnapshot) {
+                        nlohmann::json newState;
+                        material.Serialize(newState);
+                        CommandHistory::Execute(std::make_unique<MaterialSnapshotCommand>(
+                            material.Handle, m_UndoSnapshot, newState));
+                        m_HasUndoSnapshot = false;
+                    }
+
                     SaveMaterial(material);
                     m_PendingSave = false;
                     m_SaveTimer = 0.0f;

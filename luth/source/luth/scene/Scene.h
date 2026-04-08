@@ -51,10 +51,15 @@ namespace Luth
         void ReleaseAsset(UUID uuid);
         void ReleaseAllAssets();
 
-    private:
-        std::string GenerateUniqueName(Entity entity);
+        // UUID lookup (O(n) — editor-only, used by undo/redo)
+        Entity FindEntityByUUID(UUID uuid) const;
+
+        // Root entity list management (public for undo/redo command utils)
         void AddToRoots(Entity entity);
         void RemoveFromRoots(Entity entity);
+
+    private:
+        std::string GenerateUniqueName(Entity entity);
 
     private:
         entt::registry m_Registry;

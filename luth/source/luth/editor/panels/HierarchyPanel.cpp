@@ -2,6 +2,8 @@
 #include "luth/editor/panels/HierarchyPanel.h"
 #include "luth/editor/EditorColors.h"
 #include "luth/editor/EditorSelection.h"
+#include "luth/editor/Command.h"
+#include "luth/editor/CommandHistory.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Systems.h"
 #include "luth/utils/LuthIcons.h"
@@ -39,8 +41,15 @@ namespace Luth
             // Handle Global Shortcuts (Delete, F2, Esc)
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             {
-                if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_Selection)
-                    DeleteSelectedEntity();
+                if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_Selection) {
+                    Entity sel = m_Selection;
+                    m_DeferredActions.push_back([this, sel]() {
+                        if (sel && sel.IsValid()) {
+                            CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
+                            SetSelectedEntity({});
+                        }
+                    });
+                }
                 
                 if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_Selection)
                     RenameEntity(m_Selection);
@@ -55,10 +64,13 @@ namespace Luth
             }
             
             // Create New Entity Shortcut (Ctrl + Shift + N)
-            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && 
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
                 ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyDown(ImGuiKey_LeftShift) && ImGui::IsKeyPressed(ImGuiKey_N))
             {
-                SetSelectedEntity(m_Context->CreateEntity("New Entity"));
+                auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "New Entity");
+                auto* rawCmd = cmd.get();
+                CommandHistory::Execute(std::move(cmd));
+                SetSelectedEntity(rawCmd->GetCreatedEntity());
             }
 
             // Main Hierarchy Area
@@ -200,7 +212,12 @@ namespace Luth
             
             if (ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
             {
-                entity.SetName(m_RenameBuffer);
+                std::string oldName = entity.GetName();
+                std::string newName = m_RenameBuffer;
+                if (oldName != newName) {
+                    CommandHistory::Execute(std::make_unique<EntityRenameCommand>(
+                        entity.GetScene(), (entt::entity)entity, oldName, newName));
+                }
                 m_IsRenaming = false;
             }
             ImGui::PopStyleVar();
@@ -329,7 +346,8 @@ namespace Luth
                         drawList->AddLine(ImVec2(ImGui::GetItemRectMin().x, itemMinY), ImVec2(ImGui::GetItemRectMax().x, itemMinY), highlightColor, 2.0f);
                         if (ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
                         {
-                            m_Context->ReorderEntity(payloadEntity, targetEntity, false);
+                            CommandHistory::Execute(std::make_unique<EntityReorderCommand>(
+                                m_Context.get(), payloadEntity, targetEntity, false));
                         }
                     }
                     else if (isReorderingBot)
@@ -337,18 +355,19 @@ namespace Luth
                         drawList->AddLine(ImVec2(ImGui::GetItemRectMin().x, itemMaxY), ImVec2(ImGui::GetItemRectMax().x, itemMaxY), highlightColor, 2.0f);
                         if (ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
                         {
-                            m_Context->ReorderEntity(payloadEntity, targetEntity, true);
+                            CommandHistory::Execute(std::make_unique<EntityReorderCommand>(
+                                m_Context.get(), payloadEntity, targetEntity, true));
                         }
                     }
                     else
                     {
                         // Parenting
-                        // Highlight the whole node background rect
                         drawList->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), highlightColor, 0.0f, 0, 2.0f);
-                        
+
                         if (ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
                         {
-                            payloadEntity.SetParent(targetEntity);
+                            CommandHistory::Execute(std::make_unique<EntityReparentCommand>(
+                                m_Context.get(), payloadEntity, targetEntity));
                         }
                     }
                 }
@@ -388,7 +407,8 @@ namespace Luth
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
             {
                 Entity payloadEntity = *(Entity*)payload->Data;
-                payloadEntity.RemoveParent(); // Make Root
+                CommandHistory::Execute(std::make_unique<EntityReparentCommand>(
+                    m_Context.get(), payloadEntity, Entity{})); // Make Root
             }
             
             // Also handle asset drops (Prefabs/Models)
@@ -418,10 +438,13 @@ namespace Luth
     {
         if (ImGui::MenuItem("Create Empty"))
         {
-            m_DeferredActions.push_back([this, parent]() {
-                auto e = m_Context->CreateEntity("New Entity");
-                if (parent) e.SetParent(parent);
-                SetSelectedEntity(e);
+            UUID parentUUID = (parent && parent.IsValid())
+                ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+            m_DeferredActions.push_back([this, parentUUID]() {
+                auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "New Entity", parentUUID);
+                auto* rawCmd = cmd.get();
+                CommandHistory::Execute(std::move(cmd));
+                SetSelectedEntity(rawCmd->GetCreatedEntity());
             });
         }
 
@@ -479,10 +502,18 @@ namespace Luth
         
         if (ImGui::MenuItem("Camera"))
         {
-            m_DeferredActions.push_back([this, parent]() {
-                auto cam = m_Context->CreateEntity("Camera");
-                if (parent) cam.SetParent(parent);
-                cam.AddComponent<Camera>();
+            UUID parentUUID = (parent && parent.IsValid())
+                ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+            m_DeferredActions.push_back([this, parentUUID]() {
+                CommandHistory::BeginCompound("Create Camera");
+                auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Camera", parentUUID);
+                auto* rawCmd = cmd.get();
+                CommandHistory::Execute(std::move(cmd));
+                Entity cam = rawCmd->GetCreatedEntity();
+                if (cam.IsValid())
+                    CommandHistory::Execute(std::make_unique<ComponentAddCommand<Camera>>(
+                        "Add Camera", m_Context.get(), (entt::entity)cam));
+                CommandHistory::EndCompound();
                 SetSelectedEntity(cam);
             });
         }
@@ -490,20 +521,43 @@ namespace Luth
         if (ImGui::BeginMenu("Light"))
         {
             if (ImGui::MenuItem("Directional Light")) {
-                m_DeferredActions.push_back([this, parent]() {
-                    auto light = m_Context->CreateEntity("Directional Light");
-                    if (parent) light.SetParent(parent);
-                    light.AddComponent<DirectionalLight>();
-                    light.GetComponent<Transform>().Rotation = Vec3(-45.0f, 0.0f, 0.0f);
+                UUID parentUUID = (parent && parent.IsValid())
+                    ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                m_DeferredActions.push_back([this, parentUUID]() {
+                    CommandHistory::BeginCompound("Create Directional Light");
+                    auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Directional Light", parentUUID);
+                    auto* rawCmd = cmd.get();
+                    CommandHistory::Execute(std::move(cmd));
+                    Entity light = rawCmd->GetCreatedEntity();
+                    if (light.IsValid()) {
+                        CommandHistory::Execute(std::make_unique<ComponentAddCommand<DirectionalLight>>(
+                            "Add DirectionalLight", m_Context.get(), (entt::entity)light));
+                        auto& tc = light.GetComponent<Transform>();
+                        auto oldRot = tc.Rotation;
+                        tc.Rotation = Vec3(-45.0f, 0.0f, 0.0f);
+                        tc.IsDirty = true;
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
+                            "Set Rotation", m_Context.get(), (entt::entity)light,
+                            &Transform::Rotation, oldRot, tc.Rotation));
+                    }
+                    CommandHistory::EndCompound();
                     SetSelectedEntity(light);
                 });
             }
             if (ImGui::MenuItem("Point Light"))
             {
-                m_DeferredActions.push_back([this, parent]() {
-                    auto light = m_Context->CreateEntity("Point Light");
-                    if (parent) light.SetParent(parent);
-                    light.AddComponent<PointLight>();
+                UUID parentUUID = (parent && parent.IsValid())
+                    ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                m_DeferredActions.push_back([this, parentUUID]() {
+                    CommandHistory::BeginCompound("Create Point Light");
+                    auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Point Light", parentUUID);
+                    auto* rawCmd = cmd.get();
+                    CommandHistory::Execute(std::move(cmd));
+                    Entity light = rawCmd->GetCreatedEntity();
+                    if (light.IsValid())
+                        CommandHistory::Execute(std::make_unique<ComponentAddCommand<PointLight>>(
+                            "Add PointLight", m_Context.get(), (entt::entity)light));
+                    CommandHistory::EndCompound();
                     SetSelectedEntity(light);
                 });
             }
@@ -519,8 +573,12 @@ namespace Luth
 
         if (ImGui::MenuItem("Delete", "Del", false, m_Selection.operator bool()))
         {
-            m_DeferredActions.push_back([this]() {
-                DeleteSelectedEntity();
+            Entity sel = m_Selection;
+            m_DeferredActions.push_back([this, sel]() {
+                if (sel && sel.IsValid()) {
+                    CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
+                    SetSelectedEntity({});
+                }
             });
         }
     }
@@ -575,55 +633,14 @@ namespace Luth
 
     void HierarchyPanel::InstantiateModel(UUID assetUuid, Entity parent)
     {
-        using namespace Component;
+        UUID parentUUID = (parent && parent.IsValid())
+            ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
 
-        auto model = AssetManager::GetAsset<Model>(assetUuid);
-        if (!model) return;
-
-        Entity root = m_Context->CreateEntity(model->GetName());
-        if (parent.IsValid()) root.SetParent(parent);
-
-        // Add Animation component for skinned models
-        if (model->IsSkinned())
-            root.AddComponent<Animation>(assetUuid);
-
-        // Create child entity per mesh
-        const auto& meshes = model->GetMeshes();
-        for (size_t i = 0; i < meshes.size(); i++)
-        {
-            Entity child = m_Context->CreateEntity(model->GetCachedModelInfo().Meshes[i].Name);
-            child.SetParent(root);
-            auto& mr = child.AddComponent<MeshRenderer>();
-            mr.ModelUUID = assetUuid;
-            mr.MeshIndex = (u32)i;
-            mr.isSkinned = model->IsSkinned();
-            if (i < model->GetMaterials().size()) {
-                mr.MaterialUUID = model->GetMaterials()[i];
-                if (mr.MaterialUUID.IsValid())
-                    AssetManager::LoadAsync(mr.MaterialUUID);
-            }
-        }
-
-        // Create bone hierarchy entities for skinned models
-        if (model->IsSkinned() && !model->GetSkeleton().IsEmpty())
-        {
-            const auto& skeleton = model->GetSkeleton();
-            u32 boneCount = skeleton.BoneCount();
-            std::vector<Entity> boneEntities(boneCount);
-
-            for (u32 i = 0; i < boneCount; i++)
-            {
-                const auto& bone = skeleton.Bones[i];
-                Entity boneEntity = m_Context->CreateEntity(bone.Name);
-                boneEntities[i] = boneEntity;
-
-                if (bone.ParentIndex >= 0 && bone.ParentIndex < (i32)boneCount)
-                    boneEntity.SetParent(boneEntities[bone.ParentIndex]);
-                else
-                    boneEntity.SetParent(root);
-            }
-        }
-
-        SetSelectedEntity(root);
+        auto cmd = std::make_unique<ModelInstantiateCommand>(m_Context.get(), assetUuid, parentUUID);
+        auto* rawCmd = cmd.get();
+        CommandHistory::Execute(std::move(cmd));
+        Entity root = rawCmd->GetRootEntity();
+        if (root.IsValid())
+            SetSelectedEntity(root);
     }
 }

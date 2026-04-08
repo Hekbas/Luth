@@ -180,6 +180,16 @@ namespace Luth
         }
     }
 
+    Entity Scene::FindEntityByUUID(UUID uuid) const
+    {
+        auto view = m_Registry.view<ID>();
+        for (auto e : view) {
+            if (view.get<ID>(e).m_ID == uuid)
+                return Entity{ e, const_cast<Scene*>(this) };
+        }
+        return {};
+    }
+
     void Scene::AddToRoots(Entity entity) {
         m_RootEntities.push_back(entity);
     }

@@ -1,6 +1,8 @@
 #include "luthpch.h"
 #include "luth/editor/panels/InspectorPanel.h"
 #include "luth/editor/UI.h"
+#include "luth/editor/Command.h"
+#include "luth/editor/CommandHistory.h"
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -63,7 +65,7 @@ namespace Luth
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
                 m_SelectedEntity.SetActive(isActive);
-                Editor::MarkDirty();
+                Editor::MarkDirty(); // Active state lives on Entity wrapper, not in registry
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
@@ -76,8 +78,12 @@ namespace Luth
             strncpy(buffer, tag.m_Tag.c_str(), sizeof(buffer) - 1);
             buffer[sizeof(buffer) - 1] = 0;
             if (ImGui::InputText("##Name", buffer, sizeof(buffer))) {
-                tag.m_Tag = std::string(buffer);
-                Editor::MarkDirty();
+                std::string oldName = tag.m_Tag;
+                std::string newName = buffer;
+                if (oldName != newName) {
+                    CommandHistory::Execute(std::make_unique<EntityRenameCommand>(
+                        m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, oldName, newName));
+                }
             }
             ImGui::PopItemWidth();
             ImGui::SameLine();
@@ -138,69 +144,145 @@ namespace Luth
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             if (UI::BeginProperties()) {
-                if (UI::Property("Position", transform.Position)) { transform.IsDirty = true; Editor::MarkDirty(); }
-                if (UI::Property("Rotation", transform.Rotation)) { transform.IsDirty = true; Editor::MarkDirty(); }
-                if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) { transform.IsDirty = true; Editor::MarkDirty(); }
+                {
+                    auto old = transform.Position;
+                    if (UI::Property("Position", transform.Position)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
+                            "Change Position", entity.GetScene(), (entt::entity)entity,
+                            &Transform::Position, old, transform.Position));
+                        transform.IsDirty = true;
+                    }
+                }
+                {
+                    auto old = transform.Rotation;
+                    if (UI::Property("Rotation", transform.Rotation)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
+                            "Change Rotation", entity.GetScene(), (entt::entity)entity,
+                            &Transform::Rotation, old, transform.Rotation));
+                        transform.IsDirty = true;
+                    }
+                }
+                {
+                    auto old = transform.Scale;
+                    if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
+                            "Change Scale", entity.GetScene(), (entt::entity)entity,
+                            &Transform::Scale, old, transform.Scale));
+                        transform.IsDirty = true;
+                    }
+                }
                 UI::EndProperties();
             }
         });
 
         DrawComponent<Camera>("Camera", m_SelectedEntity, [](Entity e, Camera& camera) {
             if (UI::BeginProperties("CameraProps")) {
+                Scene* scene = e.GetScene();
+                entt::entity ent = (entt::entity)e;
+
                 const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
                 int currentProj = (int)camera.Projection;
                 if (UI::PropertyCombo("Projection", currentProj, projectionTypeStrings, 2)) {
+                    auto oldProj = camera.Projection;
                     camera.Projection = (Camera::ProjectionType)currentProj;
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, Camera::ProjectionType>>(
+                        "Change Projection", scene, ent,
+                        &Camera::Projection, oldProj, camera.Projection));
                     camera.IsDirty = true;
-                    Editor::MarkDirty();
                 }
+
+                // Capture all values before UI edits
+                auto snapFOV = camera.VerticalFOV;
+                auto snapNear = camera.NearClip;
+                auto snapFar = camera.FarClip;
+                auto snapOrthoSize = camera.OrthographicSize;
+                auto snapOrthoNear = camera.OrthographicNear;
+                auto snapOrthoFar = camera.OrthographicFar;
+                auto snapAspect = camera.AspectRatio;
 
                 bool changed = false;
                 if (camera.Projection == Camera::ProjectionType::Perspective) {
-                    changed |= UI::Property("FOV", camera.VerticalFOV, 0.1f, 1.0f, 180.0f);
-                    changed |= UI::Property("Near", camera.NearClip, 0.01f, 0.01f, camera.FarClip);
-                    changed |= UI::Property("Far", camera.FarClip, 0.1f, camera.NearClip, 10000.0f);
+                    if (UI::Property("FOV", camera.VerticalFOV, 0.1f, 1.0f, 180.0f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change FOV", scene, ent, &Camera::VerticalFOV, snapFOV, camera.VerticalFOV));
+                        changed = true;
+                    }
+                    if (UI::Property("Near", camera.NearClip, 0.01f, 0.01f, camera.FarClip)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change Near Clip", scene, ent, &Camera::NearClip, snapNear, camera.NearClip));
+                        changed = true;
+                    }
+                    if (UI::Property("Far", camera.FarClip, 0.1f, camera.NearClip, 10000.0f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change Far Clip", scene, ent, &Camera::FarClip, snapFar, camera.FarClip));
+                        changed = true;
+                    }
                 }
                 else {
-                    changed |= UI::Property("Size", camera.OrthographicSize, 0.1f, 0.1f, 100.0f);
-                    changed |= UI::Property("Near", camera.OrthographicNear, 0.01f);
-                    changed |= UI::Property("Far", camera.OrthographicFar, 0.01f);
+                    if (UI::Property("Size", camera.OrthographicSize, 0.1f, 0.1f, 100.0f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change Ortho Size", scene, ent, &Camera::OrthographicSize, snapOrthoSize, camera.OrthographicSize));
+                        changed = true;
+                    }
+                    if (UI::Property("Near", camera.OrthographicNear, 0.01f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change Ortho Near", scene, ent, &Camera::OrthographicNear, snapOrthoNear, camera.OrthographicNear));
+                        changed = true;
+                    }
+                    if (UI::Property("Far", camera.OrthographicFar, 0.01f)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                            "Change Ortho Far", scene, ent, &Camera::OrthographicFar, snapOrthoFar, camera.OrthographicFar));
+                        changed = true;
+                    }
                 }
 
-                changed |= UI::Property("Aspect", camera.AspectRatio, 0.01f, 0.1f, 10.0f);
+                if (UI::Property("Aspect", camera.AspectRatio, 0.01f, 0.1f, 10.0f)) {
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
+                        "Change Aspect", scene, ent, &Camera::AspectRatio, snapAspect, camera.AspectRatio));
+                    changed = true;
+                }
 
-                if (changed) { camera.IsDirty = true; Editor::MarkDirty(); }
+                if (changed) camera.IsDirty = true;
                 UI::EndProperties();
             }
         });
 
         DrawComponent<MeshRenderer>("Mesh Renderer", m_SelectedEntity, [&](Entity entity, MeshRenderer& meshRenderer) {
             if (UI::BeginProperties()) {
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
 
-                if (UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model))
-                    Editor::MarkDirty();
+                {
+                    auto oldUUID = meshRenderer.ModelUUID;
+                    if (UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model)) {
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, UUID>>(
+                            "Change Model", scene, ent, &MeshRenderer::ModelUUID, oldUUID, meshRenderer.ModelUUID));
+                    }
+                }
 
                 // Ensure model is loaded to get mesh count
                 if (meshRenderer.ModelUUID.IsValid() && !AssetManager::IsLoaded(meshRenderer.ModelUUID) && !AssetManager::IsLoading(meshRenderer.ModelUUID))
                      AssetManager::LoadAsync(meshRenderer.ModelUUID);
 
                 if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
-
                     int meshIndex = (int)meshRenderer.MeshIndex;
+                    auto oldIndex = meshRenderer.MeshIndex;
                     if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1)) {
                         meshRenderer.MeshIndex = (u32)meshIndex;
-                        Editor::MarkDirty();
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, uint32_t>>(
+                            "Change Mesh Index", scene, ent, &MeshRenderer::MeshIndex, oldIndex, meshRenderer.MeshIndex));
                     }
                 }
 
-                if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
                 {
-                    // Update model's material list if possible
-                    if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
+                    auto oldMatUUID = meshRenderer.MaterialUUID;
+                    if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
                     {
-                        model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
+                        if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
+                            model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, UUID>>(
+                            "Change Material", scene, ent, &MeshRenderer::MaterialUUID, oldMatUUID, meshRenderer.MaterialUUID));
                     }
-                    Editor::MarkDirty();
                 }
 
                 UI::EndProperties();
@@ -249,21 +331,32 @@ namespace Luth
             animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
             
             if (UI::BeginProperties("AnimProps")) {
-                if (UI::PropertyCombo("Clip", animation.AnimationIndex, clipNames.data(), clipCount)) {
-                    animation.CurrentTime = 0.0f;
-                    Editor::MarkDirty();
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
+
+                {
+                    auto oldClip = animation.AnimationIndex;
+                    if (UI::PropertyCombo("Clip", animation.AnimationIndex, clipNames.data(), clipCount)) {
+                        animation.CurrentTime = 0.0f;
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, i32>>(
+                            "Change Clip", scene, ent, &Animation::AnimationIndex, oldClip, animation.AnimationIndex));
+                    }
                 }
 
                 const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
                 if (clip) {
                     f32 duration = clip->GetDurationSeconds();
 
+                    auto oldSpeed = animation.Speed;
                     if (UI::Property("Speed", animation.Speed, 0.05f, 0.0f, 5.0f))
-                        Editor::MarkDirty();
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
+                            "Change Speed", scene, ent, &Animation::Speed, oldSpeed, animation.Speed));
 
                     if (duration > 0.0f) {
+                        auto oldTime = animation.CurrentTime;
                         if (UI::Property("Timeline", animation.CurrentTime, 0.01f, 0.0f, duration))
-                            Editor::MarkDirty();
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
+                                "Change Timeline", scene, ent, &Animation::CurrentTime, oldTime, animation.CurrentTime));
                     }
                 }
 
@@ -289,17 +382,29 @@ namespace Luth
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, 4.0f));
 
             if (animation.Playing) {
-                if (ImGui::Button(ICON_FA_PAUSE "##AnimPause", ImVec2(buttonWidth, 24)))
-                    animation.Playing = false;
+                if (ImGui::Button(ICON_FA_PAUSE "##AnimPause", ImVec2(buttonWidth, 24))) {
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
+                        "Pause Animation", entity.GetScene(), (entt::entity)entity,
+                        &Animation::Playing, true, false));
+                }
             } else {
-                if (ImGui::Button(ICON_FA_PLAY "##AnimPlay", ImVec2(buttonWidth, 24)))
-                    animation.Playing = true;
+                if (ImGui::Button(ICON_FA_PLAY "##AnimPlay", ImVec2(buttonWidth, 24))) {
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
+                        "Play Animation", entity.GetScene(), (entt::entity)entity,
+                        &Animation::Playing, false, true));
+                }
             }
             ImGui::SameLine();
-            
+
             if (ImGui::Button(ICON_FA_STOP "##AnimStop", ImVec2(buttonWidth, 24))) {
-                animation.Playing = false;
-                animation.CurrentTime = 0.0f;
+                CommandHistory::BeginCompound("Stop Animation");
+                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
+                    "Stop Playing", entity.GetScene(), (entt::entity)entity,
+                    &Animation::Playing, animation.Playing, false));
+                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
+                    "Reset Time", entity.GetScene(), (entt::entity)entity,
+                    &Animation::CurrentTime, animation.CurrentTime, 0.0f));
+                CommandHistory::EndCompound();
             }
             ImGui::SameLine();
 
@@ -314,11 +419,14 @@ namespace Luth
                 loopIcon = ICON_FA_ARROWS_ROTATE;
                 loopTooltip = "Loop: All";
             }
-            
+
             if (ImGui::Button(loopIcon, ImVec2(buttonWidth, 24))) {
+                auto oldMode = animation.LoopMode;
                 int next = ((int)animation.LoopMode + 1) % 3;
                 animation.LoopMode = (AnimationLoopMode)next;
-                Editor::MarkDirty();
+                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, AnimationLoopMode>>(
+                    "Change Loop Mode", entity.GetScene(), (entt::entity)entity,
+                    &Animation::LoopMode, oldMode, animation.LoopMode));
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", loopTooltip);
@@ -401,10 +509,20 @@ namespace Luth
                     }
                 }
 
-                if (UI::Property("Local Offset", attachment.LocalOffset))
-                    Editor::MarkDirty();
-                if (UI::Property("Local Rotation", attachment.LocalRotation))
-                    Editor::MarkDirty();
+                {
+                    auto oldOffset = attachment.LocalOffset;
+                    if (UI::Property("Local Offset", attachment.LocalOffset))
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Vec3>>(
+                            "Change Local Offset", entity.GetScene(), (entt::entity)entity,
+                            &BoneAttachment::LocalOffset, oldOffset, attachment.LocalOffset));
+                }
+                {
+                    auto oldRot = attachment.LocalRotation;
+                    if (UI::Property("Local Rotation", attachment.LocalRotation))
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Vec3>>(
+                            "Change Local Rotation", entity.GetScene(), (entt::entity)entity,
+                            &BoneAttachment::LocalRotation, oldRot, attachment.LocalRotation));
+                }
                     
                 UI::EndProperties();
             }
@@ -438,21 +556,34 @@ namespace Luth
             for (int i = 0; i < clipCount; i++)
                 clipNames[i] = clips[i].Name.c_str();
 
+            Scene* scene = entity.GetScene();
+            entt::entity ent = (entt::entity)entity;
+
             // Current clip selector (base layer)
             int currentClip = ctrl.CurrentClipIndex;
             currentClip = std::clamp(currentClip, 0, clipCount - 1);
             if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
+                auto oldClip = ctrl.CurrentClipIndex;
                 ctrl.Play(currentClip);
-                Editor::MarkDirty();
+                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, int>>(
+                    "Change Clip", scene, ent, &AnimationController::CurrentClipIndex, oldClip, ctrl.CurrentClipIndex));
             }
 
             // Root motion
-            if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
-                Editor::MarkDirty();
+            {
+                auto oldVal = ctrl.ApplyRootMotion;
+                if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, bool>>(
+                        "Toggle Root Motion", scene, ent, &AnimationController::ApplyRootMotion, oldVal, ctrl.ApplyRootMotion));
+            }
 
             // Default transition duration
-            if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
-                Editor::MarkDirty();
+            {
+                auto oldVal = ctrl.DefaultTransitionDuration;
+                if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, float>>(
+                        "Change Transition", scene, ent, &AnimationController::DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration));
+            }
 
             ImGui::Separator();
             ImGui::Text("Layers");
@@ -560,30 +691,67 @@ namespace Luth
         });
 
         DrawComponent<DirectionalLight>("Directional Light", m_SelectedEntity, [](Entity entity, DirectionalLight& dirLight) {
-            bool changed = false;
             if (UI::BeginProperties()) {
-                changed |= UI::PropertyColor("Color", dirLight.Color);
-                changed |= UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
-                changed |= UI::Property("Cast Shadows", dirLight.CastShadows);
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
+
+                auto oldColor = dirLight.Color;
+                if (UI::PropertyColor("Color", dirLight.Color))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, Vec3>>(
+                        "Change Light Color", scene, ent, &DirectionalLight::Color, oldColor, dirLight.Color));
+
+                auto oldIntensity = dirLight.Intensity;
+                if (UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                        "Change Light Intensity", scene, ent, &DirectionalLight::Intensity, oldIntensity, dirLight.Intensity));
+
+                auto oldCastShadows = dirLight.CastShadows;
+                if (UI::Property("Cast Shadows", dirLight.CastShadows))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, bool>>(
+                        "Toggle Cast Shadows", scene, ent, &DirectionalLight::CastShadows, oldCastShadows, dirLight.CastShadows));
+
                 if (dirLight.CastShadows) {
-                    changed |= UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f);
-                    changed |= UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
-                    changed |= UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
+                    auto oldBias = dirLight.ShadowBias;
+                    if (UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f))
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                            "Change Shadow Bias", scene, ent, &DirectionalLight::ShadowBias, oldBias, dirLight.ShadowBias));
+
+                    auto oldOrtho = dirLight.ShadowOrthoSize;
+                    if (UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f))
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                            "Change Shadow Size", scene, ent, &DirectionalLight::ShadowOrthoSize, oldOrtho, dirLight.ShadowOrthoSize));
+
+                    auto oldDist = dirLight.ShadowDistance;
+                    if (UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f))
+                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                            "Change Shadow Distance", scene, ent, &DirectionalLight::ShadowDistance, oldDist, dirLight.ShadowDistance));
                 }
                 UI::EndProperties();
             }
-            if (changed) Editor::MarkDirty();
         });
 
         DrawComponent<PointLight>("Point Light", m_SelectedEntity, [](Entity entity, PointLight& pointLight) {
-            bool changed = false;
             if (UI::BeginProperties()) {
-                changed |= UI::PropertyColor("Color", pointLight.Color);
-                changed |= UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f);
-                changed |= UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f);
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
+
+                auto oldColor = pointLight.Color;
+                if (UI::PropertyColor("Color", pointLight.Color))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, Vec3>>(
+                        "Change Light Color", scene, ent, &PointLight::Color, oldColor, pointLight.Color));
+
+                auto oldIntensity = pointLight.Intensity;
+                if (UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
+                        "Change Light Intensity", scene, ent, &PointLight::Intensity, oldIntensity, pointLight.Intensity));
+
+                auto oldRange = pointLight.Range;
+                if (UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f))
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
+                        "Change Light Range", scene, ent, &PointLight::Range, oldRange, pointLight.Range));
+
                 UI::EndProperties();
             }
-            if (changed) Editor::MarkDirty();
         });
 
         // Add Component button
@@ -606,44 +774,53 @@ namespace Luth
             }
             #endif
             if (!m_SelectedEntity.HasComponent<Camera>() && ImGui::MenuItem("Camera")) {
-                m_SelectedEntity.AddOrReplaceComponent<Camera>();
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<Camera>>(
+                    "Add Camera", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<DirectionalLight>() && ImGui::MenuItem("Directional Light")) {
-                m_SelectedEntity.AddOrReplaceComponent<DirectionalLight>();
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<DirectionalLight>>(
+                    "Add DirectionalLight", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<PointLight>() && ImGui::MenuItem("Point Light")) {
-                m_SelectedEntity.AddOrReplaceComponent<PointLight>();
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<PointLight>>(
+                    "Add PointLight", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<MeshRenderer>() && ImGui::MenuItem("Mesh Renderer")) {
-                m_SelectedEntity.AddOrReplaceComponent<MeshRenderer>();
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<MeshRenderer>>(
+                    "Add MeshRenderer", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<Animation>() && ImGui::MenuItem("Animation")) {
                 UUID modelUUID;
                 if (m_SelectedEntity.HasComponent<MeshRenderer>())
                     modelUUID = m_SelectedEntity.GetComponent<MeshRenderer>().ModelUUID;
-                m_SelectedEntity.AddOrReplaceComponent<Animation>(modelUUID);
+                Animation initAnim(modelUUID);
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<Animation>>(
+                    "Add Animation", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, initAnim));
                 ImGui::CloseCurrentPopup();
             }
             if (!m_SelectedEntity.HasComponent<BoneAttachment>() && ImGui::MenuItem("Bone Attachment")) {
-                m_SelectedEntity.AddOrReplaceComponent<BoneAttachment>();
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<BoneAttachment>>(
+                    "Add BoneAttachment", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
                 ImGui::CloseCurrentPopup();
             }
             if (m_SelectedEntity.HasComponent<Animation>() &&
                 !m_SelectedEntity.HasComponent<AnimationController>() &&
                 ImGui::MenuItem("Animation Controller"))
             {
-                auto& ctrl = m_SelectedEntity.AddOrReplaceComponent<AnimationController>();
                 auto& a = m_SelectedEntity.GetComponent<Animation>();
+                AnimationController initCtrl;
                 BlendLayer baseLayer;
                 baseLayer.ClipIndex = a.AnimationIndex;
                 baseLayer.Speed = a.Speed;
                 baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
-                ctrl.Layers.push_back(baseLayer);
-                ctrl.CurrentClipIndex = a.AnimationIndex;
+                initCtrl.Layers.push_back(baseLayer);
+                initCtrl.CurrentClipIndex = a.AnimationIndex;
+                CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
+                    "Add AnimationController", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, initCtrl));
                 ImGui::CloseCurrentPopup();
             }
         });
@@ -668,7 +845,8 @@ namespace Luth
             auto contextMenu = [&]() {
                 constexpr bool enabled = (std::is_same_v<T, Transform> || std::is_same_v<T, ID>) ? false : true;
                 if (ImGui::MenuItem("Remove component", nullptr, nullptr, enabled)) {
-                    entity.RemoveComponent<T>();
+                    CommandHistory::Execute(std::make_unique<ComponentRemoveCommand<T>>(
+                        "Remove Component", entity.GetScene(), (entt::entity)entity));
                 }
             };
 
