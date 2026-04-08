@@ -393,9 +393,13 @@ namespace Luth
     GizmoTransformCommand::GizmoTransformCommand(Scene* scene, entt::entity entity,
         Vec3 oldPos, Vec3 oldRot, Vec3 oldScale,
         Vec3 newPos, Vec3 newRot, Vec3 newScale)
-        : m_Scene(scene), m_Entity(entity),
+        : m_Scene(scene),
           m_OldPos(oldPos), m_OldRot(oldRot), m_OldScale(oldScale),
-          m_NewPos(newPos), m_NewRot(newRot), m_NewScale(newScale) {}
+          m_NewPos(newPos), m_NewRot(newRot), m_NewScale(newScale)
+    {
+        Entity e{ entity, scene };
+        m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+    }
 
     void GizmoTransformCommand::Execute() { Apply(m_NewPos, m_NewRot, m_NewScale); }
     void GizmoTransformCommand::Undo()    { Apply(m_OldPos, m_OldRot, m_OldScale); }
@@ -403,7 +407,9 @@ namespace Luth
 
     void GizmoTransformCommand::Apply(const Vec3& pos, const Vec3& rot, const Vec3& scale)
     {
-        auto& tc = m_Scene->Registry().get<Transform>(m_Entity);
+        Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+        if (!e.IsValid()) return;
+        auto& tc = e.GetComponent<Transform>();
         tc.Position = pos;
         tc.Rotation = rot;
         tc.Scale = scale;
@@ -520,18 +526,24 @@ namespace Luth
 
     EntityRenameCommand::EntityRenameCommand(Scene* scene, entt::entity entity,
                                              std::string oldName, std::string newName)
-        : m_Scene(scene), m_Entity(entity),
-          m_OldName(std::move(oldName)), m_NewName(std::move(newName)) {}
+        : m_Scene(scene),
+          m_OldName(std::move(oldName)), m_NewName(std::move(newName))
+    {
+        Entity e{ entity, scene };
+        m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+    }
 
     void EntityRenameCommand::Execute()
     {
-        Entity e{ m_Entity, m_Scene };
+        Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+        if (!e.IsValid()) return;
         e.SetName(m_NewName);
     }
 
     void EntityRenameCommand::Undo()
     {
-        Entity e{ m_Entity, m_Scene };
+        Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+        if (!e.IsValid()) return;
         e.SetName(m_OldName);
     }
 

@@ -124,7 +124,7 @@ namespace Luth
     private:
         void Apply(const Vec3& pos, const Vec3& rot, const Vec3& scale);
         Scene* m_Scene;
-        entt::entity m_Entity;
+        UUID m_EntityUUID;
         Vec3 m_OldPos, m_OldRot, m_OldScale;
         Vec3 m_NewPos, m_NewRot, m_NewScale;
     };
@@ -180,7 +180,7 @@ namespace Luth
 
     private:
         Scene* m_Scene;
-        entt::entity m_Entity;
+        UUID m_EntityUUID;
         std::string m_OldName;
         std::string m_NewName;
     };
