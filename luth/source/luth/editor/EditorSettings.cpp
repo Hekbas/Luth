@@ -39,6 +39,9 @@ namespace Luth
             settings.thumbnailSize       = j.value("thumbnailSize", settings.thumbnailSize);
             settings.showControlsOverlay = j.value("showControlsOverlay", settings.showControlsOverlay);
             settings.showBoneDebug       = j.value("showBoneDebug", settings.showBoneDebug);
+            settings.showLightGizmos     = j.value("showLightGizmos", settings.showLightGizmos);
+            settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
+            settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
@@ -72,6 +75,9 @@ namespace Luth
             j["thumbnailSize"]       = settings.thumbnailSize;
             j["showControlsOverlay"] = settings.showControlsOverlay;
             j["showBoneDebug"]       = settings.showBoneDebug;
+            j["showLightGizmos"]     = settings.showLightGizmos;
+            j["showCameraGizmos"]    = settings.showCameraGizmos;
+            j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 
             std::ofstream file(path);

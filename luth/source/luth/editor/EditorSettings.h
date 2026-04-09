@@ -32,6 +32,9 @@ namespace Luth
         float thumbnailSize        = 64.0f;
         bool  showControlsOverlay  = true;
         bool  showBoneDebug        = false;
+        bool  showLightGizmos      = true;
+        bool  showCameraGizmos     = true;
+        bool  showAABBGizmos       = false;
 
         // Scene persistence
         std::string lastSceneUUID;
