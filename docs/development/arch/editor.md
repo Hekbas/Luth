@@ -44,6 +44,18 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 - InspectorPanel reads current selection
 - ScenePanel uses selected entity for gizmo
 
+## Command System (Command.h, CommandHistory.h)
+
+**Undo/redo** via command pattern. `CommandHistory` is a static singleton with undo/redo stacks (max 100 entries).
+
+**Execution flow:** `CommandHistory::Execute(cmd)` → `cmd->Execute()` → push to undo stack, clear redo stack. Supports merge (consecutive drags coalesce) and compound grouping (`BeginCompound`/`EndCompound`).
+
+**Entity resolution:** All commands store `UUID`, never raw `entt::entity`. Entities are resolved via `Scene::FindEntityByUUID()` at execution time. This is critical because EnTT recycles entity handles — an entity destroyed and recreated (via undo of delete) gets a new handle but keeps its UUID.
+
+**14 command types:** ComponentPropertyCommand (pointer-to-member), ComponentAddCommand, ComponentRemoveCommand, GizmoTransformCommand, EntityCreateCommand, EntityDestroyCommand (JSON subtree snapshot), EntityRenameCommand, EntityReparentCommand, EntityReorderCommand, EntityDuplicateCommand, ModelInstantiateCommand, MaterialSnapshotCommand, CompoundCommand.
+
+**Shortcuts:** Ctrl+Z (undo), Ctrl+Y / Ctrl+Shift+Z (redo).
+
 ## Panels
 
 ### ScenePanel — 3D Viewport
@@ -105,3 +117,8 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 ### ResourcePanel — Asset Database Inspector
 - Table: Name, Type, UUID, Reference Count
 - Type filters (checkboxes) + search
+
+### HistoryPanel — Undo/Redo Debug
+- Timeline-style visualization of undo/redo stacks
+- Per-command type icons, expandable compound commands
+- Undo/Redo/Clear buttons with stack size counters

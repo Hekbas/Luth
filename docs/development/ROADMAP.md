@@ -26,6 +26,7 @@
 | 7 — Animation System | Fiber-parallel keyframe sampling, GPU skinning (BoneMatrixBuffer SSBO), SQT blending, crossfade transitions, layered override with bone masks, root motion extraction, bone debug overlay, full editor inspector integration | 2026-03-30 | v1.0.0 |
 | 8 — Smart Import & Hot Reload | Multi-strategy texture discovery (4 search strategies), ImportReport + TextureRemapDialog, Project Panel hot reload via FileWatcher (1 s polling, Created/Modified/Deleted), drop-to-current-dir, eager texture copy + import on drop, TOCTOU crash fix in FileWatcher, Assets menu "Resolve Missing Textures..." | 2026-03-31 | v1.0.0 |
 | 9 — Frame Debugger Upgrade | Trigger-based capture, per-draw-call scrubbing, DebuggerState machine (Inactive→CaptureRequested→Frozen), full pass instrumentation, RenderCapturedFrame re-recording, rescue blit for truncated frames, depth linearization shader, rewritten panel UI | 2026-04-03 | v1.0.0 |
+| 10 — Undo/Redo History | Command pattern with 14 command types, UUID-based entity resolution, gizmo drag coalescing, compound commands, material snapshot undo, HistoryPanel debug UI, 3 stale-handle crash fixes | 2026-04-09 | v1.1.0 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
 
@@ -45,6 +46,7 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 | Version | Phase(s) | Status |
 |---------|----------|--------|
 | v1.0.0  | Phases 1–9 (engine rewrite) | Released 2026-04-05 |
+| v1.1.0  | Phase 10 (undo/redo history) | Released 2026-04-09 |
 
 ---
 
@@ -71,5 +73,4 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 
 ### Editor & Tools
 - Asset streaming (async GPU upload pipeline)
-- Undo/redo system
 - Play mode (runtime simulation in editor)

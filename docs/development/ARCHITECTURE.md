@@ -52,8 +52,9 @@
  │
  └── [Editor]
       ├── Editor, UI, EditorSelection
+      ├── Command, CommandHistory .. Undo/redo (14 command types, UUID-based)
       ├── ProjectLauncher ........ Startup project selector, recent projects
-      └── Panels (Scene, Hierarchy, Inspector, Project, Console, Render, FrameDebugger)
+      └── Panels (Scene, Hierarchy, Inspector, Project, Render, FrameDebugger, History)
 ```
 
 > For pipelined frame execution details, see [`arch/frame-pipeline.md`](arch/frame-pipeline.md).
