@@ -132,6 +132,19 @@ namespace Luth
         void HandleRenderResize(Event& e);
         void DrawGizmos();
         void DrawBoneDebugOverlay();
+        void DrawLightGizmos();
+        void DrawCameraGizmos();
+        void DrawAABBGizmos();
+
+        // Shared gizmo helpers
+        ImVec2 ProjectToScreen(const Vec3& worldPos) const;
+        bool   IsInViewport(const ImVec2& p) const;
+        ImU32  LightColorToImU32(const Vec3& color, float alpha = 0.85f) const;
+        void   DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
+                             ImU32 color, entt::entity entity);
+        bool   ClipLineToNearPlane(Vec3& a, Vec3& b) const;
+        void   DrawClippedLine(ImDrawList* drawList, const Vec3& worldA, const Vec3& worldB,
+                               ImU32 color, float thickness = 1.0f);
 
         std::shared_ptr<Scene> m_Context;
         std::shared_ptr<RenderingSystem> m_RenderingSystem;
@@ -156,6 +169,10 @@ namespace Luth
         Vec3 m_GizmoStartPos{};
         Vec3 m_GizmoStartRot{};
         Vec3 m_GizmoStartScale{};
+
+        // Gizmo icon click tracking — deferred selection that wins over pick results
+        bool m_GizmoIconClicked = false;
+        entt::entity m_GizmoIconEntity = entt::null;
 
         // Controls overlay
         bool m_ShowControlsOverlay = true;

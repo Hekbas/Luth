@@ -55,6 +55,9 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
+        m_GizmoIconClicked = false;
+        m_GizmoIconEntity = entt::null;
+
         // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
         auto& oc = EditorColors::SelectionOutline;
@@ -230,6 +233,9 @@ namespace Luth
                     ImGui::PushFont(Editor::GetMainFont());
                     ImGui::Checkbox("Transform Gizmo", &m_ShowTransformGizmo);
                     ImGui::Checkbox("Bone Debug", &Editor::GetSettings().showBoneDebug);
+                    ImGui::Checkbox("Light Gizmos", &Editor::GetSettings().showLightGizmos);
+                    ImGui::Checkbox("Camera Gizmos", &Editor::GetSettings().showCameraGizmos);
+                    ImGui::Checkbox("AABB Gizmos", &Editor::GetSettings().showAABBGizmos);
                     ImGui::PopFont();
                     ImGui::PopStyleVar();
                 });
@@ -301,11 +307,15 @@ namespace Luth
             // Handle gizmos
             DrawGizmos();
 
-            // Bone debug overlay
+            // Debug overlays
             DrawBoneDebugOverlay();
+            DrawLightGizmos();
+            DrawCameraGizmos();
+            DrawAABBGizmos();
 
-            // Mouse picking — LMB click in viewport (not on gizmo)
+            // Mouse picking — LMB click in viewport (not on gizmo or icon)
             if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
+                && !m_GizmoIconClicked
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
             {
                 auto [mx, my] = ImGui::GetMousePos();
@@ -317,7 +327,7 @@ namespace Luth
             }
 
             // Consume pick result — hierarchy-aware + multi-select
-            if (m_RenderingSystem->HasPickResult())
+            if (!m_GizmoIconClicked && m_RenderingSystem->HasPickResult())
             {
                 entt::entity picked = m_RenderingSystem->ConsumePickResult();
                 if (picked != entt::null && m_Context)
@@ -362,6 +372,17 @@ namespace Luth
                 {
                     EditorSelection::ClearSelection();
                 }
+            }
+
+            // Deferred icon selection — always wins over pick results
+            if (m_GizmoIconClicked && m_GizmoIconEntity != entt::null && m_Context)
+            {
+                // Discard any stale pick result
+                if (m_RenderingSystem->HasPickResult())
+                    m_RenderingSystem->ConsumePickResult();
+
+                Entity e(m_GizmoIconEntity, m_Context.get());
+                EditorSelection::SelectEntity(e);
             }
 
             // Camera Control
@@ -587,29 +608,12 @@ namespace Luth
         const auto& skeleton = model->GetSkeleton();
         if (skeleton.IsEmpty()) return;
 
-        // VP matrix from editor camera
-        Mat4 viewProj = m_EditorCamera.GetViewProjection();
-
-        // Viewport screen rect
-        ImVec2 vpMin = m_ViewportBounds[0];
-        ImVec2 vpMax = m_ViewportBounds[1];
-
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->PushClipRect(vpMin, vpMax, true);
+        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
 
         u32 boneCount = skeleton.BoneCount();
         u32 transformCount = (u32)anim.GlobalBoneTransforms.size();
         u32 count = std::min(boneCount, transformCount);
-
-        // Project bone world positions to screen coords
-        auto ProjectToScreen = [&](Vec3 worldPos) -> ImVec2 {
-            Vec4 clipPos = viewProj * Vec4(worldPos, 1.0f);
-            if (clipPos.w <= 0.001f) return { -1.0f, -1.0f };
-            Vec3 ndc = Vec3(clipPos) / clipPos.w;
-            float screenX = vpMin.x + (ndc.x * 0.5f + 0.5f) * m_ViewportSize.x;
-            float screenY = vpMin.y + (-ndc.y * 0.5f + 0.5f) * m_ViewportSize.y;
-            return { screenX, screenY };
-        };
 
         std::vector<ImVec2> screenPositions(count);
         std::vector<bool> visible(count, false);
@@ -618,8 +622,7 @@ namespace Luth
             Vec3 boneLocalPos = Vec3(anim.GlobalBoneTransforms[i][3]);
             Vec3 boneWorldPos = Vec3(worldTransform.Matrix * Vec4(boneLocalPos, 1.0f));
             screenPositions[i] = ProjectToScreen(boneWorldPos);
-            visible[i] = (screenPositions[i].x >= vpMin.x && screenPositions[i].x <= vpMax.x
-                       && screenPositions[i].y >= vpMin.y && screenPositions[i].y <= vpMax.y);
+            visible[i] = IsInViewport(screenPositions[i]);
         }
 
         ImU32 lineColor  = IM_COL32(0, 255, 128, 200);
@@ -641,6 +644,351 @@ namespace Luth
         drawList->PopClipRect();
     }
 
+    // ======================================
+    // Shared gizmo helpers
+    // ======================================
+
+    ImVec2 ScenePanel::ProjectToScreen(const Vec3& worldPos) const
+    {
+        Vec4 clipPos = m_EditorCamera.GetViewProjection() * Vec4(worldPos, 1.0f);
+        if (clipPos.w <= 0.001f) return { -1.0f, -1.0f };
+        Vec3 ndc = Vec3(clipPos) / clipPos.w;
+        float screenX = m_ViewportBounds[0].x + (ndc.x * 0.5f + 0.5f) * m_ViewportSize.x;
+        float screenY = m_ViewportBounds[0].y + (-ndc.y * 0.5f + 0.5f) * m_ViewportSize.y;
+        return { screenX, screenY };
+    }
+
+    bool ScenePanel::IsInViewport(const ImVec2& p) const
+    {
+        return p.x >= m_ViewportBounds[0].x && p.x <= m_ViewportBounds[1].x
+            && p.y >= m_ViewportBounds[0].y && p.y <= m_ViewportBounds[1].y;
+    }
+
+    ImU32 ScenePanel::LightColorToImU32(const Vec3& color, float alpha) const
+    {
+        return IM_COL32(
+            (u8)(glm::clamp(color.r, 0.0f, 1.0f) * 255.0f),
+            (u8)(glm::clamp(color.g, 0.0f, 1.0f) * 255.0f),
+            (u8)(glm::clamp(color.b, 0.0f, 1.0f) * 255.0f),
+            (u8)(alpha * 255.0f));
+    }
+
+    void ScenePanel::DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
+                                   ImU32 color, entt::entity entity)
+    {
+        constexpr float hitRadius = 16.0f;
+
+        ImVec2 textSize = ImGui::CalcTextSize(icon);
+        ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
+        drawList->AddText(textPos, color, icon);
+
+        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
+        // otherwise it returns stale state from the previous frame
+        bool gizmoActive = m_SelectedEntity && m_SelectedEntity.IsValid()
+                        && m_ShowTransformGizmo && m_GizmoType != -1;
+
+        // Hit-test for click-to-select
+        if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+            && !(gizmoActive && ImGuizmo::IsOver())
+            && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
+        {
+            ImVec2 mouse = ImGui::GetMousePos();
+            float dx = mouse.x - screenPos.x, dy = mouse.y - screenPos.y;
+            if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+                m_GizmoIconClicked = true;
+                m_GizmoIconEntity = entity;
+            }
+        }
+    }
+
+    bool ScenePanel::ClipLineToNearPlane(Vec3& a, Vec3& b) const
+    {
+        Mat4 vp = m_EditorCamera.GetViewProjection();
+        // Compute clip-space w for each endpoint (w = row3 dot (x,y,z,1))
+        float wa = vp[0][3] * a.x + vp[1][3] * a.y + vp[2][3] * a.z + vp[3][3];
+        float wb = vp[0][3] * b.x + vp[1][3] * b.y + vp[2][3] * b.z + vp[3][3];
+        constexpr float eps = 0.01f;
+        if (wa < eps && wb < eps) return false; // both behind camera
+        if (wa < eps) { float t = (eps - wa) / (wb - wa); a = glm::mix(a, b, t); }
+        if (wb < eps) { float t = (eps - wb) / (wa - wb); b = glm::mix(b, a, t); }
+        return true;
+    }
+
+    void ScenePanel::DrawClippedLine(ImDrawList* drawList, const Vec3& worldA, const Vec3& worldB,
+                                     ImU32 color, float thickness)
+    {
+        Vec3 a = worldA, b = worldB;
+        if (!ClipLineToNearPlane(a, b)) return;
+        drawList->AddLine(ProjectToScreen(a), ProjectToScreen(b), color, thickness);
+    }
+
+    // ======================================
+    // Light Gizmos
+    // ======================================
+
+    void ScenePanel::DrawLightGizmos()
+    {
+        if (!Editor::GetSettings().showLightGizmos) return;
+        if (!m_Context) return;
+
+        auto& registry = m_Context->Registry();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+
+        // --- Directional Lights ---
+        {
+            auto view = registry.view<WorldTransform, DirectionalLight>();
+            for (auto entity : view) {
+                auto& wt = view.get<WorldTransform>(entity);
+                auto& dl = view.get<DirectionalLight>(entity);
+
+                Vec3 pos = Vec3(wt.Matrix[3]);
+                Vec3 dir = glm::normalize(-Vec3(wt.Matrix[2]));
+                ImU32 color = LightColorToImU32(dl.Color);
+
+                // Icon (only if in front of camera)
+                ImVec2 screenPos = ProjectToScreen(pos);
+                if (screenPos.x >= 0.0f)
+                    DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity);
+
+                // Direction arrow — only when selected
+                Entity e(entity, m_Context.get());
+                if (!EditorSelection::IsSelected(e)) continue;
+
+                // Constant screen-size: compute pixel-per-unit at this depth
+                Vec3 startPos = pos + dir * 1.5f; // offset to avoid icon overlap
+                ImVec2 startScreen = ProjectToScreen(startPos);
+                ImVec2 unitScreen  = ProjectToScreen(startPos + dir);
+                float pxPerUnit = sqrtf((unitScreen.x - startScreen.x) * (unitScreen.x - startScreen.x)
+                                      + (unitScreen.y - startScreen.y) * (unitScreen.y - startScreen.y));
+                if (pxPerUnit < 0.001f) continue;
+                constexpr float desiredPx = 80.0f;
+                float worldLen = glm::clamp(desiredPx / pxPerUnit, 0.5f, 50.0f);
+
+                Vec3 endWorld = startPos + dir * worldLen;
+                ImVec2 endScreen = ProjectToScreen(endWorld);
+
+                DrawClippedLine(drawList, startPos, endWorld, color, 2.0f);
+
+                // Arrowhead (in screen space)
+                ImVec2 dir2D = { endScreen.x - startScreen.x, endScreen.y - startScreen.y };
+                float len = sqrtf(dir2D.x * dir2D.x + dir2D.y * dir2D.y);
+                if (len > 1.0f) {
+                    ImVec2 norm = { dir2D.x / len, dir2D.y / len };
+                    ImVec2 perp = { -norm.y, norm.x };
+                    constexpr float arrowSize = 10.0f;
+                    ImVec2 a1 = { endScreen.x - norm.x * arrowSize + perp.x * arrowSize * 0.5f,
+                                  endScreen.y - norm.y * arrowSize + perp.y * arrowSize * 0.5f };
+                    ImVec2 a2 = { endScreen.x - norm.x * arrowSize - perp.x * arrowSize * 0.5f,
+                                  endScreen.y - norm.y * arrowSize - perp.y * arrowSize * 0.5f };
+                    drawList->AddTriangleFilled(endScreen, a1, a2, color);
+                }
+            }
+        }
+
+        // --- Point Lights ---
+        {
+            auto view = registry.view<WorldTransform, PointLight>();
+            for (auto entity : view) {
+                auto& wt = view.get<WorldTransform>(entity);
+                auto& pl = view.get<PointLight>(entity);
+
+                Vec3 center = Vec3(wt.Matrix[3]);
+                ImU32 iconColor = LightColorToImU32(pl.Color);
+
+                // Icon (only if in front of camera)
+                ImVec2 screenCenter = ProjectToScreen(center);
+                if (screenCenter.x >= 0.0f)
+                    DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, iconColor, entity);
+
+                // Range circles — only when selected
+                Entity e(entity, m_Context.get());
+                if (!EditorSelection::IsSelected(e)) continue;
+
+                float radius = pl.Range;
+                ImU32 color = LightColorToImU32(pl.Color, 0.6f);
+
+                constexpr int segments = 32;
+                constexpr float twoPi = glm::two_pi<float>();
+
+                for (int plane = 0; plane < 3; plane++) {
+                    Vec3 prevWorld;
+                    for (int i = 0; i <= segments; i++) {
+                        float angle = (float)i / (float)segments * twoPi;
+                        float c = cosf(angle) * radius;
+                        float s = sinf(angle) * radius;
+                        Vec3 offset;
+                        if (plane == 0)      offset = Vec3(c, s, 0.0f);
+                        else if (plane == 1) offset = Vec3(c, 0.0f, s);
+                        else                 offset = Vec3(0.0f, c, s);
+
+                        Vec3 worldPt = center + offset;
+                        if (i > 0)
+                            DrawClippedLine(drawList, prevWorld, worldPt, color, 1.5f);
+                        prevWorld = worldPt;
+                    }
+                }
+            }
+        }
+
+        drawList->PopClipRect();
+    }
+
+    // ======================================
+    // Camera Gizmos
+    // ======================================
+
+    void ScenePanel::DrawCameraGizmos()
+    {
+        if (!Editor::GetSettings().showCameraGizmos) return;
+        if (!m_Context) return;
+
+        auto& registry = m_Context->Registry();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+
+        auto view = registry.view<WorldTransform, Camera>();
+        for (auto entity : view) {
+            auto& wt  = view.get<WorldTransform>(entity);
+            auto& cam = view.get<Camera>(entity);
+
+            Vec3 pos = Vec3(wt.Matrix[3]);
+
+            // Icon (only if in front of camera)
+            ImVec2 screenPos = ProjectToScreen(pos);
+            if (screenPos.x >= 0.0f)
+                DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity);
+
+            // Compute frustum corners in camera local space (looking along -Z)
+            float visualFar = glm::min(cam.FarClip, 1000.0f);
+            Vec3 nearCorners[4], farCorners[4];
+
+            if (cam.Projection == Camera::ProjectionType::Perspective) {
+                float fovRad = glm::radians(cam.VerticalFOV);
+                float nearH = tanf(fovRad * 0.5f) * cam.NearClip;
+                float nearW = nearH * cam.AspectRatio;
+                float farH  = tanf(fovRad * 0.5f) * visualFar;
+                float farW  = farH * cam.AspectRatio;
+
+                nearCorners[0] = Vec3(-nearW,  nearH, -cam.NearClip);
+                nearCorners[1] = Vec3( nearW,  nearH, -cam.NearClip);
+                nearCorners[2] = Vec3( nearW, -nearH, -cam.NearClip);
+                nearCorners[3] = Vec3(-nearW, -nearH, -cam.NearClip);
+
+                farCorners[0] = Vec3(-farW,  farH, -visualFar);
+                farCorners[1] = Vec3( farW,  farH, -visualFar);
+                farCorners[2] = Vec3( farW, -farH, -visualFar);
+                farCorners[3] = Vec3(-farW, -farH, -visualFar);
+            }
+            else {
+                float halfH = cam.OrthographicSize * 0.5f;
+                float halfW = halfH * cam.AspectRatio;
+
+                nearCorners[0] = Vec3(-halfW,  halfH, -cam.OrthographicNear);
+                nearCorners[1] = Vec3( halfW,  halfH, -cam.OrthographicNear);
+                nearCorners[2] = Vec3( halfW, -halfH, -cam.OrthographicNear);
+                nearCorners[3] = Vec3(-halfW, -halfH, -cam.OrthographicNear);
+
+                float orthoFar = glm::min(cam.OrthographicFar, 50.0f);
+                farCorners[0] = Vec3(-halfW,  halfH, -orthoFar);
+                farCorners[1] = Vec3( halfW,  halfH, -orthoFar);
+                farCorners[2] = Vec3( halfW, -halfH, -orthoFar);
+                farCorners[3] = Vec3(-halfW, -halfH, -orthoFar);
+            }
+
+            // Transform to world space
+            Vec3 nearWorld[4], farWorld[4];
+            for (int i = 0; i < 4; i++) {
+                nearWorld[i] = Vec3(wt.Matrix * Vec4(nearCorners[i], 1.0f));
+                farWorld[i]  = Vec3(wt.Matrix * Vec4(farCorners[i], 1.0f));
+            }
+
+            ImU32 color = EditorColors::GizmoCamera;
+
+            // Near plane quad
+            for (int i = 0; i < 4; i++)
+                DrawClippedLine(drawList, nearWorld[i], nearWorld[(i + 1) % 4], color, 1.5f);
+            // Far plane quad
+            for (int i = 0; i < 4; i++)
+                DrawClippedLine(drawList, farWorld[i], farWorld[(i + 1) % 4], color, 1.5f);
+            // Connecting edges
+            for (int i = 0; i < 4; i++)
+                DrawClippedLine(drawList, nearWorld[i], farWorld[i], color, 1.0f);
+        }
+
+        drawList->PopClipRect();
+    }
+
+    // ======================================
+    // AABB Gizmos
+    // ======================================
+
+    void ScenePanel::DrawAABBGizmos()
+    {
+        if (!Editor::GetSettings().showAABBGizmos) return;
+        if (!m_Context) return;
+
+        auto& registry = m_Context->Registry();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+
+        constexpr int edges[12][2] = {
+            {0,1},{1,2},{2,3},{3,0},
+            {4,5},{5,6},{6,7},{7,4},
+            {0,4},{1,5},{2,6},{3,7}
+        };
+
+        auto view = registry.view<WorldTransform, MeshRenderer>();
+        for (auto entity : view) {
+            auto& wt = view.get<WorldTransform>(entity);
+            auto& mr = view.get<MeshRenderer>(entity);
+
+            // Check for animated AABB first
+            AABB aabb;
+            bool worldSpace = false;
+            if (registry.all_of<Animation>(entity)) {
+                auto& anim = registry.get<Animation>(entity);
+                if (anim.AnimatedAABB.IsValid()) {
+                    aabb = anim.AnimatedAABB;
+                    worldSpace = true;
+                }
+            }
+
+            // Fall back to bind-pose AABB from model
+            if (!worldSpace) {
+                auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+                if (!model) continue;
+                auto& meshes = model->GetMeshesData();
+                if (mr.MeshIndex >= meshes.size()) continue;
+                aabb = meshes[mr.MeshIndex].BindPoseAABB;
+                if (!aabb.IsValid()) continue;
+            }
+
+            // Compute 8 world-space corners
+            Vec3 mn = aabb.Min, mx = aabb.Max;
+            Vec3 localCorners[8] = {
+                {mn.x, mn.y, mn.z}, {mx.x, mn.y, mn.z},
+                {mx.x, mx.y, mn.z}, {mn.x, mx.y, mn.z},
+                {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z},
+                {mx.x, mx.y, mx.z}, {mn.x, mx.y, mx.z},
+            };
+
+            Vec3 worldCorners[8];
+            for (int i = 0; i < 8; i++)
+                worldCorners[i] = worldSpace ? localCorners[i] : Vec3(wt.Matrix * Vec4(localCorners[i], 1.0f));
+
+            Entity e(entity, m_Context.get());
+            ImU32 color = EditorSelection::IsSelected(e)
+                ? EditorColors::GizmoAABBSelected
+                : EditorColors::GizmoAABB;
+
+            for (auto& [a, b] : edges)
+                DrawClippedLine(drawList, worldCorners[a], worldCorners[b], color, 1.0f);
+        }
+
+        drawList->PopClipRect();
+    }
+
     void ScenePanel::HandleRenderResize(Event& e)
     {
         if (e.IsInCategory(EventCategoryRender)) {
@@ -653,7 +1001,7 @@ namespace Luth
         }
     }
 
-
+    // ======================================
     // Editor Camera
     // ======================================
     EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)

@@ -24,6 +24,11 @@ namespace Luth
         // Selection outline (used by RenderingSystem outline pass)
         static inline ImVec4 SelectionOutline = { 1.0f, 0.6f, 0.0f, 1.0f }; // Orange
 
+        // Gizmo overlay colors
+        static inline ImU32 GizmoCamera       = IM_COL32(180, 180, 220, 180); // Light blue-grey
+        static inline ImU32 GizmoAABB         = IM_COL32(160, 160, 160, 100); // Soft grey
+        static inline ImU32 GizmoAABBSelected = IM_COL32(255, 160,   0, 200); // Orange for selected
+
         // Status colors
         static inline ImVec4 ErrorRed      = { 0.9f, 0.2f, 0.2f, 1.0f };
         static inline ImVec4 WarningYellow = { 0.9f, 0.8f, 0.2f, 1.0f };
