@@ -26,9 +26,8 @@ namespace Luth
 
         // Gizmo overlay colors
         static inline ImU32 GizmoCamera       = IM_COL32(180, 180, 220, 180); // Light blue-grey
-        static inline ImU32 GizmoAABB         = IM_COL32(  0, 255,   0, 120); // Green, semi-transparent
+        static inline ImU32 GizmoAABB         = IM_COL32(160, 160, 160, 100); // Soft grey
         static inline ImU32 GizmoAABBSelected = IM_COL32(255, 160,   0, 200); // Orange for selected
-        static inline ImU32 GizmoIconBg       = IM_COL32( 40,  40,  40, 180); // Icon disc background
 
         // Status colors
         static inline ImVec4 ErrorRed      = { 0.9f, 0.2f, 0.2f, 1.0f };

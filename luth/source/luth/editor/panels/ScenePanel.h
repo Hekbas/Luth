@@ -142,6 +142,9 @@ namespace Luth
         ImU32  LightColorToImU32(const Vec3& color, float alpha = 0.85f) const;
         void   DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
                              ImU32 color, entt::entity entity);
+        bool   ClipLineToNearPlane(Vec3& a, Vec3& b) const;
+        void   DrawClippedLine(ImDrawList* drawList, const Vec3& worldA, const Vec3& worldB,
+                               ImU32 color, float thickness = 1.0f);
 
         std::shared_ptr<Scene> m_Context;
         std::shared_ptr<RenderingSystem> m_RenderingSystem;
@@ -166,6 +169,9 @@ namespace Luth
         Vec3 m_GizmoStartPos{};
         Vec3 m_GizmoStartRot{};
         Vec3 m_GizmoStartScale{};
+
+        // Gizmo icon click tracking (prevents mouse-pick override)
+        bool m_GizmoIconClicked = false;
 
         // Controls overlay
         bool m_ShowControlsOverlay = true;

@@ -55,6 +55,8 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
+        m_GizmoIconClicked = false;
+
         // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
         auto& oc = EditorColors::SelectionOutline;
@@ -310,8 +312,9 @@ namespace Luth
             DrawCameraGizmos();
             DrawAABBGizmos();
 
-            // Mouse picking — LMB click in viewport (not on gizmo)
+            // Mouse picking — LMB click in viewport (not on gizmo or icon)
             if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
+                && !m_GizmoIconClicked
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
             {
                 auto [mx, my] = ImGui::GetMousePos();
@@ -661,10 +664,7 @@ namespace Luth
     void ScenePanel::DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
                                    ImU32 color, entt::entity entity)
     {
-        constexpr float iconRadius = 14.0f;
-
-        drawList->AddCircleFilled(screenPos, iconRadius, EditorColors::GizmoIconBg);
-        drawList->AddCircle(screenPos, iconRadius, color, 0, 1.5f);
+        constexpr float hitRadius = 16.0f;
 
         ImVec2 textSize = ImGui::CalcTextSize(icon);
         ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
@@ -677,11 +677,33 @@ namespace Luth
         {
             ImVec2 mouse = ImGui::GetMousePos();
             float dx = mouse.x - screenPos.x, dy = mouse.y - screenPos.y;
-            if (dx * dx + dy * dy <= iconRadius * iconRadius) {
+            if (dx * dx + dy * dy <= hitRadius * hitRadius) {
                 Entity e(entity, m_Context.get());
                 EditorSelection::SelectEntity(e);
+                m_GizmoIconClicked = true;
             }
         }
+    }
+
+    bool ScenePanel::ClipLineToNearPlane(Vec3& a, Vec3& b) const
+    {
+        Mat4 vp = m_EditorCamera.GetViewProjection();
+        // Compute clip-space w for each endpoint (w = row3 dot (x,y,z,1))
+        float wa = vp[0][3] * a.x + vp[1][3] * a.y + vp[2][3] * a.z + vp[3][3];
+        float wb = vp[0][3] * b.x + vp[1][3] * b.y + vp[2][3] * b.z + vp[3][3];
+        constexpr float eps = 0.01f;
+        if (wa < eps && wb < eps) return false; // both behind camera
+        if (wa < eps) { float t = (eps - wa) / (wb - wa); a = glm::mix(a, b, t); }
+        if (wb < eps) { float t = (eps - wb) / (wa - wb); b = glm::mix(b, a, t); }
+        return true;
+    }
+
+    void ScenePanel::DrawClippedLine(ImDrawList* drawList, const Vec3& worldA, const Vec3& worldB,
+                                     ImU32 color, float thickness)
+    {
+        Vec3 a = worldA, b = worldB;
+        if (!ClipLineToNearPlane(a, b)) return;
+        drawList->AddLine(ProjectToScreen(a), ProjectToScreen(b), color, thickness);
     }
 
     // ======================================
@@ -708,21 +730,32 @@ namespace Luth
                 Vec3 dir = glm::normalize(-Vec3(wt.Matrix[2]));
                 ImU32 color = LightColorToImU32(dl.Color);
 
+                // Icon (only if in front of camera)
                 ImVec2 screenPos = ProjectToScreen(pos);
-                if (!IsInViewport(screenPos)) continue;
+                if (screenPos.x >= 0.0f)
+                    DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity);
 
-                // Icon
-                DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity);
+                // Direction arrow — only when selected
+                Entity e(entity, m_Context.get());
+                if (!EditorSelection::IsSelected(e)) continue;
 
-                // Direction arrow
-                constexpr float arrowLength = 3.0f;
-                Vec3 endWorld = pos + dir * arrowLength;
+                // Constant screen-size: compute pixel-per-unit at this depth
+                Vec3 startPos = pos + dir * 1.5f; // offset to avoid icon overlap
+                ImVec2 startScreen = ProjectToScreen(startPos);
+                ImVec2 unitScreen  = ProjectToScreen(startPos + dir);
+                float pxPerUnit = sqrtf((unitScreen.x - startScreen.x) * (unitScreen.x - startScreen.x)
+                                      + (unitScreen.y - startScreen.y) * (unitScreen.y - startScreen.y));
+                if (pxPerUnit < 0.001f) continue;
+                constexpr float desiredPx = 80.0f;
+                float worldLen = glm::clamp(desiredPx / pxPerUnit, 0.5f, 50.0f);
+
+                Vec3 endWorld = startPos + dir * worldLen;
                 ImVec2 endScreen = ProjectToScreen(endWorld);
 
-                drawList->AddLine(screenPos, endScreen, color, 2.0f);
+                DrawClippedLine(drawList, startPos, endWorld, color, 2.0f);
 
-                // Arrowhead
-                ImVec2 dir2D = { endScreen.x - screenPos.x, endScreen.y - screenPos.y };
+                // Arrowhead (in screen space)
+                ImVec2 dir2D = { endScreen.x - startScreen.x, endScreen.y - startScreen.y };
                 float len = sqrtf(dir2D.x * dir2D.x + dir2D.y * dir2D.y);
                 if (len > 1.0f) {
                     ImVec2 norm = { dir2D.x / len, dir2D.y / len };
@@ -745,22 +778,25 @@ namespace Luth
                 auto& pl = view.get<PointLight>(entity);
 
                 Vec3 center = Vec3(wt.Matrix[3]);
+                ImU32 iconColor = LightColorToImU32(pl.Color);
+
+                // Icon (only if in front of camera)
+                ImVec2 screenCenter = ProjectToScreen(center);
+                if (screenCenter.x >= 0.0f)
+                    DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, iconColor, entity);
+
+                // Range circles — only when selected
+                Entity e(entity, m_Context.get());
+                if (!EditorSelection::IsSelected(e)) continue;
+
                 float radius = pl.Range;
                 ImU32 color = LightColorToImU32(pl.Color, 0.6f);
 
-                ImVec2 screenCenter = ProjectToScreen(center);
-                if (!IsInViewport(screenCenter)) continue;
-
-                // Icon
-                DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, LightColorToImU32(pl.Color), entity);
-
-                // 3 great circles (XY, XZ, YZ)
                 constexpr int segments = 32;
                 constexpr float twoPi = glm::two_pi<float>();
 
                 for (int plane = 0; plane < 3; plane++) {
-                    ImVec2 prevScreen = {};
-                    bool prevVisible = false;
+                    Vec3 prevWorld;
                     for (int i = 0; i <= segments; i++) {
                         float angle = (float)i / (float)segments * twoPi;
                         float c = cosf(angle) * radius;
@@ -770,14 +806,10 @@ namespace Luth
                         else if (plane == 1) offset = Vec3(c, 0.0f, s);
                         else                 offset = Vec3(0.0f, c, s);
 
-                        ImVec2 sp = ProjectToScreen(center + offset);
-                        bool visible = IsInViewport(sp);
-
-                        if (i > 0 && (visible || prevVisible))
-                            drawList->AddLine(prevScreen, sp, color, 1.5f);
-
-                        prevScreen = sp;
-                        prevVisible = visible;
+                        Vec3 worldPt = center + offset;
+                        if (i > 0)
+                            DrawClippedLine(drawList, prevWorld, worldPt, color, 1.5f);
+                        prevWorld = worldPt;
                     }
                 }
             }
@@ -805,14 +837,14 @@ namespace Luth
             auto& cam = view.get<Camera>(entity);
 
             Vec3 pos = Vec3(wt.Matrix[3]);
-            ImVec2 screenPos = ProjectToScreen(pos);
-            if (!IsInViewport(screenPos)) continue;
 
-            // Icon
-            DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity);
+            // Icon (only if in front of camera)
+            ImVec2 screenPos = ProjectToScreen(pos);
+            if (screenPos.x >= 0.0f)
+                DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity);
 
             // Compute frustum corners in camera local space (looking along -Z)
-            float visualFar = glm::min(cam.FarClip, 50.0f);
+            float visualFar = glm::min(cam.FarClip, 1000.0f);
             Vec3 nearCorners[4], farCorners[4];
 
             if (cam.Projection == Camera::ProjectionType::Perspective) {
@@ -848,26 +880,24 @@ namespace Luth
                 farCorners[3] = Vec3(-halfW, -halfH, -orthoFar);
             }
 
-            // Transform to world space and project
-            ImVec2 nearScreen[4], farScreen[4];
+            // Transform to world space
+            Vec3 nearWorld[4], farWorld[4];
             for (int i = 0; i < 4; i++) {
-                Vec3 nw = Vec3(wt.Matrix * Vec4(nearCorners[i], 1.0f));
-                Vec3 fw = Vec3(wt.Matrix * Vec4(farCorners[i], 1.0f));
-                nearScreen[i] = ProjectToScreen(nw);
-                farScreen[i]  = ProjectToScreen(fw);
+                nearWorld[i] = Vec3(wt.Matrix * Vec4(nearCorners[i], 1.0f));
+                farWorld[i]  = Vec3(wt.Matrix * Vec4(farCorners[i], 1.0f));
             }
 
             ImU32 color = EditorColors::GizmoCamera;
 
             // Near plane quad
             for (int i = 0; i < 4; i++)
-                drawList->AddLine(nearScreen[i], nearScreen[(i + 1) % 4], color, 1.5f);
+                DrawClippedLine(drawList, nearWorld[i], nearWorld[(i + 1) % 4], color, 1.5f);
             // Far plane quad
             for (int i = 0; i < 4; i++)
-                drawList->AddLine(farScreen[i], farScreen[(i + 1) % 4], color, 1.5f);
+                DrawClippedLine(drawList, farWorld[i], farWorld[(i + 1) % 4], color, 1.5f);
             // Connecting edges
             for (int i = 0; i < 4; i++)
-                drawList->AddLine(nearScreen[i], farScreen[i], color, 1.0f);
+                DrawClippedLine(drawList, nearWorld[i], farWorld[i], color, 1.0f);
         }
 
         drawList->PopClipRect();
@@ -918,23 +948,18 @@ namespace Luth
                 if (!aabb.IsValid()) continue;
             }
 
-            // Compute 8 corners
+            // Compute 8 world-space corners
             Vec3 mn = aabb.Min, mx = aabb.Max;
-            Vec3 corners[8] = {
+            Vec3 localCorners[8] = {
                 {mn.x, mn.y, mn.z}, {mx.x, mn.y, mn.z},
                 {mx.x, mx.y, mn.z}, {mn.x, mx.y, mn.z},
                 {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z},
                 {mx.x, mx.y, mx.z}, {mn.x, mx.y, mx.z},
             };
 
-            ImVec2 screenCorners[8];
-            bool anyVisible = false;
-            for (int i = 0; i < 8; i++) {
-                Vec3 wp = worldSpace ? corners[i] : Vec3(wt.Matrix * Vec4(corners[i], 1.0f));
-                screenCorners[i] = ProjectToScreen(wp);
-                if (IsInViewport(screenCorners[i])) anyVisible = true;
-            }
-            if (!anyVisible) continue;
+            Vec3 worldCorners[8];
+            for (int i = 0; i < 8; i++)
+                worldCorners[i] = worldSpace ? localCorners[i] : Vec3(wt.Matrix * Vec4(localCorners[i], 1.0f));
 
             Entity e(entity, m_Context.get());
             ImU32 color = EditorSelection::IsSelected(e)
@@ -942,7 +967,7 @@ namespace Luth
                 : EditorColors::GizmoAABB;
 
             for (auto& [a, b] : edges)
-                drawList->AddLine(screenCorners[a], screenCorners[b], color, 1.0f);
+                DrawClippedLine(drawList, worldCorners[a], worldCorners[b], color, 1.0f);
         }
 
         drawList->PopClipRect();
@@ -960,7 +985,7 @@ namespace Luth
         }
     }
 
-
+    // ======================================
     // Editor Camera
     // ======================================
     EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)
