@@ -170,8 +170,9 @@ namespace Luth
         Vec3 m_GizmoStartRot{};
         Vec3 m_GizmoStartScale{};
 
-        // Gizmo icon click tracking (prevents mouse-pick override)
+        // Gizmo icon click tracking — deferred selection that wins over pick results
         bool m_GizmoIconClicked = false;
+        entt::entity m_GizmoIconEntity = entt::null;
 
         // Controls overlay
         bool m_ShowControlsOverlay = true;

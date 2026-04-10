@@ -56,6 +56,7 @@ namespace Luth
     void ScenePanel::OnRender()
     {
         m_GizmoIconClicked = false;
+        m_GizmoIconEntity = entt::null;
 
         // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
@@ -326,7 +327,7 @@ namespace Luth
             }
 
             // Consume pick result — hierarchy-aware + multi-select
-            if (m_RenderingSystem->HasPickResult())
+            if (!m_GizmoIconClicked && m_RenderingSystem->HasPickResult())
             {
                 entt::entity picked = m_RenderingSystem->ConsumePickResult();
                 if (picked != entt::null && m_Context)
@@ -371,6 +372,17 @@ namespace Luth
                 {
                     EditorSelection::ClearSelection();
                 }
+            }
+
+            // Deferred icon selection — always wins over pick results
+            if (m_GizmoIconClicked && m_GizmoIconEntity != entt::null && m_Context)
+            {
+                // Discard any stale pick result
+                if (m_RenderingSystem->HasPickResult())
+                    m_RenderingSystem->ConsumePickResult();
+
+                Entity e(m_GizmoIconEntity, m_Context.get());
+                EditorSelection::SelectEntity(e);
             }
 
             // Camera Control
@@ -670,17 +682,21 @@ namespace Luth
         ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
         drawList->AddText(textPos, color, icon);
 
+        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
+        // otherwise it returns stale state from the previous frame
+        bool gizmoActive = m_SelectedEntity && m_SelectedEntity.IsValid()
+                        && m_ShowTransformGizmo && m_GizmoType != -1;
+
         // Hit-test for click-to-select
         if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !ImGuizmo::IsOver()
+            && !(gizmoActive && ImGuizmo::IsOver())
             && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
         {
             ImVec2 mouse = ImGui::GetMousePos();
             float dx = mouse.x - screenPos.x, dy = mouse.y - screenPos.y;
             if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-                Entity e(entity, m_Context.get());
-                EditorSelection::SelectEntity(e);
                 m_GizmoIconClicked = true;
+                m_GizmoIconEntity = entity;
             }
         }
     }
