@@ -116,10 +116,11 @@ namespace Luth
                 m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
                 m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
                 m_OutlineFragSpv       = ShaderCompiler::Compile(shadersPath / "outline.frag");
+                m_GridFragSpv          = ShaderCompiler::Compile(shadersPath / "grid.frag");
 
                 if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
                     m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
-                    m_OutlineFragSpv.empty())
+                    m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
                 {
                     LH_CORE_ERROR("Failed to compile post-process shaders!");
                 }
@@ -158,6 +159,7 @@ namespace Luth
                 m_BloomBlurPipeline.reset();
                 m_PostProcessPipeline.reset();
                 m_OutlinePipeline.reset();
+                m_GridPipeline.reset();
                 m_SelectionMaskPipeline.reset();
                 m_SelectionMaskSkinnedPipeline.reset();
                 CreatePipelines();
@@ -205,6 +207,12 @@ namespace Luth
             vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
         if (m_OutlineDescPool)
             vkDestroyDescriptorPool(device, m_OutlineDescPool, nullptr);
+        if (m_GridDepthSampler)
+            vkDestroySampler(device, m_GridDepthSampler, nullptr);
+        if (m_GridDescSetLayout)
+            vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
+        if (m_GridDescPool)
+            vkDestroyDescriptorPool(device, m_GridDescPool, nullptr);
         if (m_PPSampler)
             vkDestroySampler(device, m_PPSampler, nullptr);
         if (m_PPDescSetLayout)
@@ -557,6 +565,87 @@ namespace Luth
             writes[2].pImageInfo = &scnDepthImgInfo;
 
             vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        }
+
+        // ---- Grid pass resources ----
+        {
+            // Linear sampler for scene depth read (matching behaviour used elsewhere for depth texture reads)
+            VkSamplerCreateInfo gridSamplerInfo{};
+            gridSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            gridSamplerInfo.magFilter = VK_FILTER_NEAREST;
+            gridSamplerInfo.minFilter = VK_FILTER_NEAREST;
+            gridSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            gridSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            gridSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            gridSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(device, &gridSamplerInfo, nullptr, &m_GridDepthSampler);
+
+            // Descriptor set layout: binding 0 = GlobalUBO (camera), binding 1 = scene depth sampler
+            VkDescriptorSetLayoutBinding gridBindings[2] = {};
+            gridBindings[0].binding = 0;
+            gridBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            gridBindings[0].descriptorCount = 1;
+            gridBindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            gridBindings[1].binding = 1;
+            gridBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            gridBindings[1].descriptorCount = 1;
+            gridBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            VkDescriptorSetLayoutCreateInfo gridLayoutInfo{};
+            gridLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            gridLayoutInfo.bindingCount = 2;
+            gridLayoutInfo.pBindings = gridBindings;
+            vkCreateDescriptorSetLayout(device, &gridLayoutInfo, nullptr, &m_GridDescSetLayout);
+
+            // Descriptor pool: 1 set (UBO + sampler)
+            VkDescriptorPoolSize gridPoolSizes[2] = {};
+            gridPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            gridPoolSizes[0].descriptorCount = 1;
+            gridPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            gridPoolSizes[1].descriptorCount = 1;
+
+            VkDescriptorPoolCreateInfo gridPoolInfo{};
+            gridPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            gridPoolInfo.maxSets = 1;
+            gridPoolInfo.poolSizeCount = 2;
+            gridPoolInfo.pPoolSizes = gridPoolSizes;
+            vkCreateDescriptorPool(device, &gridPoolInfo, nullptr, &m_GridDescPool);
+
+            VkDescriptorSetAllocateInfo gridAllocInfo{};
+            gridAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            gridAllocInfo.descriptorPool = m_GridDescPool;
+            gridAllocInfo.descriptorSetCount = 1;
+            gridAllocInfo.pSetLayouts = &m_GridDescSetLayout;
+            vkAllocateDescriptorSets(device, &gridAllocInfo, &m_GridDescSet);
+
+            // Write: global UBO + scene depth
+            VkDescriptorBufferInfo gridUBOInfo{};
+            gridUBOInfo.buffer = m_GlobalUniformBuffer->GetVulkanBuffer();
+            gridUBOInfo.offset = 0;
+            gridUBOInfo.range  = sizeof(GlobalUniforms);
+
+            auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+            VkDescriptorImageInfo gridDepthImgInfo{};
+            gridDepthImgInfo.sampler     = m_GridDepthSampler;
+            gridDepthImgInfo.imageView   = vkScnDepthGrid->GetImageView();
+            gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet gridWrites[2] = {};
+            gridWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            gridWrites[0].dstSet = m_GridDescSet;
+            gridWrites[0].dstBinding = 0;
+            gridWrites[0].descriptorCount = 1;
+            gridWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            gridWrites[0].pBufferInfo = &gridUBOInfo;
+
+            gridWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            gridWrites[1].dstSet = m_GridDescSet;
+            gridWrites[1].dstBinding = 1;
+            gridWrites[1].descriptorCount = 1;
+            gridWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            gridWrites[1].pImageInfo = &gridDepthImgInfo;
+
+            vkUpdateDescriptorSets(device, 2, gridWrites, 0, nullptr);
         }
     }
 
@@ -1609,6 +1698,27 @@ namespace Luth
             m_OutlinePipeline = std::make_unique<VKPipeline>(
                 outlineConfig, m_FullscreenVertSpv, m_OutlineFragSpv, outlineLayouts);
         }
+
+        // ---- Grid pipeline (editor-only infinite grid fullscreen pass) ----
+        if (!m_FullscreenVertSpv.empty() && !m_GridFragSpv.empty() && m_GridDescSetLayout != VK_NULL_HANDLE)
+        {
+            std::vector<VkDescriptorSetLayout> gridLayouts = { m_GridDescSetLayout };
+
+            VkPushConstantRange gridPC{};
+            gridPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            gridPC.offset = 0;
+            gridPC.size = sizeof(float) * 16; // 3 vec4 colors + 4 floats = 16 floats = 64 bytes
+
+            PipelineConfig gridConfig;
+            gridConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT }; // HDR scene color
+            gridConfig.depthFormat = VK_FORMAT_UNDEFINED;
+            gridConfig.depthTest = false; gridConfig.depthWrite = false;
+            gridConfig.blendEnabled = true; // alpha-composite grid over scene
+            gridConfig.cullMode = VK_CULL_MODE_NONE;
+            gridConfig.pushConstantRanges = { gridPC };
+            m_GridPipeline = std::make_unique<VKPipeline>(
+                gridConfig, m_FullscreenVertSpv, m_GridFragSpv, gridLayouts);
+        }
     }
 
     u32 RenderingSystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
@@ -1788,8 +1898,11 @@ namespace Luth
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-            RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
-            RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, skyboxColor, bloomResult);
+            RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
+            RG::ResourceHandle gridColor   = m_GridVisible
+                                             ? AddGridPass(rg, skyboxColor, geoOutput.depth)
+                                             : skyboxColor;
+            RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
             RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth);
             AddImGuiPass(rg, finalOutput);
 
@@ -2918,6 +3031,86 @@ namespace Luth
         return outputHandle;
     }
 
+    RG::ResourceHandle RenderingSystem::AddGridPass(
+        RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
+    {
+        if (!m_GridPipeline)
+            return sceneColor;
+
+        struct GridPassData {
+            RG::ResourceHandle colorTex;
+            RG::ResourceHandle depthInput;
+        };
+
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<GridPassData>("GridPass",
+            [&](GridPassData& data, RG::RenderPassBuilder& builder)
+            {
+                // Load existing scene color and alpha-blend grid on top
+                data.colorTex = builder.Write(sceneColor,
+                    VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+
+                // Scene depth as shader resource (not attachment)
+                data.depthInput = builder.Read(sceneDepth);
+
+                outputHandle = data.colorTex;
+            },
+            [this](GridPassData& data, RG::RenderPassContext& ctx)
+            {
+                BeginCapturePass("GridPass", "SceneColor", false,
+                    { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_GridPipeline->Bind(cmd);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_GridPipeline->GetLayout(), 0, 1, &m_GridDescSet, 0, nullptr);
+
+                RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
+                VkViewport vp{};
+                vp.width  = (float)res->desc.width;
+                vp.height = (float)res->desc.height;
+                vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { res->desc.width, res->desc.height };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                // Must match GridPushConstants in grid.frag (16 floats / 64 bytes).
+                struct GridPushConstants {
+                    float axisXColor[4];
+                    float axisZColor[4];
+                    float gridColor[4];
+                    float majorScale;
+                    float fadeStart;
+                    float fadeEnd;
+                    float lineThickness;
+                } gpc{};
+
+                // Axis colors mirror EditorColors::AxisX/AxisZ (engine cannot depend on the editor lib).
+                gpc.axisXColor[0] = 0.80f; gpc.axisXColor[1] = 0.10f; gpc.axisXColor[2] = 0.15f; gpc.axisXColor[3] = 1.00f;
+                gpc.axisZColor[0] = 0.10f; gpc.axisZColor[1] = 0.25f; gpc.axisZColor[2] = 0.80f; gpc.axisZColor[3] = 1.00f;
+                gpc.gridColor[0]  = 0.41f; gpc.gridColor[1]  = 0.41f; gpc.gridColor[2]  = 0.41f; gpc.gridColor[3]  = 0.50f;
+                gpc.majorScale    = 1.0f;
+                gpc.fadeStart     = 20.0f;
+                gpc.fadeEnd       = 200.0f;
+                gpc.lineThickness = 1.00f;
+
+                vkCmdPushConstants(cmd, m_GridPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(gpc), &gpc);
+
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                CaptureDrawCall("GridPass", "FullscreenTriangle", "GridPass", 0, 0, dummyPC,
+                    { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
+                EndCapturePass();
+            }
+        );
+
+        return outputHandle;
+    }
+
     void RenderingSystem::AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
         struct ImGuiPassData {
@@ -3263,6 +3456,27 @@ namespace Luth
                 writes[2].pImageInfo = &sceneDepthImgInfo;
 
                 vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
+            }
+
+            // Update grid descriptor set: scene depth view changed on resize
+            if (m_GridDescSet && m_GridDepthSampler)
+            {
+                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+
+                VkDescriptorImageInfo gridDepthImgInfo{};
+                gridDepthImgInfo.sampler     = m_GridDepthSampler;
+                gridDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
+                gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet gridWrite{};
+                gridWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                gridWrite.dstSet = m_GridDescSet;
+                gridWrite.dstBinding = 1;
+                gridWrite.descriptorCount = 1;
+                gridWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                gridWrite.pImageInfo = &gridDepthImgInfo;
+
+                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &gridWrite, 0, nullptr);
             }
 
             RegisterNamedTextures();

@@ -130,6 +130,10 @@ namespace Luth
         // Skybox / IBL
         void ReloadSkybox(const std::filesystem::path& hdrPath);
 
+        // Editor grid visibility (screen-space infinite grid pass)
+        void SetGridVisible(bool v) { m_GridVisible = v; }
+        bool IsGridVisible() const  { return m_GridVisible; }
+
         // Frame debugger capture
         void RequestCapture()   { if (m_DebuggerState == DebuggerState::Inactive) m_DebuggerState = DebuggerState::CaptureRequested; }
         void ExitCapture()      { m_DebuggerState = DebuggerState::Inactive; m_CapturedFrame.Clear(); }
@@ -160,6 +164,7 @@ namespace Luth
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry);
         RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
+        RG::ResourceHandle AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
@@ -280,6 +285,15 @@ namespace Luth
         VkDescriptorSet              m_OutlineDescSet       = VK_NULL_HANDLE;
         VkSampler                    m_OutlineSampler       = VK_NULL_HANDLE;
         glm::vec4                    m_OutlineColor         = { 1.0f, 0.6f, 0.0f, 1.0f };
+
+        // Grid pass resources (editor-only infinite grid)
+        std::unique_ptr<VKPipeline>  m_GridPipeline;
+        std::vector<u32>             m_GridFragSpv;
+        VkDescriptorPool             m_GridDescPool      = VK_NULL_HANDLE;
+        VkDescriptorSetLayout        m_GridDescSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet              m_GridDescSet       = VK_NULL_HANDLE;
+        VkSampler                    m_GridDepthSampler  = VK_NULL_HANDLE;
+        bool                         m_GridVisible       = true;
 
         // IBL resources
         std::shared_ptr<Texture> m_IrradianceMap;    // 32x32 cubemap, RGBA16F

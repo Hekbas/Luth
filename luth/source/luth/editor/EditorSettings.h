@@ -35,6 +35,7 @@ namespace Luth
         bool  showLightGizmos      = true;
         bool  showCameraGizmos     = true;
         bool  showAABBGizmos       = false;
+        bool  showGrid             = true;
 
         // Scene persistence
         std::string lastSceneUUID;

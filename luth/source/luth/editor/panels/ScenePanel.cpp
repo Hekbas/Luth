@@ -62,6 +62,7 @@ namespace Luth
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
         auto& oc = EditorColors::SelectionOutline;
         m_RenderingSystem->SetOutlineColor(oc.x, oc.y, oc.z, oc.w);
+        m_RenderingSystem->SetGridVisible(Editor::GetSettings().showGrid);
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
@@ -232,6 +233,7 @@ namespace Luth
                     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
                     ImGui::PushFont(Editor::GetMainFont());
                     ImGui::Checkbox("Transform Gizmo", &m_ShowTransformGizmo);
+                    ImGui::Checkbox("Grid", &Editor::GetSettings().showGrid);
                     ImGui::Checkbox("Bone Debug", &Editor::GetSettings().showBoneDebug);
                     ImGui::Checkbox("Light Gizmos", &Editor::GetSettings().showLightGizmos);
                     ImGui::Checkbox("Camera Gizmos", &Editor::GetSettings().showCameraGizmos);
