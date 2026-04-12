@@ -41,9 +41,6 @@ namespace Luth
         /// Load or switch to a project. Handles FileSystem, AssetDatabase, import, editor refresh.
         void LoadProject(const std::filesystem::path& luthprojPath);
 
-        /// Import dirty assets from AssetDatabase using the job system.
-        void ImportDirtyAssets();
-
         std::shared_ptr<Window> m_Window;
         std::shared_ptr<Scene> m_Scene;
         

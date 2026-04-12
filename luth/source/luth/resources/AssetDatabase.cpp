@@ -355,6 +355,92 @@ namespace Luth
     }
 
     // ================================================================
+    // File Ingestion (drag-and-drop, external import)
+    // ================================================================
+
+    static bool IsImageExtension(const fs::path& ext)
+    {
+        static const std::unordered_set<std::string> s_Exts = {
+            ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tiff", ".tif"
+        };
+        std::string lower = ext.string();
+        for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
+        return s_Exts.contains(lower);
+    }
+
+    void AssetDatabase::IngestFile(const fs::path& sourcePath, const fs::path& destDir)
+    {
+        try {
+            if (!fs::exists(sourcePath)) {
+                LH_CORE_ERROR("IngestFile: source not found: {0}", sourcePath.string());
+                return;
+            }
+
+            AssetType resType = FileSystem::ClassifyFileType(sourcePath);
+            if (resType == AssetType::None) {
+                LH_CORE_WARN("IngestFile: unsupported file type: {0}", sourcePath.string());
+                return;
+            }
+
+            fs::path destPath = destDir / sourcePath.filename();
+            FileSystem::CreateDirectories(destDir);
+            fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
+            LH_CORE_INFO("Imported {0} to {1}", sourcePath.filename().string(), destPath.string());
+
+            // For model assets, discover and copy adjacent textures
+            if (resType == AssetType::Model) {
+                fs::path texDestDir = destDir / (sourcePath.stem().string() + "_Textures");
+                fs::path srcDir = sourcePath.parent_path();
+
+                std::vector<fs::path> scanDirs = { srcDir };
+                static const char* k_SiblingDirs[] = {
+                    "textures", "Textures", "texture", "Texture",
+                    "tex",      "Tex",      "maps",   "Maps",
+                    "images",   "Images"
+                };
+                for (const char* sub : k_SiblingDirs) {
+                    fs::path candidate = srcDir / sub;
+                    if (fs::exists(candidate) && fs::is_directory(candidate))
+                        scanDirs.push_back(candidate);
+                }
+
+                bool copiedAny = false;
+                for (const auto& dir : scanDirs) {
+                    for (const auto& entry : fs::directory_iterator(dir)) {
+                        if (!entry.is_regular_file()) continue;
+                        if (!IsImageExtension(entry.path().extension())) continue;
+
+                        if (!copiedAny) {
+                            fs::create_directories(texDestDir);
+                            copiedAny = true;
+                        }
+
+                        fs::path imgDest = texDestDir / entry.path().filename();
+                        if (!fs::exists(imgDest))
+                            fs::copy_file(entry.path(), imgDest, fs::copy_options::skip_existing);
+                    }
+                }
+                if (copiedAny)
+                    LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
+            }
+
+            UUID newUuid = MetaFile::Create(destPath, resType);
+            RegisterAsset(destPath, newUuid, resType);
+
+            if (AssetManager::HasImporter(resType))
+                AssetManager::Import(newUuid);
+
+            LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
+        }
+        catch (const fs::filesystem_error& err) {
+            LH_CORE_ERROR("IngestFile failed: {0} - {1}", sourcePath.string(), err.what());
+        }
+        catch (const std::exception& ex) {
+            LH_CORE_ERROR("IngestFile error: {0} - {1}", sourcePath.string(), ex.what());
+        }
+    }
+
+    // ================================================================
     // File System Watching
     // ================================================================
 

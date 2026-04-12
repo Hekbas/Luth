@@ -47,6 +47,11 @@ namespace Luth
         static const std::unordered_map<UUID, AssetMetadata, UUIDHash>& GetRegistry() { return s_Assets; }
         static const std::vector<UUID>& GetDirtyAssets() { return s_DirtyAssets; }
 
+        /// Copy a source file into the project assets directory, create .meta,
+        /// register in DB, and import if an importer exists. For model assets,
+        /// also discovers and copies adjacent textures.
+        static void IngestFile(const std::filesystem::path& sourcePath, const std::filesystem::path& destDir);
+
         // Hot reload — file system watching
         using ChangeCallback = std::function<void()>;
         static void StartWatching();

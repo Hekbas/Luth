@@ -165,6 +165,22 @@ namespace Luth
         return evicted;
     }
 
+    void AssetManager::ImportDirty()
+    {
+        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
+        if (dirtyAssets.empty()) return;
+
+        std::vector<UUID> assetsToImport = dirtyAssets;
+        LH_CORE_INFO("Importing {} assets...", assetsToImport.size());
+
+        JobSystem::Counter importCounter(0);
+        JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+            std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
+            AssetManager::Import((*assets)[args.jobIndex]);
+        }, &assetsToImport, &importCounter);
+        JobSystem::WaitForCounter(&importCounter);
+    }
+
     // ================================================================
     // Shared helpers
     // ================================================================

@@ -53,6 +53,9 @@ namespace Luth
         // Returns true if an importer is registered for this asset type
         static bool HasImporter(AssetType type);
 
+        // Import all dirty assets from AssetDatabase using the job system (blocking).
+        static void ImportDirty();
+
         // Removes a specific asset from the cache (forces reload on next access)
         static void Evict(UUID handle);
 
