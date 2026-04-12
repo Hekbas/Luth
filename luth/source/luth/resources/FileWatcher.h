@@ -26,6 +26,7 @@ namespace Luth
         ~FileWatcher();
 
         void AddWatch(const fs::path& path);
+        void RemoveWatch(const fs::path& path);
         void SetCallback(const Callback& callback);
         void Start(bool initialScan = false);
         void Stop();

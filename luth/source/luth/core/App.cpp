@@ -22,6 +22,7 @@
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/ShaderLibrary.h"
+#include "luth/renderer/backend/vulkan/PipelineCache.h"
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/scene/systems/AnimationSystem.h"
@@ -244,6 +245,10 @@ namespace Luth
     {
         Renderer::WaitForGPU();
 
+        // Persist the Vulkan pipeline cache to the active project before tearing
+        // down systems / the renderer. SaveToProject is a no-op if no project.
+        PipelineCache::SaveToProject();
+
 		Editor::Shutdown();
 		Systems::Shutdown();
 
@@ -285,12 +290,18 @@ namespace Luth
         if (m_ProjectLoaded)
         {
             Editor::SaveSettings();
+            PipelineCache::SaveToProject();
+            if (auto rs = Systems::GetSystem<RenderingSystem>())
+                rs->OnProjectUnloaded();
             AssetDatabase::UnloadProject();
             if (m_Scene) m_Scene->Clear();
         }
 
         // Set the project root in FileSystem
         FileSystem::SetProjectRoot(project.ProjectRoot);
+
+        // Load any persisted Vulkan pipeline cache for this project
+        PipelineCache::LoadFromProject();
 
         // Scan project assets
         AssetDatabase::LoadProject(FileSystem::AssetsPath());
@@ -303,6 +314,10 @@ namespace Luth
 
         // Refresh the editor for the new project
         Editor::OnProjectChanged();
+
+        // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
+        if (auto rs = Systems::GetSystem<RenderingSystem>())
+            rs->OnProjectLoaded();
 
         // Track in recent projects and hide launcher
         ProjectLauncher::AddRecent(project.Name, project.FilePath);

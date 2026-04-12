@@ -60,7 +60,7 @@ namespace Luth
             return;
         }
 
-        auto path = FileSystem::ProjectPath() / "icons/image/";
+        auto path = FileSystem::EngineAssetsPath("icons/image");
 		SetWindowIcon(m_GLFWwindow, path);
 
         glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);

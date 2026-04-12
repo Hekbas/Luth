@@ -138,16 +138,27 @@ namespace Luth
     fs::path FileSystem::PlatformAssetsPath()
     {
         #if defined(_WIN32)
-             return s_AssetsRoot / "config" / "windows";
+            const fs::path rel = fs::path("config") / "windows";
         #elif defined(__APPLE__)
-             return s_AssetsRoot / "config" / "macos";
+            const fs::path rel = fs::path("config") / "macos";
         #else
-             return s_AssetsRoot / "config" / "linux";
+            const fs::path rel = fs::path("config") / "linux";
         #endif
+
+        // Project override first; engine fallback otherwise.
+        if (s_HasProject)
+        {
+            fs::path projectPath = s_AssetsRoot / rel;
+            if (fs::exists(projectPath))
+                return projectPath.lexically_normal();
+        }
+        return (s_EngineAssetsRoot / rel).lexically_normal();
     }
 
     fs::path FileSystem::LogPath() {
-        return ProjectPath("Logs");
+        // Logs go alongside the project when one is loaded; otherwise next to
+        // the engine so the launcher / pre-project boot still has somewhere to write.
+        return s_HasProject ? ProjectPath("Logs") : EnginePath("Logs");
     }
 
     bool FileSystem::Exists(const fs::path& path) {

@@ -20,6 +20,25 @@ namespace Luth
         }
     }
 
+    void FileWatcher::RemoveWatch(const fs::path& path)
+    {
+        std::lock_guard lock(m_Mutex);
+        auto it = std::find(m_WatchPaths.begin(), m_WatchPaths.end(), path);
+        if (it != m_WatchPaths.end())
+            m_WatchPaths.erase(it);
+
+        // Drop tracked files that lived under this watch root so the next poll
+        // doesn't report them as Deleted (they're simply no longer watched).
+        const std::string prefix = path.lexically_normal().string();
+        for (auto pit = m_Paths.begin(); pit != m_Paths.end();) {
+            std::string p = pit->first.lexically_normal().string();
+            if (p.rfind(prefix, 0) == 0)
+                pit = m_Paths.erase(pit);
+            else
+                ++pit;
+        }
+    }
+
     void FileWatcher::SetCallback(const Callback& callback)
     {
         m_Callback = callback;

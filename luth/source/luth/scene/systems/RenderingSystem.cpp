@@ -232,6 +232,32 @@ namespace Luth
     }
 
     // =========================================================================
+    // Project lifecycle
+    // =========================================================================
+
+    void RenderingSystem::OnProjectLoaded()
+    {
+        // Add the project's shaders dir (if it exists) to the hot-reload watcher
+        // alongside the engine shader dir registered in the constructor.
+        if (!FileSystem::HasProject()) return;
+
+        fs::path projectShaders = FileSystem::AssetsPath("shaders");
+        if (!fs::exists(projectShaders) || !fs::is_directory(projectShaders))
+            return;
+
+        m_ShaderWatcher.AddWatch(projectShaders);
+        m_WatchedProjectShaderDir = projectShaders;
+        LH_CORE_INFO("Shader hot-reload watching project dir: {}", projectShaders.string());
+    }
+
+    void RenderingSystem::OnProjectUnloaded()
+    {
+        if (m_WatchedProjectShaderDir.empty()) return;
+        m_ShaderWatcher.RemoveWatch(m_WatchedProjectShaderDir);
+        m_WatchedProjectShaderDir.clear();
+    }
+
+    // =========================================================================
     // Initialization
     // =========================================================================
 

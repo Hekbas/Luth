@@ -104,6 +104,11 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
+        // Project lifecycle hooks: extend / restrict the shader hot-reload
+        // watcher to cover the active project's shaders directory.
+        void OnProjectLoaded();
+        void OnProjectUnloaded();
+
         std::shared_ptr<Texture> GetSceneColor() const { return m_LDROutput ? m_LDROutput : m_SceneColor; }
         PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
         const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
@@ -309,6 +314,7 @@ namespace Luth
 
         // Shader hot-reload
         FileWatcher m_ShaderWatcher;
+        fs::path m_WatchedProjectShaderDir;  // Empty when no project shader dir is watched.
         std::mutex m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
 
