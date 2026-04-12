@@ -55,13 +55,19 @@ namespace Luth
         static void AddChangeCallback(ChangeCallback cb);
 
     private:
-        static void LoadLibraryState();
-        static void SaveLibraryState();
+        static void LoadLibraryState_Unlocked();
+        static void SaveLibraryState_Unlocked();
         static u64 CalculateAssetHash(const fs::path& source, const fs::path& meta);
+
+        // _Unlocked variants — caller must hold s_Mutex
+        static UUID GetUUID_Unlocked(const fs::path& path);
+        static void RegisterAsset_Unlocked(const fs::path& path, UUID uuid, AssetType type);
+        static void UnregisterAsset_Unlocked(UUID uuid);
 
         static std::unordered_map<UUID, AssetMetadata, UUIDHash> s_Assets;
         static std::unordered_map<std::filesystem::path, UUID> s_PathToUuid;
         static std::vector<UUID> s_DirtyAssets;
+        static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
         static std::mutex s_Mutex;
 
         // File watcher state
