@@ -29,7 +29,7 @@ namespace Luth
         f32 LastAccessedTime = 0.0f;
         
         virtual AssetType GetType() const = 0;
-        bool IsValid() const { return (int)Flags & (int)AssetFlag::Invalid; }
+        bool IsValid() const { return !((int)Flags & (int)AssetFlag::Invalid); }
         bool IsLoaded() const { return !((int)Flags & (int)AssetFlag::Loading); }
 
         std::string GetName() const;
