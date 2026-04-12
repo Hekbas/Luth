@@ -87,56 +87,11 @@ namespace Luth
         if (!artifactReady) return nullptr;
 
         // 2. Load Data from Artifact
-        std::unique_ptr<AssetData> data = nullptr;
-        if (info.Type == AssetType::Texture) {
-            auto texData = std::make_unique<TextureAssetData>();
-            if (AssetSerializer::DeserializeTexture(artifactPath, *texData)) data = std::move(texData);
-        }
-        else if (info.Type == AssetType::Model) {
-            auto modelData = std::make_unique<ModelAssetData>();
-            if (AssetSerializer::DeserializeModel(artifactPath, *modelData)) data = std::move(modelData);
-        }
-        else if (info.Type == AssetType::Material)
-        {
-            auto matData = std::make_unique<MaterialAssetData>();
-            if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
-        }
-        else if (info.Type == AssetType::Shader)
-        {
-            auto shaderData = std::make_unique<ShaderAssetData>();
-            if (AssetSerializer::DeserializeShader(artifactPath, *shaderData)) data = std::move(shaderData);
-        }
-
+        auto data = DeserializeArtifact(info.Type, artifactPath);
         if (!data) return nullptr;
 
-        // Create Asset (Main Thread)
-        std::shared_ptr<Asset> newAsset = nullptr;
-        if (info.Type == AssetType::Texture)
-        {
-            auto* texData = static_cast<TextureAssetData*>(data.get());
-            newAsset = Texture::Create(texData->Width, texData->Height, texData->Format, texData->Pixels.data(), texData->Settings);
-        }
-        else if (info.Type == AssetType::Model)
-        {
-            auto* modelData = static_cast<ModelAssetData*>(data.get());
-            if (modelData->IsSkinned)
-                newAsset = Model::Create(modelData->Meshes, modelData->Materials,
-                    modelData->SkeletonData, modelData->AnimationClips, true);
-            else
-                newAsset = Model::Create(modelData->Meshes, modelData->Materials);
-        }
-        else if (info.Type == AssetType::Material)
-        {
-            auto* matData = static_cast<MaterialAssetData*>(data.get());
-            auto material = std::make_shared<Material>();
-            material->Deserialize(matData->JsonData);
-            newAsset = material;
-        }
-        else if (info.Type == AssetType::Shader)
-        {
-            auto* shaderData = static_cast<ShaderAssetData*>(data.get());
-            newAsset = Shader::Create(shaderData->VertexSpirV, shaderData->FragmentSpirV, info.Path);
-        }
+        // 3. Create Asset (Main Thread)
+        auto newAsset = FinalizeAsset(info.Type, data.get(), info.Path);
 
         if (newAsset) { 
             newAsset->Handle = handle; 
@@ -210,6 +165,77 @@ namespace Luth
         return evicted;
     }
 
+    void AssetManager::ImportDirty()
+    {
+        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
+        if (dirtyAssets.empty()) return;
+
+        std::vector<UUID> assetsToImport = dirtyAssets;
+        LH_CORE_INFO("Importing {} assets...", assetsToImport.size());
+
+        JobSystem::Counter importCounter(0);
+        JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+            std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
+            AssetManager::Import((*assets)[args.jobIndex]);
+        }, &assetsToImport, &importCounter);
+        JobSystem::WaitForCounter(&importCounter);
+    }
+
+    // ================================================================
+    // Shared helpers
+    // ================================================================
+
+    std::unique_ptr<AssetData> AssetManager::DeserializeArtifact(AssetType type, const fs::path& artifactPath)
+    {
+        if (type == AssetType::Texture) {
+            auto d = std::make_unique<TextureAssetData>();
+            if (AssetSerializer::DeserializeTexture(artifactPath, *d)) return d;
+        }
+        else if (type == AssetType::Model) {
+            auto d = std::make_unique<ModelAssetData>();
+            if (AssetSerializer::DeserializeModel(artifactPath, *d)) return d;
+        }
+        else if (type == AssetType::Material) {
+            auto d = std::make_unique<MaterialAssetData>();
+            if (AssetSerializer::DeserializeMaterial(artifactPath, *d)) return d;
+        }
+        else if (type == AssetType::Shader) {
+            auto d = std::make_unique<ShaderAssetData>();
+            if (AssetSerializer::DeserializeShader(artifactPath, *d)) return d;
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData* data, const fs::path& sourcePath)
+    {
+        if (type == AssetType::Texture) {
+            auto* d = static_cast<TextureAssetData*>(data);
+            return Texture::Create(d->Width, d->Height, d->Format, d->Pixels.data(), d->Settings);
+        }
+        else if (type == AssetType::Model) {
+            auto* d = static_cast<ModelAssetData*>(data);
+            if (d->IsSkinned)
+                return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClips, true);
+            else
+                return Model::Create(d->Meshes, d->Materials);
+        }
+        else if (type == AssetType::Material) {
+            auto* d = static_cast<MaterialAssetData*>(data);
+            auto material = std::make_shared<Material>();
+            material->Deserialize(d->JsonData);
+            return material;
+        }
+        else if (type == AssetType::Shader) {
+            auto* d = static_cast<ShaderAssetData*>(data);
+            return Shader::Create(d->VertexSpirV, d->FragmentSpirV, sourcePath);
+        }
+        return nullptr;
+    }
+
+    // ================================================================
+    // Async loading
+    // ================================================================
+
     void AssetManager::LoadJob(JobSystem::JobArgs args)
     {
         LH_PROFILE_FUNCTION();
@@ -239,24 +265,7 @@ namespace Luth
         // 2. Load from Artifact
         std::unique_ptr<AssetData> data = nullptr;
         if (artifactReady)
-        {
-            if (req->Type == AssetType::Texture) {
-                auto texData = std::make_unique<TextureAssetData>();
-                if (AssetSerializer::DeserializeTexture(artifactPath, *texData)) data = std::move(texData);
-            }
-            else if (req->Type == AssetType::Model) {
-                auto modelData = std::make_unique<ModelAssetData>();
-                if (AssetSerializer::DeserializeModel(artifactPath, *modelData)) data = std::move(modelData);
-            }
-            else if (req->Type == AssetType::Material) {
-                auto matData = std::make_unique<MaterialAssetData>();
-                if (AssetSerializer::DeserializeMaterial(artifactPath, *matData)) data = std::move(matData);
-            }
-            else if (req->Type == AssetType::Shader) {
-                auto shaderData = std::make_unique<ShaderAssetData>();
-                if (AssetSerializer::DeserializeShader(artifactPath, *shaderData)) data = std::move(shaderData);
-            }
-        }
+            data = DeserializeArtifact(req->Type, artifactPath);
 
         // Push to upload queue regardless of success to clear the loading flag on main thread
         {
@@ -288,38 +297,17 @@ namespace Luth
 
             if (upload.Data)
             {
-                if (upload.Type == AssetType::Texture)
-                {
-                    auto* texData = static_cast<TextureAssetData*>(upload.Data.get());
-                    newAsset = Texture::Create(texData->Width, texData->Height, texData->Format, texData->Pixels.data(), texData->Settings);
-                }
-                else if (upload.Type == AssetType::Model)
-                {
-                    auto* modelData = static_cast<ModelAssetData*>(upload.Data.get());
-                    if (modelData->IsSkinned)
-                        newAsset = Model::Create(modelData->Meshes, modelData->Materials,
-                            modelData->SkeletonData, modelData->AnimationClips, true);
-                    else
-                        newAsset = Model::Create(modelData->Meshes, modelData->Materials);
-                }
-                else if (upload.Type == AssetType::Material)
-                {
-                    auto* matData = static_cast<MaterialAssetData*>(upload.Data.get());
-                    auto material = std::make_shared<Material>();
-                    material->Deserialize(matData->JsonData);
-                    newAsset = material;
+                newAsset = FinalizeAsset(upload.Type, upload.Data.get(), {});
 
-                    // Load texture dependencies referenced by this material
+                // Material-specific: load texture dependencies
+                if (upload.Type == AssetType::Material && newAsset)
+                {
+                    auto* material = static_cast<Material*>(newAsset.get());
                     for (const auto& map : material->GetTextures())
                     {
                         if (map.Uuid.IsValid())
                             LoadAsync(map.Uuid);
                     }
-                }
-                else if (upload.Type == AssetType::Shader)
-                {
-                    auto* shaderData = static_cast<ShaderAssetData*>(upload.Data.get());
-                    newAsset = Shader::Create(shaderData->VertexSpirV, shaderData->FragmentSpirV, {});
                 }
             }
 

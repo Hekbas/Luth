@@ -21,7 +21,7 @@ namespace Luth
     fs::path AssetDatabase::s_EngineAssetsRoot;
     std::unordered_set<UUID, UUIDHash> AssetDatabase::s_EngineUUIDs;
 
-    static std::unordered_map<UUID, u64, UUIDHash> s_ArtifactHashes;
+    std::unordered_map<UUID, u64, UUIDHash> AssetDatabase::s_ArtifactHashes;
 
     // ================================================================
     // Phase 1: Engine-only init (register shaders, fonts)
@@ -105,7 +105,7 @@ namespace Luth
 
         // Ensure Library exists for this project
         fs::create_directories(FileSystem::ProjectPath("Library/Artifacts"));
-        LoadLibraryState();
+        LoadLibraryState_Unlocked();
 
         // Phase 1: Collect all file paths first.
         std::vector<fs::path> metaFiles;
@@ -181,7 +181,7 @@ namespace Luth
         }
 
         LH_CORE_INFO("AssetDatabase: Scanned {} project assets", projectAssetCount);
-        SaveLibraryState();
+        SaveLibraryState_Unlocked();
     }
 
     // ================================================================
@@ -250,6 +250,11 @@ namespace Luth
     UUID AssetDatabase::GetUUID(const std::filesystem::path& path)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
+        return GetUUID_Unlocked(path);
+    }
+
+    UUID AssetDatabase::GetUUID_Unlocked(const std::filesystem::path& path)
+    {
         auto it = s_PathToUuid.find(path);
         return (it != s_PathToUuid.end()) ? it->second : UUID::Invalid();
     }
@@ -270,6 +275,11 @@ namespace Luth
     void AssetDatabase::RegisterAsset(const std::filesystem::path& path, UUID uuid, AssetType type)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
+        RegisterAsset_Unlocked(path, uuid, type);
+    }
+
+    void AssetDatabase::RegisterAsset_Unlocked(const std::filesystem::path& path, UUID uuid, AssetType type)
+    {
         s_Assets[uuid] = { path, type };
         s_PathToUuid[path] = uuid;
     }
@@ -277,6 +287,11 @@ namespace Luth
     void AssetDatabase::UnregisterAsset(UUID uuid)
     {
         std::lock_guard<std::mutex> lock(s_Mutex);
+        UnregisterAsset_Unlocked(uuid);
+    }
+
+    void AssetDatabase::UnregisterAsset_Unlocked(UUID uuid)
+    {
         auto it = s_Assets.find(uuid);
         if (it != s_Assets.end())
         {
@@ -289,7 +304,7 @@ namespace Luth
     // Library State Persistence
     // ================================================================
 
-    void AssetDatabase::LoadLibraryState()
+    void AssetDatabase::LoadLibraryState_Unlocked()  // caller must hold s_Mutex
     {
         fs::path path = FileSystem::ProjectPath("Library/State.json");
         if (!fs::exists(path)) return;
@@ -303,7 +318,7 @@ namespace Luth
         }
     }
 
-    void AssetDatabase::SaveLibraryState()
+    void AssetDatabase::SaveLibraryState_Unlocked()  // caller must hold s_Mutex
     {
         if (!FileSystem::HasProject()) return;
 
@@ -319,15 +334,110 @@ namespace Luth
 
     u64 AssetDatabase::CalculateAssetHash(const fs::path& source, const fs::path& meta)
     {
-        u64 hash = 0;
+        // FNV-1a over timestamps and file size — order-dependent, no information loss.
+        u64 hash = 14695981039346656037ULL;  // FNV-1a offset basis
+        auto mix = [&hash](u64 val) {
+            const u8* bytes = reinterpret_cast<const u8*>(&val);
+            for (size_t i = 0; i < sizeof(u64); ++i) {
+                hash ^= bytes[i];
+                hash *= 1099511628211ULL;  // FNV-1a prime
+            }
+        };
+
         if (fs::exists(source)) {
-            hash ^= fs::last_write_time(source).time_since_epoch().count();
-            hash ^= fs::file_size(source);
+            mix(static_cast<u64>(fs::last_write_time(source).time_since_epoch().count()));
+            mix(fs::file_size(source));
         }
         if (fs::exists(meta)) {
-            hash ^= fs::last_write_time(meta).time_since_epoch().count();
+            mix(static_cast<u64>(fs::last_write_time(meta).time_since_epoch().count()));
         }
         return hash;
+    }
+
+    // ================================================================
+    // File Ingestion (drag-and-drop, external import)
+    // ================================================================
+
+    static bool IsImageExtension(const fs::path& ext)
+    {
+        static const std::unordered_set<std::string> s_Exts = {
+            ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tiff", ".tif"
+        };
+        std::string lower = ext.string();
+        for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
+        return s_Exts.contains(lower);
+    }
+
+    void AssetDatabase::IngestFile(const fs::path& sourcePath, const fs::path& destDir)
+    {
+        try {
+            if (!fs::exists(sourcePath)) {
+                LH_CORE_ERROR("IngestFile: source not found: {0}", sourcePath.string());
+                return;
+            }
+
+            AssetType resType = FileSystem::ClassifyFileType(sourcePath);
+            if (resType == AssetType::None) {
+                LH_CORE_WARN("IngestFile: unsupported file type: {0}", sourcePath.string());
+                return;
+            }
+
+            fs::path destPath = destDir / sourcePath.filename();
+            FileSystem::CreateDirectories(destDir);
+            fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
+            LH_CORE_INFO("Imported {0} to {1}", sourcePath.filename().string(), destPath.string());
+
+            // For model assets, discover and copy adjacent textures
+            if (resType == AssetType::Model) {
+                fs::path texDestDir = destDir / (sourcePath.stem().string() + "_Textures");
+                fs::path srcDir = sourcePath.parent_path();
+
+                std::vector<fs::path> scanDirs = { srcDir };
+                static const char* k_SiblingDirs[] = {
+                    "textures", "Textures", "texture", "Texture",
+                    "tex",      "Tex",      "maps",   "Maps",
+                    "images",   "Images"
+                };
+                for (const char* sub : k_SiblingDirs) {
+                    fs::path candidate = srcDir / sub;
+                    if (fs::exists(candidate) && fs::is_directory(candidate))
+                        scanDirs.push_back(candidate);
+                }
+
+                bool copiedAny = false;
+                for (const auto& dir : scanDirs) {
+                    for (const auto& entry : fs::directory_iterator(dir)) {
+                        if (!entry.is_regular_file()) continue;
+                        if (!IsImageExtension(entry.path().extension())) continue;
+
+                        if (!copiedAny) {
+                            fs::create_directories(texDestDir);
+                            copiedAny = true;
+                        }
+
+                        fs::path imgDest = texDestDir / entry.path().filename();
+                        if (!fs::exists(imgDest))
+                            fs::copy_file(entry.path(), imgDest, fs::copy_options::skip_existing);
+                    }
+                }
+                if (copiedAny)
+                    LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
+            }
+
+            UUID newUuid = MetaFile::Create(destPath, resType);
+            RegisterAsset(destPath, newUuid, resType);
+
+            if (AssetManager::HasImporter(resType))
+                AssetManager::Import(newUuid);
+
+            LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
+        }
+        catch (const fs::filesystem_error& err) {
+            LH_CORE_ERROR("IngestFile failed: {0} - {1}", sourcePath.string(), err.what());
+        }
+        catch (const std::exception& ex) {
+            LH_CORE_ERROR("IngestFile error: {0} - {1}", sourcePath.string(), ex.what());
+        }
     }
 
     // ================================================================
@@ -378,43 +488,43 @@ namespace Luth
 
         bool anyChange = false;
 
-        for (auto& [path, status] : batch)
         {
-            if (status == FileWatcher::FileStatus::Created)
+            std::lock_guard<std::mutex> lock(s_Mutex);
+
+            for (auto& [path, status] : batch)
             {
-                AssetType type = FileSystem::ClassifyFileType(path);
-                if (type == AssetType::None) continue;
-                if (GetUUID(path).IsValid()) continue;
-
-                UUID uuid = UUID::Invalid();
-                fs::path metaPath = path; metaPath += ".meta";
-                if (fs::exists(metaPath)) {
-                    MetaFile meta(UUID::Invalid());
-                    if (meta.Load(metaPath))
-                        uuid = meta.GetUUID();
-                }
-                if (!uuid.IsValid())
-                    uuid = MetaFile::Create(path, type);
-
-                RegisterAsset(path, uuid, type);
-                LH_CORE_INFO("AssetDatabase: Hot-added '{}'", path.filename().string());
-
-                if (AssetManager::HasImporter(type)) {
-                    std::lock_guard<std::mutex> lock(s_Mutex);
-                    s_DirtyAssets.push_back(uuid);
-                }
-                anyChange = true;
-            }
-            else if (status == FileWatcher::FileStatus::Modified)
-            {
-                UUID uuid = GetUUID(path);
-                if (!uuid.IsValid()) continue;
-
-                fs::path metaPath = path; metaPath += ".meta";
-                u64 newHash = CalculateAssetHash(path, metaPath);
-
+                if (status == FileWatcher::FileStatus::Created)
                 {
-                    std::lock_guard<std::mutex> lock(s_Mutex);
+                    AssetType type = FileSystem::ClassifyFileType(path);
+                    if (type == AssetType::None) continue;
+                    if (GetUUID_Unlocked(path).IsValid()) continue;
+
+                    UUID uuid = UUID::Invalid();
+                    fs::path metaPath = path; metaPath += ".meta";
+                    if (fs::exists(metaPath)) {
+                        MetaFile meta(UUID::Invalid());
+                        if (meta.Load(metaPath))
+                            uuid = meta.GetUUID();
+                    }
+                    if (!uuid.IsValid())
+                        uuid = MetaFile::Create(path, type);
+
+                    RegisterAsset_Unlocked(path, uuid, type);
+                    LH_CORE_INFO("AssetDatabase: Hot-added '{}'", path.filename().string());
+
+                    if (AssetManager::HasImporter(type))
+                        s_DirtyAssets.push_back(uuid);
+
+                    anyChange = true;
+                }
+                else if (status == FileWatcher::FileStatus::Modified)
+                {
+                    UUID uuid = GetUUID_Unlocked(path);
+                    if (!uuid.IsValid()) continue;
+
+                    fs::path metaPath = path; metaPath += ".meta";
+                    u64 newHash = CalculateAssetHash(path, metaPath);
+
                     if (s_ArtifactHashes[uuid] == newHash) continue;
                     s_ArtifactHashes[uuid] = newHash;
 
@@ -422,29 +532,32 @@ namespace Luth
                     if (fs::exists(artifact)) fs::remove(artifact);
 
                     s_DirtyAssets.push_back(uuid);
+                    LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
+                    anyChange = true;
                 }
-                LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
-                anyChange = true;
+                else if (status == FileWatcher::FileStatus::Deleted)
+                {
+                    UUID uuid = GetUUID_Unlocked(path);
+                    if (!uuid.IsValid()) continue;
+
+                    fs::path artifact = GetArtifactPath(uuid);
+                    if (fs::exists(artifact)) fs::remove(artifact);
+
+                    fs::path metaPath = path; metaPath += ".meta";
+                    if (fs::exists(metaPath)) fs::remove(metaPath);
+
+                    UnregisterAsset_Unlocked(uuid);
+                    LH_CORE_INFO("AssetDatabase: Hot-removed '{}'", path.filename().string());
+                    anyChange = true;
+                }
             }
-            else if (status == FileWatcher::FileStatus::Deleted)
-            {
-                UUID uuid = GetUUID(path);
-                if (!uuid.IsValid()) continue;
 
-                fs::path artifact = GetArtifactPath(uuid);
-                if (fs::exists(artifact)) fs::remove(artifact);
-
-                fs::path metaPath = path; metaPath += ".meta";
-                if (fs::exists(metaPath)) fs::remove(metaPath);
-
-                UnregisterAsset(uuid);
-                LH_CORE_INFO("AssetDatabase: Hot-removed '{}'", path.filename().string());
-                anyChange = true;
-            }
+            if (anyChange)
+                SaveLibraryState_Unlocked();
         }
 
+        // Callbacks run outside s_Mutex to avoid holding the lock during user code
         if (anyChange) {
-            SaveLibraryState();
             for (auto& cb : s_ChangeCallbacks)
                 cb();
         }

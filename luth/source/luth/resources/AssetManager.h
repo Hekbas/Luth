@@ -53,6 +53,9 @@ namespace Luth
         // Returns true if an importer is registered for this asset type
         static bool HasImporter(AssetType type);
 
+        // Import all dirty assets from AssetDatabase using the job system (blocking).
+        static void ImportDirty();
+
         // Removes a specific asset from the cache (forces reload on next access)
         static void Evict(UUID handle);
 
@@ -74,6 +77,11 @@ namespace Luth
         };
 
         static void LoadJob(JobSystem::JobArgs args);
+
+        // Shared helpers — DeserializeArtifact is thread-safe,
+        // FinalizeAsset must run on the main thread (creates GPU resources).
+        static std::unique_ptr<AssetData> DeserializeArtifact(AssetType type, const std::filesystem::path& artifactPath);
+        static std::shared_ptr<Asset> FinalizeAsset(AssetType type, AssetData* data, const std::filesystem::path& sourcePath);
 
         static std::unordered_map<UUID, std::shared_ptr<Asset>, UUIDHash> s_Assets;
         static std::unordered_set<UUID, UUIDHash> s_LoadingAssets;

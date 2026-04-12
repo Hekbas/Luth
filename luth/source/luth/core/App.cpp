@@ -8,7 +8,6 @@
 #include "luth/core/ProjectFile.h"
 #include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/MetaFile.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/ProjectLauncher.h"
 #include "luth/editor/panels/ScenePanel.h"
@@ -307,7 +306,7 @@ namespace Luth
         AssetDatabase::LoadProject(FileSystem::AssetsPath());
 
         // Import dirty assets
-        ImportDirtyAssets();
+        AssetManager::ImportDirty();
 
         // Start watching for file changes
         AssetDatabase::StartWatching();
@@ -325,22 +324,6 @@ namespace Luth
 
         m_ProjectLoaded = true;
         LH_CORE_INFO("Project loaded: '{}'", project.Name);
-    }
-
-    void App::ImportDirtyAssets()
-    {
-        const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
-        if (dirtyAssets.empty()) return;
-
-        std::vector<UUID> assetsToImport = dirtyAssets;
-        LH_CORE_INFO("Importing {} assets...", assetsToImport.size());
-
-        JobSystem::Counter importCounter(0);
-        JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
-            std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
-            AssetManager::Import((*assets)[args.jobIndex]);
-        }, &assetsToImport, &importCounter);
-        JobSystem::WaitForCounter(&importCounter);
     }
 
     // ================================================================
@@ -381,20 +364,9 @@ namespace Luth
     // File Drop Handling
     // ================================================================
 
-    static bool IsImageExtension(const fs::path& ext)
-    {
-        static const std::unordered_set<std::string> s_Exts = {
-            ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tiff", ".tif"
-        };
-        std::string lower = ext.string();
-        for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
-        return s_Exts.contains(lower);
-    }
-
     void App::OnFileDrop(FileDropEvent& e)
     {
         for (const auto& srcPath : e.GetPaths()) {
-            // Handle .luthproj drops — switch project
             if (srcPath.extension() == ".luthproj")
             {
                 ProjectLauncher::AddRecent(srcPath.stem().string(), srcPath);
@@ -403,82 +375,14 @@ namespace Luth
             }
         }
 
-        // Regular asset drops require a loaded project
         if (!m_ProjectLoaded) return;
 
         auto* panel = Editor::GetPanel<ProjectPanel>();
         fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
 
         for (const auto& srcPath : e.GetPaths()) {
-            if (srcPath.extension() == ".luthproj") continue; // Already handled
-
-            try {
-                if (!fs::exists(srcPath)) {
-                    LH_CORE_ERROR("Dropped file not found: {0}", srcPath.string());
-                    continue;
-                }
-
-                AssetType resType = FileSystem::ClassifyFileType(srcPath);
-                if (resType == AssetType::None) {
-                    LH_CORE_WARN("Unsupported file type: {0}", srcPath.string());
-                    continue;
-                }
-
-                fs::path destPath = destDir / srcPath.filename();
-                FileSystem::CreateDirectories(destDir);
-                fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing);
-                LH_CORE_INFO("Imported {0} to {1}", srcPath.filename().string(), destPath.string());
-
-                if (resType == AssetType::Model) {
-                    fs::path texDestDir = destDir / (srcPath.stem().string() + "_Textures");
-                    fs::path srcDir = srcPath.parent_path();
-
-                    std::vector<fs::path> scanDirs = { srcDir };
-                    static const char* k_SiblingDirs[] = {
-                        "textures", "Textures", "texture", "Texture",
-                        "tex",      "Tex",      "maps",   "Maps",
-                        "images",   "Images"
-                    };
-                    for (const char* sub : k_SiblingDirs) {
-                        fs::path candidate = srcDir / sub;
-                        if (fs::exists(candidate) && fs::is_directory(candidate))
-                            scanDirs.push_back(candidate);
-                    }
-
-                    bool copiedAny = false;
-                    for (const auto& dir : scanDirs) {
-                        for (const auto& entry : fs::directory_iterator(dir)) {
-                            if (!entry.is_regular_file()) continue;
-                            if (!IsImageExtension(entry.path().extension())) continue;
-
-                            if (!copiedAny) {
-                                fs::create_directories(texDestDir);
-                                copiedAny = true;
-                            }
-
-                            fs::path imgDest = texDestDir / entry.path().filename();
-                            if (!fs::exists(imgDest))
-                                fs::copy_file(entry.path(), imgDest, fs::copy_options::skip_existing);
-                        }
-                    }
-                    if (copiedAny)
-                        LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
-                }
-
-                UUID newUuid = MetaFile::Create(destPath, resType);
-                AssetDatabase::RegisterAsset(destPath, newUuid, resType);
-
-                if (AssetManager::HasImporter(resType))
-                    AssetManager::Import(newUuid);
-
-                LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
-            }
-            catch (const fs::filesystem_error& err) {
-                LH_CORE_ERROR("Import failed: {0} - {1}", srcPath.string(), err.what());
-            }
-            catch (const std::exception& ex) {
-                LH_CORE_ERROR("Asset processing error: {0} - {1}", srcPath.string(), ex.what());
-            }
+            if (srcPath.extension() == ".luthproj") continue;
+            AssetDatabase::IngestFile(srcPath, destDir);
         }
     }
 }
