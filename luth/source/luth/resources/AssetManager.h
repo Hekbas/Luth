@@ -75,6 +75,11 @@ namespace Luth
 
         static void LoadJob(JobSystem::JobArgs args);
 
+        // Shared helpers — DeserializeArtifact is thread-safe,
+        // FinalizeAsset must run on the main thread (creates GPU resources).
+        static std::unique_ptr<AssetData> DeserializeArtifact(AssetType type, const std::filesystem::path& artifactPath);
+        static std::shared_ptr<Asset> FinalizeAsset(AssetType type, AssetData* data, const std::filesystem::path& sourcePath);
+
         static std::unordered_map<UUID, std::shared_ptr<Asset>, UUIDHash> s_Assets;
         static std::unordered_set<UUID, UUIDHash> s_LoadingAssets;
         static std::unordered_map<AssetType, std::unique_ptr<AssetImporter>> s_Importers;
