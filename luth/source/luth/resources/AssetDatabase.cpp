@@ -334,13 +334,22 @@ namespace Luth
 
     u64 AssetDatabase::CalculateAssetHash(const fs::path& source, const fs::path& meta)
     {
-        u64 hash = 0;
+        // FNV-1a over timestamps and file size — order-dependent, no information loss.
+        u64 hash = 14695981039346656037ULL;  // FNV-1a offset basis
+        auto mix = [&hash](u64 val) {
+            const u8* bytes = reinterpret_cast<const u8*>(&val);
+            for (size_t i = 0; i < sizeof(u64); ++i) {
+                hash ^= bytes[i];
+                hash *= 1099511628211ULL;  // FNV-1a prime
+            }
+        };
+
         if (fs::exists(source)) {
-            hash ^= fs::last_write_time(source).time_since_epoch().count();
-            hash ^= fs::file_size(source);
+            mix(static_cast<u64>(fs::last_write_time(source).time_since_epoch().count()));
+            mix(fs::file_size(source));
         }
         if (fs::exists(meta)) {
-            hash ^= fs::last_write_time(meta).time_since_epoch().count();
+            mix(static_cast<u64>(fs::last_write_time(meta).time_since_epoch().count()));
         }
         return hash;
     }
