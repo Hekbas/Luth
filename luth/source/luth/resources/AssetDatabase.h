@@ -46,6 +46,7 @@ namespace Luth
 
         static const std::unordered_map<UUID, AssetMetadata, UUIDHash>& GetRegistry() { return s_Assets; }
         static const std::vector<UUID>& GetDirtyAssets() { return s_DirtyAssets; }
+        static void ClearDirtyAssets();
 
         /// Copy a source file into the project assets directory, create .meta,
         /// register in DB, and import if an importer exists. For model assets,

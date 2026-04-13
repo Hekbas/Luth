@@ -68,8 +68,10 @@ namespace Luth
         // 2. Engine root + engine assets
         fs::path engineRoot = DiscoverEngineRoot();
         FileSystem::InitEngine(engineRoot);
-        AssetDatabase::InitEngine(FileSystem::EngineAssetsPath());
         AssetManager::Init();
+        AssetDatabase::InitEngine(FileSystem::EngineAssetsPath());
+        AssetManager::ImportDirty();
+        AssetDatabase::ClearDirtyAssets();
 
         // 3. Window + Renderer
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
@@ -208,6 +210,8 @@ namespace Luth
             {
                 AssetManager::Update();
                 AssetDatabase::ProcessPendingChanges();
+                AssetManager::ImportDirty();
+                AssetDatabase::ClearDirtyAssets();
             }
 
             Editor::Render();

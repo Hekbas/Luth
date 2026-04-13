@@ -72,6 +72,7 @@ namespace Luth
     void VulkanShader::Reload()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
+        vkDeviceWaitIdle(device);
 
         // Destroy old shader modules
         for (auto& [stage, module] : m_ShaderModules)

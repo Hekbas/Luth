@@ -74,6 +74,20 @@ namespace Luth
             s_PathToUuid[path] = uuid;
             s_EngineUUIDs.insert(uuid);
             engineAssetCount++;
+
+            // Check hash and mark dirty if artifact is stale or missing
+            if (AssetManager::HasImporter(type))
+            {
+                fs::path metaP = path; metaP += ".meta";
+                u64 currentHash = CalculateAssetHash(path, metaP);
+                if (s_ArtifactHashes[uuid] != currentHash || !fs::exists(GetArtifactPath(uuid)))
+                {
+                    s_ArtifactHashes[uuid] = currentHash;
+                    fs::path artifact = GetArtifactPath(uuid);
+                    if (fs::exists(artifact)) fs::remove(artifact);
+                    s_DirtyAssets.push_back(uuid);
+                }
+            }
         }
 
         // Ensure engine artifact cache directory exists
@@ -235,6 +249,12 @@ namespace Luth
         s_EngineUUIDs.clear();
     }
 
+    void AssetDatabase::ClearDirtyAssets()
+    {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        s_DirtyAssets.clear();
+    }
+
     // ================================================================
     // Queries & Registration
     // ================================================================
@@ -351,6 +371,18 @@ namespace Luth
         if (fs::exists(meta)) {
             mix(static_cast<u64>(fs::last_write_time(meta).time_since_epoch().count()));
         }
+
+        // For .vert shaders, include the companion .frag in the hash so that
+        // cold-start reimport detects when only the .frag changed.
+        if (source.extension() == ".vert") {
+            fs::path fragPath = source;
+            fragPath.replace_extension(".frag");
+            if (fs::exists(fragPath)) {
+                mix(static_cast<u64>(fs::last_write_time(fragPath).time_since_epoch().count()));
+                mix(fs::file_size(fragPath));
+            }
+        }
+
         return hash;
     }
 
@@ -452,6 +484,10 @@ namespace Luth
         s_FileWatcher = std::make_unique<FileWatcher>(1.0f);
         s_FileWatcher->AddWatch(s_ProjectRoot);
 
+        // Also watch engine assets so that engine shader edits trigger reimport
+        if (!s_EngineAssetsRoot.empty() && fs::exists(s_EngineAssetsRoot))
+            s_FileWatcher->AddWatch(s_EngineAssetsRoot);
+
         s_FileWatcher->SetCallback([](const fs::path& path, FileWatcher::FileStatus status) {
             if (path.extension() == ".meta") return;
             if (path.string().find("Library") != std::string::npos) return;
@@ -534,6 +570,21 @@ namespace Luth
                     s_DirtyAssets.push_back(uuid);
                     LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
                     anyChange = true;
+
+                    // If a .frag changed, also mark the paired .vert dirty so its artifact is refreshed
+                    if (path.extension() == ".frag")
+                    {
+                        fs::path vertPath = path;
+                        vertPath.replace_extension(".vert");
+                        UUID vertUuid = GetUUID_Unlocked(vertPath);
+                        if (vertUuid.IsValid())
+                        {
+                            fs::path vertArtifact = GetArtifactPath(vertUuid);
+                            if (fs::exists(vertArtifact)) fs::remove(vertArtifact);
+                            s_DirtyAssets.push_back(vertUuid);
+                            LH_CORE_INFO("AssetDatabase: .frag changed, cascading reimport to paired '{}'", vertPath.filename().string());
+                        }
+                    }
                 }
                 else if (status == FileWatcher::FileStatus::Deleted)
                 {

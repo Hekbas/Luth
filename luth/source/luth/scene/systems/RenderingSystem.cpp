@@ -175,12 +175,19 @@ namespace Luth
                 if (ext != ".vert" && ext != ".frag") return;
 
                 std::string stem = changedFile.stem().string();
+                bool matched = false;
                 for (const auto& [name, shader] : ShaderLibrary::GetAll()) {
                     if (shader->GetPath().stem().string() == stem) {
                         std::lock_guard lock(m_ReloadMutex);
                         m_PendingReloads.insert(name);
+                        matched = true;
                         break;
                     }
+                }
+
+                if (!matched) {
+                    std::lock_guard lock(m_ReloadMutex);
+                    m_PendingUtilityReload = true;
                 }
             });
             m_ShaderWatcher.Start(true);
@@ -255,6 +262,44 @@ namespace Luth
         if (m_WatchedProjectShaderDir.empty()) return;
         m_ShaderWatcher.RemoveWatch(m_WatchedProjectShaderDir);
         m_WatchedProjectShaderDir.clear();
+    }
+
+    void RenderingSystem::RecompileUtilityShaders()
+    {
+        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
+
+        m_PBRSkinnedVertSpv           = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
+        m_ShadowSkinnedVertSpv        = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+        m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
+        m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
+        m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
+
+        m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
+        m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
+        m_BloomBlurFragSpv    = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
+        m_PostProcessFragSpv  = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
+        m_OutlineFragSpv      = ShaderCompiler::Compile(shadersPath / "outline.frag");
+        m_GridFragSpv         = ShaderCompiler::Compile(shadersPath / "grid.frag");
+
+        m_SkyboxVertSpv = ShaderCompiler::Compile(shadersPath / "skybox.vert");
+        m_SkyboxFragSpv = ShaderCompiler::Compile(shadersPath / "skybox.frag");
+
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+        m_GeoPipelineManager.Clear();
+        m_GeoSkinnedPipelineManager.Clear();
+        m_ShadowPipeline.reset();
+        m_ShadowSkinnedPipeline.reset();
+        m_SkyboxPipeline.reset();
+        m_BloomExtractPipeline.reset();
+        m_BloomBlurPipeline.reset();
+        m_PostProcessPipeline.reset();
+        m_OutlinePipeline.reset();
+        m_GridPipeline.reset();
+        m_SelectionMaskPipeline.reset();
+        m_SelectionMaskSkinnedPipeline.reset();
+        CreatePipelines();
+
+        LH_CORE_INFO("Utility shaders recompiled and pipelines rebuilt");
     }
 
     // =========================================================================
@@ -1867,6 +1912,13 @@ namespace Luth
                 ShaderLibrary::Reload(name);
             }
             m_PendingReloads.clear();
+
+            if (m_PendingUtilityReload)
+            {
+                LH_CORE_INFO("Utility shader changed — recompiling all utility shaders");
+                RecompileUtilityShaders();
+                m_PendingUtilityReload = false;
+            }
         }
 
         m_FrameAllocator->Reset();

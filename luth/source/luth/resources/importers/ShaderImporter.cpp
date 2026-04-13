@@ -7,6 +7,12 @@ namespace Luth
 {
     bool ShaderImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
+        // .frag files are tracked for visibility but don't produce their own artifacts.
+        // Paired .frag content is included in the .vert's artifact.
+        // Standalone .frag files are compiled directly via ShaderCompiler at runtime.
+        if (source.extension() == ".frag")
+            return true;
+
         // Determine vertex and fragment paths from source
         // Convention: .vert is the primary asset, matching .frag is found automatically
         fs::path vertPath = source;

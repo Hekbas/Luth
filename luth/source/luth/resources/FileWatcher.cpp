@@ -107,10 +107,13 @@ namespace Luth
                     continue;
                 }
 
-                // Check for deleted files — use unordered_set for O(1) lookups
+                // Check for deleted files — only consider files under this watchPath
                 std::unordered_set<fs::path> currentSet(currentPaths.begin(), currentPaths.end());
+                std::string watchPrefix = watchPath.lexically_normal().string();
                 for (auto it = m_Paths.begin(); it != m_Paths.end();) {
-                    if (currentSet.find(it->first) == currentSet.end()) {
+                    std::string p = it->first.lexically_normal().string();
+                    bool underThisWatch = (p.rfind(watchPrefix, 0) == 0);
+                    if (underThisWatch && currentSet.find(it->first) == currentSet.end()) {
                         if (m_Callback) m_Callback(it->first, FileStatus::Deleted);
                         it = m_Paths.erase(it);
                     }

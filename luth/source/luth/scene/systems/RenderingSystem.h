@@ -317,6 +317,9 @@ namespace Luth
         fs::path m_WatchedProjectShaderDir;  // Empty when no project shader dir is watched.
         std::mutex m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
+        bool m_PendingUtilityReload = false;
+
+        void RecompileUtilityShaders();
 
         // Stats
         u32 m_VisibleTriCount = 0;
