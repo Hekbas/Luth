@@ -27,6 +27,7 @@
 | 8 — Smart Import & Hot Reload | Multi-strategy texture discovery (4 search strategies), ImportReport + TextureRemapDialog, Project Panel hot reload via FileWatcher (1 s polling, Created/Modified/Deleted), drop-to-current-dir, eager texture copy + import on drop, TOCTOU crash fix in FileWatcher, Assets menu "Resolve Missing Textures..." | 2026-03-31 | v1.0.0 |
 | 9 — Frame Debugger Upgrade | Trigger-based capture, per-draw-call scrubbing, DebuggerState machine (Inactive→CaptureRequested→Frozen), full pass instrumentation, RenderCapturedFrame re-recording, rescue blit for truncated frames, depth linearization shader, rewritten panel UI | 2026-04-03 | v1.0.0 |
 | 10 — Undo/Redo History | Command pattern with 14 command types, UUID-based entity resolution, gizmo drag coalescing, compound commands, material snapshot undo, HistoryPanel debug UI, 3 stale-handle crash fixes | 2026-04-09 | v1.1.0 |
+| 11 — Architecture Cleanup | RenderingSystem split (4,060→2,321 LOC): EditorCamera extraction, CameraParams decoupling, IBLPrecompute, FrameDebugger class, 9 render passes to `renderer/passes/`, Command.h modularized into `editor/commands/` (6 sub-headers) | 2026-04-13 | v1.1.1 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
 
@@ -47,6 +48,7 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 |---------|----------|--------|
 | v1.0.0  | Phases 1–9 (engine rewrite) | Released 2026-04-05 |
 | v1.1.0  | Phase 10 (undo/redo history) | Released 2026-04-09 |
+| v1.1.1  | Phase 11 (architecture cleanup) | Released 2026-04-13 |
 
 ---
 
