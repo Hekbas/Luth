@@ -9,6 +9,7 @@
 #include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/editor/Editor.h"
+#include "luth/editor/EditorSelection.h"
 #include "luth/editor/ProjectLauncher.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
@@ -221,6 +222,23 @@ namespace Luth
             {
                 ImGui::UpdatePlatformWindows();
                 ImGui::RenderPlatformWindowsDefault();
+            }
+
+            // Feed camera/editor state into RenderingSystem before its Update
+            if (auto rs = Systems::GetSystem<RenderingSystem>())
+            {
+                CameraParams cp;
+                if (auto scenePanel = Editor::GetPanel<ScenePanel>())
+                {
+                    EditorCamera& cam = scenePanel->GetEditorCamera();
+                    cp.view       = cam.GetViewMatrix();
+                    cp.projection = cam.GetProjectionMatrix();
+                    cp.position   = cam.GetPosition();
+                }
+                cp.iblIntensity    = Editor::GetSettings().iblIntensity;
+                cp.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
+                cp.selectedEntities = EditorSelection::GetSelectedEntities();
+                rs->SetCameraParams(cp);
             }
 
             // Scene systems always run (RenderingSystem must present the swapchain)

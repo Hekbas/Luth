@@ -3,6 +3,7 @@
 #include "luth/scene/System.h"
 #include "luth/scene/Entity.h"
 #include "luth/memory/Memory.h"
+#include "luth/renderer/CameraParams.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -139,6 +140,9 @@ namespace Luth
         void SetGridVisible(bool v) { m_GridVisible = v; }
         bool IsGridVisible() const  { return m_GridVisible; }
 
+        // Camera / editor state (set by App each frame before Update)
+        void SetCameraParams(const CameraParams& params) { m_CameraParams = params; }
+
         // Frame debugger capture
         void RequestCapture()   { if (m_DebuggerState == DebuggerState::Inactive) m_DebuggerState = DebuggerState::CaptureRequested; }
         void ExitCapture()      { m_DebuggerState = DebuggerState::Inactive; m_CapturedFrame.Clear(); }
@@ -184,6 +188,9 @@ namespace Luth
         void EndCapturePass();
         void CaptureDrawCall(const std::string& passName, const std::string& meshName, const std::string& entityName,
                              u32 entityIndex, u32 indexCount, const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps);
+
+        // Camera / editor state set each frame by App
+        CameraParams m_CameraParams;
 
         // Memory
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;

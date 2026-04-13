@@ -1,8 +1,5 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/editor/Editor.h"
-#include "luth/editor/EditorSelection.h"
-#include "luth/editor/panels/ScenePanel.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
@@ -1857,8 +1854,7 @@ namespace Luth
         // Compute light-space matrix (orthographic from directional light)
         float orthoSize = m_CachedShadowOrtho;
         float shadowDist = m_CachedShadowDist;
-        auto scenePanel = Editor::GetPanel<ScenePanel>();
-        glm::vec3 camPos = scenePanel ? scenePanel->GetEditorCamera().GetPosition() : glm::vec3(0.0f);
+        glm::vec3 camPos = m_CameraParams.position;
 
         glm::vec3 lightDir = lights.dirLight.direction;
         glm::vec3 lightPos = camPos - lightDir * shadowDist;
@@ -1874,22 +1870,17 @@ namespace Luth
 
     void RenderingSystem::UpdateGlobalUniforms()
     {
-        auto scenePanel = Editor::GetPanel<ScenePanel>();
-        if (!scenePanel) return;
-
-        EditorCamera& camera = scenePanel->GetEditorCamera();
-
         GlobalUniforms ubo{};
-        ubo.view = camera.GetViewMatrix();
-        ubo.projection = camera.GetProjectionMatrix();
+        ubo.view = m_CameraParams.view;
+        ubo.projection = m_CameraParams.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
-        ubo.cameraPos = camera.GetPosition();
+        ubo.cameraPos = m_CameraParams.position;
         ubo.time = Time::GetTime();
         ubo.lightSpaceMatrix = m_CachedLightSpaceMatrix;
         ubo.shadowBias = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
-        ubo.iblIntensity    = Editor::GetSettings().iblIntensity;
-        ubo.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
+        ubo.iblIntensity    = m_CameraParams.iblIntensity;
+        ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
     }
@@ -2914,7 +2905,7 @@ namespace Luth
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
-                CollectSelectedHandles(EditorSelection::GetSelectedEntities(), selectedSet);
+                CollectSelectedHandles(m_CameraParams.selectedEntities, selectedSet);
                 if (selectedSet.empty()) return;
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
