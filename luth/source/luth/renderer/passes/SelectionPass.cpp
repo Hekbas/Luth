@@ -1,0 +1,208 @@
+#include "luthpch.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/core/Profiler.h"
+#include "luth/scene/Scene.h"
+#include "luth/scene/Components.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/MaterialSystem.h"
+#include "luth/renderer/BoneMatrixBuffer.h"
+#include "luth/renderer/backend/vulkan/VulkanBackend.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/Material.h"
+#include "luth/renderer/Model.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/ShaderCompiler.h"
+#include <glm/gtc/matrix_transform.hpp>
+#include <vma/vk_mem_alloc.h>
+
+namespace Luth
+{
+    using namespace Component;
+
+    void RenderingSystem::CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const
+    {
+        for (const auto& entity : selected)
+        {
+            if (!entity || !entity.IsValid()) continue;
+            outHandles.insert((entt::entity)entity);
+            // Recursively include children so outline wraps entire subtrees
+            for (const auto& child : entity.GetChildren())
+            {
+                std::vector<Entity> childVec = { child };
+                CollectSelectedHandles(childVec, outHandles);
+            }
+        }
+    }
+
+    SelectionMaskOutput RenderingSystem::AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry)
+    {
+        struct SelectionMaskPassData {
+            RG::ResourceHandle maskTex;
+            RG::ResourceHandle depthTex;
+        };
+
+        SelectionMaskOutput output;
+
+        rg.AddPass<SelectionMaskPassData>("SelectionMaskPass",
+            [&](SelectionMaskPassData& data, RG::RenderPassBuilder& builder)
+            {
+                // Import selection mask (RGBA8)
+                auto vkMask = std::static_pointer_cast<VKTexture>(m_SelectionMask);
+                RG::TextureDesc maskDesc;
+                maskDesc.name   = "SelectionMask";
+                maskDesc.width  = m_SelectionMask->GetWidth();
+                maskDesc.height = m_SelectionMask->GetHeight();
+                maskDesc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.maskTex = rg.ImportResource(maskDesc,
+                    (void*)vkMask->GetImage(), (void*)vkMask->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue colorClear{};
+                colorClear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+                data.maskTex = builder.Write(data.maskTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, colorClear);
+
+                // Import selection depth (D32_Float)
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
+                RG::TextureDesc depthDesc;
+                depthDesc.name   = "SelectionDepth";
+                depthDesc.width  = m_SelectionDepth->GetWidth();
+                depthDesc.height = m_SelectionDepth->GetHeight();
+                depthDesc.format = RG::TextureFormat::D32_Float;
+
+                data.depthTex = rg.ImportResource(depthDesc,
+                    (void*)vkDepth->GetImage(), (void*)vkDepth->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue depthClear{};
+                depthClear.depthStencil = { 1.0f, 0 };
+                data.depthTex = builder.WriteDepth(data.depthTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+
+                output.mask  = data.maskTex;
+                output.depth = data.depthTex;
+            },
+            [this, &registry](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
+            {
+                m_FrameDebugger.BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
+                    { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
+
+                if (!m_SelectionMaskPipeline) { m_FrameDebugger.EndCapturePass(); return; }
+
+                // Build set of selected entity handles (including descendants)
+                std::unordered_set<entt::entity> selectedSet;
+                CollectSelectedHandles(m_CameraParams.selectedEntities, selectedSet);
+                if (selectedSet.empty()) return;
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                // Bind descriptor sets (same 5 sets as geometry/shadow passes)
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = {
+                    m_GlobalDescriptorSet,
+                    bindlessSet,
+                    MaterialSystem::GetDescriptorSet(),
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
+                };
+
+                m_SelectionMaskPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+
+                u32 w = m_SelectionMask->GetWidth();
+                u32 h = m_SelectionMask->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                bool currentSkinned = false;
+
+                auto view = registry.view<WorldTransform, MeshRenderer>();
+                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                {
+                    // Only draw selected entities
+                    if (selectedSet.find(entity) == selectedSet.end()) continue;
+
+                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
+                    if (!model) continue;
+                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
+                    if (!mesh) continue;
+
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                    if (!vb || !ib) continue;
+
+                    // Check per-mesh skinning
+                    bool isSkinned = false;
+                    u32 boneOffset = 0;
+                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
+                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
+
+                    if (isSkinned)
+                    {
+                        entt::entity animEntity = entt::null;
+                        if (registry.any_of<Component::Animation>(entity))
+                            animEntity = entity;
+                        else if (registry.any_of<Component::Parent>(entity)) {
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
+                                animEntity = parentEnt;
+                        }
+                        if (animEntity != entt::null) {
+                            auto& anim = registry.get<Component::Animation>(animEntity);
+                            if (anim.BufferAllocated)
+                                boneOffset = anim.BoneBufferOffset;
+                        }
+                    }
+
+                    // Switch pipeline if skinned state changed
+                    if (isSkinned != currentSkinned)
+                    {
+                        currentSkinned = isSkinned;
+                        if (isSkinned && m_SelectionMaskSkinnedPipeline)
+                        {
+                            m_SelectionMaskSkinnedPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                        else
+                        {
+                            m_SelectionMaskPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                        }
+                    }
+
+                    VkPipelineLayout activeLayout = (currentSkinned && m_SelectionMaskSkinnedPipeline)
+                        ? m_SelectionMaskSkinnedPipeline->GetLayout()
+                        : m_SelectionMaskPipeline->GetLayout();
+
+                    ObjectPushConstants pc{};
+                    pc.modelMatrix   = worldTransform.Matrix;
+                    pc.materialIndex = 0;
+                    pc.boneOffset    = boneOffset;
+
+                    vkCmdPushConstants(cmd, activeLayout,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, sizeof(ObjectPushConstants), &pc);
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                }
+
+                m_FrameDebugger.EndCapturePass();
+            }
+        );
+
+        return output;
+    }
+
+}

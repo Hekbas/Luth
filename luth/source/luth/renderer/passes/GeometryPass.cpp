@@ -1,0 +1,302 @@
+#include "luthpch.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/core/Profiler.h"
+#include "luth/scene/Scene.h"
+#include "luth/scene/Components.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/MaterialSystem.h"
+#include "luth/renderer/BoneMatrixBuffer.h"
+#include "luth/renderer/backend/vulkan/VulkanBackend.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/Material.h"
+#include "luth/renderer/Model.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/ShaderCompiler.h"
+#include "luth/renderer/ShaderLibrary.h"
+#include "luth/renderer/backend/vulkan/VulkanShader.h"
+#include <glm/gtc/matrix_transform.hpp>
+#include <vma/vk_mem_alloc.h>
+
+namespace Luth
+{
+    using namespace Component;
+
+    GeometryOutput RenderingSystem::AddGeometryPass(
+        RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle)
+    {
+        struct GeometryPassData {
+            RG::ResourceHandle outputTex;
+            RG::ResourceHandle entityIDTex;
+            RG::ResourceHandle depthTex;
+            RG::ResourceHandle shadowTex;
+        };
+
+        GeometryOutput output;
+
+        rg.AddPass<GeometryPassData>("GeometryPass",
+            [&](GeometryPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "SceneColor";
+                desc.width  = m_SceneColor->GetWidth();
+                desc.height = m_SceneColor->GetHeight();
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                auto vkTex = std::static_pointer_cast<VKTexture>(m_SceneColor);
+                data.outputTex = rg.ImportResource(desc,
+                    (void*)vkTex->GetImage(),
+                    (void*)vkTex->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+
+                // Entity ID buffer (R32_UINT)
+                RG::TextureDesc idDesc;
+                idDesc.name   = "EntityID";
+                idDesc.width  = m_EntityIDBuffer->GetWidth();
+                idDesc.height = m_EntityIDBuffer->GetHeight();
+                idDesc.format = RG::TextureFormat::R32_Uint;
+
+                auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+                data.entityIDTex = rg.ImportResource(idDesc,
+                    (void*)vkID->GetImage(),
+                    (void*)vkID->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                RG::TextureDesc depthDesc;
+                depthDesc.name   = "SceneDepth";
+                depthDesc.width  = m_SceneDepth->GetWidth();
+                depthDesc.height = m_SceneDepth->GetHeight();
+                depthDesc.format = RG::TextureFormat::D32_Float;
+
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+                data.depthTex = rg.ImportResource(depthDesc,
+                    (void*)vkDepth->GetImage(),
+                    (void*)vkDepth->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue depthClear{};
+                depthClear.depthStencil = { 1.0f, 0 };
+                data.depthTex  = builder.WriteDepth(data.depthTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+                data.outputTex = builder.Write(data.outputTex);
+
+                VkClearValue idClear{};
+                idClear.color.uint32[0] = 0;
+                data.entityIDTex = builder.Write(data.entityIDTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
+
+                // Declare dependency on the shadow map (triggers depth→shader_read barrier)
+                if (shadowMapHandle.IsValid())
+                    data.shadowTex = builder.Read(shadowMapHandle);
+
+                output.color    = data.outputTex;
+                output.depth    = data.depthTex;
+                output.entityID = data.entityIDTex;
+            },
+            [this, &registry](GeometryPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
+                    { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
+
+                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                if (!opaquePipeline) { m_FrameDebugger.EndCapturePass(); return; }
+                VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
+
+                // Bind all 5 descriptor sets
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = {
+                    m_GlobalDescriptorSet,
+                    bindlessSet,
+                    MaterialSystem::GetDescriptorSet(),
+                    m_LightDescSet,
+                    BoneMatrixBuffer::GetDescriptorSet()
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipelineLayout, 0, 5, sets, 0, nullptr);
+
+                RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
+
+                VkViewport viewport{};
+                viewport.width    = (float)res->desc.width;
+                viewport.height   = (float)res->desc.height;
+                viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+                VkRect2D scissor{};
+                scissor.extent = { res->desc.width, res->desc.height };
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                // Collect draw commands per render mode (reuse member vectors to avoid per-frame heap alloc)
+                m_OpaqueDraws.clear();
+                m_CutoutDraws.clear();
+                m_TransparentDraws.clear();
+                m_VisibleTriCount = 0;
+
+                // Build entity lookup table (index 0 = null sentinel)
+                m_EntityLookup.clear();
+                m_EntityLookup.push_back(entt::null);
+
+                auto view = registry.view<WorldTransform, MeshRenderer>();
+                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                {
+                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
+                    if (!model) continue;
+                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
+                    if (!mesh) continue;
+
+                    if (auto ib = mesh->GetIndexBuffer())
+                        m_VisibleTriCount += ib->GetCount() / 3;
+
+                    u32 entityIdx = (u32)m_EntityLookup.size();
+                    m_EntityLookup.push_back(entity);
+
+                    DrawCommand dc;
+                    dc.modelMatrix  = worldTransform.Matrix;
+                    dc.materialSlot = 0;
+                    dc.model        = model;
+                    dc.meshIndex    = meshRenderer.MeshIndex;
+                    dc.entityIndex  = entityIdx;
+
+                    Material::RenderMode mode = Material::RenderMode::Opaque;
+                    Material::CullMode cullMode = Material::CullMode::Back;
+
+                    if (meshRenderer.MaterialUUID.IsValid())
+                    {
+                        auto material = AssetManager::GetAsset<Material>(meshRenderer.MaterialUUID);
+                        if (material)
+                        {
+                            auto slotIt = m_MaterialSlotMap.find(material->Handle);
+                            if (slotIt != m_MaterialSlotMap.end())
+                                dc.materialSlot = slotIt->second;
+                            mode = material->GetRenderMode();
+                            cullMode = material->GetCullMode();
+                        }
+                    }
+                    dc.cullMode = cullMode;
+
+                    // Detect per-mesh skinning
+                    if (meshRenderer.MeshIndex < model->GetMeshesData().size()
+                        && model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned)
+                    {
+                        dc.isSkinned = true;
+                        // Find Animation on this entity or parent
+                        entt::entity animEntity = entt::null;
+                        if (registry.any_of<Component::Animation>(entity))
+                            animEntity = entity;
+                        else if (registry.any_of<Component::Parent>(entity)) {
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
+                                animEntity = parentEnt;
+                        }
+                        if (animEntity != entt::null) {
+                            auto& anim = registry.get<Component::Animation>(animEntity);
+                            if (anim.BufferAllocated)
+                                dc.boneOffset = anim.BoneBufferOffset;
+                        }
+                    }
+
+                    switch (mode)
+                    {
+                        case Material::RenderMode::Cutout:      m_CutoutDraws.push_back(dc);      break;
+                        case Material::RenderMode::Transparent:
+                        case Material::RenderMode::Fade:        m_TransparentDraws.push_back(dc); break;
+                        default:                                m_OpaqueDraws.push_back(dc);       break;
+                    }
+                }
+
+                auto DrawBatch = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
+                {
+                    if (draws.empty()) return;
+
+                    Material::CullMode currentCull = Material::CullMode::Back;
+                    bool currentSkinned = false;
+                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                    if (!pipeline) return;
+
+                    pipeline->Bind(cmd);
+
+                    for (const auto& dc : draws)
+                    {
+                        // Rebind pipeline if cull mode or skinned state changed
+                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
+                        {
+                            currentCull = dc.cullMode;
+                            currentSkinned = dc.isSkinned;
+
+                            VKPipeline* newPipeline = nullptr;
+                            if (currentSkinned)
+                            {
+                                newPipeline = m_GeoSkinnedPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv);
+                            }
+                            else
+                            {
+                                newPipeline = m_GeoPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                            }
+                            if (!newPipeline) continue;
+                            newPipeline->Bind(cmd);
+                        }
+
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                        if (!vb || !ib) continue;
+
+                        ObjectPushConstants pc{};
+                        pc.modelMatrix  = dc.modelMatrix;
+                        pc.materialIndex = dc.materialSlot;
+                        pc.shadeMode = static_cast<u32>(m_ShadeMode);
+                        pc.entityID  = dc.entityIndex;
+                        pc.boneOffset = dc.boneOffset;
+
+                        vkCmdPushConstants(cmd, pipelineLayout,
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                            0, sizeof(ObjectPushConstants), &pc);
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+
+                        // Capture for frame debugger
+                        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                        {
+                            std::string entName = "Entity";
+                            if (dc.entityIndex < m_EntityLookup.size())
+                            {
+                                auto ent = m_EntityLookup[dc.entityIndex];
+                                if (ent != entt::null && registry.valid(ent) && registry.any_of<Component::Tag>(ent))
+                                    entName = registry.get<Component::Tag>(ent).m_Tag;
+                            }
+                            u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
+                                       : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
+                                       : VK_CULL_MODE_NONE;
+                            m_FrameDebugger.CaptureDrawCall("GeometryPass",
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(), pc,
+                                { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
+                                  mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade });
+                        }
+                    }
+                };
+
+                DrawBatch(m_OpaqueDraws,       Material::RenderMode::Opaque);
+                DrawBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
+                DrawBatch(m_TransparentDraws, Material::RenderMode::Transparent);
+
+                m_FrameDebugger.EndCapturePass();
+            }
+        );
+        return output;
+    }
+
+}
