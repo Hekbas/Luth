@@ -1,0 +1,92 @@
+#pragma once
+
+#include "luth/editor/commands/ICommand.h"
+#include "luth/core/UUID.h"
+#include "luth/scene/Scene.h"
+#include "luth/scene/Entity.h"
+#include "luth/scene/Components.h"
+
+namespace Luth
+{
+    // ── ComponentAddCommand<T> ────────────────────────────────────────────────
+
+    template<typename T>
+    class ComponentAddCommand : public ICommand
+    {
+    public:
+        ComponentAddCommand(const char* name, Scene* scene, entt::entity entity)
+            : m_Name(name), m_Scene(scene)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
+
+        ComponentAddCommand(const char* name, Scene* scene, entt::entity entity, T initValue)
+            : m_Name(name), m_Scene(scene),
+              m_InitValue(std::move(initValue)), m_HasInitValue(true)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
+
+        void Execute() override {
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
+            if (m_HasInitValue)
+                e.AddOrReplaceComponent<T>(m_InitValue);
+            else
+                e.AddOrReplaceComponent<T>();
+        }
+        void Undo() override {
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
+            if (e.HasComponent<T>())
+                e.RemoveComponent<T>();
+        }
+        void Redo() override { Execute(); }
+        const char* GetName() const override { return m_Name; }
+
+    private:
+        const char* m_Name;
+        Scene* m_Scene;
+        UUID m_EntityUUID;
+        T m_InitValue{};
+        bool m_HasInitValue = false;
+    };
+
+    // ── ComponentRemoveCommand<T> ─────────────────────────────────────────────
+
+    template<typename T>
+    class ComponentRemoveCommand : public ICommand
+    {
+    public:
+        ComponentRemoveCommand(const char* name, Scene* scene, entt::entity entity)
+            : m_Name(name), m_Scene(scene)
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        }
+
+        void Execute() override {
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
+            if (e.HasComponent<T>()) {
+                m_SavedValue = e.GetComponent<T>();
+                e.RemoveComponent<T>();
+            }
+        }
+        void Undo() override {
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid()) return;
+            e.AddOrReplaceComponent<T>(m_SavedValue);
+        }
+        void Redo() override { Execute(); }
+        const char* GetName() const override { return m_Name; }
+
+    private:
+        const char* m_Name;
+        Scene* m_Scene;
+        UUID m_EntityUUID;
+        T m_SavedValue{};
+    };
+}
