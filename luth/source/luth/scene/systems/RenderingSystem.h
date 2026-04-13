@@ -4,6 +4,7 @@
 #include "luth/scene/Entity.h"
 #include "luth/memory/Memory.h"
 #include "luth/renderer/CameraParams.h"
+#include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -41,14 +42,6 @@ namespace Luth
 
     enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
 
-    struct ObjectPushConstants {
-        glm::mat4 modelMatrix;  // 64 bytes
-        u32 materialIndex;      // 4 bytes — index into material SSBO
-        u32 shadeMode;          // 4 bytes
-        u32 entityID;           // 4 bytes — entity index for picking
-        u32 boneOffset;          // 4 bytes — base index into BoneMatrices SSBO (0 for static)
-    };
-
     // ---- Light data structs (mirrored in pbr.frag Set 3) ----
 
     struct DirectionalLightData {
@@ -71,19 +64,6 @@ namespace Luth
         int                  numPointLights;
         int                  _pad[3];
     };
-
-    struct DrawCommand {
-        glm::mat4 modelMatrix;
-        u32 materialSlot;
-        std::shared_ptr<Model> model;
-        u32 meshIndex;
-        u32 entityIndex = 0;
-        Material::CullMode cullMode = Material::CullMode::Back;
-        bool isSkinned = false;
-        u32 boneOffset = 0;
-    };
-
-    enum class DebuggerState : u8 { Inactive, CaptureRequested, Frozen };
 
     struct GeometryOutput {
         RG::ResourceHandle color;
@@ -144,12 +124,12 @@ namespace Luth
         void SetCameraParams(const CameraParams& params) { m_CameraParams = params; }
 
         // Frame debugger capture
-        void RequestCapture()   { if (m_DebuggerState == DebuggerState::Inactive) m_DebuggerState = DebuggerState::CaptureRequested; }
-        void ExitCapture()      { m_DebuggerState = DebuggerState::Inactive; m_CapturedFrame.Clear(); }
-        DebuggerState GetDebuggerState() const { return m_DebuggerState; }
-        const RG::CapturedFrame& GetCapturedFrame() const { return m_CapturedFrame; }
-        void SetDebuggerDrawLimit(u32 limit) { m_DebuggerDrawLimit = limit; }
-        u32  GetDebuggerDrawLimit() const    { return m_DebuggerDrawLimit; }
+        void RequestCapture()   { if (m_FrameDebugger.state == DebuggerState::Inactive) m_FrameDebugger.state = DebuggerState::CaptureRequested; }
+        void ExitCapture()      { m_FrameDebugger.state = DebuggerState::Inactive; m_FrameDebugger.capturedFrame.Clear(); }
+        DebuggerState GetDebuggerState() const { return m_FrameDebugger.state; }
+        const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
+        void SetDebuggerDrawLimit(u32 limit) { m_FrameDebugger.drawLimit = limit; }
+        u32  GetDebuggerDrawLimit() const    { return m_FrameDebugger.drawLimit; }
 
     private:
         void InitGlobalUniforms();
@@ -182,12 +162,6 @@ namespace Luth
         void RenderCapturedFrame(u32 maxDrawCalls, Scene* scene);
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
         void InitDebugBlitResources();
-
-        // Capture helpers (called during normal recording when CaptureRequested)
-        void BeginCapturePass(const std::string& name, const std::string& activeTarget, bool isDepth, const RG::CapturedPipelineState& ps);
-        void EndCapturePass();
-        void CaptureDrawCall(const std::string& passName, const std::string& meshName, const std::string& entityName,
-                             u32 entityIndex, u32 indexCount, const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps);
 
         // Camera / editor state set each frame by App
         CameraParams m_CameraParams;
@@ -343,26 +317,8 @@ namespace Luth
         GPUTimerPool m_GPUTimers;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
 
-        // Frame debugger capture state
-        DebuggerState      m_DebuggerState     = DebuggerState::Inactive;
-        RG::CapturedFrame  m_CapturedFrame;
-        u32                m_DebuggerDrawLimit  = UINT32_MAX;
-        u32                m_ReplayDrawCounter  = 0;
-
-        // Captured draw commands for re-recording (copied at freeze time)
-        std::vector<DrawCommand> m_CapturedOpaqueDraws;
-        std::vector<DrawCommand> m_CapturedCutoutDraws;
-        std::vector<DrawCommand> m_CapturedTransparentDraws;
-
-        // Debug blit resources (rescue blit for truncated frames)
-        std::unique_ptr<VKPipeline>  m_DebugBlitPipeline;
-        std::unique_ptr<VKPipeline>  m_DebugDepthPipeline;
-        std::vector<u32>             m_DebugBlitFragSpv;
-        std::vector<u32>             m_DebugDepthFragSpv;
-        VkDescriptorPool             m_DebugBlitDescPool      = VK_NULL_HANDLE;
-        VkDescriptorSetLayout        m_DebugBlitDescSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet              m_DebugBlitDescSet       = VK_NULL_HANDLE;
-        VkSampler                    m_DebugBlitSampler       = VK_NULL_HANDLE;
+        // Frame debugger
+        FrameDebugger m_FrameDebugger;
     };
 
 }

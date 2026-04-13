@@ -205,6 +205,8 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        m_FrameDebugger.Shutdown(device);
+
         if (m_OutlineSampler)
             vkDestroySampler(device, m_OutlineSampler, nullptr);
         if (m_OutlineDescSetLayout)
@@ -1357,19 +1359,19 @@ namespace Luth
         m_FrameAllocator->Reset();
 
         // --- Frame Debugger: Frozen state → re-render captured frame ---
-        if (m_DebuggerState == DebuggerState::Frozen)
+        if (m_FrameDebugger.state == DebuggerState::Frozen)
         {
             if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
             {
                 UpdateGlobalUniforms(); // camera may have moved
-                RenderCapturedFrame(m_DebuggerDrawLimit, scene);
+                RenderCapturedFrame(m_FrameDebugger.drawLimit, scene);
             }
             return;
         }
 
         // --- Frame Debugger: Prepare for capture ---
-        if (m_DebuggerState == DebuggerState::CaptureRequested)
-            m_CapturedFrame.Clear();
+        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+            m_FrameDebugger.capturedFrame.Clear();
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
@@ -1446,16 +1448,16 @@ namespace Luth
             Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
 
             // --- Frame Debugger: Finalize capture and enter frozen state ---
-            if (m_DebuggerState == DebuggerState::CaptureRequested)
+            if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
             {
                 // Copy draw command vectors for re-recording
-                m_CapturedOpaqueDraws      = m_OpaqueDraws;
-                m_CapturedCutoutDraws      = m_CutoutDraws;
-                m_CapturedTransparentDraws = m_TransparentDraws;
+                m_FrameDebugger.capturedOpaqueDraws      = m_OpaqueDraws;
+                m_FrameDebugger.capturedCutoutDraws      = m_CutoutDraws;
+                m_FrameDebugger.capturedTransparentDraws = m_TransparentDraws;
 
                 // Copy resource and timing info from the graph snapshot
-                m_CapturedFrame.resources      = m_GraphSnapshot.resources;
-                m_CapturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
+                m_FrameDebugger.capturedFrame.resources      = m_GraphSnapshot.resources;
+                m_FrameDebugger.capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
 
                 // Copy per-pass GPU times into captured passes
                 {
@@ -1463,15 +1465,15 @@ namespace Luth
                     for (auto& ps : m_GraphSnapshot.passes)
                     {
                         if (ps.culled) continue;
-                        if (capturedIdx < m_CapturedFrame.passes.size())
-                            m_CapturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
+                        if (capturedIdx < m_FrameDebugger.capturedFrame.passes.size())
+                            m_FrameDebugger.capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
                         capturedIdx++;
                     }
                 }
 
-                m_CapturedFrame.valid = true;
-                m_DebuggerState       = DebuggerState::Frozen;
-                m_DebuggerDrawLimit   = (u32)m_CapturedFrame.drawCalls.size();
+                m_FrameDebugger.capturedFrame.valid = true;
+                m_FrameDebugger.state       = DebuggerState::Frozen;
+                m_FrameDebugger.drawLimit   = (u32)m_FrameDebugger.capturedFrame.drawCalls.size();
             }
 
             // --- Mouse picking readback (immediate, single pixel) ---
@@ -1578,10 +1580,10 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                BeginCapturePass("ShadowPass", "ShadowMap", true,
+                m_FrameDebugger.BeginCapturePass("ShadowPass", "ShadowMap", true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); EndCapturePass(); return; }
+                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_FrameDebugger.EndCapturePass(); return; }
 
                 // Bind all 5 descriptor sets
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -1685,7 +1687,7 @@ namespace Luth
                     vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
 
                     // Capture draw call for frame debugger
-                    CaptureDrawCall("ShadowPass",
+                    m_FrameDebugger.CaptureDrawCall("ShadowPass",
                         model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
                         registry.any_of<Component::Tag>(entity) ? registry.get<Component::Tag>(entity).m_Tag : "Entity",
                         0, ib->GetCount(), pc,
@@ -1693,7 +1695,7 @@ namespace Luth
                           VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
                 }
 
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -1776,13 +1778,13 @@ namespace Luth
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
                 VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-                BeginCapturePass("GeometryPass", "SceneColor", false,
+                m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                if (!opaquePipeline) { EndCapturePass(); return; }
+                if (!opaquePipeline) { m_FrameDebugger.EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                 // Bind all 5 descriptor sets
@@ -1945,7 +1947,7 @@ namespace Luth
                         vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
 
                         // Capture for frame debugger
-                        if (m_DebuggerState == DebuggerState::CaptureRequested)
+                        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
                             if (dc.entityIndex < m_EntityLookup.size())
@@ -1957,7 +1959,7 @@ namespace Luth
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;
-                            CaptureDrawCall("GeometryPass",
+                            m_FrameDebugger.CaptureDrawCall("GeometryPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(), pc,
                                 { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
@@ -1970,7 +1972,7 @@ namespace Luth
                 DrawBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
                 DrawBatch(m_TransparentDraws, Material::RenderMode::Transparent);
 
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
         return output;
@@ -1999,10 +2001,10 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("SkyboxPass", "SceneColor", false,
+                m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_SkyboxPipeline || !m_SkyboxVB) { EndCapturePass(); return; }
+                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_FrameDebugger.EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
@@ -2036,9 +2038,9 @@ namespace Luth
                 vkCmdDraw(cmd, 36, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
         return outputHandle;
@@ -2081,7 +2083,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("BloomExtract", "BloomA", false,
+                m_FrameDebugger.BeginCapturePass("BloomExtract", "BloomA", false,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2102,9 +2104,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2129,7 +2131,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("BloomBlurH", "BloomB", false,
+                m_FrameDebugger.BeginCapturePass("BloomBlurH", "BloomB", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2150,9 +2152,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2178,7 +2180,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("BloomBlurV", "BloomAFinal", false,
+                m_FrameDebugger.BeginCapturePass("BloomBlurV", "BloomAFinal", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2199,9 +2201,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2245,7 +2247,7 @@ namespace Luth
             },
             [this](PostProcessPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("PostProcess", "LDROutput", false,
+                m_FrameDebugger.BeginCapturePass("PostProcess", "LDROutput", false,
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2265,9 +2267,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("PostProcess", "FullscreenTriangle", "PostProcess", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("PostProcess", "FullscreenTriangle", "PostProcess", 0, 0, dummyPC,
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2340,10 +2342,10 @@ namespace Luth
             },
             [this, &registry](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
+                m_FrameDebugger.BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
                     { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_SelectionMaskPipeline) { EndCapturePass(); return; }
+                if (!m_SelectionMaskPipeline) { m_FrameDebugger.EndCapturePass(); return; }
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
@@ -2451,7 +2453,7 @@ namespace Luth
                     vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
                 }
 
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2489,7 +2491,7 @@ namespace Luth
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("OutlinePass", "LDROutput", false,
+                m_FrameDebugger.BeginCapturePass("OutlinePass", "LDROutput", false,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2533,9 +2535,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2569,7 +2571,7 @@ namespace Luth
             },
             [this](GridPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("GridPass", "SceneColor", false,
+                m_FrameDebugger.BeginCapturePass("GridPass", "SceneColor", false,
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -2613,9 +2615,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                CaptureDrawCall("GridPass", "FullscreenTriangle", "GridPass", 0, 0, dummyPC,
+                m_FrameDebugger.CaptureDrawCall("GridPass", "FullscreenTriangle", "GridPass", 0, 0, dummyPC,
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
 
@@ -2653,67 +2655,12 @@ namespace Luth
             },
             [this](ImGuiPassData& data, RG::RenderPassContext& ctx)
             {
-                BeginCapturePass("ImGuiPass", "Backbuffer", false,
+                m_FrameDebugger.BeginCapturePass("ImGuiPass", "Backbuffer", false,
                     { "imgui", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
                 ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.commandBuffer);
-                EndCapturePass();
+                m_FrameDebugger.EndCapturePass();
             }
         );
-    }
-
-    // =========================================================================
-    // Frame Debugger helpers
-    // =========================================================================
-    //  Frame Debugger Capture Helpers
-    // =========================================================================
-
-    void RenderingSystem::BeginCapturePass(const std::string& name, const std::string& activeTarget,
-                                           bool isDepth, const RG::CapturedPipelineState& ps)
-    {
-        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
-
-        RG::CapturedPass cp;
-        cp.name              = name;
-        cp.firstDrawIndex    = (u32)m_CapturedFrame.drawCalls.size();
-        cp.drawCallCount     = 0;
-        cp.pipelineState     = ps;
-        cp.activeRenderTarget = activeTarget;
-        cp.isDepthTarget     = isDepth;
-        m_CapturedFrame.passes.push_back(std::move(cp));
-    }
-
-    void RenderingSystem::EndCapturePass()
-    {
-        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
-        if (m_CapturedFrame.passes.empty()) return;
-
-        auto& cp = m_CapturedFrame.passes.back();
-        cp.drawCallCount = (u32)m_CapturedFrame.drawCalls.size() - cp.firstDrawIndex;
-    }
-
-    void RenderingSystem::CaptureDrawCall(const std::string& passName, const std::string& meshName,
-                                          const std::string& entityName, u32 entityIndex, u32 indexCount,
-                                          const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps)
-    {
-        if (m_DebuggerState != DebuggerState::CaptureRequested) return;
-
-        RG::CapturedDrawCall cdc;
-        cdc.globalIndex    = (u32)m_CapturedFrame.drawCalls.size();
-        cdc.passIndex      = m_CapturedFrame.passes.empty() ? 0 : (u32)(m_CapturedFrame.passes.size() - 1);
-        cdc.passLocalIndex = m_CapturedFrame.passes.empty() ? 0
-                           : (u32)(m_CapturedFrame.drawCalls.size() - m_CapturedFrame.passes.back().firstDrawIndex);
-        cdc.passName       = passName;
-        cdc.meshName       = meshName;
-        cdc.entityName     = entityName;
-        cdc.entityIndex    = entityIndex;
-        cdc.indexCount     = indexCount;
-        cdc.modelMatrix    = pc.modelMatrix;
-        cdc.materialIndex  = pc.materialIndex;
-        cdc.shadeMode      = pc.shadeMode;
-        cdc.entityID       = pc.entityID;
-        cdc.boneOffset     = pc.boneOffset;
-        cdc.pipelineState  = ps;
-        m_CapturedFrame.drawCalls.push_back(std::move(cdc));
     }
 
     // =========================================================================
@@ -3000,13 +2947,13 @@ namespace Luth
 
     void RenderingSystem::InitDebugBlitResources()
     {
-        if (m_DebugBlitPipeline) return; // Already initialized
+        if (m_FrameDebugger.blitPipeline) return; // Already initialized
 
         auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-        m_DebugBlitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
-        m_DebugDepthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
+        m_FrameDebugger.blitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
+        m_FrameDebugger.depthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
 
-        if (m_DebugBlitFragSpv.empty() || m_DebugDepthFragSpv.empty() || m_FullscreenVertSpv.empty())
+        if (m_FrameDebugger.blitFragSpv.empty() || m_FrameDebugger.depthFragSpv.empty() || m_FullscreenVertSpv.empty())
         {
             LH_CORE_ERROR("Failed to compile debug blit shaders");
             return;
@@ -3022,7 +2969,7 @@ namespace Luth
         samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(device, &samplerCI, nullptr, &m_DebugBlitSampler);
+        vkCreateSampler(device, &samplerCI, nullptr, &m_FrameDebugger.sampler);
 
         // Descriptor set layout: binding 0 = combined image sampler
         VkDescriptorSetLayoutBinding binding{};
@@ -3035,7 +2982,7 @@ namespace Luth
         layoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutCI.bindingCount = 1;
         layoutCI.pBindings    = &binding;
-        vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_DebugBlitDescSetLayout);
+        vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_FrameDebugger.descSetLayout);
 
         // Descriptor pool
         VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
@@ -3045,25 +2992,25 @@ namespace Luth
         poolCI.poolSizeCount = 1;
         poolCI.pPoolSizes    = &poolSize;
         poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_DebugBlitDescPool);
+        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_FrameDebugger.descPool);
 
         // Allocate descriptor set
         VkDescriptorSetAllocateInfo allocCI{};
         allocCI.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocCI.descriptorPool     = m_DebugBlitDescPool;
+        allocCI.descriptorPool     = m_FrameDebugger.descPool;
         allocCI.descriptorSetCount = 1;
-        allocCI.pSetLayouts        = &m_DebugBlitDescSetLayout;
-        vkAllocateDescriptorSets(device, &allocCI, &m_DebugBlitDescSet);
+        allocCI.pSetLayouts        = &m_FrameDebugger.descSetLayout;
+        vkAllocateDescriptorSets(device, &allocCI, &m_FrameDebugger.descSet);
 
         // Create blit pipeline (color)
-        std::vector<VkDescriptorSetLayout> layouts = { m_DebugBlitDescSetLayout };
+        std::vector<VkDescriptorSetLayout> layouts = { m_FrameDebugger.descSetLayout };
         PipelineConfig blitConfig;
         blitConfig.depthTest  = false;
         blitConfig.depthWrite = false;
         blitConfig.cullMode         = VK_CULL_MODE_NONE;
         blitConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
-        m_DebugBlitPipeline = std::make_unique<VKPipeline>(
-            blitConfig, m_FullscreenVertSpv, m_DebugBlitFragSpv, layouts);
+        m_FrameDebugger.blitPipeline = std::make_unique<VKPipeline>(
+            blitConfig, m_FullscreenVertSpv, m_FrameDebugger.blitFragSpv, layouts);
 
         // Create depth visualization pipeline
         PipelineConfig depthConfig;
@@ -3078,13 +3025,13 @@ namespace Luth
         depthPC.size       = sizeof(float) * 2; // near, far
         depthConfig.pushConstantRanges = { depthPC };
 
-        m_DebugDepthPipeline = std::make_unique<VKPipeline>(
-            depthConfig, m_FullscreenVertSpv, m_DebugDepthFragSpv, layouts);
+        m_FrameDebugger.depthPipeline = std::make_unique<VKPipeline>(
+            depthConfig, m_FullscreenVertSpv, m_FrameDebugger.depthFragSpv, layouts);
     }
 
     RG::ResourceHandle RenderingSystem::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
     {
-        if (!m_DebugBlitPipeline || !m_LDROutput) return inputHandle;
+        if (!m_FrameDebugger.blitPipeline || !m_LDROutput) return inputHandle;
 
         struct DebugBlitData {
             RG::ResourceHandle output;
@@ -3122,21 +3069,21 @@ namespace Luth
                 VkRect2D sc{}; sc.extent = { w, h };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                if (isDepth && m_DebugDepthPipeline)
+                if (isDepth && m_FrameDebugger.depthPipeline)
                 {
-                    m_DebugDepthPipeline->Bind(cmd);
+                    m_FrameDebugger.depthPipeline->Bind(cmd);
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        m_DebugDepthPipeline->GetLayout(), 0, 1, &m_DebugBlitDescSet, 0, nullptr);
+                        m_FrameDebugger.depthPipeline->GetLayout(), 0, 1, &m_FrameDebugger.descSet, 0, nullptr);
 
                     float pc[2] = { 0.1f, 200.0f }; // near/far for shadow maps
-                    vkCmdPushConstants(cmd, m_DebugDepthPipeline->GetLayout(),
+                    vkCmdPushConstants(cmd, m_FrameDebugger.depthPipeline->GetLayout(),
                         VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
                 }
                 else
                 {
-                    m_DebugBlitPipeline->Bind(cmd);
+                    m_FrameDebugger.blitPipeline->Bind(cmd);
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        m_DebugBlitPipeline->GetLayout(), 0, 1, &m_DebugBlitDescSet, 0, nullptr);
+                        m_FrameDebugger.blitPipeline->GetLayout(), 0, 1, &m_FrameDebugger.descSet, 0, nullptr);
                 }
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -3148,13 +3095,13 @@ namespace Luth
 
     void RenderingSystem::RenderCapturedFrame(u32 maxDrawCalls, Scene* scene)
     {
-        if (!m_CapturedFrame.valid) return;
+        if (!m_FrameDebugger.capturedFrame.valid) return;
 
         // Ensure debug blit resources are available
         InitDebugBlitResources();
 
         auto& registry = scene->Registry();
-        m_ReplayDrawCounter = 0;
+        m_FrameDebugger.replayDrawCounter = 0;
 
         RG::RenderGraph rg(*m_FrameAllocator);
 
@@ -3163,7 +3110,7 @@ namespace Luth
         bool isDepthTarget       = false;
         bool postProcessReached  = false;
 
-        for (auto& cp : m_CapturedFrame.passes)
+        for (auto& cp : m_FrameDebugger.capturedFrame.passes)
         {
             u32 passEnd = cp.firstDrawIndex + cp.drawCallCount;
             if (cp.name == "PostProcess" && maxDrawCalls >= passEnd)
@@ -3222,7 +3169,7 @@ namespace Luth
                 auto ReplayShadowDraws = [&](const std::vector<DrawCommand>& draws) {
                     for (const auto& dc : draws)
                     {
-                        if (m_ReplayDrawCounter >= maxDrawCalls) return;
+                        if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
 
                         auto mesh = dc.model->GetMesh(dc.meshIndex);
                         if (!mesh) continue;
@@ -3259,13 +3206,13 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                         vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
-                        m_ReplayDrawCounter++;
+                        m_FrameDebugger.replayDrawCounter++;
                     }
                 };
 
-                ReplayShadowDraws(m_CapturedOpaqueDraws);
-                ReplayShadowDraws(m_CapturedCutoutDraws);
-                ReplayShadowDraws(m_CapturedTransparentDraws);
+                ReplayShadowDraws(m_FrameDebugger.capturedOpaqueDraws);
+                ReplayShadowDraws(m_FrameDebugger.capturedCutoutDraws);
+                ReplayShadowDraws(m_FrameDebugger.capturedTransparentDraws);
             }
         );
 
@@ -3330,7 +3277,7 @@ namespace Luth
 
                     auto DrawBatchReplay = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
                     {
-                        if (draws.empty() || m_ReplayDrawCounter >= maxDrawCalls) return;
+                        if (draws.empty() || m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
 
                         Material::CullMode currentCull = Material::CullMode::Back;
                         bool currentSkinned = false;
@@ -3340,7 +3287,7 @@ namespace Luth
 
                         for (const auto& dc : draws)
                         {
-                            if (m_ReplayDrawCounter >= maxDrawCalls) return;
+                            if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
 
                             if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
                             {
@@ -3371,20 +3318,20 @@ namespace Luth
                             vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                             vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                             vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
-                            m_ReplayDrawCounter++;
+                            m_FrameDebugger.replayDrawCounter++;
                         }
                     };
 
-                    DrawBatchReplay(m_CapturedOpaqueDraws,      Material::RenderMode::Opaque);
-                    DrawBatchReplay(m_CapturedCutoutDraws,      Material::RenderMode::Cutout);
-                    DrawBatchReplay(m_CapturedTransparentDraws, Material::RenderMode::Transparent);
+                    DrawBatchReplay(m_FrameDebugger.capturedOpaqueDraws,      Material::RenderMode::Opaque);
+                    DrawBatchReplay(m_FrameDebugger.capturedCutoutDraws,      Material::RenderMode::Cutout);
+                    DrawBatchReplay(m_FrameDebugger.capturedTransparentDraws, Material::RenderMode::Transparent);
                 }
             );
         }
 
         // --- Skybox Pass (replay) ---
         RG::ResourceHandle skyboxColor = geoOutput.color;
-        if (m_SkyboxPipeline && m_SkyboxVB && m_ReplayDrawCounter < maxDrawCalls)
+        if (m_SkyboxPipeline && m_SkyboxVB && m_FrameDebugger.replayDrawCounter < maxDrawCalls)
         {
             struct SkyboxReplayData { RG::ResourceHandle colorTex, depthTex; };
             rg.AddPass<SkyboxReplayData>("SkyboxPass",
@@ -3394,7 +3341,7 @@ namespace Luth
                     skyboxColor = data.colorTex;
                 },
                 [this, maxDrawCalls](SkyboxReplayData& data, RG::RenderPassContext& ctx) {
-                    if (m_ReplayDrawCounter >= maxDrawCalls) return;
+                    if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
                     VkCommandBuffer cmd = ctx.commandBuffer;
                     m_SkyboxPipeline->Bind(cmd);
                     VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -3408,7 +3355,7 @@ namespace Luth
                     VkBuffer vb = m_SkyboxVB->GetVulkanBuffer(); VkDeviceSize offset = 0;
                     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
                     vkCmdDraw(cmd, 36, 1, 0, 0);
-                    m_ReplayDrawCounter++;
+                    m_FrameDebugger.replayDrawCounter++;
                 }
             );
         }
@@ -3418,24 +3365,24 @@ namespace Luth
 
         // --- Fullscreen passes (bloom, postprocess) - only if draw counter allows ---
         bool ppReached = false;
-        if (m_ReplayDrawCounter < maxDrawCalls && m_BloomExtractPipeline && m_BloomBlurPipeline && m_BloomA && m_BloomB)
+        if (m_FrameDebugger.replayDrawCounter < maxDrawCalls && m_BloomExtractPipeline && m_BloomBlurPipeline && m_BloomA && m_BloomB)
         {
             // Simplified: add bloom + postprocess as single draws each
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
-            if (m_ReplayDrawCounter + 3 < maxDrawCalls) // 3 bloom passes
+            if (m_FrameDebugger.replayDrawCounter + 3 < maxDrawCalls) // 3 bloom passes
             {
-                m_ReplayDrawCounter += 3;
-                if (m_PostProcessPipeline && m_LDROutput && m_ReplayDrawCounter < maxDrawCalls)
+                m_FrameDebugger.replayDrawCounter += 3;
+                if (m_PostProcessPipeline && m_LDROutput && m_FrameDebugger.replayDrawCounter < maxDrawCalls)
                 {
                     finalOutput = AddPostProcessPass(rg, skyboxColor, bloomResult);
-                    m_ReplayDrawCounter++;
+                    m_FrameDebugger.replayDrawCounter++;
                     ppReached = true;
                 }
             }
         }
 
         // --- Rescue Blit: if we stopped before PostProcess ---
-        if (!ppReached && m_DebugBlitPipeline)
+        if (!ppReached && m_FrameDebugger.blitPipeline)
         {
             // Update debug blit descriptor set to point to the active render target
             std::shared_ptr<Texture> activeTexture;
@@ -3452,13 +3399,13 @@ namespace Luth
             {
                 auto vkTex = std::static_pointer_cast<VKTexture>(activeTexture);
                 VkDescriptorImageInfo imgInfo{};
-                imgInfo.sampler     = m_DebugBlitSampler;
+                imgInfo.sampler     = m_FrameDebugger.sampler;
                 imgInfo.imageView   = vkTex->GetImageView();
                 imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
                 VkWriteDescriptorSet write{};
                 write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet          = m_DebugBlitDescSet;
+                write.dstSet          = m_FrameDebugger.descSet;
                 write.dstBinding      = 0;
                 write.descriptorCount = 1;
                 write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
