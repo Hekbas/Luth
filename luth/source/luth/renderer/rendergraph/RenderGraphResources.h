@@ -15,6 +15,15 @@ namespace Luth::RG
         bool operator==(const ResourceHandle& other) const = default;
     };
 
+    struct BufferHandle
+    {
+        u32 index = 0;
+        u32 version = 0;
+
+        bool IsValid() const { return index != 0; }
+        bool operator==(const BufferHandle& other) const = default;
+    };
+
     enum class ResourceState
     {
         Undefined,
@@ -23,7 +32,12 @@ namespace Luth::RG
         DepthStencilAttachment, // Depth Write
         TransferSrc,            // Copy Source
         TransferDst,            // Copy Dest / Clear
-        Present                 // Swapchain Present
+        Present,                // Swapchain Present
+        ComputeRead,            // Compute shader read (storage image)
+        ComputeWrite,           // Compute shader write (storage image)
+        StorageBufferRead,      // Compute shader read (SSBO)
+        StorageBufferWrite,     // Compute shader write (SSBO)
+        IndirectRead,           // Indirect draw/dispatch command read
     };
 
     enum class TextureFormat
@@ -44,9 +58,23 @@ namespace Luth::RG
         TextureFormat format = TextureFormat::RGBA8_Unorm;
     };
 
+    struct BufferDesc
+    {
+        std::string name;
+        u64 size = 0;
+        VkBufferUsageFlags usage = 0;
+    };
+
     struct Barrier
     {
         ResourceHandle resource;
+        ResourceState before;
+        ResourceState after;
+    };
+
+    struct BufferBarrier
+    {
+        BufferHandle resource;
         ResourceState before;
         ResourceState after;
     };

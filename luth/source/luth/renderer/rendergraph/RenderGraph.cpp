@@ -28,6 +28,17 @@ namespace Luth::RG
         return resource;
     }
 
+    ResourceHandle RenderPassBuilder::ReadStorageImage(ResourceHandle resource)
+    {
+        m_Graph.RegisterRead(m_PassIndex, resource, ResourceState::ComputeRead);
+        return resource;
+    }
+
+    ResourceHandle RenderPassBuilder::WriteStorageImage(ResourceHandle resource)
+    {
+        return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ComputeWrite);
+    }
+
     ResourceHandle RenderPassBuilder::Write(ResourceHandle resource, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue)
     {
         ResourceHandle newHandle = m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ColorAttachment);
@@ -52,6 +63,23 @@ namespace Luth::RG
         return m_Graph.RegisterResource(desc);
     }
 
+    BufferHandle RenderPassBuilder::ReadBuffer(BufferHandle buffer)
+    {
+        m_Graph.RegisterBufferRead(m_PassIndex, buffer, ResourceState::StorageBufferRead);
+        return buffer;
+    }
+
+    BufferHandle RenderPassBuilder::WriteBuffer(BufferHandle buffer)
+    {
+        return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::StorageBufferWrite);
+    }
+
+    BufferHandle RenderPassBuilder::ReadIndirectBuffer(BufferHandle buffer)
+    {
+        m_Graph.RegisterBufferRead(m_PassIndex, buffer, ResourceState::IndirectRead);
+        return buffer;
+    }
+
     // ===================================================================================
     // RenderGraph — Construction & Registration
     // ===================================================================================
@@ -61,6 +89,7 @@ namespace Luth::RG
     {
         m_Passes.reserve(64);
         m_Resources.reserve(256);
+        m_Buffers.reserve(64);
     }
 
     ResourceHandle RenderGraph::RegisterResource(const TextureDesc& desc)
@@ -127,6 +156,48 @@ namespace Luth::RG
         m_Passes[passIndex].hasDepth = true;
     }
 
+    BufferHandle RenderGraph::RegisterBuffer(const BufferDesc& desc)
+    {
+        u32 index = (u32)m_Buffers.size() + 1;
+        BufferNode node{};
+        node.desc = desc;
+        node.isTransient = true;
+        node.initialState = ResourceState::Undefined;
+        node.currentState = ResourceState::Undefined;
+        m_Buffers.push_back(node);
+        return { index, 0 };
+    }
+
+    BufferHandle RenderGraph::ImportBuffer(const BufferDesc& desc, void* buffer, ResourceState initialState)
+    {
+        u32 index = (u32)m_Buffers.size() + 1;
+        BufferNode node{};
+        node.desc = desc;
+        node.isTransient = false;
+        node.initialState = initialState;
+        node.currentState = initialState;
+        node.buffer = (VkBuffer)buffer;
+        node.external = true;
+        m_Buffers.push_back(node);
+        return { index, 0 };
+    }
+
+    void RenderGraph::RegisterBufferRead(u32 passIndex, BufferHandle handle, ResourceState state)
+    {
+        m_Passes[passIndex].bufferReads.push_back(handle);
+        m_Passes[passIndex].bufferReadStates.push_back(state);
+    }
+
+    BufferHandle RenderGraph::RegisterBufferWrite(u32 passIndex, BufferHandle handle, ResourceState state)
+    {
+        BufferNode& node = m_Buffers[handle.index - 1];
+        node.version++;
+        BufferHandle newHandle = { handle.index, node.version };
+        m_Passes[passIndex].bufferWrites.push_back(newHandle);
+        m_Passes[passIndex].bufferWriteStates.push_back(state);
+        return newHandle;
+    }
+
     // ===================================================================================
     // Compile — Cull → Lifetimes → Barriers
     // ===================================================================================
@@ -145,42 +216,55 @@ namespace Luth::RG
         // Mark all passes as potentially culled
         for (auto& pass : m_Passes) pass.culled = true;
 
-        // Walk backwards: any pass that writes to a resource read by a later
-        // non-culled pass (or writes an external/imported resource) is alive.
-        // For now: keep all passes with writes to external resources or that
-        // have any color/depth attachments (rendering passes are never dead).
         for (size_t i = m_Passes.size(); i > 0; --i)
         {
             auto& pass = m_Passes[i - 1];
-            
+
             // Any pass with color or depth attachments is alive (it renders something)
             if (!pass.colorAttachments.empty() || pass.hasDepth)
-            {
                 pass.culled = false;
-            }
 
-            // Any pass that writes to an external resource is alive
+            // Any pass that writes to an external image resource is alive
             for (const auto& handle : pass.writes)
             {
                 ResourceNode& res = m_Resources[handle.index - 1];
-                if (res.external)
-                {
-                    pass.culled = false;
-                    break;
-                }
+                if (res.external) { pass.culled = false; break; }
             }
 
-            // If alive, mark all resources it reads as "needed" by un-culling
-            // the passes that produce them
+            // Any pass that writes to an external buffer resource is alive
+            for (const auto& handle : pass.bufferWrites)
+            {
+                BufferNode& buf = m_Buffers[handle.index - 1];
+                if (buf.external) { pass.culled = false; break; }
+            }
+
+            // If alive, un-cull passes that produce what this pass reads (images)
             if (!pass.culled)
             {
                 for (const auto& readHandle : pass.reads)
                 {
-                    // Find the pass that writes this resource (backwards)
                     for (size_t j = i - 1; j > 0; --j)
                     {
                         auto& producer = m_Passes[j - 1];
                         for (const auto& writeHandle : producer.writes)
+                        {
+                            if (writeHandle.index == readHandle.index)
+                            {
+                                producer.culled = false;
+                                break;
+                            }
+                        }
+                        if (!producer.culled) break;
+                    }
+                }
+
+                // Un-cull passes that produce what this pass reads (buffers)
+                for (const auto& readHandle : pass.bufferReads)
+                {
+                    for (size_t j = i - 1; j > 0; --j)
+                    {
+                        auto& producer = m_Passes[j - 1];
+                        for (const auto& writeHandle : producer.bufferWrites)
                         {
                             if (writeHandle.index == readHandle.index)
                             {
@@ -201,33 +285,48 @@ namespace Luth::RG
         {
             if (m_Passes[passIdx].culled) continue;
 
-            auto updateLifetime = [&](ResourceHandle h)
+            auto updateImageLifetime = [&](ResourceHandle h)
             {
                 ResourceNode& res = m_Resources[h.index - 1];
                 if (passIdx < res.firstPass) res.firstPass = (u32)passIdx;
                 if (passIdx > res.lastPass) res.lastPass = (u32)passIdx;
             };
 
-            for (const auto& h : m_Passes[passIdx].reads) updateLifetime(h);
-            for (const auto& h : m_Passes[passIdx].writes) updateLifetime(h);
+            auto updateBufferLifetime = [&](BufferHandle h)
+            {
+                BufferNode& buf = m_Buffers[h.index - 1];
+                if (passIdx < buf.firstPass) buf.firstPass = (u32)passIdx;
+                if (passIdx > buf.lastPass) buf.lastPass = (u32)passIdx;
+            };
+
+            for (const auto& h : m_Passes[passIdx].reads)       updateImageLifetime(h);
+            for (const auto& h : m_Passes[passIdx].writes)      updateImageLifetime(h);
+            for (const auto& h : m_Passes[passIdx].bufferReads) updateBufferLifetime(h);
+            for (const auto& h : m_Passes[passIdx].bufferWrites) updateBufferLifetime(h);
         }
     }
 
     void RenderGraph::SolveBarriers()
     {
-        // Reset resource states
+        // Reset image resource states
         for (auto& res : m_Resources)
         {
             res.currentState = res.initialState;
             if (res.isTransient) res.currentState = ResourceState::Undefined;
         }
 
-        // Generate barriers per pass
+        // Reset buffer resource states
+        for (auto& buf : m_Buffers)
+        {
+            buf.currentState = buf.initialState;
+            if (buf.isTransient) buf.currentState = ResourceState::Undefined;
+        }
+
         for (auto& pass : m_Passes)
         {
             if (pass.culled) continue;
 
-            // Read barriers
+            // Image read barriers
             for (size_t i = 0; i < pass.reads.size(); ++i)
             {
                 ResourceHandle handle = pass.reads[i];
@@ -241,7 +340,7 @@ namespace Luth::RG
                 }
             }
 
-            // Write barriers
+            // Image write barriers
             for (size_t i = 0; i < pass.writes.size(); ++i)
             {
                 ResourceHandle handle = pass.writes[i];
@@ -252,6 +351,34 @@ namespace Luth::RG
                 {
                     pass.preBarriers.push_back({ handle, res.currentState, targetState });
                     res.currentState = targetState;
+                }
+            }
+
+            // Buffer read barriers
+            for (size_t i = 0; i < pass.bufferReads.size(); ++i)
+            {
+                BufferHandle handle = pass.bufferReads[i];
+                ResourceState targetState = pass.bufferReadStates[i];
+                BufferNode& buf = m_Buffers[handle.index - 1];
+
+                if (buf.currentState != targetState)
+                {
+                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
+                    buf.currentState = targetState;
+                }
+            }
+
+            // Buffer write barriers
+            for (size_t i = 0; i < pass.bufferWrites.size(); ++i)
+            {
+                BufferHandle handle = pass.bufferWrites[i];
+                ResourceState targetState = pass.bufferWriteStates[i];
+                BufferNode& buf = m_Buffers[handle.index - 1];
+
+                if (buf.currentState != targetState)
+                {
+                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
+                    buf.currentState = targetState;
                 }
             }
         }
@@ -272,6 +399,11 @@ namespace Luth::RG
             case ResourceState::TransferSrc:            return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
             case ResourceState::ShaderResource:         return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::Present:                return { VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0 };
+            case ResourceState::ComputeRead:            return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
+            case ResourceState::ComputeWrite:           return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
+            case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
+            case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
+            case ResourceState::IndirectRead:           return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT };
             default:                                    return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
         }
     }
@@ -287,6 +419,9 @@ namespace Luth::RG
             case ResourceState::TransferSrc:            return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             case ResourceState::ShaderResource:         return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             case ResourceState::Present:                return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            case ResourceState::ComputeRead:            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            case ResourceState::ComputeWrite:           return VK_IMAGE_LAYOUT_GENERAL;
+            // Buffer states have no image layout — return UNDEFINED (never used for image barriers)
             default:                                    return VK_IMAGE_LAYOUT_UNDEFINED;
         }
     }
@@ -343,41 +478,88 @@ namespace Luth::RG
             auto& pass = m_Passes[i];
             if (pass.culled) continue;
 
-            // ── Step 1: Batched Barriers ──
-            // Use a stack buffer to avoid per-pass heap allocation (16 barriers should be plenty).
+            // ── Step 1: Batched Barriers (image + buffer, combined into one call) ──
             static constexpr u32 k_MaxBarriers = 16;
-            if (!pass.preBarriers.empty())
+            LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many image barriers per pass!");
+            LH_CORE_ASSERT(pass.bufferPreBarriers.size() <= k_MaxBarriers, "Too many buffer barriers per pass!");
+
+            VkImageMemoryBarrier2  imgBarriers[k_MaxBarriers];
+            VkBufferMemoryBarrier2 bufBarriers[k_MaxBarriers];
+            u32 imgBarrierCount = 0;
+            u32 bufBarrierCount = 0;
+
+            for (const auto& b : pass.preBarriers)
             {
-                VkImageMemoryBarrier2 barriers[k_MaxBarriers];
-                u32 barrierCount = 0;
-                LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many barriers per pass!");
+                ResourceNode& res = m_Resources[b.resource.index - 1];
+                auto [srcStage, srcAccess] = GetStateInfo(b.before);
+                auto [dstStage, dstAccess] = GetStateInfo(b.after);
 
-                for (const auto& b : pass.preBarriers)
-                {
-                    ResourceNode& res = m_Resources[b.resource.index - 1];
-                    auto [srcStage, srcAccess] = GetStateInfo(b.before);
-                    auto [dstStage, dstAccess] = GetStateInfo(b.after);
+                VkImageMemoryBarrier2& vkBarrier = imgBarriers[imgBarrierCount++];
+                vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+                vkBarrier.srcStageMask  = srcStage;
+                vkBarrier.srcAccessMask = srcAccess;
+                vkBarrier.dstStageMask  = dstStage;
+                vkBarrier.dstAccessMask = dstAccess;
+                vkBarrier.oldLayout     = GetLayout(b.before);
+                vkBarrier.newLayout     = GetLayout(b.after);
+                vkBarrier.image         = res.image;
+                vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, 0, 1 };
+            }
 
-                    VkImageMemoryBarrier2& vkBarrier = barriers[barrierCount++];
-                    vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-                    vkBarrier.srcStageMask  = srcStage;
-                    vkBarrier.srcAccessMask = srcAccess;
-                    vkBarrier.dstStageMask  = dstStage;
-                    vkBarrier.dstAccessMask = dstAccess;
-                    vkBarrier.oldLayout     = GetLayout(b.before);
-                    vkBarrier.newLayout     = GetLayout(b.after);
-                    vkBarrier.image         = res.image;
-                    vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, 0, 1 };
-                }
+            for (const auto& b : pass.bufferPreBarriers)
+            {
+                BufferNode& buf = m_Buffers[b.resource.index - 1];
+                auto [srcStage, srcAccess] = GetStateInfo(b.before);
+                auto [dstStage, dstAccess] = GetStateInfo(b.after);
 
+                VkBufferMemoryBarrier2& vkBarrier = bufBarriers[bufBarrierCount++];
+                vkBarrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+                vkBarrier.srcStageMask        = srcStage;
+                vkBarrier.srcAccessMask       = srcAccess;
+                vkBarrier.dstStageMask        = dstStage;
+                vkBarrier.dstAccessMask       = dstAccess;
+                vkBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                vkBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                vkBarrier.buffer              = buf.buffer;
+                vkBarrier.offset              = 0;
+                vkBarrier.size                = VK_WHOLE_SIZE;
+            }
+
+            if (imgBarrierCount > 0 || bufBarrierCount > 0)
+            {
                 VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-                dep.imageMemoryBarrierCount = barrierCount;
-                dep.pImageMemoryBarriers    = barriers;
+                dep.imageMemoryBarrierCount  = imgBarrierCount;
+                dep.pImageMemoryBarriers     = imgBarriers;
+                dep.bufferMemoryBarrierCount = bufBarrierCount;
+                dep.pBufferMemoryBarriers    = bufBarriers;
                 vkCmdPipelineBarrier2(primaryCmd, &dep);
             }
 
+            // ── Compute pass: execute directly on primary cmd (no secondary, no BeginRendering) ──
+            if (pass.isCompute)
+            {
+                if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, true);
+
+                RenderPassContext ctx;
+                ctx.commandBuffer = primaryCmd;
+                ctx.GetResource = [this](ResourceHandle h) -> void*
+                {
+                    return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
+                };
+                ctx.GetBuffer = [this](BufferHandle h) -> void*
+                {
+                    return (h.index > 0 && h.index <= m_Buffers.size()) ? &m_Buffers[h.index - 1] : nullptr;
+                };
+                pass.execute(ctx);
+
+                if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
+                timerPassIdx++;
+                continue;
+            }
+
+            // ── Graphics pass: secondary cmd buffer via RenderPassJob ──
+
             // ── Step 2: Build RenderPassInfo ──
-            // Stack buffer avoids per-pass heap allocation (max 8 color attachments).
             static constexpr u32 k_MaxColorAtt = 8;
             AttachmentInfo colorAttachmentsBuf[k_MaxColorAtt];
             u32 colorAttachmentCount = 0;
@@ -425,6 +607,10 @@ namespace Luth::RG
                 {
                     return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
                 };
+                ctx.GetBuffer = [this](BufferHandle h) -> void*
+                {
+                    return (h.index > 0 && h.index <= m_Buffers.size()) ? &m_Buffers[h.index - 1] : nullptr;
+                };
                 pass.execute(ctx);
             };
 
@@ -444,7 +630,6 @@ namespace Luth::RG
                 if (pass.hasDepth) rpInfo.DepthAttachment = &depthInfo;
                 rpInfo.Flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
 
-                // Determine render area from first color attachment or depth
                 if (!colorAttachments.empty())
                 {
                     ResourceHandle h = pass.colorAttachments[0].handle;
@@ -477,6 +662,7 @@ namespace Luth::RG
 
     void RenderGraph::AllocatePhysicalResources()
     {
+        // Allocate transient image resources
         for (auto& res : m_Resources)
         {
             if (!res.isTransient || res.image != VK_NULL_HANDLE) continue;
@@ -485,10 +671,20 @@ namespace Luth::RG
             res.view  = pooled.view;
             res.allocation = (VmaAllocation_T*)pooled.allocation;
         }
+
+        // Allocate transient buffer resources
+        for (auto& buf : m_Buffers)
+        {
+            if (!buf.isTransient || buf.buffer != VK_NULL_HANDLE) continue;
+            PooledBuffer pooled = VulkanContext::Get().GetResourceCache().GetBuffer(buf.desc);
+            buf.buffer = pooled.buffer;
+            buf.allocation = (VmaAllocation_T*)pooled.allocation;
+        }
     }
 
     void RenderGraph::CleanupPhysicalResources()
     {
+        // Return transient image resources to pool
         for (auto& res : m_Resources)
         {
             if (res.isTransient && res.image != VK_NULL_HANDLE)
@@ -502,6 +698,21 @@ namespace Luth::RG
                 res.image = VK_NULL_HANDLE;
                 res.view  = VK_NULL_HANDLE;
                 res.allocation = nullptr;
+            }
+        }
+
+        // Return transient buffer resources to pool
+        for (auto& buf : m_Buffers)
+        {
+            if (buf.isTransient && buf.buffer != VK_NULL_HANDLE)
+            {
+                PooledBuffer pooled;
+                pooled.buffer = buf.buffer;
+                pooled.allocation = (VmaAllocation)buf.allocation;
+                pooled.desc = buf.desc;
+                VulkanContext::Get().GetResourceCache().ReturnBuffer(pooled);
+                buf.buffer = VK_NULL_HANDLE;
+                buf.allocation = nullptr;
             }
         }
     }

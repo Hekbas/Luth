@@ -29,21 +29,29 @@ namespace Luth::RG
         RenderPassBuilder(RenderGraph& graph, u32 passIndex)
             : m_Graph(graph), m_PassIndex(passIndex) {}
 
+        // Image resources
         ResourceHandle Read(ResourceHandle resource);
         ResourceHandle ReadTransfer(ResourceHandle resource);
-        
-        ResourceHandle Write(ResourceHandle resource, 
-                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
-                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE, 
+        ResourceHandle ReadStorageImage(ResourceHandle resource);   // Compute read (sampled)
+        ResourceHandle WriteStorageImage(ResourceHandle resource);  // Compute write (storage)
+
+        ResourceHandle Write(ResourceHandle resource,
+                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE,
                              VkClearValue clearValue = {});
-        
-        ResourceHandle WriteDepth(ResourceHandle resource, 
-                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, 
-                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE, 
+
+        ResourceHandle WriteDepth(ResourceHandle resource,
+                             VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                             VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
                              VkClearValue clearValue = {});
 
         ResourceHandle WriteTransfer(ResourceHandle resource);
         ResourceHandle CreateTexture(const TextureDesc& desc);
+
+        // Buffer resources
+        BufferHandle ReadBuffer(BufferHandle buffer);          // StorageBufferRead
+        BufferHandle WriteBuffer(BufferHandle buffer);         // StorageBufferWrite
+        BufferHandle ReadIndirectBuffer(BufferHandle buffer);  // IndirectRead
 
     private:
         RenderGraph& m_Graph;
@@ -59,6 +67,7 @@ namespace Luth::RG
     public:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
         std::function<void*(ResourceHandle)> GetResource;
+        std::function<void*(BufferHandle)> GetBuffer;
     };
 
     // ===================================================================================
@@ -92,23 +101,32 @@ namespace Luth::RG
         {
             std::string name;
             std::function<void(RenderPassContext&)> execute;
-            
+            bool isCompute = false;  // Compute passes skip BeginRendering and secondary cmd
+
+            // Image resource dependencies
             std::vector<ResourceHandle> reads;
             std::vector<ResourceState> readStates;
 
             std::vector<ResourceHandle> writes;
-            std::vector<ResourceState> writeStates; 
-            
-            // Metadata for Dynamic Rendering
+            std::vector<ResourceState> writeStates;
+
+            // Buffer resource dependencies
+            std::vector<BufferHandle> bufferReads;
+            std::vector<ResourceState> bufferReadStates;
+            std::vector<BufferHandle> bufferWrites;
+            std::vector<ResourceState> bufferWriteStates;
+
+            // Metadata for Dynamic Rendering (graphics passes only)
             std::vector<PassAttachment> colorAttachments;
             PassAttachment depthAttachment;
             bool hasDepth = false;
 
-            std::vector<Barrier> preBarriers;
+            std::vector<Barrier>       preBarriers;        // Image barriers
+            std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
 
             // Compile output
-            bool culled = false;    // Dead-pass culling 
-            u32 sortOrder = 0;      // Topological order
+            bool culled = false;
+            u32 sortOrder = 0;
         };
 
         struct ResourceNode
@@ -116,10 +134,10 @@ namespace Luth::RG
             TextureDesc desc;
             u32 version = 0;
             bool isTransient = true;
-            
+
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
-            
+
             // Physical resource (filled by AllocatePhysicalResources)
             VkImage image = VK_NULL_HANDLE;
             VkImageView view = VK_NULL_HANDLE;
@@ -127,8 +145,27 @@ namespace Luth::RG
             bool external = false;
 
             // Lifetime tracking (for future aliasing)
-            u32 firstPass = UINT32_MAX;   // First pass that reads/writes this resource
-            u32 lastPass = 0;             // Last pass that reads/writes this resource
+            u32 firstPass = UINT32_MAX;
+            u32 lastPass = 0;
+        };
+
+        struct BufferNode
+        {
+            BufferDesc desc;
+            u32 version = 0;
+            bool isTransient = true;
+
+            ResourceState initialState = ResourceState::Undefined;
+            ResourceState currentState = ResourceState::Undefined;
+
+            // Physical resource (filled by AllocatePhysicalResources)
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VmaAllocation_T* allocation = nullptr;
+            bool external = false;
+
+            // Lifetime tracking
+            u32 firstPass = UINT32_MAX;
+            u32 lastPass = 0;
         };
 
     public:
@@ -153,13 +190,33 @@ namespace Luth::RG
             };
         }
 
+        // Compute passes: execute directly on primary cmd, no BeginRendering/secondary cmd
+        template<typename Data, typename SetupFunc, typename ExecuteFunc>
+        void AddComputePass(const std::string& name, SetupFunc&& setup, ExecuteFunc&& execute)
+        {
+            Data* data = m_Allocator.New<Data>();
+
+            u32 passIndex = (u32)m_Passes.size();
+            m_Passes.emplace_back();
+            PassNode& node = m_Passes.back();
+            node.name = name;
+            node.isCompute = true;
+
+            RenderPassBuilder builder(*this, passIndex);
+            setup(*data, builder);
+
+            node.execute = [execute, data](RenderPassContext& ctx) {
+                execute(*data, ctx);
+            };
+        }
+
         // Compile: Cull → Barrier Solve (topo sort is implicit — passes added in order)
         void Compile();
-        
+
         // Execute: Serial pass iteration with parallel inner recording
         void Execute(VkCommandBuffer primaryCmd, Luth::GPUTimerPool* timers = nullptr);
 
-        // Internal API for Builder
+        // Internal API for Builder — Image resources
         ResourceHandle RegisterResource(const TextureDesc& desc);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
@@ -167,14 +224,22 @@ namespace Luth::RG
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
         void RegisterDepthAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
 
+        // Internal API for Builder — Buffer resources
+        BufferHandle RegisterBuffer(const BufferDesc& desc);
+        BufferHandle ImportBuffer(const BufferDesc& desc, void* buffer, ResourceState initialState);
+        void RegisterBufferRead(u32 passIndex, BufferHandle handle, ResourceState state);
+        BufferHandle RegisterBufferWrite(u32 passIndex, BufferHandle handle, ResourceState state);
+
         // Accessors
         const std::vector<PassNode>& GetPasses() const { return m_Passes; }
         std::vector<ResourceNode>& GetResources() { return m_Resources; }
+        std::vector<BufferNode>& GetBuffers() { return m_Buffers; }
 
     private:
         Memory::LinearAllocator& m_Allocator;
-        std::vector<PassNode> m_Passes;
+        std::vector<PassNode>   m_Passes;
         std::vector<ResourceNode> m_Resources;
+        std::vector<BufferNode>   m_Buffers;
 
         void AllocatePhysicalResources();
         void CleanupPhysicalResources();

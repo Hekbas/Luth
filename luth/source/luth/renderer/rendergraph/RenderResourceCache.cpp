@@ -19,6 +19,10 @@ namespace Luth::RG
             VulkanAllocator::FreeImage(res.image, res.allocation);
         }
         m_Pool.clear();
+
+        for (auto& buf : m_BufferPool)
+            VulkanAllocator::FreeBuffer(buf.buffer, buf.allocation);
+        m_BufferPool.clear();
     }
 
     void RenderResourceCache::NewFrame()
@@ -36,6 +40,19 @@ namespace Luth::RG
                 vkDestroyImageView(VulkanContext::Get().GetDevice(), it->view, nullptr);
                 VulkanAllocator::FreeImage(it->image, it->allocation);
                 it = m_Pool.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        for (auto it = m_BufferPool.begin(); it != m_BufferPool.end(); )
+        {
+            if (m_FrameIndex - it->lastUsedFrame > k_StaleFrameThreshold)
+            {
+                VulkanAllocator::FreeBuffer(it->buffer, it->allocation);
+                it = m_BufferPool.erase(it);
             }
             else
             {
@@ -121,7 +138,44 @@ namespace Luth::RG
 
     void RenderResourceCache::ReturnTexture(PooledResource resource)
     {
-        resource.lastUsedFrame = m_FrameIndex; // Mark as used this frame
+        resource.lastUsedFrame = m_FrameIndex;
         m_Pool.push_back(resource);
+    }
+
+    PooledBuffer RenderResourceCache::GetBuffer(const BufferDesc& desc)
+    {
+        // Find a matching buffer in the pool (same size and usage)
+        for (auto it = m_BufferPool.begin(); it != m_BufferPool.end(); ++it)
+        {
+            if (it->desc.size == desc.size && it->desc.usage == desc.usage)
+            {
+                PooledBuffer buf = *it;
+                m_BufferPool.erase(it);
+                buf.lastUsedFrame = m_FrameIndex;
+                return buf;
+            }
+        }
+
+        // Create new buffer
+        LH_CORE_WARN("Allocating new transient buffer: {0} ({1} bytes)", desc.name, desc.size);
+
+        PooledBuffer buf;
+        buf.desc = desc;
+        buf.lastUsedFrame = m_FrameIndex;
+
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size  = desc.size;
+        bufferInfo.usage = desc.usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        buf.allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, buf.buffer);
+        return buf;
+    }
+
+    void RenderResourceCache::ReturnBuffer(PooledBuffer buffer)
+    {
+        buffer.lastUsedFrame = m_FrameIndex;
+        m_BufferPool.push_back(buffer);
     }
 }
