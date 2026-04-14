@@ -79,7 +79,8 @@ namespace Luth
         VkDescriptorPoolSize sizes[] = {
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, count },
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count },
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, count }
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, count },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, count }
         };
 
         VkDescriptorPoolCreateInfo poolInfo = {};

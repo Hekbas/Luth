@@ -27,4 +27,18 @@ namespace Luth
         u32 entityID;           // 4 bytes — entity index for picking
         u32 boneOffset;         // 4 bytes — base index into BoneMatrices SSBO (0 for static)
     };
+
+    // Per-object data uploaded to GPU SSBO each frame (std430 layout, 112 bytes)
+    struct GPUObjectData {
+        glm::mat4 model;          // 64B
+        glm::vec4 boundingSphere; // 16B — xyz=center (local space), w=radius (local space)
+        u32 materialIndex;        // 4B
+        u32 shadeMode;            // 4B
+        u32 entityID;             // 4B
+        u32 boneOffset;           // 4B
+        u32 indexCount;           // 4B
+        u32 firstIndex;           // 4B
+        i32 vertexOffset;         // 4B
+        u32 _pad;                 // 4B
+    };
 }

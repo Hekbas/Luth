@@ -19,6 +19,9 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/renderer/ShaderCompiler.h"
 #include "luth/renderer/IBLPrecompute.h"
+#include "luth/renderer/DrawCommand.h"
+#include "luth/renderer/passes/CullPass.h"
+#include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
 #include <backends/imgui_impl_vulkan.h>
@@ -127,6 +130,8 @@ namespace Luth
             InitPostProcessResources();
             InitIBLResources(FileSystem::ResolveAsset("textures/environment.hdr"));
             CreatePipelines();
+            InitGPUObjectBuffers();
+            InitCullPipeline();
 
             // Shader reload callback — rebuilds pipelines when a shader is reloaded
             ShaderLibrary::SetReloadCallback([this](const std::string& name) {
@@ -235,6 +240,20 @@ namespace Luth
             vkDestroyDescriptorPool(device, m_LightDescPool, nullptr);
         if (m_GlobalSetLayout)
             vkDestroyDescriptorSetLayout(device, m_GlobalSetLayout, nullptr);
+
+        if (m_ObjectSSBO)
+        {
+            VulkanAllocator::Unmap(m_ObjectSSBOAlloc);
+            VulkanAllocator::FreeBuffer(m_ObjectSSBO, m_ObjectSSBOAlloc);
+        }
+        if (m_IndirectBuffer)
+        {
+            VulkanAllocator::Unmap(m_IndirectBufferAlloc);
+            VulkanAllocator::FreeBuffer(m_IndirectBuffer, m_IndirectBufferAlloc);
+        }
+        if (m_CullDescLayout)
+            vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
+        m_CullPipeline.reset();
     }
 
     // =========================================================================
@@ -1312,6 +1331,160 @@ namespace Luth
         m_CachedLightSpaceMatrix = lightProj * lightView;
     }
 
+    // =========================================================================
+    // GPU Object Buffer + Cull Pipeline
+    // =========================================================================
+
+    void RenderingSystem::InitGPUObjectBuffers()
+    {
+        auto allocBuffer = [](u64 size, VkBufferUsageFlags usage,
+                               VkBuffer& buf, VmaAllocation& alloc, void*& mapped)
+        {
+            VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            info.size  = size;
+            info.usage = usage;
+            alloc  = VulkanAllocator::AllocateBuffer(info, VMA_MEMORY_USAGE_CPU_TO_GPU, buf);
+            mapped = VulkanAllocator::Map(alloc);
+        };
+
+        allocBuffer(
+            k_MaxGPUObjects * sizeof(GPUObjectData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            m_ObjectSSBO, m_ObjectSSBOAlloc, m_ObjectSSBOMapped);
+
+        allocBuffer(
+            k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+            m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
+    }
+
+    void RenderingSystem::InitCullPipeline()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // Descriptor layout: binding 0 = ObjectSSBO (read), binding 1 = IndirectBuffer (write)
+        VkDescriptorSetLayoutBinding bindings[2]{};
+        bindings[0].binding         = 0;
+        bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[1].binding         = 1;
+        bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.bindingCount = 2;
+        layoutInfo.pBindings    = bindings;
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_CullDescLayout);
+
+        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_CullDescLayout, m_CullDescSet);
+
+        VkDescriptorBufferInfo objInfo{};
+        objInfo.buffer = m_ObjectSSBO;
+        objInfo.offset = 0;
+        objInfo.range  = VK_WHOLE_SIZE;
+
+        VkDescriptorBufferInfo indInfo{};
+        indInfo.buffer = m_IndirectBuffer;
+        indInfo.offset = 0;
+        indInfo.range  = VK_WHOLE_SIZE;
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet          = m_CullDescSet;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[0].pBufferInfo     = &objInfo;
+        writes[1]                 = writes[0];
+        writes[1].dstBinding      = 1;
+        writes[1].pBufferInfo     = &indInfo;
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+
+        // Push constant range: 6 frustum planes (96B) + objectCount (4B) = 100B
+        VkPushConstantRange pcRange{};
+        pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        pcRange.offset     = 0;
+        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32);
+
+        auto spv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/gpu_cull.comp"));
+        if (spv.empty())
+        {
+            LH_CORE_ERROR("RenderingSystem: Failed to compile gpu_cull.comp!");
+            return;
+        }
+
+        m_CullPipeline = std::make_unique<VKComputePipeline>(
+            spv,
+            std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
+            std::vector<VkPushConstantRange>{ pcRange });
+    }
+
+    void RenderingSystem::BuildGPUObjectBuffer(entt::registry& registry)
+    {
+        auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
+        auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
+        u32   count        = 0;
+
+        auto view = registry.view<WorldTransform, MeshRenderer>();
+        for (auto [entity, wt, mr] : view.each())
+        {
+            if (count >= k_MaxGPUObjects) break;
+            if (!mr.ModelUUID.IsValid()) continue;
+
+            auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+            if (!model) continue;
+            const auto& meshesData = model->GetMeshesData();
+            if (mr.MeshIndex >= (u32)meshesData.size()) continue;
+            auto mesh = model->GetMesh(mr.MeshIndex);
+            if (!mesh) continue;
+
+            GPUObjectData& obj = objectData[count];
+            obj.model = wt.Matrix;
+
+            // Bounding sphere from BindPoseAABB (local space)
+            const auto& aabb   = meshesData[mr.MeshIndex].BindPoseAABB;
+            obj.boundingSphere = glm::vec4(aabb.Center(), glm::length(aabb.Extents()));
+
+            // Material slot
+            u32 matSlot = 0;
+            if (mr.MaterialUUID.IsValid()) {
+                auto it = m_MaterialSlotMap.find(mr.MaterialUUID);
+                if (it != m_MaterialSlotMap.end()) matSlot = it->second;
+            }
+            obj.materialIndex = matSlot;
+            obj.shadeMode     = static_cast<u32>(m_ShadeMode);
+            obj.entityID      = count;
+            obj.boneOffset    = 0;
+
+            // Skinned mesh: get bone offset from Animation component on this entity
+            if (meshesData[mr.MeshIndex].IsSkinned && registry.all_of<Animation>(entity))
+            {
+                auto& anim = registry.get<Animation>(entity);
+                if (anim.BufferAllocated)
+                    obj.boneOffset = anim.BoneBufferOffset;
+            }
+
+            auto* ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer()).get();
+            obj.indexCount   = ib ? ib->GetCount() : 0;
+            obj.firstIndex   = 0;
+            obj.vertexOffset = 0;
+            obj._pad         = 0;
+
+            // Indirect command — instanceCount=1; GPU cull will zero it if culled
+            VkDrawIndexedIndirectCommand& cmd = indirectCmds[count];
+            cmd.indexCount    = obj.indexCount;
+            cmd.instanceCount = 1;
+            cmd.firstIndex    = 0;
+            cmd.vertexOffset  = 0;
+            cmd.firstInstance = count;
+            count++;
+        }
+
+        m_GPUObjectCount = count;
+    }
+
     void RenderingSystem::UpdateGlobalUniforms()
     {
         GlobalUniforms ubo{};
@@ -1327,6 +1500,7 @@ namespace Luth
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
+        m_CachedViewProj = ubo.viewProjection;
     }
 
     // =========================================================================
@@ -1405,7 +1579,31 @@ namespace Luth
             // Upload post-process settings
             UpdatePostProcessUBO();
 
+            // Build GPU object buffer (after materials are registered)
+            BuildGPUObjectBuffer(registry);
+
             RG::RenderGraph rg(*m_FrameAllocator);
+
+            // Import persistent buffers into render graph for barrier tracking
+            RG::BufferDesc objDesc {
+                "ObjectSSBO",
+                k_MaxGPUObjects * sizeof(GPUObjectData),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+            };
+            RG::BufferDesc indDesc {
+                "IndirectBuffer",
+                k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+            };
+            RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc,   (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
+            RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc,    (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
+
+            // Frustum cull pass (before shadow/geometry)
+            {
+                Frustum frustum = CreateFrustumFromCamera(m_CachedViewProj);
+                AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
+                    m_CullPipeline.get(), m_CullDescSet, frustum.planes, m_GPUObjectCount);
+            }
 
             RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap);
