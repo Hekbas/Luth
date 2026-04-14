@@ -251,6 +251,10 @@ namespace Luth
             VulkanAllocator::Unmap(m_IndirectBufferAlloc);
             VulkanAllocator::FreeBuffer(m_IndirectBuffer, m_IndirectBufferAlloc);
         }
+        if (m_ObjectSSBODescPool)
+            vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
+        if (m_ObjectSSBODescLayout)
+            vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
         if (m_CullDescLayout)
             vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
         m_CullPipeline.reset();
@@ -926,8 +930,31 @@ namespace Luth
     // Pipeline creation
     // =========================================================================
 
+    void RenderingSystem::InitObjectSSBODescriptorLayout()
+    {
+        if (m_ObjectSSBODescLayout != VK_NULL_HANDLE)
+            return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding         = 0;
+        binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        binding.descriptorCount = 1;
+        binding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.bindingCount = 1;
+        layoutInfo.pBindings    = &binding;
+
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_ObjectSSBODescLayout);
+    }
+
     void RenderingSystem::CreatePipelines()
     {
+        // Ensure Set 5 descriptor layout exists (idempotent — safe to call on hot-reload)
+        InitObjectSSBODescriptorLayout();
+
         // Full vertex layout (matches Model::ProcessMeshData)
         BufferLayout vertexLayout = {
             { ShaderDataType::Float3, "a_Position"  },
@@ -945,7 +972,7 @@ namespace Luth
         pushConstantRange.offset = 0;
         pushConstantRange.size = sizeof(ObjectPushConstants);
 
-        // 5-set layout shared by geometry/shadow/skybox pipelines
+        // 5-set layout for shadow / selection-mask / skybox pipelines (push constants remain)
         std::vector<VkDescriptorSetLayout> layouts = {
             m_GlobalSetLayout,                                    // Set 0
             VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
@@ -954,9 +981,19 @@ namespace Luth
             BoneMatrixBuffer::GetDescriptorSetLayout()           // Set 4
         };
 
+        // 6-set layout for geometry pipelines (adds Set 5 = GPUObjectData SSBO, no push constants)
+        std::vector<VkDescriptorSetLayout> geoLayouts = {
+            m_GlobalSetLayout,                                    // Set 0
+            VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
+            MaterialSystem::GetDescriptorSetLayout(),            // Set 2
+            m_LightSetLayout,                                    // Set 3
+            BoneMatrixBuffer::GetDescriptorSetLayout(),          // Set 4
+            m_ObjectSSBODescLayout                               // Set 5
+        };
+
         // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
-        m_GeoPipelineManager.Init(layouts,
-            [bindingDescs, attribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+        m_GeoPipelineManager.Init(geoLayouts,
+            [bindingDescs, attribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
                 config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
@@ -964,7 +1001,7 @@ namespace Luth
                 config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
                 config.bindingDescriptions = bindingDescs;
                 config.attributeDescriptions = attribDescs;
-                config.pushConstantRanges = { pushConstantRange };
+                // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
 
                 switch (mode)
@@ -1036,8 +1073,8 @@ namespace Luth
         auto skinnedBindingDescs = skinnedVertexLayout.GetBindingDescriptions();
         auto skinnedAttribDescs  = skinnedVertexLayout.GetAttributeDescriptions();
 
-        m_GeoSkinnedPipelineManager.Init(layouts,
-            [skinnedBindingDescs, skinnedAttribDescs, pushConstantRange](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+        m_GeoSkinnedPipelineManager.Init(geoLayouts,
+            [skinnedBindingDescs, skinnedAttribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
                 config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
@@ -1045,7 +1082,7 @@ namespace Luth
                 config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
                 config.bindingDescriptions = skinnedBindingDescs;
                 config.attributeDescriptions = skinnedAttribDescs;
-                config.pushConstantRanges = { pushConstantRange };
+                // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
 
                 switch (mode)
@@ -1356,6 +1393,38 @@ namespace Luth
             k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
+
+        // Create Set 5 descriptor pool + set for the ObjectSSBO (graphics pipeline)
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSize.descriptorCount = 1;
+
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolInfo.maxSets       = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_ObjectSSBODescPool);
+
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool     = m_ObjectSSBODescPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts        = &m_ObjectSSBODescLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_ObjectSSBODescSet);
+
+        VkDescriptorBufferInfo bufInfo{};
+        bufInfo.buffer = m_ObjectSSBO;
+        bufInfo.offset = 0;
+        bufInfo.range  = VK_WHOLE_SIZE;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = m_ObjectSSBODescSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        write.pBufferInfo     = &bufInfo;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
     void RenderingSystem::InitCullPipeline()
@@ -1427,6 +1496,12 @@ namespace Luth
         auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
         u32   count        = 0;
 
+        // Rebuild entity lookup table here (consumed by GeometryPass + mouse picking)
+        // index 0 = null sentinel; valid entities start at index 1
+        m_EntityLookup.clear();
+        m_EntityLookup.push_back(entt::null);
+        m_EntityToSSBOIndex.clear();
+
         auto view = registry.view<WorldTransform, MeshRenderer>();
         for (auto [entity, wt, mr] : view.each())
         {
@@ -1455,8 +1530,12 @@ namespace Luth
             }
             obj.materialIndex = matSlot;
             obj.shadeMode     = static_cast<u32>(m_ShadeMode);
-            obj.entityID      = count;
+            // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
+            obj.entityID      = (u32)m_EntityLookup.size();  // assigned before push_back
             obj.boneOffset    = 0;
+
+            m_EntityLookup.push_back(entity);      // m_EntityLookup[count + 1] = entity
+            m_EntityToSSBOIndex[entity] = count;   // entity → 0-based SSBO index
 
             // Skinned mesh: get bone offset from Animation component on this entity
             if (meshesData[mr.MeshIndex].IsSkinned && registry.all_of<Animation>(entity))
@@ -1473,6 +1552,7 @@ namespace Luth
             obj._pad         = 0;
 
             // Indirect command — instanceCount=1; GPU cull will zero it if culled
+            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance])
             VkDrawIndexedIndirectCommand& cmd = indirectCmds[count];
             cmd.indexCount    = obj.indexCount;
             cmd.instanceCount = 1;
@@ -1606,7 +1686,7 @@ namespace Luth
             }
 
             RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
-            auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap);
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap, hIndirectBuf);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
@@ -2343,14 +2423,20 @@ namespace Luth
                     VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                     VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-                    VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 5, sets, 0, nullptr);
+                    VkDescriptorSet sets[] = {
+                        m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
+                        m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), m_ObjectSSBODescSet
+                    };
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 6, sets, 0, nullptr);
 
                     RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
                     VkViewport viewport{}; viewport.width = (float)res->desc.width; viewport.height = (float)res->desc.height; viewport.maxDepth = 1.0f;
                     vkCmdSetViewport(cmd, 0, 1, &viewport);
                     VkRect2D scissor{}; scissor.extent = { res->desc.width, res->desc.height };
                     vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                    // Replay bypasses GPU cull — reset instanceCount=1 for all captured objects
+                    auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
 
                     auto DrawBatchReplay = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
                     {
@@ -2381,20 +2467,16 @@ namespace Luth
                             auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                             if (!vb || !ib) continue;
 
-                            ObjectPushConstants pc{};
-                            pc.modelMatrix   = dc.modelMatrix;
-                            pc.materialIndex = dc.materialSlot;
-                            pc.shadeMode     = static_cast<u32>(m_ShadeMode);
-                            pc.entityID      = dc.entityIndex;
-                            pc.boneOffset    = dc.boneOffset;
-                            vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                                0, sizeof(ObjectPushConstants), &pc);
+                            // Force visible for replay (GPU cull result may have zeroed instanceCount)
+                            if (dc.gpuObjectIndex < m_GPUObjectCount)
+                                indirectCmds[dc.gpuObjectIndex].instanceCount = 1;
 
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                             VkDeviceSize offsets[] = { 0 };
                             vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                             vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                            vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                            VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                            vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1, sizeof(VkDrawIndexedIndirectCommand));
                             m_FrameDebugger.replayDrawCounter++;
                         }
                     };

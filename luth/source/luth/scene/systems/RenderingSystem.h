@@ -134,6 +134,7 @@ namespace Luth
 
     private:
         void InitGlobalUniforms();
+        void InitObjectSSBODescriptorLayout();
         void InitGPUObjectBuffers();
         void InitCullPipeline();
         void InitShadowResources();
@@ -151,7 +152,7 @@ namespace Luth
         void RegisterNamedTextures();
 
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle);
+        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -231,6 +232,14 @@ namespace Luth
         VmaAllocation m_IndirectBufferAlloc   = nullptr;
         void*         m_IndirectBufferMapped  = nullptr;
         u32           m_GPUObjectCount        = 0;
+
+        // Set 5 — GPUObjectData SSBO descriptor (graphics pipeline)
+        VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_ObjectSSBODescLayout = VK_NULL_HANDLE;
+        VkDescriptorSet       m_ObjectSSBODescSet    = VK_NULL_HANDLE;
+
+        // Entity → SSBO index (0-based), rebuilt every frame in BuildGPUObjectBuffer
+        std::unordered_map<entt::entity, u32> m_EntityToSSBOIndex;
 
         // Cull compute pipeline + descriptor
         std::unique_ptr<VKComputePipeline> m_CullPipeline;

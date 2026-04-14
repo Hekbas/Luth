@@ -18,6 +18,7 @@ namespace Luth
         Material::CullMode cullMode = Material::CullMode::Back;
         bool isSkinned = false;
         u32 boneOffset = 0;
+        u32 gpuObjectIndex = 0;  // 0-based index into GPUObjectData SSBO / IndirectBuffer
     };
 
     struct ObjectPushConstants {
