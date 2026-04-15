@@ -163,9 +163,11 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Indirect draw — GPU cull (main camera) has set instanceCount=0 for culled objects.
-                    // gl_BaseInstance = firstInstance = gpuObjectIndex → shader reads objects[gl_BaseInstance]
-                    VkDeviceSize indirectOffset = gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    // Indirect draw — per-cascade cull region writes independent instanceCount values,
+                    // so shadow casters outside the camera frustum but inside the cascade still render.
+                    // Region layout: [camera | C0 | C1 | C2 | C3], each of size k_IndirectRegionStride.
+                    const u32 cmdIndex = (data.cascadeIndex + 1) * k_IndirectRegionStride + gpuObjectIndex;
+                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 

@@ -245,7 +245,11 @@ namespace Luth
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
 
         // GPU Object + Indirect Buffers (persistent, CPU_TO_GPU, pre-allocated)
-        static constexpr u32 k_MaxGPUObjects = 4096;
+        static constexpr u32 k_MaxGPUObjects        = 4096;
+        // Indirect buffer is partitioned into 5 regions: camera + 4 cascades.
+        // Each region is k_IndirectRegionStride commands; total = k_IndirectRegionCount * stride.
+        static constexpr u32 k_IndirectRegionCount  = 1 + k_ShadowCascadeCount;
+        static constexpr u32 k_IndirectRegionStride = k_MaxGPUObjects;
         VkBuffer      m_ObjectSSBO         = VK_NULL_HANDLE;
         VmaAllocation m_ObjectSSBOAlloc    = nullptr;
         void*         m_ObjectSSBOMapped   = nullptr;

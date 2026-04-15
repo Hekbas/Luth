@@ -34,6 +34,7 @@ layout(set = 0, binding = 1, std430) buffer IndirectBuffer {
 layout(push_constant) uniform PushConstants {
     vec4 frustumPlanes[6]; // 96B
     uint objectCount;      // 4B
+    uint destOffset;       // 4B — command index offset (per-cascade region)
 } pc;
 
 void main()
@@ -60,5 +61,5 @@ void main()
         }
     }
 
-    commands[idx].instanceCount = visible ? 1u : 0u;
+    commands[pc.destOffset + idx].instanceCount = visible ? 1u : 0u;
 }

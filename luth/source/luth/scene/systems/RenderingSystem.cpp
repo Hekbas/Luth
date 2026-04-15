@@ -1530,8 +1530,9 @@ namespace Luth
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             m_ObjectSSBO, m_ObjectSSBOAlloc, m_ObjectSSBOMapped);
 
+        // Indirect buffer holds 5 regions (camera + 4 cascades), each with k_IndirectRegionStride commands.
         allocBuffer(
-            k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+            k_IndirectRegionCount * k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
 
@@ -1612,11 +1613,11 @@ namespace Luth
         writes[1].pBufferInfo     = &indInfo;
         vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-        // Push constant range: 6 frustum planes (96B) + objectCount (4B) = 100B
+        // Push constant range: 6 frustum planes (96B) + objectCount (4B) + destOffset (4B) = 104B
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         pcRange.offset     = 0;
-        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32);
+        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32) * 2;
 
         auto spv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/gpu_cull.comp"));
         if (spv.empty())
@@ -1692,14 +1693,18 @@ namespace Luth
             obj.vertexOffset = 0;
             obj._pad         = 0;
 
-            // Indirect command — instanceCount=1; GPU cull will zero it if culled
-            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance])
-            VkDrawIndexedIndirectCommand& cmd = indirectCmds[count];
-            cmd.indexCount    = obj.indexCount;
-            cmd.instanceCount = 1;
-            cmd.firstIndex    = 0;
-            cmd.vertexOffset  = 0;
-            cmd.firstInstance = count;
+            // Indirect command — instanceCount=1; per-region GPU cull zeros it if culled.
+            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance]).
+            // Duplicate into all k_IndirectRegionCount regions (camera + 4 cascades) so each
+            // region has its own independently-cullable command for this object.
+            VkDrawIndexedIndirectCommand baseCmd{};
+            baseCmd.indexCount    = obj.indexCount;
+            baseCmd.instanceCount = 1;
+            baseCmd.firstIndex    = 0;
+            baseCmd.vertexOffset  = 0;
+            baseCmd.firstInstance = count;
+            for (u32 r = 0; r < k_IndirectRegionCount; ++r)
+                indirectCmds[r * k_IndirectRegionStride + count] = baseCmd;
             count++;
         }
 
@@ -1818,18 +1823,30 @@ namespace Luth
             };
             RG::BufferDesc indDesc {
                 "IndirectBuffer",
-                k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+                k_IndirectRegionCount * k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
             };
             RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc,   (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
             RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc,    (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
-            // Frustum cull pass (before shadow/geometry)
+            // Frustum cull — 5 dispatches: camera region + 4 shadow cascade regions.
+            // Each cascade uses its own light-space viewProj frustum so shadow casters
+            // outside the camera frustum but inside the cascade still get rendered.
             {
-                Frustum frustum = CreateFrustumFromCamera(m_CachedViewProj);
+                Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    m_CullPipeline.get(), m_CullDescSet, frustum.planes, m_GPUObjectCount,
-                    &m_FrameDebugger);
+                    m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
+                    /*destOffset*/ 0, "FrustumCull.Cam", &m_FrameDebugger);
+
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                {
+                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_CachedLightSpaceMatrix[i]);
+                    const u32 destOffset = (i + 1) * k_IndirectRegionStride;
+                    const std::string name = "FrustumCull.C" + std::to_string(i);
+                    AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
+                        m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
+                        destOffset, name.c_str(), &m_FrameDebugger);
+                }
             }
 
             RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
