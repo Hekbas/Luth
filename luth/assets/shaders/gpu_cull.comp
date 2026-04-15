@@ -19,13 +19,17 @@ layout(set = 0, binding = 0, std430) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
-layout(set = 0, binding = 1, std430) buffer IndirectBuffer {
+struct IndirectCommand {
     uint indexCount;
     uint instanceCount;
     uint firstIndex;
     int  vertexOffset;
     uint firstInstance;
-} commands[];
+};
+
+layout(set = 0, binding = 1, std430) buffer IndirectBuffer {
+    IndirectCommand commands[];
+};
 
 layout(push_constant) uniform PushConstants {
     vec4 frustumPlanes[6]; // 96B
