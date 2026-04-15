@@ -234,6 +234,8 @@ namespace Luth
                     cp.view       = cam.GetViewMatrix();
                     cp.projection = cam.GetProjectionMatrix();
                     cp.position   = cam.GetPosition();
+                    cp.nearZ      = cam.GetNearClip();
+                    cp.farZ       = cam.GetFarClip();
                 }
                 cp.iblIntensity    = Editor::GetSettings().iblIntensity;
                 cp.skyboxIntensity = Editor::GetSettings().skyboxIntensity;

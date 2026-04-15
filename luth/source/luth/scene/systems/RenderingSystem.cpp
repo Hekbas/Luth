@@ -1308,6 +1308,107 @@ namespace Luth
     // Per-frame updates
     // =========================================================================
 
+    void RenderingSystem::ComputeCascadeSplits(float nearZ, float farZ, float lambda,
+                                                float outFar[k_ShadowCascadeCount]) const
+    {
+        // Engel "Practical Split": lambda * Clog + (1-lambda) * Cuniform.
+        const float ratio = farZ / std::max(nearZ, 1e-4f);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+        {
+            float p    = float(i + 1) / float(k_ShadowCascadeCount);
+            float clog = nearZ * std::pow(ratio, p);
+            float cuni = nearZ + (farZ - nearZ) * p;
+            outFar[i]  = lambda * clog + (1.0f - lambda) * cuni;
+        }
+    }
+
+    glm::mat4 RenderingSystem::ComputeCascadeMatrix(float nearD, float farD,
+                                                     const glm::vec3& lightDir,
+                                                     float tanHalfFovY, float aspect,
+                                                     const glm::mat4& camViewInv,
+                                                     bool stabilize) const
+    {
+        // 8 corners of the sub-frustum slice [nearD, farD] in view space, then world space.
+        const float hN = nearD * tanHalfFovY;
+        const float wN = hN * aspect;
+        const float hF = farD * tanHalfFovY;
+        const float wF = hF * aspect;
+
+        const glm::vec4 cornersVS[8] = {
+            { -wN, -hN, -nearD, 1.0f }, {  wN, -hN, -nearD, 1.0f },
+            {  wN,  hN, -nearD, 1.0f }, { -wN,  hN, -nearD, 1.0f },
+            { -wF, -hF, -farD,  1.0f }, {  wF, -hF, -farD,  1.0f },
+            {  wF,  hF, -farD,  1.0f }, { -wF,  hF, -farD,  1.0f },
+        };
+
+        glm::vec3 cornersWS[8];
+        glm::vec3 center(0.0f);
+        for (int i = 0; i < 8; ++i) {
+            glm::vec4 w = camViewInv * cornersVS[i];
+            cornersWS[i] = glm::vec3(w) / w.w;
+            center += cornersWS[i];
+        }
+        center *= (1.0f / 8.0f);
+
+        const glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
+                             ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+
+        // Extra depth range behind the light so off-frustum casters still cast shadows.
+        constexpr float kCasterExtend = 50.0f;
+
+        if (stabilize) {
+            // Bounding sphere — rotation-invariant → no shimmer when camera rotates.
+            float radius = 0.0f;
+            for (int i = 0; i < 8; ++i)
+                radius = glm::max(radius, glm::length(cornersWS[i] - center));
+            radius = std::ceil(radius * 16.0f) / 16.0f; // quantize so minor motion doesn't resize
+
+            float ext = glm::max(radius, 0.01f);
+
+            glm::mat4 lightView = glm::lookAt(center - lightDir * ext, center, up);
+
+            // Texel snap the origin in light space to kill sub-pixel shimmer.
+            const float texelSize = (2.0f * ext) / float(k_ShadowResolution);
+            glm::vec4 originLS = lightView * glm::vec4(center, 1.0f);
+            originLS.x = std::floor(originLS.x / texelSize) * texelSize;
+            originLS.y = std::floor(originLS.y / texelSize) * texelSize;
+            const glm::vec4 originWS = glm::inverse(lightView) * originLS;
+            const glm::vec3 snappedCenter = glm::vec3(originWS);
+            lightView = glm::lookAt(snappedCenter - lightDir * ext, snappedCenter, up);
+
+            glm::mat4 lightProj = glm::ortho(-ext, ext, -ext, ext,
+                                              0.0f, 2.0f * ext + kCasterExtend);
+            lightProj[1][1] *= -1.0f; // Vulkan Y-flip
+            return lightProj * lightView;
+        }
+        else {
+            // Tight AABB in light-view space.
+            glm::mat4 lightView = glm::lookAt(center - lightDir, center, up);
+
+            glm::vec3 mn( FLT_MAX);
+            glm::vec3 mx(-FLT_MAX);
+            for (int i = 0; i < 8; ++i) {
+                glm::vec4 ls = lightView * glm::vec4(cornersWS[i], 1.0f);
+                mn = glm::min(mn, glm::vec3(ls));
+                mx = glm::max(mx, glm::vec3(ls));
+            }
+
+            // Clamp degenerate extents.
+            const float extX = glm::max(mx.x - mn.x, 0.01f);
+            const float extY = glm::max(mx.y - mn.y, 0.01f);
+            mx.x = mn.x + extX;
+            mx.y = mn.y + extY;
+
+            // lookAt(center - lightDir, ...) puts the light "behind" the slab;
+            // in right-handed light space the slab lies at negative Z. Extend near
+            // plane outward to pick up casters behind the frustum.
+            glm::mat4 lightProj = glm::ortho(mn.x, mx.x, mn.y, mx.y,
+                                              -mx.z - kCasterExtend, -mn.z);
+            lightProj[1][1] *= -1.0f; // Vulkan Y-flip
+            return lightProj * lightView;
+        }
+    }
+
     void RenderingSystem::UpdateLightUniforms(Scene* scene)
     {
         auto& registry = scene->Registry();
@@ -1315,6 +1416,9 @@ namespace Luth
 
         // Directional light — use first entity found
         bool foundDir = false;
+        float splitLambda      = 0.5f;
+        float shadowDistance   = 200.0f;
+        bool  stabilize        = true;
         auto dirView = registry.view<WorldTransform, DirectionalLight>();
         for (auto [entity, wt, dl] : dirView.each())
         {
@@ -1325,9 +1429,11 @@ namespace Luth
                 lights.dirLight.color     = dl.Color;
                 lights.dirLight.intensity = dl.Intensity;
                 m_CachedCastShadows  = dl.CastShadows;
-                m_CachedShadowBias   = dl.ShadowBias;
-                m_CachedShadowOrtho  = dl.ShadowOrthoSize;
-                m_CachedShadowDist   = dl.ShadowDistance;
+                m_CachedShadowBias   = glm::vec4(dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3]);
+                m_CachedShadowNormalBias = glm::vec4(dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3]);
+                splitLambda    = glm::clamp(dl.SplitLambda, 0.0f, 1.0f);
+                shadowDistance = dl.ShadowDistance;
+                stabilize      = dl.StabilizeCascades;
                 foundDir = true;
             }
         }
@@ -1355,26 +1461,34 @@ namespace Luth
 
         m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
 
-        // Compute light-space matrix (orthographic from directional light)
-        float orthoSize = m_CachedShadowOrtho;
-        float shadowDist = m_CachedShadowDist;
-        glm::vec3 camPos = m_CameraParams.position;
+        // ── PSSM split computation + per-cascade ortho fitting (Phase 13B) ──
+        const glm::vec3 lightDir = lights.dirLight.direction;
 
-        glm::vec3 lightDir = lights.dirLight.direction;
-        glm::vec3 lightPos = camPos - lightDir * shadowDist;
-        glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
-                       ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+        // FOV / aspect from unflipped perspective projection.
+        // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
+        const glm::mat4& proj = m_CameraParams.projection;
+        const float tanHalfFovY = (proj[1][1] != 0.0f) ? (1.0f / proj[1][1]) : 1.0f;
+        const float aspect      = (proj[0][0] != 0.0f) ? (proj[1][1] / proj[0][0]) : 1.0f;
+        const glm::mat4 camViewInv = glm::inverse(m_CameraParams.view);
 
-        glm::mat4 lightView = glm::lookAt(lightPos, lightPos + lightDir, up);
-        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, -shadowDist, shadowDist * 2.0f);
-        lightProj[1][1] *= -1.0f; // Vulkan Y-flip
+        const float nearZ = glm::max(m_CameraParams.nearZ, 1e-3f);
+        const float farZ  = glm::max(nearZ + 1e-3f,
+                                     glm::min(m_CameraParams.farZ, shadowDistance));
 
-        // Phase 13A: single-camera-fit matrix is splayed into all 4 cascade slots.
-        // Per-cascade fitting + split computation lands in 13B.
-        const glm::mat4 singleLightSpace = lightProj * lightView;
+        float cascadeFar[k_ShadowCascadeCount];
+        ComputeCascadeSplits(nearZ, farZ, splitLambda, cascadeFar);
+
+        float cascadeNear = nearZ;
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            m_CachedLightSpaceMatrix[i] = singleLightSpace;
-        m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);
+        {
+            const float cf = cascadeFar[i];
+            m_CachedLightSpaceMatrix[i] = ComputeCascadeMatrix(
+                cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv, stabilize);
+            cascadeNear = cf;
+        }
+
+        // GLSL-side cascade selection uses absolute view-Z distances (positive).
+        m_CachedCascadeSplitsViewZ = glm::vec4(cascadeFar[0], cascadeFar[1], cascadeFar[2], cascadeFar[3]);
     }
 
     // =========================================================================
@@ -1586,9 +1700,9 @@ namespace Luth
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             ubo.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
         ubo.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
-        const float biasOrDisabled = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
-        ubo.shadowBias       = glm::vec4(biasOrDisabled);
-        ubo.shadowNormalBias = glm::vec4(0.0f); // populated in 13E
+        // Negative bias (sentinel) disables shadows entirely in the PBR shader.
+        ubo.shadowBias       = m_CachedCastShadows ? m_CachedShadowBias : glm::vec4(-1.0f);
+        ubo.shadowNormalBias = m_CachedShadowNormalBias;
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
         ubo.debugVisualizeCascades = 0.0f;      // enabled in 13F

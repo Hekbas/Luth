@@ -149,6 +149,14 @@ namespace Luth
         void InitIBLResources(const std::filesystem::path& hdrPath);
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
+
+        // CSM helpers (Phase 13B)
+        void ComputeCascadeSplits(float nearZ, float farZ, float lambda, float outFar[k_ShadowCascadeCount]) const;
+        glm::mat4 ComputeCascadeMatrix(float nearD, float farD,
+                                        const glm::vec3& lightDir,
+                                        float tanHalfFovY, float aspect,
+                                        const glm::mat4& camViewInv,
+                                        bool stabilize) const;
         void UpdatePostProcessUBO();
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
@@ -199,11 +207,10 @@ namespace Luth
         glm::mat4 m_CachedLightSpaceMatrix[k_ShadowCascadeCount] = {
             glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)
         };
-        glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Populated in 13B
-        float     m_CachedShadowBias = 0.005f;
+        glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        glm::vec4 m_CachedShadowBias       = glm::vec4(0.005f);   // Per-cascade depth bias (negative = disabled)
+        glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias
         bool      m_CachedCastShadows = true;
-        float     m_CachedShadowOrtho = 200.0f;
-        float     m_CachedShadowDist  = 200.0f;
 
         // Shadow map
         std::shared_ptr<Texture> m_ShadowMap;

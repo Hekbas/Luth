@@ -128,9 +128,14 @@ namespace Luth::Component
         Vec3 Color = Vec3(1.0f);
         float Intensity = 1.0f;
         bool CastShadows = true;
-        float ShadowBias = 0.005f;
         float ShadowOrthoSize = 200.0f;
         float ShadowDistance = 200.0f;
+
+        // CSM (Phase 13)
+        float SplitLambda = 0.5f;                                        // 0 = uniform, 1 = logarithmic (practical split)
+        float ShadowBias[4]       = { 0.005f, 0.008f, 0.012f, 0.02f };   // per-cascade constant depth bias
+        float ShadowNormalBias[4] = { 0.02f, 0.05f, 0.1f, 0.2f };        // per-cascade world-space normal offset
+        bool  StabilizeCascades = true;                                  // texel-snap ortho origin to kill shimmer
     };
     
     struct PointLight {
