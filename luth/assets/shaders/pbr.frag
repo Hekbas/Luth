@@ -175,41 +175,87 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
 
 // ---------- PCF Shadow ----------
 
-float ComputeShadow(vec3 worldPos)
+// Sample one cascade layer with 3x3 PCF. Returns 1.0 = fully lit, 0.0 = shadowed.
+// `biasedWorldPos` has normal bias already applied (pulled along N to kill acne/peter-panning).
+float SampleCascadePCF(vec3 biasedWorldPos, int cascade, float depthBias, vec2 texelSize)
 {
-    // Negative bias[0] = shadows disabled (Phase 13A: all 4 bias lanes mirror the single ShadowBias value)
-    if (ubo.shadowBias.x < 0.0)
-        return 1.0;
-
-    // Phase 13A: only cascade 0 is populated; cascade selection/blending lands in 13E.
-    const int cascadeIndex = 0;
-
-    vec4 lsPos = ubo.lightSpaceMatrix[cascadeIndex] * vec4(worldPos, 1.0);
+    vec4 lsPos = ubo.lightSpaceMatrix[cascade] * vec4(biasedWorldPos, 1.0);
     vec3 proj  = lsPos.xyz / lsPos.w;
     proj.xy    = proj.xy * 0.5 + 0.5;
 
-    // Out of shadow frustum = fully lit
+    // Out of this cascade's shadow frustum = treat as lit (caller's blend handles transitions)
     if (proj.z < 0.0 || proj.z > 1.0 ||
         proj.x < 0.0 || proj.x > 1.0 ||
         proj.y < 0.0 || proj.y > 1.0)
         return 1.0;
 
-    // Apply bias to reduce shadow acne
-    proj.z -= ubo.shadowBias[cascadeIndex];
+    proj.z -= depthBias;
 
-    // PCF 3x3 (manual texel offsets — textureOffset requires constant expressions).
-    // sampler2DArrayShadow: texture(sampler, vec4(uv, layer, compare))
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0).xy);
     float shadow = 0.0;
     for (int x = -1; x <= 1; ++x)
     {
         for (int y = -1; y <= 1; ++y)
         {
-            vec4 sampleCoord = vec4(proj.xy + vec2(x, y) * texelSize, float(cascadeIndex), proj.z);
+            vec4 sampleCoord = vec4(proj.xy + vec2(x, y) * texelSize, float(cascade), proj.z);
             shadow += texture(shadowMap, sampleCoord);
         }
     }
     return shadow / 9.0;
+}
+
+// Cascade selection by view-space depth, 3x3 PCF with per-cascade bias, blend in last 10% of slice.
+// Returns 1.0 = fully lit, 0.0 = shadowed.
+float ComputeShadow(vec3 worldPos, vec3 N)
+{
+    // Negative bias[0] = shadows globally disabled (CastShadows=false sentinel).
+    if (ubo.shadowBias.x < 0.0)
+        return 1.0;
+
+    // View-space depth (positive distance from eye along forward).
+    float viewZ = abs((ubo.view * vec4(worldPos, 1.0)).z);
+
+    // Pick tightest cascade whose far plane contains this fragment.
+    int cascade = 3;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (viewZ < ubo.cascadeSplitsViewZ[i])
+        {
+            cascade = i;
+            break;
+        }
+    }
+
+    // Per-cascade bias — shadow-map texel footprint grows with cascade index, so NdotL-scaled
+    // normal bias helps reduce both acne on grazing surfaces and peter-panning at shallow angles.
+    float NdotL = max(dot(N, normalize(-lights.dirLight.direction)), 0.0);
+    float nBias = ubo.shadowNormalBias[cascade] * (1.0 - NdotL);
+    vec3  biasedPos = worldPos + N * nBias;
+
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0).xy);
+
+    float sA = SampleCascadePCF(biasedPos, cascade, ubo.shadowBias[cascade], texelSize);
+
+    // Blend into the next cascade in the last 10% of this cascade's range to hide seams.
+    // Last cascade (3) has nothing to blend into.
+    if (cascade < 3)
+    {
+        float nearSplit = (cascade == 0) ? 0.0 : ubo.cascadeSplitsViewZ[cascade - 1];
+        float farSplit  = ubo.cascadeSplitsViewZ[cascade];
+        float range     = max(farSplit - nearSplit, 1e-4);
+        float t         = (viewZ - nearSplit) / range;      // 0..1 within this cascade
+        float blend     = smoothstep(0.8, 1.0, t);          // 0 until last 20%
+
+        if (blend > 0.0)
+        {
+            int   next      = cascade + 1;
+            float nBiasNext = ubo.shadowNormalBias[next] * (1.0 - NdotL);
+            vec3  nextPos   = worldPos + N * nBiasNext;
+            float sB = SampleCascadePCF(nextPos, next, ubo.shadowBias[next], texelSize);
+            return mix(sA, sB, blend);
+        }
+    }
+
+    return sA;
 }
 
 // ---------- Main ----------
@@ -281,7 +327,7 @@ void main()
 
     // Directional light + PCF shadow
     {
-        float shadow = ComputeShadow(v_WorldPos);
+        float shadow = ComputeShadow(v_WorldPos, N);
         vec3 dirRadiance = lights.dirLight.color * lights.dirLight.intensity;
         Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance,
                              V, N, albedo.rgb, metallic, roughness) * shadow;
