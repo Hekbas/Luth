@@ -4,6 +4,7 @@
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/resources/FileSystem.h"
 
 #include <stb/stb_image.h>
@@ -36,55 +37,6 @@ namespace Luth
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    static void RunComputeDispatch(
-        const std::vector<u32>& spirv,
-        VkDescriptorSetLayout descLayout,
-        VkDescriptorSet descSet,
-        u32 groupsX, u32 groupsY, u32 groupsZ,
-        const void* pushData = nullptr, u32 pushSize = 0,
-        VkPushConstantRange pushRange = {})
-    {
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        VkShaderModuleCreateInfo moduleInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-        moduleInfo.codeSize = spirv.size() * sizeof(u32);
-        moduleInfo.pCode = spirv.data();
-        VkShaderModule shaderModule;
-        vkCreateShaderModule(device, &moduleInfo, nullptr, &shaderModule);
-
-        VkPipelineLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-        layoutInfo.setLayoutCount = 1;
-        layoutInfo.pSetLayouts = &descLayout;
-        if (pushSize > 0) {
-            layoutInfo.pushConstantRangeCount = 1;
-            layoutInfo.pPushConstantRanges = &pushRange;
-        }
-
-        VkPipelineLayout pipelineLayout;
-        vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout);
-
-        VkComputePipelineCreateInfo pipelineInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
-        pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        pipelineInfo.stage.module = shaderModule;
-        pipelineInfo.stage.pName = "main";
-        pipelineInfo.layout = pipelineLayout;
-
-        VkPipeline pipeline;
-        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
-
-        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descSet, 0, nullptr);
-            if (pushData && pushSize > 0)
-                vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, pushSize, pushData);
-            vkCmdDispatch(cmd, groupsX, groupsY, groupsZ);
-        });
-
-        vkDestroyPipeline(device, pipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        vkDestroyShaderModule(device, shaderModule, nullptr);
-    }
 
     // =========================================================================
     // IBL::Precompute
@@ -219,8 +171,15 @@ namespace Luth
 
                     vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-                    RunComputeDispatch(spv, descLayout, descSet,
-                        (envSize + 15) / 16, (envSize + 15) / 16, 6);
+                    {
+                        VKComputePipeline equirectPipeline(spv, { descLayout });
+                        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+                            equirectPipeline.Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                equirectPipeline.GetLayout(), 0, 1, &descSet, 0, nullptr);
+                            vkCmdDispatch(cmd, (envSize + 15) / 16, (envSize + 15) / 16, 6);
+                        });
+                    }
 
                     VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
                         TransitionImage(cmd, envCubemap->GetImage(),
@@ -355,8 +314,15 @@ namespace Luth
                     writes[1].pImageInfo = &irrInfo;
                     vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-                    RunComputeDispatch(spv, descLayout, descSet,
-                        (irrSize + 7) / 8, (irrSize + 7) / 8, 6);
+                    {
+                        VKComputePipeline irrPipeline(spv, { descLayout });
+                        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+                            irrPipeline.Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                irrPipeline.GetLayout(), 0, 1, &descSet, 0, nullptr);
+                            vkCmdDispatch(cmd, (irrSize + 7) / 8, (irrSize + 7) / 8, 6);
+                        });
+                    }
 
                     vkDestroyImageView(device, irrStorageView, nullptr);
 
@@ -394,6 +360,8 @@ namespace Luth
                     pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                     pcRange.offset = 0;
                     pcRange.size = sizeof(float);
+
+                    VKComputePipeline pfPipeline(spv, { descLayout }, { pcRange });
 
                     VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
                     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -450,9 +418,14 @@ namespace Luth
                         writes[1].pImageInfo = &pfInfo;
                         vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-                        RunComputeDispatch(spv, descLayout, descSet,
-                            (mipSize + 15) / 16, (mipSize + 15) / 16, 6,
-                            &roughness, sizeof(float), pcRange);
+                        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+                            pfPipeline.Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                pfPipeline.GetLayout(), 0, 1, &descSet, 0, nullptr);
+                            vkCmdPushConstants(cmd, pfPipeline.GetLayout(),
+                                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float), &roughness);
+                            vkCmdDispatch(cmd, (mipSize + 15) / 16, (mipSize + 15) / 16, 6);
+                        });
 
                         vkDestroyImageView(device, mipView, nullptr);
                     }
@@ -509,8 +482,15 @@ namespace Luth
                     write.pImageInfo = &lutInfo;
                     vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
-                    RunComputeDispatch(spv, descLayout, descSet,
-                        (lutSize + 15) / 16, (lutSize + 15) / 16, 1);
+                    {
+                        VKComputePipeline lutPipeline(spv, { descLayout });
+                        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+                            lutPipeline.Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                lutPipeline.GetLayout(), 0, 1, &descSet, 0, nullptr);
+                            vkCmdDispatch(cmd, (lutSize + 15) / 16, (lutSize + 15) / 16, 1);
+                        });
+                    }
 
                     VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
                         TransitionImage(cmd, vkLut->GetImage(),

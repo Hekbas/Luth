@@ -546,8 +546,11 @@ namespace Luth
                     ImGuiTreeNodeFlags dcFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
                     if (isSelected) dcFlags |= ImGuiTreeNodeFlags_Selected;
 
+                    const char* kindPrefix =
+                        (dc.kind == RG::DispatchKind::Compute)         ? "[C] " :
+                        (dc.kind == RG::DispatchKind::IndexedIndirect) ? "[I] " : "";
                     char dcLabel[128];
-                    snprintf(dcLabel, sizeof(dcLabel), "Draw %u: %s (%s)", globalIdx, dc.meshName.c_str(), dc.pipelineState.shaderName.c_str());
+                    snprintf(dcLabel, sizeof(dcLabel), "%sDraw %u: %s (%s)", kindPrefix, globalIdx, dc.meshName.c_str(), dc.pipelineState.shaderName.c_str());
                     ImGui::TreeNodeEx((void*)(intptr_t)(globalIdx + 20000), dcFlags, "%s", dcLabel);
 
                     // Right-aligned index count
@@ -613,11 +616,38 @@ namespace Luth
                 ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 130.0f);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
+                const char* kindStr =
+                    (dc.kind == RG::DispatchKind::Compute)         ? "Compute" :
+                    (dc.kind == RG::DispatchKind::IndexedIndirect) ? "Indexed Indirect" :
+                                                                      "Direct";
+
                 ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Global Index"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.globalIndex);
+                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Kind"); ImGui::TableNextColumn(); ImGui::Text("%s", kindStr);
                 ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Pass"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.passName.c_str());
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Mesh"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.meshName.c_str());
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Entity"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.entityName.c_str());
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Index Count"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.indexCount);
+
+                if (dc.kind == RG::DispatchKind::Compute)
+                {
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Shader"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.meshName.c_str());
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Group Count X"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.groupCountX);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Group Count Y"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.groupCountY);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Group Count Z"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.groupCountZ);
+                    uint64_t invocations = (uint64_t)dc.groupCountX * dc.groupCountY * dc.groupCountZ;
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Invocations"); ImGui::TableNextColumn(); ImGui::Text("%llu groups", (unsigned long long)invocations);
+                }
+                else
+                {
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Mesh"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.meshName.c_str());
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Entity"); ImGui::TableNextColumn(); ImGui::Text("%s", dc.entityName.c_str());
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Index Count"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.indexCount);
+
+                    if (dc.kind == RG::DispatchKind::IndexedIndirect)
+                    {
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("GPU Object Index"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.gpuObjectIndex);
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Indirect Offset"); ImGui::TableNextColumn(); ImGui::Text("%llu B", (unsigned long long)dc.indirectOffset);
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Draw Count"); ImGui::TableNextColumn(); ImGui::Text("%u", dc.indirectDrawCount);
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Stride"); ImGui::TableNextColumn(); ImGui::Text("%u B", dc.indirectStride);
+                    }
+                }
 
                 ImGui::EndTable();
             }
@@ -653,8 +683,11 @@ namespace Luth
 
         ImGui::Spacing();
 
+        // Transform / push constants are only meaningful for graphics draws.
+        bool isGraphicsDraw = (dc.kind != RG::DispatchKind::Compute);
+
         // ---- Transform (decompose model matrix) ----
-        if (UI::BeginCollapsingHeader("Transform"))
+        if (isGraphicsDraw && UI::BeginCollapsingHeader("Transform"))
         {
             ImGui::Indent(4.0f);
 
@@ -687,7 +720,9 @@ namespace Luth
         ImGui::Spacing();
 
         // ---- Push Constants ----
-        if (UI::BeginCollapsingHeader("Push Constants"))
+        // Note: after Phase 12D/F, graphics draws are indirect and read per-object data from the SSBO,
+        // not push constants. These fields are still populated for indirect draws via the SSBO record.
+        if (isGraphicsDraw && UI::BeginCollapsingHeader("Push Constants"))
         {
             ImGui::Indent(4.0f);
             if (ImGui::BeginTable("##PCInfo", 2)) {

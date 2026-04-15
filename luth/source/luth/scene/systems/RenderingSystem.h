@@ -9,6 +9,7 @@
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/Texture.h"
@@ -133,6 +134,9 @@ namespace Luth
 
     private:
         void InitGlobalUniforms();
+        void InitObjectSSBODescriptorLayout();
+        void InitGPUObjectBuffers();
+        void InitCullPipeline();
         void InitShadowResources();
         void InitPostProcessResources();
         void InitIBLResources(const std::filesystem::path& hdrPath);
@@ -142,12 +146,13 @@ namespace Luth
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
+        void BuildGPUObjectBuffer(entt::registry& registry);
 
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
 
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle);
+        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
+        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -217,6 +222,32 @@ namespace Luth
 
         // Material SSBO slot tracking (MaterialUUID -> SSBO index)
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
+
+        // GPU Object + Indirect Buffers (persistent, CPU_TO_GPU, pre-allocated)
+        static constexpr u32 k_MaxGPUObjects = 4096;
+        VkBuffer      m_ObjectSSBO         = VK_NULL_HANDLE;
+        VmaAllocation m_ObjectSSBOAlloc    = nullptr;
+        void*         m_ObjectSSBOMapped   = nullptr;
+        VkBuffer      m_IndirectBuffer        = VK_NULL_HANDLE;
+        VmaAllocation m_IndirectBufferAlloc   = nullptr;
+        void*         m_IndirectBufferMapped  = nullptr;
+        u32           m_GPUObjectCount        = 0;
+
+        // Set 5 — GPUObjectData SSBO descriptor (graphics pipeline)
+        VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_ObjectSSBODescLayout = VK_NULL_HANDLE;
+        VkDescriptorSet       m_ObjectSSBODescSet    = VK_NULL_HANDLE;
+
+        // Entity → SSBO index (0-based), rebuilt every frame in BuildGPUObjectBuffer
+        std::unordered_map<entt::entity, u32> m_EntityToSSBOIndex;
+
+        // Cull compute pipeline + descriptor
+        std::unique_ptr<VKComputePipeline> m_CullPipeline;
+        VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
+        VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
+
+        // Cached view-projection (for frustum extraction — populated in UpdateGlobalUniforms)
+        glm::mat4 m_CachedViewProj = glm::mat4(1.0f);
 
         // Draw command buffers (reused across frames to avoid per-frame heap allocation)
         std::vector<DrawCommand> m_OpaqueDraws;

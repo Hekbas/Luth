@@ -6,6 +6,9 @@ layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord0;
 layout(location = 6) in vec2 v_TexCoord1;
 layout(location = 3) in mat3 v_TBN;    // locations 3, 4, 5
+layout(location = 7) flat in uint v_MaterialIndex;
+layout(location = 8) flat in uint v_ShadeMode;
+layout(location = 9) flat in uint v_EntityID;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out uint outEntityID;
@@ -73,15 +76,6 @@ layout(set = 3, binding = 0) uniform LightUBO {
 } lights;
 
 layout(set = 3, binding = 1) uniform sampler2DShadow shadowMap;
-
-// Push Constants
-layout(push_constant) uniform PushConstants {
-    mat4 model;
-    uint materialIndex;
-    uint shadeMode;
-    uint entityID;
-    uint boneOffset;
-} pc;
 
 // ---------- Flag Constants ----------
 
@@ -215,7 +209,7 @@ float ComputeShadow(vec3 worldPos)
 
 void main()
 {
-    GPUMaterialData mat = materials[pc.materialIndex];
+    GPUMaterialData mat = materials[v_MaterialIndex];
 
     // --- Albedo ---
     vec4 albedo = mat.color;
@@ -255,13 +249,13 @@ void main()
     roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
 
     // --- Always write entity ID for picking ---
-    outEntityID = pc.entityID;
+    outEntityID = v_EntityID;
 
     // --- Shade mode overrides ---
-    if (pc.shadeMode == 1u) { outColor = vec4(albedo.rgb, 1.0); return; }  // Unlit
-    if (pc.shadeMode == 3u) { outColor = vec4(N * 0.5 + 0.5, 1.0); return; }  // Normals
-    if (pc.shadeMode == 4u) {  // EntityID debug visualization
-        float id = float(pc.entityID);
+    if (v_ShadeMode == 1u) { outColor = vec4(albedo.rgb, 1.0); return; }  // Unlit
+    if (v_ShadeMode == 3u) { outColor = vec4(N * 0.5 + 0.5, 1.0); return; }  // Normals
+    if (v_ShadeMode == 4u) {  // EntityID debug visualization
+        float id = float(v_EntityID);
         vec3 idColor = vec3(fract(id * 0.123), fract(id * 0.456), fract(id * 0.789));
         outColor = vec4(idColor, 1.0);
         return;

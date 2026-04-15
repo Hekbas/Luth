@@ -24,13 +24,15 @@ namespace Luth
     using namespace Component;
 
     GeometryOutput RenderingSystem::AddGeometryPass(
-        RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle)
+        RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle,
+        RG::BufferHandle indirectBufferHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
             RG::ResourceHandle entityIDTex;
             RG::ResourceHandle depthTex;
             RG::ResourceHandle shadowTex;
+            RG::BufferHandle   indirectBuf;
         };
 
         GeometryOutput output;
@@ -90,6 +92,9 @@ namespace Luth
                 if (shadowMapHandle.IsValid())
                     data.shadowTex = builder.Read(shadowMapHandle);
 
+                // Declare indirect buffer read (triggers compute-write→indirect-read barrier)
+                data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
+
                 output.color    = data.outputTex;
                 output.depth    = data.depthTex;
                 output.entityID = data.entityIDTex;
@@ -108,17 +113,18 @@ namespace Luth
                 if (!opaquePipeline) { m_FrameDebugger.EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
-                // Bind all 5 descriptor sets
+                // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
-                    BoneMatrixBuffer::GetDescriptorSet()
+                    BoneMatrixBuffer::GetDescriptorSet(),
+                    m_ObjectSSBODescSet
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    pipelineLayout, 0, 5, sets, 0, nullptr);
+                    pipelineLayout, 0, 6, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
 
@@ -138,10 +144,8 @@ namespace Luth
                 m_TransparentDraws.clear();
                 m_VisibleTriCount = 0;
 
-                // Build entity lookup table (index 0 = null sentinel)
-                m_EntityLookup.clear();
-                m_EntityLookup.push_back(entt::null);
-
+                // m_EntityLookup is now built in BuildGPUObjectBuffer (called before this pass).
+                // Populate DrawCommands using m_EntityToSSBOIndex for SSBO index lookup.
                 auto view = registry.view<WorldTransform, MeshRenderer>();
                 for (auto [entity, worldTransform, meshRenderer] : view.each())
                 {
@@ -153,15 +157,19 @@ namespace Luth
                     if (auto ib = mesh->GetIndexBuffer())
                         m_VisibleTriCount += ib->GetCount() / 3;
 
-                    u32 entityIdx = (u32)m_EntityLookup.size();
-                    m_EntityLookup.push_back(entity);
-
                     DrawCommand dc;
                     dc.modelMatrix  = worldTransform.Matrix;
                     dc.materialSlot = 0;
                     dc.model        = model;
                     dc.meshIndex    = meshRenderer.MeshIndex;
-                    dc.entityIndex  = entityIdx;
+
+                    // Look up SSBO index — dc.entityIndex is 1-indexed to match m_EntityLookup
+                    auto it = m_EntityToSSBOIndex.find(entity);
+                    if (it != m_EntityToSSBOIndex.end())
+                    {
+                        dc.gpuObjectIndex = it->second;
+                        dc.entityIndex    = it->second + 1;
+                    }
 
                     Material::RenderMode mode = Material::RenderMode::Opaque;
                     Material::CullMode cullMode = Material::CullMode::Back;
@@ -250,22 +258,16 @@ namespace Luth
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                         if (!vb || !ib) continue;
 
-                        ObjectPushConstants pc{};
-                        pc.modelMatrix  = dc.modelMatrix;
-                        pc.materialIndex = dc.materialSlot;
-                        pc.shadeMode = static_cast<u32>(m_ShadeMode);
-                        pc.entityID  = dc.entityIndex;
-                        pc.boneOffset = dc.boneOffset;
-
-                        vkCmdPushConstants(cmd, pipelineLayout,
-                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                            0, sizeof(ObjectPushConstants), &pc);
-
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                         VkDeviceSize offsets[] = { 0 };
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                        vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+
+                        // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
+                        // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance]
+                        VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                            sizeof(VkDrawIndexedIndirectCommand));
 
                         // Capture for frame debugger
                         if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
@@ -280,9 +282,10 @@ namespace Luth
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;
-                            m_FrameDebugger.CaptureDrawCall("GeometryPass",
+                            m_FrameDebugger.CaptureIndirectDraw("GeometryPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
-                                entName, dc.entityIndex, ib->GetCount(), pc,
+                                entName, dc.entityIndex, ib->GetCount(),
+                                dc.gpuObjectIndex, indirectOffset,
                                 { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
                                   mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade });
                         }

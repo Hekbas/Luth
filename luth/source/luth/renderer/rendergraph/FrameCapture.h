@@ -23,7 +23,10 @@ namespace Luth::RG
         bool blendEnabled = false;
     };
 
-    // One per vkCmdDrawIndexed / vkCmdDraw call
+    // Kind of GPU work captured in CapturedDrawCall
+    enum class DispatchKind : u8 { Direct, IndexedIndirect, Compute };
+
+    // One per vkCmdDrawIndexed / vkCmdDrawIndexedIndirect / vkCmdDispatch call
     struct CapturedDrawCall
     {
         u32 globalIndex     = 0;    // 0-based across entire frame
@@ -31,12 +34,12 @@ namespace Luth::RG
         u32 passIndex       = 0;    // index into CapturedFrame::passes
 
         std::string passName;
-        std::string meshName;       // model name + mesh index
+        std::string meshName;       // model name + mesh index (or shader name for compute)
         std::string entityName;
         u32 entityIndex  = 0;
         u32 indexCount   = 0;
 
-        // Snapshot of the push constants at draw time
+        // Snapshot of the push constants at draw time (Direct / IndexedIndirect only)
         glm::mat4 modelMatrix = glm::mat4(1.0f);
         u32 materialIndex = 0;
         u32 shadeMode     = 0;
@@ -44,6 +47,20 @@ namespace Luth::RG
         u32 boneOffset    = 0;
 
         CapturedPipelineState pipelineState;
+
+        // Dispatch kind + metadata
+        DispatchKind kind = DispatchKind::Direct;
+
+        // Indirect-draw metadata (kind == IndexedIndirect)
+        u32          gpuObjectIndex    = 0;
+        VkDeviceSize indirectOffset    = 0;
+        u32          indirectDrawCount = 0;
+        u32          indirectStride    = 0;
+
+        // Compute-dispatch metadata (kind == Compute)
+        u32 groupCountX = 0;
+        u32 groupCountY = 0;
+        u32 groupCountZ = 0;
     };
 
     // Aggregated info per render pass

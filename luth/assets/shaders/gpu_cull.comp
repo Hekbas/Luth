@@ -1,0 +1,64 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+layout(local_size_x = 256) in;
+
+struct GPUObjectData {
+    mat4  model;
+    vec4  boundingSphere; // xyz=center (local space), w=radius (local space)
+    uint  materialIndex;
+    uint  shadeMode;
+    uint  entityID;
+    uint  boneOffset;
+    uint  indexCount;
+    uint  firstIndex;
+    int   vertexOffset;
+    uint  _pad;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer ObjectBuffer {
+    GPUObjectData objects[];
+};
+
+struct IndirectCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int  vertexOffset;
+    uint firstInstance;
+};
+
+layout(set = 0, binding = 1, std430) buffer IndirectBuffer {
+    IndirectCommand commands[];
+};
+
+layout(push_constant) uniform PushConstants {
+    vec4 frustumPlanes[6]; // 96B
+    uint objectCount;      // 4B
+} pc;
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= pc.objectCount) return;
+
+    GPUObjectData obj = objects[idx];
+
+    // Transform bounding sphere center to world space
+    vec3  center   = (obj.model * vec4(obj.boundingSphere.xyz, 1.0)).xyz;
+    // Scale radius by max column length of model matrix (handles non-uniform scale)
+    float maxScale = max(length(obj.model[0].xyz),
+                     max(length(obj.model[1].xyz), length(obj.model[2].xyz)));
+    float radius   = obj.boundingSphere.w * maxScale;
+
+    bool visible = true;
+    for (int i = 0; i < 6; ++i)
+    {
+        if (dot(pc.frustumPlanes[i].xyz, center) + pc.frustumPlanes[i].w < -radius)
+        {
+            visible = false;
+            break;
+        }
+    }
+
+    commands[idx].instanceCount = visible ? 1u : 0u;
+}
