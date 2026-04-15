@@ -28,16 +28,23 @@
 
 namespace Luth
 {
+    // Number of shadow cascades for directional-light CSM (Phase 13)
+    inline constexpr u32 k_ShadowCascadeCount = 4;
+    inline constexpr u32 k_ShadowResolution   = 2048;
+
     struct GlobalUniforms {
         glm::mat4 viewProjection;
         glm::mat4 view;
         glm::mat4 projection;
         glm::vec3 cameraPos;
         float     time;
-        glm::mat4 lightSpaceMatrix;  // Set by UpdateLightUniforms before upload
-        float     shadowBias;
+        glm::mat4 lightSpaceMatrix[k_ShadowCascadeCount]; // Per-cascade light-space matrices (Phase 13)
+        glm::vec4 cascadeSplitsViewZ;                      // Far view-space depth per cascade
+        glm::vec4 shadowBias;                              // Per-cascade depth bias (negative = shadows disabled)
+        glm::vec4 shadowNormalBias;                        // Per-cascade normal bias (world-space offset along N)
         float     iblIntensity;
         float     skyboxIntensity;
+        float     debugVisualizeCascades;                  // 0 = off, 1 = tint by cascade (Phase 13F)
         float     _pad;
     };
 
@@ -187,8 +194,12 @@ namespace Luth
         VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet m_GlobalDescriptorSet = VK_NULL_HANDLE;
 
-        // Light space matrix (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms)
-        glm::mat4 m_CachedLightSpaceMatrix = glm::mat4(1.0f);
+        // Per-cascade light-space matrices (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms).
+        // In 13A all four entries are identical (single-camera-fit); per-cascade fitting lands in 13B.
+        glm::mat4 m_CachedLightSpaceMatrix[k_ShadowCascadeCount] = {
+            glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)
+        };
+        glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Populated in 13B
         float     m_CachedShadowBias = 0.005f;
         bool      m_CachedCastShadows = true;
         float     m_CachedShadowOrtho = 200.0f;

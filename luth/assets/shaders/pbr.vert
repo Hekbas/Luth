@@ -22,10 +22,13 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
-    mat4 lightSpaceMatrix;
-    float shadowBias;
+    mat4 lightSpaceMatrix[4];
+    vec4 cascadeSplitsViewZ;
+    vec4 shadowBias;
+    vec4 shadowNormalBias;
     float iblIntensity;
     float skyboxIntensity;
+    float debugVisualizeCascades;
     float _pad;
 } ubo;
 

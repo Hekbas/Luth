@@ -388,8 +388,10 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // --- Shadow map (2048×2048, D32_Float, sampled) ---
-        m_ShadowMap = Texture::Create(2048, 2048, TextureFormat::D32_Float);
+        // --- Shadow map: k_ShadowResolution^2, D32_Float, k_ShadowCascadeCount-layer 2D array (Phase 13) ---
+        m_ShadowMap = std::make_shared<VKTexture>(
+            k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
+            k_ShadowCascadeCount, /*createFlags*/ 0u, /*mipLevels*/ 1u, /*extraUsage*/ 0u);
 
         // --- Shadow sampler (PCF compare: less) ---
         VkSamplerCreateInfo samplerInfo{};
@@ -1367,7 +1369,12 @@ namespace Luth
         glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, -shadowDist, shadowDist * 2.0f);
         lightProj[1][1] *= -1.0f; // Vulkan Y-flip
 
-        m_CachedLightSpaceMatrix = lightProj * lightView;
+        // Phase 13A: single-camera-fit matrix is splayed into all 4 cascade slots.
+        // Per-cascade fitting + split computation lands in 13B.
+        const glm::mat4 singleLightSpace = lightProj * lightView;
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            m_CachedLightSpaceMatrix[i] = singleLightSpace;
+        m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);
     }
 
     // =========================================================================
@@ -1576,10 +1583,15 @@ namespace Luth
         ubo.viewProjection = ubo.projection * ubo.view;
         ubo.cameraPos = m_CameraParams.position;
         ubo.time = Time::GetTime();
-        ubo.lightSpaceMatrix = m_CachedLightSpaceMatrix;
-        ubo.shadowBias = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            ubo.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
+        ubo.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
+        const float biasOrDisabled = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
+        ubo.shadowBias       = glm::vec4(biasOrDisabled);
+        ubo.shadowNormalBias = glm::vec4(0.0f); // populated in 13E
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
+        ubo.debugVisualizeCascades = 0.0f;      // enabled in 13F
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;

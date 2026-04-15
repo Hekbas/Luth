@@ -14,10 +14,13 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
-    mat4 lightSpaceMatrix;
-    float shadowBias;
+    mat4 lightSpaceMatrix[4];
+    vec4 cascadeSplitsViewZ;
+    vec4 shadowBias;
+    vec4 shadowNormalBias;
     float iblIntensity;
     float skyboxIntensity;
+    float debugVisualizeCascades;
     float _pad;
 } ubo;
 
@@ -58,5 +61,6 @@ void main()
         skinMatrix = mat4(1.0);
 
     vec4 skinnedPos = skinMatrix * vec4(a_Position, 1.0);
-    gl_Position = ubo.lightSpaceMatrix * obj.model * skinnedPos;
+    // Phase 13A: cascade 0 only — per-cascade rendering lands in 13C via push constant.
+    gl_Position = ubo.lightSpaceMatrix[0] * obj.model * skinnedPos;
 }

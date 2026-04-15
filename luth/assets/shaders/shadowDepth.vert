@@ -10,10 +10,13 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
-    mat4 lightSpaceMatrix;
-    float shadowBias;
+    mat4 lightSpaceMatrix[4];
+    vec4 cascadeSplitsViewZ;
+    vec4 shadowBias;
+    vec4 shadowNormalBias;
     float iblIntensity;
     float skyboxIntensity;
+    float debugVisualizeCascades;
     float _pad;
 } ubo;
 
@@ -38,5 +41,6 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
 void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
-    gl_Position = ubo.lightSpaceMatrix * obj.model * vec4(a_Position, 1.0);
+    // Phase 13A: cascade 0 only — per-cascade rendering lands in 13C via push constant.
+    gl_Position = ubo.lightSpaceMatrix[0] * obj.model * vec4(a_Position, 1.0);
 }
