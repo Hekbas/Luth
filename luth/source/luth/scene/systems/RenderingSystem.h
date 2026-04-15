@@ -166,8 +166,10 @@ namespace Luth
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
 
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle, RG::BufferHandle indirectBufferHandle);
+        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
+        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
+                                        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
+                                        RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -212,8 +214,9 @@ namespace Luth
         glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias
         bool      m_CachedCastShadows = true;
 
-        // Shadow map
+        // Shadow map (4-layer 2D array) + cached per-layer views for ShadowPass.Ci attachments
         std::shared_ptr<Texture> m_ShadowMap;
+        VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkSampler                m_ShadowSampler = VK_NULL_HANDLE;
 
         // Light UBO + shadow descriptor (Set 3)

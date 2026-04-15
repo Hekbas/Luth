@@ -144,6 +144,12 @@ namespace Luth::RG
             VmaAllocation_T* allocation = nullptr;
             bool external = false;
 
+            // Subresource range for barrier emission. Defaults cover a single layer/mip.
+            // For per-layer imports (e.g., shadow cascade), specify baseArrayLayer/layerCount
+            // via the corresponding ImportResource overload so barriers target the right layer.
+            u32 baseArrayLayer = 0;
+            u32 layerCount     = 1;
+
             // Lifetime tracking (for future aliasing)
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
@@ -219,6 +225,8 @@ namespace Luth::RG
         // Internal API for Builder — Image resources
         ResourceHandle RegisterResource(const TextureDesc& desc);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
+        ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
+                                       u32 baseArrayLayer, u32 layerCount);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);

@@ -106,6 +106,12 @@ namespace Luth::RG
 
     ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState)
     {
+        return ImportResource(desc, image, view, initialState, /*baseArrayLayer*/ 0u, /*layerCount*/ 1u);
+    }
+
+    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
+                                                u32 baseArrayLayer, u32 layerCount)
+    {
         u32 index = (u32)m_Resources.size() + 1;
         ResourceNode node{};
         node.desc = desc;
@@ -115,6 +121,8 @@ namespace Luth::RG
         node.image = (VkImage)image;
         node.view = (VkImageView)view;
         node.external = true;
+        node.baseArrayLayer = baseArrayLayer;
+        node.layerCount     = layerCount;
         m_Resources.push_back(node);
         return { index, 0 };
     }
@@ -503,7 +511,7 @@ namespace Luth::RG
                 vkBarrier.oldLayout     = GetLayout(b.before);
                 vkBarrier.newLayout     = GetLayout(b.after);
                 vkBarrier.image         = res.image;
-                vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, 0, 1 };
+                vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, res.baseArrayLayer, res.layerCount };
             }
 
             for (const auto& b : pass.bufferPreBarriers)

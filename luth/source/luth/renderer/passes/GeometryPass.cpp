@@ -24,14 +24,15 @@ namespace Luth
     using namespace Component;
 
     GeometryOutput RenderingSystem::AddGeometryPass(
-        RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle,
+        RG::RenderGraph& rg, entt::registry& registry,
+        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
             RG::ResourceHandle entityIDTex;
             RG::ResourceHandle depthTex;
-            RG::ResourceHandle shadowTex;
+            RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
             RG::BufferHandle   indirectBuf;
         };
 
@@ -88,9 +89,14 @@ namespace Luth
                 data.entityIDTex = builder.Write(data.entityIDTex,
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
 
-                // Declare dependency on the shadow map (triggers depth→shader_read barrier)
-                if (shadowMapHandle.IsValid())
-                    data.shadowTex = builder.Read(shadowMapHandle);
+                // Declare dependency on each cascade — each per-layer handle triggers its own
+                // DEPTH→SHADER_READ barrier (baseArrayLayer=i, layerCount=1), collectively
+                // transitioning all 4 layers before the fragment shader samples the array view.
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                {
+                    if (shadowHandles[i].IsValid())
+                        data.shadowCascades[i] = builder.Read(shadowHandles[i]);
+                }
 
                 // Declare indirect buffer read (triggers compute-write→indirect-read barrier)
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);

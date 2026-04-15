@@ -234,6 +234,11 @@ namespace Luth
             vkDestroySampler(device, m_IBLSampler, nullptr);
         if (m_ShadowSampler)
             vkDestroySampler(device, m_ShadowSampler, nullptr);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+        {
+            if (m_ShadowLayerViews[i])
+                vkDestroyImageView(device, m_ShadowLayerViews[i], nullptr);
+        }
         if (m_LightSetLayout)
             vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr);
         if (m_LightDescPool)
@@ -392,6 +397,11 @@ namespace Luth
         m_ShadowMap = std::make_shared<VKTexture>(
             k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
             k_ShadowCascadeCount, /*createFlags*/ 0u, /*mipLevels*/ 1u, /*extraUsage*/ 0u);
+
+        // Per-layer 2D views for ShadowPass.Ci depth attachments (Phase 13C).
+        auto shadowTexForViews = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
 
         // --- Shadow sampler (PCF compare: less) ---
         VkSamplerCreateInfo samplerInfo{};
@@ -1048,6 +1058,12 @@ namespace Luth
         if (!shadowBindingDescs.empty())
             shadowBindingDescs[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3); // 52 bytes
 
+        // 4-byte VERTEX push constant carries cascadeIndex (Phase 13C).
+        VkPushConstantRange shadowCascadePC{};
+        shadowCascadePC.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        shadowCascadePC.offset     = 0;
+        shadowCascadePC.size       = sizeof(u32);
+
         PipelineConfig shadowConfig;
         shadowConfig.colorFormats = {};  // depth-only
         shadowConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -1057,8 +1073,7 @@ namespace Luth
         shadowConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         shadowConfig.bindingDescriptions = shadowBindingDescs;
         shadowConfig.attributeDescriptions = shadowAttribDescs;
-        // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
-        shadowConfig.pushConstantRanges = {};
+        shadowConfig.pushConstantRanges = { shadowCascadePC };
 
         m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, geoLayouts);
 
@@ -1128,8 +1143,7 @@ namespace Luth
             shadowSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             shadowSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
             shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
-            // No push constants — per-object data (incl. boneOffset) comes from GPUObjectData SSBO (Set 5)
-            shadowSkinnedConfig.pushConstantRanges = {};
+            shadowSkinnedConfig.pushConstantRanges = { shadowCascadePC };
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
                 shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
@@ -1376,8 +1390,12 @@ namespace Luth
             const glm::vec3 snappedCenter = glm::vec3(originWS);
             lightView = glm::lookAt(snappedCenter - lightDir * ext, snappedCenter, up);
 
+            // Negative near plane pulls the slab back behind the virtual light eye so
+            // casters above/behind the frustum slice (tall geometry, buildings) still
+            // get rendered. Without this, small cascades (near camera) drop shadows
+            // because ext alone isn't enough depth range toward the sun.
             glm::mat4 lightProj = glm::ortho(-ext, ext, -ext, ext,
-                                              0.0f, 2.0f * ext + kCasterExtend);
+                                              -kCasterExtend, 2.0f * ext + kCasterExtend);
             lightProj[1][1] *= -1.0f; // Vulkan Y-flip
             return lightProj * lightView;
         }
@@ -1814,8 +1832,10 @@ namespace Luth
                     &m_FrameDebugger);
             }
 
-            RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry, hIndirectBuf);
-            auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap, hIndirectBuf);
+            RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
+            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                shadowHandles[i] = AddShadowPass(rg, registry, hIndirectBuf, i);
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom

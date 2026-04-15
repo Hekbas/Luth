@@ -38,9 +38,13 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
+// Phase 13C: CPU pushes the cascade index per ShadowPass.Ci invocation.
+layout(push_constant) uniform PushConstants {
+    uint cascadeIndex;
+} pc;
+
 void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
-    // Phase 13A: cascade 0 only — per-cascade rendering lands in 13C via push constant.
-    gl_Position = ubo.lightSpaceMatrix[0] * obj.model * vec4(a_Position, 1.0);
+    gl_Position = ubo.lightSpaceMatrix[pc.cascadeIndex] * obj.model * vec4(a_Position, 1.0);
 }
