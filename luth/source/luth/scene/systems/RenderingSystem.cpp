@@ -1055,9 +1055,10 @@ namespace Luth
         shadowConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         shadowConfig.bindingDescriptions = shadowBindingDescs;
         shadowConfig.attributeDescriptions = shadowAttribDescs;
-        shadowConfig.pushConstantRanges = { pushConstantRange };
+        // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
+        shadowConfig.pushConstantRanges = {};
 
-        m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, layouts);
+        m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, geoLayouts);
 
         // ---- Skinned geometry pipeline manager ----
         BufferLayout skinnedVertexLayout = {
@@ -1125,10 +1126,11 @@ namespace Luth
             shadowSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             shadowSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
             shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
-            shadowSkinnedConfig.pushConstantRanges = { pushConstantRange };
+            // No push constants — per-object data (incl. boneOffset) comes from GPUObjectData SSBO (Set 5)
+            shadowSkinnedConfig.pushConstantRanges = {};
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
-                shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, layouts);
+                shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
         // ---- Selection mask pipeline (static) ----
@@ -1682,10 +1684,11 @@ namespace Luth
             {
                 Frustum frustum = CreateFrustumFromCamera(m_CachedViewProj);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    m_CullPipeline.get(), m_CullDescSet, frustum.planes, m_GPUObjectCount);
+                    m_CullPipeline.get(), m_CullDescSet, frustum.planes, m_GPUObjectCount,
+                    &m_FrameDebugger);
             }
 
-            RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry);
+            RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry, hIndirectBuf);
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap, hIndirectBuf);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);

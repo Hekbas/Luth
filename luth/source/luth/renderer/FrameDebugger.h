@@ -45,6 +45,14 @@ namespace Luth
                              const std::string& entityName, u32 entityIndex, u32 indexCount,
                              const ObjectPushConstants& pc, const RG::CapturedPipelineState& ps);
 
+        void CaptureIndirectDraw(const std::string& passName, const std::string& meshName,
+                                 const std::string& entityName, u32 entityIndex, u32 indexCount,
+                                 u32 gpuObjectIndex, VkDeviceSize indirectOffset,
+                                 const RG::CapturedPipelineState& ps);
+
+        void CaptureComputeDispatch(const std::string& passName, const std::string& shaderName,
+                                    u32 groupCountX, u32 groupCountY, u32 groupCountZ);
+
         void Shutdown(VkDevice device);
     };
 }

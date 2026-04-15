@@ -282,15 +282,10 @@ namespace Luth
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;
-                            // Reconstruct push constants struct for frame debugger (API unchanged until 12F)
-                            ObjectPushConstants debugPc{};
-                            debugPc.materialIndex = dc.materialSlot;
-                            debugPc.shadeMode     = static_cast<u32>(m_ShadeMode);
-                            debugPc.entityID      = dc.entityIndex;
-                            debugPc.boneOffset    = dc.boneOffset;
-                            m_FrameDebugger.CaptureDrawCall("GeometryPass",
+                            m_FrameDebugger.CaptureIndirectDraw("GeometryPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
-                                entName, dc.entityIndex, ib->GetCount(), debugPc,
+                                entName, dc.entityIndex, ib->GetCount(),
+                                dc.gpuObjectIndex, indirectOffset,
                                 { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
                                   mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade });
                         }

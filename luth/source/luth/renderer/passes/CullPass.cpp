@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "CullPass.h"
+#include "luth/renderer/FrameDebugger.h"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -25,7 +26,8 @@ namespace Luth
         VKComputePipeline*              pipeline,
         VkDescriptorSet                 descSet,
         const std::array<glm::vec4, 6>& frustumPlanes,
-        u32                             objectCount)
+        u32                             objectCount,
+        FrameDebugger*                  debugger)
     {
         if (!pipeline || objectCount == 0) return;
 
@@ -35,9 +37,15 @@ namespace Luth
                 data.objectBuffer   = builder.ReadBuffer(objectBuffer);
                 data.indirectBuffer = builder.WriteBuffer(indirectBuffer);
             },
-            [pipeline, descSet, frustumPlanes, objectCount](CullPassData&, RG::RenderPassContext& ctx)
+            [pipeline, descSet, frustumPlanes, objectCount, debugger](CullPassData&, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
+
+                if (debugger)
+                {
+                    debugger->BeginCapturePass("FrustumCull", "", false,
+                        { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+                }
 
                 pipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -50,7 +58,14 @@ namespace Luth
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullPushConstants), &pc);
 
-                vkCmdDispatch(cmd, (objectCount + 255) / 256, 1, 1);
+                u32 groupCountX = (objectCount + 255) / 256;
+                vkCmdDispatch(cmd, groupCountX, 1, 1);
+
+                if (debugger)
+                {
+                    debugger->CaptureComputeDispatch("FrustumCull", "gpu_cull", groupCountX, 1, 1);
+                    debugger->EndCapturePass();
+                }
             });
     }
 }

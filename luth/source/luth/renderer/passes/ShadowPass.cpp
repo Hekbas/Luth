@@ -25,10 +25,12 @@ namespace Luth
     // Render Graph Passes
     // =========================================================================
 
-    RG::ResourceHandle RenderingSystem::AddShadowPass(RG::RenderGraph& rg, entt::registry& registry)
+    RG::ResourceHandle RenderingSystem::AddShadowPass(
+        RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle)
     {
         struct ShadowPassData {
             RG::ResourceHandle shadowTex;
+            RG::BufferHandle   indirectBuf;
         };
 
         RG::ResourceHandle shadowHandle;
@@ -55,6 +57,9 @@ namespace Luth
                 data.shadowTex = builder.WriteDepth(data.shadowTex,
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
 
+                // Declare indirect buffer read (triggers compute-write → indirect-read barrier)
+                data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
+
                 shadowHandle = data.shadowTex;
             },
             [this, &registry](ShadowPassData& data, RG::RenderPassContext& ctx)
@@ -66,20 +71,21 @@ namespace Luth
 
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_FrameDebugger.EndCapturePass(); return; }
 
-                // Bind all 5 descriptor sets
+                // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
-                    BoneMatrixBuffer::GetDescriptorSet()
+                    BoneMatrixBuffer::GetDescriptorSet(),
+                    m_ObjectSSBODescSet
                 };
 
                 // Start with static pipeline bound
                 m_ShadowPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                    m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
 
                 // Shadow map viewport
                 VkViewport viewport{};
@@ -106,29 +112,15 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
 
-                    // Check per-mesh skinning
+                    // Look up SSBO index for this entity
+                    auto it = m_EntityToSSBOIndex.find(entity);
+                    if (it == m_EntityToSSBOIndex.end()) continue;
+                    u32 gpuObjectIndex = it->second;
+
+                    // Per-mesh skinning flag
                     bool isSkinned = false;
-                    u32 boneOffset = 0;
                     if (meshRenderer.MeshIndex < model->GetMeshesData().size())
                         isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
-
-                    if (isSkinned)
-                    {
-                        // Find Animation on this entity or parent
-                        entt::entity animEntity = entt::null;
-                        if (registry.any_of<Component::Animation>(entity))
-                            animEntity = entity;
-                        else if (registry.any_of<Component::Parent>(entity)) {
-                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
-                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
-                                animEntity = parentEnt;
-                        }
-                        if (animEntity != entt::null) {
-                            auto& anim = registry.get<Component::Animation>(animEntity);
-                            if (anim.BufferAllocated)
-                                boneOffset = anim.BoneBufferOffset;
-                        }
-                    }
 
                     // Switch pipeline if skinned state changed
                     if (isSkinned != currentSkinned)
@@ -138,42 +130,39 @@ namespace Luth
                         {
                             m_ShadowSkinnedPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_ShadowSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                                m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                         else
                         {
                             m_ShadowPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                                m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                     }
-
-                    VkPipelineLayout activeLayout = (currentSkinned && m_ShadowSkinnedPipeline)
-                        ? m_ShadowSkinnedPipeline->GetLayout()
-                        : m_ShadowPipeline->GetLayout();
-
-                    ObjectPushConstants pc{};
-                    pc.modelMatrix   = worldTransform.Matrix;
-                    pc.materialIndex = 0;
-                    pc.boneOffset    = boneOffset;
-
-                    vkCmdPushConstants(cmd, activeLayout,
-                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, sizeof(ObjectPushConstants), &pc);
 
                     VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                     VkDeviceSize offsets[] = { 0 };
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
 
-                    // Capture draw call for frame debugger
-                    m_FrameDebugger.CaptureDrawCall("ShadowPass",
-                        model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
-                        registry.any_of<Component::Tag>(entity) ? registry.get<Component::Tag>(entity).m_Tag : "Entity",
-                        0, ib->GetCount(), pc,
-                        { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
-                          VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
+                    // Indirect draw — GPU cull (main camera) has set instanceCount=0 for culled objects.
+                    // gl_BaseInstance = firstInstance = gpuObjectIndex → shader reads objects[gl_BaseInstance]
+                    VkDeviceSize indirectOffset = gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                        sizeof(VkDrawIndexedIndirectCommand));
+
+                    // Capture for frame debugger
+                    if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                    {
+                        std::string entName = registry.any_of<Component::Tag>(entity)
+                            ? registry.get<Component::Tag>(entity).m_Tag : "Entity";
+                        u32 entityIndex = gpuObjectIndex + 1;
+                        m_FrameDebugger.CaptureIndirectDraw("ShadowPass",
+                            model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
+                            entName, entityIndex, ib->GetCount(), gpuObjectIndex, indirectOffset,
+                            { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
+                              VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
+                    }
                 }
 
                 m_FrameDebugger.EndCapturePass();

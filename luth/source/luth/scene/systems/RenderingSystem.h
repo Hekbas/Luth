@@ -151,7 +151,7 @@ namespace Luth
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
 
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry);
+        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
