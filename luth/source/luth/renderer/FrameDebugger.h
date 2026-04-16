@@ -22,17 +22,14 @@ namespace Luth
     struct FrameDebugger : public RG::IArchiveSink
     {
         // Capture state machine
-        DebuggerState     state             = DebuggerState::Inactive;
+        DebuggerState     state = DebuggerState::Inactive;
         RG::CapturedFrame capturedFrame;
-        u32               drawLimit         = UINT32_MAX;
-        u32               replayDrawCounter = 0;
 
-        // Captured draw commands for re-recording (copied at freeze time)
-        std::vector<DrawCommand> capturedOpaqueDraws;
-        std::vector<DrawCommand> capturedCutoutDraws;
-        std::vector<DrawCommand> capturedTransparentDraws;
+        // Phase 14C — drawLimit / replayDrawCounter / captured*Draws removed.
+        // Live re-replay is gone; per-draw stepping (Phase 14E) reads frozen UBOs/
+        // SSBOs/indirect and re-records the owning pass via ImmediateSubmit.
 
-        // Debug blit resources (rescue blit for truncated frames)
+        // Debug blit resources (still used by Phase 14D for depth->color preview)
         std::unique_ptr<VKPipeline>  blitPipeline;
         std::unique_ptr<VKPipeline>  depthPipeline;
         std::vector<u32>             blitFragSpv;

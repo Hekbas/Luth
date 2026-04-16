@@ -143,8 +143,8 @@ namespace Luth
         }
         DebuggerState GetDebuggerState() const { return m_FrameDebugger.state; }
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
-        void SetDebuggerDrawLimit(u32 limit) { m_FrameDebugger.drawLimit = limit; }
-        u32  GetDebuggerDrawLimit() const    { return m_FrameDebugger.drawLimit; }
+        // Phase 14C — SetDebuggerDrawLimit / GetDebuggerDrawLimit removed; live
+        // re-replay is gone, per-draw stepping arrives in Phase 14E.
 
     private:
         void InitGlobalUniforms();
@@ -192,8 +192,9 @@ namespace Luth
 
         void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
-        // Frame debugger re-recording
-        void RenderCapturedFrame(u32 maxDrawCalls, Scene* scene);
+        // Phase 14C — RenderCapturedFrame removed (live re-replay).
+        // AddDebugBlitPass + InitDebugBlitResources kept for Phase 14D
+        // depth->color preview blits.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
         void InitDebugBlitResources();
 

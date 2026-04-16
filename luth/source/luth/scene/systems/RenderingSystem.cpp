@@ -1741,15 +1741,49 @@ namespace Luth
 
         m_FrameAllocator->Reset();
 
-        // --- Frame Debugger: Frozen state → re-render captured frame ---
+        // --- Frame Debugger: Frozen state ---
+        // Phase 14C — strict snapshot model with auto-recapture on camera move.
+        //
+        // While Frozen, the live render graph is NOT rebuilt or re-executed.
+        // m_LDROutput retains the LAST CAPTURED image (no other code writes it
+        // in this state), so the editor's ScenePanel — which samples m_LDROutput
+        // through ImGui — keeps showing the GPU-true captured frame.
+        //
+        // Each Frozen tick we cheaply recompute the camera viewProj (no GPU
+        // upload) and bit-compare against captureViewProj. If different, the
+        // user has moved the camera, so we flip the state machine back to
+        // CaptureRequested and fall through to the normal capture flow below;
+        // FrameDebugger::BeginCapture will tear down the prior archives.
         if (m_FrameDebugger.state == DebuggerState::Frozen)
         {
-            if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
+            if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
+
+            // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
+            // comparison matches what the GPU actually saw at capture time.
+            glm::mat4 currentProj = m_CameraParams.projection;
+            currentProj[1][1] *= -1.0f;
+            glm::mat4 currentViewProj = currentProj * m_CameraParams.view;
+
+            const bool cameraMoved = std::memcmp(&currentViewProj,
+                                                  &m_FrameDebugger.capturedFrame.captureViewProj,
+                                                  sizeof(glm::mat4)) != 0;
+
+            if (!cameraMoved)
             {
-                UpdateGlobalUniforms(); // camera may have moved
-                RenderCapturedFrame(m_FrameDebugger.drawLimit, scene);
+                // Static — minimal graph: just blit ImGui to the swapchain.
+                // The editor panel reads m_LDROutput through ImGui::Image; the
+                // image's persistent layout (SHADER_READ_ONLY_OPTIMAL after the
+                // capture's outline pass) is preserved across frames.
+                RG::RenderGraph rg(*m_FrameAllocator);
+                AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
+                rg.Compile();
+                Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
+                return;
             }
-            return;
+
+            // Camera moved — re-trigger capture and fall through. BeginCapture
+            // (called below before ExecuteGraph) destroys the prior archives.
+            m_FrameDebugger.state = DebuggerState::CaptureRequested;
         }
 
         // --- Frame Debugger: Prepare for capture (BeginCapture below handles reset) ---
@@ -1891,10 +1925,9 @@ namespace Luth
             // --- Frame Debugger: Finalize capture and enter frozen state ---
             if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
             {
-                // Copy draw command vectors for re-recording
-                m_FrameDebugger.capturedOpaqueDraws      = m_OpaqueDraws;
-                m_FrameDebugger.capturedCutoutDraws      = m_CutoutDraws;
-                m_FrameDebugger.capturedTransparentDraws = m_TransparentDraws;
+                // Phase 14C — captured*Draws / drawLimit removed.
+                // Per-draw replay (Phase 14E) re-derives draw inputs from the
+                // CapturedDrawCall records + frozen indirect/object SSBOs.
 
                 // Copy resource and timing info from the graph snapshot
                 m_FrameDebugger.capturedFrame.resources      = m_GraphSnapshot.resources;
@@ -1912,13 +1945,12 @@ namespace Luth
                     }
                 }
 
-                // Snapshot capture-time camera viewProj. Phase 14C compares this against
-                // the live viewProj each Frozen frame to trigger auto-recapture on move.
+                // Snapshot capture-time camera viewProj for the Frozen-state
+                // auto-recapture comparison (see top of Update).
                 m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
 
                 m_FrameDebugger.capturedFrame.valid = true;
-                m_FrameDebugger.state       = DebuggerState::Frozen;
-                m_FrameDebugger.drawLimit   = (u32)m_FrameDebugger.capturedFrame.drawCalls.size();
+                m_FrameDebugger.state               = DebuggerState::Frozen;
             }
 
             // --- Mouse picking readback (immediate, single pixel) ---
@@ -2417,350 +2449,10 @@ namespace Luth
         return outputHandle;
     }
 
-    void RenderingSystem::RenderCapturedFrame(u32 maxDrawCalls, Scene* scene)
-    {
-        if (!m_FrameDebugger.capturedFrame.valid) return;
-
-        // Ensure debug blit resources are available
-        InitDebugBlitResources();
-
-        auto& registry = scene->Registry();
-        m_FrameDebugger.replayDrawCounter = 0;
-
-        RG::RenderGraph rg(*m_FrameAllocator);
-
-        // Determine which pass the draw limit falls in, to know what render target is active
-        std::string activeTarget = "SceneColor";
-        bool isDepthTarget       = false;
-        bool postProcessReached  = false;
-
-        for (auto& cp : m_FrameDebugger.capturedFrame.passes)
-        {
-            u32 passEnd = cp.firstDrawIndex + cp.drawCallCount;
-            if (cp.name == "PostProcess" && maxDrawCalls >= passEnd)
-                postProcessReached = true;
-            if (maxDrawCalls > cp.firstDrawIndex && maxDrawCalls <= passEnd)
-            {
-                activeTarget  = cp.activeRenderTarget;
-                isDepthTarget = cp.isDepthTarget;
-            }
-            else if (maxDrawCalls > passEnd)
-            {
-                activeTarget  = cp.activeRenderTarget;
-                isDepthTarget = cp.isDepthTarget;
-            }
-        }
-
-        // --- Shadow Pass (replay) ---
-        struct ReplayShadowData { RG::ResourceHandle shadowTex; };
-        RG::ResourceHandle shadowHandle;
-
-        rg.AddPass<ReplayShadowData>("ShadowPass",
-            [&](ReplayShadowData& data, RG::RenderPassBuilder& builder)
-            {
-                auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
-                RG::TextureDesc desc;
-                desc.name = "ShadowMap"; desc.width = 2048; desc.height = 2048;
-                desc.format = RG::TextureFormat::D32_Float;
-
-                data.shadowTex = rg.ImportResource(desc,
-                    (void*)vkShadowTex->GetImage(), (void*)vkShadowTex->GetImageView(),
-                    RG::ResourceState::Undefined);
-                VkClearValue depthClear{}; depthClear.depthStencil = { 1.0f, 0 };
-                data.shadowTex = builder.WriteDepth(data.shadowTex,
-                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
-                shadowHandle = data.shadowTex;
-            },
-            [this, maxDrawCalls](ReplayShadowData& data, RG::RenderPassContext& ctx)
-            {
-                if (!m_ShadowPipeline) return;
-                VkCommandBuffer cmd = ctx.commandBuffer;
-
-                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-                VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
-                m_ShadowPipeline->Bind(cmd);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
-
-                VkViewport viewport{}; viewport.width = 2048.0f; viewport.height = 2048.0f; viewport.maxDepth = 1.0f;
-                vkCmdSetViewport(cmd, 0, 1, &viewport);
-                VkRect2D scissor{}; scissor.extent = { 2048, 2048 };
-                vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-                bool currentSkinned = false;
-
-                // Re-draw using captured draw commands (all modes together for shadow)
-                auto ReplayShadowDraws = [&](const std::vector<DrawCommand>& draws) {
-                    for (const auto& dc : draws)
-                    {
-                        if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
-
-                        auto mesh = dc.model->GetMesh(dc.meshIndex);
-                        if (!mesh) continue;
-                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
-                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
-                        if (!vb || !ib) continue;
-
-                        if (dc.isSkinned != currentSkinned)
-                        {
-                            currentSkinned = dc.isSkinned;
-                            if (currentSkinned && m_ShadowSkinnedPipeline) {
-                                m_ShadowSkinnedPipeline->Bind(cmd);
-                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_ShadowSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
-                            } else {
-                                m_ShadowPipeline->Bind(cmd);
-                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_ShadowPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
-                            }
-                        }
-
-                        VkPipelineLayout activeLayout = (currentSkinned && m_ShadowSkinnedPipeline)
-                            ? m_ShadowSkinnedPipeline->GetLayout() : m_ShadowPipeline->GetLayout();
-
-                        ObjectPushConstants pc{};
-                        pc.modelMatrix   = dc.modelMatrix;
-                        pc.materialIndex = 0;
-                        pc.boneOffset    = dc.boneOffset;
-                        vkCmdPushConstants(cmd, activeLayout,
-                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ObjectPushConstants), &pc);
-
-                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                        VkDeviceSize offsets[] = { 0 };
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
-                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                        vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
-                        m_FrameDebugger.replayDrawCounter++;
-                    }
-                };
-
-                ReplayShadowDraws(m_FrameDebugger.capturedOpaqueDraws);
-                ReplayShadowDraws(m_FrameDebugger.capturedCutoutDraws);
-                ReplayShadowDraws(m_FrameDebugger.capturedTransparentDraws);
-            }
-        );
-
-        // --- Geometry Pass (replay) ---
-        GeometryOutput geoOutput;
-        {
-            struct GeoReplayData {
-                RG::ResourceHandle outputTex, entityIDTex, depthTex, shadowTex;
-            };
-
-            rg.AddPass<GeoReplayData>("GeometryPass",
-                [&](GeoReplayData& data, RG::RenderPassBuilder& builder)
-                {
-                    auto vkTex = std::static_pointer_cast<VKTexture>(m_SceneColor);
-                    RG::TextureDesc desc;
-                    desc.name = "SceneColor"; desc.width = m_SceneColor->GetWidth(); desc.height = m_SceneColor->GetHeight();
-                    desc.format = RG::TextureFormat::RGBA16_Float;
-                    data.outputTex = rg.ImportResource(desc, (void*)vkTex->GetImage(), (void*)vkTex->GetImageView(), RG::ResourceState::ShaderResource);
-
-                    auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
-                    RG::TextureDesc idDesc;
-                    idDesc.name = "EntityID"; idDesc.width = m_EntityIDBuffer->GetWidth(); idDesc.height = m_EntityIDBuffer->GetHeight();
-                    idDesc.format = RG::TextureFormat::R32_Uint;
-                    data.entityIDTex = rg.ImportResource(idDesc, (void*)vkID->GetImage(), (void*)vkID->GetImageView(), RG::ResourceState::Undefined);
-
-                    auto vkDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
-                    RG::TextureDesc depthDesc;
-                    depthDesc.name = "SceneDepth"; depthDesc.width = m_SceneDepth->GetWidth(); depthDesc.height = m_SceneDepth->GetHeight();
-                    depthDesc.format = RG::TextureFormat::D32_Float;
-                    data.depthTex = rg.ImportResource(depthDesc, (void*)vkDepth->GetImage(), (void*)vkDepth->GetImageView(), RG::ResourceState::Undefined);
-
-                    VkClearValue depthClear{}; depthClear.depthStencil = { 1.0f, 0 };
-                    data.depthTex    = builder.WriteDepth(data.depthTex, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
-                    data.outputTex   = builder.Write(data.outputTex);
-                    VkClearValue idClear{}; idClear.color.uint32[0] = 0;
-                    data.entityIDTex = builder.Write(data.entityIDTex, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
-
-                    if (shadowHandle.IsValid()) data.shadowTex = builder.Read(shadowHandle);
-
-                    geoOutput.color = data.outputTex; geoOutput.depth = data.depthTex; geoOutput.entityID = data.entityIDTex;
-                },
-                [this, maxDrawCalls](GeoReplayData& data, RG::RenderPassContext& ctx)
-                {
-                    VkCommandBuffer cmd = ctx.commandBuffer;
-
-                    UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
-                    VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-                    auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                    if (!opaquePipeline) return;
-                    VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
-
-                    VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-                    VkDescriptorSet sets[] = {
-                        m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
-                        m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), m_ObjectSSBODescSet
-                    };
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 6, sets, 0, nullptr);
-
-                    RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
-                    VkViewport viewport{}; viewport.width = (float)res->desc.width; viewport.height = (float)res->desc.height; viewport.maxDepth = 1.0f;
-                    vkCmdSetViewport(cmd, 0, 1, &viewport);
-                    VkRect2D scissor{}; scissor.extent = { res->desc.width, res->desc.height };
-                    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-                    // Replay bypasses GPU cull — reset instanceCount=1 for all captured objects
-                    auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
-
-                    auto DrawBatchReplay = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
-                    {
-                        if (draws.empty() || m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
-
-                        Material::CullMode currentCull = Material::CullMode::Back;
-                        bool currentSkinned = false;
-                        auto* pipeline = m_GeoPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                        if (!pipeline) return;
-                        pipeline->Bind(cmd);
-
-                        for (const auto& dc : draws)
-                        {
-                            if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
-
-                            if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
-                            {
-                                currentCull = dc.cullMode; currentSkinned = dc.isSkinned;
-                                VKPipeline* newPipeline = currentSkinned
-                                    ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
-                                    : m_GeoPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                                if (!newPipeline) continue;
-                                newPipeline->Bind(cmd);
-                            }
-
-                            auto mesh = dc.model->GetMesh(dc.meshIndex);
-                            auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
-                            auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
-                            if (!vb || !ib) continue;
-
-                            // Force visible for replay (GPU cull result may have zeroed instanceCount)
-                            if (dc.gpuObjectIndex < m_GPUObjectCount)
-                                indirectCmds[dc.gpuObjectIndex].instanceCount = 1;
-
-                            VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                            VkDeviceSize offsets[] = { 0 };
-                            vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
-                            vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                            VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                            vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1, sizeof(VkDrawIndexedIndirectCommand));
-                            m_FrameDebugger.replayDrawCounter++;
-                        }
-                    };
-
-                    DrawBatchReplay(m_FrameDebugger.capturedOpaqueDraws,      Material::RenderMode::Opaque);
-                    DrawBatchReplay(m_FrameDebugger.capturedCutoutDraws,      Material::RenderMode::Cutout);
-                    DrawBatchReplay(m_FrameDebugger.capturedTransparentDraws, Material::RenderMode::Transparent);
-                }
-            );
-        }
-
-        // --- Skybox Pass (replay) ---
-        RG::ResourceHandle skyboxColor = geoOutput.color;
-        if (m_SkyboxPipeline && m_SkyboxVB && m_FrameDebugger.replayDrawCounter < maxDrawCalls)
-        {
-            struct SkyboxReplayData { RG::ResourceHandle colorTex, depthTex; };
-            rg.AddPass<SkyboxReplayData>("SkyboxPass",
-                [&](SkyboxReplayData& data, RG::RenderPassBuilder& builder) {
-                    data.colorTex = builder.Write(geoOutput.color, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
-                    data.depthTex = builder.WriteDepth(geoOutput.depth, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE);
-                    skyboxColor = data.colorTex;
-                },
-                [this, maxDrawCalls](SkyboxReplayData& data, RG::RenderPassContext& ctx) {
-                    if (m_FrameDebugger.replayDrawCounter >= maxDrawCalls) return;
-                    VkCommandBuffer cmd = ctx.commandBuffer;
-                    m_SkyboxPipeline->Bind(cmd);
-                    VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-                    VkDescriptorSet sets[] = { m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(), m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet() };
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
-                    RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
-                    VkViewport vp{}; vp.width = (float)res->desc.width; vp.height = (float)res->desc.height; vp.maxDepth = 1.0f;
-                    vkCmdSetViewport(cmd, 0, 1, &vp);
-                    VkRect2D sc{}; sc.extent = { res->desc.width, res->desc.height };
-                    vkCmdSetScissor(cmd, 0, 1, &sc);
-                    VkBuffer vb = m_SkyboxVB->GetVulkanBuffer(); VkDeviceSize offset = 0;
-                    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-                    vkCmdDraw(cmd, 36, 1, 0, 0);
-                    m_FrameDebugger.replayDrawCounter++;
-                }
-            );
-        }
-
-        // Determine final output handle for ImGui dependency
-        RG::ResourceHandle finalOutput = skyboxColor;
-
-        // --- Fullscreen passes (bloom, postprocess) - only if draw counter allows ---
-        bool ppReached = false;
-        if (m_FrameDebugger.replayDrawCounter < maxDrawCalls && m_BloomExtractPipeline && m_BloomBlurPipeline && m_BloomA && m_BloomB)
-        {
-            // Simplified: add bloom + postprocess as single draws each
-            RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor);
-            if (m_FrameDebugger.replayDrawCounter + 3 < maxDrawCalls) // 3 bloom passes
-            {
-                m_FrameDebugger.replayDrawCounter += 3;
-                if (m_PostProcessPipeline && m_LDROutput && m_FrameDebugger.replayDrawCounter < maxDrawCalls)
-                {
-                    finalOutput = AddPostProcessPass(rg, skyboxColor, bloomResult);
-                    m_FrameDebugger.replayDrawCounter++;
-                    ppReached = true;
-                }
-            }
-        }
-
-        // --- Rescue Blit: if we stopped before PostProcess ---
-        if (!ppReached && m_FrameDebugger.blitPipeline)
-        {
-            // Update debug blit descriptor set to point to the active render target
-            std::shared_ptr<Texture> activeTexture;
-            bool activeIsDepth = isDepthTarget;
-
-            if (activeTarget == "ShadowMap")       activeTexture = m_ShadowMap;
-            else if (activeTarget == "SceneColor") activeTexture = m_SceneColor;
-            else if (activeTarget == "BloomA" || activeTarget == "BloomAFinal")
-                                                   activeTexture = m_BloomA;
-            else if (activeTarget == "BloomB")     activeTexture = m_BloomB;
-            else                                   activeTexture = m_SceneColor;
-
-            if (activeTexture)
-            {
-                auto vkTex = std::static_pointer_cast<VKTexture>(activeTexture);
-                VkDescriptorImageInfo imgInfo{};
-                imgInfo.sampler     = m_FrameDebugger.sampler;
-                imgInfo.imageView   = vkTex->GetImageView();
-                imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkWriteDescriptorSet write{};
-                write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet          = m_FrameDebugger.descSet;
-                write.dstBinding      = 0;
-                write.descriptorCount = 1;
-                write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.pImageInfo      = &imgInfo;
-                vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
-
-                // Need to get the active target into the render graph as a readable resource
-                RG::TextureDesc inputDesc;
-                inputDesc.name   = activeTarget;
-                inputDesc.width  = activeTexture->GetWidth();
-                inputDesc.height = activeTexture->GetHeight();
-                inputDesc.format = activeIsDepth ? RG::TextureFormat::D32_Float : RG::TextureFormat::RGBA16_Float;
-
-                RG::ResourceHandle inputHandle = rg.ImportResource(inputDesc,
-                    (void*)vkTex->GetImage(), (void*)vkTex->GetImageView(),
-                    RG::ResourceState::ShaderResource);
-
-                finalOutput = AddDebugBlitPass(rg, inputHandle, activeIsDepth);
-            }
-        }
-
-        // --- ImGui Pass (always runs) ---
-        AddImGuiPass(rg, finalOutput);
-
-        rg.Compile();
-
-        // Update the graph snapshot for the panel display
-        m_GraphSnapshot = CaptureSnapshot(rg);
-
-        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
-    }
+    // Phase 14C — RenderingSystem::RenderCapturedFrame removed.
+    // Live re-replay was the source of the original sync bug: it re-executed
+    // the pipeline up to N draws using the *current* uniforms/cull state, not
+    // the captured ones. The Frozen-state branch (top of Update) now serves
+    // archived images directly. Per-draw inspection arrives in Phase 14E via
+    // ImmediateSubmit replay-then-copy on demand.
 }

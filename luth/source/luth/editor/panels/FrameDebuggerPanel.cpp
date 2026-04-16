@@ -450,7 +450,7 @@ namespace Luth
         ImGui::SetNextItemWidth(sliderWidth);
         if (ImGui::SliderInt("##DrawSlider", &m_DrawCallSlider, 0, totalDraws))
         {
-            m_RS->SetDebuggerDrawLimit((u32)m_DrawCallSlider);
+            // Phase 14C — slider is selection-only; per-draw preview lands in 14E.
             if (m_DrawCallSlider > 0 && m_DrawCallSlider <= totalDraws)
                 m_SelectedDrawIndex = m_DrawCallSlider - 1;
             else
@@ -463,7 +463,7 @@ namespace Luth
         {
             if (m_DrawCallSlider > 0) {
                 m_DrawCallSlider--;
-                m_RS->SetDebuggerDrawLimit((u32)m_DrawCallSlider);
+                // Phase 14C — slider is selection-only; per-draw preview lands in 14E.
                 m_SelectedDrawIndex = m_DrawCallSlider > 0 ? m_DrawCallSlider - 1 : -1;
             }
         }
@@ -472,7 +472,7 @@ namespace Luth
         {
             if (m_DrawCallSlider < totalDraws) {
                 m_DrawCallSlider++;
-                m_RS->SetDebuggerDrawLimit((u32)m_DrawCallSlider);
+                // Phase 14C — slider is selection-only; per-draw preview lands in 14E.
                 m_SelectedDrawIndex = m_DrawCallSlider > 0 ? m_DrawCallSlider - 1 : -1;
             }
         }
@@ -531,7 +531,7 @@ namespace Luth
                 u32 passEnd = pass.firstDrawIndex + pass.drawCallCount;
                 m_DrawCallSlider    = (int)passEnd;
                 m_SelectedDrawIndex = passEnd > 0 ? (int)(passEnd - 1) : -1;
-                m_RS->SetDebuggerDrawLimit((u32)m_DrawCallSlider);
+                // Phase 14C — slider is selection-only; per-draw preview lands in 14E.
             }
 
             if (nodeOpen && pass.drawCallCount > 0)
@@ -568,7 +568,7 @@ namespace Luth
                     {
                         m_SelectedDrawIndex = (int)globalIdx;
                         m_DrawCallSlider    = (int)(globalIdx + 1);
-                        m_RS->SetDebuggerDrawLimit((u32)m_DrawCallSlider);
+                        // Phase 14C — slider is selection-only; per-draw preview lands in 14E.
                     }
                 }
                 ImGui::TreePop();
