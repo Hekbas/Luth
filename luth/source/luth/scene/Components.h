@@ -133,8 +133,8 @@ namespace Luth::Component
 
         // CSM (Phase 13)
         float SplitLambda = 0.5f;                                        // 0 = uniform, 1 = logarithmic (practical split)
-        float ShadowBias[4]       = { 0.005f, 0.008f, 0.012f, 0.02f };   // per-cascade constant depth bias
-        float ShadowNormalBias[4] = { 0.02f, 0.05f, 0.1f, 0.2f };        // per-cascade world-space normal offset
+        float ShadowBias[4]       = { 0.005f, 0.008f, 0.012f, 0.02f };   // per-cascade constant depth bias (NDC)
+        float ShadowNormalBias[4] = { 1.0f, 1.0f, 1.0f, 1.0f };          // per-cascade normal offset (shader scales by texel size)
         bool  StabilizeCascades = true;                                  // texel-snap ortho origin to kill shimmer
     };
     

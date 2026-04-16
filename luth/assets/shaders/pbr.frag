@@ -25,7 +25,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 lightSpaceMatrix[4];        // Per-cascade light-space matrices (Phase 13)
     vec4 cascadeSplitsViewZ;         // Far view-space depth per cascade
     vec4 shadowBias;                 // Per-cascade depth bias (x<0 = shadows disabled)
-    vec4 shadowNormalBias;           // Per-cascade normal bias
+    vec4 shadowNormalBias;           // Per-cascade normal bias (in shadow-map texels)
+    vec4 cascadeTexelSize;           // World-space size of one shadow texel per cascade
     float iblIntensity;
     float skyboxIntensity;
     float debugVisualizeCascades;    // 0 = off, 1 = tint by cascade
@@ -175,22 +176,37 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
 
 // ---------- PCF Shadow ----------
 
-// Sample one cascade layer with 3x3 PCF. Returns 1.0 = fully lit, 0.0 = shadowed.
-// `biasedWorldPos` has normal bias already applied (pulled along N to kill acne/peter-panning).
-float SampleCascadePCF(vec3 biasedWorldPos, int cascade, float depthBias, vec2 texelSize)
+// Project a world position into cascade `c`. Returns projected xy (remapped to [0,1]) and depth,
+// plus an `inside` flag that's true when the ENTIRE 3×3 PCF footprint fits inside the cascade's
+// ortho box. The shadow sampler is CLAMP_TO_BORDER + OPAQUE_WHITE — any PCF tap that spills past
+// the edge returns 1.0 (lit), which produces a bright seam right before a cascade boundary. By
+// insetting the inside-test by 2×texelSize (covers the 3×3 neighborhood we sample), we force
+// fall-through into the next (larger) cascade early enough that every tap lands on real data.
+// `depthBias` is reserved on the near Z-boundary so that after SamplePCF subtracts it, the
+// reference depth can't slip below 0 and cause border-clamp false positives (light leaks).
+struct CascadeProj { vec3 proj; bool inside; };
+
+CascadeProj ProjectInCascade(vec3 worldPos, int c, vec2 texelSize, float depthBias)
 {
-    vec4 lsPos = ubo.lightSpaceMatrix[cascade] * vec4(biasedWorldPos, 1.0);
+    vec4 lsPos = ubo.lightSpaceMatrix[c] * vec4(worldPos, 1.0);
     vec3 proj  = lsPos.xyz / lsPos.w;
     proj.xy    = proj.xy * 0.5 + 0.5;
 
-    // Out of this cascade's shadow frustum = treat as lit (caller's blend handles transitions)
-    if (proj.z < 0.0 || proj.z > 1.0 ||
-        proj.x < 0.0 || proj.x > 1.0 ||
-        proj.y < 0.0 || proj.y > 1.0)
-        return 1.0;
+    // XY inset matches the 3×3 PCF footprint (2 texels on each axis, round up).
+    vec2  xyLo    = vec2(2.0 * texelSize);
+    vec2  xyHi    = vec2(1.0) - xyLo;
+    bool  insideXY = all(greaterThanEqual(proj.xy, xyLo)) &&
+                     all(lessThanEqual   (proj.xy, xyHi));
+    // Reserve depthBias worth of headroom at the near plane. proj.z >= 1.0 is still valid —
+    // hardware compare (LESS) will mark it lit, which matches "no caster in front" semantics.
+    bool  insideZ  = (proj.z >= max(depthBias, 0.0)) && (proj.z <= 1.0);
+    return CascadeProj(proj, insideXY && insideZ);
+}
 
+// 3x3 PCF using a pre-computed projection (see ProjectInCascade).
+float SamplePCF(vec3 proj, int cascade, float depthBias, vec2 texelSize)
+{
     proj.z -= depthBias;
-
     float shadow = 0.0;
     for (int x = -1; x <= 1; ++x)
     {
@@ -203,55 +219,75 @@ float SampleCascadePCF(vec3 biasedWorldPos, int cascade, float depthBias, vec2 t
     return shadow / 9.0;
 }
 
-// Cascade selection by view-space depth, 3x3 PCF with per-cascade bias, blend in last 10% of slice.
-// Returns 1.0 = fully lit, 0.0 = shadowed.
+// Cascade selection:
+//  1) viewZ picks the slice-appropriate cascade (by construction the fragment is spatially inside).
+//  2) If that cascade's PCF footprint escapes the ortho box (edge taps would read the border),
+//     step up to a larger cascade until one fits or we exhaust all four.
+//  3) Blend into cascade+1 over the last 20% of the slice's viewZ range to hide transitions.
+// Normal bias nudges the sample along N to mitigate acne on grazing surfaces.
 float ComputeShadow(vec3 worldPos, vec3 N)
 {
     // Negative bias[0] = shadows globally disabled (CastShadows=false sentinel).
     if (ubo.shadowBias.x < 0.0)
         return 1.0;
 
-    // View-space depth (positive distance from eye along forward).
-    float viewZ = abs((ubo.view * vec4(worldPos, 1.0)).z);
+    float NdotL     = max(dot(N, normalize(-lights.dirLight.direction)), 0.0);
+    vec2  texelSize = 1.0 / vec2(textureSize(shadowMap, 0).xy);
+    float viewZ     = abs((ubo.view * vec4(worldPos, 1.0)).z);
 
-    // Pick tightest cascade whose far plane contains this fragment.
-    int cascade = 3;
-    for (int i = 0; i < 4; ++i)
+    // viewZ → slice cascade. cascadeSplitsViewZ holds FAR viewZ per cascade.
+    int primary = 3;
+    for (int i = 0; i < 3; ++i)
     {
-        if (viewZ < ubo.cascadeSplitsViewZ[i])
+        if (viewZ <= ubo.cascadeSplitsViewZ[i]) { primary = i; break; }
+    }
+
+    // Upgrade to larger cascade if the (normal-biased) projection escapes primary's ortho box.
+    // Normal bias is expressed in TEXELS and scaled by each cascade's world-space texel size so
+    // the offset produces equivalent pixel-space nudges across cascades of very different extents
+    // (cascade 3 can be ~8× cascade 0 yet share the same shadow resolution).
+    int  chosen = -1;
+    vec3 projChosen;
+    for (int i = primary; i < 4; ++i)
+    {
+        float nBias  = ubo.shadowNormalBias[i] * ubo.cascadeTexelSize[i] * (1.0 - NdotL);
+        vec3  biased = worldPos + N * nBias;
+        CascadeProj p = ProjectInCascade(biased, i, texelSize, ubo.shadowBias[i]);
+        if (p.inside)
         {
-            cascade = i;
+            chosen     = i;
+            projChosen = p.proj;
             break;
         }
     }
 
-    // Per-cascade bias — shadow-map texel footprint grows with cascade index, so NdotL-scaled
-    // normal bias helps reduce both acne on grazing surfaces and peter-panning at shallow angles.
-    float NdotL = max(dot(N, normalize(-lights.dirLight.direction)), 0.0);
-    float nBias = ubo.shadowNormalBias[cascade] * (1.0 - NdotL);
-    vec3  biasedPos = worldPos + N * nBias;
+    // Fragment escapes every cascade from primary up. Sampler would border-clamp to lit anyway,
+    // so return 1.0 and let the fragment be fully lit (rare — implies world extent > cascade 3).
+    if (chosen < 0)
+        return 1.0;
 
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0).xy);
+    float sA = SamplePCF(projChosen, chosen, ubo.shadowBias[chosen], texelSize);
 
-    float sA = SampleCascadePCF(biasedPos, cascade, ubo.shadowBias[cascade], texelSize);
-
-    // Blend into the next cascade in the last 10% of this cascade's range to hide seams.
-    // Last cascade (3) has nothing to blend into.
-    if (cascade < 3)
+    // Blend into next cascade near the far edge of THIS slice's viewZ range (only when the
+    // fragment was served by its primary cascade — fall-through cases are already oversized).
+    if (chosen == primary && chosen < 3)
     {
-        float nearSplit = (cascade == 0) ? 0.0 : ubo.cascadeSplitsViewZ[cascade - 1];
-        float farSplit  = ubo.cascadeSplitsViewZ[cascade];
-        float range     = max(farSplit - nearSplit, 1e-4);
-        float t         = (viewZ - nearSplit) / range;      // 0..1 within this cascade
-        float blend     = smoothstep(0.8, 1.0, t);          // 0 until last 20%
+        float nearSplit = (chosen == 0) ? 0.0 : ubo.cascadeSplitsViewZ[chosen - 1];
+        float farSplit  = ubo.cascadeSplitsViewZ[chosen];
+        float t         = (viewZ - nearSplit) / max(farSplit - nearSplit, 1e-4);
+        float blend     = smoothstep(0.8, 1.0, t);
 
         if (blend > 0.0)
         {
-            int   next      = cascade + 1;
-            float nBiasNext = ubo.shadowNormalBias[next] * (1.0 - NdotL);
+            int   next      = chosen + 1;
+            float nBiasNext = ubo.shadowNormalBias[next] * ubo.cascadeTexelSize[next] * (1.0 - NdotL);
             vec3  nextPos   = worldPos + N * nBiasNext;
-            float sB = SampleCascadePCF(nextPos, next, ubo.shadowBias[next], texelSize);
-            return mix(sA, sB, blend);
+            CascadeProj pN  = ProjectInCascade(nextPos, next, texelSize, ubo.shadowBias[next]);
+            if (pN.inside)
+            {
+                float sB = SamplePCF(pN.proj, next, ubo.shadowBias[next], texelSize);
+                return mix(sA, sB, blend);
+            }
         }
     }
 
@@ -365,6 +401,5 @@ void main()
     vec3 ambient = (kD * diffuseIBL + specularIBL) * ao * ubo.iblIntensity;
 
     vec3 color = ambient + Lo;
-
     outColor = vec4(color, albedo.a);
 }

@@ -41,7 +41,8 @@ namespace Luth
         glm::mat4 lightSpaceMatrix[k_ShadowCascadeCount]; // Per-cascade light-space matrices (Phase 13)
         glm::vec4 cascadeSplitsViewZ;                      // Far view-space depth per cascade
         glm::vec4 shadowBias;                              // Per-cascade depth bias (negative = shadows disabled)
-        glm::vec4 shadowNormalBias;                        // Per-cascade normal bias (world-space offset along N)
+        glm::vec4 shadowNormalBias;                        // Per-cascade normal bias (in shadow-map texels)
+        glm::vec4 cascadeTexelSize;                        // Per-cascade world-space size of one shadow texel
         float     iblIntensity;
         float     skyboxIntensity;
         float     debugVisualizeCascades;                  // 0 = off, 1 = tint by cascade (Phase 13F)
@@ -152,11 +153,16 @@ namespace Luth
 
         // CSM helpers (Phase 13B)
         void ComputeCascadeSplits(float nearZ, float farZ, float lambda, float outFar[k_ShadowCascadeCount]) const;
+        // Computes the light-space view-projection matrix for one cascade slice.
+        // `outWorldHalfExtent` receives the world-space half-extent of the cascade's
+        // ortho footprint (radius for stabilized, max of X/Y half-extents otherwise),
+        // which the shader uses to scale per-texel quantities like normal bias.
         glm::mat4 ComputeCascadeMatrix(float nearD, float farD,
                                         const glm::vec3& lightDir,
                                         float tanHalfFovY, float aspect,
                                         const glm::mat4& camViewInv,
-                                        bool stabilize) const;
+                                        bool stabilize,
+                                        float& outWorldHalfExtent) const;
         void UpdatePostProcessUBO();
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
@@ -211,7 +217,8 @@ namespace Luth
         };
         glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
         glm::vec4 m_CachedShadowBias       = glm::vec4(0.005f);   // Per-cascade depth bias (negative = disabled)
-        glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias
+        glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias (in texels)
+        glm::vec4 m_CachedCascadeTexelSize = glm::vec4(1.0f);     // World-space size of one shadow texel per cascade
         bool      m_CachedCastShadows = true;
 
         // Shadow map (4-layer 2D array) + cached per-layer views for ShadowPass.Ci attachments

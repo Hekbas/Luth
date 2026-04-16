@@ -1340,7 +1340,8 @@ namespace Luth
                                                      const glm::vec3& lightDir,
                                                      float tanHalfFovY, float aspect,
                                                      const glm::mat4& camViewInv,
-                                                     bool stabilize) const
+                                                     bool stabilize,
+                                                     float& outWorldHalfExtent) const
     {
         // 8 corners of the sub-frustum slice [nearD, farD] in view space, then world space.
         const float hN = nearD * tanHalfFovY;
@@ -1375,20 +1376,24 @@ namespace Luth
             float radius = 0.0f;
             for (int i = 0; i < 8; ++i)
                 radius = glm::max(radius, glm::length(cornersWS[i] - center));
-            radius = std::ceil(radius * 16.0f) / 16.0f; // quantize so minor motion doesn't resize
+            // Quantize to ~1 texel using an estimated texel size from the raw radius.
+            // Finer than the previous 1/16-unit step (which was several texels at typical
+            // extents and caused visible snapping when the slab resized).
+            {
+                const float estTexel = glm::max(2.0f * radius / float(k_ShadowResolution), 1e-4f);
+                radius = std::ceil(radius / estTexel) * estTexel;
+            }
 
             float ext = glm::max(radius, 0.01f);
+            outWorldHalfExtent = ext;
 
-            glm::mat4 lightView = glm::lookAt(center - lightDir * ext, center, up);
-
-            // Texel snap the origin in light space to kill sub-pixel shimmer.
             const float texelSize = (2.0f * ext) / float(k_ShadowResolution);
-            glm::vec4 originLS = lightView * glm::vec4(center, 1.0f);
-            originLS.x = std::floor(originLS.x / texelSize) * texelSize;
-            originLS.y = std::floor(originLS.y / texelSize) * texelSize;
-            const glm::vec4 originWS = glm::inverse(lightView) * originLS;
-            const glm::vec3 snappedCenter = glm::vec3(originWS);
-            lightView = glm::lookAt(snappedCenter - lightDir * ext, snappedCenter, up);
+            glm::mat4 lightRot = glm::lookAt(glm::vec3(0.0f), lightDir, up);
+            glm::vec3 centerLS = glm::vec3(lightRot * glm::vec4(center, 1.0f));
+            centerLS.x = std::floor(centerLS.x / texelSize) * texelSize;
+            centerLS.y = std::floor(centerLS.y / texelSize) * texelSize;
+            const glm::vec3 snappedCenter = glm::vec3(glm::inverse(lightRot) * glm::vec4(centerLS, 1.0f));
+            glm::mat4 lightView = glm::lookAt(snappedCenter - lightDir * ext, snappedCenter, up);
 
             // Negative near plane pulls the slab back behind the virtual light eye so
             // casters above/behind the frustum slice (tall geometry, buildings) still
@@ -1416,6 +1421,7 @@ namespace Luth
             const float extY = glm::max(mx.y - mn.y, 0.01f);
             mx.x = mn.x + extX;
             mx.y = mn.y + extY;
+            outWorldHalfExtent = 0.5f * glm::max(extX, extY);
 
             // lookAt(center - lightDir, ...) puts the light "behind" the slab;
             // in right-handed light space the slab lies at negative Z. Extend near
@@ -1485,8 +1491,8 @@ namespace Luth
         // FOV / aspect from unflipped perspective projection.
         // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
         const glm::mat4& proj = m_CameraParams.projection;
-        const float tanHalfFovY = (proj[1][1] != 0.0f) ? (1.0f / proj[1][1]) : 1.0f;
-        const float aspect      = (proj[0][0] != 0.0f) ? (proj[1][1] / proj[0][0]) : 1.0f;
+        const float tanHalfFovY = (proj[1][1] != 0.0f) ? std::abs(1.0f / proj[1][1]) : 1.0f;
+        const float aspect      = (proj[0][0] != 0.0f) ? std::abs(proj[1][1] / proj[0][0]) : 1.0f;
         const glm::mat4 camViewInv = glm::inverse(m_CameraParams.view);
 
         const float nearZ = glm::max(m_CameraParams.nearZ, 1e-3f);
@@ -1500,8 +1506,13 @@ namespace Luth
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
         {
             const float cf = cascadeFar[i];
+            float halfExtent = 1.0f;
             m_CachedLightSpaceMatrix[i] = ComputeCascadeMatrix(
-                cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv, stabilize);
+                cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv, stabilize, halfExtent);
+            // World-space size of one shadow-map texel for this cascade.
+            // Shader uses this to scale normal bias (expressed in texels) so a given
+            // bias setting produces consistent offsets across cascades of different sizes.
+            m_CachedCascadeTexelSize[i] = (2.0f * halfExtent) / float(k_ShadowResolution);
             cascadeNear = cf;
         }
 
@@ -1726,6 +1737,7 @@ namespace Luth
         // Negative bias (sentinel) disables shadows entirely in the PBR shader.
         ubo.shadowBias       = m_CachedCastShadows ? m_CachedShadowBias : glm::vec4(-1.0f);
         ubo.shadowNormalBias = m_CachedShadowNormalBias;
+        ubo.cascadeTexelSize = m_CachedCascadeTexelSize;
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
         ubo.debugVisualizeCascades = 0.0f;      // enabled in 13F

@@ -18,6 +18,7 @@ layout(set = 0, binding = 0) uniform GridGlobals {
     vec4 cascadeSplitsViewZ;
     vec4 shadowBias;
     vec4 shadowNormalBias;
+    vec4 cascadeTexelSize;
     float iblIntensity;
     float skyboxIntensity;
     float debugVisualizeCascades;
