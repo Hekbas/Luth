@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/rendergraph/FrameEventTree.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 
 #include <vma/vk_mem_alloc.h>
@@ -327,6 +328,10 @@ namespace Luth
     void FrameDebugger::FinalizeCapture(const glm::mat4& viewProj)
     {
         capturedFrame.captureViewProj = viewProj;
+        // Build the hierarchical event tree from the just-finished capture.
+        // Pure CPU work; safe to run after ExecuteGraph returned and all the
+        // per-pass / per-draw metadata has been appended to capturedFrame.
+        capturedFrame.rootEvent = RG::BuildEventTree(capturedFrame);
     }
 
     void FrameDebugger::DestroyArchives()

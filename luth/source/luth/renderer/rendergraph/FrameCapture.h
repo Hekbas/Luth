@@ -3,6 +3,7 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/ArchivedImage.h"
+#include "luth/renderer/rendergraph/FrameEventTree.h"
 
 #include <glm/glm.hpp>
 #include <string>
@@ -106,6 +107,10 @@ namespace Luth::RG
         std::vector<std::vector<u32>>  passArchives;
         glm::mat4                       captureViewProj = glm::mat4(1.0f);
 
+        // Phase 14D — Hierarchical event tree built at capture finalize from
+        // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
+        EventNode                       rootEvent;
+
         // Metadata-only reset. GPU-owned archives are NOT touched; the owner
         // (FrameDebugger) must call DestroyArchives separately to free them.
         // BeginCapture orchestrates both in the right order.
@@ -114,6 +119,7 @@ namespace Luth::RG
             drawCalls.clear();
             passes.clear();
             resources.clear();
+            rootEvent = EventNode{};
             captureViewProj = glm::mat4(1.0f);
             totalGpuTimeMs = 0.0f;
             valid = false;

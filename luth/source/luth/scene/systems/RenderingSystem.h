@@ -146,6 +146,10 @@ namespace Luth
         // Phase 14C — SetDebuggerDrawLimit / GetDebuggerDrawLimit removed; live
         // re-replay is gone, per-draw stepping arrives in Phase 14E.
 
+        // Phase 14D — sampler shared with ImGui for archive previews. Allocated
+        // lazily by InitDebugBlitResources (called when capture starts).
+        VkSampler GetDebugSampler() const { return m_FrameDebugger.sampler; }
+
     private:
         void InitGlobalUniforms();
         void InitObjectSSBODescriptorLayout();

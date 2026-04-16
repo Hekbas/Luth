@@ -1909,6 +1909,10 @@ namespace Luth
             // != CaptureRequested, so re-checking here is sufficient.
             if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
             {
+                // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
+                // Idempotent: returns immediately once blitPipeline is set.
+                InitDebugBlitResources();
+
                 m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
                                              VulkanContext::Get().GetAllocator());
                 m_FrameDebugger.RegisterTrackedRT("SceneColor");
