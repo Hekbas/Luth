@@ -20,5 +20,7 @@ namespace Luth
         VkDescriptorSet                 descSet,
         const std::array<glm::vec4, 6>& frustumPlanes,
         u32                             objectCount,
-        FrameDebugger*                  debugger = nullptr);
+        u32                             destOffset = 0,           // command index offset into indirect buffer
+        const char*                     passName   = "FrustumCull",
+        FrameDebugger*                  debugger   = nullptr);
 }

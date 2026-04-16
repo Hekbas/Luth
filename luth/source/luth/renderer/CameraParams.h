@@ -15,6 +15,8 @@ namespace Luth
         glm::mat4 view       = glm::mat4(1.0f);
         glm::mat4 projection = glm::mat4(1.0f);
         glm::vec3 position   = glm::vec3(0.0f);
+        float nearZ          = 0.1f;
+        float farZ           = 1000.0f;
         float iblIntensity     = 1.0f;
         float skyboxIntensity  = 1.0f;
         std::vector<Entity> selectedEntities;

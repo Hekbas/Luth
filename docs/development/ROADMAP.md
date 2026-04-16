@@ -28,8 +28,26 @@
 | 9 — Frame Debugger Upgrade | Trigger-based capture, per-draw-call scrubbing, DebuggerState machine (Inactive→CaptureRequested→Frozen), full pass instrumentation, RenderCapturedFrame re-recording, rescue blit for truncated frames, depth linearization shader, rewritten panel UI | 2026-04-03 | v1.0.0 |
 | 10 — Undo/Redo History | Command pattern with 14 command types, UUID-based entity resolution, gizmo drag coalescing, compound commands, material snapshot undo, HistoryPanel debug UI, 3 stale-handle crash fixes | 2026-04-09 | v1.1.0 |
 | 11 — Architecture Cleanup | RenderingSystem split (4,060→2,321 LOC): EditorCamera extraction, CameraParams decoupling, IBLPrecompute, FrameDebugger class, 9 render passes to `renderer/passes/`, Command.h modularized into `editor/commands/` (6 sub-headers) | 2026-04-13 | v1.1.1 |
+| 12 — Compute + GPU Culling | Render graph compute pass + buffer support, `VulkanComputePipeline`, GPU frustum cull compute shader, GPUObjectData SSBO (Set 5), all draw passes converted to `vkCmdDrawIndexedIndirect`, IBLPrecompute refactored, Frame Debugger extended with indirect + compute capture | 2026-04-15 | v1.2.0 |
+| 13 — Cascaded Shadow Maps | 4-cascade PSSM (Sascha Willems bounding-sphere fit), 4-layer shadow array, per-cascade GPU cull, cascade selection + blending + bias in PBR shader, cascade debug viz | 2026-04-16 | v1.3.0 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
+
+---
+
+## Planned Phases
+
+| Priority | Phase | Epic | Version | Est. Time | Dependencies |
+|----------|-------|------|---------|-----------|-------------|
+| 3 | 14 — GTAO | #58 | v1.4.0 | 1-2 weeks | Phase 12 |
+| 4 | 15 — Play Mode | #66 | v1.5.0 | 1-2 weeks | — |
+| 5 | 16 — Jolt Physics | #56 | v1.6.0 | 2-3 weeks | Phase 15 |
+| 6 | 17 — Jiggle Bones | #61 | v1.6.1 | 1 week | — |
+| 7 | 18 — Forward+ Lighting | #54 | v1.7.0 | 2 weeks | Phase 12 |
+| 8 | 19 — FXAA / TAA | #72 | v1.7.1 | 1 week | — |
+| 9 | 20 — GPU Particles | #57 | v1.8.0 | 2-3 weeks | Phase 12, 18 |
+
+> Full specs and dependency graph: [`ROADMAP_TODO.md`](ROADMAP_TODO.md)
 
 ---
 
@@ -49,22 +67,22 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 | v1.0.0  | Phases 1–9 (engine rewrite) | Released 2026-04-05 |
 | v1.1.0  | Phase 10 (undo/redo history) | Released 2026-04-09 |
 | v1.1.1  | Phase 11 (architecture cleanup) | Released 2026-04-13 |
+| v1.2.0  | Phase 12 (compute + GPU culling) | Released 2026-04-15 |
 
 ---
 
 ## Future Ideas (Not Scoped)
 
+> Items covered by Planned Phases (12-20) are tracked there. Below are ideas beyond Phase 20.
+
 ### Rendering
 - Deferred GBuffer rendering
-- SSAO (requires GBuffer)
-- FXAA / TAA
 - Global illumination (screen-space or probe-based)
 - Volumetric fog / haze
-- Cascaded shadow maps
+- SSR (screen-space reflections)
+- HZB occlusion culling
 
 ### Gameplay Systems
-- Physics engine (Jolt integration, jobified)
-- Particle system (GPU compute)
 - Animation Phase 8: DQS, morph targets, IK, state machines, animation LODs
 - Prefab system (reusable entity templates)
 - Scripting (C# via Mono, or Lua)
@@ -75,4 +93,4 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 
 ### Editor & Tools
 - Asset streaming (async GPU upload pipeline)
-- Play mode (runtime simulation in editor)
+- Visual shader editor

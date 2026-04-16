@@ -17,6 +17,7 @@ namespace Luth
     {
         glm::vec4 frustumPlanes[6]; // 96B
         u32       objectCount;      // 4B
+        u32       destOffset;       // 4B — index offset into commands[]
     };
 
     void AddCullComputePass(
@@ -27,23 +28,27 @@ namespace Luth
         VkDescriptorSet                 descSet,
         const std::array<glm::vec4, 6>& frustumPlanes,
         u32                             objectCount,
+        u32                             destOffset,
+        const char*                     passName,
         FrameDebugger*                  debugger)
     {
         if (!pipeline || objectCount == 0) return;
 
-        rg.AddComputePass<CullPassData>("FrustumCull",
+        std::string name = passName ? passName : "FrustumCull";
+
+        rg.AddComputePass<CullPassData>(name,
             [=](CullPassData& data, RG::RenderPassBuilder& builder)
             {
                 data.objectBuffer   = builder.ReadBuffer(objectBuffer);
                 data.indirectBuffer = builder.WriteBuffer(indirectBuffer);
             },
-            [pipeline, descSet, frustumPlanes, objectCount, debugger](CullPassData&, RG::RenderPassContext& ctx)
+            [pipeline, descSet, frustumPlanes, objectCount, destOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
                 if (debugger)
                 {
-                    debugger->BeginCapturePass("FrustumCull", "", false,
+                    debugger->BeginCapturePass(name, "", false,
                         { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
                 }
 
@@ -55,6 +60,7 @@ namespace Luth
                 for (int i = 0; i < 6; ++i)
                     pc.frustumPlanes[i] = frustumPlanes[i];
                 pc.objectCount = objectCount;
+                pc.destOffset  = destOffset;
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullPushConstants), &pc);
 
@@ -63,7 +69,7 @@ namespace Luth
 
                 if (debugger)
                 {
-                    debugger->CaptureComputeDispatch("FrustumCull", "gpu_cull", groupCountX, 1, 1);
+                    debugger->CaptureComputeDispatch(name, "gpu_cull", groupCountX, 1, 1);
                     debugger->EndCapturePass();
                 }
             });

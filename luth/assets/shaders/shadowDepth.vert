@@ -10,11 +10,15 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
-    mat4 lightSpaceMatrix;
-    float shadowBias;
+    mat4 lightSpaceMatrix[4];
+    vec4 cascadeSplitsViewZ;
+    vec4 shadowBias;
+    vec4 shadowNormalBias;
+    vec4 cascadeTexelSize;
     float iblIntensity;
     float skyboxIntensity;
-    float _pad;
+    float debugVisualizeCascades;
+    float cascadeBlendWidth;
 } ubo;
 
 // Set 5: Per-object data SSBO (std430, 112 bytes per entry)
@@ -35,8 +39,13 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
+// Phase 13C: CPU pushes the cascade index per ShadowPass.Ci invocation.
+layout(push_constant) uniform PushConstants {
+    uint cascadeIndex;
+} pc;
+
 void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
-    gl_Position = ubo.lightSpaceMatrix * obj.model * vec4(a_Position, 1.0);
+    gl_Position = ubo.lightSpaceMatrix[pc.cascadeIndex] * obj.model * vec4(a_Position, 1.0);
 }

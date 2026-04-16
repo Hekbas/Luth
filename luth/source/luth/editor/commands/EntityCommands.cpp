@@ -127,9 +127,14 @@ namespace Luth
                 dj["color"]           = Vec3ToJson(dl.Color);
                 dj["intensity"]       = dl.Intensity;
                 dj["castShadows"]     = dl.CastShadows;
-                dj["shadowBias"]      = dl.ShadowBias;
                 dj["shadowOrthoSize"] = dl.ShadowOrthoSize;
                 dj["shadowDistance"]   = dl.ShadowDistance;
+                dj["splitLambda"]         = dl.SplitLambda;
+                dj["stabilizeCascades"]   = dl.StabilizeCascades;
+                dj["shadowBias"]          = { dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3] };
+                dj["shadowNormalBias"]    = { dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3] };
+                dj["cascadeBlendWidth"]   = dl.CascadeBlendWidth;
+                dj["debugVisualizeCascades"] = dl.DebugVisualizeCascades;
                 j["directionalLight"] = dj;
             }
 
@@ -280,9 +285,27 @@ namespace Luth
                     dl.Color         = Vec3FromJson(dj.value("color", json::array()), {1,1,1});
                     dl.Intensity     = dj.value("intensity", 1.0f);
                     dl.CastShadows   = dj.value("castShadows", true);
-                    dl.ShadowBias    = dj.value("shadowBias", 0.005f);
                     dl.ShadowOrthoSize = dj.value("shadowOrthoSize", 200.0f);
                     dl.ShadowDistance = dj.value("shadowDistance", 200.0f);
+                    dl.SplitLambda        = dj.value("splitLambda", 0.5f);
+                    dl.StabilizeCascades  = dj.value("stabilizeCascades", true);
+
+                    if (dj.contains("shadowBias") && dj["shadowBias"].is_array()) {
+                        const auto& arr = dj["shadowBias"];
+                        for (u32 i = 0; i < 4; ++i)
+                            dl.ShadowBias[i] = (i < arr.size()) ? arr[i].get<float>() : dl.ShadowBias[i];
+                    }
+                    else {
+                        float legacy = dj.value("shadowBias", 0.005f);
+                        for (u32 i = 0; i < 4; ++i) dl.ShadowBias[i] = legacy;
+                    }
+                    if (dj.contains("shadowNormalBias") && dj["shadowNormalBias"].is_array()) {
+                        const auto& arr = dj["shadowNormalBias"];
+                        for (u32 i = 0; i < 4; ++i)
+                            dl.ShadowNormalBias[i] = (i < arr.size()) ? arr[i].get<float>() : dl.ShadowNormalBias[i];
+                    }
+                    dl.CascadeBlendWidth       = dj.value("cascadeBlendWidth", 0.2f);
+                    dl.DebugVisualizeCascades   = dj.value("debugVisualizeCascades", false);
                 }
 
                 // PointLight

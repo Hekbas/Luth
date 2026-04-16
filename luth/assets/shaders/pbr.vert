@@ -22,11 +22,15 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 projection;
     vec3 cameraPos;
     float time;
-    mat4 lightSpaceMatrix;
-    float shadowBias;
+    mat4 lightSpaceMatrix[4];
+    vec4 cascadeSplitsViewZ;
+    vec4 shadowBias;
+    vec4 shadowNormalBias;
+    vec4 cascadeTexelSize;
     float iblIntensity;
     float skyboxIntensity;
-    float _pad;
+    float debugVisualizeCascades;
+    float cascadeBlendWidth;
 } ubo;
 
 // Set 5: Per-object data SSBO (std430, 112 bytes per entry)

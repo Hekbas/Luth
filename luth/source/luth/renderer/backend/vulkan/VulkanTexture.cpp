@@ -376,7 +376,12 @@ namespace Luth
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = m_Image;
-        viewInfo.viewType = isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+        if (isCubemap)
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        else if (m_ArrayLayers > 1 && isDepth)
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        else
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = vkFmt;
         viewInfo.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel = 0;
@@ -445,6 +450,27 @@ namespace Luth
 
         // Register with Bindless Set
         m_BindlessIndex = VulkanContext::Get().GetBindlessSet().BindTexture(m_ImageView, m_Sampler);
+    }
+
+    VkImageView VKTexture::CreateLayerView(u32 layer) const
+    {
+        const bool isDepth = IsDepthFormat(m_Format);
+        VkFormat vkFmt = ToVkFormat(m_Format);
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = m_Image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = vkFmt;
+        viewInfo.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = m_MipLevels;
+        viewInfo.subresourceRange.baseArrayLayer = layer;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        VkImageView view = VK_NULL_HANDLE;
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &view);
+        return view;
     }
 
     VkImageView VKTexture::CreateMipView(u32 mipLevel, bool forStorage) const

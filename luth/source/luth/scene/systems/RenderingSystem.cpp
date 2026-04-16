@@ -234,6 +234,11 @@ namespace Luth
             vkDestroySampler(device, m_IBLSampler, nullptr);
         if (m_ShadowSampler)
             vkDestroySampler(device, m_ShadowSampler, nullptr);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+        {
+            if (m_ShadowLayerViews[i])
+                vkDestroyImageView(device, m_ShadowLayerViews[i], nullptr);
+        }
         if (m_LightSetLayout)
             vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr);
         if (m_LightDescPool)
@@ -388,8 +393,15 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // --- Shadow map (2048×2048, D32_Float, sampled) ---
-        m_ShadowMap = Texture::Create(2048, 2048, TextureFormat::D32_Float);
+        // --- Shadow map: k_ShadowResolution^2, D32_Float, k_ShadowCascadeCount-layer 2D array (Phase 13) ---
+        m_ShadowMap = std::make_shared<VKTexture>(
+            k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
+            k_ShadowCascadeCount, /*createFlags*/ 0u, /*mipLevels*/ 1u, /*extraUsage*/ 0u);
+
+        // Per-layer 2D views for ShadowPass.Ci depth attachments (Phase 13C).
+        auto shadowTexForViews = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
 
         // --- Shadow sampler (PCF compare: less) ---
         VkSamplerCreateInfo samplerInfo{};
@@ -1046,6 +1058,12 @@ namespace Luth
         if (!shadowBindingDescs.empty())
             shadowBindingDescs[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3); // 52 bytes
 
+        // 4-byte VERTEX push constant carries cascadeIndex (Phase 13C).
+        VkPushConstantRange shadowCascadePC{};
+        shadowCascadePC.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        shadowCascadePC.offset     = 0;
+        shadowCascadePC.size       = sizeof(u32);
+
         PipelineConfig shadowConfig;
         shadowConfig.colorFormats = {};  // depth-only
         shadowConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -1055,8 +1073,7 @@ namespace Luth
         shadowConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         shadowConfig.bindingDescriptions = shadowBindingDescs;
         shadowConfig.attributeDescriptions = shadowAttribDescs;
-        // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
-        shadowConfig.pushConstantRanges = {};
+        shadowConfig.pushConstantRanges = { shadowCascadePC };
 
         m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, geoLayouts);
 
@@ -1126,8 +1143,7 @@ namespace Luth
             shadowSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             shadowSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
             shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
-            // No push constants — per-object data (incl. boneOffset) comes from GPUObjectData SSBO (Set 5)
-            shadowSkinnedConfig.pushConstantRanges = {};
+            shadowSkinnedConfig.pushConstantRanges = { shadowCascadePC };
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
                 shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
@@ -1306,6 +1322,80 @@ namespace Luth
     // Per-frame updates
     // =========================================================================
 
+    void RenderingSystem::ComputeCascadeSplits(float nearZ, float farZ, float lambda,
+                                                float outFar[k_ShadowCascadeCount]) const
+    {
+        // Engel "Practical Split": lambda * Clog + (1-lambda) * Cuniform.
+        const float ratio = farZ / std::max(nearZ, 1e-4f);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+        {
+            float p    = float(i + 1) / float(k_ShadowCascadeCount);
+            float clog = nearZ * std::pow(ratio, p);
+            float cuni = nearZ + (farZ - nearZ) * p;
+            outFar[i]  = lambda * clog + (1.0f - lambda) * cuni;
+        }
+    }
+
+    glm::mat4 RenderingSystem::ComputeCascadeMatrix(float nearD, float farD,
+                                                     const glm::vec3& lightDir,
+                                                     float tanHalfFovY, float aspect,
+                                                     const glm::mat4& camViewInv,
+                                                     bool stabilize,
+                                                     float& outWorldHalfExtent) const
+    {
+        // 8 corners of the sub-frustum slice [nearD, farD] in view space, then world space.
+        const float hN = nearD * tanHalfFovY;
+        const float wN = hN * aspect;
+        const float hF = farD * tanHalfFovY;
+        const float wF = hF * aspect;
+
+        const glm::vec4 cornersVS[8] = {
+            { -wN, -hN, -nearD, 1.0f }, {  wN, -hN, -nearD, 1.0f },
+            {  wN,  hN, -nearD, 1.0f }, { -wN,  hN, -nearD, 1.0f },
+            { -wF, -hF, -farD,  1.0f }, {  wF, -hF, -farD,  1.0f },
+            {  wF,  hF, -farD,  1.0f }, { -wF,  hF, -farD,  1.0f },
+        };
+
+        glm::vec3 cornersWS[8];
+        glm::vec3 center(0.0f);
+        for (int i = 0; i < 8; ++i) {
+            glm::vec4 w = camViewInv * cornersVS[i];
+            cornersWS[i] = glm::vec3(w) / w.w;
+            center += cornersWS[i];
+        }
+        center *= (1.0f / 8.0f);
+
+        const glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
+                             ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+
+        // Direct port of Sascha Willems' updateCascades() from
+        // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
+        //
+        // `stabilize` parameter is intentionally unused: Sascha's fit is effectively
+        // always stabilized via the 1/16-unit radius quantization below. Kept in the
+        // signature to preserve callers and the serialized DirectionalLight flag.
+        (void)stabilize;
+
+        // Bounding sphere of the 8 slice corners, quantized to 1/16 unit so the slab
+        // size is deterministic across frames (anti-shimmer).
+        float radius = 0.0f;
+        for (int i = 0; i < 8; ++i)
+            radius = glm::max(radius, glm::length(cornersWS[i] - center));
+        radius = std::ceil(radius * 16.0f) / 16.0f;
+
+        outWorldHalfExtent = radius;
+
+        // Eye placed exactly `radius` behind the frustum centroid along -lightDir.
+        // Symmetric ortho covers lightView.z in [-2*radius, 0] → clip.z in [0, 1]
+        // under GLM_FORCE_DEPTH_ZERO_TO_ONE (Luth's convention).
+        //
+        // No Y-flip: the shadow pass writes and pbr.frag samples through the same
+        // matrix, so the pair is self-consistent regardless of NDC Y orientation.
+        glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
+        glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
+        return lightProj * lightView;
+    }
+
     void RenderingSystem::UpdateLightUniforms(Scene* scene)
     {
         auto& registry = scene->Registry();
@@ -1313,6 +1403,9 @@ namespace Luth
 
         // Directional light — use first entity found
         bool foundDir = false;
+        float splitLambda      = 0.5f;
+        float shadowDistance   = 200.0f;
+        bool  stabilize        = true;
         auto dirView = registry.view<WorldTransform, DirectionalLight>();
         for (auto [entity, wt, dl] : dirView.each())
         {
@@ -1323,9 +1416,13 @@ namespace Luth
                 lights.dirLight.color     = dl.Color;
                 lights.dirLight.intensity = dl.Intensity;
                 m_CachedCastShadows  = dl.CastShadows;
-                m_CachedShadowBias   = dl.ShadowBias;
-                m_CachedShadowOrtho  = dl.ShadowOrthoSize;
-                m_CachedShadowDist   = dl.ShadowDistance;
+                m_CachedShadowBias   = glm::vec4(dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3]);
+                m_CachedShadowNormalBias = glm::vec4(dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3]);
+                splitLambda    = glm::clamp(dl.SplitLambda, 0.0f, 1.0f);
+                shadowDistance = dl.ShadowDistance;
+                stabilize      = dl.StabilizeCascades;
+                m_CachedCascadeBlendWidth       = glm::clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
+                m_CachedDebugVisualizeCascades  = dl.DebugVisualizeCascades;
                 foundDir = true;
             }
         }
@@ -1353,21 +1450,39 @@ namespace Luth
 
         m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
 
-        // Compute light-space matrix (orthographic from directional light)
-        float orthoSize = m_CachedShadowOrtho;
-        float shadowDist = m_CachedShadowDist;
-        glm::vec3 camPos = m_CameraParams.position;
+        // ── PSSM split computation + per-cascade ortho fitting (Phase 13B) ──
+        const glm::vec3 lightDir = lights.dirLight.direction;
 
-        glm::vec3 lightDir = lights.dirLight.direction;
-        glm::vec3 lightPos = camPos - lightDir * shadowDist;
-        glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
-                       ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+        // FOV / aspect from unflipped perspective projection.
+        // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
+        const glm::mat4& proj = m_CameraParams.projection;
+        const float tanHalfFovY = (proj[1][1] != 0.0f) ? std::abs(1.0f / proj[1][1]) : 1.0f;
+        const float aspect      = (proj[0][0] != 0.0f) ? std::abs(proj[1][1] / proj[0][0]) : 1.0f;
+        const glm::mat4 camViewInv = glm::inverse(m_CameraParams.view);
 
-        glm::mat4 lightView = glm::lookAt(lightPos, lightPos + lightDir, up);
-        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, -shadowDist, shadowDist * 2.0f);
-        lightProj[1][1] *= -1.0f; // Vulkan Y-flip
+        const float nearZ = glm::max(m_CameraParams.nearZ, 1e-3f);
+        const float farZ  = glm::max(nearZ + 1e-3f,
+                                     glm::min(m_CameraParams.farZ, shadowDistance));
 
-        m_CachedLightSpaceMatrix = lightProj * lightView;
+        float cascadeFar[k_ShadowCascadeCount];
+        ComputeCascadeSplits(nearZ, farZ, splitLambda, cascadeFar);
+
+        float cascadeNear = nearZ;
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+        {
+            const float cf = cascadeFar[i];
+            float halfExtent = 1.0f;
+            m_CachedLightSpaceMatrix[i] = ComputeCascadeMatrix(
+                cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv, stabilize, halfExtent);
+            // World-space size of one shadow-map texel for this cascade.
+            // Shader uses this to scale normal bias (expressed in texels) so a given
+            // bias setting produces consistent offsets across cascades of different sizes.
+            m_CachedCascadeTexelSize[i] = (2.0f * halfExtent) / float(k_ShadowResolution);
+            cascadeNear = cf;
+        }
+
+        // GLSL-side cascade selection uses absolute view-Z distances (positive).
+        m_CachedCascadeSplitsViewZ = glm::vec4(cascadeFar[0], cascadeFar[1], cascadeFar[2], cascadeFar[3]);
     }
 
     // =========================================================================
@@ -1391,8 +1506,9 @@ namespace Luth
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             m_ObjectSSBO, m_ObjectSSBOAlloc, m_ObjectSSBOMapped);
 
+        // Indirect buffer holds 5 regions (camera + 4 cascades), each with k_IndirectRegionStride commands.
         allocBuffer(
-            k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+            k_IndirectRegionCount * k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
 
@@ -1473,11 +1589,11 @@ namespace Luth
         writes[1].pBufferInfo     = &indInfo;
         vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-        // Push constant range: 6 frustum planes (96B) + objectCount (4B) = 100B
+        // Push constant range: 6 frustum planes (96B) + objectCount (4B) + destOffset (4B) = 104B
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         pcRange.offset     = 0;
-        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32);
+        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32) * 2;
 
         auto spv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/gpu_cull.comp"));
         if (spv.empty())
@@ -1553,14 +1669,18 @@ namespace Luth
             obj.vertexOffset = 0;
             obj._pad         = 0;
 
-            // Indirect command — instanceCount=1; GPU cull will zero it if culled
-            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance])
-            VkDrawIndexedIndirectCommand& cmd = indirectCmds[count];
-            cmd.indexCount    = obj.indexCount;
-            cmd.instanceCount = 1;
-            cmd.firstIndex    = 0;
-            cmd.vertexOffset  = 0;
-            cmd.firstInstance = count;
+            // Indirect command — instanceCount=1; per-region GPU cull zeros it if culled.
+            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance]).
+            // Duplicate into all k_IndirectRegionCount regions (camera + 4 cascades) so each
+            // region has its own independently-cullable command for this object.
+            VkDrawIndexedIndirectCommand baseCmd{};
+            baseCmd.indexCount    = obj.indexCount;
+            baseCmd.instanceCount = 1;
+            baseCmd.firstIndex    = 0;
+            baseCmd.vertexOffset  = 0;
+            baseCmd.firstInstance = count;
+            for (u32 r = 0; r < k_IndirectRegionCount; ++r)
+                indirectCmds[r * k_IndirectRegionStride + count] = baseCmd;
             count++;
         }
 
@@ -1576,10 +1696,17 @@ namespace Luth
         ubo.viewProjection = ubo.projection * ubo.view;
         ubo.cameraPos = m_CameraParams.position;
         ubo.time = Time::GetTime();
-        ubo.lightSpaceMatrix = m_CachedLightSpaceMatrix;
-        ubo.shadowBias = m_CachedCastShadows ? m_CachedShadowBias : -1.0f; // negative = shadows disabled
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            ubo.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
+        ubo.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
+        // Negative bias (sentinel) disables shadows entirely in the PBR shader.
+        ubo.shadowBias       = m_CachedCastShadows ? m_CachedShadowBias : glm::vec4(-1.0f);
+        ubo.shadowNormalBias = m_CachedShadowNormalBias;
+        ubo.cascadeTexelSize = m_CachedCascadeTexelSize;
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
+        ubo.debugVisualizeCascades = m_CachedDebugVisualizeCascades ? 1.0f : 0.0f;
+        ubo.cascadeBlendWidth      = m_CachedCascadeBlendWidth;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;
@@ -1674,22 +1801,36 @@ namespace Luth
             };
             RG::BufferDesc indDesc {
                 "IndirectBuffer",
-                k_MaxGPUObjects * sizeof(VkDrawIndexedIndirectCommand),
+                k_IndirectRegionCount * k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
             };
             RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc,   (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
             RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc,    (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
-            // Frustum cull pass (before shadow/geometry)
+            // Frustum cull — 5 dispatches: camera region + 4 shadow cascade regions.
+            // Each cascade uses its own light-space viewProj frustum so shadow casters
+            // outside the camera frustum but inside the cascade still get rendered.
             {
-                Frustum frustum = CreateFrustumFromCamera(m_CachedViewProj);
+                Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    m_CullPipeline.get(), m_CullDescSet, frustum.planes, m_GPUObjectCount,
-                    &m_FrameDebugger);
+                    m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
+                    /*destOffset*/ 0, "FrustumCull.Cam", &m_FrameDebugger);
+
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                {
+                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_CachedLightSpaceMatrix[i]);
+                    const u32 destOffset = (i + 1) * k_IndirectRegionStride;
+                    const std::string name = "FrustumCull.C" + std::to_string(i);
+                    AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
+                        m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
+                        destOffset, name.c_str(), &m_FrameDebugger);
+                }
             }
 
-            RG::ResourceHandle shadowMap   = AddShadowPass(rg, registry, hIndirectBuf);
-            auto geoOutput                 = AddGeometryPass(rg, registry, shadowMap, hIndirectBuf);
+            RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
+            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                shadowHandles[i] = AddShadowPass(rg, registry, hIndirectBuf, i);
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom

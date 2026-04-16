@@ -28,17 +28,25 @@
 
 namespace Luth
 {
+    // Number of shadow cascades for directional-light CSM (Phase 13)
+    inline constexpr u32 k_ShadowCascadeCount = 4;
+    inline constexpr u32 k_ShadowResolution   = 2048;
+
     struct GlobalUniforms {
         glm::mat4 viewProjection;
         glm::mat4 view;
         glm::mat4 projection;
         glm::vec3 cameraPos;
         float     time;
-        glm::mat4 lightSpaceMatrix;  // Set by UpdateLightUniforms before upload
-        float     shadowBias;
+        glm::mat4 lightSpaceMatrix[k_ShadowCascadeCount]; // Per-cascade light-space matrices (Phase 13)
+        glm::vec4 cascadeSplitsViewZ;                      // Far view-space depth per cascade
+        glm::vec4 shadowBias;                              // Per-cascade depth bias (negative = shadows disabled)
+        glm::vec4 shadowNormalBias;                        // Per-cascade normal bias (in shadow-map texels)
+        glm::vec4 cascadeTexelSize;                        // Per-cascade world-space size of one shadow texel
         float     iblIntensity;
         float     skyboxIntensity;
-        float     _pad;
+        float     debugVisualizeCascades;                  // 0 = off, 1 = tint by cascade
+        float     cascadeBlendWidth;                       // fraction of slice depth used for cross-cascade blend (0–1)
     };
 
     enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
@@ -142,6 +150,19 @@ namespace Luth
         void InitIBLResources(const std::filesystem::path& hdrPath);
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
+
+        // CSM helpers (Phase 13B)
+        void ComputeCascadeSplits(float nearZ, float farZ, float lambda, float outFar[k_ShadowCascadeCount]) const;
+        // Computes the light-space view-projection matrix for one cascade slice.
+        // `outWorldHalfExtent` receives the world-space half-extent of the cascade's
+        // ortho footprint (radius for stabilized, max of X/Y half-extents otherwise),
+        // which the shader uses to scale per-texel quantities like normal bias.
+        glm::mat4 ComputeCascadeMatrix(float nearD, float farD,
+                                        const glm::vec3& lightDir,
+                                        float tanHalfFovY, float aspect,
+                                        const glm::mat4& camViewInv,
+                                        bool stabilize,
+                                        float& outWorldHalfExtent) const;
         void UpdatePostProcessUBO();
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
@@ -151,8 +172,10 @@ namespace Luth
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
 
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry, RG::ResourceHandle shadowMapHandle, RG::BufferHandle indirectBufferHandle);
+        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
+        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
+                                        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
+                                        RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -187,15 +210,22 @@ namespace Luth
         VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet m_GlobalDescriptorSet = VK_NULL_HANDLE;
 
-        // Light space matrix (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms)
-        glm::mat4 m_CachedLightSpaceMatrix = glm::mat4(1.0f);
-        float     m_CachedShadowBias = 0.005f;
+        // Per-cascade light-space matrices (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms).
+        // In 13A all four entries are identical (single-camera-fit); per-cascade fitting lands in 13B.
+        glm::mat4 m_CachedLightSpaceMatrix[k_ShadowCascadeCount] = {
+            glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)
+        };
+        glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        glm::vec4 m_CachedShadowBias       = glm::vec4(0.005f);   // Per-cascade depth bias (negative = disabled)
+        glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias (in texels)
+        glm::vec4 m_CachedCascadeTexelSize = glm::vec4(1.0f);     // World-space size of one shadow texel per cascade
+        float     m_CachedCascadeBlendWidth = 0.2f;               // Cross-cascade blend fraction
+        bool      m_CachedDebugVisualizeCascades = false;          // Tint by cascade index
         bool      m_CachedCastShadows = true;
-        float     m_CachedShadowOrtho = 200.0f;
-        float     m_CachedShadowDist  = 200.0f;
 
-        // Shadow map
+        // Shadow map (4-layer 2D array) + cached per-layer views for ShadowPass.Ci attachments
         std::shared_ptr<Texture> m_ShadowMap;
+        VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkSampler                m_ShadowSampler = VK_NULL_HANDLE;
 
         // Light UBO + shadow descriptor (Set 3)
@@ -224,7 +254,11 @@ namespace Luth
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
 
         // GPU Object + Indirect Buffers (persistent, CPU_TO_GPU, pre-allocated)
-        static constexpr u32 k_MaxGPUObjects = 4096;
+        static constexpr u32 k_MaxGPUObjects        = 4096;
+        // Indirect buffer is partitioned into 5 regions: camera + 4 cascades.
+        // Each region is k_IndirectRegionStride commands; total = k_IndirectRegionCount * stride.
+        static constexpr u32 k_IndirectRegionCount  = 1 + k_ShadowCascadeCount;
+        static constexpr u32 k_IndirectRegionStride = k_MaxGPUObjects;
         VkBuffer      m_ObjectSSBO         = VK_NULL_HANDLE;
         VmaAllocation m_ObjectSSBOAlloc    = nullptr;
         void*         m_ObjectSSBOMapped   = nullptr;

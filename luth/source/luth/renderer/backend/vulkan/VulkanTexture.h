@@ -44,6 +44,9 @@ namespace Luth
         // forStorage: use VK_IMAGE_VIEW_TYPE_2D_ARRAY instead of CUBE for compute storage image bindings.
         VkImageView CreateMipView(u32 mipLevel, bool forStorage = false) const;
 
+        // Create a 2D view for a single array layer (all mips). Caller must destroy the returned view.
+        VkImageView CreateLayerView(u32 layer) const;
+
         // Bindless Support
         virtual u32 GetBindlessIndex() const override { return m_BindlessIndex; }
 

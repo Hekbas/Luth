@@ -711,10 +711,11 @@ namespace Luth
                         "Toggle Cast Shadows", scene, ent, &DirectionalLight::CastShadows, oldCastShadows, dirLight.CastShadows));
 
                 if (dirLight.CastShadows) {
-                    auto oldBias = dirLight.ShadowBias;
-                    if (UI::Property("Shadow Bias", dirLight.ShadowBias, 0.0001f, 0.0f, 0.05f))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                            "Change Shadow Bias", scene, ent, &DirectionalLight::ShadowBias, oldBias, dirLight.ShadowBias));
+                    // Per-cascade CSM bias UI; show cascade-0 bias here for now (no undo).
+                    UI::Property("Shadow Bias (C0)", dirLight.ShadowBias[0], 0.0001f, 0.0f, 0.05f);
+                    UI::Property("Normal Bias (texels)", dirLight.ShadowNormalBias[0], 0.1f, 0.0f, 10.0f);
+                    UI::Property("Blend Width", dirLight.CascadeBlendWidth, 0.01f, 0.0f, 1.0f);
+                    UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
 
                     auto oldOrtho = dirLight.ShadowOrthoSize;
                     if (UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f))

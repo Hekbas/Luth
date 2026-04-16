@@ -26,30 +26,39 @@ namespace Luth
     // =========================================================================
 
     RG::ResourceHandle RenderingSystem::AddShadowPass(
-        RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle)
+        RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex)
     {
         struct ShadowPassData {
             RG::ResourceHandle shadowTex;
             RG::BufferHandle   indirectBuf;
+            u32                cascadeIndex;
         };
 
         RG::ResourceHandle shadowHandle;
+        const std::string passName = "ShadowPass.C" + std::to_string(cascadeIndex);
+        const std::string resName  = "ShadowMap.C" + std::to_string(cascadeIndex);
 
-        rg.AddPass<ShadowPassData>("ShadowPass",
+        rg.AddPass<ShadowPassData>(passName,
             [&](ShadowPassData& data, RG::RenderPassBuilder& builder)
             {
+                data.cascadeIndex = cascadeIndex;
+
                 auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
 
                 RG::TextureDesc desc;
-                desc.name   = "ShadowMap";
-                desc.width  = 2048;
-                desc.height = 2048;
+                desc.name   = resName;
+                desc.width  = k_ShadowResolution;
+                desc.height = k_ShadowResolution;
                 desc.format = RG::TextureFormat::D32_Float;
 
+                // Import a per-layer view so the depth attachment targets cascade `i` only.
+                // Barriers issued by the graph will carry baseArrayLayer=cascadeIndex, layerCount=1.
                 data.shadowTex = rg.ImportResource(desc,
                     (void*)vkShadowTex->GetImage(),
-                    (void*)vkShadowTex->GetImageView(),
-                    RG::ResourceState::Undefined);
+                    (void*)m_ShadowLayerViews[cascadeIndex],
+                    RG::ResourceState::Undefined,
+                    /*baseArrayLayer*/ cascadeIndex,
+                    /*layerCount*/     1);
 
                 VkClearValue depthClear{};
                 depthClear.depthStencil = { 1.0f, 0 };
@@ -62,11 +71,11 @@ namespace Luth
 
                 shadowHandle = data.shadowTex;
             },
-            [this, &registry](ShadowPassData& data, RG::RenderPassContext& ctx)
+            [this, &registry, passName, resName](ShadowPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass("ShadowPass", "ShadowMap", true,
+                m_FrameDebugger.BeginCapturePass(passName, resName, true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_FrameDebugger.EndCapturePass(); return; }
@@ -87,15 +96,20 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
 
+                // Push cascadeIndex so the vertex shader selects lightSpaceMatrix[pc.cascadeIndex].
+                const u32 cascadeIdxVal = data.cascadeIndex;
+                vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                    VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
+
                 // Shadow map viewport
                 VkViewport viewport{};
-                viewport.width    = 2048.0f;
-                viewport.height   = 2048.0f;
+                viewport.width    = (float)k_ShadowResolution;
+                viewport.height   = (float)k_ShadowResolution;
                 viewport.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &viewport);
 
                 VkRect2D scissor{};
-                scissor.extent = { 2048, 2048 };
+                scissor.extent = { k_ShadowResolution, k_ShadowResolution };
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
 
                 bool currentSkinned = false;
@@ -131,12 +145,16 @@ namespace Luth
                             m_ShadowSkinnedPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                            vkCmdPushConstants(cmd, m_ShadowSkinnedPipeline->GetLayout(),
+                                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
                         }
                         else
                         {
                             m_ShadowPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                            vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
                         }
                     }
 
@@ -145,9 +163,11 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Indirect draw — GPU cull (main camera) has set instanceCount=0 for culled objects.
-                    // gl_BaseInstance = firstInstance = gpuObjectIndex → shader reads objects[gl_BaseInstance]
-                    VkDeviceSize indirectOffset = gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    // Indirect draw — per-cascade cull region writes independent instanceCount values,
+                    // so shadow casters outside the camera frustum but inside the cascade still render.
+                    // Region layout: [camera | C0 | C1 | C2 | C3], each of size k_IndirectRegionStride.
+                    const u32 cmdIndex = (data.cascadeIndex + 1) * k_IndirectRegionStride + gpuObjectIndex;
+                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
@@ -157,7 +177,7 @@ namespace Luth
                         std::string entName = registry.any_of<Component::Tag>(entity)
                             ? registry.get<Component::Tag>(entity).m_Tag : "Entity";
                         u32 entityIndex = gpuObjectIndex + 1;
-                        m_FrameDebugger.CaptureIndirectDraw("ShadowPass",
+                        m_FrameDebugger.CaptureIndirectDraw(passName,
                             model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
                             entName, entityIndex, ib->GetCount(), gpuObjectIndex, indirectOffset,
                             { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
