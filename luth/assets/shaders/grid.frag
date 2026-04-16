@@ -22,7 +22,7 @@ layout(set = 0, binding = 0) uniform GridGlobals {
     float iblIntensity;
     float skyboxIntensity;
     float debugVisualizeCascades;
-    float _pad;
+    float cascadeBlendWidth;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2D u_SceneDepth;

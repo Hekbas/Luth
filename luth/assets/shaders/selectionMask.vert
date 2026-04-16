@@ -18,7 +18,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float iblIntensity;
     float skyboxIntensity;
     float debugVisualizeCascades;
-    float _pad;
+    float cascadeBlendWidth;
 } ubo;
 
 layout(push_constant) uniform PushConstants {

@@ -711,8 +711,11 @@ namespace Luth
                         "Toggle Cast Shadows", scene, ent, &DirectionalLight::CastShadows, oldCastShadows, dirLight.CastShadows));
 
                 if (dirLight.CastShadows) {
-                    // Per-cascade CSM bias UI lands in 13F; show cascade-0 bias here for now (no undo).
+                    // Per-cascade CSM bias UI; show cascade-0 bias here for now (no undo).
                     UI::Property("Shadow Bias (C0)", dirLight.ShadowBias[0], 0.0001f, 0.0f, 0.05f);
+                    UI::Property("Normal Bias (texels)", dirLight.ShadowNormalBias[0], 0.1f, 0.0f, 10.0f);
+                    UI::Property("Blend Width", dirLight.CascadeBlendWidth, 0.01f, 0.0f, 1.0f);
+                    UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
 
                     auto oldOrtho = dirLight.ShadowOrthoSize;
                     if (UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f))

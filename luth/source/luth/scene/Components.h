@@ -136,6 +136,8 @@ namespace Luth::Component
         float ShadowBias[4]       = { 0.005f, 0.008f, 0.012f, 0.02f };   // per-cascade constant depth bias (NDC)
         float ShadowNormalBias[4] = { 1.0f, 1.0f, 1.0f, 1.0f };          // per-cascade normal offset (shader scales by texel size)
         bool  StabilizeCascades = true;                                  // texel-snap ortho origin to kill shimmer
+        float CascadeBlendWidth = 0.2f;                                 // fraction of slice depth for cross-cascade blend (0–1)
+        bool  DebugVisualizeCascades = false;                            // tint fragments by cascade index
     };
     
     struct PointLight {

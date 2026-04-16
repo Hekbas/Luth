@@ -45,8 +45,8 @@ namespace Luth
         glm::vec4 cascadeTexelSize;                        // Per-cascade world-space size of one shadow texel
         float     iblIntensity;
         float     skyboxIntensity;
-        float     debugVisualizeCascades;                  // 0 = off, 1 = tint by cascade (Phase 13F)
-        float     _pad;
+        float     debugVisualizeCascades;                  // 0 = off, 1 = tint by cascade
+        float     cascadeBlendWidth;                       // fraction of slice depth used for cross-cascade blend (0–1)
     };
 
     enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
@@ -219,6 +219,8 @@ namespace Luth
         glm::vec4 m_CachedShadowBias       = glm::vec4(0.005f);   // Per-cascade depth bias (negative = disabled)
         glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias (in texels)
         glm::vec4 m_CachedCascadeTexelSize = glm::vec4(1.0f);     // World-space size of one shadow texel per cascade
+        float     m_CachedCascadeBlendWidth = 0.2f;               // Cross-cascade blend fraction
+        bool      m_CachedDebugVisualizeCascades = false;          // Tint by cascade index
         bool      m_CachedCastShadows = true;
 
         // Shadow map (4-layer 2D array) + cached per-layer views for ShadowPass.Ci attachments

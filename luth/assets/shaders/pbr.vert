@@ -30,7 +30,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float iblIntensity;
     float skyboxIntensity;
     float debugVisualizeCascades;
-    float _pad;
+    float cascadeBlendWidth;
 } ubo;
 
 // Set 5: Per-object data SSBO (std430, 112 bytes per entry)

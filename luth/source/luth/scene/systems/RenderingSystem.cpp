@@ -1458,6 +1458,8 @@ namespace Luth
                 splitLambda    = glm::clamp(dl.SplitLambda, 0.0f, 1.0f);
                 shadowDistance = dl.ShadowDistance;
                 stabilize      = dl.StabilizeCascades;
+                m_CachedCascadeBlendWidth       = glm::clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
+                m_CachedDebugVisualizeCascades  = dl.DebugVisualizeCascades;
                 foundDir = true;
             }
         }
@@ -1740,7 +1742,8 @@ namespace Luth
         ubo.cascadeTexelSize = m_CachedCascadeTexelSize;
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
-        ubo.debugVisualizeCascades = 0.0f;      // enabled in 13F
+        ubo.debugVisualizeCascades = m_CachedDebugVisualizeCascades ? 1.0f : 0.0f;
+        ubo.cascadeBlendWidth      = m_CachedCascadeBlendWidth;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;

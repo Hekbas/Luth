@@ -133,6 +133,8 @@ namespace Luth
                 dj["stabilizeCascades"]   = dl.StabilizeCascades;
                 dj["shadowBias"]          = { dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3] };
                 dj["shadowNormalBias"]    = { dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3] };
+                dj["cascadeBlendWidth"]   = dl.CascadeBlendWidth;
+                dj["debugVisualizeCascades"] = dl.DebugVisualizeCascades;
                 j["directionalLight"] = dj;
             }
 
@@ -302,6 +304,8 @@ namespace Luth
                         for (u32 i = 0; i < 4; ++i)
                             dl.ShadowNormalBias[i] = (i < arr.size()) ? arr[i].get<float>() : dl.ShadowNormalBias[i];
                     }
+                    dl.CascadeBlendWidth       = dj.value("cascadeBlendWidth", 0.2f);
+                    dl.DebugVisualizeCascades   = dj.value("debugVisualizeCascades", false);
                 }
 
                 // PointLight
