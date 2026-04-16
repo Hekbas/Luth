@@ -18,6 +18,7 @@ namespace Luth { class GPUTimerPool; }
 namespace Luth::RG
 {
     class RenderGraph;
+    class IArchiveSink;
 
     // ===================================================================================
     // Pass Builder — Declares resource reads/writes during setup
@@ -243,11 +244,16 @@ namespace Luth::RG
         std::vector<ResourceNode>& GetResources() { return m_Resources; }
         std::vector<BufferNode>& GetBuffers() { return m_Buffers; }
 
+        // Archive sink — invoked after each non-culled pass during Execute. Optional.
+        // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
+        void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }
+
     private:
         Memory::LinearAllocator& m_Allocator;
         std::vector<PassNode>   m_Passes;
         std::vector<ResourceNode> m_Resources;
         std::vector<BufferNode>   m_Buffers;
+        IArchiveSink*           m_ArchiveSink = nullptr;
 
         void AllocatePhysicalResources();
         void CleanupPhysicalResources();
