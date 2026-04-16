@@ -134,7 +134,13 @@ namespace Luth
 
         // Frame debugger capture
         void RequestCapture()   { if (m_FrameDebugger.state == DebuggerState::Inactive) m_FrameDebugger.state = DebuggerState::CaptureRequested; }
-        void ExitCapture()      { m_FrameDebugger.state = DebuggerState::Inactive; m_FrameDebugger.capturedFrame.Clear(); }
+        void ExitCapture()
+        {
+            // Free GPU-owned archives BEFORE clearing the metadata vectors.
+            m_FrameDebugger.DestroyArchives();
+            m_FrameDebugger.state = DebuggerState::Inactive;
+            m_FrameDebugger.capturedFrame.Clear();
+        }
         DebuggerState GetDebuggerState() const { return m_FrameDebugger.state; }
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
         void SetDebuggerDrawLimit(u32 limit) { m_FrameDebugger.drawLimit = limit; }

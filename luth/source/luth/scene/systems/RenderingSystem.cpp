@@ -1752,9 +1752,10 @@ namespace Luth
             return;
         }
 
-        // --- Frame Debugger: Prepare for capture ---
-        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
-            m_FrameDebugger.capturedFrame.Clear();
+        // --- Frame Debugger: Prepare for capture (BeginCapture below handles reset) ---
+        // Capture metadata + GPU archives are reset together inside FrameDebugger::
+        // BeginCapture (called after rg.Compile, just before ExecuteGraph) so prior
+        // archives get freed in the right order.
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
@@ -1867,6 +1868,24 @@ namespace Luth
             }
             m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
+            // --- Phase 14B — Wire archive sink for the capture frame ---
+            // The sink will copy each tracked render target into a fresh ArchivedImage
+            // after each pass that writes it. Keep the tracked-RT set tight to bound
+            // memory (~50 MB at 1080p for the v1 set). The sink is a no-op when state
+            // != CaptureRequested, so re-checking here is sufficient.
+            if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+            {
+                m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
+                                             VulkanContext::Get().GetAllocator());
+                m_FrameDebugger.RegisterTrackedRT("SceneColor");
+                m_FrameDebugger.RegisterTrackedRT("SceneDepth");
+                m_FrameDebugger.RegisterTrackedRT("ShadowMap");
+                m_FrameDebugger.RegisterTrackedRT("LDROutput");
+                m_FrameDebugger.RegisterTrackedRT("EntityID");
+                m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
+                rg.SetArchiveSink(&m_FrameDebugger);
+            }
+
             Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
 
             // --- Frame Debugger: Finalize capture and enter frozen state ---
@@ -1892,6 +1911,10 @@ namespace Luth
                         capturedIdx++;
                     }
                 }
+
+                // Snapshot capture-time camera viewProj. Phase 14C compares this against
+                // the live viewProj each Frozen frame to trigger auto-recapture on move.
+                m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
 
                 m_FrameDebugger.capturedFrame.valid = true;
                 m_FrameDebugger.state       = DebuggerState::Frozen;

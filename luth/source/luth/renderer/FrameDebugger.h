@@ -3,18 +3,23 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/DrawCommand.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
+#include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
+
+typedef struct VmaAllocator_T* VmaAllocator;
 
 namespace Luth
 {
     enum class DebuggerState : u8 { Inactive, CaptureRequested, Frozen };
 
-    struct FrameDebugger
+    struct FrameDebugger : public RG::IArchiveSink
     {
         // Capture state machine
         DebuggerState     state             = DebuggerState::Inactive;
@@ -37,6 +42,14 @@ namespace Luth
         VkDescriptorSet              descSet       = VK_NULL_HANDLE;
         VkSampler                    sampler       = VK_NULL_HANDLE;
 
+        // Phase 14B — Archive sink configuration. Names match RG::TextureDesc::name.
+        // Set by RegisterTrackedRT before each capture.
+        std::unordered_set<std::string> trackedRTs;
+
+        // Cached device/allocator for archive ownership. Populated by BeginCapture.
+        VkDevice     archiveDevice    = VK_NULL_HANDLE;
+        VmaAllocator archiveAllocator = nullptr;
+
         // Capture helpers (called during normal recording when CaptureRequested)
         void BeginCapturePass(const std::string& name, const std::string& activeTarget,
                               bool isDepth, const RG::CapturedPipelineState& ps);
@@ -52,6 +65,15 @@ namespace Luth
 
         void CaptureComputeDispatch(const std::string& passName, const std::string& shaderName,
                                     u32 groupCountX, u32 groupCountY, u32 groupCountZ);
+
+        // Phase 14B — Archive lifecycle (called from RenderingSystem around capture frame)
+        void BeginCapture(VkDevice device, VmaAllocator allocator);
+        void RegisterTrackedRT(const std::string& name);
+        void FinalizeCapture(const glm::mat4& viewProj);
+        void DestroyArchives();
+
+        // IArchiveSink — invoked post-pass during RenderGraph::Execute
+        void OnPassExecuted(u32 passIndex, RG::RenderGraph& graph, VkCommandBuffer primaryCmd) override;
 
         void Shutdown(VkDevice device);
     };

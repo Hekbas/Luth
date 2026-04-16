@@ -2,6 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
+#include "luth/renderer/rendergraph/ArchivedImage.h"
 
 #include <glm/glm.hpp>
 #include <string>
@@ -87,11 +88,33 @@ namespace Luth::RG
         float totalGpuTimeMs = 0.0f;
         bool  valid          = false;
 
+        // Phase 14B — Per-pass archives + capture-time camera state.
+        //
+        // archivedImages owns the staging copies of tracked render targets, captured
+        // post-pass during Execute by the FrameDebugger sink. passArchives is indexed
+        // by RenderGraph pass index and holds the indices into archivedImages of all
+        // archives produced by that pass (typically 0–4 per pass).
+        //
+        // captureViewProj is the camera viewProj at the moment of capture; the Frozen
+        // path compares against the live viewProj to trigger auto-recapture on camera
+        // movement (Phase 14C).
+        //
+        // ArchivedImage destruction is the OWNER's responsibility (FrameDebugger).
+        // Clear() does NOT free GPU resources — call FrameDebugger::DestroyArchives
+        // first.
+        std::vector<ArchivedImage>     archivedImages;
+        std::vector<std::vector<u32>>  passArchives;
+        glm::mat4                       captureViewProj = glm::mat4(1.0f);
+
+        // Metadata-only reset. GPU-owned archives are NOT touched; the owner
+        // (FrameDebugger) must call DestroyArchives separately to free them.
+        // BeginCapture orchestrates both in the right order.
         void Clear()
         {
             drawCalls.clear();
             passes.clear();
             resources.clear();
+            captureViewProj = glm::mat4(1.0f);
             totalGpuTimeMs = 0.0f;
             valid = false;
         }
