@@ -1368,69 +1368,32 @@ namespace Luth
         const glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
                              ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
 
-        // Extra depth range behind the light so off-frustum casters still cast shadows.
-        constexpr float kCasterExtend = 50.0f;
+        // Direct port of Sascha Willems' updateCascades() from
+        // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
+        //
+        // `stabilize` parameter is intentionally unused: Sascha's fit is effectively
+        // always stabilized via the 1/16-unit radius quantization below. Kept in the
+        // signature to preserve callers and the serialized DirectionalLight flag.
+        (void)stabilize;
 
-        if (stabilize) {
-            // Bounding sphere — rotation-invariant → no shimmer when camera rotates.
-            float radius = 0.0f;
-            for (int i = 0; i < 8; ++i)
-                radius = glm::max(radius, glm::length(cornersWS[i] - center));
-            // Quantize to ~1 texel using an estimated texel size from the raw radius.
-            // Finer than the previous 1/16-unit step (which was several texels at typical
-            // extents and caused visible snapping when the slab resized).
-            {
-                const float estTexel = glm::max(2.0f * radius / float(k_ShadowResolution), 1e-4f);
-                radius = std::ceil(radius / estTexel) * estTexel;
-            }
+        // Bounding sphere of the 8 slice corners, quantized to 1/16 unit so the slab
+        // size is deterministic across frames (anti-shimmer).
+        float radius = 0.0f;
+        for (int i = 0; i < 8; ++i)
+            radius = glm::max(radius, glm::length(cornersWS[i] - center));
+        radius = std::ceil(radius * 16.0f) / 16.0f;
 
-            float ext = glm::max(radius, 0.01f);
-            outWorldHalfExtent = ext;
+        outWorldHalfExtent = radius;
 
-            const float texelSize = (2.0f * ext) / float(k_ShadowResolution);
-            glm::mat4 lightRot = glm::lookAt(glm::vec3(0.0f), lightDir, up);
-            glm::vec3 centerLS = glm::vec3(lightRot * glm::vec4(center, 1.0f));
-            centerLS.x = std::floor(centerLS.x / texelSize) * texelSize;
-            centerLS.y = std::floor(centerLS.y / texelSize) * texelSize;
-            const glm::vec3 snappedCenter = glm::vec3(glm::inverse(lightRot) * glm::vec4(centerLS, 1.0f));
-            glm::mat4 lightView = glm::lookAt(snappedCenter - lightDir * ext, snappedCenter, up);
-
-            // Negative near plane pulls the slab back behind the virtual light eye so
-            // casters above/behind the frustum slice (tall geometry, buildings) still
-            // get rendered. Without this, small cascades (near camera) drop shadows
-            // because ext alone isn't enough depth range toward the sun.
-            glm::mat4 lightProj = glm::ortho(-ext, ext, -ext, ext,
-                                              -kCasterExtend, 2.0f * ext + kCasterExtend);
-            lightProj[1][1] *= -1.0f; // Vulkan Y-flip
-            return lightProj * lightView;
-        }
-        else {
-            // Tight AABB in light-view space.
-            glm::mat4 lightView = glm::lookAt(center - lightDir, center, up);
-
-            glm::vec3 mn( FLT_MAX);
-            glm::vec3 mx(-FLT_MAX);
-            for (int i = 0; i < 8; ++i) {
-                glm::vec4 ls = lightView * glm::vec4(cornersWS[i], 1.0f);
-                mn = glm::min(mn, glm::vec3(ls));
-                mx = glm::max(mx, glm::vec3(ls));
-            }
-
-            // Clamp degenerate extents.
-            const float extX = glm::max(mx.x - mn.x, 0.01f);
-            const float extY = glm::max(mx.y - mn.y, 0.01f);
-            mx.x = mn.x + extX;
-            mx.y = mn.y + extY;
-            outWorldHalfExtent = 0.5f * glm::max(extX, extY);
-
-            // lookAt(center - lightDir, ...) puts the light "behind" the slab;
-            // in right-handed light space the slab lies at negative Z. Extend near
-            // plane outward to pick up casters behind the frustum.
-            glm::mat4 lightProj = glm::ortho(mn.x, mx.x, mn.y, mx.y,
-                                              -mx.z - kCasterExtend, -mn.z);
-            lightProj[1][1] *= -1.0f; // Vulkan Y-flip
-            return lightProj * lightView;
-        }
+        // Eye placed exactly `radius` behind the frustum centroid along -lightDir.
+        // Symmetric ortho covers lightView.z in [-2*radius, 0] → clip.z in [0, 1]
+        // under GLM_FORCE_DEPTH_ZERO_TO_ONE (Luth's convention).
+        //
+        // No Y-flip: the shadow pass writes and pbr.frag samples through the same
+        // matrix, so the pair is self-consistent regardless of NDC Y orientation.
+        glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
+        glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
+        return lightProj * lightView;
     }
 
     void RenderingSystem::UpdateLightUniforms(Scene* scene)

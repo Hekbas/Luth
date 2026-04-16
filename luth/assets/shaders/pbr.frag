@@ -371,6 +371,7 @@ void main()
 
     // Directional light + PCF shadow
     ShadowResult sr = ComputeShadow(v_WorldPos, N);
+
     {
         vec3 dirRadiance = lights.dirLight.color * lights.dirLight.intensity;
         Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance,
