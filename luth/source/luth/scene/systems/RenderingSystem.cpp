@@ -103,10 +103,15 @@ namespace Luth
                 m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
                 m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
 
+                m_DepthPrepassVertSpv          = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+                m_DepthPrepassSkinnedVertSpv   = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
+
                 if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
                     LH_CORE_ERROR("Failed to compile skinned shaders!");
                 if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty())
                     LH_CORE_ERROR("Failed to compile selection mask shaders!");
+                if (m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty())
+                    LH_CORE_ERROR("Failed to compile depth prepass shaders!");
             }
 
             // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
@@ -157,6 +162,8 @@ namespace Luth
                 }
                 m_ShadowPipeline.reset();
                 m_ShadowSkinnedPipeline.reset();
+                m_DepthPrepassPipeline.reset();
+                m_DepthPrepassSkinnedPipeline.reset();
                 m_SkyboxPipeline.reset();
                 m_BloomExtractPipeline.reset();
                 m_BloomBlurPipeline.reset();
@@ -309,6 +316,8 @@ namespace Luth
         m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
         m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
         m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
+        m_DepthPrepassVertSpv         = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
 
         m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
         m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
@@ -325,6 +334,8 @@ namespace Luth
         m_GeoSkinnedPipelineManager.Clear();
         m_ShadowPipeline.reset();
         m_ShadowSkinnedPipeline.reset();
+        m_DepthPrepassPipeline.reset();
+        m_DepthPrepassSkinnedPipeline.reset();
         m_SkyboxPipeline.reset();
         m_BloomExtractPipeline.reset();
         m_BloomBlurPipeline.reset();
@@ -1024,6 +1035,9 @@ namespace Luth
                 config.attributeDescriptions = attribDescs;
                 // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
+                // LESS_OR_EQUAL so opaques pass the DepthPrepass values (written with LESS)
+                // exactly, while cutouts/transparents still Z-test against the prepass depth.
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
                 switch (mode)
                 {
@@ -1111,6 +1125,7 @@ namespace Luth
                 config.attributeDescriptions = skinnedAttribDescs;
                 // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL; // matches DepthPrepass output
 
                 switch (mode)
                 {
@@ -1156,6 +1171,45 @@ namespace Luth
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
                 shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
+        }
+
+        // ---- Depth prepass pipeline (camera-space, depth-only, position only) ----
+        // Reuses the shadow frag SPIR-V (empty `void main(){}`) as the null fragment.
+        // Rigid variant uses the position-only binding/attribs (shadowVertexLayout).
+        if (!m_DepthPrepassVertSpv.empty() && !m_ShadowFragSpv.empty())
+        {
+            PipelineConfig depthPrepassConfig;
+            depthPrepassConfig.colorFormats = {}; // depth-only
+            depthPrepassConfig.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            depthPrepassConfig.depthTest    = true;
+            depthPrepassConfig.depthWrite   = true;
+            depthPrepassConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+            depthPrepassConfig.blendEnabled = false;
+            depthPrepassConfig.cullMode     = VK_CULL_MODE_BACK_BIT;
+            depthPrepassConfig.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            depthPrepassConfig.bindingDescriptions   = shadowBindingDescs; // position-only + full-vertex stride
+            depthPrepassConfig.attributeDescriptions = shadowAttribDescs;
+
+            m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
+                depthPrepassConfig, m_DepthPrepassVertSpv, m_ShadowFragSpv, geoLayouts);
+        }
+
+        if (!m_DepthPrepassSkinnedVertSpv.empty() && !m_ShadowFragSpv.empty())
+        {
+            PipelineConfig depthPrepassSkinnedConfig;
+            depthPrepassSkinnedConfig.colorFormats = {};
+            depthPrepassSkinnedConfig.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            depthPrepassSkinnedConfig.depthTest    = true;
+            depthPrepassSkinnedConfig.depthWrite   = true;
+            depthPrepassSkinnedConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+            depthPrepassSkinnedConfig.blendEnabled = false;
+            depthPrepassSkinnedConfig.cullMode     = VK_CULL_MODE_BACK_BIT;
+            depthPrepassSkinnedConfig.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            depthPrepassSkinnedConfig.bindingDescriptions   = skinnedBindingDescs;
+            depthPrepassSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
+
+            m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
+                depthPrepassSkinnedConfig, m_DepthPrepassSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
         // ---- Selection mask pipeline (static) ----
@@ -1874,7 +1928,12 @@ namespace Luth
             RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                 shadowHandles[i] = AddShadowPass(rg, registry, hIndirectBuf, i);
-            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf);
+
+            // Z-prepass produces SceneDepth before forward shading. The render
+            // graph can schedule it in parallel with the shadow cascades.
+            RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, registry, hIndirectBuf);
+
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
@@ -1930,6 +1989,11 @@ namespace Luth
                 // re-clicking the same draw after recapture would hit the
                 // stale cached preview.
                 m_PerDrawPreviewKey = UINT64_MAX;
+                // Same for the Phase 14F depth-preview blit cache — keyed by
+                // (archiveIdx, layer+1); recapture rebuilds archives at the
+                // same indices, so without this reset, re-selecting a depth
+                // pass would skip the re-blit and show the previous frame.
+                m_DepthPreviewKey = UINT64_MAX;
 
                 m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
                                              VulkanContext::Get().GetAllocator());

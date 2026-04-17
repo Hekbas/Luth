@@ -26,7 +26,8 @@ namespace Luth
     GeometryOutput RenderingSystem::AddGeometryPass(
         RG::RenderGraph& rg, entt::registry& registry,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
-        RG::BufferHandle indirectBufferHandle)
+        RG::BufferHandle indirectBufferHandle,
+        RG::ResourceHandle sceneDepth)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -39,7 +40,7 @@ namespace Luth
         GeometryOutput output;
 
         rg.AddPass<GeometryPassData>("GeometryPass",
-            [&](GeometryPassData& data, RG::RenderPassBuilder& builder)
+            [&, sceneDepth](GeometryPassData& data, RG::RenderPassBuilder& builder)
             {
                 RG::TextureDesc desc;
                 desc.name   = "SceneColor";
@@ -66,22 +67,11 @@ namespace Luth
                     (void*)vkID->GetImageView(),
                     RG::ResourceState::Undefined);
 
-                RG::TextureDesc depthDesc;
-                depthDesc.name   = "SceneDepth";
-                depthDesc.width  = m_SceneDepth->GetWidth();
-                depthDesc.height = m_SceneDepth->GetHeight();
-                depthDesc.format = RG::TextureFormat::D32_Float;
-
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
-                data.depthTex = rg.ImportResource(depthDesc,
-                    (void*)vkDepth->GetImage(),
-                    (void*)vkDepth->GetImageView(),
-                    RG::ResourceState::Undefined);
-
-                VkClearValue depthClear{};
-                depthClear.depthStencil = { 1.0f, 0 };
-                data.depthTex  = builder.WriteDepth(data.depthTex,
-                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+                // Depth is produced by the earlier DepthPrepass — load it and keep
+                // writing (cutouts still write their own depth; opaques pass LESS_EQUAL
+                // against prepass values).
+                data.depthTex  = builder.WriteDepth(sceneDepth,
+                    VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, {});
                 data.outputTex = builder.Write(data.outputTex);
 
                 VkClearValue idClear{};

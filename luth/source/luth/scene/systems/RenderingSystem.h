@@ -219,10 +219,12 @@ namespace Luth
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
 
+        RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
-                                        RG::BufferHandle indirectBufferHandle);
+                                        RG::BufferHandle indirectBufferHandle,
+                                        RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -296,6 +298,13 @@ namespace Luth
         std::vector<u32>            m_ShadowVertSpv;
         std::vector<u32>            m_ShadowFragSpv;
         std::vector<u32>            m_ShadowSkinnedVertSpv;
+
+        // Depth prepass pipeline (depth-only, camera-space). Shares shadowDepth.frag
+        // (empty main) as the null fragment stage; only the vertex shader differs.
+        std::unique_ptr<VKPipeline> m_DepthPrepassPipeline;
+        std::unique_ptr<VKPipeline> m_DepthPrepassSkinnedPipeline;
+        std::vector<u32>            m_DepthPrepassVertSpv;
+        std::vector<u32>            m_DepthPrepassSkinnedVertSpv;
 
         // PBR Pipeline Manager (keyed by {shaderUUID, renderMode})
         PipelineManager m_GeoPipelineManager;
