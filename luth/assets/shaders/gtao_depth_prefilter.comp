@@ -1,0 +1,60 @@
+#version 460
+
+// GTAO Depth Prefilter — Sub-task C of epic #58.
+//
+// Produces a half-resolution view-space linear-depth texture that the main
+// GTAO pass samples to integrate horizon AO. MVP version of the XeGTAO
+// prefilter: single-mip (no 5-mip LDS chain yet), 2x2 full-res min-depth
+// downsample, perspective linearization via near/far push constants.
+//
+// Picking min (nearest) depth biases AO away from letting a background
+// depth leak through a thin foreground silhouette at half-res boundaries.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Full-resolution scene depth (D32_SFLOAT; aspect = DEPTH). Sampled with
+// nearest clamp. Reading `.r` yields the non-linear depth in [0, 1].
+layout(set = 0, binding = 0) uniform sampler2D u_SceneDepth;
+
+// Half-resolution linearized depth (R32_SFLOAT). One write per invocation.
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D u_LinearDepth;
+
+layout(push_constant) uniform PC
+{
+    ivec2 halfResSize;   // 0
+    vec2  invFullRes;    // 8 — 1.0 / full-res dimensions
+    float nearZ;         // 16
+    float farZ;          // 20
+    float _pad0;         // 24
+    float _pad1;         // 28
+} pc;
+
+// Vulkan NDC z ∈ [0, 1]. For non-reverse-Z perspective:
+//   z_ndc  = (far * (z_view - near)) / (z_view * (far - near))
+//   z_view = (near * far) / (far - z_ndc * (far - near))
+// z_view is positive (meters in front of camera).
+float LinearizeDepth(float d)
+{
+    return (pc.nearZ * pc.farZ) / (pc.farZ - d * (pc.farZ - pc.nearZ));
+}
+
+void main()
+{
+    ivec2 halfCoord = ivec2(gl_GlobalInvocationID.xy);
+    if (halfCoord.x >= pc.halfResSize.x || halfCoord.y >= pc.halfResSize.y)
+        return;
+
+    // Each half-res pixel covers a 2x2 full-res region. Gather returns the
+    // 4 texels around the UV (bottom-left, bottom-right, top-right, top-left).
+    vec2 uv = (vec2(halfCoord) + 0.5) * 2.0 * pc.invFullRes;
+    vec4 d4 = textureGather(u_SceneDepth, uv, 0);
+
+    // Skip cleared sky pixels (depth == 1.0) so AO doesn't extend to infinity.
+    // If all 4 are sky, the pixel is sky — store a large linear depth so GTAO
+    // treats it as background.
+    float dMin = min(min(d4.x, d4.y), min(d4.z, d4.w));
+
+    float linearZ = (dMin >= 1.0) ? pc.farZ : LinearizeDepth(dMin);
+
+    imageStore(u_LinearDepth, halfCoord, vec4(linearZ, 0.0, 0.0, 0.0));
+}
