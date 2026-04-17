@@ -6,7 +6,7 @@
 #include "luth/events/AppEvent.h"
 #include "luth/events/FileDropEvent.h"
 #include "luth/scene/Scene.h"
-#include "luth/renderer/FrameData.h"
+#include "luth/core/FrameData.h"
 
 #include <vector>
 #include <memory>
