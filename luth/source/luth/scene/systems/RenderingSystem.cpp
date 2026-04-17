@@ -284,6 +284,7 @@ namespace Luth
         // GTAO resources (epic #58)
         m_GTAOPrefilterPipeline.reset();
         m_GTAOMainPipeline.reset();
+        m_GTAODenoisePipeline.reset();
         if (m_GTAOSampler)
             vkDestroySampler(device, m_GTAOSampler, nullptr);
         if (m_GTAODescPool)
@@ -292,6 +293,8 @@ namespace Luth
             vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
         if (m_GTAOMainDescLayout)
             vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
+        if (m_GTAODenoiseDescLayout)
+            vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
         // Textures + UBO destroyed automatically via shared_ptr reset when RenderingSystem dies.
     }
 
@@ -334,6 +337,7 @@ namespace Luth
         m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
         m_GTAOPrefilterSpv            = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
         m_GTAOMainSpv                 = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+        m_GTAODenoiseSpv              = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
 
         m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
         m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
@@ -385,6 +389,13 @@ namespace Luth
                 m_GTAOMainSpv,
                 std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
+        }
+        if (!m_GTAODenoiseSpv.empty() && m_GTAODenoiseDescLayout)
+        {
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
+                std::vector<VkPushConstantRange>{});
         }
 
         LH_CORE_INFO("Utility shaders recompiled and pipelines rebuilt");
@@ -1858,6 +1869,46 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
+        // ---- Denoise pass: [sampler2D rawAO, sampler2D linDepth, image2D finalAO] ----
+        {
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            bindings[0].binding         = 0;
+            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[1].binding         = 1;
+            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[2].binding         = 2;
+            bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bindings[2].descriptorCount = 1;
+            bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 3;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAODenoiseDescLayout);
+
+            VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            allocInfo.descriptorPool     = m_GTAODescPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts        = &m_GTAODenoiseDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAODenoiseDescSet);
+
+            // No push constants — resolution derived from textureSize() inside the shader.
+            m_GTAODenoiseSpv = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+            if (m_GTAODenoiseSpv.empty())
+            {
+                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_denoise.comp!");
+                return;
+            }
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
+                std::vector<VkPushConstantRange>{});
+        }
+
         UpdateAODescriptors();
     }
 
@@ -1870,6 +1921,7 @@ namespace Luth
         auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
         auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
         auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
+        auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
 
         // Shared VkDescriptorImageInfo / buffer-info slots reused across passes.
         VkDescriptorImageInfo  sceneDepthInfo{};
@@ -1941,6 +1993,43 @@ namespace Luth
         mainWrites[2].pBufferInfo     = &uboInfo;
 
         vkUpdateDescriptorSets(device, 3, mainWrites, 0, nullptr);
+
+        // ---- Denoise pass: [rawAO (sampler), linDepth (sampler), finalAO (storage)] ----
+        if (m_GTAODenoiseDescSet == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo rawAOSampledInfo{};
+        rawAOSampledInfo.sampler     = m_GTAOSampler;
+        rawAOSampledInfo.imageView   = vkRawAO->GetImageView();
+        rawAOSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo finalAOStorageInfo{};
+        finalAOStorageInfo.sampler     = VK_NULL_HANDLE;
+        finalAOStorageInfo.imageView   = vkFinalAO->GetImageView();
+        finalAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet denoiseWrites[3]{};
+        denoiseWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[0].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[0].dstBinding      = 0;
+        denoiseWrites[0].descriptorCount = 1;
+        denoiseWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        denoiseWrites[0].pImageInfo      = &rawAOSampledInfo;
+
+        denoiseWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[1].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[1].dstBinding      = 1;
+        denoiseWrites[1].descriptorCount = 1;
+        denoiseWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        denoiseWrites[1].pImageInfo      = &linDepthSampledInfo;
+
+        denoiseWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[2].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[2].dstBinding      = 2;
+        denoiseWrites[2].descriptorCount = 1;
+        denoiseWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        denoiseWrites[2].pImageInfo      = &finalAOStorageInfo;
+
+        vkUpdateDescriptorSets(device, 3, denoiseWrites, 0, nullptr);
     }
 
     void RenderingSystem::UpdateGTAOUBO()
@@ -2238,10 +2327,12 @@ namespace Luth
             // Denoise + apply land in sub-tasks E / F.
             RG::ResourceHandle gtaoLinearDepth;
             RG::ResourceHandle gtaoRawAO;
+            RG::ResourceHandle gtaoFinalAO;
             if (m_PostProcessSettings.gtao.enabled)
             {
                 gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
                 gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
+                gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
             }
 
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
@@ -2322,6 +2413,7 @@ namespace Luth
                 m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
                 m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
                 m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
+                m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
                 rg.SetArchiveSink(&m_FrameDebugger);
             }
 

@@ -199,4 +199,68 @@ namespace Luth
 
         return outputHandle;
     }
+
+    RG::ResourceHandle RenderingSystem::AddGTAODenoisePass(
+        RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth)
+    {
+        struct GTAODenoiseData
+        {
+            RG::ResourceHandle rawAO;
+            RG::ResourceHandle linearDepth;
+            RG::ResourceHandle finalAO;
+        };
+
+        RG::ResourceHandle outputHandle;
+
+        rg.AddComputePass<GTAODenoiseData>("GTAODenoise",
+            [&](GTAODenoiseData& data, RG::RenderPassBuilder& builder)
+            {
+                data.rawAO       = builder.ReadStorageImage(rawAO);
+                data.linearDepth = builder.ReadStorageImage(linearDepth);
+
+                RG::TextureDesc desc;
+                desc.name   = "GTAOFinal";
+                desc.width  = m_GTAOFinal->GetWidth();
+                desc.height = m_GTAOFinal->GetHeight();
+                desc.format = RG::TextureFormat::R8_Unorm;
+
+                auto vkFinal = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
+                data.finalAO = rg.ImportResource(desc,
+                    (void*)vkFinal->GetImage(),
+                    (void*)vkFinal->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.finalAO = builder.WriteStorageImage(data.finalAO);
+
+                outputHandle = data.finalAO;
+            },
+            [this](GTAODenoiseData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                m_FrameDebugger.BeginCapturePass("GTAODenoise", "GTAOFinal", false,
+                    { "gtao_denoise", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                if (!m_GTAODenoisePipeline || m_GTAODenoiseDescSet == VK_NULL_HANDLE)
+                {
+                    m_FrameDebugger.EndCapturePass();
+                    return;
+                }
+
+                m_GTAODenoisePipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_GTAODenoisePipeline->GetLayout(), 0, 1, &m_GTAODenoiseDescSet, 0, nullptr);
+
+                const u32 halfW = m_GTAOFinal->GetWidth();
+                const u32 halfH = m_GTAOFinal->GetHeight();
+                const u32 groupX = (halfW + 7) / 8;
+                const u32 groupY = (halfH + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+
+                m_FrameDebugger.CaptureComputeDispatch("GTAODenoise",
+                    "gtao_denoise", groupX, groupY, 1);
+                m_FrameDebugger.EndCapturePass();
+            });
+
+        return outputHandle;
+    }
 }

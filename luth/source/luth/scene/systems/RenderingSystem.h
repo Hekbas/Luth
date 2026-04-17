@@ -225,6 +225,7 @@ namespace Luth
         RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
+        RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
@@ -362,6 +363,7 @@ namespace Luth
         // Compute pipelines (one per GTAO stage).
         std::unique_ptr<VKComputePipeline> m_GTAOPrefilterPipeline;
         std::unique_ptr<VKComputePipeline> m_GTAOMainPipeline;
+        std::unique_ptr<VKComputePipeline> m_GTAODenoisePipeline;
         // GPU-side settings UBO (std140 GTAOUBO) — pushed each frame from m_PostProcessSettings.gtao.
         std::shared_ptr<VKUniformBuffer>   m_GTAOUBOBuffer;
         // Shared sampler for GTAO compute reads (linear clamp, no mips).
@@ -373,9 +375,12 @@ namespace Luth
         VkDescriptorSet                    m_GTAOPrefilterDescSet    = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_GTAOMainDescLayout      = VK_NULL_HANDLE;
         VkDescriptorSet                    m_GTAOMainDescSet         = VK_NULL_HANDLE;
+        VkDescriptorSetLayout              m_GTAODenoiseDescLayout   = VK_NULL_HANDLE;
+        VkDescriptorSet                    m_GTAODenoiseDescSet      = VK_NULL_HANDLE;
         // Compiled SPIR-V kept around for hot-reload rebuild.
         std::vector<u32>                   m_GTAOPrefilterSpv;
         std::vector<u32>                   m_GTAOMainSpv;
+        std::vector<u32>                   m_GTAODenoiseSpv;
 
         // Cached view-projection (for frustum extraction — populated in UpdateGlobalUniforms)
         glm::mat4 m_CachedViewProj = glm::mat4(1.0f);
