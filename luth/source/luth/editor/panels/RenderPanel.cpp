@@ -88,7 +88,6 @@ namespace Luth
                     }
 
                     UI::Property("Steps / Slice", gtao.stepsPerSlice, 1, 6);
-                    UI::Property("Half Resolution", gtao.halfRes);
                     UI::Property("Visualize AO", gtao.visualize);
                     UI::EndProperties();
                 }
