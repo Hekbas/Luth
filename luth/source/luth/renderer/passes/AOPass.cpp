@@ -1,10 +1,12 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/FrameDebugger.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 
+#include <cmath>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -99,6 +101,99 @@ namespace Luth
 
                 m_FrameDebugger.CaptureComputeDispatch("GTAODepthPrefilter",
                     "gtao_depth_prefilter", groupX, groupY, 1);
+                m_FrameDebugger.EndCapturePass();
+            });
+
+        return outputHandle;
+    }
+
+    namespace
+    {
+        struct GTAOMainPC
+        {
+            glm::vec2 projParams;   // 0   (P[0][0], |P[1][1]|)
+            float     nearZ;        // 8
+            float     farZ;         // 12
+            u32       frameIndex;   // 16
+            u32       _pad0;        // 20
+            u32       _pad1;        // 24
+            u32       _pad2;        // 28
+        };
+        static_assert(sizeof(GTAOMainPC) == 32, "GTAOMainPC layout mismatch");
+    }
+
+    RG::ResourceHandle RenderingSystem::AddGTAOMainPass(
+        RG::RenderGraph& rg, RG::ResourceHandle linearDepth)
+    {
+        struct GTAOMainData
+        {
+            RG::ResourceHandle linearDepth;
+            RG::ResourceHandle rawAO;
+        };
+
+        RG::ResourceHandle outputHandle;
+
+        rg.AddComputePass<GTAOMainData>("GTAOMain",
+            [&](GTAOMainData& data, RG::RenderPassBuilder& builder)
+            {
+                // Transition linear depth (written in prefilter as ComputeWrite) → sampled read.
+                data.linearDepth = builder.ReadStorageImage(linearDepth);
+
+                RG::TextureDesc desc;
+                desc.name   = "GTAORawAO";
+                desc.width  = m_GTAORawAO->GetWidth();
+                desc.height = m_GTAORawAO->GetHeight();
+                desc.format = RG::TextureFormat::R8_Unorm;
+
+                auto vkRaw = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
+                data.rawAO = rg.ImportResource(desc,
+                    (void*)vkRaw->GetImage(),
+                    (void*)vkRaw->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.rawAO = builder.WriteStorageImage(data.rawAO);
+
+                outputHandle = data.rawAO;
+            },
+            [this](GTAOMainData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                m_FrameDebugger.BeginCapturePass("GTAOMain", "GTAORawAO", false,
+                    { "gtao_main", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                if (!m_GTAOMainPipeline || m_GTAOMainDescSet == VK_NULL_HANDLE)
+                {
+                    m_FrameDebugger.EndCapturePass();
+                    return;
+                }
+
+                m_GTAOMainPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_GTAOMainPipeline->GetLayout(), 0, 1, &m_GTAOMainDescSet, 0, nullptr);
+
+                const u32 halfW = m_GTAORawAO->GetWidth();
+                const u32 halfH = m_GTAORawAO->GetHeight();
+
+                // Pull the projection factors straight from the camera matrix the
+                // frame's GlobalUniforms were built with. Vulkan's Y-flipped
+                // projection has P[1][1] < 0; pass the absolute value so the
+                // shader works in a conventional +Y-up view space.
+                const auto& P = m_CameraParams.projection;
+                GTAOMainPC pc{};
+                pc.projParams  = { P[0][0], std::abs(P[1][1]) };
+                pc.nearZ       = m_CameraParams.nearZ;
+                pc.farZ        = m_CameraParams.farZ;
+                pc.frameIndex  = (u32)Renderer::GetFrameData()->GetFrameIndex();
+
+                vkCmdPushConstants(cmd, m_GTAOMainPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GTAOMainPC), &pc);
+
+                const u32 groupX = (halfW + 7) / 8;
+                const u32 groupY = (halfH + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+
+                m_FrameDebugger.CaptureComputeDispatch("GTAOMain",
+                    "gtao_main", groupX, groupY, 1);
                 m_FrameDebugger.EndCapturePass();
             });
 

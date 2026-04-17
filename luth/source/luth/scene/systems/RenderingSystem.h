@@ -194,6 +194,7 @@ namespace Luth
         void InitCullPipeline();
         void InitAOResources();         // GTAO persistent textures + pipelines (epic #58)
         void UpdateAODescriptors();     // Rewrite GTAO descriptor sets (post-Resize)
+        void UpdateGTAOUBO();           // Push GTAOSettings → GPU UBO each frame
         void InitShadowResources();
         void InitPostProcessResources();
         void InitIBLResources(const std::filesystem::path& hdrPath);
@@ -223,6 +224,7 @@ namespace Luth
 
         RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
+        RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
@@ -359,6 +361,9 @@ namespace Luth
         std::shared_ptr<Texture>           m_GTAOFinal;        // R8
         // Compute pipelines (one per GTAO stage).
         std::unique_ptr<VKComputePipeline> m_GTAOPrefilterPipeline;
+        std::unique_ptr<VKComputePipeline> m_GTAOMainPipeline;
+        // GPU-side settings UBO (std140 GTAOUBO) — pushed each frame from m_PostProcessSettings.gtao.
+        std::shared_ptr<VKUniformBuffer>   m_GTAOUBOBuffer;
         // Shared sampler for GTAO compute reads (linear clamp, no mips).
         VkSampler                          m_GTAOSampler    = VK_NULL_HANDLE;
         // Descriptor layouts / pools / sets — one pool owns all GTAO sets so a
@@ -366,8 +371,11 @@ namespace Luth
         VkDescriptorPool                   m_GTAODescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_GTAOPrefilterDescLayout = VK_NULL_HANDLE;
         VkDescriptorSet                    m_GTAOPrefilterDescSet    = VK_NULL_HANDLE;
+        VkDescriptorSetLayout              m_GTAOMainDescLayout      = VK_NULL_HANDLE;
+        VkDescriptorSet                    m_GTAOMainDescSet         = VK_NULL_HANDLE;
         // Compiled SPIR-V kept around for hot-reload rebuild.
         std::vector<u32>                   m_GTAOPrefilterSpv;
+        std::vector<u32>                   m_GTAOMainSpv;
 
         // Cached view-projection (for frustum extraction — populated in UpdateGlobalUniforms)
         glm::mat4 m_CachedViewProj = glm::mat4(1.0f);

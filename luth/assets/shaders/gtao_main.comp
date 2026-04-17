@@ -1,0 +1,187 @@
+#version 460
+
+// GTAO main integration — Jimenez et al. 2016.
+// Sub-task D of epic #58. Simplified MVP:
+//   - Reads mip-0 of the half-res linear-depth texture produced by the
+//     prefilter pass (no mip chain yet).
+//   - Reconstructs the view-space normal from depth derivatives (no
+//     GBuffer needed — forward renderer friendly).
+//   - Integrates horizon-based occlusion over `sliceCount` slices with
+//     `stepsPerSlice` samples per side, jittered by interleaved-gradient
+//     noise so the follow-up denoise can clean up the remaining noise.
+//   - Writes a single R8 "rawAO" (1.0 = no occlusion, 0.0 = fully occluded).
+//
+// NOTE: this is not yet XeGTAO-parity. No edges texture, no multi-bounce
+// approximation, no mip-selecting cone steps. Those can land as follow-up
+// work if quality/perf demands it.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_LinearDepth;
+layout(set = 0, binding = 1, r8) uniform writeonly image2D u_RawAO;
+
+layout(set = 0, binding = 2, std140) uniform GTAOUBO
+{
+    float intensity;
+    float radius;
+    float falloff;
+    float power;
+    int   sliceCount;
+    int   stepsPerSlice;
+    int   enabled;
+    int   visualize;
+    vec2  invResolution;     // 1 / half-res size
+    vec2  invFullResolution;  // 1 / full-res size (unused in this pass)
+} g;
+
+layout(push_constant) uniform PC
+{
+    vec2  projParams;    // (P[0][0], |P[1][1]|) — for view-space reconstruct
+    float nearZ;
+    float farZ;
+    uint  frameIndex;
+    uint  _pad0;
+    uint  _pad1;
+    uint  _pad2;
+} pc;
+
+const float PI = 3.141592653589793;
+
+// Reconstruct view-space position from UV + linear depth. Y-flipped Vulkan
+// projection is compensated by passing |P[1][1]| in projParams.y.
+vec3 ReconstructViewPos(vec2 uv, float linearZ)
+{
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc / pc.projParams * linearZ, linearZ);
+}
+
+// Interleaved gradient noise (Jimenez 2014) — cheap, well-distributed,
+// advances per frame so TAA (when it arrives) can integrate over time.
+float IGN(vec2 pos)
+{
+    vec2 rot = vec2(float(pc.frameIndex & 7u) * 47.0, float(pc.frameIndex & 7u) * 17.0);
+    return fract(52.9829189 * fract(dot(pos + rot, vec2(0.06711056, 0.00583715))));
+}
+
+// Reconstruct view-space normal from the two nearest-depth neighbours.
+// Sampling the BELOW pixel (uv.y + 1 in Vulkan's y-down UV) and taking
+// cross(posBelow - posC, posRight - posC) yields a normal pointing away
+// from the surface for a ground plane in view-space with +Y up.
+vec3 ReconstructNormal(vec2 uv, vec3 posC)
+{
+    vec2 uvR = uv + vec2(g.invResolution.x, 0.0);
+    vec2 uvD = uv + vec2(0.0, g.invResolution.y);
+    float zR = texture(u_LinearDepth, uvR).r;
+    float zD = texture(u_LinearDepth, uvD).r;
+    vec3 posR = ReconstructViewPos(uvR, zR);
+    vec3 posD = ReconstructViewPos(uvD, zD);
+    return normalize(cross(posD - posC, posR - posC));
+}
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(vec2(1.0) / g.invResolution + vec2(0.5));
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 uv = (vec2(coord) + 0.5) * g.invResolution;
+    float linearZ = texture(u_LinearDepth, uv).r;
+
+    // Sky / background — no occlusion. Prefilter clamps sky pixels to farZ.
+    if (linearZ >= pc.farZ * 0.999)
+    {
+        imageStore(u_RawAO, coord, vec4(1.0));
+        return;
+    }
+
+    vec3 pos = ReconstructViewPos(uv, linearZ);
+    vec3 N   = ReconstructNormal(uv, pos);
+    vec3 V   = normalize(-pos);
+
+    float noise = IGN(vec2(coord));
+
+    float visibility = 0.0;
+    int   effectiveSlices = 0;
+
+    for (int s = 0; s < g.sliceCount; ++s)
+    {
+        float phi = (float(s) + noise) * PI / float(g.sliceCount);
+        vec2  omega = vec2(cos(phi), sin(phi));
+
+        // Build the slice plane: direction along which we march in view-XY,
+        // and the axis perpendicular to both the slice direction and the
+        // view vector (the slice tangent). Project the normal onto the
+        // slice plane so the integrator sees a 2D problem.
+        vec3 sliceDir = vec3(omega, 0.0);
+        vec3 sliceTan = normalize(cross(sliceDir, V));
+        vec3 projN    = N - sliceTan * dot(N, sliceTan);
+        float projNLen = length(projN);
+        if (projNLen < 1e-5) continue;
+        projN /= projNLen;
+
+        // Signed angle of the projected normal relative to V in the slice plane.
+        float cosN   = clamp(dot(projN, V), -1.0, 1.0);
+        float sgnN   = sign(dot(projN, sliceDir));
+        float nAngle = acos(cosN) * sgnN;
+
+        // Scan horizons on both sides of the pixel along omega.
+        float cosH1 = -1.0;  // positive direction
+        float cosH2 = -1.0;  // negative direction
+
+        for (int i = 1; i <= g.stepsPerSlice; ++i)
+        {
+            float t = (float(i) - 0.5 + (noise - 0.5) * 0.5) / float(g.stepsPerSlice);
+            float stepWorld = g.radius * t;
+
+            // Perspective projection of a world-space lateral step to UV:
+            //   ndcStep = worldStep * projParams / linearZ
+            //   uvStep  = ndcStep * 0.5
+            vec2 uvStep = omega * (stepWorld * 0.5) * pc.projParams / linearZ;
+
+            vec2 uvP = uv + uvStep;
+            vec2 uvN = uv - uvStep;
+            float zP = texture(u_LinearDepth, uvP).r;
+            float zN = texture(u_LinearDepth, uvN).r;
+            vec3 spP = ReconstructViewPos(uvP, zP) - pos;
+            vec3 spN = ReconstructViewPos(uvN, zN) - pos;
+            float dP = length(spP);
+            float dN = length(spN);
+
+            if (dP > 1e-5 && dP < g.radius)
+            {
+                float fall = 1.0 - smoothstep(g.radius * g.falloff, g.radius, dP);
+                cosH1 = max(cosH1, dot(spP / dP, V) * fall);
+            }
+            if (dN > 1e-5 && dN < g.radius)
+            {
+                float fall = 1.0 - smoothstep(g.radius * g.falloff, g.radius, dN);
+                cosH2 = max(cosH2, dot(spN / dN, V) * fall);
+            }
+        }
+
+        // Convert cos(horizon) to angle and clamp to the hemisphere around N.
+        float h1 = -acos(clamp(cosH1, -1.0, 1.0));
+        float h2 = +acos(clamp(cosH2, -1.0, 1.0));
+        h1 = max(h1, nAngle - 0.5 * PI);
+        h2 = min(h2, nAngle + 0.5 * PI);
+
+        // Jimenez 2016 analytical slice integral.
+        float sinN = sin(nAngle);
+        float v = 0.25 * ((-cos(2.0 * h1 - nAngle) + cos(nAngle) + 2.0 * h1 * sinN) +
+                          (-cos(2.0 * h2 - nAngle) + cos(nAngle) + 2.0 * h2 * sinN));
+
+        visibility += projNLen * v;
+        effectiveSlices += 1;
+    }
+
+    if (effectiveSlices > 0)
+        visibility /= float(effectiveSlices);
+    else
+        visibility = 1.0;
+
+    float ao = clamp(visibility, 0.0, 1.0);
+    ao = pow(ao, g.power);
+    ao = mix(1.0, ao, g.intensity);
+
+    imageStore(u_RawAO, coord, vec4(ao));
+}
