@@ -29,7 +29,10 @@ namespace Luth::RG
 
         if (image != VK_NULL_HANDLE && alloc != nullptr)
         {
-            vmaDestroyImage(allocator, image, alloc);
+            // Route through VulkanAllocator so MemoryTracker.RecordFree fires
+            // and the editor's GPU memory counter stays balanced.
+            (void)allocator; // VulkanAllocator owns the singleton allocator
+            VulkanAllocator::FreeImage(image, alloc);
             image = VK_NULL_HANDLE;
             alloc = nullptr;
         }

@@ -100,18 +100,24 @@ namespace Luth
         auto debuggerState = m_RS->GetDebuggerState();
         const bool inCaptureView = (debuggerState == DebuggerState::Frozen && m_RS->GetCapturedFrame().valid);
 
-        // Phase 14D — release the cached ImGui descriptor as soon as we leave
-        // the capture view. The underlying ArchivedImage view is destroyed on
-        // ExitCapture / re-capture, so a stale cached descriptor would point
-        // at freed GPU memory next frame.
-        if (!inCaptureView && m_DisplayArchiveDescSet != VK_NULL_HANDLE)
+        // Phase 14D/E — release cached ImGui descriptors as soon as we leave
+        // the capture view. The underlying ArchivedImage / per-draw-preview
+        // views can be destroyed on ExitCapture / Resize, so stale cached
+        // descriptors would point at freed GPU memory next frame.
+        if (!inCaptureView)
         {
-            VkDescriptorSet stale = m_DisplayArchiveDescSet;
-            VulkanContext::Get().PushDeletion([stale]() {
-                ImGui_ImplVulkan_RemoveTexture(stale);
-            });
-            m_DisplayArchiveDescSet   = VK_NULL_HANDLE;
-            m_DisplayArchiveIdxCached = -1;
+            auto dropDesc = [](VkDescriptorSet& set) {
+                if (set == VK_NULL_HANDLE) return;
+                VkDescriptorSet stale = set;
+                VulkanContext::Get().PushDeletion([stale]() {
+                    ImGui_ImplVulkan_RemoveTexture(stale);
+                });
+                set = VK_NULL_HANDLE;
+            };
+            dropDesc(m_DisplayArchiveDescSet);
+            dropDesc(m_PerDrawPreviewDescSet);
+            m_DisplayArchiveViewCached  = VK_NULL_HANDLE;
+            m_PerDrawPreviewViewCached  = VK_NULL_HANDLE;
             m_SelKind          = RG::EventNodeKind::Group;
             m_SelPassIndex     = -1;
             m_SelDrawIndex     = -1;
@@ -443,15 +449,18 @@ namespace Luth
         {
             // Clear selection before ExitCapture invalidates archive views; the
             // OnRender top-of-frame guard would otherwise see a stale descriptor.
-            if (m_DisplayArchiveDescSet != VK_NULL_HANDLE)
-            {
-                VkDescriptorSet stale = m_DisplayArchiveDescSet;
+            auto dropDesc = [](VkDescriptorSet& set) {
+                if (set == VK_NULL_HANDLE) return;
+                VkDescriptorSet stale = set;
                 VulkanContext::Get().PushDeletion([stale]() {
                     ImGui_ImplVulkan_RemoveTexture(stale);
                 });
-                m_DisplayArchiveDescSet   = VK_NULL_HANDLE;
-                m_DisplayArchiveIdxCached = -1;
-            }
+                set = VK_NULL_HANDLE;
+            };
+            dropDesc(m_DisplayArchiveDescSet);
+            dropDesc(m_PerDrawPreviewDescSet);
+            m_DisplayArchiveViewCached  = VK_NULL_HANDLE;
+            m_PerDrawPreviewViewCached  = VK_NULL_HANDLE;
             m_SelKind         = RG::EventNodeKind::Group;
             m_SelPassIndex    = -1;
             m_SelDrawIndex    = -1;
@@ -534,6 +543,12 @@ namespace Luth
         u32 uniqueId = ++m_TreeNodeCounter;
         bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)uniqueId, flags, "%s", label);
 
+        // CRITICAL: capture click status BEFORE any subsequent ImGui call —
+        // ImGui::IsItemClicked refers to the most recently submitted item, and
+        // the right-aligned TextDisabled below would shift it to a non-clickable
+        // disabled label, swallowing all selection clicks (incl. Draw nodes).
+        const bool clickedThisNode = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+
         // --- Right-aligned annotation: GPU time for passes, idx count for draws ---
         if ((node.kind == RG::EventNodeKind::Pass || node.kind == RG::EventNodeKind::Cascade)
             && node.gpuTimeMs >= 0.0f)
@@ -561,7 +576,7 @@ namespace Luth
         }
 
         // --- Click handler (groups select nothing — they only expand) ---
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && node.kind != RG::EventNodeKind::Group)
+        if (clickedThisNode && node.kind != RG::EventNodeKind::Group)
             SelectEventNode(node);
 
         // --- Recurse into children if open and not a leaf ---
@@ -591,6 +606,88 @@ namespace Luth
         if (!UI::BeginCollapsingHeader("Output", true))
             return;
 
+        VkSampler sampler = m_RS->GetDebugSampler();
+
+        // -------------------------------------------------------------------
+        // Phase 14E — per-draw replay preview.
+        //
+        // Triggered only when a Draw node is selected AND its owning pass is
+        // one we know how to replay (GeometryPass for v1). Other selections
+        // fall through to the pass-output archive path below.
+        // -------------------------------------------------------------------
+        bool tryPerDrawReplay = false;
+        u32  perDrawPassIdx   = 0;
+        u32  perDrawLocalIdx  = 0;
+
+        if (m_SelKind == RG::EventNodeKind::Draw && m_SelPassIndex >= 0 &&
+            m_SelPassIndex < (int)capture.passes.size() && m_SelDrawIndex >= 0)
+        {
+            const auto& pass = capture.passes[m_SelPassIndex];
+            if (pass.name == "GeometryPass" &&
+                (u32)m_SelDrawIndex >= pass.firstDrawIndex &&
+                (u32)m_SelDrawIndex <  pass.firstDrawIndex + pass.drawCallCount)
+            {
+                tryPerDrawReplay = true;
+                perDrawPassIdx   = (u32)m_SelPassIndex;
+                perDrawLocalIdx  = (u32)m_SelDrawIndex - pass.firstDrawIndex;
+            }
+        }
+
+        if (tryPerDrawReplay && sampler != VK_NULL_HANDLE)
+        {
+            // RenderingSystem caches by (passIdx,localDrawIdx); identical
+            // re-selections short-circuit to a no-op inside ReplayPassUpToDraw.
+            m_RS->ReplayPassUpToDraw(perDrawPassIdx, perDrawLocalIdx);
+
+            VkImageView previewView = m_RS->GetPerDrawPreviewView();
+            u32         previewW    = m_RS->GetPerDrawPreviewWidth();
+            u32         previewH    = m_RS->GetPerDrawPreviewHeight();
+
+            if (previewView != VK_NULL_HANDLE && previewW > 0 && previewH > 0)
+            {
+                ImGui::Text("Per-draw replay  (%ux%u, draw %u of %u)",
+                            previewW, previewH,
+                            perDrawLocalIdx + 1,
+                            capture.passes[perDrawPassIdx].drawCallCount);
+
+                // (Re)allocate the ImGui descriptor when the underlying view
+                // pointer changes (e.g. preview resized on viewport change).
+                if (previewView != m_PerDrawPreviewViewCached)
+                {
+                    if (m_PerDrawPreviewDescSet != VK_NULL_HANDLE)
+                    {
+                        VkDescriptorSet stale = m_PerDrawPreviewDescSet;
+                        VulkanContext::Get().PushDeletion([stale]() {
+                            ImGui_ImplVulkan_RemoveTexture(stale);
+                        });
+                    }
+                    m_PerDrawPreviewDescSet = ImGui_ImplVulkan_AddTexture(
+                        sampler, previewView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    m_PerDrawPreviewViewCached = previewView;
+                }
+
+                if (m_PerDrawPreviewDescSet != VK_NULL_HANDLE)
+                {
+                    float panelW = ImGui::GetContentRegionAvail().x;
+                    float maxH   = 320.0f;
+                    float ar     = (float)previewW / (float)previewH;
+                    float drawW  = panelW;
+                    float drawH  = drawW / ar;
+                    if (drawH > maxH) { drawH = maxH; drawW = drawH * ar; }
+                    float offsetX = (panelW - drawW) * 0.5f;
+                    if (offsetX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+                    ImGui::Image((ImTextureID)m_PerDrawPreviewDescSet, ImVec2(drawW, drawH));
+                    ImGui::TextDisabled("HDR linear; clipping above 1.0 is expected.");
+                }
+
+                UI::EndCollapsingHeader();
+                return;
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Pass-output archive path (Phase 14D fallback).
+        // -------------------------------------------------------------------
         if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size())
         {
             ImGui::TextDisabled("(no output preview for this event)");
@@ -600,7 +697,6 @@ namespace Luth
 
         const auto& archive = capture.archivedImages[m_SelArchiveIdx];
 
-        // Header line: name + dimensions (+ depth/layer hint if relevant)
         if (m_SelArchiveLayer >= 0)
             ImGui::Text("%s  (%ux%u, layer %d)", archive.name.c_str(),
                         archive.width, archive.height, m_SelArchiveLayer);
@@ -612,16 +708,12 @@ namespace Luth
 
         if (archive.isDepth)
         {
-            // Depth visualization (shadow map slices etc.) lands in Phase 14F.
-            // Until then, surface the metadata so users still know the cascade
-            // was archived correctly.
+            // Depth visualization lands in Phase 14F.
             ImGui::TextDisabled("(depth preview lands in Phase 14F)");
             UI::EndCollapsingHeader();
             return;
         }
 
-        // --- Color archive: lazy-allocate ImGui descriptor set, cached by archive idx ---
-        VkSampler sampler = m_RS->GetDebugSampler();
         if (sampler == VK_NULL_HANDLE)
         {
             ImGui::TextDisabled("(debug sampler not initialized)");
@@ -629,10 +721,11 @@ namespace Luth
             return;
         }
 
-        if (m_SelArchiveIdx != m_DisplayArchiveIdxCached)
+        // Cache by view-pointer identity so recaptures (which create brand-new
+        // VkImageViews even when archive indices overlap) trigger a fresh
+        // descriptor instead of binding a stale handle to freed GPU memory.
+        if (archive.view != m_DisplayArchiveViewCached)
         {
-            // Drop the prior descriptor (deferred — its image view may still be
-            // referenced by an in-flight ImGui frame).
             if (m_DisplayArchiveDescSet != VK_NULL_HANDLE)
             {
                 VkDescriptorSet stale = m_DisplayArchiveDescSet;
@@ -643,17 +736,14 @@ namespace Luth
             }
             m_DisplayArchiveDescSet = ImGui_ImplVulkan_AddTexture(
                 sampler, archive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            m_DisplayArchiveIdxCached = m_SelArchiveIdx;
+            m_DisplayArchiveViewCached = archive.view;
         }
 
-        // --- Layout the preview image, preserving aspect ratio ---
         if (m_DisplayArchiveDescSet != VK_NULL_HANDLE)
         {
             float panelW = ImGui::GetContentRegionAvail().x;
             float maxH   = 320.0f;
-            float texW   = (float)archive.width;
-            float texH   = (float)archive.height;
-            float ar     = texW / texH;
+            float ar     = (float)archive.width / (float)archive.height;
             float drawW  = panelW;
             float drawH  = drawW / ar;
             if (drawH > maxH) { drawH = maxH; drawW = drawH * ar; }

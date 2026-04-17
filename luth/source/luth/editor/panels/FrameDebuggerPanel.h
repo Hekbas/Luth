@@ -46,11 +46,21 @@ namespace Luth
         int  m_SelArchiveLayer  = -1;   // -1 = whole image; else 2D-array slice (Cascade)
         RG::EventNodeKind m_SelKind = RG::EventNodeKind::Group;
 
-        // Cached ImGui descriptor set for the currently-displayed color archive,
-        // keyed against m_SelArchiveIdx so re-selecting the same archive doesn't
-        // leak a new VkDescriptorSet. Created via ImGui_ImplVulkan_AddTexture.
-        int             m_DisplayArchiveIdxCached = -1;
-        VkDescriptorSet m_DisplayArchiveDescSet   = VK_NULL_HANDLE;
+        // Cached ImGui descriptor set for the currently-displayed color archive.
+        // Keyed by the underlying VkImageView pointer (NOT the archive index)
+        // so that recaptures — which destroy the old archive vector and create
+        // a new one with potentially-overlapping indices — always trigger a
+        // fresh descriptor against the new view.
+        VkImageView     m_DisplayArchiveViewCached = VK_NULL_HANDLE;
+        VkDescriptorSet m_DisplayArchiveDescSet    = VK_NULL_HANDLE;
+
+        // Phase 14E — cached ImGui descriptor for the per-draw replay preview.
+        // The underlying VkImageView pointer doubles as the cache key: when the
+        // RenderingSystem reallocates the preview (resize), the pointer changes
+        // and we recreate the descriptor. The preview KEY (passIdx<<32|drawIdx)
+        // tells us when a re-blit happened so we can refresh just the contents.
+        VkImageView      m_PerDrawPreviewViewCached = VK_NULL_HANDLE;
+        VkDescriptorSet  m_PerDrawPreviewDescSet    = VK_NULL_HANDLE;
 
         // Tracks tree node uniqueness for ImGui::TreeNodeEx IDs across recursion.
         u32 m_TreeNodeCounter = 0;

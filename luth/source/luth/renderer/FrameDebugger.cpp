@@ -3,8 +3,10 @@
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 #include <vma/vk_mem_alloc.h>
+#include <backends/imgui_impl_vulkan.h>
 
 namespace Luth
 {
@@ -338,9 +340,7 @@ namespace Luth
     {
         if (capturedFrame.archivedImages.empty()) return;
 
-        // Use cached device/allocator if BeginCapture set them; otherwise fall back
-        // to the global allocator (for shutdown paths).
-        VkDevice     device    = archiveDevice    ? archiveDevice    : VK_NULL_HANDLE;
+        VkDevice     device    = archiveDevice;
         VmaAllocator allocator = archiveAllocator ? archiveAllocator : VulkanAllocator::Get();
 
         if (device == VK_NULL_HANDLE || allocator == nullptr)
@@ -351,8 +351,50 @@ namespace Luth
             return;
         }
 
+        // Defer the actual GPU resource destruction by MAX_FRAMES_IN_FLIGHT so
+        // that any in-flight ImGui frame still sampling these views via cached
+        // descriptor sets completes before the views/images are freed. The
+        // panel's own cached ImGui descriptors are dropped via PushDeletion on
+        // the same frame index, so by the time these run their VkDescriptorSet
+        // is no longer referenced.
         for (auto& a : capturedFrame.archivedImages)
-            a.Destroy(device, allocator);
+        {
+            VkImage         img        = a.image;
+            VkImageView     view       = a.view;
+            VmaAllocation   alloc      = a.alloc;
+            VkDescriptorSet imguiDesc  = a.imguiDescSet;
+            std::vector<VkImageView> layerViews = std::move(a.layerViews);
+
+            (void)allocator;  // VulkanAllocator::FreeImage uses the singleton allocator;
+                              // we keep `allocator` only to gate the early-return above.
+            VulkanContext::Get().PushDeletion(
+                [device, img, view, alloc, imguiDesc,
+                 layerViews = std::move(layerViews)]() mutable
+                {
+                    if (imguiDesc != VK_NULL_HANDLE)
+                        ImGui_ImplVulkan_RemoveTexture(imguiDesc);
+                    for (VkImageView lv : layerViews)
+                        if (lv != VK_NULL_HANDLE)
+                            vkDestroyImageView(device, lv, nullptr);
+                    if (view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device, view, nullptr);
+                    if (img != VK_NULL_HANDLE && alloc != nullptr)
+                    {
+                        // Route through VulkanAllocator so MemoryTracker
+                        // sees the free — bypassing it (calling vmaDestroyImage
+                        // directly) frees the VMA block but leaves the editor's
+                        // GPU memory counter rising on every Enable/Disable.
+                        VulkanAllocator::FreeImage(img, alloc);
+                    }
+                });
+
+            // Null out the local handles so the next iteration / move-from is
+            // benign (defence in depth — the vector is cleared right after).
+            a.image        = VK_NULL_HANDLE;
+            a.view         = VK_NULL_HANDLE;
+            a.alloc        = nullptr;
+            a.imguiDescSet = VK_NULL_HANDLE;
+        }
 
         capturedFrame.archivedImages.clear();
         capturedFrame.passArchives.clear();

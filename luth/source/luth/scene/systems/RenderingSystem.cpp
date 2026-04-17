@@ -24,6 +24,7 @@
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
+#include "luth/renderer/backend/vulkan/DynamicRendering.h"
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -210,6 +211,7 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        DestroyPerDrawPreviewTexture();
         m_FrameDebugger.Shutdown(device);
 
         if (m_OutlineSampler)
@@ -1913,6 +1915,15 @@ namespace Luth
                 // Idempotent: returns immediately once blitPipeline is set.
                 InitDebugBlitResources();
 
+                // Phase 14E — invalidate the per-draw replay cache. The cache
+                // is keyed by (passIdx, drawIdx) which can collide across
+                // captures even though the underlying scene state has changed
+                // (camera moved → recapture → same passIdx/drawIdx but new
+                // GPUObjectData / IndirectBuffer contents). Without this reset,
+                // re-clicking the same draw after recapture would hit the
+                // stale cached preview.
+                m_PerDrawPreviewKey = UINT64_MAX;
+
                 m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
                                              VulkanContext::Get().GetAllocator());
                 m_FrameDebugger.RegisterTrackedRT("SceneColor");
@@ -2454,9 +2465,354 @@ namespace Luth
     }
 
     // Phase 14C — RenderingSystem::RenderCapturedFrame removed.
-    // Live re-replay was the source of the original sync bug: it re-executed
-    // the pipeline up to N draws using the *current* uniforms/cull state, not
-    // the captured ones. The Frozen-state branch (top of Update) now serves
-    // archived images directly. Per-draw inspection arrives in Phase 14E via
-    // ImmediateSubmit replay-then-copy on demand.
+    // Live re-replay was the source of the original sync bug. The Frozen-state
+    // branch (top of Update) now serves archived images; per-draw inspection
+    // is implemented below via ImmediateSubmit replay-then-copy.
+
+    // =========================================================================
+    //  Frame Debugger Phase 14E — Per-draw replay-then-copy
+    // =========================================================================
+
+    void RenderingSystem::EnsurePerDrawPreviewTexture(u32 width, u32 height)
+    {
+        if (m_PerDrawPreviewImage != VK_NULL_HANDLE
+            && m_PerDrawPreviewWidth == width
+            && m_PerDrawPreviewHeight == height) return;
+
+        // Tear down any prior preview at a different size first. Deferred so
+        // an in-flight ImGui frame can finish sampling the old view safely.
+        if (m_PerDrawPreviewImage != VK_NULL_HANDLE)
+        {
+            VkImage       img   = m_PerDrawPreviewImage;
+            VkImageView   view  = m_PerDrawPreviewView;
+            VmaAllocation alloc = m_PerDrawPreviewAlloc;
+            VulkanContext::Get().PushDeletion([img, view, alloc]() {
+                auto dev = VulkanContext::Get().GetDevice();
+                vkDestroyImageView(dev, view, nullptr);
+                VulkanAllocator::FreeImage(img, alloc);
+            });
+            m_PerDrawPreviewImage = VK_NULL_HANDLE;
+            m_PerDrawPreviewView  = VK_NULL_HANDLE;
+            m_PerDrawPreviewAlloc = nullptr;
+        }
+
+        VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ci.imageType     = VK_IMAGE_TYPE_2D;
+        ci.extent        = { width, height, 1 };
+        ci.mipLevels     = 1;
+        ci.arrayLayers   = 1;
+        // Match m_SceneColor's format so vkCmdCopyImage is layout-compatible.
+        ci.format        = VK_FORMAT_R16G16B16A16_SFLOAT;
+        ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+        m_PerDrawPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_PerDrawPreviewImage);
+
+        VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image            = m_PerDrawPreviewImage;
+        vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format           = ci.format;
+        vci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_PerDrawPreviewView);
+
+        m_PerDrawPreviewWidth  = width;
+        m_PerDrawPreviewHeight = height;
+        m_PerDrawPreviewKey    = UINT64_MAX;  // dimensions changed → invalidate cache
+    }
+
+    void RenderingSystem::DestroyPerDrawPreviewTexture()
+    {
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+        auto dev = VulkanContext::Get().GetDevice();
+        vkDestroyImageView(dev, m_PerDrawPreviewView, nullptr);
+        VulkanAllocator::FreeImage(m_PerDrawPreviewImage, m_PerDrawPreviewAlloc);
+        m_PerDrawPreviewImage  = VK_NULL_HANDLE;
+        m_PerDrawPreviewView   = VK_NULL_HANDLE;
+        m_PerDrawPreviewAlloc  = nullptr;
+        m_PerDrawPreviewWidth  = 0;
+        m_PerDrawPreviewHeight = 0;
+        m_PerDrawPreviewKey    = UINT64_MAX;
+    }
+
+    void RenderingSystem::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
+    {
+        if (m_FrameDebugger.state != DebuggerState::Frozen) return;
+        if (!m_FrameDebugger.capturedFrame.valid) return;
+        if (passIdx >= m_FrameDebugger.capturedFrame.passes.size()) return;
+
+        const auto& pass = m_FrameDebugger.capturedFrame.passes[passIdx];
+
+        // v1 — only GeometryPass per-draw replay is wired. Other passes leave
+        // the cache key unchanged so the panel falls back to pass-output archive.
+        if (pass.name != "GeometryPass") return;
+        if (!m_SceneColor || !m_SceneDepth || !m_EntityIDBuffer) return;
+
+        // Cache hit — same selection as last replay, nothing to do.
+        const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
+        if (key == m_PerDrawPreviewKey) return;
+
+        const u32 width  = m_SceneColor->GetWidth();
+        const u32 height = m_SceneColor->GetHeight();
+        EnsurePerDrawPreviewTexture(width, height);
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(m_SceneColor);
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+        VkImage     sceneColorImg  = vkSceneColor->GetImage();
+        VkImageView sceneColorView = vkSceneColor->GetImageView();
+        VkImage     sceneDepthImg  = vkSceneDepth->GetImage();
+        VkImageView sceneDepthView = vkSceneDepth->GetImageView();
+        VkImage     entityIDImg    = vkEntityID->GetImage();
+        VkImageView entityIDView   = vkEntityID->GetImageView();
+
+        // Total draws to issue (1-based count). Original GeometryPass emits
+        // draws in opaque → cutout → transparent order, which matches the
+        // capture-time CapturedDrawCall ordering.
+        const u32 maxDraws = localDrawIdx + 1;
+
+        // Capture the CPU-side data we need by value (the lambda runs inside
+        // ImmediateSubmit and must be self-contained).
+        VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+        UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+
+        VulkanContext::Get().ImmediateSubmit([&, this](VkCommandBuffer cmd)
+        {
+            // ---- Phase 1: prep all attachments + preview ----
+            // We use UNDEFINED → ATTACHMENT to ignore the prior contents (the
+            // graph CLEARs anyway) and avoid relying on whatever layout the
+            // last live frame left them in.
+            VkImageMemoryBarrier2 prep[4]{};
+            auto fillAtt = [](VkImageMemoryBarrier2& b, VkImage img,
+                              VkImageAspectFlags aspect, VkImageLayout newLayout,
+                              VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
+            {
+                b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                b.srcAccessMask       = 0;
+                b.dstStageMask        = dstStage;
+                b.dstAccessMask       = dstAccess;
+                b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                b.newLayout           = newLayout;
+                b.image               = img;
+                b.subresourceRange    = { aspect, 0, 1, 0, 1 };
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            };
+            fillAtt(prep[0], sceneColorImg, VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            fillAtt(prep[1], sceneDepthImg, VK_IMAGE_ASPECT_DEPTH_BIT,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+            fillAtt(prep[2], entityIDImg, VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 3;
+            depPrep.pImageMemoryBarriers    = prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            // ---- Phase 2: BeginRendering with cleared attachments ----
+            AttachmentInfo colorAtt[2]{};
+            colorAtt[0].ImageView  = sceneColorView;
+            colorAtt[0].Format     = VK_FORMAT_R16G16B16A16_SFLOAT;
+            colorAtt[0].LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt[0].StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt[0].ClearValue = { { {0.f, 0.f, 0.f, 0.f} } };
+            colorAtt[0].Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            colorAtt[1].ImageView  = entityIDView;
+            colorAtt[1].Format     = VK_FORMAT_R32_UINT;
+            colorAtt[1].LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt[1].StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt[1].ClearValue.color.uint32[0] = 0;
+            colorAtt[1].Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            AttachmentInfo depthAtt{};
+            depthAtt.ImageView  = sceneDepthView;
+            depthAtt.Format     = VK_FORMAT_D32_SFLOAT;
+            depthAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAtt.ClearValue.depthStencil = { 1.0f, 0 };
+            depthAtt.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.ColorAttachments = std::span<AttachmentInfo>(colorAtt, 2);
+            rpInfo.DepthAttachment  = &depthAtt;
+            rpInfo.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            // ---- Phase 3: bind pipelines + descriptors, replay draws ----
+            // Same descriptor sets as the live GeometryPass — the underlying
+            // UBOs/SSBOs are byte-stable in Frozen state (no live writers).
+            auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back,
+                polyMode, m_PBRVertSpv, m_PBRFragSpv);
+            if (!opaquePipeline)
+            {
+                DynamicRendering::EndRendering(cmd);
+                return;
+            }
+            VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
+
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+            VkDescriptorSet sets[] = {
+                m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
+                m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), m_ObjectSSBODescSet
+            };
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipelineLayout, 0, 6, sets, 0, nullptr);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D scRect{}; scRect.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &scRect);
+
+            u32 drawsRemaining = maxDraws;
+
+            auto ReplayBatch = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
+            {
+                if (drawsRemaining == 0 || draws.empty()) return;
+
+                Material::CullMode currentCull = Material::CullMode::Back;
+                bool currentSkinned = false;
+                auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                if (!pipeline) return;
+                pipeline->Bind(cmd);
+
+                for (const auto& dc : draws)
+                {
+                    if (drawsRemaining == 0) return;
+
+                    if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
+                    {
+                        currentCull    = dc.cullMode;
+                        currentSkinned = dc.isSkinned;
+                        VKPipeline* newPipeline = currentSkinned
+                            ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
+                            : m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv,        m_PBRFragSpv);
+                        if (!newPipeline) continue;
+                        newPipeline->Bind(cmd);
+                    }
+
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
+                    if (!mesh) { drawsRemaining--; continue; }
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                    if (!vb || !ib) { drawsRemaining--; continue; }
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                    // Use the captured indirect buffer (camera region, byte-stable
+                    // in Frozen state). gpuObjectIndex is also the firstInstance
+                    // base — same as live GeometryPass.
+                    VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                        sizeof(VkDrawIndexedIndirectCommand));
+
+                    --drawsRemaining;
+                }
+            };
+
+            ReplayBatch(m_OpaqueDraws,      Material::RenderMode::Opaque);
+            ReplayBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
+            ReplayBatch(m_TransparentDraws, Material::RenderMode::Transparent);
+
+            DynamicRendering::EndRendering(cmd);
+
+            // ---- Phase 4: copy SceneColor → preview ----
+            VkImageMemoryBarrier2 toCopy[2]{};
+            toCopy[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toCopy[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toCopy[0].srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toCopy[0].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toCopy[0].dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            toCopy[0].oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toCopy[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toCopy[0].image               = sceneColorImg;
+            toCopy[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toCopy[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toCopy[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            toCopy[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toCopy[1].srcStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toCopy[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toCopy[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toCopy[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            // First-ever replay is UNDEFINED, subsequent replays come from
+            // SHADER_READ_ONLY_OPTIMAL after the panel sampled the previous
+            // preview. Treat both uniformly via UNDEFINED — discards content
+            // (which we'd overwrite anyway).
+            toCopy[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            toCopy[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toCopy[1].image               = m_PerDrawPreviewImage;
+            toCopy[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toCopy[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toCopy[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depCopy{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depCopy.imageMemoryBarrierCount = 2;
+            depCopy.pImageMemoryBarriers    = toCopy;
+            vkCmdPipelineBarrier2(cmd, &depCopy);
+
+            VkImageCopy copy{};
+            copy.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            copy.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            copy.extent         = { width, height, 1 };
+            vkCmdCopyImage(cmd,
+                sceneColorImg,         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                m_PerDrawPreviewImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &copy);
+
+            // ---- Phase 5: restore layouts for next consumer ----
+            // SceneColor → SHADER_READ_ONLY (matches what the live pipeline
+            // expects after PostProcessPass; next live frame's barriers will
+            // re-transition as needed).
+            // Preview → SHADER_READ_ONLY for ImGui sampling.
+            VkImageMemoryBarrier2 fin[2]{};
+            fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[0].srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            fin[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[0].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            fin[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[0].image               = sceneColorImg;
+            fin[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            fin[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fin[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[1].image               = m_PerDrawPreviewImage;
+            fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 2;
+            depFin.pImageMemoryBarriers    = fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_PerDrawPreviewKey = key;
+    }
 }

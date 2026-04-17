@@ -140,6 +140,9 @@ namespace Luth
             m_FrameDebugger.DestroyArchives();
             m_FrameDebugger.state = DebuggerState::Inactive;
             m_FrameDebugger.capturedFrame.Clear();
+            // Phase 14E — drop the per-draw replay cache key; the preview
+            // texture itself is reused on next capture.
+            m_PerDrawPreviewKey = UINT64_MAX;
         }
         DebuggerState GetDebuggerState() const { return m_FrameDebugger.state; }
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
@@ -149,6 +152,27 @@ namespace Luth
         // Phase 14D — sampler shared with ImGui for archive previews. Allocated
         // lazily by InitDebugBlitResources (called when capture starts).
         VkSampler GetDebugSampler() const { return m_FrameDebugger.sampler; }
+
+        // Phase 14E — per-draw replay-then-copy.
+        //
+        // Re-records the captured pass up to (and including) localDrawIdx using
+        // the live UBOs/SSBOs/indirect buffer (these stay byte-stable in Frozen
+        // since the live render path doesn't touch them; recapture refreshes
+        // them when the camera moves). Result is copied into a persistent
+        // RGBA16F preview the panel samples through ImGui.
+        //
+        // Cache is keyed by ((passIdx<<32)|localDrawIdx) and short-circuits
+        // identical re-selections so dragging across the tree doesn't issue
+        // redundant ImmediateSubmits.
+        //
+        // v1 supports GeometryPass only; other passes silently leave the
+        // preview key unchanged so the panel falls back to the pass-output
+        // archive (Phase 14D behavior).
+        void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
+        VkImageView GetPerDrawPreviewView() const { return m_PerDrawPreviewView; }
+        u64         GetPerDrawPreviewKey()  const { return m_PerDrawPreviewKey; }
+        u32         GetPerDrawPreviewWidth()  const { return m_PerDrawPreviewWidth; }
+        u32         GetPerDrawPreviewHeight() const { return m_PerDrawPreviewHeight; }
 
     private:
         void InitGlobalUniforms();
@@ -201,6 +225,10 @@ namespace Luth
         // depth->color preview blits.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
         void InitDebugBlitResources();
+
+        // Phase 14E — per-draw preview helpers
+        void EnsurePerDrawPreviewTexture(u32 width, u32 height);
+        void DestroyPerDrawPreviewTexture();
 
         // Camera / editor state set each frame by App
         CameraParams m_CameraParams;
@@ -395,6 +423,18 @@ namespace Luth
 
         // Frame debugger
         FrameDebugger m_FrameDebugger;
+
+        // Phase 14E — per-draw preview (RGBA16F mirror of SceneColor at draw N).
+        // Allocated lazily on first ReplayPassUpToDraw and resized whenever
+        // m_SceneColor's dimensions change. Persistent across captures.
+        VkImage         m_PerDrawPreviewImage  = VK_NULL_HANDLE;
+        VkImageView     m_PerDrawPreviewView   = VK_NULL_HANDLE;
+        VmaAllocation   m_PerDrawPreviewAlloc  = nullptr;
+        u32             m_PerDrawPreviewWidth  = 0;
+        u32             m_PerDrawPreviewHeight = 0;
+        // Cache key — ((u64)passIdx << 32) | (u64)localDrawIdx, or UINT64_MAX
+        // when no replay has been issued yet (or after invalidation).
+        u64             m_PerDrawPreviewKey    = UINT64_MAX;
     };
 
 }
