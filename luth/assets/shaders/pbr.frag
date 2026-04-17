@@ -38,6 +38,21 @@ layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 2) uniform samplerCube prefilteredMap;
 layout(set = 0, binding = 3) uniform sampler2D   brdfLUT;
 
+// Set 0: GTAO final AO buffer (half-res R8) + settings (epic #58)
+layout(set = 0, binding = 4) uniform sampler2D   gtaoTex;
+layout(set = 0, binding = 5, std140) uniform GTAOUBO {
+    float intensity;
+    float radius;
+    float falloff;
+    float power;
+    int   sliceCount;
+    int   stepsPerSlice;
+    int   enabled;
+    int   visualize;
+    vec2  invResolution;
+    vec2  invFullResolution;
+} gtao;
+
 // Set 1: Bindless Textures
 layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
 
@@ -359,10 +374,19 @@ void main()
     }
 
     // --- Ambient Occlusion ---
+    // Material-baked AO * screen-space GTAO (epic #58). GTAO term is fetched
+    // from a half-res R8 buffer via bilinear sampling; when the pass is
+    // disabled at runtime, gtao.enabled == 0 and we skip the texture read.
     float ao = 1.0;
     if ((mat.flags & FLAG_HAS_OCCLUSION) != 0u)
     {
         ao = texture(globalTextures[nonuniformEXT(mat.occlusionIndex)], selectUV(mat.flags, UV_SHIFT_OCCLUSION)).r;
+    }
+    if (gtao.enabled != 0)
+    {
+        vec2 gtaoUV = gl_FragCoord.xy * gtao.invFullResolution;
+        float gtaoAO = texture(gtaoTex, gtaoUV).r;
+        ao *= gtaoAO;
     }
 
     // --- Lighting ---
@@ -410,6 +434,17 @@ void main()
     vec3 ambient = (kD * diffuseIBL + specularIBL) * ao * ubo.iblIntensity;
 
     vec3 color = ambient + Lo;
+
+    // Debug viz: replace final color with the raw AO buffer so the user can
+    // see the GTAO result in isolation (togglable from the Render panel).
+    if (gtao.visualize != 0)
+    {
+        vec2 gtaoUV = gl_FragCoord.xy * gtao.invFullResolution;
+        float gtaoAO = texture(gtaoTex, gtaoUV).r;
+        outColor = vec4(vec3(gtaoAO), 1.0);
+        outEntityID = v_EntityID;
+        return;
+    }
 
     // Debug cascade visualization: tint each cascade with a distinct color overlay.
     if (ubo.debugVisualizeCascades > 0.5 && sr.cascade >= 0)

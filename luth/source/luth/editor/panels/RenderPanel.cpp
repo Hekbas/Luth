@@ -67,6 +67,33 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Ambient Occlusion (GTAO)
+            if (UI::BeginCollapsingHeader("Ambient Occlusion (GTAO)", true)) {
+                auto& gtao = pp.gtao;
+                if (UI::BeginProperties("GTAOProps")) {
+                    UI::Property("Enabled", gtao.enabled);
+                    UI::Property("Intensity", gtao.intensity, 0.01f, 0.0f, 3.0f);
+                    UI::Property("Radius (m)", gtao.radius, 0.01f, 0.05f, 5.0f);
+                    UI::Property("Falloff", gtao.falloff, 0.01f, 0.0f, 1.0f);
+                    UI::Property("Power", gtao.power, 0.01f, 0.1f, 4.0f);
+
+                    const char* sliceItems[] = { "2", "3", "4", "8" };
+                    int sliceIdx =
+                        (gtao.sliceCount == 2) ? 0 :
+                        (gtao.sliceCount == 3) ? 1 :
+                        (gtao.sliceCount == 4) ? 2 : 3;
+                    if (UI::PropertyCombo("Slice Count", sliceIdx, sliceItems, IM_ARRAYSIZE(sliceItems))) {
+                        const int values[] = { 2, 3, 4, 8 };
+                        gtao.sliceCount = values[sliceIdx];
+                    }
+
+                    UI::Property("Steps / Slice", gtao.stepsPerSlice, 1, 6);
+                    UI::Property("Visualize AO", gtao.visualize);
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Bloom
             if (UI::BeginCollapsingHeader("Bloom", true)) {
                 if (UI::BeginProperties("BloomProps")) {

@@ -1,0 +1,55 @@
+#version 460
+
+// GTAO spatial denoise — sub-task E of epic #58.
+//
+// 3x3 cross-bilateral filter on the raw AO buffer, weighted by linear depth
+// so silhouette edges don't bleed into flat surfaces. No pre-baked edge
+// texture needed — we compare depths directly against the center pixel.
+// Output is the half-res AO buffer the PBR shader samples (sub-task F).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_RawAO;
+layout(set = 0, binding = 1) uniform sampler2D u_LinearDepth;
+layout(set = 0, binding = 2, r8) uniform writeonly image2D u_FinalAO;
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = textureSize(u_RawAO, 0);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 invRes = 1.0 / vec2(size);
+    vec2 uv     = (vec2(coord) + 0.5) * invRes;
+
+    float centerZ = texture(u_LinearDepth, uv).r;
+
+    float sum    = 0.0;
+    float weight = 0.0;
+
+    // 3x3 tent kernel (centre=1, edge=0.5, corner=0.25) * bilateral depth weight.
+    // Relative depth sigma (~10% of centerZ) — scales sensibly from near clutter
+    // to far buildings; rejects samples across real silhouettes (dz >> centerZ).
+    for (int dy = -1; dy <= 1; ++dy)
+    {
+        for (int dx = -1; dx <= 1; ++dx)
+        {
+            vec2 sampleUV = uv + vec2(dx, dy) * invRes;
+            float sampleZ  = texture(u_LinearDepth, sampleUV).r;
+            float sampleAO = texture(u_RawAO,      sampleUV).r;
+
+            float relDZ = abs(sampleZ - centerZ) / max(centerZ, 0.01);
+            float wz    = exp(-relDZ * relDZ * 100.0);
+            float ws    = (dx == 0 && dy == 0) ? 1.0
+                        : (dx == 0 || dy == 0) ? 0.5
+                        :                         0.25;
+            float w = wz * ws;
+
+            sum    += sampleAO * w;
+            weight += w;
+        }
+    }
+
+    float finalAO = weight > 0.0 ? sum / weight : 1.0;
+    imageStore(u_FinalAO, coord, vec4(finalAO));
+}

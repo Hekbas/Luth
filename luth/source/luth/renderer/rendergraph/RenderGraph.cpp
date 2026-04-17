@@ -441,7 +441,9 @@ namespace Luth::RG
         {
             case TextureFormat::RGBA8_Unorm:       return VK_FORMAT_R8G8B8A8_UNORM;
             case TextureFormat::BGRA8_Unorm:       return VK_FORMAT_B8G8R8A8_UNORM;
+            case TextureFormat::R8_Unorm:          return VK_FORMAT_R8_UNORM;
             case TextureFormat::RGBA16_Float:      return VK_FORMAT_R16G16B16A16_SFLOAT;
+            case TextureFormat::R32_Float:         return VK_FORMAT_R32_SFLOAT;
             case TextureFormat::D32_Float:         return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             case TextureFormat::R32_Uint:          return VK_FORMAT_R32_UINT;

@@ -23,6 +23,7 @@ namespace Luth
             case TextureFormat::RGBA16F:         return VK_FORMAT_R16G16B16A16_SFLOAT;
             case TextureFormat::RGBA32F:         return VK_FORMAT_R32G32B32A32_SFLOAT;
             case TextureFormat::RG16F:           return VK_FORMAT_R16G16_SFLOAT;
+            case TextureFormat::R32_Float:       return VK_FORMAT_R32_SFLOAT;
             case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             case TextureFormat::R32_Uint:        return VK_FORMAT_R32_UINT;
@@ -508,6 +509,7 @@ namespace Luth
             case TextureFormat::RGBA16F: return "RGBA16F";
             case TextureFormat::RGBA32F: return "RGBA32F";
             case TextureFormat::RG16F:   return "RG16F";
+            case TextureFormat::R32_Float: return "R32_Float";
             case TextureFormat::D32_Float: return "D32_Float";
             case TextureFormat::R32_Uint:  return "R32_Uint";
             default: return "Unknown";

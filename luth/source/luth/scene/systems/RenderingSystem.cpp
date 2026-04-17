@@ -103,10 +103,15 @@ namespace Luth
                 m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
                 m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
 
+                m_DepthPrepassVertSpv          = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+                m_DepthPrepassSkinnedVertSpv   = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
+
                 if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
                     LH_CORE_ERROR("Failed to compile skinned shaders!");
                 if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty())
                     LH_CORE_ERROR("Failed to compile selection mask shaders!");
+                if (m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty())
+                    LH_CORE_ERROR("Failed to compile depth prepass shaders!");
             }
 
             // Load post-process shaders via ShaderCompiler (not asset pipeline — inline shaders)
@@ -133,6 +138,7 @@ namespace Luth
             CreatePipelines();
             InitGPUObjectBuffers();
             InitCullPipeline();
+            InitAOResources();
 
             // Shader reload callback — rebuilds pipelines when a shader is reloaded
             ShaderLibrary::SetReloadCallback([this](const std::string& name) {
@@ -157,6 +163,8 @@ namespace Luth
                 }
                 m_ShadowPipeline.reset();
                 m_ShadowSkinnedPipeline.reset();
+                m_DepthPrepassPipeline.reset();
+                m_DepthPrepassSkinnedPipeline.reset();
                 m_SkyboxPipeline.reset();
                 m_BloomExtractPipeline.reset();
                 m_BloomBlurPipeline.reset();
@@ -272,6 +280,22 @@ namespace Luth
         if (m_CullDescLayout)
             vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
         m_CullPipeline.reset();
+
+        // GTAO resources (epic #58)
+        m_GTAOPrefilterPipeline.reset();
+        m_GTAOMainPipeline.reset();
+        m_GTAODenoisePipeline.reset();
+        if (m_GTAOSampler)
+            vkDestroySampler(device, m_GTAOSampler, nullptr);
+        if (m_GTAODescPool)
+            vkDestroyDescriptorPool(device, m_GTAODescPool, nullptr);
+        if (m_GTAOPrefilterDescLayout)
+            vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
+        if (m_GTAOMainDescLayout)
+            vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
+        if (m_GTAODenoiseDescLayout)
+            vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
+        // Textures + UBO destroyed automatically via shared_ptr reset when RenderingSystem dies.
     }
 
     // =========================================================================
@@ -309,6 +333,11 @@ namespace Luth
         m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
         m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
         m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
+        m_DepthPrepassVertSpv         = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
+        m_GTAOPrefilterSpv            = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
+        m_GTAOMainSpv                 = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+        m_GTAODenoiseSpv              = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
 
         m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
         m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
@@ -325,6 +354,8 @@ namespace Luth
         m_GeoSkinnedPipelineManager.Clear();
         m_ShadowPipeline.reset();
         m_ShadowSkinnedPipeline.reset();
+        m_DepthPrepassPipeline.reset();
+        m_DepthPrepassSkinnedPipeline.reset();
         m_SkyboxPipeline.reset();
         m_BloomExtractPipeline.reset();
         m_BloomBlurPipeline.reset();
@@ -334,6 +365,38 @@ namespace Luth
         m_SelectionMaskPipeline.reset();
         m_SelectionMaskSkinnedPipeline.reset();
         CreatePipelines();
+
+        // Rebuild GTAO compute pipelines from freshly-compiled SPIR-V. The
+        // descriptor layouts are unchanged, so the descriptor sets survive.
+        if (!m_GTAOPrefilterSpv.empty() && m_GTAOPrefilterDescLayout)
+        {
+            VkPushConstantRange pc{};
+            pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            pc.offset     = 0;
+            pc.size       = sizeof(i32) * 2 + sizeof(float) * 6;
+            m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOPrefilterSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
+                std::vector<VkPushConstantRange>{ pc });
+        }
+        if (!m_GTAOMainSpv.empty() && m_GTAOMainDescLayout)
+        {
+            VkPushConstantRange pc{};
+            pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            pc.offset     = 0;
+            pc.size       = sizeof(float) * 4 + sizeof(u32) * 4;
+            m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOMainSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
+                std::vector<VkPushConstantRange>{ pc });
+        }
+        if (!m_GTAODenoiseSpv.empty() && m_GTAODenoiseDescLayout)
+        {
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
+                std::vector<VkPushConstantRange>{});
+        }
 
         LH_CORE_INFO("Utility shaders recompiled and pipelines rebuilt");
     }
@@ -348,8 +411,8 @@ namespace Luth
 
         m_GlobalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
 
-        // Set 0 layout: binding 0 = GlobalUBO, bindings 1-3 = IBL samplers
-        VkDescriptorSetLayoutBinding bindings[4] = {};
+        // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO
+        VkDescriptorSetLayoutBinding bindings[6] = {};
 
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -371,9 +434,21 @@ namespace Luth
         bindings[3].descriptorCount = 1;
         bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // GTAO final-AO sampler (epic #58). Written by UpdateGlobalIBLSetDescriptors
+        // once m_GTAOFinal is allocated (InitAOResources runs after InitGlobalUniforms).
+        bindings[4].binding = 4;
+        bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[4].descriptorCount = 1;
+        bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        bindings[5].binding = 5;
+        bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[5].descriptorCount = 1;
+        bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 4;
+        layoutInfo.bindingCount = 6;
         layoutInfo.pBindings = bindings;
 
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
@@ -1024,6 +1099,9 @@ namespace Luth
                 config.attributeDescriptions = attribDescs;
                 // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
+                // LESS_OR_EQUAL so opaques pass the DepthPrepass values (written with LESS)
+                // exactly, while cutouts/transparents still Z-test against the prepass depth.
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
                 switch (mode)
                 {
@@ -1111,6 +1189,7 @@ namespace Luth
                 config.attributeDescriptions = skinnedAttribDescs;
                 // No push constants — per-object data comes from GPUObjectData SSBO (Set 5)
                 config.polygonMode = polygonMode;
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL; // matches DepthPrepass output
 
                 switch (mode)
                 {
@@ -1156,6 +1235,45 @@ namespace Luth
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
                 shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
+        }
+
+        // ---- Depth prepass pipeline (camera-space, depth-only, position only) ----
+        // Reuses the shadow frag SPIR-V (empty `void main(){}`) as the null fragment.
+        // Rigid variant uses the position-only binding/attribs (shadowVertexLayout).
+        if (!m_DepthPrepassVertSpv.empty() && !m_ShadowFragSpv.empty())
+        {
+            PipelineConfig depthPrepassConfig;
+            depthPrepassConfig.colorFormats = {}; // depth-only
+            depthPrepassConfig.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            depthPrepassConfig.depthTest    = true;
+            depthPrepassConfig.depthWrite   = true;
+            depthPrepassConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+            depthPrepassConfig.blendEnabled = false;
+            depthPrepassConfig.cullMode     = VK_CULL_MODE_BACK_BIT;
+            depthPrepassConfig.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            depthPrepassConfig.bindingDescriptions   = shadowBindingDescs; // position-only + full-vertex stride
+            depthPrepassConfig.attributeDescriptions = shadowAttribDescs;
+
+            m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
+                depthPrepassConfig, m_DepthPrepassVertSpv, m_ShadowFragSpv, geoLayouts);
+        }
+
+        if (!m_DepthPrepassSkinnedVertSpv.empty() && !m_ShadowFragSpv.empty())
+        {
+            PipelineConfig depthPrepassSkinnedConfig;
+            depthPrepassSkinnedConfig.colorFormats = {};
+            depthPrepassSkinnedConfig.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            depthPrepassSkinnedConfig.depthTest    = true;
+            depthPrepassSkinnedConfig.depthWrite   = true;
+            depthPrepassSkinnedConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+            depthPrepassSkinnedConfig.blendEnabled = false;
+            depthPrepassSkinnedConfig.cullMode     = VK_CULL_MODE_BACK_BIT;
+            depthPrepassSkinnedConfig.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            depthPrepassSkinnedConfig.bindingDescriptions   = skinnedBindingDescs;
+            depthPrepassSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
+
+            m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
+                depthPrepassSkinnedConfig, m_DepthPrepassSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
         // ---- Selection mask pipeline (static) ----
@@ -1617,6 +1735,367 @@ namespace Luth
             std::vector<VkPushConstantRange>{ pcRange });
     }
 
+    // =========================================================================
+    //  GTAO (Ground Truth Ambient Occlusion) — epic #58
+    // =========================================================================
+    //
+    // InitAOResources allocates the persistent half-res textures that back
+    // the GTAO pass chain (prefilter → main → denoise) and the prefilter
+    // compute pipeline. Main/denoise pipelines land in their own sub-tasks;
+    // their textures are allocated here too so Resize sizes everything in
+    // one place.
+    //
+    // Descriptor writes live in UpdateAODescriptors — called at end of init
+    // and again after Resize recreates the textures (which invalidates any
+    // stored image view pointers in the descriptor sets).
+    void RenderingSystem::InitAOResources()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
+
+        // ---- Half-res persistent textures ----
+        const u32 halfW = std::max(m_SceneColor->GetWidth()  / 2, 1u);
+        const u32 halfH = std::max(m_SceneColor->GetHeight() / 2, 1u);
+
+        auto makeStorage = [&](TextureFormat fmt) {
+            return std::make_shared<VKTexture>(
+                halfW, halfH, fmt,
+                /*arrayLayers*/ 1,
+                /*createFlags*/ 0u,
+                /*mipLevels*/   1,
+                VK_IMAGE_USAGE_STORAGE_BIT);
+        };
+
+        m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
+        m_GTAORawAO       = makeStorage(TextureFormat::R8);
+        m_GTAOEdges       = makeStorage(TextureFormat::R8);
+        m_GTAOFinal       = makeStorage(TextureFormat::R8);
+
+        // ---- Shared linear-clamp sampler for GTAO compute reads ----
+        VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        sampCI.magFilter    = VK_FILTER_LINEAR;
+        sampCI.minFilter    = VK_FILTER_LINEAR;
+        sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        vkCreateSampler(device, &sampCI, nullptr, &m_GTAOSampler);
+
+        // ---- Shared descriptor pool for all GTAO sets ----
+        // Enough capacity for prefilter + main + denoise (sub-task E).
+        VkDescriptorPoolSize poolSizes[3] = {
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          8 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         4 },
+        };
+        VkDescriptorPoolCreateInfo poolCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolCI.maxSets       = 8;
+        poolCI.poolSizeCount = 3;
+        poolCI.pPoolSizes    = poolSizes;
+        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_GTAODescPool);
+
+        // ---- GTAO UBO (GTAOUBO std140, 48B) ----
+        m_GTAOUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(GTAOUBO));
+
+        // ---- Depth prefilter: [sampler2D sceneDepth, image2D linearDepth] ----
+        {
+            VkDescriptorSetLayoutBinding bindings[2]{};
+            bindings[0].binding         = 0;
+            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[1].binding         = 1;
+            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 2;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAOPrefilterDescLayout);
+
+            VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            allocInfo.descriptorPool     = m_GTAODescPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts        = &m_GTAOPrefilterDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAOPrefilterDescSet);
+
+            VkPushConstantRange pcRange{};
+            pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            pcRange.offset     = 0;
+            pcRange.size       = sizeof(i32) * 2 + sizeof(float) * 6; // halfResSize + invFullRes + nearZ + farZ + pads
+
+            m_GTAOPrefilterSpv = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
+            if (m_GTAOPrefilterSpv.empty())
+            {
+                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_depth_prefilter.comp!");
+                return;
+            }
+            m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOPrefilterSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
+                std::vector<VkPushConstantRange>{ pcRange });
+        }
+
+        // ---- Main pass: [sampler2D linearDepth, image2D rawAO, UBO] ----
+        {
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            bindings[0].binding         = 0;
+            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[1].binding         = 1;
+            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[2].binding         = 2;
+            bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            bindings[2].descriptorCount = 1;
+            bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 3;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAOMainDescLayout);
+
+            VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            allocInfo.descriptorPool     = m_GTAODescPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts        = &m_GTAOMainDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAOMainDescSet);
+
+            VkPushConstantRange pcRange{};
+            pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            pcRange.offset     = 0;
+            pcRange.size       = sizeof(float) * 4 + sizeof(u32) * 4; // projParams + near/far + frameIndex + pads
+
+            m_GTAOMainSpv = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+            if (m_GTAOMainSpv.empty())
+            {
+                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_main.comp!");
+                return;
+            }
+            m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOMainSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
+                std::vector<VkPushConstantRange>{ pcRange });
+        }
+
+        // ---- Denoise pass: [sampler2D rawAO, sampler2D linDepth, image2D finalAO] ----
+        {
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            bindings[0].binding         = 0;
+            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[1].binding         = 1;
+            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[2].binding         = 2;
+            bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bindings[2].descriptorCount = 1;
+            bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 3;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAODenoiseDescLayout);
+
+            VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            allocInfo.descriptorPool     = m_GTAODescPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts        = &m_GTAODenoiseDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAODenoiseDescSet);
+
+            // No push constants — resolution derived from textureSize() inside the shader.
+            m_GTAODenoiseSpv = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+            if (m_GTAODenoiseSpv.empty())
+            {
+                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_denoise.comp!");
+                return;
+            }
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
+                std::vector<VkPushConstantRange>{});
+        }
+
+        UpdateAODescriptors();
+    }
+
+    void RenderingSystem::UpdateAODescriptors()
+    {
+        if (m_GTAOPrefilterDescSet == VK_NULL_HANDLE) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+        auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
+        auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
+        auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
+
+        // Shared VkDescriptorImageInfo / buffer-info slots reused across passes.
+        VkDescriptorImageInfo  sceneDepthInfo{};
+        sceneDepthInfo.sampler     = m_GTAOSampler;
+        sceneDepthInfo.imageView   = vkSceneDepth->GetImageView();
+        sceneDepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo  linDepthSampledInfo{};
+        linDepthSampledInfo.sampler     = m_GTAOSampler;
+        linDepthSampledInfo.imageView   = vkLinDepth->GetImageView();
+        linDepthSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo  linDepthStorageInfo{};
+        linDepthStorageInfo.sampler     = VK_NULL_HANDLE;
+        linDepthStorageInfo.imageView   = vkLinDepth->GetImageView();
+        linDepthStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo  rawAOStorageInfo{};
+        rawAOStorageInfo.sampler     = VK_NULL_HANDLE;
+        rawAOStorageInfo.imageView   = vkRawAO->GetImageView();
+        rawAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorBufferInfo uboInfo{};
+        uboInfo.buffer = m_GTAOUBOBuffer ? m_GTAOUBOBuffer->GetVulkanBuffer() : VK_NULL_HANDLE;
+        uboInfo.offset = 0;
+        uboInfo.range  = VK_WHOLE_SIZE;
+
+        // ---- Prefilter pass: [sceneDepth (sampler), linDepth (storage)] ----
+        VkWriteDescriptorSet preWrites[2]{};
+        preWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        preWrites[0].dstSet          = m_GTAOPrefilterDescSet;
+        preWrites[0].dstBinding      = 0;
+        preWrites[0].descriptorCount = 1;
+        preWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        preWrites[0].pImageInfo      = &sceneDepthInfo;
+
+        preWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        preWrites[1].dstSet          = m_GTAOPrefilterDescSet;
+        preWrites[1].dstBinding      = 1;
+        preWrites[1].descriptorCount = 1;
+        preWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        preWrites[1].pImageInfo      = &linDepthStorageInfo;
+
+        vkUpdateDescriptorSets(device, 2, preWrites, 0, nullptr);
+
+        // ---- Main pass: [linDepth (sampler), rawAO (storage), UBO] ----
+        if (m_GTAOMainDescSet == VK_NULL_HANDLE || uboInfo.buffer == VK_NULL_HANDLE) return;
+
+        VkWriteDescriptorSet mainWrites[3]{};
+        mainWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        mainWrites[0].dstSet          = m_GTAOMainDescSet;
+        mainWrites[0].dstBinding      = 0;
+        mainWrites[0].descriptorCount = 1;
+        mainWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        mainWrites[0].pImageInfo      = &linDepthSampledInfo;
+
+        mainWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        mainWrites[1].dstSet          = m_GTAOMainDescSet;
+        mainWrites[1].dstBinding      = 1;
+        mainWrites[1].descriptorCount = 1;
+        mainWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        mainWrites[1].pImageInfo      = &rawAOStorageInfo;
+
+        mainWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        mainWrites[2].dstSet          = m_GTAOMainDescSet;
+        mainWrites[2].dstBinding      = 2;
+        mainWrites[2].descriptorCount = 1;
+        mainWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        mainWrites[2].pBufferInfo     = &uboInfo;
+
+        vkUpdateDescriptorSets(device, 3, mainWrites, 0, nullptr);
+
+        // ---- Denoise pass: [rawAO (sampler), linDepth (sampler), finalAO (storage)] ----
+        if (m_GTAODenoiseDescSet == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo rawAOSampledInfo{};
+        rawAOSampledInfo.sampler     = m_GTAOSampler;
+        rawAOSampledInfo.imageView   = vkRawAO->GetImageView();
+        rawAOSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo finalAOStorageInfo{};
+        finalAOStorageInfo.sampler     = VK_NULL_HANDLE;
+        finalAOStorageInfo.imageView   = vkFinalAO->GetImageView();
+        finalAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet denoiseWrites[3]{};
+        denoiseWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[0].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[0].dstBinding      = 0;
+        denoiseWrites[0].descriptorCount = 1;
+        denoiseWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        denoiseWrites[0].pImageInfo      = &rawAOSampledInfo;
+
+        denoiseWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[1].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[1].dstBinding      = 1;
+        denoiseWrites[1].descriptorCount = 1;
+        denoiseWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        denoiseWrites[1].pImageInfo      = &linDepthSampledInfo;
+
+        denoiseWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        denoiseWrites[2].dstSet          = m_GTAODenoiseDescSet;
+        denoiseWrites[2].dstBinding      = 2;
+        denoiseWrites[2].descriptorCount = 1;
+        denoiseWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        denoiseWrites[2].pImageInfo      = &finalAOStorageInfo;
+
+        vkUpdateDescriptorSets(device, 3, denoiseWrites, 0, nullptr);
+
+        // ---- Set 0 GTAO bindings (sampled by pbr.frag) ----
+        if (m_GlobalDescriptorSet == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo gtaoFinalInfo{};
+        gtaoFinalInfo.sampler     = m_GTAOSampler;
+        gtaoFinalInfo.imageView   = vkFinalAO->GetImageView();
+        gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet globalWrites[2]{};
+        globalWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        globalWrites[0].dstSet          = m_GlobalDescriptorSet;
+        globalWrites[0].dstBinding      = 4;
+        globalWrites[0].descriptorCount = 1;
+        globalWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        globalWrites[0].pImageInfo      = &gtaoFinalInfo;
+
+        globalWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        globalWrites[1].dstSet          = m_GlobalDescriptorSet;
+        globalWrites[1].dstBinding      = 5;
+        globalWrites[1].descriptorCount = 1;
+        globalWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        globalWrites[1].pBufferInfo     = &uboInfo;
+
+        vkUpdateDescriptorSets(device, 2, globalWrites, 0, nullptr);
+    }
+
+    void RenderingSystem::UpdateGTAOUBO()
+    {
+        if (!m_GTAOUBOBuffer) return;
+
+        const auto& s = m_PostProcessSettings.gtao;
+        GTAOUBO ubo{};
+        ubo.intensity      = s.intensity;
+        ubo.radius         = s.radius;
+        ubo.falloff        = s.falloff;
+        ubo.power          = s.power;
+        ubo.sliceCount     = s.sliceCount;
+        ubo.stepsPerSlice  = s.stepsPerSlice;
+        ubo.enabled        = s.enabled  ? 1 : 0;
+        ubo.visualize      = s.visualize ? 1 : 0;
+
+        const u32 halfW = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetWidth()  : 1u;
+        const u32 halfH = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetHeight() : 1u;
+        const u32 fullW = m_SceneColor ? m_SceneColor->GetWidth()  : 1u;
+        const u32 fullH = m_SceneColor ? m_SceneColor->GetHeight() : 1u;
+        ubo.invResolution[0]     = 1.0f / float(halfW);
+        ubo.invResolution[1]     = 1.0f / float(halfH);
+        ubo.invFullResolution[0] = 1.0f / float(fullW);
+        ubo.invFullResolution[1] = 1.0f / float(fullH);
+
+        m_GTAOUBOBuffer->SetData(&ubo, sizeof(GTAOUBO));
+    }
+
     void RenderingSystem::BuildGPUObjectBuffer(entt::registry& registry)
     {
         auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
@@ -1831,6 +2310,7 @@ namespace Luth
 
             // Upload post-process settings
             UpdatePostProcessUBO();
+            UpdateGTAOUBO();
 
             // Build GPU object buffer (after materials are registered)
             BuildGPUObjectBuffer(registry);
@@ -1874,7 +2354,21 @@ namespace Luth
             RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                 shadowHandles[i] = AddShadowPass(rg, registry, hIndirectBuf, i);
-            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf);
+
+            // Z-prepass produces SceneDepth before forward shading. The render
+            // graph can schedule it in parallel with the shadow cascades.
+            RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, registry, hIndirectBuf);
+
+            // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
+            // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
+            // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
+            // on a mid-range GPU at 1080p; can be gated later if a cheaper
+            // bypass path is worth the complexity.
+            RG::ResourceHandle gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
+            RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
+            RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
+
+            auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
             RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
             RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
@@ -1930,6 +2424,11 @@ namespace Luth
                 // re-clicking the same draw after recapture would hit the
                 // stale cached preview.
                 m_PerDrawPreviewKey = UINT64_MAX;
+                // Same for the Phase 14F depth-preview blit cache — keyed by
+                // (archiveIdx, layer+1); recapture rebuilds archives at the
+                // same indices, so without this reset, re-selecting a depth
+                // pass would skip the re-blit and show the previous frame.
+                m_DepthPreviewKey = UINT64_MAX;
 
                 m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
                                              VulkanContext::Get().GetAllocator());
@@ -1945,6 +2444,9 @@ namespace Luth
                 m_FrameDebugger.RegisterTrackedRT("LDROutput");
                 m_FrameDebugger.RegisterTrackedRT("EntityID");
                 m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
+                m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
+                m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
+                m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
                 rg.SetArchiveSink(&m_FrameDebugger);
             }
 
@@ -2262,6 +2764,21 @@ namespace Luth
             m_SelectionMask  = Texture::Create(width, height, TextureFormat::RGBA8);
             m_SelectionDepth = Texture::Create(width, height, TextureFormat::D32_Float);
             UpdatePostProcessDescriptors();
+
+            // GTAO half-res storage textures (recreated on Resize; descriptors
+            // refreshed below because they cache image-view pointers).
+            {
+                const u32 halfW = std::max(width  / 2, 1u);
+                const u32 halfH = std::max(height / 2, 1u);
+                auto makeStorage = [&](TextureFormat fmt) {
+                    return std::make_shared<VKTexture>(halfW, halfH, fmt, 1u, 0u, 1u, VK_IMAGE_USAGE_STORAGE_BIT);
+                };
+                m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
+                m_GTAORawAO       = makeStorage(TextureFormat::R8);
+                m_GTAOEdges       = makeStorage(TextureFormat::R8);
+                m_GTAOFinal       = makeStorage(TextureFormat::R8);
+            }
+            UpdateAODescriptors();
 
             // Update outline descriptors with new mask + depth buffers
             if (m_OutlineDescSet && m_OutlineSampler)

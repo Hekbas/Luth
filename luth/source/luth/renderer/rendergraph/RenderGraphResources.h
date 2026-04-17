@@ -44,7 +44,9 @@ namespace Luth::RG
     {
         RGBA8_Unorm,
         BGRA8_Unorm, // Added for Swapchain
+        R8_Unorm,     // Compute storage (GTAO raw/final AO, etc.)
         RGBA16_Float, // HDR render target
+        R32_Float,    // Compute storage (GTAO linear depth, etc.)
         D32_Float,
         D24_Unorm_S8_Uint,
         R32_Uint,

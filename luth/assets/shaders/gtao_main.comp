@@ -1,0 +1,254 @@
+#version 460
+
+// GTAO main integration — sub-task D of epic #58.
+//
+// Faithful port of XeGTAO::MainPass (Intel, MIT-licensed) with the
+// bent-normal output and the multi-mip depth chain removed. Runs at half
+// resolution, samples mip 0 of the linearized depth produced by the
+// prefilter pass, reconstructs view-space normals from depth derivatives,
+// integrates horizon-based AO over `sliceCount` slices with `stepsPerSlice`
+// samples per side, and writes a single R8 visibility term.
+//
+// Reference: XeGTAO.hlsli::XeGTAO_MainPass (https://github.com/GameTechDev/XeGTAO)
+// Algorithm:  Jimenez et al. 2016 "Practical Real-Time Strategies for
+//             Accurate Indirect Occlusion".
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_LinearDepth;
+layout(set = 0, binding = 1, r8) uniform writeonly image2D u_RawAO;
+
+layout(set = 0, binding = 2, std140) uniform GTAOUBO
+{
+    float intensity;
+    float radius;
+    float falloff;
+    float power;
+    int   sliceCount;
+    int   stepsPerSlice;
+    int   enabled;
+    int   visualize;
+    vec2  invResolution;      // 1 / half-res
+    vec2  invFullResolution;  // 1 / full-res — used for screen-space step math
+} g;
+
+layout(push_constant) uniform PC
+{
+    vec2  projParams;    // (P[0][0], |P[1][1]|) for view-space reconstruct
+    float nearZ;
+    float farZ;
+    uint  frameIndex;
+    uint  _pad0;
+    uint  _pad1;
+    uint  _pad2;
+} pc;
+
+const float PI      = 3.141592653589793;
+const float PI_HALF = 1.570796326794896;
+
+// ---------- helpers ----------
+
+vec3 ComputeViewspacePosition(vec2 uv, float viewZ)
+{
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc / pc.projParams * viewZ, viewZ);
+}
+
+float FastACos(float x)
+{
+    float ax = abs(x);
+    float r  = -0.156583 * ax + PI_HALF;
+    r *= sqrt(max(1.0 - ax, 0.0));
+    return (x >= 0.0) ? r : PI - r;
+}
+
+// Interleaved gradient noise advanced per frame (Jimenez 2014).
+vec2 SpatioTemporalNoise(ivec2 coord)
+{
+    uint idx  = pc.frameIndex & 63u;
+    vec2  rot = vec2(float(idx) * 47.0, float(idx) * 17.0);
+    float n0  = fract(52.9829189 * fract(dot(vec2(coord) + rot,       vec2(0.06711056, 0.00583715))));
+    float n1  = fract(52.9829189 * fract(dot(vec2(coord) + rot * 1.7, vec2(0.06711056, 0.00583715))));
+    return vec2(n0, n1);
+}
+
+// Reconstruct view-space normal from the depth neighbourhood. Picks the
+// smaller depth-delta side on each axis to avoid crossing silhouette edges.
+vec3 ReconstructNormal(vec2 uv, vec3 posC, float viewZ)
+{
+    vec2 ir = g.invResolution;
+    vec2 uvL = uv - vec2(ir.x, 0.0);
+    vec2 uvR = uv + vec2(ir.x, 0.0);
+    vec2 uvT = uv - vec2(0.0, ir.y);
+    vec2 uvB = uv + vec2(0.0, ir.y);
+
+    float zL = texture(u_LinearDepth, uvL).r;
+    float zR = texture(u_LinearDepth, uvR).r;
+    float zT = texture(u_LinearDepth, uvT).r;
+    float zB = texture(u_LinearDepth, uvB).r;
+
+    vec3 pL = ComputeViewspacePosition(uvL, zL);
+    vec3 pR = ComputeViewspacePosition(uvR, zR);
+    vec3 pT = ComputeViewspacePosition(uvT, zT);
+    vec3 pB = ComputeViewspacePosition(uvB, zB);
+
+    // Pick the neighbour with smaller depth delta — more likely same surface.
+    vec3 dpdx = (abs(zR - viewZ) < abs(zL - viewZ)) ? (pR - posC) : (posC - pL);
+    vec3 dpdy = (abs(zB - viewZ) < abs(zT - viewZ)) ? (pB - posC) : (posC - pT);
+    return normalize(cross(dpdy, dpdx));
+}
+
+// ---------- main ----------
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(vec2(1.0) / g.invResolution + vec2(0.5));
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2  uv    = (vec2(coord) + 0.5) * g.invResolution;
+    float viewZ = texture(u_LinearDepth, uv).r;
+
+    if (viewZ >= pc.farZ * 0.999)
+    {
+        imageStore(u_RawAO, coord, vec4(1.0));
+        return;
+    }
+
+    // Nudge the centre toward camera to hide depth-imprecision self-intersection.
+    viewZ *= 0.99999;
+
+    vec3 pixCenter = ComputeViewspacePosition(uv, viewZ);
+    vec3 viewVec   = normalize(-pixCenter);
+    vec3 normal    = ReconstructNormal(uv, pixCenter, viewZ);
+
+    // Effect-radius falloff precomputes (match XeGTAO).
+    float effectRadius = g.radius;
+    float falloffRange = g.falloff * effectRadius;
+    float falloffFrom  = effectRadius * (1.0 - g.falloff);
+    float falloffMul   = -1.0 / max(falloffRange, 1e-5);
+    float falloffAdd   = falloffFrom / max(falloffRange, 1e-5) + 1.0;
+
+    // Convert effect radius (world) → screen-space radius (full-res pixels).
+    //   pixelViewSize.x = viewZ * NDCToViewMul.x * pixelSize.x
+    //                   = viewZ * (2 / P[0][0]) * (1 / fullResWidth)
+    vec2  pixelViewSize = viewZ * (2.0 / pc.projParams) * g.invFullResolution;
+    float screenspaceRadius = effectRadius / max(pixelViewSize.x, 1e-5);
+
+    // Fade out AO for very small screen radii (XeGTAO trick).
+    float visibility = clamp((10.0 - screenspaceRadius) / 100.0, 0.0, 1.0) * 0.5;
+
+    const float pixelTooCloseThreshold = 1.3;
+    float minS = pixelTooCloseThreshold / max(screenspaceRadius, 1e-3);
+
+    vec2  noise        = SpatioTemporalNoise(coord);
+    float noiseSlice   = noise.x;
+    float noiseSample  = noise.y;
+    const float sampleDistributionPower = 2.0;
+
+    for (int s = 0; s < g.sliceCount; ++s)
+    {
+        float sliceK = (float(s) + noiseSlice) / float(g.sliceCount);
+        float phi    = sliceK * PI;
+        float cosPhi = cos(phi);
+        float sinPhi = sin(phi);
+
+        // Screen-space slice direction in pixels (negative Y because Vulkan's
+        // uv.y grows downward — matches XeGTAO's DirectX convention).
+        vec2 omega = vec2(cosPhi, -sinPhi) * screenspaceRadius;
+
+        // View-space direction / ortho / slice-axis used to project the normal
+        // onto the slice plane. -sinPhi matches omega's Y sign above — our
+        // reconstructed view space is Y-down (Vulkan y-flipped projection
+        // reconstructed with |P[1][1]|), so the slice direction in view space
+        // needs the same sign as the screen-space sample direction.
+        vec3 directionVec      = vec3(cosPhi, -sinPhi, 0.0);
+        vec3 orthoDirectionVec = directionVec - dot(directionVec, viewVec) * viewVec;
+        vec3 axisVec           = normalize(cross(orthoDirectionVec, viewVec));
+        vec3 projectedNormalVec = normal - axisVec * dot(normal, axisVec);
+        float projNLen = length(projectedNormalVec);
+        float signNorm = sign(dot(orthoDirectionVec, projectedNormalVec));
+        float cosNorm  = clamp(dot(projectedNormalVec, viewVec) / max(projNLen, 1e-5), 0.0, 1.0);
+        float n        = signNorm * FastACos(cosNorm);
+
+        // Horizon-cos initial values at the hemisphere boundaries (important —
+        // starting at -1 biases the integral toward over-dark at grazing).
+        float lowHorizonCos0 = cos(n + PI_HALF);
+        float lowHorizonCos1 = cos(n - PI_HALF);
+        float horizonCos0    = lowHorizonCos0;
+        float horizonCos1    = lowHorizonCos1;
+
+        for (int step = 0; step < g.stepsPerSlice; ++step)
+        {
+            // R1 quasirandom sequence for per-step noise (matches XeGTAO).
+            float stepBaseNoise = float(s + step * g.stepsPerSlice) * 0.6180339887498948482;
+            float stepNoise     = fract(noiseSample + stepBaseNoise);
+
+            float sRel = (float(step) + stepNoise) / float(g.stepsPerSlice);
+            sRel  = pow(sRel, sampleDistributionPower);
+            sRel += minS;
+
+            // Pixel offset, snapped to pixel centres to avoid sampler-bilinear
+            // depth slope artifacts. Then convert pixels → UV.
+            vec2 sampleOffPixels = round(sRel * omega);
+            vec2 sampleOff       = sampleOffPixels * g.invFullResolution;
+
+            vec2 uv0 = uv + sampleOff;
+            vec2 uv1 = uv - sampleOff;
+
+            // Off-screen samples would read clamp-to-edge — treat as sky (farZ)
+            // so the weighted falloff lerps them toward the hemisphere edge.
+            bool  valid0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
+            bool  valid1 = uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
+            float z0     = valid0 ? texture(u_LinearDepth, uv0).r : pc.farZ;
+            float z1     = valid1 ? texture(u_LinearDepth, uv1).r : pc.farZ;
+
+            vec3  sPos0  = ComputeViewspacePosition(uv0, z0);
+            vec3  sPos1  = ComputeViewspacePosition(uv1, z1);
+            vec3  sDelta0 = sPos0 - pixCenter;
+            vec3  sDelta1 = sPos1 - pixCenter;
+            float sDist0  = length(sDelta0);
+            float sDist1  = length(sDelta1);
+
+            vec3  sDir0 = sDelta0 / max(sDist0, 1e-6);
+            vec3  sDir1 = sDelta1 / max(sDist1, 1e-6);
+
+            float w0 = clamp(sDist0 * falloffMul + falloffAdd, 0.0, 1.0);
+            float w1 = clamp(sDist1 * falloffMul + falloffAdd, 0.0, 1.0);
+            if (!valid0) w0 = 0.0;
+            if (!valid1) w1 = 0.0;
+
+            float shc0 = dot(sDir0, viewVec);
+            float shc1 = dot(sDir1, viewVec);
+
+            // Blend far/off-screen samples toward the low-horizon baseline —
+            // smooth fade-out instead of hard rejection (removes ring artifacts).
+            shc0 = mix(lowHorizonCos0, shc0, w0);
+            shc1 = mix(lowHorizonCos1, shc1, w1);
+
+            horizonCos0 = max(horizonCos0, shc0);
+            horizonCos1 = max(horizonCos1, shc1);
+        }
+
+        // XeGTAO fudge for high slopes — slight over-darkening mitigation.
+        projNLen = mix(projNLen, 1.0, 0.05);
+
+        // NOTE the swap: h0 (negative-side angle) comes from horizonCos1 and
+        // vice versa. This matches XeGTAO's naming and integral expectations.
+        float h0 = -FastACos(horizonCos1);
+        float h1 = +FastACos(horizonCos0);
+
+        // Jimenez 2016 analytical per-slice integral.
+        float sinN  = sin(n);
+        float iarc0 = (cosNorm + 2.0 * h0 * sinN - cos(2.0 * h0 - n)) * 0.25;
+        float iarc1 = (cosNorm + 2.0 * h1 * sinN - cos(2.0 * h1 - n)) * 0.25;
+
+        visibility += projNLen * (iarc0 + iarc1);
+    }
+
+    visibility /= float(g.sliceCount);
+    visibility  = pow(clamp(visibility, 0.0, 1.0), g.power);
+    visibility  = max(0.03, visibility);  // XeGTAO: disallow total occlusion
+
+    imageStore(u_RawAO, coord, vec4(visibility));
+}
