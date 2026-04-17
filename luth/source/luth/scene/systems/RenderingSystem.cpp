@@ -195,7 +195,13 @@ namespace Luth
             });
             m_ShaderWatcher.Start(true);
 
-            m_GPUTimers.Init(16);
+            // Capacity covers worst-case current frame (5 cull dispatches +
+            // 4 cascade shadow passes + geometry + selection mask + skybox +
+            // 3 bloom + grid + post-process + outline + ImGui ≈ 19 passes)
+            // with headroom for future passes (GTAO compute, etc.). When
+            // passCount > maxPasses, GPUTimerPool::ReadResults early-returns
+            // -1 for every pass — i.e. timings vanish from the panel.
+            m_GPUTimers.Init(64);
             RegisterNamedTextures();
         }
     }
