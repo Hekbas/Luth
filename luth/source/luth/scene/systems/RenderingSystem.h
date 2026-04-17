@@ -134,11 +134,58 @@ namespace Luth
 
         // Frame debugger capture
         void RequestCapture()   { if (m_FrameDebugger.state == DebuggerState::Inactive) m_FrameDebugger.state = DebuggerState::CaptureRequested; }
-        void ExitCapture()      { m_FrameDebugger.state = DebuggerState::Inactive; m_FrameDebugger.capturedFrame.Clear(); }
+        void ExitCapture()
+        {
+            // Free GPU-owned archives BEFORE clearing the metadata vectors.
+            m_FrameDebugger.DestroyArchives();
+            m_FrameDebugger.state = DebuggerState::Inactive;
+            m_FrameDebugger.capturedFrame.Clear();
+            // Phase 14E — drop the per-draw replay cache key; the preview
+            // texture itself is reused on next capture.
+            m_PerDrawPreviewKey = UINT64_MAX;
+        }
         DebuggerState GetDebuggerState() const { return m_FrameDebugger.state; }
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
-        void SetDebuggerDrawLimit(u32 limit) { m_FrameDebugger.drawLimit = limit; }
-        u32  GetDebuggerDrawLimit() const    { return m_FrameDebugger.drawLimit; }
+        // Phase 14C — SetDebuggerDrawLimit / GetDebuggerDrawLimit removed; live
+        // re-replay is gone, per-draw stepping arrives in Phase 14E.
+
+        // Phase 14D — sampler shared with ImGui for archive previews. Allocated
+        // lazily by InitDebugBlitResources (called when capture starts).
+        VkSampler GetDebugSampler() const { return m_FrameDebugger.sampler; }
+
+        // Phase 14E — per-draw replay-then-copy.
+        //
+        // Re-records the captured pass up to (and including) localDrawIdx using
+        // the live UBOs/SSBOs/indirect buffer (these stay byte-stable in Frozen
+        // since the live render path doesn't touch them; recapture refreshes
+        // them when the camera moves). Result is copied into a persistent
+        // RGBA16F preview the panel samples through ImGui.
+        //
+        // Cache is keyed by ((passIdx<<32)|localDrawIdx) and short-circuits
+        // identical re-selections so dragging across the tree doesn't issue
+        // redundant ImmediateSubmits.
+        //
+        // v1 supports GeometryPass only; other passes silently leave the
+        // preview key unchanged so the panel falls back to the pass-output
+        // archive (Phase 14D behavior).
+        void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
+        VkImageView GetPerDrawPreviewView() const { return m_PerDrawPreviewView; }
+        u64         GetPerDrawPreviewKey()  const { return m_PerDrawPreviewKey; }
+        u32         GetPerDrawPreviewWidth()  const { return m_PerDrawPreviewWidth; }
+        u32         GetPerDrawPreviewHeight() const { return m_PerDrawPreviewHeight; }
+
+        // Phase 14F — depth-archive visualization.
+        //
+        // Linearizes a depth archive (single layer if `layer >= 0`, else whole
+        // image — only single-layer depth makes sense in v1) into the
+        // persistent RGBA8 m_DepthPreviewImage via the existing depth blit
+        // pipeline. `near`/`far` pick the depth range that maps to [0..1].
+        // Cache is keyed by ((u64)archiveIdx<<32)|(u32 layer + 1) so layer -1
+        // is distinguishable from layer 0.
+        void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
+        VkImageView GetDepthPreviewView()   const { return m_DepthPreviewView; }
+        u32         GetDepthPreviewWidth()  const { return m_DepthPreviewWidth; }
+        u32         GetDepthPreviewHeight() const { return m_DepthPreviewHeight; }
 
     private:
         void InitGlobalUniforms();
@@ -186,10 +233,19 @@ namespace Luth
 
         void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
-        // Frame debugger re-recording
-        void RenderCapturedFrame(u32 maxDrawCalls, Scene* scene);
+        // Phase 14C — RenderCapturedFrame removed (live re-replay).
+        // AddDebugBlitPass + InitDebugBlitResources kept for Phase 14D
+        // depth->color preview blits.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
         void InitDebugBlitResources();
+
+        // Phase 14E — per-draw preview helpers
+        void EnsurePerDrawPreviewTexture(u32 width, u32 height);
+        void DestroyPerDrawPreviewTexture();
+
+        // Phase 14F — depth preview helpers
+        void EnsureDepthPreviewTexture(u32 width, u32 height);
+        void DestroyDepthPreviewTexture();
 
         // Camera / editor state set each frame by App
         CameraParams m_CameraParams;
@@ -384,6 +440,30 @@ namespace Luth
 
         // Frame debugger
         FrameDebugger m_FrameDebugger;
+
+        // Phase 14E — per-draw preview (RGBA16F mirror of SceneColor at draw N).
+        // Allocated lazily on first ReplayPassUpToDraw and resized whenever
+        // m_SceneColor's dimensions change. Persistent across captures.
+        VkImage         m_PerDrawPreviewImage  = VK_NULL_HANDLE;
+        VkImageView     m_PerDrawPreviewView   = VK_NULL_HANDLE;
+        VmaAllocation   m_PerDrawPreviewAlloc  = nullptr;
+        u32             m_PerDrawPreviewWidth  = 0;
+        u32             m_PerDrawPreviewHeight = 0;
+        // Cache key — ((u64)passIdx << 32) | (u64)localDrawIdx, or UINT64_MAX
+        // when no replay has been issued yet (or after invalidation).
+        u64             m_PerDrawPreviewKey    = UINT64_MAX;
+
+        // Phase 14F — RGBA8 depth-linearized preview for cascade slices and
+        // any other depth archive. Sized to the cascade resolution by default
+        // (k_ShadowResolution × k_ShadowResolution) but can be re-allocated.
+        VkImage         m_DepthPreviewImage  = VK_NULL_HANDLE;
+        VkImageView     m_DepthPreviewView   = VK_NULL_HANDLE;
+        VmaAllocation   m_DepthPreviewAlloc  = nullptr;
+        u32             m_DepthPreviewWidth  = 0;
+        u32             m_DepthPreviewHeight = 0;
+        // Cache key — ((u64)archiveIdx << 32) | (u32)(layer + 1), so layer
+        // values of -1 / 0 are distinguishable. UINT64_MAX = invalid.
+        u64             m_DepthPreviewKey    = UINT64_MAX;
     };
 
 }

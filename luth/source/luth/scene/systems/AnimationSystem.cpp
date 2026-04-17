@@ -1,6 +1,8 @@
 #include "luthpch.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/scene/Scene.h"
+#include "luth/scene/Systems.h"
+#include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/core/Time.h"
 #include "luth/renderer/BoneMatrixBuffer.h"
@@ -33,6 +35,18 @@ namespace Luth
     void AnimationSystem::Update(Scene* scene)
     {
         LH_PROFILE_FUNCTION();
+
+        // Phase 14 — Frame Debugger requires the scene to be visually frozen
+        // so per-draw replay (Phase 14E) sees the same bone matrices the live
+        // capture wrote into BoneMatrixBuffer. Without this guard, Animation
+        // would tick between consecutive replay clicks and each draw would
+        // sample a different pose. Mirrors Unity Frame Debugger's pause-while-
+        // inspecting behavior. Future: extend to a scene-level pause flag once
+        // PhysicsSystem / Audio / scripted systems land.
+        if (auto rs = Systems::GetSystem<RenderingSystem>())
+        {
+            if (rs->GetDebuggerState() == DebuggerState::Frozen) return;
+        }
 
         auto& registry = scene->Registry();
 

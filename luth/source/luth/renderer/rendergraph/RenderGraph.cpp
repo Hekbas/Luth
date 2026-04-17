@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/core/Log.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
@@ -561,6 +562,10 @@ namespace Luth::RG
                 pass.execute(ctx);
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
+
+                // Archive hook (compute pass)
+                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+
                 timerPassIdx++;
                 continue;
             }
@@ -656,6 +661,9 @@ namespace Luth::RG
                 DynamicRendering::EndRendering(primaryCmd);
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
+
+                // Archive hook (graphics pass)
+                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
             }
 
             timerPassIdx++;

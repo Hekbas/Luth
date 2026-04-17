@@ -2,6 +2,8 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
+#include "luth/renderer/rendergraph/ArchivedImage.h"
+#include "luth/renderer/rendergraph/FrameEventTree.h"
 
 #include <glm/glm.hpp>
 #include <string>
@@ -87,13 +89,55 @@ namespace Luth::RG
         float totalGpuTimeMs = 0.0f;
         bool  valid          = false;
 
+        // Phase 14B — Per-pass archives + capture-time camera state.
+        //
+        // archivedImages owns the staging copies of tracked render targets, captured
+        // post-pass during Execute by the FrameDebugger sink. passArchives is indexed
+        // by RenderGraph pass index and holds the indices into archivedImages of all
+        // archives produced by that pass (typically 0–4 per pass).
+        //
+        // captureViewProj is the camera viewProj at the moment of capture; the Frozen
+        // path compares against the live viewProj to trigger auto-recapture on camera
+        // movement (Phase 14C).
+        //
+        // ArchivedImage destruction is the OWNER's responsibility (FrameDebugger).
+        // Clear() does NOT free GPU resources — call FrameDebugger::DestroyArchives
+        // first.
+        std::vector<ArchivedImage>     archivedImages;
+        std::vector<std::vector<u32>>  passArchives;
+        glm::mat4                       captureViewProj = glm::mat4(1.0f);
+
+        // Phase 14D — Hierarchical event tree built at capture finalize from
+        // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
+        EventNode                       rootEvent;
+
+        // Phase 14F — CSM cascade snapshot. Stamped from the RenderingSystem's
+        // m_Cached* values at FinalizeCapture so the cascade detail panel
+        // shows GPU-true values from the captured frame, not whatever the
+        // editor has currently dialled in. Indices 0..3 = cascade index.
+        glm::vec4 cascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        glm::vec4 shadowBias         = glm::vec4(0.0f);  // Per-cascade depth bias
+        glm::vec4 shadowNormalBias   = glm::vec4(0.0f);  // Per-cascade normal bias (texels)
+        glm::vec4 cascadeTexelSize   = glm::vec4(0.0f);  // World-space texel footprint
+        glm::mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
+
+        // Metadata-only reset. GPU-owned archives are NOT touched; the owner
+        // (FrameDebugger) must call DestroyArchives separately to free them.
+        // BeginCapture orchestrates both in the right order.
         void Clear()
         {
             drawCalls.clear();
             passes.clear();
             resources.clear();
-            totalGpuTimeMs = 0.0f;
-            valid = false;
+            rootEvent           = EventNode{};
+            captureViewProj     = glm::mat4(1.0f);
+            cascadeSplitsViewZ  = glm::vec4(0.0f);
+            shadowBias          = glm::vec4(0.0f);
+            shadowNormalBias    = glm::vec4(0.0f);
+            cascadeTexelSize    = glm::vec4(0.0f);
+            for (auto& m : lightSpaceMatrix) m = glm::mat4(0.0f);
+            totalGpuTimeMs      = 0.0f;
+            valid               = false;
         }
     };
 }
