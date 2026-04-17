@@ -4,8 +4,8 @@
 #include "luth/editor/EditorCamera.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/platform/Event.h"
-#include "luth/platform/EventBus.h"
+#include "luth/events/Event.h"
+#include "luth/events/EventBus.h"
 
 #include <vulkan/vulkan.h>
 #include <ImGuizmo.h>

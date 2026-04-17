@@ -3,8 +3,8 @@
 
 #include "luth/platform/Window.h"
 #include "luth/platform/Input.h"
-#include "luth/platform/Event.h"
-#include "luth/platform/AppEvent.h"
+#include "luth/events/Event.h"
+#include "luth/events/AppEvent.h"
 #include "luth/core/ProjectFile.h"
 #include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"

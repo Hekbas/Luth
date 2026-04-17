@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/platform/Event.h"
+#include "luth/events/Event.h"
 
 #include <memory>
 #include <queue>

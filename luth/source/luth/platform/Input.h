@@ -1,8 +1,8 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/platform/KeyEvent.h"
-#include "luth/platform/MouseEvent.h"
+#include "luth/events/KeyEvent.h"
+#include "luth/events/MouseEvent.h"
 
 #include <array>
 

@@ -10,7 +10,7 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/platform/RenderEvent.h"
+#include "luth/events/RenderEvent.h"
 #include "luth/utils/ImGuiUtils.h"
 #include "luth/utils/LuthIcons.h"
 #include "luth/editor/UI.h"

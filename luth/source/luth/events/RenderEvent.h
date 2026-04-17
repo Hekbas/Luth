@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/platform/Event.h"
+#include "luth/events/Event.h"
 
 namespace Luth
 {
