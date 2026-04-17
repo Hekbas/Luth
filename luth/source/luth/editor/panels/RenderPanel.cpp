@@ -4,7 +4,7 @@
 #include "luth/scene/Systems.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/PostProcessSettings.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/editor/UI.h"
 
 #include <glm/gtc/type_ptr.hpp>

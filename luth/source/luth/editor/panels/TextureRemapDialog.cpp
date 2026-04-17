@@ -8,7 +8,7 @@
 #include "luth/platform/FileDialog.h"
 #include "luth/renderer/Material.h"
 
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>

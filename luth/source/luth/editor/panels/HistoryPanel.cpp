@@ -2,7 +2,7 @@
 #include "luth/editor/panels/HistoryPanel.h"
 #include "luth/editor/CommandHistory.h"
 #include "luth/editor/Command.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/editor/EditorColors.h"
 #include "luth/editor/Editor.h"
 

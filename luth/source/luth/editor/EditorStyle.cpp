@@ -2,7 +2,7 @@
 #include "luth/editor/EditorStyle.h"
 #include "luth/editor/Editor.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 
 namespace Luth::EditorStyle
 {

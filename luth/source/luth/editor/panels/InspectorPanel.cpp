@@ -11,8 +11,8 @@
 #include "luth/renderer/Texture.h"
 #include "luth/renderer/Shader.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/utils/ImGuiUtils.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
 
 namespace Luth
 {

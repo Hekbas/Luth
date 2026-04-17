@@ -7,7 +7,7 @@
 #include "luth/scene/Systems.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/editor/Editor.h"
 #include "luth/editor/UI.h"
 

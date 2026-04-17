@@ -6,8 +6,8 @@
 #include "luth/core/Version.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/platform/FileDialog.h"
-#include "luth/utils/LuthIcons.h"
-#include "luth/utils/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>

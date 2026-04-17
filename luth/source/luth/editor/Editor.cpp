@@ -32,7 +32,7 @@
 #include "luth/editor/EditorStyle.h"
 #include "luth/core/Version.h"
 #include "luth/editor/EditorSettings.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>

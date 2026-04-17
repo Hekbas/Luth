@@ -8,7 +8,7 @@
 #include "luth/renderer/RenderBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>

@@ -7,8 +7,8 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/renderer/Material.h"
-#include "luth/utils/ImGuiUtils.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>

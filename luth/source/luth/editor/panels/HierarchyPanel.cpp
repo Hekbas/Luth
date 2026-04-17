@@ -6,7 +6,7 @@
 #include "luth/editor/CommandHistory.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Systems.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"

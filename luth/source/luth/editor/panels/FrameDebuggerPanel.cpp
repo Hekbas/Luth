@@ -2,7 +2,7 @@
 #include "luth/editor/panels/FrameDebuggerPanel.h"
 #include "luth/scene/Systems.h"
 #include "luth/editor/UI.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 #include <vulkan/vulkan.h>
