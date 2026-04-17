@@ -31,6 +31,7 @@
 | v1.2.0 | `compute-gpu-culling` | Render graph compute pass + buffer support, `VulkanComputePipeline`, GPU frustum cull compute shader, GPUObjectData SSBO (Set 5), all draw passes converted to `vkCmdDrawIndexedIndirect`, IBLPrecompute refactored, Frame Debugger extended with indirect + compute capture | 2026-04-15 |
 | v1.3.0 | `csm` | 4-cascade PSSM (Sascha Willems bounding-sphere fit), 4-layer shadow array, per-cascade GPU cull, cascade selection + blending + bias in PBR shader, cascade debug viz | 2026-04-16 |
 | v1.4.0 | `frame-debugger-sync` | Archive sink + per-pass image staging, frozen-state model with auto-recapture on camera move, hierarchical EventNode tree (Group/Pass/Cascade/Draw), per-draw replay-then-copy for GeometryPass, CSM cascade detail panel + linearized depth preview, deferred archive teardown | 2026-04-17 |
+| v1.5.0 | `gtao` | DepthPrepass + half-res GTAO compute chain (prefilter → horizon integral → bilateral denoise), Jimenez 2016 analytical slice integral with VS-normal reconstruction from depth derivatives, Set 0 expanded to 6 bindings, editor UI + visualize mode, R8/R32F formats added across renderer/RG/FrameDebugger | 2026-04-17 |
 
 > Detailed writeups in [`history/v1.x/`](history/v1.x/) — one file per epic slug.
 
@@ -40,13 +41,12 @@
 
 | Priority | Epic | Issue | Target | Est. Time | Deps |
 |----------|------|-------|--------|-----------|------|
-| 1 | `gtao` | [#58](https://github.com/Hekbas/Luth/issues/58) | v1.5.0 | 1-2 weeks | `compute-gpu-culling` |
-| 2 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v1.6.0 | 1-2 weeks | — |
-| 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v1.7.0 | 2-3 weeks | `play-mode` |
-| 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v1.7.1 | 1 week | — |
-| 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v1.8.0 | 2 weeks | `compute-gpu-culling` |
-| 6 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v1.8.1 | 1 week | — |
-| 7 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v1.9.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
+| 1 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v1.6.0 | 1-2 weeks | — |
+| 2 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v1.7.0 | 2-3 weeks | `play-mode` |
+| 3 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v1.7.1 | 1 week | — |
+| 4 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v1.8.0 | 2 weeks | `compute-gpu-culling` |
+| 5 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v1.8.1 | 1 week | — |
+| 6 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v1.9.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
