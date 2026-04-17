@@ -116,8 +116,10 @@ namespace Luth
             };
             dropDesc(m_DisplayArchiveDescSet);
             dropDesc(m_PerDrawPreviewDescSet);
+            dropDesc(m_DepthPreviewDescSet);
             m_DisplayArchiveViewCached  = VK_NULL_HANDLE;
             m_PerDrawPreviewViewCached  = VK_NULL_HANDLE;
+            m_DepthPreviewViewCached    = VK_NULL_HANDLE;
             m_SelKind          = RG::EventNodeKind::Group;
             m_SelPassIndex     = -1;
             m_SelDrawIndex     = -1;
@@ -459,8 +461,10 @@ namespace Luth
             };
             dropDesc(m_DisplayArchiveDescSet);
             dropDesc(m_PerDrawPreviewDescSet);
+            dropDesc(m_DepthPreviewDescSet);
             m_DisplayArchiveViewCached  = VK_NULL_HANDLE;
             m_PerDrawPreviewViewCached  = VK_NULL_HANDLE;
+            m_DepthPreviewViewCached    = VK_NULL_HANDLE;
             m_SelKind         = RG::EventNodeKind::Group;
             m_SelPassIndex    = -1;
             m_SelDrawIndex    = -1;
@@ -708,8 +712,75 @@ namespace Luth
 
         if (archive.isDepth)
         {
-            // Depth visualization lands in Phase 14F.
-            ImGui::TextDisabled("(depth preview lands in Phase 14F)");
+            // ---------------------------------------------------------------
+            // Phase 14F — Depth archive visualization.
+            //
+            // For cascade slices (m_SelArchiveLayer >= 0) we use the matching
+            // cascade's far view-Z so each slice gets a sensible contrast
+            // range instead of clipping against the camera's full draw distance.
+            // For non-array depth archives we fall back to a generic 0.1..200 m
+            // window matching the existing AddDebugBlitPass default.
+            // ---------------------------------------------------------------
+            if (sampler == VK_NULL_HANDLE)
+            {
+                ImGui::TextDisabled("(debug sampler not initialized)");
+                UI::EndCollapsingHeader();
+                return;
+            }
+
+            float nearZ = 0.1f;
+            float farZ  = 200.0f;
+            if (m_SelArchiveLayer >= 0 && m_SelArchiveLayer < 4)
+            {
+                // cascadeSplitsViewZ holds absolute view-space distances; pair
+                // each slice with [prev_split..this_split] so blacks/whites
+                // map to that cascade's actual depth range.
+                farZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer];
+                if (m_SelArchiveLayer > 0)
+                    nearZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer - 1];
+                if (farZ <= nearZ) farZ = nearZ + 1.0f;  // sanity fallback
+            }
+
+            m_RS->BlitArchivedDepthToPreview((u32)m_SelArchiveIdx, m_SelArchiveLayer, nearZ, farZ);
+
+            VkImageView depthPreview = m_RS->GetDepthPreviewView();
+            u32         dpW          = m_RS->GetDepthPreviewWidth();
+            u32         dpH          = m_RS->GetDepthPreviewHeight();
+            if (depthPreview == VK_NULL_HANDLE || dpW == 0 || dpH == 0)
+            {
+                ImGui::TextDisabled("(depth preview unavailable)");
+                UI::EndCollapsingHeader();
+                return;
+            }
+
+            if (depthPreview != m_DepthPreviewViewCached)
+            {
+                if (m_DepthPreviewDescSet != VK_NULL_HANDLE)
+                {
+                    VkDescriptorSet stale = m_DepthPreviewDescSet;
+                    VulkanContext::Get().PushDeletion([stale]() {
+                        ImGui_ImplVulkan_RemoveTexture(stale);
+                    });
+                }
+                m_DepthPreviewDescSet = ImGui_ImplVulkan_AddTexture(
+                    sampler, depthPreview, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                m_DepthPreviewViewCached = depthPreview;
+            }
+
+            if (m_DepthPreviewDescSet != VK_NULL_HANDLE)
+            {
+                ImGui::TextDisabled("Linearized [%.2f m .. %.2f m]", nearZ, farZ);
+                float panelW = ImGui::GetContentRegionAvail().x;
+                float maxH   = 320.0f;
+                float ar     = (float)dpW / (float)dpH;
+                float drawW  = panelW;
+                float drawH  = drawW / ar;
+                if (drawH > maxH) { drawH = maxH; drawW = drawH * ar; }
+                float offsetX = (panelW - drawW) * 0.5f;
+                if (offsetX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+                ImGui::Image((ImTextureID)m_DepthPreviewDescSet, ImVec2(drawW, drawH));
+            }
+
             UI::EndCollapsingHeader();
             return;
         }
@@ -799,6 +870,58 @@ namespace Luth
                 }
                 ImGui::Unindent(4.0f);
                 UI::EndCollapsingHeader();
+            }
+
+            // ----------------------------------------------------------------
+            // Phase 14F — CSM cascade detail block. Surfaces GPU-true values
+            // captured at the time of the snapshot (cascadeSplitsViewZ, biases,
+            // per-cascade texel footprint, light-space matrix). All values come
+            // from CapturedFrame, NOT live RenderingSystem state, so editing
+            // light parameters while frozen doesn't desync the readout.
+            // ----------------------------------------------------------------
+            if (m_SelKind == RG::EventNodeKind::Cascade &&
+                m_SelArchiveLayer >= 0 && m_SelArchiveLayer < 4 &&
+                UI::BeginCollapsingHeader("Cascade", true))
+            {
+                const int  ci    = m_SelArchiveLayer;
+                const float prev = (ci > 0) ? capture.cascadeSplitsViewZ[ci - 1] : 0.0f;
+                const float cur  = capture.cascadeSplitsViewZ[ci];
+
+                ImGui::Indent(4.0f);
+                if (ImGui::BeginTable("##CascadeInfo", 2)) {
+                    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Cascade Index");      ImGui::TableNextColumn(); ImGui::Text("%d", ci);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Range (view-Z, m)");  ImGui::TableNextColumn(); ImGui::Text("%.2f .. %.2f", prev, cur);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Slice Depth (m)");    ImGui::TableNextColumn(); ImGui::Text("%.2f", cur - prev);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Depth Bias");         ImGui::TableNextColumn(); ImGui::Text("%.6f%s", capture.shadowBias[ci], capture.shadowBias[ci] < 0.0f ? "  (disabled)" : "");
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Normal Bias (texels)"); ImGui::TableNextColumn(); ImGui::Text("%.4f", capture.shadowNormalBias[ci]);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("World Texel Size");   ImGui::TableNextColumn(); ImGui::Text("%.4f m", capture.cascadeTexelSize[ci]);
+                    ImGui::EndTable();
+                }
+                ImGui::Unindent(4.0f);
+                UI::EndCollapsingHeader();
+
+                // Optional collapsible: full light-space matrix (16 floats —
+                // verbose, hidden by default for casual inspection).
+                if (UI::BeginCollapsingHeader("Light-space Matrix"))
+                {
+                    ImGui::Indent(4.0f);
+                    const glm::mat4& M = capture.lightSpaceMatrix[ci];
+                    if (ImGui::BeginTable("##LSM", 4)) {
+                        for (int row = 0; row < 4; ++row)
+                        {
+                            ImGui::TableNextRow();
+                            for (int col = 0; col < 4; ++col) {
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%8.3f", M[col][row]);
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::Unindent(4.0f);
+                    UI::EndCollapsingHeader();
+                }
             }
             return;
         }

@@ -7,6 +7,27 @@
 
 namespace Luth::RG
 {
+    VkImageView ArchivedImage::GetOrCreateLayerView(VkDevice device, u32 layer)
+    {
+        if (layer >= layers || image == VK_NULL_HANDLE) return VK_NULL_HANDLE;
+        if (layerViews.size() < layers) layerViews.resize(layers, VK_NULL_HANDLE);
+        if (layerViews[layer] != VK_NULL_HANDLE) return layerViews[layer];
+
+        VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image    = image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;  // single layer regardless of source array
+        vci.format   = format;
+        vci.subresourceRange.aspectMask     = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                       : VK_IMAGE_ASPECT_COLOR_BIT;
+        vci.subresourceRange.baseMipLevel   = 0;
+        vci.subresourceRange.levelCount     = 1;
+        vci.subresourceRange.baseArrayLayer = layer;
+        vci.subresourceRange.layerCount     = 1;
+
+        vkCreateImageView(device, &vci, nullptr, &layerViews[layer]);
+        return layerViews[layer];
+    }
+
     void ArchivedImage::Destroy(VkDevice device, VmaAllocator allocator)
     {
         if (imguiDescSet != VK_NULL_HANDLE)

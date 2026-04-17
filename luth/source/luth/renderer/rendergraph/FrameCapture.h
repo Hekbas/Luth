@@ -111,6 +111,16 @@ namespace Luth::RG
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
 
+        // Phase 14F — CSM cascade snapshot. Stamped from the RenderingSystem's
+        // m_Cached* values at FinalizeCapture so the cascade detail panel
+        // shows GPU-true values from the captured frame, not whatever the
+        // editor has currently dialled in. Indices 0..3 = cascade index.
+        glm::vec4 cascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        glm::vec4 shadowBias         = glm::vec4(0.0f);  // Per-cascade depth bias
+        glm::vec4 shadowNormalBias   = glm::vec4(0.0f);  // Per-cascade normal bias (texels)
+        glm::vec4 cascadeTexelSize   = glm::vec4(0.0f);  // World-space texel footprint
+        glm::mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
+
         // Metadata-only reset. GPU-owned archives are NOT touched; the owner
         // (FrameDebugger) must call DestroyArchives separately to free them.
         // BeginCapture orchestrates both in the right order.
@@ -119,10 +129,15 @@ namespace Luth::RG
             drawCalls.clear();
             passes.clear();
             resources.clear();
-            rootEvent = EventNode{};
-            captureViewProj = glm::mat4(1.0f);
-            totalGpuTimeMs = 0.0f;
-            valid = false;
+            rootEvent           = EventNode{};
+            captureViewProj     = glm::mat4(1.0f);
+            cascadeSplitsViewZ  = glm::vec4(0.0f);
+            shadowBias          = glm::vec4(0.0f);
+            shadowNormalBias    = glm::vec4(0.0f);
+            cascadeTexelSize    = glm::vec4(0.0f);
+            for (auto& m : lightSpaceMatrix) m = glm::mat4(0.0f);
+            totalGpuTimeMs      = 0.0f;
+            valid               = false;
         }
     };
 }

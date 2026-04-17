@@ -41,6 +41,11 @@ namespace Luth::RG
         // Empty unless the archive is sliced into the panel UI.
         std::vector<VkImageView> layerViews;
 
+        // Phase 14F — lazy single-layer view creation for cascade slicing.
+        // Returns VK_NULL_HANDLE if `layer` is out of range. Caches into
+        // layerViews so repeated calls don't churn descriptors.
+        VkImageView GetOrCreateLayerView(VkDevice device, u32 layer);
+
         void Destroy(VkDevice device, VmaAllocator allocator);
     };
 }

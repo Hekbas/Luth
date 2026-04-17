@@ -174,6 +174,19 @@ namespace Luth
         u32         GetPerDrawPreviewWidth()  const { return m_PerDrawPreviewWidth; }
         u32         GetPerDrawPreviewHeight() const { return m_PerDrawPreviewHeight; }
 
+        // Phase 14F — depth-archive visualization.
+        //
+        // Linearizes a depth archive (single layer if `layer >= 0`, else whole
+        // image — only single-layer depth makes sense in v1) into the
+        // persistent RGBA8 m_DepthPreviewImage via the existing depth blit
+        // pipeline. `near`/`far` pick the depth range that maps to [0..1].
+        // Cache is keyed by ((u64)archiveIdx<<32)|(u32 layer + 1) so layer -1
+        // is distinguishable from layer 0.
+        void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
+        VkImageView GetDepthPreviewView()   const { return m_DepthPreviewView; }
+        u32         GetDepthPreviewWidth()  const { return m_DepthPreviewWidth; }
+        u32         GetDepthPreviewHeight() const { return m_DepthPreviewHeight; }
+
     private:
         void InitGlobalUniforms();
         void InitObjectSSBODescriptorLayout();
@@ -229,6 +242,10 @@ namespace Luth
         // Phase 14E — per-draw preview helpers
         void EnsurePerDrawPreviewTexture(u32 width, u32 height);
         void DestroyPerDrawPreviewTexture();
+
+        // Phase 14F — depth preview helpers
+        void EnsureDepthPreviewTexture(u32 width, u32 height);
+        void DestroyDepthPreviewTexture();
 
         // Camera / editor state set each frame by App
         CameraParams m_CameraParams;
@@ -435,6 +452,18 @@ namespace Luth
         // Cache key — ((u64)passIdx << 32) | (u64)localDrawIdx, or UINT64_MAX
         // when no replay has been issued yet (or after invalidation).
         u64             m_PerDrawPreviewKey    = UINT64_MAX;
+
+        // Phase 14F — RGBA8 depth-linearized preview for cascade slices and
+        // any other depth archive. Sized to the cascade resolution by default
+        // (k_ShadowResolution × k_ShadowResolution) but can be re-allocated.
+        VkImage         m_DepthPreviewImage  = VK_NULL_HANDLE;
+        VkImageView     m_DepthPreviewView   = VK_NULL_HANDLE;
+        VmaAllocation   m_DepthPreviewAlloc  = nullptr;
+        u32             m_DepthPreviewWidth  = 0;
+        u32             m_DepthPreviewHeight = 0;
+        // Cache key — ((u64)archiveIdx << 32) | (u32)(layer + 1), so layer
+        // values of -1 / 0 are distinguishable. UINT64_MAX = invalid.
+        u64             m_DepthPreviewKey    = UINT64_MAX;
     };
 
 }

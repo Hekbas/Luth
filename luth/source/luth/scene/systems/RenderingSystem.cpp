@@ -212,6 +212,7 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         DestroyPerDrawPreviewTexture();
+        DestroyDepthPreviewTexture();
         m_FrameDebugger.Shutdown(device);
 
         if (m_OutlineSampler)
@@ -1928,7 +1929,13 @@ namespace Luth
                                              VulkanContext::Get().GetAllocator());
                 m_FrameDebugger.RegisterTrackedRT("SceneColor");
                 m_FrameDebugger.RegisterTrackedRT("SceneDepth");
-                m_FrameDebugger.RegisterTrackedRT("ShadowMap");
+                // Phase 13 ShadowPass imports per-cascade resources named
+                // "ShadowMap.C<i>" (one per cascade, single-layer view onto
+                // the shared 4-layer array). Track each variant so the sink
+                // archives them — without this, cascade nodes have no
+                // primary output and the panel shows "no output preview".
+                for (u32 ci = 0; ci < k_ShadowCascadeCount; ++ci)
+                    m_FrameDebugger.RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
                 m_FrameDebugger.RegisterTrackedRT("LDROutput");
                 m_FrameDebugger.RegisterTrackedRT("EntityID");
                 m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
@@ -1963,6 +1970,16 @@ namespace Luth
                 // Snapshot capture-time camera viewProj for the Frozen-state
                 // auto-recapture comparison (see top of Update).
                 m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
+
+                // Phase 14F — stamp CSM state into the captured frame so the
+                // cascade detail panel can show GPU-true values from the moment
+                // of capture, even if the user later twiddles light settings.
+                m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
+                m_FrameDebugger.capturedFrame.shadowBias         = m_CachedShadowBias;
+                m_FrameDebugger.capturedFrame.shadowNormalBias   = m_CachedShadowNormalBias;
+                m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_CachedCascadeTexelSize;
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                    m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
 
                 m_FrameDebugger.capturedFrame.valid = true;
                 m_FrameDebugger.state               = DebuggerState::Frozen;
@@ -2814,5 +2831,206 @@ namespace Luth
         });
 
         m_PerDrawPreviewKey = key;
+    }
+
+    // =========================================================================
+    //  Frame Debugger Phase 14F — Depth archive visualization (CSM cascades)
+    // =========================================================================
+
+    void RenderingSystem::EnsureDepthPreviewTexture(u32 width, u32 height)
+    {
+        if (m_DepthPreviewImage != VK_NULL_HANDLE
+            && m_DepthPreviewWidth == width
+            && m_DepthPreviewHeight == height) return;
+
+        if (m_DepthPreviewImage != VK_NULL_HANDLE)
+        {
+            VkImage       img   = m_DepthPreviewImage;
+            VkImageView   view  = m_DepthPreviewView;
+            VmaAllocation alloc = m_DepthPreviewAlloc;
+            VulkanContext::Get().PushDeletion([img, view, alloc]() {
+                auto dev = VulkanContext::Get().GetDevice();
+                vkDestroyImageView(dev, view, nullptr);
+                VulkanAllocator::FreeImage(img, alloc);
+            });
+            m_DepthPreviewImage = VK_NULL_HANDLE;
+            m_DepthPreviewView  = VK_NULL_HANDLE;
+            m_DepthPreviewAlloc = nullptr;
+        }
+
+        VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ci.imageType     = VK_IMAGE_TYPE_2D;
+        ci.extent        = { width, height, 1 };
+        ci.mipLevels     = 1;
+        ci.arrayLayers   = 1;
+        // RGBA8 — depth blit shader writes a tonemapped grayscale that ImGui
+        // can sample directly without HDR clipping concerns.
+        ci.format        = VK_FORMAT_R8G8B8A8_UNORM;
+        ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                         | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+        m_DepthPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_DepthPreviewImage);
+
+        VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image            = m_DepthPreviewImage;
+        vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format           = ci.format;
+        vci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_DepthPreviewView);
+
+        m_DepthPreviewWidth  = width;
+        m_DepthPreviewHeight = height;
+        m_DepthPreviewKey    = UINT64_MAX;
+    }
+
+    void RenderingSystem::DestroyDepthPreviewTexture()
+    {
+        if (m_DepthPreviewImage == VK_NULL_HANDLE) return;
+        auto dev = VulkanContext::Get().GetDevice();
+        vkDestroyImageView(dev, m_DepthPreviewView, nullptr);
+        VulkanAllocator::FreeImage(m_DepthPreviewImage, m_DepthPreviewAlloc);
+        m_DepthPreviewImage  = VK_NULL_HANDLE;
+        m_DepthPreviewView   = VK_NULL_HANDLE;
+        m_DepthPreviewAlloc  = nullptr;
+        m_DepthPreviewWidth  = 0;
+        m_DepthPreviewHeight = 0;
+        m_DepthPreviewKey    = UINT64_MAX;
+    }
+
+    void RenderingSystem::BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ)
+    {
+        if (m_FrameDebugger.state != DebuggerState::Frozen) return;
+        if (!m_FrameDebugger.capturedFrame.valid) return;
+        if (archiveIdx >= m_FrameDebugger.capturedFrame.archivedImages.size()) return;
+
+        auto& archive = m_FrameDebugger.capturedFrame.archivedImages[archiveIdx];
+        if (!archive.isDepth || archive.image == VK_NULL_HANDLE) return;
+
+        InitDebugBlitResources();  // idempotent — needed for sampler + depthPipeline + descSet
+        if (!m_FrameDebugger.depthPipeline || m_FrameDebugger.descSet == VK_NULL_HANDLE) return;
+
+        // Cache short-circuit (use layer+1 in the low bits so layer == -1 maps to 0).
+        const u64 key = ((u64)archiveIdx << 32) | (u64)((layer < 0 ? 0u : (u32)layer + 1u));
+        if (key == m_DepthPreviewKey && m_DepthPreviewImage != VK_NULL_HANDLE) return;
+
+        // Preview matches archive dimensions so sampling = 1:1 texel mapping.
+        EnsureDepthPreviewTexture(archive.width, archive.height);
+        if (m_DepthPreviewImage == VK_NULL_HANDLE) return;
+
+        // Resolve the source view.
+        //
+        // - Multi-layer archive + layer in range → per-layer view (sampled as 2D).
+        // - Single-layer archive (e.g. cascade "ShadowMap.C<i>" — each cascade
+        //   pass owns its own single-layer archive backed by the layer-i view of
+        //   the shared 4-layer image) → archive.view, which is already 2D.
+        // - layer < 0 → whole image (only meaningful for non-array archives).
+        //
+        // Falling back to archive.view when (layer >= archive.layers) is what
+        // makes cascade slices renderable: the EventNode's archiveLayer holds
+        // the *cascade index* (0..3) for detail-panel lookups, even though
+        // the underlying archive only has 1 layer.
+        VkDevice device = VulkanContext::Get().GetDevice();
+        VkImageView srcView = (layer < 0 || archive.layers <= 1 || (u32)layer >= archive.layers)
+            ? archive.view
+            : archive.GetOrCreateLayerView(device, (u32)layer);
+        if (srcView == VK_NULL_HANDLE) return;
+
+        // Update the shared debug descriptor to point at this view. Safe to do
+        // synchronously: ImmediateSubmit below blocks on a fence so the
+        // descriptor isn't in flight while we're rewriting it.
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler     = m_FrameDebugger.sampler;
+        imgInfo.imageView   = srcView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = m_FrameDebugger.descSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &imgInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+
+        const u32 width  = archive.width;
+        const u32 height = archive.height;
+        VkImage     dstImg  = m_DepthPreviewImage;
+        VkImageView dstView = m_DepthPreviewView;
+
+        VulkanContext::Get().ImmediateSubmit([this, dstImg, dstView, width, height, nearZ, farZ](VkCommandBuffer cmd)
+        {
+            // Preview UNDEFINED → COLOR_ATTACHMENT_OPTIMAL (clear-on-load).
+            VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep.srcAccessMask       = 0;
+            prep.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            prep.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            prep.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            prep.image               = dstImg;
+            prep.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 1;
+            depPrep.pImageMemoryBarriers    = &prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo colorAtt{};
+            colorAtt.ImageView  = dstView;
+            colorAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            colorAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt.ClearValue = { { {0.f, 0.f, 0.f, 1.f} } };
+            colorAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.ColorAttachments = std::span<AttachmentInfo>(&colorAtt, 1);
+            rpInfo.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D scRect{}; scRect.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &scRect);
+
+            m_FrameDebugger.depthPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                m_FrameDebugger.depthPipeline->GetLayout(), 0, 1, &m_FrameDebugger.descSet, 0, nullptr);
+
+            float pc[2] = { nearZ, farZ };
+            vkCmdPushConstants(cmd, m_FrameDebugger.depthPipeline->GetLayout(),
+                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+
+            // Fullscreen triangle baked into the vertex shader (3 verts, no VB).
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+
+            DynamicRendering::EndRendering(cmd);
+
+            // Preview → SHADER_READ_ONLY for ImGui sampling.
+            VkImageMemoryBarrier2 fin{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            fin.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            fin.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            fin.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            fin.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin.image               = dstImg;
+            fin.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 1;
+            depFin.pImageMemoryBarriers    = &fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_DepthPreviewKey = key;
     }
 }

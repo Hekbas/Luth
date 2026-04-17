@@ -62,6 +62,12 @@ namespace Luth
         VkImageView      m_PerDrawPreviewViewCached = VK_NULL_HANDLE;
         VkDescriptorSet  m_PerDrawPreviewDescSet    = VK_NULL_HANDLE;
 
+        // Phase 14F — cached ImGui descriptor for the depth-archive preview.
+        // Separate from the color/per-draw caches because the depth blit writes
+        // to a different RGBA8 texture (cascade depth visualization).
+        VkImageView      m_DepthPreviewViewCached   = VK_NULL_HANDLE;
+        VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
+
         // Tracks tree node uniqueness for ImGui::TreeNodeEx IDs across recursion.
         u32 m_TreeNodeCounter = 0;
     };
