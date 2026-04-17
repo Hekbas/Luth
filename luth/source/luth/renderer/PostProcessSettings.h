@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include "luth/renderer/GTAOSettings.h"
 
 namespace Luth
 {
@@ -34,6 +35,9 @@ namespace Luth
         float grainAmount         = 0.0f;
         float sharpness           = 0.0f;
         float chromaticAberration = 0.0f;
+
+        // Ambient occlusion (GTAO)
+        GTAOSettings gtao;
     };
 
     // GPU-side UBO layout (std140 compatible, matches postprocess.frag)
