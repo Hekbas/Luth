@@ -411,8 +411,8 @@ namespace Luth
 
         m_GlobalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
 
-        // Set 0 layout: binding 0 = GlobalUBO, bindings 1-3 = IBL samplers
-        VkDescriptorSetLayoutBinding bindings[4] = {};
+        // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO
+        VkDescriptorSetLayoutBinding bindings[6] = {};
 
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -434,9 +434,21 @@ namespace Luth
         bindings[3].descriptorCount = 1;
         bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // GTAO final-AO sampler (epic #58). Written by UpdateGlobalIBLSetDescriptors
+        // once m_GTAOFinal is allocated (InitAOResources runs after InitGlobalUniforms).
+        bindings[4].binding = 4;
+        bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[4].descriptorCount = 1;
+        bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        bindings[5].binding = 5;
+        bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[5].descriptorCount = 1;
+        bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 4;
+        layoutInfo.bindingCount = 6;
         layoutInfo.pBindings = bindings;
 
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
@@ -2030,6 +2042,31 @@ namespace Luth
         denoiseWrites[2].pImageInfo      = &finalAOStorageInfo;
 
         vkUpdateDescriptorSets(device, 3, denoiseWrites, 0, nullptr);
+
+        // ---- Set 0 GTAO bindings (sampled by pbr.frag) ----
+        if (m_GlobalDescriptorSet == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo gtaoFinalInfo{};
+        gtaoFinalInfo.sampler     = m_GTAOSampler;
+        gtaoFinalInfo.imageView   = vkFinalAO->GetImageView();
+        gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet globalWrites[2]{};
+        globalWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        globalWrites[0].dstSet          = m_GlobalDescriptorSet;
+        globalWrites[0].dstBinding      = 4;
+        globalWrites[0].descriptorCount = 1;
+        globalWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        globalWrites[0].pImageInfo      = &gtaoFinalInfo;
+
+        globalWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        globalWrites[1].dstSet          = m_GlobalDescriptorSet;
+        globalWrites[1].dstBinding      = 5;
+        globalWrites[1].descriptorCount = 1;
+        globalWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        globalWrites[1].pBufferInfo     = &uboInfo;
+
+        vkUpdateDescriptorSets(device, 2, globalWrites, 0, nullptr);
     }
 
     void RenderingSystem::UpdateGTAOUBO()
@@ -2322,18 +2359,14 @@ namespace Luth
             // graph can schedule it in parallel with the shadow cascades.
             RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, registry, hIndirectBuf);
 
-            // GTAO depth prefilter → main (horizon integration). Both gated on
-            // gtao.enabled so disabling AO removes the dispatch cost entirely.
-            // Denoise + apply land in sub-tasks E / F.
-            RG::ResourceHandle gtaoLinearDepth;
-            RG::ResourceHandle gtaoRawAO;
-            RG::ResourceHandle gtaoFinalAO;
-            if (m_PostProcessSettings.gtao.enabled)
-            {
-                gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
-                gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
-                gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
-            }
+            // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
+            // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
+            // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
+            // on a mid-range GPU at 1080p; can be gated later if a cheaper
+            // bypass path is worth the complexity.
+            RG::ResourceHandle gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
+            RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
+            RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
             auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
             auto maskOutput                = AddSelectionMaskPass(rg, registry);
