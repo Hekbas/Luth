@@ -30,6 +30,7 @@
 | 11 — Architecture Cleanup | RenderingSystem split (4,060→2,321 LOC): EditorCamera extraction, CameraParams decoupling, IBLPrecompute, FrameDebugger class, 9 render passes to `renderer/passes/`, Command.h modularized into `editor/commands/` (6 sub-headers) | 2026-04-13 | v1.1.1 |
 | 12 — Compute + GPU Culling | Render graph compute pass + buffer support, `VulkanComputePipeline`, GPU frustum cull compute shader, GPUObjectData SSBO (Set 5), all draw passes converted to `vkCmdDrawIndexedIndirect`, IBLPrecompute refactored, Frame Debugger extended with indirect + compute capture | 2026-04-15 | v1.2.0 |
 | 13 — Cascaded Shadow Maps | 4-cascade PSSM (Sascha Willems bounding-sphere fit), 4-layer shadow array, per-cascade GPU cull, cascade selection + blending + bias in PBR shader, cascade debug viz | 2026-04-16 | v1.3.0 |
+| 14 — Frame Debugger Sync Rework | Archive sink + per-pass image staging, frozen-state model with auto-recapture on camera move, hierarchical EventNode tree (Group/Pass/Cascade/Draw), per-draw replay-then-copy for GeometryPass, CSM cascade detail panel + linearized depth preview, deferred archive teardown | 2026-04-17 | v1.4.0 |
 
 > For detailed writeups of each phase (narratives, root causes, fixes, files modified), see individual files in [`history/`](history/).
 
@@ -39,13 +40,13 @@
 
 | Priority | Phase | Epic | Version | Est. Time | Dependencies |
 |----------|-------|------|---------|-----------|-------------|
-| 3 | 14 — GTAO | #58 | v1.4.0 | 1-2 weeks | Phase 12 |
-| 4 | 15 — Play Mode | #66 | v1.5.0 | 1-2 weeks | — |
-| 5 | 16 — Jolt Physics | #56 | v1.6.0 | 2-3 weeks | Phase 15 |
-| 6 | 17 — Jiggle Bones | #61 | v1.6.1 | 1 week | — |
-| 7 | 18 — Forward+ Lighting | #54 | v1.7.0 | 2 weeks | Phase 12 |
-| 8 | 19 — FXAA / TAA | #72 | v1.7.1 | 1 week | — |
-| 9 | 20 — GPU Particles | #57 | v1.8.0 | 2-3 weeks | Phase 12, 18 |
+| 3 | 15 — GTAO | #58 | v1.5.0 | 1-2 weeks | Phase 12 |
+| 4 | 16 — Play Mode | #66 | v1.6.0 | 1-2 weeks | — |
+| 5 | 17 — Jolt Physics | #56 | v1.7.0 | 2-3 weeks | Phase 16 |
+| 6 | 18 — Jiggle Bones | #61 | v1.7.1 | 1 week | — |
+| 7 | 19 — Forward+ Lighting | #54 | v1.8.0 | 2 weeks | Phase 12 |
+| 8 | 20 — FXAA / TAA | #72 | v1.8.1 | 1 week | — |
+| 9 | 21 — GPU Particles | #57 | v1.9.0 | 2-3 weeks | Phase 12, 19 |
 
 > Full specs and dependency graph: [`ROADMAP_TODO.md`](ROADMAP_TODO.md)
 
@@ -68,6 +69,8 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 | v1.1.0  | Phase 10 (undo/redo history) | Released 2026-04-09 |
 | v1.1.1  | Phase 11 (architecture cleanup) | Released 2026-04-13 |
 | v1.2.0  | Phase 12 (compute + GPU culling) | Released 2026-04-15 |
+| v1.3.0  | Phase 13 (cascaded shadow maps) | Released 2026-04-16 |
+| v1.4.0  | Phase 14 (frame debugger sync rework) | Released 2026-04-17 |
 
 ---
 
