@@ -26,7 +26,7 @@ namespace Luth
 {
     using namespace Component;
 
-    ScenePanel::ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem)
+    ScenePanel::ScenePanel(RenderingSystem* renderingSystem)
         : m_RenderingSystem(renderingSystem)
     {
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);

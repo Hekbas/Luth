@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/scene/Scene.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/core/Time.h"
@@ -43,7 +43,7 @@ namespace Luth
         // sample a different pose. Mirrors Unity Frame Debugger's pause-while-
         // inspecting behavior. Future: extend to a scene-level pause flag once
         // PhysicsSystem / Audio / scripted systems land.
-        if (auto rs = Systems::GetSystem<RenderingSystem>())
+        if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
         {
             if (rs->GetDebuggerState() == DebuggerState::Frozen) return;
         }

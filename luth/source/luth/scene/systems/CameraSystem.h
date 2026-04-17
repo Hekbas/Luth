@@ -1,12 +1,12 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 #include "luth/scene/Components.h"
 #include "luth/core/Profiler.h"
 
 namespace Luth
 {
-    class CameraSystem : public System
+    class CameraSystem : public ISystem
     {
     public:
         void Update(Scene* scene) override

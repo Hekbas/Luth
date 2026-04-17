@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 #include "luth/scene/Entity.h"
 #include "luth/memory/Memory.h"
 #include "luth/renderer/CameraParams.h"
@@ -85,7 +85,7 @@ namespace Luth
         RG::ResourceHandle depth;
     };
 
-    class RenderingSystem : public System
+    class RenderingSystem : public ISystem
     {
     public:
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/editor/panels/FrameDebuggerPanel.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/editor/UI.h"
 #include "luth/editor/widgets/Icons.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
@@ -83,7 +83,7 @@ namespace Luth
 
     void FrameDebuggerPanel::OnInit()
     {
-        m_RS = Systems::GetSystem<RenderingSystem>();
+        m_RS = SystemRegistry::GetSystem<RenderingSystem>();
     }
 
     // ---- Main Render ----

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 #include "luth/scene/AnimationController.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/renderer/AnimationClip.h"
@@ -14,7 +14,7 @@ namespace Luth
 {
     class Model;
 
-    class AnimationSystem : public System
+    class AnimationSystem : public ISystem
     {
     public:
         AnimationSystem();

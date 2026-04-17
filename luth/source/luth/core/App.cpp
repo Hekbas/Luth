@@ -13,7 +13,7 @@
 #include "luth/editor/ProjectLauncher.h"
 #include "luth/editor/panels/ScenePanel.h"
 #include "luth/editor/panels/ProjectPanel.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/scene/systems/TransformSystem.h"
@@ -86,8 +86,8 @@ namespace Luth
         
         // 4. Scene & Systems (RenderingSystem loads engine shaders — no project needed)
         m_Scene = std::make_shared<Scene>();
-        Systems::Init();
-        Systems::SetScene(m_Scene.get());
+        SystemRegistry::Init();
+        SystemRegistry::SetScene(m_Scene.get());
 
         // 5. Editor + Launcher
         Editor::Init(m_Window.get());
@@ -225,7 +225,7 @@ namespace Luth
             }
 
             // Feed camera/editor state into RenderingSystem before its Update
-            if (auto rs = Systems::GetSystem<RenderingSystem>())
+            if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             {
                 CameraParams cp;
                 if (auto scenePanel = Editor::GetPanel<ScenePanel>())
@@ -244,9 +244,9 @@ namespace Luth
             }
 
             // Scene systems always run (RenderingSystem must present the swapchain)
-            Systems::Update<TransformSystem>();
-            Systems::Update<AnimationSystem>();
-            Systems::Update<RenderingSystem>();
+            SystemRegistry::Update<TransformSystem>();
+            SystemRegistry::Update<AnimationSystem>();
+            SystemRegistry::Update<RenderingSystem>();
 
             // ── Step 5: End Frame (Submit + Present) ──
             Renderer::EndFrame();
@@ -273,7 +273,7 @@ namespace Luth
         PipelineCache::SaveToProject();
 
 		Editor::Shutdown();
-		Systems::Shutdown();
+		SystemRegistry::Shutdown();
 
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
@@ -314,7 +314,7 @@ namespace Luth
         {
             Editor::SaveSettings();
             PipelineCache::SaveToProject();
-            if (auto rs = Systems::GetSystem<RenderingSystem>())
+            if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
                 rs->OnProjectUnloaded();
             AssetDatabase::UnloadProject();
             if (m_Scene) m_Scene->Clear();
@@ -339,7 +339,7 @@ namespace Luth
         Editor::OnProjectChanged();
 
         // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
-        if (auto rs = Systems::GetSystem<RenderingSystem>())
+        if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             rs->OnProjectLoaded();
 
         // Track in recent projects and hide launcher

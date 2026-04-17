@@ -17,7 +17,7 @@ namespace Luth
     class ScenePanel : public Panel
     {
     public:
-        ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem);
+        ScenePanel(RenderingSystem* renderingSystem);
         ~ScenePanel() override;
 
         void OnInit() override;
@@ -52,7 +52,7 @@ namespace Luth
                                ImU32 color, float thickness = 1.0f);
 
         std::shared_ptr<Scene> m_Context;
-        std::shared_ptr<RenderingSystem> m_RenderingSystem;
+        RenderingSystem* m_RenderingSystem = nullptr;
         EditorCamera m_EditorCamera;
 
         Vec2 m_ViewportSize = { 0.0f, 0.0f };

@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/panels/RenderPanel.h"
 #include "luth/editor/EditorSettings.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/PostProcessSettings.h"
 #include "luth/editor/widgets/Icons.h"
@@ -18,7 +18,7 @@ namespace Luth
 
     void RenderPanel::OnInit()
     {
-        m_RS = Systems::GetSystem<RenderingSystem>();
+        m_RS = SystemRegistry::GetSystem<RenderingSystem>();
         if (m_RS) {
             // TODO: Re-implement with RenderGraph
             m_SelectedAttachment = 0;

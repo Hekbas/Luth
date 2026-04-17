@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 
 #include <vector>
 #include <memory>
@@ -9,7 +9,7 @@ namespace Luth
 {
     class Scene;
 
-    class Systems
+    class SystemRegistry
     {
     public:
         static void Init();
@@ -23,17 +23,17 @@ namespace Luth
         }
 
         template<typename T>
-        static std::shared_ptr<T> GetSystem() {
+        static T* GetSystem() {
             for (auto& system : s_Systems) {
-                if (auto found = std::dynamic_pointer_cast<T>(system))
+                if (auto* found = dynamic_cast<T*>(system.get()))
                     return found;
             }
-            return {};
+            return nullptr;
         }
 
         template<typename T>
         static void Update() {
-            if (auto system = GetSystem<T>()) {
+            if (auto* system = GetSystem<T>()) {
                 system->Update(s_Scene);
             }
         }
@@ -42,7 +42,7 @@ namespace Luth
         static Scene* GetScene() { return s_Scene; }
 
     private:
-        static std::vector<std::shared_ptr<System>> s_Systems;
+        static std::vector<std::unique_ptr<ISystem>> s_Systems;
         static Scene* s_Scene;
     };
 }

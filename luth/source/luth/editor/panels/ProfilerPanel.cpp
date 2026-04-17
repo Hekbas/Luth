@@ -4,7 +4,7 @@
 #include "luth/editor/EditorColors.h"
 #include "luth/core/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/editor/widgets/Icons.h"
@@ -90,7 +90,7 @@ namespace Luth
                 m_WorkerHistoryHead = (m_WorkerHistoryHead + 1) % WORKER_HISTORY_FRAMES;
 
                 // GPU frame time from render graph snapshot
-                if (auto rs = Systems::GetSystem<RenderingSystem>())
+                if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
                     m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
             }
 

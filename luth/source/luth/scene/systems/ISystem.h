@@ -6,10 +6,10 @@ namespace Luth
 {
     class Scene;
 
-    class System
+    class ISystem
     {
     public:
-        virtual ~System() = default;
+        virtual ~ISystem() = default;
         virtual void Update(Scene* scene) = 0;
     };
 }

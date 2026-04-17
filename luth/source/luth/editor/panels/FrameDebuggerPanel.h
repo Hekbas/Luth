@@ -32,7 +32,7 @@ namespace Luth
         // Update Pass/Draw/Cascade selection when the user clicks a node.
         void SelectEventNode(const RG::EventNode& node);
 
-        std::shared_ptr<RenderingSystem> m_RS;
+        RenderingSystem* m_RS = nullptr;
 
         // Live mode state
         int  m_SelectedPassIndex     = -1;

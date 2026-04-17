@@ -2,7 +2,7 @@
 #include "luth/editor/Editor.h"
 #include "luth/platform/WinWindow.h"
 #include "luth/platform/FileDialog.h"
-#include "luth/scene/Systems.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/SceneSerializer.h"
 #include "luth/scene/Components.h"
@@ -130,7 +130,7 @@ namespace Luth
             ImGui_ImplVulkan_CreateFontsTexture();
         }
 
-        auto rs = Systems::GetSystem<RenderingSystem>();
+        auto rs = SystemRegistry::GetSystem<RenderingSystem>();
 
         // Set Panels
         AddPanel(new HierarchyPanel());
@@ -475,7 +475,7 @@ namespace Luth
         s_LastHierarchyVersion = scene ? scene->GetHierarchyVersion() : 0;
 
         // Update Systems raw pointer so TransformSystem/RenderingSystem use the correct scene
-        Systems::SetScene(scene.get());
+        SystemRegistry::SetScene(scene.get());
 
         // Update panels that hold scene context
         if (auto* hp = GetPanel<HierarchyPanel>())

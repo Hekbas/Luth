@@ -1,13 +1,13 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 #include "luth/scene/Components.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 
 namespace Luth
 {
-    class TransformSystem : public System
+    class TransformSystem : public ISystem
     {
     public:
         TransformSystem() {}

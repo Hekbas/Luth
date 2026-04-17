@@ -21,7 +21,7 @@ namespace Luth
 
     private:
         
-        std::shared_ptr<RenderingSystem> m_RS;
+        RenderingSystem* m_RS = nullptr;
         std::string m_SelectedMode;
         u32 m_SelectedAttachment = 0;
 
