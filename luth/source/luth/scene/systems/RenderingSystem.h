@@ -176,27 +176,9 @@ namespace Luth
         u32         GetDepthPreviewHeight() const { return m_DepthPreviewHeight; }
 
     private:
-        // Per-frame update helpers (remain on RS for sub-task E2).
-        void UpdateGTAOUBO();
-        void UpdateGlobalUniforms();
+        // Only UpdateLightUniforms remains on RS — it reads LightGatherer + CascadeBuilder
+        // (RS-owned) and uploads to m_LightUniformBuffer (RS-owned in E2; migrates in E3).
         void UpdateLightUniforms(Scene* scene);
-        void UpdatePostProcessUBO();
-        u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
-        void BuildGPUObjectBuffer(entt::registry& registry);
-
-        // Phase 14C — RenderCapturedFrame removed (live re-replay).
-        // AddDebugBlitPass + InitDebugBlitResources kept for Phase 14D
-        // depth->color preview blits.
-        RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
-        void InitDebugBlitResources();
-
-        // Phase 14E — per-draw preview helpers
-        void EnsurePerDrawPreviewTexture(u32 width, u32 height);
-        void DestroyPerDrawPreviewTexture();
-
-        // Phase 14F — depth preview helpers
-        void EnsureDepthPreviewTexture(u32 width, u32 height);
-        void DestroyDepthPreviewTexture();
 
         // Camera / editor state set each frame by App
         CameraParams m_CameraParams;

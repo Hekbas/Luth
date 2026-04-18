@@ -16,6 +16,7 @@ namespace Luth
     class Entity;
     class Material;
     class RenderingSystem;
+    class Texture;
     struct GeometryOutput;
     struct SelectionMaskOutput;
     namespace fs = std::filesystem;
@@ -67,6 +68,19 @@ namespace Luth
         // shader hot-reload drain when a utility shader file changes on disk.
         void RecompileUtilityShaders();
 
+        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
+        // before the draw list is built and the graph executes.
+        void UpdateGlobalUniforms();
+        void UpdatePostProcessUBO();
+        void UpdateGTAOUBO();
+        void BuildGPUObjectBuffer(entt::registry& registry);
+        u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
+
+        // Editor + frame-debugger lookups (RenderingSystem forwards to these).
+        std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
+        void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
+        void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
+
     private:
         // Init / Update helpers (moved from RenderingSystem in sub-task E1).
         // All of these read/write RenderingSystem private fields via friend
@@ -83,6 +97,12 @@ namespace Luth
         void UpdateAODescriptors();
         void CreatePipelines();
         void RegisterNamedTextures();
+        void InitDebugBlitResources();
+        RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
+        void EnsurePerDrawPreviewTexture(u32 width, u32 height);
+        void DestroyPerDrawPreviewTexture();
+        void EnsureDepthPreviewTexture(u32 width, u32 height);
+        void DestroyDepthPreviewTexture();
 
         // Render-graph pass builders. Each declares one RG pass (setup +
         // execute lambdas) and returns a handle to its primary output so
