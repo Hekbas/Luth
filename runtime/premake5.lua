@@ -1,8 +1,9 @@
-project "Luthien"
+project "Runtime"
    kind "ConsoleApp"
    language "C++"
    cppdialect "C++20"
-   
+   targetname "Luthien"
+
    targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
 

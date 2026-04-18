@@ -58,6 +58,6 @@ jobs:
         name: luth-release-x64
         retention-days: 14
         path: |
-          bin/windows-x86_64/Release/Luthien/Luthien.exe
-          bin/windows-x86_64/Release/Luthien/shaderc_shared.dll
+          bin/windows-x86_64/Release/Runtime/Luthien.exe
+          bin/windows-x86_64/Release/Runtime/shaderc_shared.dll
           bin/windows-x86_64/Release/Luth/Luth.lib
