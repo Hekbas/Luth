@@ -1444,167 +1444,13 @@ namespace Luth
     // Per-frame updates
     // =========================================================================
 
-    void RenderingSystem::ComputeCascadeSplits(float nearZ, float farZ, float lambda,
-                                                float outFar[k_ShadowCascadeCount]) const
-    {
-        // Engel "Practical Split": lambda * Clog + (1-lambda) * Cuniform.
-        const float ratio = farZ / std::max(nearZ, 1e-4f);
-        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-        {
-            float p    = float(i + 1) / float(k_ShadowCascadeCount);
-            float clog = nearZ * std::pow(ratio, p);
-            float cuni = nearZ + (farZ - nearZ) * p;
-            outFar[i]  = lambda * clog + (1.0f - lambda) * cuni;
-        }
-    }
-
-    glm::mat4 RenderingSystem::ComputeCascadeMatrix(float nearD, float farD,
-                                                     const glm::vec3& lightDir,
-                                                     float tanHalfFovY, float aspect,
-                                                     const glm::mat4& camViewInv,
-                                                     bool stabilize,
-                                                     float& outWorldHalfExtent) const
-    {
-        // 8 corners of the sub-frustum slice [nearD, farD] in view space, then world space.
-        const float hN = nearD * tanHalfFovY;
-        const float wN = hN * aspect;
-        const float hF = farD * tanHalfFovY;
-        const float wF = hF * aspect;
-
-        const glm::vec4 cornersVS[8] = {
-            { -wN, -hN, -nearD, 1.0f }, {  wN, -hN, -nearD, 1.0f },
-            {  wN,  hN, -nearD, 1.0f }, { -wN,  hN, -nearD, 1.0f },
-            { -wF, -hF, -farD,  1.0f }, {  wF, -hF, -farD,  1.0f },
-            {  wF,  hF, -farD,  1.0f }, { -wF,  hF, -farD,  1.0f },
-        };
-
-        glm::vec3 cornersWS[8];
-        glm::vec3 center(0.0f);
-        for (int i = 0; i < 8; ++i) {
-            glm::vec4 w = camViewInv * cornersVS[i];
-            cornersWS[i] = glm::vec3(w) / w.w;
-            center += cornersWS[i];
-        }
-        center *= (1.0f / 8.0f);
-
-        const glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
-                             ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-
-        // Direct port of Sascha Willems' updateCascades() from
-        // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
-        //
-        // `stabilize` parameter is intentionally unused: Sascha's fit is effectively
-        // always stabilized via the 1/16-unit radius quantization below. Kept in the
-        // signature to preserve callers and the serialized DirectionalLight flag.
-        (void)stabilize;
-
-        // Bounding sphere of the 8 slice corners, quantized to 1/16 unit so the slab
-        // size is deterministic across frames (anti-shimmer).
-        float radius = 0.0f;
-        for (int i = 0; i < 8; ++i)
-            radius = glm::max(radius, glm::length(cornersWS[i] - center));
-        radius = std::ceil(radius * 16.0f) / 16.0f;
-
-        outWorldHalfExtent = radius;
-
-        // Eye placed exactly `radius` behind the frustum centroid along -lightDir.
-        // Symmetric ortho covers lightView.z in [-2*radius, 0] → clip.z in [0, 1]
-        // under GLM_FORCE_DEPTH_ZERO_TO_ONE (Luth's convention).
-        //
-        // No Y-flip: the shadow pass writes and pbr.frag samples through the same
-        // matrix, so the pair is self-consistent regardless of NDC Y orientation.
-        glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
-        glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
-        return lightProj * lightView;
-    }
-
     void RenderingSystem::UpdateLightUniforms(Scene* scene)
     {
-        auto& registry = scene->Registry();
         LightUniforms lights{};
-
-        // Directional light — use first entity found
-        bool foundDir = false;
-        float splitLambda      = 0.5f;
-        float shadowDistance   = 200.0f;
-        bool  stabilize        = true;
-        auto dirView = registry.view<WorldTransform, DirectionalLight>();
-        for (auto [entity, wt, dl] : dirView.each())
-        {
-            if (!foundDir)
-            {
-                // Forward vector is -Z column of world matrix
-                lights.dirLight.direction = glm::normalize(-glm::vec3(wt.Matrix[2]));
-                lights.dirLight.color     = dl.Color;
-                lights.dirLight.intensity = dl.Intensity;
-                m_CachedCastShadows  = dl.CastShadows;
-                m_CachedShadowBias   = glm::vec4(dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3]);
-                m_CachedShadowNormalBias = glm::vec4(dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3]);
-                splitLambda    = glm::clamp(dl.SplitLambda, 0.0f, 1.0f);
-                shadowDistance = dl.ShadowDistance;
-                stabilize      = dl.StabilizeCascades;
-                m_CachedCascadeBlendWidth       = glm::clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
-                m_CachedDebugVisualizeCascades  = dl.DebugVisualizeCascades;
-                foundDir = true;
-            }
-        }
-
-        if (!foundDir)
-        {
-            lights.dirLight.direction = glm::normalize(glm::vec3(1.0f, 1.0f, 0.5f));
-            lights.dirLight.color     = glm::vec3(1.0f);
-            lights.dirLight.intensity = 3.0f;
-        }
-
-        // Point lights
-        int count = 0;
-        auto pointView = registry.view<WorldTransform, PointLight>();
-        for (auto [entity, wt, pl] : pointView.each())
-        {
-            if (count >= 64) break;
-            lights.pointLights[count].position  = glm::vec3(wt.Matrix[3]);
-            lights.pointLights[count].color     = pl.Color;
-            lights.pointLights[count].intensity = pl.Intensity;
-            lights.pointLights[count].range     = pl.Range;
-            ++count;
-        }
-        lights.numPointLights = count;
-
+        m_LightGatherer.Gather(scene->Registry(), lights, m_ShadowParams);
         m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
 
-        // ── PSSM split computation + per-cascade ortho fitting (Phase 13B) ──
-        const glm::vec3 lightDir = lights.dirLight.direction;
-
-        // FOV / aspect from unflipped perspective projection.
-        // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
-        const glm::mat4& proj = m_CameraParams.projection;
-        const float tanHalfFovY = (proj[1][1] != 0.0f) ? std::abs(1.0f / proj[1][1]) : 1.0f;
-        const float aspect      = (proj[0][0] != 0.0f) ? std::abs(proj[1][1] / proj[0][0]) : 1.0f;
-        const glm::mat4 camViewInv = glm::inverse(m_CameraParams.view);
-
-        const float nearZ = glm::max(m_CameraParams.nearZ, 1e-3f);
-        const float farZ  = glm::max(nearZ + 1e-3f,
-                                     glm::min(m_CameraParams.farZ, shadowDistance));
-
-        float cascadeFar[k_ShadowCascadeCount];
-        ComputeCascadeSplits(nearZ, farZ, splitLambda, cascadeFar);
-
-        float cascadeNear = nearZ;
-        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-        {
-            const float cf = cascadeFar[i];
-            float halfExtent = 1.0f;
-            m_CachedLightSpaceMatrix[i] = ComputeCascadeMatrix(
-                cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv, stabilize, halfExtent);
-            // World-space size of one shadow-map texel for this cascade.
-            // Shader uses this to scale normal bias (expressed in texels) so a given
-            // bias setting produces consistent offsets across cascades of different sizes.
-            m_CachedCascadeTexelSize[i] = (2.0f * halfExtent) / float(k_ShadowResolution);
-            cascadeNear = cf;
-        }
-
-        // GLSL-side cascade selection uses absolute view-Z distances (positive).
-        m_CachedCascadeSplitsViewZ = glm::vec4(cascadeFar[0], cascadeFar[1], cascadeFar[2], cascadeFar[3]);
+        m_CascadeBuilder.Build(lights.dirLight.direction, m_CameraParams, m_ShadowParams, m_Cascades);
     }
 
     // =========================================================================
@@ -2180,16 +2026,16 @@ namespace Luth
         ubo.cameraPos = m_CameraParams.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            ubo.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
-        ubo.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
+            ubo.lightSpaceMatrix[i] = m_Cascades.lightSpaceMatrix[i];
+        ubo.cascadeSplitsViewZ = m_Cascades.splitsViewZ;
         // Negative bias (sentinel) disables shadows entirely in the PBR shader.
-        ubo.shadowBias       = m_CachedCastShadows ? m_CachedShadowBias : glm::vec4(-1.0f);
-        ubo.shadowNormalBias = m_CachedShadowNormalBias;
-        ubo.cascadeTexelSize = m_CachedCascadeTexelSize;
+        ubo.shadowBias       = m_ShadowParams.castShadows ? m_ShadowParams.shadowBias : glm::vec4(-1.0f);
+        ubo.shadowNormalBias = m_ShadowParams.shadowNormalBias;
+        ubo.cascadeTexelSize = m_Cascades.texelSize;
         ubo.iblIntensity    = m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_CameraParams.skyboxIntensity;
-        ubo.debugVisualizeCascades = m_CachedDebugVisualizeCascades ? 1.0f : 0.0f;
-        ubo.cascadeBlendWidth      = m_CachedCascadeBlendWidth;
+        ubo.debugVisualizeCascades = m_ShadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
+        ubo.cascadeBlendWidth      = m_ShadowParams.cascadeBlendWidth;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;
@@ -2276,9 +2122,9 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            // Light uniforms first (sets m_CachedLightSpaceMatrix)
+            // Light uniforms first (sets m_Cascades.lightSpaceMatrix)
             UpdateLightUniforms(scene);
-            // Global UBO second (reads m_CachedLightSpaceMatrix)
+            // Global UBO second (reads m_Cascades.lightSpaceMatrix)
             UpdateGlobalUniforms();
 
             // Register materials and hold assets for all visible entities
@@ -2342,7 +2188,7 @@ namespace Luth
 
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                 {
-                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_CachedLightSpaceMatrix[i]);
+                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_Cascades.lightSpaceMatrix[i]);
                     const u32 destOffset = (i + 1) * k_IndirectRegionStride;
                     const std::string name = "FrustumCull.C" + std::to_string(i);
                     AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
@@ -2482,12 +2328,12 @@ namespace Luth
                 // Phase 14F — stamp CSM state into the captured frame so the
                 // cascade detail panel can show GPU-true values from the moment
                 // of capture, even if the user later twiddles light settings.
-                m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_CachedCascadeSplitsViewZ;
-                m_FrameDebugger.capturedFrame.shadowBias         = m_CachedShadowBias;
-                m_FrameDebugger.capturedFrame.shadowNormalBias   = m_CachedShadowNormalBias;
-                m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_CachedCascadeTexelSize;
+                m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_Cascades.splitsViewZ;
+                m_FrameDebugger.capturedFrame.shadowBias         = m_ShadowParams.shadowBias;
+                m_FrameDebugger.capturedFrame.shadowNormalBias   = m_ShadowParams.shadowNormalBias;
+                m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_Cascades.texelSize;
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                    m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_CachedLightSpaceMatrix[i];
+                    m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_Cascades.lightSpaceMatrix[i];
 
                 m_FrameDebugger.capturedFrame.valid = true;
                 m_FrameDebugger.state               = DebuggerState::Frozen;

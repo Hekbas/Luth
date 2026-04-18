@@ -8,6 +8,8 @@
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/draw/DrawList.h"
+#include "luth/renderer/lighting/CascadeBuilder.h"
+#include "luth/renderer/lighting/LightGatherer.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -181,18 +183,6 @@ namespace Luth
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
 
-        // CSM helpers (Phase 13B)
-        void ComputeCascadeSplits(float nearZ, float farZ, float lambda, float outFar[k_ShadowCascadeCount]) const;
-        // Computes the light-space view-projection matrix for one cascade slice.
-        // `outWorldHalfExtent` receives the world-space half-extent of the cascade's
-        // ortho footprint (radius for stabilized, max of X/Y half-extents otherwise),
-        // which the shader uses to scale per-texel quantities like normal bias.
-        glm::mat4 ComputeCascadeMatrix(float nearD, float farD,
-                                        const glm::vec3& lightDir,
-                                        float tanHalfFovY, float aspect,
-                                        const glm::mat4& camViewInv,
-                                        bool stabilize,
-                                        float& outWorldHalfExtent) const;
         void UpdatePostProcessUBO();
         void UpdatePostProcessDescriptors();
         void CreatePipelines();
@@ -253,18 +243,14 @@ namespace Luth
         VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet m_GlobalDescriptorSet = VK_NULL_HANDLE;
 
-        // Per-cascade light-space matrices (computed in UpdateLightUniforms, uploaded in UpdateGlobalUniforms).
-        // In 13A all four entries are identical (single-camera-fit); per-cascade fitting lands in 13B.
-        glm::mat4 m_CachedLightSpaceMatrix[k_ShadowCascadeCount] = {
-            glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)
-        };
-        glm::vec4 m_CachedCascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
-        glm::vec4 m_CachedShadowBias       = glm::vec4(0.005f);   // Per-cascade depth bias (negative = disabled)
-        glm::vec4 m_CachedShadowNormalBias = glm::vec4(0.0f);     // Per-cascade normal bias (in texels)
-        glm::vec4 m_CachedCascadeTexelSize = glm::vec4(1.0f);     // World-space size of one shadow texel per cascade
-        float     m_CachedCascadeBlendWidth = 0.2f;               // Cross-cascade blend fraction
-        bool      m_CachedDebugVisualizeCascades = false;          // Tint by cascade index
-        bool      m_CachedCastShadows = true;
+        // Per-frame light gathering + CSM cascade fit. LightGatherer fills
+        // LightUniforms + m_ShadowParams from the ECS; CascadeBuilder consumes
+        // m_ShadowParams + CameraParams and fills m_Cascades. UpdateGlobalUniforms
+        // copies both into the Global UBO.
+        LightGatherer                 m_LightGatherer;
+        CascadeBuilder                m_CascadeBuilder;
+        DirectionalLightShadowParams  m_ShadowParams;
+        CascadeData                   m_Cascades;
 
         // Shadow map (4-layer 2D array) + cached per-layer views for ShadowPass.Ci attachments
         std::shared_ptr<Texture> m_ShadowMap;
