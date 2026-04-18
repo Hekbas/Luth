@@ -236,7 +236,7 @@ namespace Luth
         std::vector<u32>                   m_GTAODenoiseSpv;
 
         // ---- Cached view-projection (feeds frustum cull + Frozen-state comparison) ----
-        glm::mat4 m_CachedViewProj = glm::mat4(1.0f);
+        Mat4 m_CachedViewProj = Mat4(1.0f);
 
         // ---- Post-process UBO / sampler / descriptors ----
         std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;

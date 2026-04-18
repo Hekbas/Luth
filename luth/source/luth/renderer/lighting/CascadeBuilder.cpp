@@ -1,7 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/lighting/CascadeBuilder.h"
 
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -22,10 +21,10 @@ namespace Luth
         }
     }
 
-    glm::mat4 CascadeBuilder::ComputeMatrix(float nearD, float farD,
-                                             const glm::vec3& lightDir,
+    Mat4 CascadeBuilder::ComputeMatrix(float nearD, float farD,
+                                             const Vec3& lightDir,
                                              float tanHalfFovY, float aspect,
-                                             const glm::mat4& camViewInv,
+                                             const Mat4& camViewInv,
                                              bool stabilize,
                                              float& outWorldHalfExtent) const
     {
@@ -35,24 +34,24 @@ namespace Luth
         const float hF = farD * tanHalfFovY;
         const float wF = hF * aspect;
 
-        const glm::vec4 cornersVS[8] = {
+        const Vec4 cornersVS[8] = {
             { -wN, -hN, -nearD, 1.0f }, {  wN, -hN, -nearD, 1.0f },
             {  wN,  hN, -nearD, 1.0f }, { -wN,  hN, -nearD, 1.0f },
             { -wF, -hF, -farD,  1.0f }, {  wF, -hF, -farD,  1.0f },
             {  wF,  hF, -farD,  1.0f }, { -wF,  hF, -farD,  1.0f },
         };
 
-        glm::vec3 cornersWS[8];
-        glm::vec3 center(0.0f);
+        Vec3 cornersWS[8];
+        Vec3 center(0.0f);
         for (int i = 0; i < 8; ++i) {
-            glm::vec4 w = camViewInv * cornersVS[i];
-            cornersWS[i] = glm::vec3(w) / w.w;
+            Vec4 w = camViewInv * cornersVS[i];
+            cornersWS[i] = Vec3(w) / w.w;
             center += cornersWS[i];
         }
         center *= (1.0f / 8.0f);
 
-        const glm::vec3 up = (glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) > 0.99f)
-                             ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+        const Vec3 up = (Math::Abs(Math::Dot(lightDir, Vec3(0, 1, 0))) > 0.99f)
+                             ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
 
         // Direct port of Sascha Willems' updateCascades() from
         // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
@@ -66,7 +65,7 @@ namespace Luth
         // size is deterministic across frames (anti-shimmer).
         float radius = 0.0f;
         for (int i = 0; i < 8; ++i)
-            radius = glm::max(radius, glm::length(cornersWS[i] - center));
+            radius = Math::Max(radius, Math::Length(cornersWS[i] - center));
         radius = std::ceil(radius * 16.0f) / 16.0f;
 
         outWorldHalfExtent = radius;
@@ -77,26 +76,26 @@ namespace Luth
         //
         // No Y-flip: the shadow pass writes and pbr.frag samples through the same
         // matrix, so the pair is self-consistent regardless of NDC Y orientation.
-        glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
-        glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
+        Mat4 lightView = Math::LookAt(center - lightDir * radius, center, up);
+        Mat4 lightProj = Math::Ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
         return lightProj * lightView;
     }
 
-    void CascadeBuilder::Build(const glm::vec3& lightDir,
+    void CascadeBuilder::Build(const Vec3& lightDir,
                                const CameraParams& camera,
                                const DirectionalLightShadowParams& params,
                                CascadeData& out) const
     {
         // FOV / aspect recovered from the unflipped perspective projection.
         // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
-        const glm::mat4& proj = camera.projection;
+        const Mat4& proj = camera.projection;
         const float tanHalfFovY = (proj[1][1] != 0.0f) ? std::abs(1.0f / proj[1][1]) : 1.0f;
         const float aspect      = (proj[0][0] != 0.0f) ? std::abs(proj[1][1] / proj[0][0]) : 1.0f;
-        const glm::mat4 camViewInv = glm::inverse(camera.view);
+        const Mat4 camViewInv = Math::Inverse(camera.view);
 
-        const float nearZ = glm::max(camera.nearZ, 1e-3f);
-        const float farZ  = glm::max(nearZ + 1e-3f,
-                                     glm::min(camera.farZ, params.shadowDistance));
+        const float nearZ = Math::Max(camera.nearZ, 1e-3f);
+        const float farZ  = Math::Max(nearZ + 1e-3f,
+                                     Math::Min(camera.farZ, params.shadowDistance));
 
         float cascadeFar[k_ShadowCascadeCount];
         ComputeSplits(nearZ, farZ, params.splitLambda, cascadeFar);
@@ -117,6 +116,6 @@ namespace Luth
         }
 
         // GLSL-side cascade selection uses absolute view-Z distances (positive).
-        out.splitsViewZ = glm::vec4(cascadeFar[0], cascadeFar[1], cascadeFar[2], cascadeFar[3]);
+        out.splitsViewZ = Vec4(cascadeFar[0], cascadeFar[1], cascadeFar[2], cascadeFar[3]);
     }
 }

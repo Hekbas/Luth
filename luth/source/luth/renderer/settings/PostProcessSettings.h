@@ -1,6 +1,5 @@
 #pragma once
 
-#include <glm/glm.hpp>
 #include "luth/renderer/settings/GTAOSettings.h"
 
 namespace Luth
@@ -25,9 +24,9 @@ namespace Luth
         float saturation = 1.0f;
 
         // Color balance
-        glm::vec3 shadowBalance    = glm::vec3(1.0f);
-        glm::vec3 midtoneBalance   = glm::vec3(1.0f);
-        glm::vec3 highlightBalance = glm::vec3(1.0f);
+        Vec3 shadowBalance    = Vec3(1.0f);
+        Vec3 midtoneBalance   = Vec3(1.0f);
+        Vec3 highlightBalance = Vec3(1.0f);
 
         // Effects
         float vignetteAmount      = 0.0f;
@@ -58,9 +57,9 @@ namespace Luth
         float chromaticAberration;  // 40
         float time;                 // 44
 
-        glm::vec3 shadowBalance;    float _pad0; // 48-60
-        glm::vec3 midtoneBalance;   float _pad1; // 64-76
-        glm::vec3 highlightBalance; float _pad2; // 80-92
+        Vec3 shadowBalance;    float _pad0; // 48-60
+        Vec3 midtoneBalance;   float _pad1; // 64-76
+        Vec3 highlightBalance; float _pad2; // 80-92
         // Total: 96 bytes
     };
 }

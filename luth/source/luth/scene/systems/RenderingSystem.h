@@ -30,16 +30,16 @@ namespace Luth
 
     // Per-frame global shader inputs (Set 0 UBO). Layout mirrors GLSL binding.
     struct GlobalUniforms {
-        glm::mat4 viewProjection;
-        glm::mat4 view;
-        glm::mat4 projection;
-        glm::vec3 cameraPos;
+        Mat4 viewProjection;
+        Mat4 view;
+        Mat4 projection;
+        Vec3 cameraPos;
         float     time;
-        glm::mat4 lightSpaceMatrix[k_ShadowCascadeCount];
-        glm::vec4 cascadeSplitsViewZ;
-        glm::vec4 shadowBias;
-        glm::vec4 shadowNormalBias;
-        glm::vec4 cascadeTexelSize;
+        Mat4 lightSpaceMatrix[k_ShadowCascadeCount];
+        Vec4 cascadeSplitsViewZ;
+        Vec4 shadowBias;
+        Vec4 shadowNormalBias;
+        Vec4 cascadeTexelSize;
         float     iblIntensity;
         float     skyboxIntensity;
         float     debugVisualizeCascades;
@@ -172,7 +172,7 @@ namespace Luth
         // Editor-facing state.
         PostProcessSettings m_PostProcessSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
-        glm::vec4           m_OutlineColor = { 1.0f, 0.6f, 0.0f, 1.0f };
+        Vec4           m_OutlineColor = { 1.0f, 0.6f, 0.0f, 1.0f };
         bool                m_GridVisible  = true;
 
         // Frame debugger runtime state (capture state machine + archives).
@@ -181,7 +181,7 @@ namespace Luth
         // Mouse picking state.
         bool         m_PickPending     = false;
         bool         m_PickResultReady = false;
-        glm::ivec2   m_PickCoord       = { 0, 0 };
+        IVec2   m_PickCoord       = { 0, 0 };
         entt::entity m_PickedEntity    = entt::null;
 
         // Shader hot-reload (file watcher + queued reloads drained in Update).

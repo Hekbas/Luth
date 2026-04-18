@@ -14,12 +14,12 @@ namespace Luth
 
     // ── Helpers ──────────────────────────────────────────────────
 
-    static json SerializeVec3(const glm::vec3& v)
+    static json SerializeVec3(const Vec3& v)
     {
         return { v.x, v.y, v.z };
     }
 
-    static glm::vec3 DeserializeVec3(const json& j, const glm::vec3& fallback = glm::vec3(0.0f))
+    static Vec3 DeserializeVec3(const json& j, const Vec3& fallback = Vec3(0.0f))
     {
         if (!j.is_array() || j.size() < 3) return fallback;
         return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };

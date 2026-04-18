@@ -9,9 +9,6 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 
 namespace Luth
 {
@@ -250,10 +247,10 @@ namespace Luth
 
             auto& ctrl = registry.get<AnimationController>(entity);
             if (!ctrl.ApplyRootMotion) continue;
-            if (glm::length2(ctrl.RootMotionDelta) < 1e-10f) continue;
+            if (Math::Length2(ctrl.RootMotionDelta) < 1e-10f) continue;
 
             auto& transform = registry.get<Transform>(entity);
-            Quat entityRot = glm::quat(glm::radians(transform.Rotation));
+            Quat entityRot = Quat(Math::Radians(transform.Rotation));
             Vec3 worldDelta = entityRot * ctrl.RootMotionDelta;
             transform.Position += worldDelta;
             transform.IsDirty = true;
@@ -290,7 +287,7 @@ namespace Luth
             // Apply local offset
             Mat4 offset = ComposeTransform(
                 attachment.LocalOffset,
-                glm::quat(glm::radians(attachment.LocalRotation)),
+                Quat(Math::Radians(attachment.LocalRotation)),
                 Vec3(1.0f));
             Mat4 finalMatrix = boneWorld * offset;
 
@@ -299,7 +296,7 @@ namespace Luth
             Quat rot;
             DecomposeTransform(finalMatrix, pos, rot, scl);
             transform.Position = pos;
-            transform.Rotation = glm::degrees(glm::eulerAngles(rot));
+            transform.Rotation = Math::Degrees(Math::EulerAngles(rot));
             transform.Scale = scl;
             transform.IsDirty = false;
 
@@ -519,9 +516,9 @@ namespace Luth
                 continue;
             }
 
-            result[i].Position = glm::mix(a[i].Position, b[i].Position, alpha);
-            result[i].Rotation = glm::slerp(a[i].Rotation, b[i].Rotation, alpha);
-            result[i].Scale    = glm::mix(a[i].Scale, b[i].Scale, alpha);
+            result[i].Position = Math::Mix(a[i].Position, b[i].Position, alpha);
+            result[i].Rotation = Math::Slerp(a[i].Rotation, b[i].Rotation, alpha);
+            result[i].Scale    = Math::Mix(a[i].Scale, b[i].Scale, alpha);
         }
     }
 
@@ -562,7 +559,7 @@ namespace Luth
         {
             // Crossfade: blend from-clip and to-clip
             auto& t = *ctrl.ActiveTransition;
-            f32 alpha = glm::clamp(t.Elapsed / t.Duration, 0.0f, 1.0f);
+            f32 alpha = Math::Clamp(t.Elapsed / t.Duration, 0.0f, 1.0f);
 
             std::vector<BonePose> fromPoses, toPoses;
 
@@ -725,7 +722,7 @@ namespace Luth
 
         f32 dt = track.Positions[j].Time - track.Positions[i].Time;
         f32 t = (dt > 0.0f) ? (time - track.Positions[i].Time) / dt : 0.0f;
-        return glm::mix(track.Positions[i].Value, track.Positions[j].Value, t);
+        return Math::Mix(track.Positions[i].Value, track.Positions[j].Value, t);
     }
 
     Quat AnimationSystem::SampleRotation(const BoneTrack& track, f32 time)
@@ -739,7 +736,7 @@ namespace Luth
 
         f32 dt = track.Rotations[j].Time - track.Rotations[i].Time;
         f32 t = (dt > 0.0f) ? (time - track.Rotations[i].Time) / dt : 0.0f;
-        return glm::slerp(track.Rotations[i].Value, track.Rotations[j].Value, t);
+        return Math::Slerp(track.Rotations[i].Value, track.Rotations[j].Value, t);
     }
 
     Vec3 AnimationSystem::SampleScale(const BoneTrack& track, f32 time)
@@ -753,6 +750,6 @@ namespace Luth
 
         f32 dt = track.Scales[j].Time - track.Scales[i].Time;
         f32 t = (dt > 0.0f) ? (time - track.Scales[i].Time) / dt : 0.0f;
-        return glm::mix(track.Scales[i].Value, track.Scales[j].Value, t);
+        return Math::Mix(track.Scales[i].Value, track.Scales[j].Value, t);
     }
 }

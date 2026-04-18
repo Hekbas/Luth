@@ -3,7 +3,6 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/scene/Entity.h"
 
-#include <glm/glm.hpp>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,9 +19,9 @@ namespace Luth
     struct EditorViewportState
     {
         bool      hasCamera        = false;
-        glm::mat4 view             = glm::mat4(1.0f);
-        glm::mat4 projection       = glm::mat4(1.0f);
-        glm::vec3 position         = glm::vec3(0.0f);
+        Mat4 view             = Mat4(1.0f);
+        Mat4 projection       = Mat4(1.0f);
+        Vec3 position         = Vec3(0.0f);
         float     nearZ            = 0.1f;
         float     farZ             = 1000.0f;
         float     iblIntensity     = 1.0f;

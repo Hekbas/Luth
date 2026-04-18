@@ -5,7 +5,6 @@
 #include "luth/core/LuthTypes.h"
 
 #include <array>
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace Luth
@@ -18,7 +17,7 @@ namespace Luth
         RG::BufferHandle                indirectBuffer,
         VKComputePipeline*              pipeline,
         VkDescriptorSet                 descSet,
-        const std::array<glm::vec4, 6>& frustumPlanes,
+        const std::array<Vec4, 6>& frustumPlanes,
         u32                             objectCount,
         u32                             destOffset = 0,           // command index offset into indirect buffer
         const char*                     passName   = "FrustumCull",

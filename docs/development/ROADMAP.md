@@ -36,6 +36,7 @@
 | v1.7.0 | `arch-renderer-split` | RenderingSystem god-class dissolved (3 500→350 LOC, −90%): FrameTargets, DrawListBuilder, LightGatherer, CascadeBuilder extracted; RenderPipeline owns graph assembly + all graphics resources (pipelines, descriptor sets, SPIR-V, UBOs/SSBOs, IBL maps, bloom textures, GPU timers, preview textures, named-texture registry); RS retains ECS-glue state only (CameraParams, ShadowParams, Cascades, FrameTargets, FrameDebugger, editor toggles); animation/ module consolidates AnimationClip + Skeleton + BoneMatrixBuffer + AnimationController | 2026-04-18 |
 | v2.0.0 | `arch-target-split` | Editor extracted from Luth.lib into new Luthien.lib (~12 k LOC moved to luthien/source/luthien/); luthien/ exe folder renamed to runtime/; IEditorHooks interface breaks engine→editor include dependency (App/Input/Luth.h route through nullptr-safe hook registry populated by LuthienApp::CreateApp); EditorViewportState snapshot replaces per-getter dispatch for camera/IBL/selection; Sandbox.exe descoped (structural guarantee enforced by `git grep luth/source luthien/\|Luthien` = zero); new lepch.h editor PCH; VS project-name split (Runtime project, targetname Luthien) | 2026-04-18 |
 | v2.1.0 | `shader-asset-pipeline` | Single-stage shader assets (.vert/.frag/.comp each one artifact + UUID); `ShaderImporter` rewritten to compile one file per artifact (no .vert+.frag pairing); `ShaderHeader` schema V2 rejects V1 artifacts; `Shader`/`VulkanShader` hold one stage + one module; `ShaderLibrary::LoadEngine` idempotent loader + registrar; all 24 engine shaders routed through the asset pipeline (no runtime `ShaderCompiler::Compile` fallback in RenderPipeline / IBLPrecompute); hot-reload fires on any stage (incl .comp) with per-shader pipeline rebuild; `RecompileUtilityShaders` fallback deleted; startup `Fragment shader not found` error eliminated | 2026-04-18 |
+| v2.2.0 | `math-abstraction` | `Luth::Math` facade — single owner of `<glm/...>` includes (Math.h + LuthTypes.h only). Templated constants (`Math::Pi<T>`/`TwoPi<T>`/`HalfPi<T>`/`SmallNumber<T>`/`KindaSmallNumber<T>`/`FloatMax<T>`/`FloatLowest<T>`/...) delegating to `<numbers>` and `<limits>` where applicable. 25 function wrappers (`Math::Translate/Rotate/Scale/Perspective/Ortho/LookAt/Inverse/Transpose/Normalize/Length/Length2/Dot/Cross/Mix/Slerp/ToMat4/EulerAngles/QuatLookAt/Decompose/Radians/Degrees/Clamp/Min/Max/Abs`) plus `ValuePtr/MakeVec3` pointer helpers and `Math::length_t/qualifier` re-exports. Alias set extended (`IVec2/3/4`, `UVec2/3/4`, `Mat2`). LuthTypes.h dropped 6 unused magic constants (`PI/EPSILON/FLOAT_MAX/...`). Bulk-rewrite migrated 37 files (450 `glm::` refs collapsed to 50 inside the facade only); 38 `<glm/...>` includes purged outside the facade. Latent `numeric_limits::min` vs `lowest` confusion in AABB sentinel resolved | 2026-04-18 |
 
 > Detailed writeups in [`history/`](history/) — `v1.x/` and `v2.x/` subfolders, one file per epic slug.
 
@@ -48,17 +49,16 @@ Full roadmap + per-epic scope: [`../../plans/analyze-my-engine-in-magical-moore.
 
 | Priority | Epic | Issue | Target | Est. Time | Deps |
 |----------|------|-------|--------|-----------|------|
-| 1 | `math-abstraction` | TBD | v2.2.0 | 1 week | — |
-| 2 | `core-reorg` | TBD | v2.3.0 | few days | `math-abstraction` |
-| 3 | `animation-split` | TBD | v2.4.0 | < day | — |
-| 4 | `render-pipeline-split` | TBD | v2.5.0 | 1-2 weeks | `math-abstraction` |
-| 5 | `rendering-system-slim` | TBD | v2.6.0 | 1 week | `render-pipeline-split` |
-| 6 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.7.0 | 1-2 weeks | — |
-| 7 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.8.0 | 2-3 weeks | `play-mode` |
-| 8 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.8.1 | 1 week | — |
-| 9 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.9.0 | 2 weeks | `compute-gpu-culling` |
-| 10 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.9.1 | 1 week | — |
-| 11 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.10.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
+| 1 | `core-reorg` | TBD | v2.3.0 | few days | — |
+| 2 | `animation-split` | TBD | v2.4.0 | < day | — |
+| 3 | `render-pipeline-split` | TBD | v2.5.0 | 1-2 weeks | — |
+| 4 | `rendering-system-slim` | TBD | v2.6.0 | 1 week | `render-pipeline-split` |
+| 5 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.7.0 | 1-2 weeks | — |
+| 6 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.8.0 | 2-3 weeks | `play-mode` |
+| 7 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.8.1 | 1 week | — |
+| 8 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.9.0 | 2 weeks | `compute-gpu-culling` |
+| 9 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.9.1 | 1 week | — |
+| 10 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.10.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 

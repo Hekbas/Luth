@@ -22,7 +22,7 @@ namespace Luth
                 {
                     if (camera.Projection == Component::Camera::ProjectionType::Perspective)
                     {
-                        camera.ProjectionMatrix = glm::perspective(glm::radians(camera.VerticalFOV), camera.AspectRatio, camera.NearClip, camera.FarClip);
+                        camera.ProjectionMatrix = Math::Perspective(Math::Radians(camera.VerticalFOV), camera.AspectRatio, camera.NearClip, camera.FarClip);
                     }
                     else
                     {
@@ -31,7 +31,7 @@ namespace Luth
                         float orthoBottom = -camera.OrthographicSize * 0.5f;
                         float orthoTop = camera.OrthographicSize * 0.5f;
 
-                        camera.ProjectionMatrix = glm::ortho(orthoLeft, orthoRight, orthoBottom, orthoTop, camera.OrthographicNear, camera.OrthographicFar);
+                        camera.ProjectionMatrix = Math::Ortho(orthoLeft, orthoRight, orthoBottom, orthoTop, camera.OrthographicNear, camera.OrthographicFar);
                     }
                     
                     // Vulkan clip space Y flip
@@ -42,7 +42,7 @@ namespace Luth
                 }
 
                 // Calculate View Matrix (Inverse of World Transform)
-                camera.ViewMatrix = glm::inverse(transform.Matrix);
+                camera.ViewMatrix = Math::Inverse(transform.Matrix);
             }
         }
     };

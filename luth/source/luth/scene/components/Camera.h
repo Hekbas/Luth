@@ -21,8 +21,8 @@ namespace Luth::Component
 
         float AspectRatio = 16.0f / 9.0f;
 
-        glm::mat4 ViewMatrix;
-        glm::mat4 ProjectionMatrix;
+        Mat4 ViewMatrix;
+        Mat4 ProjectionMatrix;
 
         bool IsDirty = true;
 

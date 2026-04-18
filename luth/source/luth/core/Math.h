@@ -4,22 +4,130 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
 
+#include "luth/core/LuthTypes.h"
+
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/norm.hpp>
+
 #include <assimp/matrix3x3.h>
 #include <assimp/matrix4x4.h>
 #include <assimp/quaternion.h>
+
 #include <array>
 #include <limits>
+#include <numbers>
+
+namespace Luth::Math
+{
+    // =============================================
+    //         GLM trait re-exports
+    // =============================================
+    using length_t  = glm::length_t;
+    using qualifier = glm::qualifier;
+
+    // =============================================
+    //              Constants
+    // =============================================
+    // Standard constants — delegate to <numbers>
+    template<class T> inline constexpr T Pi              = std::numbers::pi_v<T>;
+    template<class T> inline constexpr T E               = std::numbers::e_v<T>;
+    template<class T> inline constexpr T Sqrt2           = std::numbers::sqrt2_v<T>;
+
+    // Derived / engine-specific
+    template<class T> inline constexpr T TwoPi           = T(2) * Pi<T>;
+    template<class T> inline constexpr T HalfPi          = Pi<T> / T(2);
+    template<class T> inline constexpr T QuarterPi       = Pi<T> / T(4);
+    template<class T> inline constexpr T InvPi           = T(1) / Pi<T>;
+    template<class T> inline constexpr T DegToRad        = Pi<T> / T(180);
+    template<class T> inline constexpr T RadToDeg        = T(180) / Pi<T>;
+
+    // Tolerances (no std equivalent)
+    template<class T> inline constexpr T SmallNumber      = T(1e-8);  // "essentially zero" for spatial math
+    template<class T> inline constexpr T KindaSmallNumber = T(1e-4);  // vector-comparison tolerance
+
+    // Limit sentinels — delegate to <limits>
+    template<class T> inline constexpr T FloatMax        = std::numeric_limits<T>::max();
+    template<class T> inline constexpr T FloatLowest     = std::numeric_limits<T>::lowest();   // -max for floats
+    template<class T> inline constexpr T FloatMin        = std::numeric_limits<T>::min();      // smallest positive finite
+    template<class T> inline constexpr T MachineEpsilon  = std::numeric_limits<T>::epsilon();  // ULP-level epsilon
+
+    // =============================================
+    //         Transformation matrices
+    // =============================================
+    inline Mat4 Translate(const Mat4& m, const Vec3& v)                                 { return glm::translate(m, v); }
+    inline Mat4 Rotate(const Mat4& m, f32 angle, const Vec3& axis)                      { return glm::rotate(m, angle, axis); }
+    inline Mat4 Scale(const Mat4& m, const Vec3& v)                                     { return glm::scale(m, v); }
+    inline Mat4 Perspective(f32 fovy, f32 aspect, f32 zNear, f32 zFar)                  { return glm::perspective(fovy, aspect, zNear, zFar); }
+    inline Mat4 Ortho(f32 left, f32 right, f32 bottom, f32 top, f32 zNear, f32 zFar)    { return glm::ortho(left, right, bottom, top, zNear, zFar); }
+    inline Mat4 Ortho(f32 left, f32 right, f32 bottom, f32 top)                         { return glm::ortho(left, right, bottom, top); }
+    inline Mat4 LookAt(const Vec3& eye, const Vec3& center, const Vec3& up)             { return glm::lookAt(eye, center, up); }
+
+    // =============================================
+    //         Linear algebra
+    // =============================================
+    template<class T> inline T    Inverse(const T& v)                                   { return glm::inverse(v); }
+    template<class T> inline T    Transpose(const T& v)                                 { return glm::transpose(v); }
+    template<class T> inline T    Normalize(const T& v)                                 { return glm::normalize(v); }
+    template<class T> inline auto Length(const T& v)                                    { return glm::length(v); }
+    template<class T> inline auto Length2(const T& v)                                   { return glm::length2(v); }
+    template<class T> inline auto Dot(const T& a, const T& b)                           { return glm::dot(a, b); }
+    template<class T> inline T    Cross(const T& a, const T& b)                         { return glm::cross(a, b); }
+
+    // =============================================
+    //         Interpolation
+    // =============================================
+    template<class T, class U> inline T Mix(const T& a, const T& b, const U& t)         { return glm::mix(a, b, t); }
+    inline Quat Slerp(const Quat& x, const Quat& y, f32 a)                              { return glm::slerp(x, y, a); }
+
+    // =============================================
+    //         Quaternion utilities
+    // =============================================
+    inline Mat4 ToMat4(const Quat& q)                                                   { return glm::toMat4(q); }
+    inline Vec3 EulerAngles(const Quat& q)                                              { return glm::eulerAngles(q); }
+    inline Quat QuatLookAt(const Vec3& direction, const Vec3& up)                       { return glm::quatLookAt(direction, up); }
+
+    // Full matrix decomposition (translation/rotation/scale + skew/perspective).
+    // Use Luth::DecomposeTransform for the trs-only case.
+    inline bool Decompose(const Mat4& m, Vec3& scale, Quat& rotation, Vec3& translation,
+                          Vec3& skew, Vec4& perspective)
+    {
+        return glm::decompose(m, scale, rotation, translation, skew, perspective);
+    }
+
+    // =============================================
+    //         Angle conversions
+    // =============================================
+    template<class T> inline T Radians(const T& v)                                      { return glm::radians(v); }
+    template<class T> inline T Degrees(const T& v)                                      { return glm::degrees(v); }
+
+    // =============================================
+    //         Common math (scalar + vector)
+    // =============================================
+    template<class T, class U> inline T Clamp(const T& v, const U& lo, const U& hi)     { return glm::clamp(v, lo, hi); }
+    template<class T> inline T Min(const T& a, const T& b)                              { return glm::min(a, b); }
+    template<class T> inline T Max(const T& a, const T& b)                              { return glm::max(a, b); }
+    template<class T> inline T Abs(const T& v)                                          { return glm::abs(v); }
+
+    // =============================================
+    //         Pointer helpers
+    // =============================================
+    template<class T> inline auto*       ValuePtr(T& v)                                 { return glm::value_ptr(v); }
+    template<class T> inline const auto* ValuePtr(const T& v)                           { return glm::value_ptr(v); }
+    inline Vec3 MakeVec3(const f32* p)                                                  { return glm::make_vec3(p); }
+}
 
 namespace Luth
 {
-    // Assimp to GLM conversions
-    inline glm::mat3 AiMat3ToGLM(const aiMatrix3x3& from) {
+    // =============================================
+    //         Assimp <-> Luth conversions
+    // =============================================
+    inline Mat3 AiMat3ToGLM(const aiMatrix3x3& from) {
         return {
             {from.a1, from.b1, from.c1},
             {from.a2, from.b2, from.c2},
@@ -27,7 +135,7 @@ namespace Luth
         };
     }
 
-    inline glm::mat4 AiMat4ToGLM(const aiMatrix4x4& from) {
+    inline Mat4 AiMat4ToGLM(const aiMatrix4x4& from) {
         return {
             {from.a1, from.b1, from.c1, from.d1},
             {from.a2, from.b2, from.c2, from.d2},
@@ -36,16 +144,15 @@ namespace Luth
         };
     }
 
-    inline glm::vec3 AiVec3ToGLM(const aiVector3D& v) {
+    inline Vec3 AiVec3ToGLM(const aiVector3D& v) {
         return { v.x, v.y, v.z };
     }
 
-    inline glm::quat AiQuatToGLM(const aiQuaternion& q) {
+    inline Quat AiQuatToGLM(const aiQuaternion& q) {
         return { q.w, q.x, q.y, q.z };
     }
 
-    // GLM to Assimp conversions
-    inline aiMatrix3x3 GLMMat3ToAi(const glm::mat3& m) {
+    inline aiMatrix3x3 GLMMat3ToAi(const Mat3& m) {
         return {
             m[0][0], m[1][0], m[2][0],
             m[0][1], m[1][1], m[2][1],
@@ -53,7 +160,7 @@ namespace Luth
         };
     }
 
-    inline aiMatrix4x4 GLMMat4ToAi(const glm::mat4& m) {
+    inline aiMatrix4x4 GLMMat4ToAi(const Mat4& m) {
         return {
             m[0][0], m[1][0], m[2][0], m[3][0],
             m[0][1], m[1][1], m[2][1], m[3][1],
@@ -62,73 +169,81 @@ namespace Luth
         };
     }
 
-    inline aiVector3D GLMVec3ToAi(const glm::vec3& v) {
+    inline aiVector3D GLMVec3ToAi(const Vec3& v) {
         return { v.x, v.y, v.z };
     }
 
-    inline aiQuaternion GLMQuatToAi(const glm::quat& q) {
+    inline aiQuaternion GLMQuatToAi(const Quat& q) {
         return { q.w, q.x, q.y, q.z };
     }
 
-    // Matrix operations
-    inline glm::mat3 ConvertToNormalMatrix(const glm::mat4& modelMatrix) {
-        return glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
+    // =============================================
+    //         Matrix helpers
+    // =============================================
+    inline Mat3 ConvertToNormalMatrix(const Mat4& modelMatrix) {
+        return Math::Transpose(Math::Inverse(Mat3(modelMatrix)));
     }
 
-    inline glm::mat3 Mat4ToMat3(const glm::mat4& m) {
-        return glm::mat3(m);
+    inline Mat3 Mat4ToMat3(const Mat4& m) {
+        return Mat3(m);
     }
 
-    // Transformation matrix generators
-    inline glm::mat4 ComposeTransform(
-        const glm::vec3& translation,
-        const glm::quat& rotation,
-        const glm::vec3& scale)
+    // =============================================
+    //         Transform compose / decompose
+    // =============================================
+    inline Mat4 ComposeTransform(
+        const Vec3& translation,
+        const Quat& rotation,
+        const Vec3& scale)
     {
-        glm::mat4 t = glm::translate(glm::mat4(1.0f), translation);
-        glm::mat4 r = glm::mat4_cast(rotation);
-        glm::mat4 s = glm::scale(glm::mat4(1.0f), scale);
+        const Mat4 t = Math::Translate(Mat4(1.0f), translation);
+        const Mat4 r = Math::ToMat4(rotation);
+        const Mat4 s = Math::Scale(Mat4(1.0f), scale);
         return t * r * s;
     }
 
     inline void DecomposeTransform(
-        const glm::mat4& transform,
-        glm::vec3& translation,
-        glm::quat& rotation,
-        glm::vec3& scale)
+        const Mat4& transform,
+        Vec3& translation,
+        Quat& rotation,
+        Vec3& scale)
     {
-        glm::vec3 skew;
-        glm::vec4 perspective;
+        Vec3 skew;
+        Vec4 perspective;
         glm::decompose(transform, scale, rotation, translation, skew, perspective);
         rotation = glm::conjugate(rotation);
     }
 
-    // Axis-Aligned Bounding Box
+    // =============================================
+    //         Axis-Aligned Bounding Box
+    // =============================================
     struct AABB {
-        Vec3 Min = Vec3(std::numeric_limits<float>::max());
-        Vec3 Max = Vec3(-std::numeric_limits<float>::max());
+        Vec3 Min = Vec3( Math::FloatMax<f32>);
+        Vec3 Max = Vec3(Math::FloatLowest<f32>);
 
         void Expand(const Vec3& point) {
-            Min = glm::min(Min, point);
-            Max = glm::max(Max, point);
+            Min = Math::Min(Min, point);
+            Max = Math::Max(Max, point);
         }
         void Expand(const AABB& other) {
-            Min = glm::min(Min, other.Min);
-            Max = glm::max(Max, other.Max);
+            Min = Math::Min(Min, other.Min);
+            Max = Math::Max(Max, other.Max);
         }
         Vec3 Center() const { return (Min + Max) * 0.5f; }
         Vec3 Extents() const { return (Max - Min) * 0.5f; }
         bool IsValid() const { return Min.x <= Max.x; }
     };
 
-    // Frustum culling
+    // =============================================
+    //         Frustum culling
+    // =============================================
     struct Frustum {
-        std::array<glm::vec4, 6> planes;
+        std::array<Vec4, 6> planes;
     };
 
-    inline Frustum CreateFrustumFromCamera(const glm::mat4& viewProj, bool normalize = true) {
+    inline Frustum CreateFrustumFromCamera(const Mat4& viewProj, bool normalize = true) {
         Frustum frustum;
-        const glm::mat4 matrix = glm::transpose(viewProj);
+        const Mat4 matrix = Math::Transpose(viewProj);
 
         frustum.planes[0] = matrix[3] + matrix[0]; // Left
         frustum.planes[1] = matrix[3] - matrix[0]; // Right
@@ -139,7 +254,7 @@ namespace Luth
 
         if (normalize) {
             for (auto& plane : frustum.planes) {
-                const float length = glm::length(glm::vec3(plane));
+                const f32 length = Math::Length(Vec3(plane));
                 plane /= length;
             }
         }
@@ -147,9 +262,9 @@ namespace Luth
         return frustum;
     }
 
-    inline bool IsInFrustum(const Frustum& frustum, const glm::vec3& point, float radius = 0.0f) {
+    inline bool IsInFrustum(const Frustum& frustum, const Vec3& point, f32 radius = 0.0f) {
         for (const auto& plane : frustum.planes) {
-            const float distance =
+            const f32 distance =
                 plane.x * point.x +
                 plane.y * point.y +
                 plane.z * point.z +

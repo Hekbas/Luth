@@ -7,7 +7,6 @@
 #include "luthien/widgets/Icons.h"
 #include "luthien/UI.h"
 
-#include <glm/gtc/type_ptr.hpp>
 
 namespace Luth
 {
