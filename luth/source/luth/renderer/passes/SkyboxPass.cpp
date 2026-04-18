@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -21,7 +22,7 @@ namespace Luth
 {
     using namespace Component;
 
-    RG::ResourceHandle RenderingSystem::AddSkyboxPass(
+    RG::ResourceHandle RenderPipeline::AddSkyboxPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
     {
         struct SkyboxPassData {
@@ -44,25 +45,25 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
+                m_System.m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_System.m_SkyboxPipeline || !m_System.m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_SkyboxPipeline->Bind(cmd);
+                m_System.m_SkyboxPipeline->Bind(cmd);
 
                 // Bind all 5 descriptor sets (skybox only uses set 0, others required by layout)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_System.m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_System.m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet()
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                    m_System.m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport viewport{};
@@ -75,15 +76,15 @@ namespace Luth
                 scissor.extent = { res->desc.width, res->desc.height };
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-                VkBuffer vb = m_SkyboxVB->GetVulkanBuffer();
+                VkBuffer vb = m_System.m_SkyboxVB->GetVulkanBuffer();
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
                 vkCmdDraw(cmd, 36, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
+                m_System.m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
         return outputHandle;

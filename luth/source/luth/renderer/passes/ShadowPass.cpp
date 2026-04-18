@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -25,7 +26,7 @@ namespace Luth
     // Render Graph Passes
     // =========================================================================
 
-    RG::ResourceHandle RenderingSystem::AddShadowPass(
+    RG::ResourceHandle RenderPipeline::AddShadowPass(
         RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex)
     {
         struct ShadowPassData {
@@ -43,7 +44,7 @@ namespace Luth
             {
                 data.cascadeIndex = cascadeIndex;
 
-                auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+                auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_System.m_ShadowMap);
 
                 RG::TextureDesc desc;
                 desc.name   = resName;
@@ -55,7 +56,7 @@ namespace Luth
                 // Barriers issued by the graph will carry baseArrayLayer=cascadeIndex, layerCount=1.
                 data.shadowTex = rg.ImportResource(desc,
                     (void*)vkShadowTex->GetImage(),
-                    (void*)m_ShadowLayerViews[cascadeIndex],
+                    (void*)m_System.m_ShadowLayerViews[cascadeIndex],
                     RG::ResourceState::Undefined,
                     /*baseArrayLayer*/ cascadeIndex,
                     /*layerCount*/     1);
@@ -75,30 +76,30 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass(passName, resName, true,
+                m_System.m_FrameDebugger.BeginCapturePass(passName, resName, true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_System.m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_System.m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_System.m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_ObjectSSBODescSet
+                    m_System.m_ObjectSSBODescSet
                 };
 
                 // Start with static pipeline bound
-                m_ShadowPipeline->Bind(cmd);
+                m_System.m_ShadowPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                    m_System.m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
 
                 // Push cascadeIndex so the vertex shader selects lightSpaceMatrix[pc.cascadeIndex].
                 const u32 cascadeIdxVal = data.cascadeIndex;
-                vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_System.m_ShadowPipeline->GetLayout(),
                     VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
 
                 // Shadow map viewport
@@ -127,20 +128,20 @@ namespace Luth
                         if (dc.isSkinned != currentSkinned)
                         {
                             currentSkinned = dc.isSkinned;
-                            if (currentSkinned && m_ShadowSkinnedPipeline)
+                            if (currentSkinned && m_System.m_ShadowSkinnedPipeline)
                             {
-                                m_ShadowSkinnedPipeline->Bind(cmd);
+                                m_System.m_ShadowSkinnedPipeline->Bind(cmd);
                                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
-                                vkCmdPushConstants(cmd, m_ShadowSkinnedPipeline->GetLayout(),
+                                    m_System.m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                vkCmdPushConstants(cmd, m_System.m_ShadowSkinnedPipeline->GetLayout(),
                                     VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
                             }
                             else
                             {
-                                m_ShadowPipeline->Bind(cmd);
+                                m_System.m_ShadowPipeline->Bind(cmd);
                                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
-                                vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                                    m_System.m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                vkCmdPushConstants(cmd, m_System.m_ShadowPipeline->GetLayout(),
                                     VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
                             }
                         }
@@ -152,18 +153,18 @@ namespace Luth
 
                         // Indirect draw — per-cascade cull region writes independent instanceCount values,
                         // so shadow casters outside the camera frustum but inside the cascade still render.
-                        // Region layout: [camera | C0 | C1 | C2 | C3], each of size k_IndirectRegionStride.
-                        const u32 cmdIndex = (data.cascadeIndex + 1) * k_IndirectRegionStride + dc.gpuObjectIndex;
+                        // Region layout: [camera | C0 | C1 | C2 | C3], each of size RenderingSystem::k_IndirectRegionStride.
+                        const u32 cmdIndex = (data.cascadeIndex + 1) * RenderingSystem::k_IndirectRegionStride + dc.gpuObjectIndex;
                         VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
-                        vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                        vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 
-                        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
                             if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
                                 entName = registry.get<Component::Tag>(dc.entity).Value;
-                            m_FrameDebugger.CaptureIndirectDraw(passName,
+                            m_System.m_FrameDebugger.CaptureIndirectDraw(passName,
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                                 { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
@@ -173,11 +174,11 @@ namespace Luth
                 };
 
                 // Shadow casters = all visible geometry (opaque + cutout + transparent).
-                DrawBatch(m_DrawList.opaque);
-                DrawBatch(m_DrawList.cutout);
-                DrawBatch(m_DrawList.transparent);
+                DrawBatch(m_System.m_DrawList.opaque);
+                DrawBatch(m_System.m_DrawList.cutout);
+                DrawBatch(m_System.m_DrawList.transparent);
 
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
 

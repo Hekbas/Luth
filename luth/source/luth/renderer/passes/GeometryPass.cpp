@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -23,7 +24,7 @@ namespace Luth
 {
     using namespace Component;
 
-    GeometryOutput RenderingSystem::AddGeometryPass(
+    GeometryOutput RenderPipeline::AddGeometryPass(
         RG::RenderGraph& rg, entt::registry& registry,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle,
@@ -44,11 +45,11 @@ namespace Luth
             {
                 RG::TextureDesc desc;
                 desc.name   = "SceneColor";
-                desc.width  = m_Targets.GetSceneColor()->GetWidth();
-                desc.height = m_Targets.GetSceneColor()->GetHeight();
+                desc.width  = m_System.m_Targets.GetSceneColor()->GetWidth();
+                desc.height = m_System.m_Targets.GetSceneColor()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA16_Float;
 
-                auto vkTex = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneColor());
+                auto vkTex = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
                 data.outputTex = rg.ImportResource(desc,
                     (void*)vkTex->GetImage(),
                     (void*)vkTex->GetImageView(),
@@ -57,11 +58,11 @@ namespace Luth
                 // Entity ID buffer (R32_UINT)
                 RG::TextureDesc idDesc;
                 idDesc.name   = "EntityID";
-                idDesc.width  = m_Targets.GetEntityIDBuffer()->GetWidth();
-                idDesc.height = m_Targets.GetEntityIDBuffer()->GetHeight();
+                idDesc.width  = m_System.m_Targets.GetEntityIDBuffer()->GetWidth();
+                idDesc.height = m_System.m_Targets.GetEntityIDBuffer()->GetHeight();
                 idDesc.format = RG::TextureFormat::R32_Uint;
 
-                auto vkID = std::static_pointer_cast<VKTexture>(m_Targets.GetEntityIDBuffer());
+                auto vkID = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetEntityIDBuffer());
                 data.entityIDTex = rg.ImportResource(idDesc,
                     (void*)vkID->GetImage(),
                     (void*)vkID->GetImageView(),
@@ -99,25 +100,25 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                VkPolygonMode polyMode = (m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-                m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
+                VkPolygonMode polyMode = (m_System.m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                m_System.m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
-                auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                if (!opaquePipeline) { m_FrameDebugger.EndCapturePass(); return; }
+                auto* opaquePipeline = m_System.m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                if (!opaquePipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_System.m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_System.m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_ObjectSSBODescSet
+                    m_System.m_ObjectSSBODescSet
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipelineLayout, 0, 6, sets, 0, nullptr);
@@ -143,8 +144,8 @@ namespace Luth
 
                     Material::CullMode currentCull = Material::CullMode::Back;
                     bool currentSkinned = false;
-                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                    auto* pipeline = m_System.m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
                     if (!pipeline) return;
 
                     pipeline->Bind(cmd);
@@ -160,13 +161,13 @@ namespace Luth
                             VKPipeline* newPipeline = nullptr;
                             if (currentSkinned)
                             {
-                                newPipeline = m_GeoSkinnedPipelineManager.GetOrCreate(
-                                    pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv);
+                                newPipeline = m_System.m_GeoSkinnedPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_System.m_PBRSkinnedVertSpv, m_System.m_PBRFragSpv);
                             }
                             else
                             {
-                                newPipeline = m_GeoPipelineManager.GetOrCreate(
-                                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                                newPipeline = m_System.m_GeoPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
                             }
                             if (!newPipeline) continue;
                             newPipeline->Bind(cmd);
@@ -185,11 +186,11 @@ namespace Luth
                         // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
                         // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance]
                         VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                        vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                        vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 
                         // Capture for frame debugger
-                        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
                             if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
@@ -197,7 +198,7 @@ namespace Luth
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;
-                            m_FrameDebugger.CaptureIndirectDraw("GeometryPass",
+                            m_System.m_FrameDebugger.CaptureIndirectDraw("GeometryPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(),
                                 dc.gpuObjectIndex, indirectOffset,
@@ -207,11 +208,11 @@ namespace Luth
                     }
                 };
 
-                DrawBatch(m_DrawList.opaque,      Material::RenderMode::Opaque);
-                DrawBatch(m_DrawList.cutout,      Material::RenderMode::Cutout);
-                DrawBatch(m_DrawList.transparent, Material::RenderMode::Transparent);
+                DrawBatch(m_System.m_DrawList.opaque,      Material::RenderMode::Opaque);
+                DrawBatch(m_System.m_DrawList.cutout,      Material::RenderMode::Cutout);
+                DrawBatch(m_System.m_DrawList.transparent, Material::RenderMode::Transparent);
 
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
         return output;

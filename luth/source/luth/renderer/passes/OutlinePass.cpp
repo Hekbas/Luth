@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -21,10 +22,10 @@ namespace Luth
 {
     using namespace Component;
 
-    RG::ResourceHandle RenderingSystem::AddOutlinePass(
+    RG::ResourceHandle RenderPipeline::AddOutlinePass(
         RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth)
     {
-        if (!m_OutlinePipeline || !m_Targets.GetLDROutput())
+        if (!m_System.m_OutlinePipeline || !m_System.m_Targets.GetLDROutput())
             return ldrOutput;
 
         struct OutlinePassData {
@@ -52,17 +53,17 @@ namespace Luth
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
-                m_FrameDebugger.BeginCapturePass("OutlinePass", "LDROutput", false,
+                m_System.m_FrameDebugger.BeginCapturePass("OutlinePass", "LDROutput", false,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_OutlinePipeline->Bind(cmd);
+                m_System.m_OutlinePipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_OutlinePipeline->GetLayout(), 0, 1, &m_OutlineDescSet, 0, nullptr);
+                    m_System.m_OutlinePipeline->GetLayout(), 0, 1, &m_System.m_OutlineDescSet, 0, nullptr);
 
-                u32 w = m_Targets.GetLDROutput()->GetWidth();
-                u32 h = m_Targets.GetLDROutput()->GetHeight();
+                u32 w = m_System.m_Targets.GetLDROutput()->GetWidth();
+                u32 h = m_System.m_Targets.GetLDROutput()->GetHeight();
 
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -84,21 +85,21 @@ namespace Luth
                 pc.outlineWidth     = 1.5f;
                 pc.texelSizeX       = 1.0f / (float)w;
                 pc.texelSizeY       = 1.0f / (float)h;
-                pc.outlineColorR    = m_OutlineColor.r;
-                pc.outlineColorG    = m_OutlineColor.g;
-                pc.outlineColorB    = m_OutlineColor.b;
-                pc.outlineColorA    = m_OutlineColor.a;
+                pc.outlineColorR    = m_System.m_OutlineColor.r;
+                pc.outlineColorG    = m_System.m_OutlineColor.g;
+                pc.outlineColorB    = m_System.m_OutlineColor.b;
+                pc.outlineColorA    = m_System.m_OutlineColor.a;
                 pc.occludedAlpha    = 0.65f;
 
-                vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_System.m_OutlinePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_FrameDebugger.CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
+                m_System.m_FrameDebugger.CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
 

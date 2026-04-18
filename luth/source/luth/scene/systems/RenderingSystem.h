@@ -10,6 +10,8 @@
 #include "luth/renderer/draw/DrawList.h"
 #include "luth/renderer/lighting/CascadeBuilder.h"
 #include "luth/renderer/lighting/LightGatherer.h"
+
+#include <memory>
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -64,8 +66,12 @@ namespace Luth
         RG::ResourceHandle depth;
     };
 
+    class RenderPipeline;
+
     class RenderingSystem : public ISystem
     {
+        friend class RenderPipeline;
+
     public:
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
         ~RenderingSystem();
@@ -189,27 +195,7 @@ namespace Luth
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
         void BuildGPUObjectBuffer(entt::registry& registry);
 
-        RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
         void RegisterNamedTextures();
-
-        RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
-        RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
-                                        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
-                                        RG::BufferHandle indirectBufferHandle,
-                                        RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
-        RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
-        SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry);
-        RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
-        void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
-
-        void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
         // Phase 14C — RenderCapturedFrame removed (live re-replay).
         // AddDebugBlitPass + InitDebugBlitResources kept for Phase 14D
@@ -355,6 +341,11 @@ namespace Luth
         // are reused across frames (Clear() just resets sizes).
         DrawListBuilder m_DrawListBuilder;
         DrawList        m_DrawList;
+
+        // Per-frame render-graph assembly + execution (sub-task D of arch-renderer-split).
+        // Created in ctor; invoked once per frame from Update() after all per-frame
+        // CPU work (UBO upload, GPU object buffer, draw list build) has run.
+        std::unique_ptr<RenderPipeline> m_Pipeline;
 
         // Post-process settings & UBO
         PostProcessSettings m_PostProcessSettings;

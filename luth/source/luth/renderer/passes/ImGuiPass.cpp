@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -23,7 +24,7 @@ namespace Luth
 {
     using namespace Component;
 
-    void RenderingSystem::AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
+    void RenderPipeline::AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
         struct ImGuiPassData {
             RG::ResourceHandle backbuffer;
@@ -54,10 +55,10 @@ namespace Luth
             },
             [this](ImGuiPassData& data, RG::RenderPassContext& ctx)
             {
-                m_FrameDebugger.BeginCapturePass("ImGuiPass", "Backbuffer", false,
+                m_System.m_FrameDebugger.BeginCapturePass("ImGuiPass", "Backbuffer", false,
                     { "imgui", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
                 ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.commandBuffer);
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
     }

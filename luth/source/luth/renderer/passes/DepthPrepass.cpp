@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -25,7 +26,7 @@ namespace Luth
     // transparents write their depth in GeometryPass (with LESS_EQUAL, so
     // opaque depth written here wins). Reuses indirect region 0 (the camera
     // frustum cull region), same as GeometryPass's opaque draws.
-    RG::ResourceHandle RenderingSystem::AddDepthPrepass(
+    RG::ResourceHandle RenderPipeline::AddDepthPrepass(
         RG::RenderGraph& rg, entt::registry& registry,
         RG::BufferHandle indirectBufferHandle)
     {
@@ -41,11 +42,11 @@ namespace Luth
             {
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SceneDepth";
-                depthDesc.width  = m_Targets.GetSceneDepth()->GetWidth();
-                depthDesc.height = m_Targets.GetSceneDepth()->GetHeight();
+                depthDesc.width  = m_System.m_Targets.GetSceneDepth()->GetWidth();
+                depthDesc.height = m_System.m_Targets.GetSceneDepth()->GetHeight();
                 depthDesc.format = RG::TextureFormat::D32_Float;
 
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
                 data.depthTex = rg.ImportResource(depthDesc,
                     (void*)vkDepth->GetImage(),
                     (void*)vkDepth->GetImageView(),
@@ -64,24 +65,24 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass("DepthPrepass", "SceneDepth", true,
+                m_System.m_FrameDebugger.BeginCapturePass("DepthPrepass", "SceneDepth", true,
                     { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_System.m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_System.m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_System.m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_ObjectSSBODescSet
+                    m_System.m_ObjectSSBODescSet
                 };
 
-                m_DepthPrepassPipeline->Bind(cmd);
+                m_System.m_DepthPrepassPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                    m_System.m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.depthTex);
                 VkViewport viewport{};
@@ -98,7 +99,7 @@ namespace Luth
 
                 // Opaque-only: cutouts and transparents write their depth in
                 // GeometryPass (LESS_EQUAL, so opaque depth written here wins).
-                for (const auto& dc : m_DrawList.opaque)
+                for (const auto& dc : m_System.m_DrawList.opaque)
                 {
                     auto mesh = dc.model->GetMesh(dc.meshIndex);
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
@@ -108,17 +109,17 @@ namespace Luth
                     if (dc.isSkinned != currentSkinned)
                     {
                         currentSkinned = dc.isSkinned;
-                        if (currentSkinned && m_DepthPrepassSkinnedPipeline)
+                        if (currentSkinned && m_System.m_DepthPrepassSkinnedPipeline)
                         {
-                            m_DepthPrepassSkinnedPipeline->Bind(cmd);
+                            m_System.m_DepthPrepassSkinnedPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_DepthPrepassSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                m_System.m_DepthPrepassSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                         else
                         {
-                            m_DepthPrepassPipeline->Bind(cmd);
+                            m_System.m_DepthPrepassPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                m_System.m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                     }
 
@@ -129,15 +130,15 @@ namespace Luth
 
                     // Camera region of the indirect buffer (region 0).
                     VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                    vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
-                    if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                    if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
                     {
                         std::string entName = "Entity";
                         if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
                             entName = registry.get<Component::Tag>(dc.entity).Value;
-                        m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
+                        m_System.m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
                             dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                             entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                             { "depthPrepass", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
@@ -145,7 +146,7 @@ namespace Luth
                     }
                 }
 
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
 
