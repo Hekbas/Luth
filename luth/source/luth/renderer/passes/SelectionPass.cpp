@@ -91,7 +91,7 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
                     { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_System.m_SelectionMaskPipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_SelectionMaskPipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
@@ -103,16 +103,16 @@ namespace Luth
                 // Bind descriptor sets (same 5 sets as geometry/shadow passes)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_System.m_GlobalDescriptorSet,
+                    m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_System.m_LightDescSet,
+                    m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet()
                 };
 
-                m_System.m_SelectionMaskPipeline->Bind(cmd);
+                m_SelectionMaskPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                    m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
                 u32 w = m_System.m_Targets.GetSelectionMask()->GetWidth();
                 u32 h = m_System.m_Targets.GetSelectionMask()->GetHeight();
@@ -137,23 +137,23 @@ namespace Luth
                         if (dc.isSkinned != currentSkinned)
                         {
                             currentSkinned = dc.isSkinned;
-                            if (currentSkinned && m_System.m_SelectionMaskSkinnedPipeline)
+                            if (currentSkinned && m_SelectionMaskSkinnedPipeline)
                             {
-                                m_System.m_SelectionMaskSkinnedPipeline->Bind(cmd);
+                                m_SelectionMaskSkinnedPipeline->Bind(cmd);
                                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_System.m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                                    m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
                             }
                             else
                             {
-                                m_System.m_SelectionMaskPipeline->Bind(cmd);
+                                m_SelectionMaskPipeline->Bind(cmd);
                                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    m_System.m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                                    m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
                             }
                         }
 
-                        VkPipelineLayout activeLayout = (currentSkinned && m_System.m_SelectionMaskSkinnedPipeline)
-                            ? m_System.m_SelectionMaskSkinnedPipeline->GetLayout()
-                            : m_System.m_SelectionMaskPipeline->GetLayout();
+                        VkPipelineLayout activeLayout = (currentSkinned && m_SelectionMaskSkinnedPipeline)
+                            ? m_SelectionMaskSkinnedPipeline->GetLayout()
+                            : m_SelectionMaskPipeline->GetLayout();
 
                         ObjectPushConstants pc{};
                         pc.modelMatrix   = dc.modelMatrix;

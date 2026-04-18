@@ -25,7 +25,7 @@ namespace Luth
     RG::ResourceHandle RenderPipeline::AddOutlinePass(
         RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth)
     {
-        if (!m_System.m_OutlinePipeline || !m_System.m_Targets.GetLDROutput())
+        if (!m_OutlinePipeline || !m_System.m_Targets.GetLDROutput())
             return ldrOutput;
 
         struct OutlinePassData {
@@ -57,10 +57,10 @@ namespace Luth
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_System.m_OutlinePipeline->Bind(cmd);
+                m_OutlinePipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_OutlinePipeline->GetLayout(), 0, 1, &m_System.m_OutlineDescSet, 0, nullptr);
+                    m_OutlinePipeline->GetLayout(), 0, 1, &m_OutlineDescSet, 0, nullptr);
 
                 u32 w = m_System.m_Targets.GetLDROutput()->GetWidth();
                 u32 h = m_System.m_Targets.GetLDROutput()->GetHeight();
@@ -91,7 +91,7 @@ namespace Luth
                 pc.outlineColorA    = m_System.m_OutlineColor.a;
                 pc.occludedAlpha    = 0.65f;
 
-                vkCmdPushConstants(cmd, m_System.m_OutlinePipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);

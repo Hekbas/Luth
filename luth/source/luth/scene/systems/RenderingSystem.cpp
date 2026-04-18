@@ -71,6 +71,30 @@ namespace Luth
         m_Pipeline->BlitArchivedDepthToPreview(archiveIdx, layer, nearZ, farZ);
     }
 
+    const RG::RenderGraphSnapshot& RenderingSystem::GetGraphSnapshot() const
+    {
+        return m_Pipeline->GetGraphSnapshot();
+    }
+
+    void RenderingSystem::ExitCapture()
+    {
+        // Free GPU-owned archives BEFORE clearing the metadata vectors.
+        m_FrameDebugger.DestroyArchives();
+        m_FrameDebugger.state = DebuggerState::Inactive;
+        m_FrameDebugger.capturedFrame.Clear();
+        // Phase 14E — drop the per-draw replay cache key so the next capture
+        // starts clean (preview texture itself is reused across captures).
+        m_Pipeline->ResetPreviewCacheKeys();
+    }
+
+    VkImageView RenderingSystem::GetPerDrawPreviewView()   const { return m_Pipeline->GetPerDrawPreviewView(); }
+    u64         RenderingSystem::GetPerDrawPreviewKey()    const { return m_Pipeline->GetPerDrawPreviewKey(); }
+    u32         RenderingSystem::GetPerDrawPreviewWidth()  const { return m_Pipeline->GetPerDrawPreviewWidth(); }
+    u32         RenderingSystem::GetPerDrawPreviewHeight() const { return m_Pipeline->GetPerDrawPreviewHeight(); }
+    VkImageView RenderingSystem::GetDepthPreviewView()     const { return m_Pipeline->GetDepthPreviewView(); }
+    u32         RenderingSystem::GetDepthPreviewWidth()    const { return m_Pipeline->GetDepthPreviewWidth(); }
+    u32         RenderingSystem::GetDepthPreviewHeight()   const { return m_Pipeline->GetDepthPreviewHeight(); }
+
     // =========================================================================
     // Project lifecycle
     // =========================================================================
@@ -101,8 +125,7 @@ namespace Luth
     {
         LightUniforms lights{};
         m_LightGatherer.Gather(scene->Registry(), lights, m_ShadowParams);
-        m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
-
+        m_Pipeline->UploadLightUBO(lights);
         m_CascadeBuilder.Build(lights.dirLight.direction, m_CameraParams, m_ShadowParams, m_Cascades);
     }
 
@@ -221,7 +244,7 @@ namespace Luth
             // Partition entities into opaque/cutout/transparent draw buckets.
             // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
             // reference the freshly populated indirect buffer.
-            m_DrawListBuilder.Build(registry, m_MaterialSlotMap, m_EntityToSSBOIndex, m_DrawList);
+            m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
             // Build + execute the render graph (graph assembly lives in RenderPipeline).
             m_Pipeline->Execute(registry);
@@ -277,8 +300,9 @@ namespace Luth
                     VulkanAllocator::Unmap(stagingAlloc);
                     VulkanAllocator::FreeBuffer(stagingBuf, stagingAlloc);
 
-                    if (entityIdx > 0 && entityIdx < (u32)m_EntityLookup.size())
-                        m_PickedEntity = m_EntityLookup[entityIdx];
+                    const auto& entityLookup = m_Pipeline->GetEntityLookup();
+                    if (entityIdx > 0 && entityIdx < (u32)entityLookup.size())
+                        m_PickedEntity = entityLookup[entityIdx];
                     else
                         m_PickedEntity = entt::null;
 

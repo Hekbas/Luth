@@ -25,7 +25,7 @@ namespace Luth
     RG::ResourceHandle RenderPipeline::AddPostProcessPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
     {
-        if (!m_System.m_PostProcessPipeline || !m_System.m_Targets.GetLDROutput())
+        if (!m_PostProcessPipeline || !m_System.m_Targets.GetLDROutput())
             return sceneColor; // Fallback: pass HDR scene color through
 
         struct PostProcessPassData {
@@ -63,10 +63,10 @@ namespace Luth
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_System.m_PostProcessPipeline->Bind(cmd);
+                m_PostProcessPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_PostProcessPipeline->GetLayout(), 0, 1, &m_System.m_CompositeDescSet, 0, nullptr);
+                    m_PostProcessPipeline->GetLayout(), 0, 1, &m_CompositeDescSet, 0, nullptr);
 
                 u32 w = m_System.m_Targets.GetLDROutput()->GetWidth();
                 u32 h = m_System.m_Targets.GetLDROutput()->GetHeight();

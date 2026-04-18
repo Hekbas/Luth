@@ -105,20 +105,20 @@ namespace Luth
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
-                auto* opaquePipeline = m_System.m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_System.m_GlobalDescriptorSet,
+                    m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_System.m_LightDescSet,
+                    m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_System.m_ObjectSSBODescSet
+                    m_ObjectSSBODescSet
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipelineLayout, 0, 6, sets, 0, nullptr);
@@ -144,8 +144,8 @@ namespace Luth
 
                     Material::CullMode currentCull = Material::CullMode::Back;
                     bool currentSkinned = false;
-                    auto* pipeline = m_System.m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                     if (!pipeline) return;
 
                     pipeline->Bind(cmd);
@@ -161,13 +161,13 @@ namespace Luth
                             VKPipeline* newPipeline = nullptr;
                             if (currentSkinned)
                             {
-                                newPipeline = m_System.m_GeoSkinnedPipelineManager.GetOrCreate(
-                                    pbrUUID, mode, currentCull, polyMode, m_System.m_PBRSkinnedVertSpv, m_System.m_PBRFragSpv);
+                                newPipeline = m_GeoSkinnedPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv);
                             }
                             else
                             {
-                                newPipeline = m_System.m_GeoPipelineManager.GetOrCreate(
-                                    pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                                newPipeline = m_GeoPipelineManager.GetOrCreate(
+                                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                             }
                             if (!newPipeline) continue;
                             newPipeline->Bind(cmd);
@@ -186,7 +186,7 @@ namespace Luth
                         // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
                         // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance]
                         VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                        vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
+                        vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 
                         // Capture for frame debugger

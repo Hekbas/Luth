@@ -50,11 +50,11 @@ namespace Luth
                 // Import the persistent half-res linear depth as a storage write.
                 RG::TextureDesc desc;
                 desc.name   = "GTAOLinearDepth";
-                desc.width  = m_System.m_GTAOLinearDepth->GetWidth();
-                desc.height = m_System.m_GTAOLinearDepth->GetHeight();
+                desc.width  = m_GTAOLinearDepth->GetWidth();
+                desc.height = m_GTAOLinearDepth->GetHeight();
                 desc.format = RG::TextureFormat::R32_Float;
 
-                auto vkLin = std::static_pointer_cast<VKTexture>(m_System.m_GTAOLinearDepth);
+                auto vkLin = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
                 data.linearDepth = rg.ImportResource(desc,
                     (void*)vkLin->GetImage(),
                     (void*)vkLin->GetImageView(),
@@ -70,18 +70,18 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("GTAODepthPrefilter", "GTAOLinearDepth", false,
                     { "gtao_depth_prefilter", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                if (!m_System.m_GTAOPrefilterPipeline || m_System.m_GTAOPrefilterDescSet == VK_NULL_HANDLE)
+                if (!m_GTAOPrefilterPipeline || m_GTAOPrefilterDescSet == VK_NULL_HANDLE)
                 {
                     m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
-                m_System.m_GTAOPrefilterPipeline->Bind(cmd);
+                m_GTAOPrefilterPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_System.m_GTAOPrefilterPipeline->GetLayout(), 0, 1, &m_System.m_GTAOPrefilterDescSet, 0, nullptr);
+                    m_GTAOPrefilterPipeline->GetLayout(), 0, 1, &m_GTAOPrefilterDescSet, 0, nullptr);
 
-                const u32 halfW = m_System.m_GTAOLinearDepth->GetWidth();
-                const u32 halfH = m_System.m_GTAOLinearDepth->GetHeight();
+                const u32 halfW = m_GTAOLinearDepth->GetWidth();
+                const u32 halfH = m_GTAOLinearDepth->GetHeight();
                 const u32 fullW = m_System.m_Targets.GetSceneDepth()->GetWidth();
                 const u32 fullH = m_System.m_Targets.GetSceneDepth()->GetHeight();
 
@@ -91,7 +91,7 @@ namespace Luth
                 pc.nearZ       = m_System.m_CameraParams.nearZ;
                 pc.farZ        = m_System.m_CameraParams.farZ;
 
-                vkCmdPushConstants(cmd, m_System.m_GTAOPrefilterPipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_GTAOPrefilterPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GTAOPrefilterPC), &pc);
 
                 // 8x8 tiles — one thread per half-res pixel. Round up so the
@@ -142,11 +142,11 @@ namespace Luth
 
                 RG::TextureDesc desc;
                 desc.name   = "GTAORawAO";
-                desc.width  = m_System.m_GTAORawAO->GetWidth();
-                desc.height = m_System.m_GTAORawAO->GetHeight();
+                desc.width  = m_GTAORawAO->GetWidth();
+                desc.height = m_GTAORawAO->GetHeight();
                 desc.format = RG::TextureFormat::R8_Unorm;
 
-                auto vkRaw = std::static_pointer_cast<VKTexture>(m_System.m_GTAORawAO);
+                auto vkRaw = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
                 data.rawAO = rg.ImportResource(desc,
                     (void*)vkRaw->GetImage(),
                     (void*)vkRaw->GetImageView(),
@@ -162,18 +162,18 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("GTAOMain", "GTAORawAO", false,
                     { "gtao_main", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                if (!m_System.m_GTAOMainPipeline || m_System.m_GTAOMainDescSet == VK_NULL_HANDLE)
+                if (!m_GTAOMainPipeline || m_GTAOMainDescSet == VK_NULL_HANDLE)
                 {
                     m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
-                m_System.m_GTAOMainPipeline->Bind(cmd);
+                m_GTAOMainPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_System.m_GTAOMainPipeline->GetLayout(), 0, 1, &m_System.m_GTAOMainDescSet, 0, nullptr);
+                    m_GTAOMainPipeline->GetLayout(), 0, 1, &m_GTAOMainDescSet, 0, nullptr);
 
-                const u32 halfW = m_System.m_GTAORawAO->GetWidth();
-                const u32 halfH = m_System.m_GTAORawAO->GetHeight();
+                const u32 halfW = m_GTAORawAO->GetWidth();
+                const u32 halfH = m_GTAORawAO->GetHeight();
 
                 // Pull the projection factors straight from the camera matrix the
                 // frame's GlobalUniforms were built with. Vulkan's Y-flipped
@@ -186,7 +186,7 @@ namespace Luth
                 pc.farZ        = m_System.m_CameraParams.farZ;
                 pc.frameIndex  = (u32)Renderer::GetFrameData()->GetFrameIndex();
 
-                vkCmdPushConstants(cmd, m_System.m_GTAOMainPipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_GTAOMainPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GTAOMainPC), &pc);
 
                 const u32 groupX = (halfW + 7) / 8;
@@ -221,11 +221,11 @@ namespace Luth
 
                 RG::TextureDesc desc;
                 desc.name   = "GTAOFinal";
-                desc.width  = m_System.m_GTAOFinal->GetWidth();
-                desc.height = m_System.m_GTAOFinal->GetHeight();
+                desc.width  = m_GTAOFinal->GetWidth();
+                desc.height = m_GTAOFinal->GetHeight();
                 desc.format = RG::TextureFormat::R8_Unorm;
 
-                auto vkFinal = std::static_pointer_cast<VKTexture>(m_System.m_GTAOFinal);
+                auto vkFinal = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
                 data.finalAO = rg.ImportResource(desc,
                     (void*)vkFinal->GetImage(),
                     (void*)vkFinal->GetImageView(),
@@ -241,18 +241,18 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("GTAODenoise", "GTAOFinal", false,
                     { "gtao_denoise", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                if (!m_System.m_GTAODenoisePipeline || m_System.m_GTAODenoiseDescSet == VK_NULL_HANDLE)
+                if (!m_GTAODenoisePipeline || m_GTAODenoiseDescSet == VK_NULL_HANDLE)
                 {
                     m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
-                m_System.m_GTAODenoisePipeline->Bind(cmd);
+                m_GTAODenoisePipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_System.m_GTAODenoisePipeline->GetLayout(), 0, 1, &m_System.m_GTAODenoiseDescSet, 0, nullptr);
+                    m_GTAODenoisePipeline->GetLayout(), 0, 1, &m_GTAODenoiseDescSet, 0, nullptr);
 
-                const u32 halfW = m_System.m_GTAOFinal->GetWidth();
-                const u32 halfH = m_System.m_GTAOFinal->GetHeight();
+                const u32 halfW = m_GTAOFinal->GetWidth();
+                const u32 halfH = m_GTAOFinal->GetHeight();
                 const u32 groupX = (halfW + 7) / 8;
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);

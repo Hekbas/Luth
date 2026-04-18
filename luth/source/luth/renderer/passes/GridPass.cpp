@@ -25,7 +25,7 @@ namespace Luth
     RG::ResourceHandle RenderPipeline::AddGridPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
     {
-        if (!m_System.m_GridPipeline)
+        if (!m_GridPipeline)
             return sceneColor;
 
         struct GridPassData {
@@ -53,10 +53,10 @@ namespace Luth
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_System.m_GridPipeline->Bind(cmd);
+                m_GridPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_GridPipeline->GetLayout(), 0, 1, &m_System.m_GridDescSet, 0, nullptr);
+                    m_GridPipeline->GetLayout(), 0, 1, &m_GridDescSet, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport vp{};
@@ -87,7 +87,7 @@ namespace Luth
                 gpc.fadeEnd       = 200.0f;
                 gpc.lineThickness = 1.00f;
 
-                vkCmdPushConstants(cmd, m_System.m_GridPipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_GridPipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(gpc), &gpc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);

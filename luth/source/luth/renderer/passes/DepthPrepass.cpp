@@ -68,21 +68,21 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("DepthPrepass", "SceneDepth", true,
                     { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_System.m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_System.m_GlobalDescriptorSet,
+                    m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_System.m_LightDescSet,
+                    m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_System.m_ObjectSSBODescSet
+                    m_ObjectSSBODescSet
                 };
 
-                m_System.m_DepthPrepassPipeline->Bind(cmd);
+                m_DepthPrepassPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                    m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.depthTex);
                 VkViewport viewport{};
@@ -109,17 +109,17 @@ namespace Luth
                     if (dc.isSkinned != currentSkinned)
                     {
                         currentSkinned = dc.isSkinned;
-                        if (currentSkinned && m_System.m_DepthPrepassSkinnedPipeline)
+                        if (currentSkinned && m_DepthPrepassSkinnedPipeline)
                         {
-                            m_System.m_DepthPrepassSkinnedPipeline->Bind(cmd);
+                            m_DepthPrepassSkinnedPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_System.m_DepthPrepassSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                m_DepthPrepassSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                         else
                         {
-                            m_System.m_DepthPrepassPipeline->Bind(cmd);
+                            m_DepthPrepassPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_System.m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
                     }
 
@@ -130,7 +130,7 @@ namespace Luth
 
                     // Camera region of the indirect buffer (region 0).
                     VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)

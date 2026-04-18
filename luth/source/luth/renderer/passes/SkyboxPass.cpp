@@ -48,22 +48,22 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_System.m_SkyboxPipeline || !m_System.m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
-                m_System.m_SkyboxPipeline->Bind(cmd);
+                m_SkyboxPipeline->Bind(cmd);
 
                 // Bind all 5 descriptor sets (skybox only uses set 0, others required by layout)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_System.m_GlobalDescriptorSet,
+                    m_GlobalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_System.m_LightDescSet,
+                    m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet()
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_System.m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                    m_SkyboxPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport viewport{};
@@ -76,7 +76,7 @@ namespace Luth
                 scissor.extent = { res->desc.width, res->desc.height };
                 vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-                VkBuffer vb = m_System.m_SkyboxVB->GetVulkanBuffer();
+                VkBuffer vb = m_SkyboxVB->GetVulkanBuffer();
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
                 vkCmdDraw(cmd, 36, 1, 0, 0);

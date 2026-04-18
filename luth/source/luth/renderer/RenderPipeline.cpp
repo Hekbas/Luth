@@ -53,7 +53,7 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         auto& s = m_System;
-        s.m_Targets.Allocate(viewportWidth, viewportHeight);
+        m_System.m_Targets.Allocate(viewportWidth, viewportHeight);
 
         InitGlobalUniforms();
         InitShadowResources();
@@ -78,18 +78,18 @@ namespace Luth
         ShaderLibrary::Register("shadowDepth", shadowShader);
 
         auto vkPbr = std::static_pointer_cast<VulkanShader>(pbrShader);
-        s.m_PBRVertSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-        s.m_PBRFragSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-        if (s.m_PBRVertSpv.empty() || s.m_PBRFragSpv.empty())
+        m_PBRVertSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+        m_PBRFragSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty())
         {
             LH_CORE_ERROR("Failed to compile PBR shaders!");
             return;
         }
 
         auto vkShadow = std::static_pointer_cast<VulkanShader>(shadowShader);
-        s.m_ShadowVertSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-        s.m_ShadowFragSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-        if (s.m_ShadowVertSpv.empty() || s.m_ShadowFragSpv.empty())
+        m_ShadowVertSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+        m_ShadowFragSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+        if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty())
         {
             LH_CORE_ERROR("Failed to compile shadow shaders!");
             return;
@@ -98,35 +98,35 @@ namespace Luth
         // Skinned + selection + depth-prepass SPIR-V (compiled inline — not asset pipeline).
         {
             auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-            s.m_PBRSkinnedVertSpv            = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
-            s.m_ShadowSkinnedVertSpv         = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
-            s.m_SelectionMaskVertSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
-            s.m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
-            s.m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
-            s.m_DepthPrepassVertSpv          = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
-            s.m_DepthPrepassSkinnedVertSpv   = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
+            m_PBRSkinnedVertSpv            = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
+            m_ShadowSkinnedVertSpv         = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+            m_SelectionMaskVertSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
+            m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
+            m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
+            m_DepthPrepassVertSpv          = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+            m_DepthPrepassSkinnedVertSpv   = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
 
-            if (s.m_PBRSkinnedVertSpv.empty() || s.m_ShadowSkinnedVertSpv.empty())
+            if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
                 LH_CORE_ERROR("Failed to compile skinned shaders!");
-            if (s.m_SelectionMaskVertSpv.empty() || s.m_SelectionMaskFragSpv.empty())
+            if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty())
                 LH_CORE_ERROR("Failed to compile selection mask shaders!");
-            if (s.m_DepthPrepassVertSpv.empty() || s.m_DepthPrepassSkinnedVertSpv.empty())
+            if (m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty())
                 LH_CORE_ERROR("Failed to compile depth prepass shaders!");
         }
 
         // Post-process / outline / grid SPIR-V.
         {
             auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-            s.m_FullscreenVertSpv    = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
-            s.m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
-            s.m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
-            s.m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
-            s.m_OutlineFragSpv       = ShaderCompiler::Compile(shadersPath / "outline.frag");
-            s.m_GridFragSpv          = ShaderCompiler::Compile(shadersPath / "grid.frag");
+            m_FullscreenVertSpv    = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
+            m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
+            m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
+            m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
+            m_OutlineFragSpv       = ShaderCompiler::Compile(shadersPath / "outline.frag");
+            m_GridFragSpv          = ShaderCompiler::Compile(shadersPath / "grid.frag");
 
-            if (s.m_FullscreenVertSpv.empty() || s.m_BloomExtractFragSpv.empty() ||
-                s.m_BloomBlurFragSpv.empty() || s.m_PostProcessFragSpv.empty() ||
-                s.m_OutlineFragSpv.empty() || s.m_GridFragSpv.empty())
+            if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
+                m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
+                m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
             {
                 LH_CORE_ERROR("Failed to compile post-process shaders!");
             }
@@ -147,40 +147,40 @@ namespace Luth
 
             if (name == "pbr") {
                 auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("pbr"));
-                s.m_PBRVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-                s.m_PBRFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+                m_PBRVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+                m_PBRFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
             } else if (name == "shadowDepth") {
                 auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("shadowDepth"));
-                s.m_ShadowVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-                s.m_ShadowFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
+                m_ShadowVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
+                m_ShadowFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
             }
 
             if (name == "pbr") {
-                s.m_GeoPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
-                s.m_GeoSkinnedPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
+                m_GeoPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
+                m_GeoSkinnedPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
             } else {
-                s.m_GeoPipelineManager.Clear();
-                s.m_GeoSkinnedPipelineManager.Clear();
+                m_GeoPipelineManager.Clear();
+                m_GeoSkinnedPipelineManager.Clear();
             }
-            s.m_ShadowPipeline.reset();
-            s.m_ShadowSkinnedPipeline.reset();
-            s.m_DepthPrepassPipeline.reset();
-            s.m_DepthPrepassSkinnedPipeline.reset();
-            s.m_SkyboxPipeline.reset();
-            s.m_BloomExtractPipeline.reset();
-            s.m_BloomBlurPipeline.reset();
-            s.m_PostProcessPipeline.reset();
-            s.m_OutlinePipeline.reset();
-            s.m_GridPipeline.reset();
-            s.m_SelectionMaskPipeline.reset();
-            s.m_SelectionMaskSkinnedPipeline.reset();
+            m_ShadowPipeline.reset();
+            m_ShadowSkinnedPipeline.reset();
+            m_DepthPrepassPipeline.reset();
+            m_DepthPrepassSkinnedPipeline.reset();
+            m_SkyboxPipeline.reset();
+            m_BloomExtractPipeline.reset();
+            m_BloomBlurPipeline.reset();
+            m_PostProcessPipeline.reset();
+            m_OutlinePipeline.reset();
+            m_GridPipeline.reset();
+            m_SelectionMaskPipeline.reset();
+            m_SelectionMaskSkinnedPipeline.reset();
             CreatePipelines();
             LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
         });
 
         // File watcher for shader hot-reload (fires on background thread).
-        s.m_ShaderWatcher.AddWatch(FileSystem::EngineAssetsPath("shaders"));
-        s.m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
+        m_System.m_ShaderWatcher.AddWatch(FileSystem::EngineAssetsPath("shaders"));
+        m_System.m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
             auto& s = m_System;
             if (status != FileWatcher::FileStatus::Modified) return;
 
@@ -191,23 +191,23 @@ namespace Luth
             bool matched = false;
             for (const auto& [name, shader] : ShaderLibrary::GetAll()) {
                 if (shader->GetPath().stem().string() == stem) {
-                    std::lock_guard lock(s.m_ReloadMutex);
-                    s.m_PendingReloads.insert(name);
+                    std::lock_guard lock(m_System.m_ReloadMutex);
+                    m_System.m_PendingReloads.insert(name);
                     matched = true;
                     break;
                 }
             }
             if (!matched) {
-                std::lock_guard lock(s.m_ReloadMutex);
-                s.m_PendingUtilityReload = true;
+                std::lock_guard lock(m_System.m_ReloadMutex);
+                m_System.m_PendingUtilityReload = true;
             }
         });
-        s.m_ShaderWatcher.Start(true);
+        m_System.m_ShaderWatcher.Start(true);
 
         // Capacity covers worst-case current frame (5 cull + 4 shadow cascades +
         // geometry + selection + skybox + 3 bloom + grid + post-process + outline
         // + ImGui ≈ 19 passes) with headroom for future passes (GTAO etc.).
-        s.m_GPUTimers.Init(64);
+        m_GPUTimers.Init(64);
         RegisterNamedTextures();
     }
 
@@ -215,9 +215,9 @@ namespace Luth
     {
         auto& s = m_System;
 
-        s.m_ShaderWatcher.Stop();
+        m_System.m_ShaderWatcher.Stop();
         ShaderLibrary::SetReloadCallback(nullptr);
-        s.m_GPUTimers.Shutdown();
+        m_GPUTimers.Shutdown();
 
         BoneMatrixBuffer::Shutdown();
 
@@ -225,48 +225,48 @@ namespace Luth
 
         DestroyPerDrawPreviewTexture();
         DestroyDepthPreviewTexture();
-        s.m_FrameDebugger.Shutdown(device);
+        m_System.m_FrameDebugger.Shutdown(device);
 
-        if (s.m_OutlineSampler)       vkDestroySampler(device, s.m_OutlineSampler, nullptr);
-        if (s.m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, s.m_OutlineDescSetLayout, nullptr);
-        if (s.m_OutlineDescPool)      vkDestroyDescriptorPool(device, s.m_OutlineDescPool, nullptr);
-        if (s.m_GridDepthSampler)     vkDestroySampler(device, s.m_GridDepthSampler, nullptr);
-        if (s.m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, s.m_GridDescSetLayout, nullptr);
-        if (s.m_GridDescPool)         vkDestroyDescriptorPool(device, s.m_GridDescPool, nullptr);
-        if (s.m_PPSampler)            vkDestroySampler(device, s.m_PPSampler, nullptr);
-        if (s.m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, s.m_PPDescSetLayout, nullptr);
-        if (s.m_PPDescPool)           vkDestroyDescriptorPool(device, s.m_PPDescPool, nullptr);
-        if (s.m_IBLSampler)           vkDestroySampler(device, s.m_IBLSampler, nullptr);
-        if (s.m_ShadowSampler)        vkDestroySampler(device, s.m_ShadowSampler, nullptr);
+        if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
+        if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
+        if (m_OutlineDescPool)      vkDestroyDescriptorPool(device, m_OutlineDescPool, nullptr);
+        if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
+        if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
+        if (m_GridDescPool)         vkDestroyDescriptorPool(device, m_GridDescPool, nullptr);
+        if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
+        if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
+        if (m_PPDescPool)           vkDestroyDescriptorPool(device, m_PPDescPool, nullptr);
+        if (m_IBLSampler)           vkDestroySampler(device, m_IBLSampler, nullptr);
+        if (m_ShadowSampler)        vkDestroySampler(device, m_ShadowSampler, nullptr);
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i) {
-            if (s.m_ShadowLayerViews[i]) vkDestroyImageView(device, s.m_ShadowLayerViews[i], nullptr);
+            if (m_ShadowLayerViews[i]) vkDestroyImageView(device, m_ShadowLayerViews[i], nullptr);
         }
-        if (s.m_LightSetLayout)  vkDestroyDescriptorSetLayout(device, s.m_LightSetLayout, nullptr);
-        if (s.m_LightDescPool)   vkDestroyDescriptorPool(device, s.m_LightDescPool, nullptr);
-        if (s.m_GlobalSetLayout) vkDestroyDescriptorSetLayout(device, s.m_GlobalSetLayout, nullptr);
+        if (m_LightSetLayout)  vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr);
+        if (m_LightDescPool)   vkDestroyDescriptorPool(device, m_LightDescPool, nullptr);
+        if (m_GlobalSetLayout) vkDestroyDescriptorSetLayout(device, m_GlobalSetLayout, nullptr);
 
-        if (s.m_ObjectSSBO) {
-            VulkanAllocator::Unmap(s.m_ObjectSSBOAlloc);
-            VulkanAllocator::FreeBuffer(s.m_ObjectSSBO, s.m_ObjectSSBOAlloc);
+        if (m_ObjectSSBO) {
+            VulkanAllocator::Unmap(m_ObjectSSBOAlloc);
+            VulkanAllocator::FreeBuffer(m_ObjectSSBO, m_ObjectSSBOAlloc);
         }
-        if (s.m_IndirectBuffer) {
-            VulkanAllocator::Unmap(s.m_IndirectBufferAlloc);
-            VulkanAllocator::FreeBuffer(s.m_IndirectBuffer, s.m_IndirectBufferAlloc);
+        if (m_IndirectBuffer) {
+            VulkanAllocator::Unmap(m_IndirectBufferAlloc);
+            VulkanAllocator::FreeBuffer(m_IndirectBuffer, m_IndirectBufferAlloc);
         }
-        if (s.m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, s.m_ObjectSSBODescPool, nullptr);
-        if (s.m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, s.m_ObjectSSBODescLayout, nullptr);
-        if (s.m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, s.m_CullDescLayout, nullptr);
-        s.m_CullPipeline.reset();
+        if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
+        if (m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
+        if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
+        m_CullPipeline.reset();
 
         // GTAO resources (epic #58).
-        s.m_GTAOPrefilterPipeline.reset();
-        s.m_GTAOMainPipeline.reset();
-        s.m_GTAODenoisePipeline.reset();
-        if (s.m_GTAOSampler)            vkDestroySampler(device, s.m_GTAOSampler, nullptr);
-        if (s.m_GTAODescPool)           vkDestroyDescriptorPool(device, s.m_GTAODescPool, nullptr);
-        if (s.m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, s.m_GTAOPrefilterDescLayout, nullptr);
-        if (s.m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, s.m_GTAOMainDescLayout, nullptr);
-        if (s.m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, s.m_GTAODenoiseDescLayout, nullptr);
+        m_GTAOPrefilterPipeline.reset();
+        m_GTAOMainPipeline.reset();
+        m_GTAODenoisePipeline.reset();
+        if (m_GTAOSampler)            vkDestroySampler(device, m_GTAOSampler, nullptr);
+        if (m_GTAODescPool)           vkDestroyDescriptorPool(device, m_GTAODescPool, nullptr);
+        if (m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
+        if (m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
+        if (m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
         // Textures + UBO destroyed automatically via shared_ptr reset when RenderingSystem dies.
     }
 
@@ -274,8 +274,8 @@ namespace Luth
     {
         auto& s = m_System;
 
-        s.m_BloomA = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-        s.m_BloomB = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+        m_BloomA = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+        m_BloomB = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
         UpdatePostProcessDescriptors();
 
         // GTAO half-res storage textures (recreated on resize; descriptors
@@ -286,52 +286,52 @@ namespace Luth
             auto makeStorage = [&](TextureFormat fmt) {
                 return std::make_shared<VKTexture>(halfW, halfH, fmt, 1u, 0u, 1u, VK_IMAGE_USAGE_STORAGE_BIT);
             };
-            s.m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
-            s.m_GTAORawAO       = makeStorage(TextureFormat::R8);
-            s.m_GTAOEdges       = makeStorage(TextureFormat::R8);
-            s.m_GTAOFinal       = makeStorage(TextureFormat::R8);
+            m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
+            m_GTAORawAO       = makeStorage(TextureFormat::R8);
+            m_GTAOEdges       = makeStorage(TextureFormat::R8);
+            m_GTAOFinal       = makeStorage(TextureFormat::R8);
         }
         UpdateAODescriptors();
 
         // Update outline descriptors — mask + depth buffer views changed.
-        if (s.m_OutlineDescSet && s.m_OutlineSampler)
+        if (m_OutlineDescSet && m_OutlineSampler)
         {
-            auto vkMask       = std::static_pointer_cast<VKTexture>(s.m_Targets.GetSelectionMask());
-            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(s.m_Targets.GetSelectionDepth());
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(s.m_Targets.GetSceneDepth());
+            auto vkMask       = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
+            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionDepth());
+            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
 
             VkDescriptorImageInfo maskImgInfo{};
-            maskImgInfo.sampler     = s.m_OutlineSampler;
+            maskImgInfo.sampler     = m_OutlineSampler;
             maskImgInfo.imageView   = vkMask->GetImageView();
             maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo selDepthImgInfo{};
-            selDepthImgInfo.sampler     = s.m_OutlineSampler;
+            selDepthImgInfo.sampler     = m_OutlineSampler;
             selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
             selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo sceneDepthImgInfo{};
-            sceneDepthImgInfo.sampler     = s.m_OutlineSampler;
+            sceneDepthImgInfo.sampler     = m_OutlineSampler;
             sceneDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
             sceneDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet writes[3] = {};
             writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = s.m_OutlineDescSet;
+            writes[0].dstSet = m_OutlineDescSet;
             writes[0].dstBinding = 0;
             writes[0].descriptorCount = 1;
             writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[0].pImageInfo = &maskImgInfo;
 
             writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[1].dstSet = s.m_OutlineDescSet;
+            writes[1].dstSet = m_OutlineDescSet;
             writes[1].dstBinding = 1;
             writes[1].descriptorCount = 1;
             writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[1].pImageInfo = &selDepthImgInfo;
 
             writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[2].dstSet = s.m_OutlineDescSet;
+            writes[2].dstSet = m_OutlineDescSet;
             writes[2].dstBinding = 2;
             writes[2].descriptorCount = 1;
             writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -341,18 +341,18 @@ namespace Luth
         }
 
         // Update grid descriptor set: scene depth view changed on resize.
-        if (s.m_GridDescSet && s.m_GridDepthSampler)
+        if (m_GridDescSet && m_GridDepthSampler)
         {
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(s.m_Targets.GetSceneDepth());
+            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
 
             VkDescriptorImageInfo gridDepthImgInfo{};
-            gridDepthImgInfo.sampler     = s.m_GridDepthSampler;
+            gridDepthImgInfo.sampler     = m_GridDepthSampler;
             gridDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
             gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet gridWrite{};
             gridWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            gridWrite.dstSet = s.m_GridDescSet;
+            gridWrite.dstSet = m_GridDescSet;
             gridWrite.dstBinding = 1;
             gridWrite.descriptorCount = 1;
             gridWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -367,7 +367,7 @@ namespace Luth
     void RenderPipeline::ExecuteMinimal()
     {
         auto& s = m_System;
-        RG::RenderGraph rg(*s.m_FrameAllocator);
+        RG::RenderGraph rg(*m_System.m_FrameAllocator);
         AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
         rg.Compile();
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
@@ -377,39 +377,39 @@ namespace Luth
     {
         auto& s = m_System;
 
-        RG::RenderGraph rg(*s.m_FrameAllocator);
+        RG::RenderGraph rg(*m_System.m_FrameAllocator);
 
         // Import persistent buffers into the render graph for barrier tracking.
         RG::BufferDesc objDesc {
             "ObjectSSBO",
-            RenderingSystem::k_MaxGPUObjects * sizeof(GPUObjectData),
+            RenderPipeline::k_MaxGPUObjects * sizeof(GPUObjectData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
         };
         RG::BufferDesc indDesc {
             "IndirectBuffer",
-            RenderingSystem::k_IndirectRegionCount * RenderingSystem::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
+            RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
         };
-        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)s.m_ObjectSSBO,    RG::ResourceState::Undefined);
-        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)s.m_IndirectBuffer, RG::ResourceState::Undefined);
+        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
+        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
         // Frustum cull — 5 dispatches: camera region + 4 shadow cascade regions.
         // Each cascade uses its own light-space viewProj frustum so shadow casters
         // outside the camera frustum but inside the cascade still get rendered.
         {
-            Frustum camFrustum = CreateFrustumFromCamera(s.m_CachedViewProj);
+            Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
             AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                s.m_CullPipeline.get(), s.m_CullDescSet, camFrustum.planes, s.m_GPUObjectCount,
-                /*destOffset*/ 0, "FrustumCull.Cam", &s.m_FrameDebugger);
+                m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
+                /*destOffset*/ 0, "FrustumCull.Cam", &m_System.m_FrameDebugger);
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(s.m_Cascades.lightSpaceMatrix[i]);
-                const u32 destOffset = (i + 1) * RenderingSystem::k_IndirectRegionStride;
+                Frustum cascadeFrustum = CreateFrustumFromCamera(m_System.m_Cascades.lightSpaceMatrix[i]);
+                const u32 destOffset = (i + 1) * RenderPipeline::k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    s.m_CullPipeline.get(), s.m_CullDescSet, cascadeFrustum.planes, s.m_GPUObjectCount,
-                    destOffset, name.c_str(), &s.m_FrameDebugger);
+                    m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
+                    destOffset, name.c_str(), &m_System.m_FrameDebugger);
             }
         }
 
@@ -434,7 +434,7 @@ namespace Luth
         auto maskOutput                = AddSelectionMaskPass(rg, registry);
         RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = s.m_GridVisible
+        RG::ResourceHandle gridColor   = m_System.m_GridVisible
                                          ? AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
         RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
@@ -444,18 +444,18 @@ namespace Luth
         rg.Compile();
 
         // Capture render graph snapshot for Frame Debugger panel
-        s.m_GraphSnapshot = CaptureSnapshot(rg);
+        m_GraphSnapshot = CaptureSnapshot(rg);
 
         // Read GPU timing from completed frames and fill snapshot
         std::vector<float> gpuTimes;
         u32 nonCulledCount = 0;
-        for (auto& p : s.m_GraphSnapshot.passes)
+        for (auto& p : m_GraphSnapshot.passes)
             if (!p.culled) nonCulledCount++;
 
-        s.m_GPUTimers.ReadResults(nonCulledCount, gpuTimes);
+        m_GPUTimers.ReadResults(nonCulledCount, gpuTimes);
         float totalMs = 0.0f;
         u32 timerIdx = 0;
-        for (auto& p : s.m_GraphSnapshot.passes)
+        for (auto& p : m_GraphSnapshot.passes)
         {
             if (p.culled) continue;
             if (timerIdx < (u32)gpuTimes.size())
@@ -465,14 +465,14 @@ namespace Luth
             }
             timerIdx++;
         }
-        s.m_GraphSnapshot.totalGpuTimeMs = totalMs;
+        m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
         // --- Phase 14B — Wire archive sink for the capture frame ---
         // The sink will copy each tracked render target into a fresh ArchivedImage
         // after each pass that writes it. Keep the tracked-RT set tight to bound
         // memory (~50 MB at 1080p for the v1 set). The sink is a no-op when state
         // != CaptureRequested, so re-checking here is sufficient.
-        if (s.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -485,74 +485,74 @@ namespace Luth
             // GPUObjectData / IndirectBuffer contents). Without this reset,
             // re-clicking the same draw after recapture would hit the
             // stale cached preview.
-            s.m_PerDrawPreviewKey = UINT64_MAX;
+            m_PerDrawPreviewKey = UINT64_MAX;
             // Same for the Phase 14F depth-preview blit cache — keyed by
             // (archiveIdx, layer+1); recapture rebuilds archives at the
             // same indices, so without this reset, re-selecting a depth
             // pass would skip the re-blit and show the previous frame.
-            s.m_DepthPreviewKey = UINT64_MAX;
+            m_DepthPreviewKey = UINT64_MAX;
 
-            s.m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
+            m_System.m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
                                             VulkanContext::Get().GetAllocator());
-            s.m_FrameDebugger.RegisterTrackedRT("SceneColor");
-            s.m_FrameDebugger.RegisterTrackedRT("SceneDepth");
+            m_System.m_FrameDebugger.RegisterTrackedRT("SceneColor");
+            m_System.m_FrameDebugger.RegisterTrackedRT("SceneDepth");
             // Phase 13 ShadowPass imports per-cascade resources named
             // "ShadowMap.C<i>" (one per cascade, single-layer view onto
             // the shared 4-layer array). Track each variant so the sink
             // archives them — without this, cascade nodes have no
             // primary output and the panel shows "no output preview".
             for (u32 ci = 0; ci < k_ShadowCascadeCount; ++ci)
-                s.m_FrameDebugger.RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
-            s.m_FrameDebugger.RegisterTrackedRT("LDROutput");
-            s.m_FrameDebugger.RegisterTrackedRT("EntityID");
-            s.m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
-            s.m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
-            s.m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
-            s.m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
-            rg.SetArchiveSink(&s.m_FrameDebugger);
+                m_System.m_FrameDebugger.RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
+            m_System.m_FrameDebugger.RegisterTrackedRT("LDROutput");
+            m_System.m_FrameDebugger.RegisterTrackedRT("EntityID");
+            m_System.m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
+            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
+            m_System.m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
+            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
+            rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &s.m_GPUTimers);
+        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
 
         // --- Frame Debugger: Finalize capture and enter frozen state ---
-        if (s.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the
             // CapturedDrawCall records + frozen indirect/object SSBOs.
 
             // Copy resource and timing info from the graph snapshot
-            s.m_FrameDebugger.capturedFrame.resources      = s.m_GraphSnapshot.resources;
-            s.m_FrameDebugger.capturedFrame.totalGpuTimeMs = s.m_GraphSnapshot.totalGpuTimeMs;
+            m_System.m_FrameDebugger.capturedFrame.resources      = m_GraphSnapshot.resources;
+            m_System.m_FrameDebugger.capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
 
             // Copy per-pass GPU times into captured passes
             {
                 u32 capturedIdx = 0;
-                for (auto& ps : s.m_GraphSnapshot.passes)
+                for (auto& ps : m_GraphSnapshot.passes)
                 {
                     if (ps.culled) continue;
-                    if (capturedIdx < s.m_FrameDebugger.capturedFrame.passes.size())
-                        s.m_FrameDebugger.capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
+                    if (capturedIdx < m_System.m_FrameDebugger.capturedFrame.passes.size())
+                        m_System.m_FrameDebugger.capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
                     capturedIdx++;
                 }
             }
 
             // Snapshot capture-time camera viewProj for the Frozen-state
             // auto-recapture comparison (see top of Update).
-            s.m_FrameDebugger.FinalizeCapture(s.m_CachedViewProj);
+            m_System.m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
 
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            s.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = s.m_Cascades.splitsViewZ;
-            s.m_FrameDebugger.capturedFrame.shadowBias         = s.m_ShadowParams.shadowBias;
-            s.m_FrameDebugger.capturedFrame.shadowNormalBias   = s.m_ShadowParams.shadowNormalBias;
-            s.m_FrameDebugger.capturedFrame.cascadeTexelSize   = s.m_Cascades.texelSize;
+            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_System.m_Cascades.splitsViewZ;
+            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_System.m_ShadowParams.shadowBias;
+            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_System.m_ShadowParams.shadowNormalBias;
+            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_System.m_Cascades.texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                s.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = s.m_Cascades.lightSpaceMatrix[i];
+                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_System.m_Cascades.lightSpaceMatrix[i];
 
-            s.m_FrameDebugger.capturedFrame.valid = true;
-            s.m_FrameDebugger.state               = DebuggerState::Frozen;
+            m_System.m_FrameDebugger.capturedFrame.valid = true;
+            m_System.m_FrameDebugger.state               = DebuggerState::Frozen;
         }
     }
 
@@ -622,7 +622,7 @@ namespace Luth
         }
 
         // Compute geometry stats from the current DrawList (built before pass dispatch)
-        u32 totalDraws = (u32)(s.m_DrawList.opaque.size() + s.m_DrawList.cutout.size() + s.m_DrawList.transparent.size());
+        u32 totalDraws = (u32)(m_System.m_DrawList.opaque.size() + m_System.m_DrawList.cutout.size() + m_System.m_DrawList.transparent.size());
         u32 totalIndices = 0;
         auto sumIndices = [&](const std::vector<DrawCommand>& draws) {
             for (auto& dc : draws)
@@ -633,9 +633,9 @@ namespace Luth
                     totalIndices += mesh->GetIndexBuffer()->GetCount();
             }
         };
-        sumIndices(s.m_DrawList.opaque);
-        sumIndices(s.m_DrawList.cutout);
-        sumIndices(s.m_DrawList.transparent);
+        sumIndices(m_System.m_DrawList.opaque);
+        sumIndices(m_System.m_DrawList.cutout);
+        sumIndices(m_System.m_DrawList.transparent);
 
         // Enrich per-pass pipeline state (known at RenderingSystem level, not RenderGraph)
         for (auto& ps : snapshot.passes)
@@ -708,73 +708,73 @@ namespace Luth
     {
         auto shadersPath = FileSystem::EngineAssetsPath("shaders");
 
-        m_System.m_PBRSkinnedVertSpv           = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
-        m_System.m_ShadowSkinnedVertSpv        = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
-        m_System.m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
-        m_System.m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
-        m_System.m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
-        m_System.m_DepthPrepassVertSpv         = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
-        m_System.m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
-        m_System.m_GTAOPrefilterSpv            = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
-        m_System.m_GTAOMainSpv                 = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
-        m_System.m_GTAODenoiseSpv              = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+        m_PBRSkinnedVertSpv           = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
+        m_ShadowSkinnedVertSpv        = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
+        m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
+        m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
+        m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
+        m_DepthPrepassVertSpv         = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
+        m_GTAOPrefilterSpv            = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
+        m_GTAOMainSpv                 = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+        m_GTAODenoiseSpv              = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
 
-        m_System.m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
-        m_System.m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
-        m_System.m_BloomBlurFragSpv    = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
-        m_System.m_PostProcessFragSpv  = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
-        m_System.m_OutlineFragSpv      = ShaderCompiler::Compile(shadersPath / "outline.frag");
-        m_System.m_GridFragSpv         = ShaderCompiler::Compile(shadersPath / "grid.frag");
+        m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
+        m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
+        m_BloomBlurFragSpv    = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
+        m_PostProcessFragSpv  = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
+        m_OutlineFragSpv      = ShaderCompiler::Compile(shadersPath / "outline.frag");
+        m_GridFragSpv         = ShaderCompiler::Compile(shadersPath / "grid.frag");
 
-        m_System.m_SkyboxVertSpv = ShaderCompiler::Compile(shadersPath / "skybox.vert");
-        m_System.m_SkyboxFragSpv = ShaderCompiler::Compile(shadersPath / "skybox.frag");
+        m_SkyboxVertSpv = ShaderCompiler::Compile(shadersPath / "skybox.vert");
+        m_SkyboxFragSpv = ShaderCompiler::Compile(shadersPath / "skybox.frag");
 
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        m_System.m_GeoPipelineManager.Clear();
-        m_System.m_GeoSkinnedPipelineManager.Clear();
-        m_System.m_ShadowPipeline.reset();
-        m_System.m_ShadowSkinnedPipeline.reset();
-        m_System.m_DepthPrepassPipeline.reset();
-        m_System.m_DepthPrepassSkinnedPipeline.reset();
-        m_System.m_SkyboxPipeline.reset();
-        m_System.m_BloomExtractPipeline.reset();
-        m_System.m_BloomBlurPipeline.reset();
-        m_System.m_PostProcessPipeline.reset();
-        m_System.m_OutlinePipeline.reset();
-        m_System.m_GridPipeline.reset();
-        m_System.m_SelectionMaskPipeline.reset();
-        m_System.m_SelectionMaskSkinnedPipeline.reset();
+        m_GeoPipelineManager.Clear();
+        m_GeoSkinnedPipelineManager.Clear();
+        m_ShadowPipeline.reset();
+        m_ShadowSkinnedPipeline.reset();
+        m_DepthPrepassPipeline.reset();
+        m_DepthPrepassSkinnedPipeline.reset();
+        m_SkyboxPipeline.reset();
+        m_BloomExtractPipeline.reset();
+        m_BloomBlurPipeline.reset();
+        m_PostProcessPipeline.reset();
+        m_OutlinePipeline.reset();
+        m_GridPipeline.reset();
+        m_SelectionMaskPipeline.reset();
+        m_SelectionMaskSkinnedPipeline.reset();
         CreatePipelines();
 
         // Rebuild GTAO compute pipelines from freshly-compiled SPIR-V. The
         // descriptor layouts are unchanged, so the descriptor sets survive.
-        if (!m_System.m_GTAOPrefilterSpv.empty() && m_System.m_GTAOPrefilterDescLayout)
+        if (!m_GTAOPrefilterSpv.empty() && m_GTAOPrefilterDescLayout)
         {
             VkPushConstantRange pc{};
             pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             pc.offset     = 0;
             pc.size       = sizeof(i32) * 2 + sizeof(float) * 6;
-            m_System.m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAOPrefilterSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAOPrefilterDescLayout },
+            m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOPrefilterSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
         }
-        if (!m_System.m_GTAOMainSpv.empty() && m_System.m_GTAOMainDescLayout)
+        if (!m_GTAOMainSpv.empty() && m_GTAOMainDescLayout)
         {
             VkPushConstantRange pc{};
             pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             pc.offset     = 0;
             pc.size       = sizeof(float) * 4 + sizeof(u32) * 4;
-            m_System.m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAOMainSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAOMainDescLayout },
+            m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOMainSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
         }
-        if (!m_System.m_GTAODenoiseSpv.empty() && m_System.m_GTAODenoiseDescLayout)
+        if (!m_GTAODenoiseSpv.empty() && m_GTAODenoiseDescLayout)
         {
-            m_System.m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAODenoiseSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAODenoiseDescLayout },
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
                 std::vector<VkPushConstantRange>{});
         }
 
@@ -789,7 +789,7 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        m_System.m_GlobalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
+        m_GlobalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
 
         // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO
         VkDescriptorSetLayoutBinding bindings[6] = {};
@@ -815,7 +815,7 @@ namespace Luth
         bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         // GTAO final-AO sampler (epic #58). Written by UpdateGlobalIBLSetDescriptors
-        // once m_System.m_GTAOFinal is allocated (InitAOResources runs after InitGlobalUniforms).
+        // once m_GTAOFinal is allocated (InitAOResources runs after InitGlobalUniforms).
         bindings[4].binding = 4;
         bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[4].descriptorCount = 1;
@@ -831,19 +831,19 @@ namespace Luth
         layoutInfo.bindingCount = 6;
         layoutInfo.pBindings = bindings;
 
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_System.m_GlobalSetLayout);
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
 
-        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_System.m_GlobalSetLayout, m_System.m_GlobalDescriptorSet);
+        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_GlobalSetLayout, m_GlobalDescriptorSet);
 
         // Write binding 0 (UBO) immediately; bindings 1-3 written after IBL init
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = m_System.m_GlobalUniformBuffer->GetVulkanBuffer();
+        bufferInfo.buffer = m_GlobalUniformBuffer->GetVulkanBuffer();
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(GlobalUniforms);
 
         VkWriteDescriptorSet descriptorWrite{};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = m_System.m_GlobalDescriptorSet;
+        descriptorWrite.dstSet = m_GlobalDescriptorSet;
         descriptorWrite.dstBinding = 0;
         descriptorWrite.dstArrayElement = 0;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -858,14 +858,14 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // --- Shadow map: k_ShadowResolution^2, D32_Float, k_ShadowCascadeCount-layer 2D array (Phase 13) ---
-        m_System.m_ShadowMap = std::make_shared<VKTexture>(
+        m_ShadowMap = std::make_shared<VKTexture>(
             k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
             k_ShadowCascadeCount, /*createFlags*/ 0u, /*mipLevels*/ 1u, /*extraUsage*/ 0u);
 
         // Per-layer 2D views for ShadowPass.Ci depth attachments (Phase 13C).
-        auto shadowTexForViews = std::static_pointer_cast<VKTexture>(m_System.m_ShadowMap);
+        auto shadowTexForViews = std::static_pointer_cast<VKTexture>(m_ShadowMap);
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            m_System.m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
+            m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
 
         // --- Shadow sampler (PCF compare: less) ---
         VkSamplerCreateInfo samplerInfo{};
@@ -879,10 +879,10 @@ namespace Luth
         samplerInfo.compareEnable = VK_TRUE;
         samplerInfo.compareOp = VK_COMPARE_OP_LESS;
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        vkCreateSampler(device, &samplerInfo, nullptr, &m_System.m_ShadowSampler);
+        vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
 
         // --- Light UBO ---
-        m_System.m_LightUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(LightUniforms));
+        m_LightUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(LightUniforms));
 
         // --- Set 3 descriptor layout: binding 0 = LightUBO, binding 1 = shadow sampler ---
         VkDescriptorSetLayoutBinding bindings[2] = {};
@@ -901,7 +901,7 @@ namespace Luth
         lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         lightLayoutInfo.bindingCount = 2;
         lightLayoutInfo.pBindings = bindings;
-        vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_System.m_LightSetLayout);
+        vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
         // --- Pool ---
         VkDescriptorPoolSize poolSizes[2] = {};
@@ -915,39 +915,39 @@ namespace Luth
         poolInfo.maxSets = 1;
         poolInfo.poolSizeCount = 2;
         poolInfo.pPoolSizes = poolSizes;
-        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_System.m_LightDescPool);
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_LightDescPool);
 
         // --- Allocate set ---
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_System.m_LightDescPool;
+        allocInfo.descriptorPool = m_LightDescPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_System.m_LightSetLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_System.m_LightDescSet);
+        allocInfo.pSetLayouts = &m_LightSetLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_LightDescSet);
 
         // --- Write descriptors ---
         VkDescriptorBufferInfo lightBufInfo{};
-        lightBufInfo.buffer = m_System.m_LightUniformBuffer->GetVulkanBuffer();
+        lightBufInfo.buffer = m_LightUniformBuffer->GetVulkanBuffer();
         lightBufInfo.offset = 0;
         lightBufInfo.range = sizeof(LightUniforms);
 
-        auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_System.m_ShadowMap);
+        auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
         VkDescriptorImageInfo shadowImgInfo{};
-        shadowImgInfo.sampler     = m_System.m_ShadowSampler;
+        shadowImgInfo.sampler     = m_ShadowSampler;
         shadowImgInfo.imageView   = vkShadowTex->GetImageView();
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet writes[2] = {};
 
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = m_System.m_LightDescSet;
+        writes[0].dstSet = m_LightDescSet;
         writes[0].dstBinding = 0;
         writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[0].descriptorCount = 1;
         writes[0].pBufferInfo = &lightBufInfo;
 
         writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = m_System.m_LightDescSet;
+        writes[1].dstSet = m_LightDescSet;
         writes[1].dstBinding = 1;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].descriptorCount = 1;
@@ -963,11 +963,11 @@ namespace Luth
         u32 h = m_System.m_Targets.GetSceneColor()->GetHeight();
 
         // Bloom textures (half-res)
-        m_System.m_BloomA = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
-        m_System.m_BloomB = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
+        m_BloomA = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
+        m_BloomB = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
 
         // Post-process UBO
-        m_System.m_PostProcessUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(PostProcessUBO));
+        m_PostProcessUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(PostProcessUBO));
 
         // Linear clamp sampler
         VkSamplerCreateInfo samplerInfo{};
@@ -978,7 +978,7 @@ namespace Luth
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        vkCreateSampler(device, &samplerInfo, nullptr, &m_System.m_PPSampler);
+        vkCreateSampler(device, &samplerInfo, nullptr, &m_PPSampler);
 
         // Descriptor set layout: [sampler2D, sampler2D, UBO]
         VkDescriptorSetLayoutBinding bindings[3] = {};
@@ -1001,7 +1001,7 @@ namespace Luth
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = 3;
         layoutInfo.pBindings = bindings;
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_System.m_PPDescSetLayout);
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_PPDescSetLayout);
 
         // Descriptor pool: 4 sets × (2 samplers + 1 UBO)
         VkDescriptorPoolSize poolSizes[2] = {};
@@ -1015,22 +1015,22 @@ namespace Luth
         poolInfo.maxSets = 4;
         poolInfo.poolSizeCount = 2;
         poolInfo.pPoolSizes = poolSizes;
-        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_System.m_PPDescPool);
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_PPDescPool);
 
         // Allocate 4 descriptor sets
-        VkDescriptorSetLayout setLayouts[4] = { m_System.m_PPDescSetLayout, m_System.m_PPDescSetLayout, m_System.m_PPDescSetLayout, m_System.m_PPDescSetLayout };
+        VkDescriptorSetLayout setLayouts[4] = { m_PPDescSetLayout, m_PPDescSetLayout, m_PPDescSetLayout, m_PPDescSetLayout };
         VkDescriptorSet sets[4];
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_System.m_PPDescPool;
+        allocInfo.descriptorPool = m_PPDescPool;
         allocInfo.descriptorSetCount = 4;
         allocInfo.pSetLayouts = setLayouts;
         vkAllocateDescriptorSets(device, &allocInfo, sets);
 
-        m_System.m_BloomExtractDescSet = sets[0];
-        m_System.m_BloomBlurHDescSet   = sets[1];
-        m_System.m_BloomBlurVDescSet   = sets[2];
-        m_System.m_CompositeDescSet    = sets[3];
+        m_BloomExtractDescSet = sets[0];
+        m_BloomBlurHDescSet   = sets[1];
+        m_BloomBlurVDescSet   = sets[2];
+        m_CompositeDescSet    = sets[3];
 
         UpdatePostProcessDescriptors();
 
@@ -1045,7 +1045,7 @@ namespace Luth
             outlineSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             outlineSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             outlineSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            vkCreateSampler(device, &outlineSamplerInfo, nullptr, &m_System.m_OutlineSampler);
+            vkCreateSampler(device, &outlineSamplerInfo, nullptr, &m_OutlineSampler);
 
             // Descriptor set layout: 3 sampler bindings
             VkDescriptorSetLayoutBinding bindings[3] = {};
@@ -1069,7 +1069,7 @@ namespace Luth
             outlineLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             outlineLayoutInfo.bindingCount = 3;
             outlineLayoutInfo.pBindings = bindings;
-            vkCreateDescriptorSetLayout(device, &outlineLayoutInfo, nullptr, &m_System.m_OutlineDescSetLayout);
+            vkCreateDescriptorSetLayout(device, &outlineLayoutInfo, nullptr, &m_OutlineDescSetLayout);
 
             // Descriptor pool: 1 set, 3 combined image samplers
             VkDescriptorPoolSize outlinePoolSize{};
@@ -1081,15 +1081,15 @@ namespace Luth
             outlinePoolInfo.maxSets = 1;
             outlinePoolInfo.poolSizeCount = 1;
             outlinePoolInfo.pPoolSizes = &outlinePoolSize;
-            vkCreateDescriptorPool(device, &outlinePoolInfo, nullptr, &m_System.m_OutlineDescPool);
+            vkCreateDescriptorPool(device, &outlinePoolInfo, nullptr, &m_OutlineDescPool);
 
             // Allocate descriptor set
             VkDescriptorSetAllocateInfo outlineAllocInfo{};
             outlineAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            outlineAllocInfo.descriptorPool = m_System.m_OutlineDescPool;
+            outlineAllocInfo.descriptorPool = m_OutlineDescPool;
             outlineAllocInfo.descriptorSetCount = 1;
-            outlineAllocInfo.pSetLayouts = &m_System.m_OutlineDescSetLayout;
-            vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_System.m_OutlineDescSet);
+            outlineAllocInfo.pSetLayouts = &m_OutlineDescSetLayout;
+            vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_OutlineDescSet);
 
             // Write all 3 descriptors: selection mask, selection depth, scene depth
             auto vkMask      = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
@@ -1097,37 +1097,37 @@ namespace Luth
             auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
 
             VkDescriptorImageInfo maskImgInfo{};
-            maskImgInfo.sampler     = m_System.m_OutlineSampler;
+            maskImgInfo.sampler     = m_OutlineSampler;
             maskImgInfo.imageView   = vkMask->GetImageView();
             maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo selDepthImgInfo{};
-            selDepthImgInfo.sampler     = m_System.m_OutlineSampler;
+            selDepthImgInfo.sampler     = m_OutlineSampler;
             selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
             selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo scnDepthImgInfo{};
-            scnDepthImgInfo.sampler     = m_System.m_OutlineSampler;
+            scnDepthImgInfo.sampler     = m_OutlineSampler;
             scnDepthImgInfo.imageView   = vkScnDepth->GetImageView();
             scnDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet writes[3] = {};
             writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = m_System.m_OutlineDescSet;
+            writes[0].dstSet = m_OutlineDescSet;
             writes[0].dstBinding = 0;
             writes[0].descriptorCount = 1;
             writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[0].pImageInfo = &maskImgInfo;
 
             writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[1].dstSet = m_System.m_OutlineDescSet;
+            writes[1].dstSet = m_OutlineDescSet;
             writes[1].dstBinding = 1;
             writes[1].descriptorCount = 1;
             writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[1].pImageInfo = &selDepthImgInfo;
 
             writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[2].dstSet = m_System.m_OutlineDescSet;
+            writes[2].dstSet = m_OutlineDescSet;
             writes[2].dstBinding = 2;
             writes[2].descriptorCount = 1;
             writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1147,7 +1147,7 @@ namespace Luth
             gridSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             gridSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             gridSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            vkCreateSampler(device, &gridSamplerInfo, nullptr, &m_System.m_GridDepthSampler);
+            vkCreateSampler(device, &gridSamplerInfo, nullptr, &m_GridDepthSampler);
 
             // Descriptor set layout: binding 0 = GlobalUBO (camera), binding 1 = scene depth sampler
             VkDescriptorSetLayoutBinding gridBindings[2] = {};
@@ -1164,7 +1164,7 @@ namespace Luth
             gridLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             gridLayoutInfo.bindingCount = 2;
             gridLayoutInfo.pBindings = gridBindings;
-            vkCreateDescriptorSetLayout(device, &gridLayoutInfo, nullptr, &m_System.m_GridDescSetLayout);
+            vkCreateDescriptorSetLayout(device, &gridLayoutInfo, nullptr, &m_GridDescSetLayout);
 
             // Descriptor pool: 1 set (UBO + sampler)
             VkDescriptorPoolSize gridPoolSizes[2] = {};
@@ -1178,37 +1178,37 @@ namespace Luth
             gridPoolInfo.maxSets = 1;
             gridPoolInfo.poolSizeCount = 2;
             gridPoolInfo.pPoolSizes = gridPoolSizes;
-            vkCreateDescriptorPool(device, &gridPoolInfo, nullptr, &m_System.m_GridDescPool);
+            vkCreateDescriptorPool(device, &gridPoolInfo, nullptr, &m_GridDescPool);
 
             VkDescriptorSetAllocateInfo gridAllocInfo{};
             gridAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            gridAllocInfo.descriptorPool = m_System.m_GridDescPool;
+            gridAllocInfo.descriptorPool = m_GridDescPool;
             gridAllocInfo.descriptorSetCount = 1;
-            gridAllocInfo.pSetLayouts = &m_System.m_GridDescSetLayout;
-            vkAllocateDescriptorSets(device, &gridAllocInfo, &m_System.m_GridDescSet);
+            gridAllocInfo.pSetLayouts = &m_GridDescSetLayout;
+            vkAllocateDescriptorSets(device, &gridAllocInfo, &m_GridDescSet);
 
             // Write: global UBO + scene depth
             VkDescriptorBufferInfo gridUBOInfo{};
-            gridUBOInfo.buffer = m_System.m_GlobalUniformBuffer->GetVulkanBuffer();
+            gridUBOInfo.buffer = m_GlobalUniformBuffer->GetVulkanBuffer();
             gridUBOInfo.offset = 0;
             gridUBOInfo.range  = sizeof(GlobalUniforms);
 
             auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
             VkDescriptorImageInfo gridDepthImgInfo{};
-            gridDepthImgInfo.sampler     = m_System.m_GridDepthSampler;
+            gridDepthImgInfo.sampler     = m_GridDepthSampler;
             gridDepthImgInfo.imageView   = vkScnDepthGrid->GetImageView();
             gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet gridWrites[2] = {};
             gridWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            gridWrites[0].dstSet = m_System.m_GridDescSet;
+            gridWrites[0].dstSet = m_GridDescSet;
             gridWrites[0].dstBinding = 0;
             gridWrites[0].descriptorCount = 1;
             gridWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             gridWrites[0].pBufferInfo = &gridUBOInfo;
 
             gridWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            gridWrites[1].dstSet = m_System.m_GridDescSet;
+            gridWrites[1].dstSet = m_GridDescSet;
             gridWrites[1].dstBinding = 1;
             gridWrites[1].descriptorCount = 1;
             gridWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1223,18 +1223,18 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         auto sceneVk  = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
-        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_System.m_BloomA);
-        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_System.m_BloomB);
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
 
         VkDescriptorBufferInfo uboInfo{};
-        uboInfo.buffer = m_System.m_PostProcessUBOBuffer->GetVulkanBuffer();
+        uboInfo.buffer = m_PostProcessUBOBuffer->GetVulkanBuffer();
         uboInfo.offset = 0;
         uboInfo.range  = sizeof(PostProcessUBO);
 
         // Helper: write a combined image sampler descriptor
         auto MakeImageInfo = [this](VkImageView view) -> VkDescriptorImageInfo {
             VkDescriptorImageInfo info{};
-            info.sampler     = m_System.m_PPSampler;
+            info.sampler     = m_PPSampler;
             info.imageView   = view;
             info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             return info;
@@ -1273,24 +1273,24 @@ namespace Luth
         };
 
         // BloomExtract set
-        AddWrite(m_System.m_BloomExtractDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg0, nullptr);
-        AddWrite(m_System.m_BloomExtractDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg1, nullptr);
-        AddWrite(m_System.m_BloomExtractDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+        AddWrite(m_BloomExtractDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg0, nullptr);
+        AddWrite(m_BloomExtractDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg1, nullptr);
+        AddWrite(m_BloomExtractDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
 
         // BloomBlurH set
-        AddWrite(m_System.m_BloomBlurHDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg0, nullptr);
-        AddWrite(m_System.m_BloomBlurHDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg1, nullptr);
-        AddWrite(m_System.m_BloomBlurHDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+        AddWrite(m_BloomBlurHDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg0, nullptr);
+        AddWrite(m_BloomBlurHDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg1, nullptr);
+        AddWrite(m_BloomBlurHDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
 
         // BloomBlurV set
-        AddWrite(m_System.m_BloomBlurVDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg0, nullptr);
-        AddWrite(m_System.m_BloomBlurVDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg1, nullptr);
-        AddWrite(m_System.m_BloomBlurVDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+        AddWrite(m_BloomBlurVDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg0, nullptr);
+        AddWrite(m_BloomBlurVDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg1, nullptr);
+        AddWrite(m_BloomBlurVDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
 
         // Composite set
-        AddWrite(m_System.m_CompositeDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg0, nullptr);
-        AddWrite(m_System.m_CompositeDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg1, nullptr);
-        AddWrite(m_System.m_CompositeDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
+        AddWrite(m_CompositeDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg0, nullptr);
+        AddWrite(m_CompositeDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg1, nullptr);
+        AddWrite(m_CompositeDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &uboInfo);
 
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
     }
@@ -1302,52 +1302,52 @@ namespace Luth
         // Run precomputation (equirect -> cubemap -> irradiance -> prefilter -> BRDF LUT)
         IBLResult ibl = IBL::Precompute(hdrPath);
 
-        m_System.m_IrradianceMap  = ibl.irradianceMap;
-        m_System.m_PrefilteredMap = ibl.prefilteredMap;
-        m_System.m_BRDFLut        = ibl.brdfLut;
-        m_System.m_IBLSampler     = ibl.iblSampler;
-        m_System.m_SkyboxVB       = ibl.skyboxVB;
-        m_System.m_SkyboxVertSpv  = std::move(ibl.skyboxVertSpv);
-        m_System.m_SkyboxFragSpv  = std::move(ibl.skyboxFragSpv);
+        m_IrradianceMap  = ibl.irradianceMap;
+        m_PrefilteredMap = ibl.prefilteredMap;
+        m_BRDFLut        = ibl.brdfLut;
+        m_IBLSampler     = ibl.iblSampler;
+        m_SkyboxVB       = ibl.skyboxVB;
+        m_SkyboxVertSpv  = std::move(ibl.skyboxVertSpv);
+        m_SkyboxFragSpv  = std::move(ibl.skyboxFragSpv);
 
         // Write IBL descriptors to Set 0 (bindings 1-3)
         {
-            auto vkIrr = std::static_pointer_cast<VKTexture>(m_System.m_IrradianceMap);
-            auto vkPf  = std::static_pointer_cast<VKTexture>(m_System.m_PrefilteredMap);
-            auto vkLut = std::static_pointer_cast<VKTexture>(m_System.m_BRDFLut);
+            auto vkIrr = std::static_pointer_cast<VKTexture>(m_IrradianceMap);
+            auto vkPf  = std::static_pointer_cast<VKTexture>(m_PrefilteredMap);
+            auto vkLut = std::static_pointer_cast<VKTexture>(m_BRDFLut);
 
             VkDescriptorImageInfo irrInfo{};
-            irrInfo.sampler = m_System.m_IBLSampler;
+            irrInfo.sampler = m_IBLSampler;
             irrInfo.imageView = vkIrr->GetImageView();
             irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo pfInfo{};
-            pfInfo.sampler = m_System.m_IBLSampler;
+            pfInfo.sampler = m_IBLSampler;
             pfInfo.imageView = vkPf->GetImageView();
             pfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo lutInfo{};
-            lutInfo.sampler = m_System.m_IBLSampler;
+            lutInfo.sampler = m_IBLSampler;
             lutInfo.imageView = vkLut->GetImageView();
             lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkWriteDescriptorSet writes[3] = {};
             writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[0].dstSet = m_System.m_GlobalDescriptorSet;
+            writes[0].dstSet = m_GlobalDescriptorSet;
             writes[0].dstBinding = 1;
             writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[0].descriptorCount = 1;
             writes[0].pImageInfo = &irrInfo;
 
             writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[1].dstSet = m_System.m_GlobalDescriptorSet;
+            writes[1].dstSet = m_GlobalDescriptorSet;
             writes[1].dstBinding = 2;
             writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[1].descriptorCount = 1;
             writes[1].pImageInfo = &pfInfo;
 
             writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[2].dstSet = m_System.m_GlobalDescriptorSet;
+            writes[2].dstSet = m_GlobalDescriptorSet;
             writes[2].dstBinding = 3;
             writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[2].descriptorCount = 1;
@@ -1363,15 +1363,15 @@ namespace Luth
         vkDeviceWaitIdle(device);
 
         // Destroy old IBL sampler (textures freed by shared_ptr reset in InitIBLResources)
-        if (m_System.m_IBLSampler) {
-            vkDestroySampler(device, m_System.m_IBLSampler, nullptr);
-            m_System.m_IBLSampler = VK_NULL_HANDLE;
+        if (m_IBLSampler) {
+            vkDestroySampler(device, m_IBLSampler, nullptr);
+            m_IBLSampler = VK_NULL_HANDLE;
         }
 
         InitIBLResources(hdrPath);
 
         // Rebuild skybox pipeline (new prefiltered map may have different mip count)
-        m_System.m_SkyboxPipeline.reset();
+        m_SkyboxPipeline.reset();
         CreatePipelines();
 
         LH_CORE_INFO("Skybox reloaded from '{}'", hdrPath.string());
@@ -1383,7 +1383,7 @@ namespace Luth
 
     void RenderPipeline::InitObjectSSBODescriptorLayout()
     {
-        if (m_System.m_ObjectSSBODescLayout != VK_NULL_HANDLE)
+        if (m_ObjectSSBODescLayout != VK_NULL_HANDLE)
             return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -1398,7 +1398,7 @@ namespace Luth
         layoutInfo.bindingCount = 1;
         layoutInfo.pBindings    = &binding;
 
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_System.m_ObjectSSBODescLayout);
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_ObjectSSBODescLayout);
     }
 
     void RenderPipeline::CreatePipelines()
@@ -1425,25 +1425,25 @@ namespace Luth
 
         // 5-set layout for shadow / selection-mask / skybox pipelines (push constants remain)
         std::vector<VkDescriptorSetLayout> layouts = {
-            m_System.m_GlobalSetLayout,                                    // Set 0
+            m_GlobalSetLayout,                                    // Set 0
             VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
             MaterialSystem::GetDescriptorSetLayout(),            // Set 2
-            m_System.m_LightSetLayout,                                    // Set 3
+            m_LightSetLayout,                                    // Set 3
             BoneMatrixBuffer::GetDescriptorSetLayout()           // Set 4
         };
 
         // 6-set layout for geometry pipelines (adds Set 5 = GPUObjectData SSBO, no push constants)
         std::vector<VkDescriptorSetLayout> geoLayouts = {
-            m_System.m_GlobalSetLayout,                                    // Set 0
+            m_GlobalSetLayout,                                    // Set 0
             VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
             MaterialSystem::GetDescriptorSetLayout(),            // Set 2
-            m_System.m_LightSetLayout,                                    // Set 3
+            m_LightSetLayout,                                    // Set 3
             BoneMatrixBuffer::GetDescriptorSetLayout(),          // Set 4
-            m_System.m_ObjectSSBODescLayout                               // Set 5
+            m_ObjectSSBODescLayout                               // Set 5
         };
 
         // ---- PBR geometry pipeline manager (lazy creation keyed by {shaderUUID, renderMode}) ----
-        m_System.m_GeoPipelineManager.Init(geoLayouts,
+        m_GeoPipelineManager.Init(geoLayouts,
             [bindingDescs, attribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
@@ -1517,7 +1517,7 @@ namespace Luth
         shadowConfig.attributeDescriptions = shadowAttribDescs;
         shadowConfig.pushConstantRanges = { shadowCascadePC };
 
-        m_System.m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_System.m_ShadowVertSpv, m_System.m_ShadowFragSpv, geoLayouts);
+        m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, geoLayouts);
 
         // ---- Skinned geometry pipeline manager ----
         BufferLayout skinnedVertexLayout = {
@@ -1533,7 +1533,7 @@ namespace Luth
         auto skinnedBindingDescs = skinnedVertexLayout.GetBindingDescriptions();
         auto skinnedAttribDescs  = skinnedVertexLayout.GetAttributeDescriptions();
 
-        m_System.m_GeoSkinnedPipelineManager.Init(geoLayouts,
+        m_GeoSkinnedPipelineManager.Init(geoLayouts,
             [skinnedBindingDescs, skinnedAttribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
@@ -1574,7 +1574,7 @@ namespace Luth
             });
 
         // ---- Skinned shadow pipeline (depth-only, full skinned vertex stride) ----
-        if (!m_System.m_ShadowSkinnedVertSpv.empty())
+        if (!m_ShadowSkinnedVertSpv.empty())
         {
             // Full skinned vertex layout — all 7 attributes declared so stride = 84 bytes
             PipelineConfig shadowSkinnedConfig;
@@ -1588,14 +1588,14 @@ namespace Luth
             shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
             shadowSkinnedConfig.pushConstantRanges = { shadowCascadePC };
 
-            m_System.m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
-                shadowSkinnedConfig, m_System.m_ShadowSkinnedVertSpv, m_System.m_ShadowFragSpv, geoLayouts);
+            m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
+                shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
         // ---- Depth prepass pipeline (camera-space, depth-only, position only) ----
         // Reuses the shadow frag SPIR-V (empty `void main(){}`) as the null fragment.
         // Rigid variant uses the position-only binding/attribs (shadowVertexLayout).
-        if (!m_System.m_DepthPrepassVertSpv.empty() && !m_System.m_ShadowFragSpv.empty())
+        if (!m_DepthPrepassVertSpv.empty() && !m_ShadowFragSpv.empty())
         {
             PipelineConfig depthPrepassConfig;
             depthPrepassConfig.colorFormats = {}; // depth-only
@@ -1609,11 +1609,11 @@ namespace Luth
             depthPrepassConfig.bindingDescriptions   = shadowBindingDescs; // position-only + full-vertex stride
             depthPrepassConfig.attributeDescriptions = shadowAttribDescs;
 
-            m_System.m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
-                depthPrepassConfig, m_System.m_DepthPrepassVertSpv, m_System.m_ShadowFragSpv, geoLayouts);
+            m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
+                depthPrepassConfig, m_DepthPrepassVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
-        if (!m_System.m_DepthPrepassSkinnedVertSpv.empty() && !m_System.m_ShadowFragSpv.empty())
+        if (!m_DepthPrepassSkinnedVertSpv.empty() && !m_ShadowFragSpv.empty())
         {
             PipelineConfig depthPrepassSkinnedConfig;
             depthPrepassSkinnedConfig.colorFormats = {};
@@ -1627,12 +1627,12 @@ namespace Luth
             depthPrepassSkinnedConfig.bindingDescriptions   = skinnedBindingDescs;
             depthPrepassSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
 
-            m_System.m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
-                depthPrepassSkinnedConfig, m_System.m_DepthPrepassSkinnedVertSpv, m_System.m_ShadowFragSpv, geoLayouts);
+            m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
+                depthPrepassSkinnedConfig, m_DepthPrepassSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
         }
 
         // ---- Selection mask pipeline (static) ----
-        if (!m_System.m_SelectionMaskVertSpv.empty() && !m_System.m_SelectionMaskFragSpv.empty())
+        if (!m_SelectionMaskVertSpv.empty() && !m_SelectionMaskFragSpv.empty())
         {
             PipelineConfig maskConfig;
             maskConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
@@ -1645,12 +1645,12 @@ namespace Luth
             maskConfig.attributeDescriptions = shadowAttribDescs;
             maskConfig.pushConstantRanges = { pushConstantRange };
 
-            m_System.m_SelectionMaskPipeline = std::make_unique<VKPipeline>(
-                maskConfig, m_System.m_SelectionMaskVertSpv, m_System.m_SelectionMaskFragSpv, layouts);
+            m_SelectionMaskPipeline = std::make_unique<VKPipeline>(
+                maskConfig, m_SelectionMaskVertSpv, m_SelectionMaskFragSpv, layouts);
         }
 
         // ---- Selection mask pipeline (skinned) ----
-        if (!m_System.m_SelectionMaskSkinnedVertSpv.empty() && !m_System.m_SelectionMaskFragSpv.empty())
+        if (!m_SelectionMaskSkinnedVertSpv.empty() && !m_SelectionMaskFragSpv.empty())
         {
             PipelineConfig maskSkinnedConfig;
             maskSkinnedConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
@@ -1663,12 +1663,12 @@ namespace Luth
             maskSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
             maskSkinnedConfig.pushConstantRanges = { pushConstantRange };
 
-            m_System.m_SelectionMaskSkinnedPipeline = std::make_unique<VKPipeline>(
-                maskSkinnedConfig, m_System.m_SelectionMaskSkinnedVertSpv, m_System.m_SelectionMaskFragSpv, layouts);
+            m_SelectionMaskSkinnedPipeline = std::make_unique<VKPipeline>(
+                maskSkinnedConfig, m_SelectionMaskSkinnedVertSpv, m_SelectionMaskFragSpv, layouts);
         }
 
         // ---- Skybox pipeline ----
-        if (!m_System.m_SkyboxVertSpv.empty() && !m_System.m_SkyboxFragSpv.empty())
+        if (!m_SkyboxVertSpv.empty() && !m_SkyboxFragSpv.empty())
         {
             BufferLayout skyboxVertexLayout = {
                 { ShaderDataType::Float3, "a_Position" }
@@ -1686,16 +1686,16 @@ namespace Luth
             skyboxConfig.bindingDescriptions = skyboxVertexLayout.GetBindingDescriptions();
             skyboxConfig.attributeDescriptions = skyboxVertexLayout.GetAttributeDescriptions();
 
-            m_System.m_SkyboxPipeline = std::make_unique<VKPipeline>(skyboxConfig, m_System.m_SkyboxVertSpv, m_System.m_SkyboxFragSpv, layouts);
+            m_SkyboxPipeline = std::make_unique<VKPipeline>(skyboxConfig, m_SkyboxVertSpv, m_SkyboxFragSpv, layouts);
         }
 
         // ---- Post-process pipelines ----
-        if (!m_System.m_FullscreenVertSpv.empty() && m_System.m_PPDescSetLayout != VK_NULL_HANDLE)
+        if (!m_FullscreenVertSpv.empty() && m_PPDescSetLayout != VK_NULL_HANDLE)
         {
-            std::vector<VkDescriptorSetLayout> ppLayouts = { m_System.m_PPDescSetLayout };
+            std::vector<VkDescriptorSetLayout> ppLayouts = { m_PPDescSetLayout };
 
             // Bloom extract: push constant = float threshold + pad
-            if (!m_System.m_BloomExtractFragSpv.empty())
+            if (!m_BloomExtractFragSpv.empty())
             {
                 VkPushConstantRange bloomExtractPC{};
                 bloomExtractPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1709,12 +1709,12 @@ namespace Luth
                 bloomExtractConfig.blendEnabled = false;
                 bloomExtractConfig.cullMode = VK_CULL_MODE_NONE;
                 bloomExtractConfig.pushConstantRanges = { bloomExtractPC };
-                m_System.m_BloomExtractPipeline = std::make_unique<VKPipeline>(
-                    bloomExtractConfig, m_System.m_FullscreenVertSpv, m_System.m_BloomExtractFragSpv, ppLayouts);
+                m_BloomExtractPipeline = std::make_unique<VKPipeline>(
+                    bloomExtractConfig, m_FullscreenVertSpv, m_BloomExtractFragSpv, ppLayouts);
             }
 
             // Bloom blur: push constant = vec2 direction + pad
-            if (!m_System.m_BloomBlurFragSpv.empty())
+            if (!m_BloomBlurFragSpv.empty())
             {
                 VkPushConstantRange bloomBlurPC{};
                 bloomBlurPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1728,12 +1728,12 @@ namespace Luth
                 bloomBlurConfig.blendEnabled = false;
                 bloomBlurConfig.cullMode = VK_CULL_MODE_NONE;
                 bloomBlurConfig.pushConstantRanges = { bloomBlurPC };
-                m_System.m_BloomBlurPipeline = std::make_unique<VKPipeline>(
-                    bloomBlurConfig, m_System.m_FullscreenVertSpv, m_System.m_BloomBlurFragSpv, ppLayouts);
+                m_BloomBlurPipeline = std::make_unique<VKPipeline>(
+                    bloomBlurConfig, m_FullscreenVertSpv, m_BloomBlurFragSpv, ppLayouts);
             }
 
             // PostProcess composite: no push constants, UBO at binding 2
-            if (!m_System.m_PostProcessFragSpv.empty())
+            if (!m_PostProcessFragSpv.empty())
             {
                 PipelineConfig ppConfig;
                 ppConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // LDR output
@@ -1741,15 +1741,15 @@ namespace Luth
                 ppConfig.depthTest = false; ppConfig.depthWrite = false;
                 ppConfig.blendEnabled = false;
                 ppConfig.cullMode = VK_CULL_MODE_NONE;
-                m_System.m_PostProcessPipeline = std::make_unique<VKPipeline>(
-                    ppConfig, m_System.m_FullscreenVertSpv, m_System.m_PostProcessFragSpv, ppLayouts);
+                m_PostProcessPipeline = std::make_unique<VKPipeline>(
+                    ppConfig, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
             }
         }
 
         // ---- Outline pipeline ----
-        if (!m_System.m_FullscreenVertSpv.empty() && !m_System.m_OutlineFragSpv.empty() && m_System.m_OutlineDescSetLayout != VK_NULL_HANDLE)
+        if (!m_FullscreenVertSpv.empty() && !m_OutlineFragSpv.empty() && m_OutlineDescSetLayout != VK_NULL_HANDLE)
         {
-            std::vector<VkDescriptorSetLayout> outlineLayouts = { m_System.m_OutlineDescSetLayout };
+            std::vector<VkDescriptorSetLayout> outlineLayouts = { m_OutlineDescSetLayout };
 
             VkPushConstantRange outlinePC{};
             outlinePC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1763,14 +1763,14 @@ namespace Luth
             outlineConfig.blendEnabled = true; // alpha blend the outline on top
             outlineConfig.cullMode = VK_CULL_MODE_NONE;
             outlineConfig.pushConstantRanges = { outlinePC };
-            m_System.m_OutlinePipeline = std::make_unique<VKPipeline>(
-                outlineConfig, m_System.m_FullscreenVertSpv, m_System.m_OutlineFragSpv, outlineLayouts);
+            m_OutlinePipeline = std::make_unique<VKPipeline>(
+                outlineConfig, m_FullscreenVertSpv, m_OutlineFragSpv, outlineLayouts);
         }
 
         // ---- Grid pipeline (editor-only infinite grid fullscreen pass) ----
-        if (!m_System.m_FullscreenVertSpv.empty() && !m_System.m_GridFragSpv.empty() && m_System.m_GridDescSetLayout != VK_NULL_HANDLE)
+        if (!m_FullscreenVertSpv.empty() && !m_GridFragSpv.empty() && m_GridDescSetLayout != VK_NULL_HANDLE)
         {
-            std::vector<VkDescriptorSetLayout> gridLayouts = { m_System.m_GridDescSetLayout };
+            std::vector<VkDescriptorSetLayout> gridLayouts = { m_GridDescSetLayout };
 
             VkPushConstantRange gridPC{};
             gridPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1784,8 +1784,8 @@ namespace Luth
             gridConfig.blendEnabled = true; // alpha-composite grid over scene
             gridConfig.cullMode = VK_CULL_MODE_NONE;
             gridConfig.pushConstantRanges = { gridPC };
-            m_System.m_GridPipeline = std::make_unique<VKPipeline>(
-                gridConfig, m_System.m_FullscreenVertSpv, m_System.m_GridFragSpv, gridLayouts);
+            m_GridPipeline = std::make_unique<VKPipeline>(
+                gridConfig, m_FullscreenVertSpv, m_GridFragSpv, gridLayouts);
         }
     }
 
@@ -1802,15 +1802,15 @@ namespace Luth
         };
 
         allocBuffer(
-            RenderingSystem::k_MaxGPUObjects * sizeof(GPUObjectData),
+            RenderPipeline::k_MaxGPUObjects * sizeof(GPUObjectData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            m_System.m_ObjectSSBO, m_System.m_ObjectSSBOAlloc, m_System.m_ObjectSSBOMapped);
+            m_ObjectSSBO, m_ObjectSSBOAlloc, m_ObjectSSBOMapped);
 
-        // Indirect buffer holds 5 regions (camera + 4 cascades), each with RenderingSystem::k_IndirectRegionStride commands.
+        // Indirect buffer holds 5 regions (camera + 4 cascades), each with RenderPipeline::k_IndirectRegionStride commands.
         allocBuffer(
-            RenderingSystem::k_IndirectRegionCount * RenderingSystem::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
+            RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-            m_System.m_IndirectBuffer, m_System.m_IndirectBufferAlloc, m_System.m_IndirectBufferMapped);
+            m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
 
         // Create Set 5 descriptor pool + set for the ObjectSSBO (graphics pipeline)
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -1823,21 +1823,21 @@ namespace Luth
         poolInfo.maxSets       = 1;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
-        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_System.m_ObjectSSBODescPool);
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_ObjectSSBODescPool);
 
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        allocInfo.descriptorPool     = m_System.m_ObjectSSBODescPool;
+        allocInfo.descriptorPool     = m_ObjectSSBODescPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts        = &m_System.m_ObjectSSBODescLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_System.m_ObjectSSBODescSet);
+        allocInfo.pSetLayouts        = &m_ObjectSSBODescLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_ObjectSSBODescSet);
 
         VkDescriptorBufferInfo bufInfo{};
-        bufInfo.buffer = m_System.m_ObjectSSBO;
+        bufInfo.buffer = m_ObjectSSBO;
         bufInfo.offset = 0;
         bufInfo.range  = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet          = m_System.m_ObjectSSBODescSet;
+        write.dstSet          = m_ObjectSSBODescSet;
         write.dstBinding      = 0;
         write.descriptorCount = 1;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1863,23 +1863,23 @@ namespace Luth
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         layoutInfo.bindingCount = 2;
         layoutInfo.pBindings    = bindings;
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_System.m_CullDescLayout);
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_CullDescLayout);
 
-        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_System.m_CullDescLayout, m_System.m_CullDescSet);
+        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_CullDescLayout, m_CullDescSet);
 
         VkDescriptorBufferInfo objInfo{};
-        objInfo.buffer = m_System.m_ObjectSSBO;
+        objInfo.buffer = m_ObjectSSBO;
         objInfo.offset = 0;
         objInfo.range  = VK_WHOLE_SIZE;
 
         VkDescriptorBufferInfo indInfo{};
-        indInfo.buffer = m_System.m_IndirectBuffer;
+        indInfo.buffer = m_IndirectBuffer;
         indInfo.offset = 0;
         indInfo.range  = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet writes[2]{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet          = m_System.m_CullDescSet;
+        writes[0].dstSet          = m_CullDescSet;
         writes[0].dstBinding      = 0;
         writes[0].descriptorCount = 1;
         writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1902,9 +1902,9 @@ namespace Luth
             return;
         }
 
-        m_System.m_CullPipeline = std::make_unique<VKComputePipeline>(
+        m_CullPipeline = std::make_unique<VKComputePipeline>(
             spv,
-            std::vector<VkDescriptorSetLayout>{ m_System.m_CullDescLayout },
+            std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
             std::vector<VkPushConstantRange>{ pcRange });
     }
 
@@ -1939,10 +1939,10 @@ namespace Luth
                 VK_IMAGE_USAGE_STORAGE_BIT);
         };
 
-        m_System.m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
-        m_System.m_GTAORawAO       = makeStorage(TextureFormat::R8);
-        m_System.m_GTAOEdges       = makeStorage(TextureFormat::R8);
-        m_System.m_GTAOFinal       = makeStorage(TextureFormat::R8);
+        m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
+        m_GTAORawAO       = makeStorage(TextureFormat::R8);
+        m_GTAOEdges       = makeStorage(TextureFormat::R8);
+        m_GTAOFinal       = makeStorage(TextureFormat::R8);
 
         // ---- Shared linear-clamp sampler for GTAO compute reads ----
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -1952,7 +1952,7 @@ namespace Luth
         sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        vkCreateSampler(device, &sampCI, nullptr, &m_System.m_GTAOSampler);
+        vkCreateSampler(device, &sampCI, nullptr, &m_GTAOSampler);
 
         // ---- Shared descriptor pool for all GTAO sets ----
         // Enough capacity for prefilter + main + denoise (sub-task E).
@@ -1965,10 +1965,10 @@ namespace Luth
         poolCI.maxSets       = 8;
         poolCI.poolSizeCount = 3;
         poolCI.pPoolSizes    = poolSizes;
-        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_System.m_GTAODescPool);
+        vkCreateDescriptorPool(device, &poolCI, nullptr, &m_GTAODescPool);
 
         // ---- GTAO UBO (GTAOUBO std140, 48B) ----
-        m_System.m_GTAOUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(GTAOUBO));
+        m_GTAOUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(GTAOUBO));
 
         // ---- Depth prefilter: [sampler2D sceneDepth, image2D linearDepth] ----
         {
@@ -1985,28 +1985,28 @@ namespace Luth
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.bindingCount = 2;
             layoutCI.pBindings    = bindings;
-            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_System.m_GTAOPrefilterDescLayout);
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAOPrefilterDescLayout);
 
             VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-            allocInfo.descriptorPool     = m_System.m_GTAODescPool;
+            allocInfo.descriptorPool     = m_GTAODescPool;
             allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts        = &m_System.m_GTAOPrefilterDescLayout;
-            vkAllocateDescriptorSets(device, &allocInfo, &m_System.m_GTAOPrefilterDescSet);
+            allocInfo.pSetLayouts        = &m_GTAOPrefilterDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAOPrefilterDescSet);
 
             VkPushConstantRange pcRange{};
             pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             pcRange.offset     = 0;
             pcRange.size       = sizeof(i32) * 2 + sizeof(float) * 6; // halfResSize + invFullRes + nearZ + farZ + pads
 
-            m_System.m_GTAOPrefilterSpv = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
-            if (m_System.m_GTAOPrefilterSpv.empty())
+            m_GTAOPrefilterSpv = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
+            if (m_GTAOPrefilterSpv.empty())
             {
                 LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_depth_prefilter.comp!");
                 return;
             }
-            m_System.m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAOPrefilterSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAOPrefilterDescLayout },
+            m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOPrefilterSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
@@ -2029,28 +2029,28 @@ namespace Luth
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
-            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_System.m_GTAOMainDescLayout);
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAOMainDescLayout);
 
             VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-            allocInfo.descriptorPool     = m_System.m_GTAODescPool;
+            allocInfo.descriptorPool     = m_GTAODescPool;
             allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts        = &m_System.m_GTAOMainDescLayout;
-            vkAllocateDescriptorSets(device, &allocInfo, &m_System.m_GTAOMainDescSet);
+            allocInfo.pSetLayouts        = &m_GTAOMainDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAOMainDescSet);
 
             VkPushConstantRange pcRange{};
             pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             pcRange.offset     = 0;
             pcRange.size       = sizeof(float) * 4 + sizeof(u32) * 4; // projParams + near/far + frameIndex + pads
 
-            m_System.m_GTAOMainSpv = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
-            if (m_System.m_GTAOMainSpv.empty())
+            m_GTAOMainSpv = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+            if (m_GTAOMainSpv.empty())
             {
                 LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_main.comp!");
                 return;
             }
-            m_System.m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAOMainSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAOMainDescLayout },
+            m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
+                m_GTAOMainSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
@@ -2073,24 +2073,24 @@ namespace Luth
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
-            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_System.m_GTAODenoiseDescLayout);
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAODenoiseDescLayout);
 
             VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-            allocInfo.descriptorPool     = m_System.m_GTAODescPool;
+            allocInfo.descriptorPool     = m_GTAODescPool;
             allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts        = &m_System.m_GTAODenoiseDescLayout;
-            vkAllocateDescriptorSets(device, &allocInfo, &m_System.m_GTAODenoiseDescSet);
+            allocInfo.pSetLayouts        = &m_GTAODenoiseDescLayout;
+            vkAllocateDescriptorSets(device, &allocInfo, &m_GTAODenoiseDescSet);
 
             // No push constants — resolution derived from textureSize() inside the shader.
-            m_System.m_GTAODenoiseSpv = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
-            if (m_System.m_GTAODenoiseSpv.empty())
+            m_GTAODenoiseSpv = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+            if (m_GTAODenoiseSpv.empty())
             {
                 LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_denoise.comp!");
                 return;
             }
-            m_System.m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
-                m_System.m_GTAODenoiseSpv,
-                std::vector<VkDescriptorSetLayout>{ m_System.m_GTAODenoiseDescLayout },
+            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
+                m_GTAODenoiseSpv,
+                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
                 std::vector<VkPushConstantRange>{});
         }
 
@@ -2099,23 +2099,23 @@ namespace Luth
 
     void RenderPipeline::UpdateAODescriptors()
     {
-        if (m_System.m_GTAOPrefilterDescSet == VK_NULL_HANDLE) return;
+        if (m_GTAOPrefilterDescSet == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
         auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
-        auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_System.m_GTAOLinearDepth);
-        auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_System.m_GTAORawAO);
-        auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_System.m_GTAOFinal);
+        auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
+        auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
+        auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
 
         // Shared VkDescriptorImageInfo / buffer-info slots reused across passes.
         VkDescriptorImageInfo  sceneDepthInfo{};
-        sceneDepthInfo.sampler     = m_System.m_GTAOSampler;
+        sceneDepthInfo.sampler     = m_GTAOSampler;
         sceneDepthInfo.imageView   = vkSceneDepth->GetImageView();
         sceneDepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkDescriptorImageInfo  linDepthSampledInfo{};
-        linDepthSampledInfo.sampler     = m_System.m_GTAOSampler;
+        linDepthSampledInfo.sampler     = m_GTAOSampler;
         linDepthSampledInfo.imageView   = vkLinDepth->GetImageView();
         linDepthSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -2130,21 +2130,21 @@ namespace Luth
         rawAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         VkDescriptorBufferInfo uboInfo{};
-        uboInfo.buffer = m_System.m_GTAOUBOBuffer ? m_System.m_GTAOUBOBuffer->GetVulkanBuffer() : VK_NULL_HANDLE;
+        uboInfo.buffer = m_GTAOUBOBuffer ? m_GTAOUBOBuffer->GetVulkanBuffer() : VK_NULL_HANDLE;
         uboInfo.offset = 0;
         uboInfo.range  = VK_WHOLE_SIZE;
 
         // ---- Prefilter pass: [sceneDepth (sampler), linDepth (storage)] ----
         VkWriteDescriptorSet preWrites[2]{};
         preWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        preWrites[0].dstSet          = m_System.m_GTAOPrefilterDescSet;
+        preWrites[0].dstSet          = m_GTAOPrefilterDescSet;
         preWrites[0].dstBinding      = 0;
         preWrites[0].descriptorCount = 1;
         preWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         preWrites[0].pImageInfo      = &sceneDepthInfo;
 
         preWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        preWrites[1].dstSet          = m_System.m_GTAOPrefilterDescSet;
+        preWrites[1].dstSet          = m_GTAOPrefilterDescSet;
         preWrites[1].dstBinding      = 1;
         preWrites[1].descriptorCount = 1;
         preWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -2153,25 +2153,25 @@ namespace Luth
         vkUpdateDescriptorSets(device, 2, preWrites, 0, nullptr);
 
         // ---- Main pass: [linDepth (sampler), rawAO (storage), UBO] ----
-        if (m_System.m_GTAOMainDescSet == VK_NULL_HANDLE || uboInfo.buffer == VK_NULL_HANDLE) return;
+        if (m_GTAOMainDescSet == VK_NULL_HANDLE || uboInfo.buffer == VK_NULL_HANDLE) return;
 
         VkWriteDescriptorSet mainWrites[3]{};
         mainWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        mainWrites[0].dstSet          = m_System.m_GTAOMainDescSet;
+        mainWrites[0].dstSet          = m_GTAOMainDescSet;
         mainWrites[0].dstBinding      = 0;
         mainWrites[0].descriptorCount = 1;
         mainWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         mainWrites[0].pImageInfo      = &linDepthSampledInfo;
 
         mainWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        mainWrites[1].dstSet          = m_System.m_GTAOMainDescSet;
+        mainWrites[1].dstSet          = m_GTAOMainDescSet;
         mainWrites[1].dstBinding      = 1;
         mainWrites[1].descriptorCount = 1;
         mainWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         mainWrites[1].pImageInfo      = &rawAOStorageInfo;
 
         mainWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        mainWrites[2].dstSet          = m_System.m_GTAOMainDescSet;
+        mainWrites[2].dstSet          = m_GTAOMainDescSet;
         mainWrites[2].dstBinding      = 2;
         mainWrites[2].descriptorCount = 1;
         mainWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2180,10 +2180,10 @@ namespace Luth
         vkUpdateDescriptorSets(device, 3, mainWrites, 0, nullptr);
 
         // ---- Denoise pass: [rawAO (sampler), linDepth (sampler), finalAO (storage)] ----
-        if (m_System.m_GTAODenoiseDescSet == VK_NULL_HANDLE) return;
+        if (m_GTAODenoiseDescSet == VK_NULL_HANDLE) return;
 
         VkDescriptorImageInfo rawAOSampledInfo{};
-        rawAOSampledInfo.sampler     = m_System.m_GTAOSampler;
+        rawAOSampledInfo.sampler     = m_GTAOSampler;
         rawAOSampledInfo.imageView   = vkRawAO->GetImageView();
         rawAOSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -2194,21 +2194,21 @@ namespace Luth
 
         VkWriteDescriptorSet denoiseWrites[3]{};
         denoiseWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        denoiseWrites[0].dstSet          = m_System.m_GTAODenoiseDescSet;
+        denoiseWrites[0].dstSet          = m_GTAODenoiseDescSet;
         denoiseWrites[0].dstBinding      = 0;
         denoiseWrites[0].descriptorCount = 1;
         denoiseWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         denoiseWrites[0].pImageInfo      = &rawAOSampledInfo;
 
         denoiseWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        denoiseWrites[1].dstSet          = m_System.m_GTAODenoiseDescSet;
+        denoiseWrites[1].dstSet          = m_GTAODenoiseDescSet;
         denoiseWrites[1].dstBinding      = 1;
         denoiseWrites[1].descriptorCount = 1;
         denoiseWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         denoiseWrites[1].pImageInfo      = &linDepthSampledInfo;
 
         denoiseWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        denoiseWrites[2].dstSet          = m_System.m_GTAODenoiseDescSet;
+        denoiseWrites[2].dstSet          = m_GTAODenoiseDescSet;
         denoiseWrites[2].dstBinding      = 2;
         denoiseWrites[2].descriptorCount = 1;
         denoiseWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -2217,23 +2217,23 @@ namespace Luth
         vkUpdateDescriptorSets(device, 3, denoiseWrites, 0, nullptr);
 
         // ---- Set 0 GTAO bindings (sampled by pbr.frag) ----
-        if (m_System.m_GlobalDescriptorSet == VK_NULL_HANDLE) return;
+        if (m_GlobalDescriptorSet == VK_NULL_HANDLE) return;
 
         VkDescriptorImageInfo gtaoFinalInfo{};
-        gtaoFinalInfo.sampler     = m_System.m_GTAOSampler;
+        gtaoFinalInfo.sampler     = m_GTAOSampler;
         gtaoFinalInfo.imageView   = vkFinalAO->GetImageView();
         gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet globalWrites[2]{};
         globalWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        globalWrites[0].dstSet          = m_System.m_GlobalDescriptorSet;
+        globalWrites[0].dstSet          = m_GlobalDescriptorSet;
         globalWrites[0].dstBinding      = 4;
         globalWrites[0].descriptorCount = 1;
         globalWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         globalWrites[0].pImageInfo      = &gtaoFinalInfo;
 
         globalWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        globalWrites[1].dstSet          = m_System.m_GlobalDescriptorSet;
+        globalWrites[1].dstSet          = m_GlobalDescriptorSet;
         globalWrites[1].dstBinding      = 5;
         globalWrites[1].descriptorCount = 1;
         globalWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2244,17 +2244,17 @@ namespace Luth
 
     void RenderPipeline::RegisterNamedTextures()
     {
-        m_System.m_NamedTextures.clear();
-        if (m_System.m_ShadowMap)      m_System.m_NamedTextures["ShadowMap"]      = m_System.m_ShadowMap;
-        if (m_System.m_Targets.GetSceneColor())    m_System.m_NamedTextures["SceneColor"]    = m_System.m_Targets.GetSceneColor();
-        if (m_System.m_Targets.GetSceneDepth())    m_System.m_NamedTextures["SceneDepth"]    = m_System.m_Targets.GetSceneDepth();
-        if (m_System.m_Targets.GetLDROutput())     m_System.m_NamedTextures["LDROutput"]     = m_System.m_Targets.GetLDROutput();
-        if (m_System.m_Targets.GetEntityIDBuffer())m_System.m_NamedTextures["EntityID"]     = m_System.m_Targets.GetEntityIDBuffer();
-        if (m_System.m_BloomA)        m_System.m_NamedTextures["BloomA"]        = m_System.m_BloomA;
-        if (m_System.m_BloomB)        m_System.m_NamedTextures["BloomB"]        = m_System.m_BloomB;
-        if (m_System.m_IrradianceMap) m_System.m_NamedTextures["IrradianceMap"] = m_System.m_IrradianceMap;
-        if (m_System.m_PrefilteredMap)m_System.m_NamedTextures["PrefilteredMap"]= m_System.m_PrefilteredMap;
-        if (m_System.m_BRDFLut)       m_System.m_NamedTextures["BRDF_LUT"]     = m_System.m_BRDFLut;
+        m_NamedTextures.clear();
+        if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
+        if (m_System.m_Targets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_Targets.GetSceneColor();
+        if (m_System.m_Targets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_Targets.GetSceneDepth();
+        if (m_System.m_Targets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_Targets.GetLDROutput();
+        if (m_System.m_Targets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_Targets.GetEntityIDBuffer();
+        if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
+        if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
+        if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
+        if (m_PrefilteredMap)m_NamedTextures["PrefilteredMap"]= m_PrefilteredMap;
+        if (m_BRDFLut)       m_NamedTextures["BRDF_LUT"]     = m_BRDFLut;
     }
 
     void RenderPipeline::UpdatePostProcessUBO()
@@ -2275,7 +2275,7 @@ namespace Luth
         ubo.shadowBalance       = m_System.m_PostProcessSettings.shadowBalance;
         ubo.midtoneBalance      = m_System.m_PostProcessSettings.midtoneBalance;
         ubo.highlightBalance    = m_System.m_PostProcessSettings.highlightBalance;
-        m_System.m_PostProcessUBOBuffer->SetData(&ubo, sizeof(PostProcessUBO));
+        m_PostProcessUBOBuffer->SetData(&ubo, sizeof(PostProcessUBO));
     }
 
     // =========================================================================
@@ -2284,12 +2284,12 @@ namespace Luth
 
     u32 RenderPipeline::EnsureMaterialRegistered(std::shared_ptr<Material> material)
     {
-        auto it = m_System.m_MaterialSlotMap.find(material->Handle);
-        if (it != m_System.m_MaterialSlotMap.end())
+        auto it = m_MaterialSlotMap.find(material->Handle);
+        if (it != m_MaterialSlotMap.end())
             return it->second;
 
         u32 slot = MaterialSystem::RegisterMaterial(material);
-        m_System.m_MaterialSlotMap[material->Handle] = slot;
+        m_MaterialSlotMap[material->Handle] = slot;
         return slot;
     }
 
@@ -2299,7 +2299,7 @@ namespace Luth
 
     void RenderPipeline::UpdateGTAOUBO()
     {
-        if (!m_System.m_GTAOUBOBuffer) return;
+        if (!m_GTAOUBOBuffer) return;
 
         const auto& s = m_System.m_PostProcessSettings.gtao;
         GTAOUBO ubo{};
@@ -2312,8 +2312,8 @@ namespace Luth
         ubo.enabled        = s.enabled  ? 1 : 0;
         ubo.visualize      = s.visualize ? 1 : 0;
 
-        const u32 halfW = m_System.m_GTAOLinearDepth ? m_System.m_GTAOLinearDepth->GetWidth()  : 1u;
-        const u32 halfH = m_System.m_GTAOLinearDepth ? m_System.m_GTAOLinearDepth->GetHeight() : 1u;
+        const u32 halfW = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetWidth()  : 1u;
+        const u32 halfH = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetHeight() : 1u;
         const u32 fullW = m_System.m_Targets.GetSceneColor() ? m_System.m_Targets.GetSceneColor()->GetWidth()  : 1u;
         const u32 fullH = m_System.m_Targets.GetSceneColor() ? m_System.m_Targets.GetSceneColor()->GetHeight() : 1u;
         ubo.invResolution[0]     = 1.0f / float(halfW);
@@ -2321,25 +2321,25 @@ namespace Luth
         ubo.invFullResolution[0] = 1.0f / float(fullW);
         ubo.invFullResolution[1] = 1.0f / float(fullH);
 
-        m_System.m_GTAOUBOBuffer->SetData(&ubo, sizeof(GTAOUBO));
+        m_GTAOUBOBuffer->SetData(&ubo, sizeof(GTAOUBO));
     }
 
     void RenderPipeline::BuildGPUObjectBuffer(entt::registry& registry)
     {
-        auto* objectData   = static_cast<GPUObjectData*>(m_System.m_ObjectSSBOMapped);
-        auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_System.m_IndirectBufferMapped);
+        auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
+        auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
         u32   count        = 0;
 
         // Rebuild entity lookup table here (consumed by GeometryPass + mouse picking)
         // index 0 = null sentinel; valid entities start at index 1
-        m_System.m_EntityLookup.clear();
-        m_System.m_EntityLookup.push_back(entt::null);
-        m_System.m_EntityToSSBOIndex.clear();
+        m_EntityLookup.clear();
+        m_EntityLookup.push_back(entt::null);
+        m_EntityToSSBOIndex.clear();
 
         auto view = registry.view<WorldTransform, MeshRenderer>();
         for (auto [entity, wt, mr] : view.each())
         {
-            if (count >= RenderingSystem::k_MaxGPUObjects) break;
+            if (count >= RenderPipeline::k_MaxGPUObjects) break;
             if (!mr.ModelUUID.IsValid()) continue;
 
             auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
@@ -2359,17 +2359,17 @@ namespace Luth
             // Material slot
             u32 matSlot = 0;
             if (mr.MaterialUUID.IsValid()) {
-                auto it = m_System.m_MaterialSlotMap.find(mr.MaterialUUID);
-                if (it != m_System.m_MaterialSlotMap.end()) matSlot = it->second;
+                auto it = m_MaterialSlotMap.find(mr.MaterialUUID);
+                if (it != m_MaterialSlotMap.end()) matSlot = it->second;
             }
             obj.materialIndex = matSlot;
             obj.shadeMode     = static_cast<u32>(m_System.m_ShadeMode);
-            // entityID is 1-indexed so the fragment shader output matches m_System.m_EntityLookup
-            obj.entityID      = (u32)m_System.m_EntityLookup.size();  // assigned before push_back
+            // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
+            obj.entityID      = (u32)m_EntityLookup.size();  // assigned before push_back
             obj.boneOffset    = 0;
 
-            m_System.m_EntityLookup.push_back(entity);      // m_System.m_EntityLookup[count + 1] = entity
-            m_System.m_EntityToSSBOIndex[entity] = count;   // entity → 0-based SSBO index
+            m_EntityLookup.push_back(entity);      // m_EntityLookup[count + 1] = entity
+            m_EntityToSSBOIndex[entity] = count;   // entity → 0-based SSBO index
 
             // Skinned mesh: get bone offset from Animation component on this entity
             if (meshesData[mr.MeshIndex].IsSkinned && registry.all_of<Animation>(entity))
@@ -2387,7 +2387,7 @@ namespace Luth
 
             // Indirect command — instanceCount=1; per-region GPU cull zeros it if culled.
             // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance]).
-            // Duplicate into all RenderingSystem::k_IndirectRegionCount regions (camera + 4 cascades) so each
+            // Duplicate into all RenderPipeline::k_IndirectRegionCount regions (camera + 4 cascades) so each
             // region has its own independently-cullable command for this object.
             VkDrawIndexedIndirectCommand baseCmd{};
             baseCmd.indexCount    = obj.indexCount;
@@ -2395,12 +2395,17 @@ namespace Luth
             baseCmd.firstIndex    = 0;
             baseCmd.vertexOffset  = 0;
             baseCmd.firstInstance = count;
-            for (u32 r = 0; r < RenderingSystem::k_IndirectRegionCount; ++r)
-                indirectCmds[r * RenderingSystem::k_IndirectRegionStride + count] = baseCmd;
+            for (u32 r = 0; r < RenderPipeline::k_IndirectRegionCount; ++r)
+                indirectCmds[r * RenderPipeline::k_IndirectRegionStride + count] = baseCmd;
             count++;
         }
 
-        m_System.m_GPUObjectCount = count;
+        m_GPUObjectCount = count;
+    }
+
+    void RenderPipeline::UploadLightUBO(const LightUniforms& lights)
+    {
+        m_LightUniformBuffer->SetData(&lights, sizeof(LightUniforms));
     }
 
     void RenderPipeline::UpdateGlobalUniforms()
@@ -2424,8 +2429,8 @@ namespace Luth
         ubo.debugVisualizeCascades = m_System.m_ShadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = m_System.m_ShadowParams.cascadeBlendWidth;
 
-        m_System.m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
-        m_System.m_CachedViewProj = ubo.viewProjection;
+        m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
+        m_CachedViewProj = ubo.viewProjection;
     }
 
     // =========================================================================
@@ -2434,8 +2439,8 @@ namespace Luth
 
     std::shared_ptr<Texture> RenderPipeline::GetNamedTexture(const std::string& name) const
     {
-        auto it = m_System.m_NamedTextures.find(name);
-        return (it != m_System.m_NamedTextures.end()) ? it->second : nullptr;
+        auto it = m_NamedTextures.find(name);
+        return (it != m_NamedTextures.end()) ? it->second : nullptr;
     }
 
     // =========================================================================
@@ -2450,7 +2455,7 @@ namespace Luth
         m_System.m_FrameDebugger.blitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
         m_System.m_FrameDebugger.depthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
 
-        if (m_System.m_FrameDebugger.blitFragSpv.empty() || m_System.m_FrameDebugger.depthFragSpv.empty() || m_System.m_FullscreenVertSpv.empty())
+        if (m_System.m_FrameDebugger.blitFragSpv.empty() || m_System.m_FrameDebugger.depthFragSpv.empty() || m_FullscreenVertSpv.empty())
         {
             LH_CORE_ERROR("Failed to compile debug blit shaders");
             return;
@@ -2507,7 +2512,7 @@ namespace Luth
         blitConfig.cullMode         = VK_CULL_MODE_NONE;
         blitConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
         m_System.m_FrameDebugger.blitPipeline = std::make_unique<VKPipeline>(
-            blitConfig, m_System.m_FullscreenVertSpv, m_System.m_FrameDebugger.blitFragSpv, layouts);
+            blitConfig, m_FullscreenVertSpv, m_System.m_FrameDebugger.blitFragSpv, layouts);
 
         // Create depth visualization pipeline
         PipelineConfig depthConfig;
@@ -2523,7 +2528,7 @@ namespace Luth
         depthConfig.pushConstantRanges = { depthPC };
 
         m_System.m_FrameDebugger.depthPipeline = std::make_unique<VKPipeline>(
-            depthConfig, m_System.m_FullscreenVertSpv, m_System.m_FrameDebugger.depthFragSpv, layouts);
+            depthConfig, m_FullscreenVertSpv, m_System.m_FrameDebugger.depthFragSpv, layouts);
     }
 
     RG::ResourceHandle RenderPipeline::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
@@ -2601,25 +2606,25 @@ namespace Luth
 
     void RenderPipeline::EnsurePerDrawPreviewTexture(u32 width, u32 height)
     {
-        if (m_System.m_PerDrawPreviewImage != VK_NULL_HANDLE
-            && m_System.m_PerDrawPreviewWidth == width
-            && m_System.m_PerDrawPreviewHeight == height) return;
+        if (m_PerDrawPreviewImage != VK_NULL_HANDLE
+            && m_PerDrawPreviewWidth == width
+            && m_PerDrawPreviewHeight == height) return;
 
         // Tear down any prior preview at a different size first. Deferred so
         // an in-flight ImGui frame can finish sampling the old view safely.
-        if (m_System.m_PerDrawPreviewImage != VK_NULL_HANDLE)
+        if (m_PerDrawPreviewImage != VK_NULL_HANDLE)
         {
-            VkImage       img   = m_System.m_PerDrawPreviewImage;
-            VkImageView   view  = m_System.m_PerDrawPreviewView;
-            VmaAllocation alloc = m_System.m_PerDrawPreviewAlloc;
+            VkImage       img   = m_PerDrawPreviewImage;
+            VkImageView   view  = m_PerDrawPreviewView;
+            VmaAllocation alloc = m_PerDrawPreviewAlloc;
             VulkanContext::Get().PushDeletion([img, view, alloc]() {
                 auto dev = VulkanContext::Get().GetDevice();
                 vkDestroyImageView(dev, view, nullptr);
                 VulkanAllocator::FreeImage(img, alloc);
             });
-            m_System.m_PerDrawPreviewImage = VK_NULL_HANDLE;
-            m_System.m_PerDrawPreviewView  = VK_NULL_HANDLE;
-            m_System.m_PerDrawPreviewAlloc = nullptr;
+            m_PerDrawPreviewImage = VK_NULL_HANDLE;
+            m_PerDrawPreviewView  = VK_NULL_HANDLE;
+            m_PerDrawPreviewAlloc = nullptr;
         }
 
         VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -2635,32 +2640,32 @@ namespace Luth
         ci.samples       = VK_SAMPLE_COUNT_1_BIT;
         ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
-        m_System.m_PerDrawPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_System.m_PerDrawPreviewImage);
+        m_PerDrawPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_PerDrawPreviewImage);
 
         VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        vci.image            = m_System.m_PerDrawPreviewImage;
+        vci.image            = m_PerDrawPreviewImage;
         vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
         vci.format           = ci.format;
         vci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_System.m_PerDrawPreviewView);
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_PerDrawPreviewView);
 
-        m_System.m_PerDrawPreviewWidth  = width;
-        m_System.m_PerDrawPreviewHeight = height;
-        m_System.m_PerDrawPreviewKey    = UINT64_MAX;  // dimensions changed → invalidate cache
+        m_PerDrawPreviewWidth  = width;
+        m_PerDrawPreviewHeight = height;
+        m_PerDrawPreviewKey    = UINT64_MAX;  // dimensions changed → invalidate cache
     }
 
     void RenderPipeline::DestroyPerDrawPreviewTexture()
     {
-        if (m_System.m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
         auto dev = VulkanContext::Get().GetDevice();
-        vkDestroyImageView(dev, m_System.m_PerDrawPreviewView, nullptr);
-        VulkanAllocator::FreeImage(m_System.m_PerDrawPreviewImage, m_System.m_PerDrawPreviewAlloc);
-        m_System.m_PerDrawPreviewImage  = VK_NULL_HANDLE;
-        m_System.m_PerDrawPreviewView   = VK_NULL_HANDLE;
-        m_System.m_PerDrawPreviewAlloc  = nullptr;
-        m_System.m_PerDrawPreviewWidth  = 0;
-        m_System.m_PerDrawPreviewHeight = 0;
-        m_System.m_PerDrawPreviewKey    = UINT64_MAX;
+        vkDestroyImageView(dev, m_PerDrawPreviewView, nullptr);
+        VulkanAllocator::FreeImage(m_PerDrawPreviewImage, m_PerDrawPreviewAlloc);
+        m_PerDrawPreviewImage  = VK_NULL_HANDLE;
+        m_PerDrawPreviewView   = VK_NULL_HANDLE;
+        m_PerDrawPreviewAlloc  = nullptr;
+        m_PerDrawPreviewWidth  = 0;
+        m_PerDrawPreviewHeight = 0;
+        m_PerDrawPreviewKey    = UINT64_MAX;
     }
 
     void RenderPipeline::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
@@ -2678,12 +2683,12 @@ namespace Luth
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
-        if (key == m_System.m_PerDrawPreviewKey) return;
+        if (key == m_PerDrawPreviewKey) return;
 
         const u32 width  = m_System.m_Targets.GetSceneColor()->GetWidth();
         const u32 height = m_System.m_Targets.GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
-        if (m_System.m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
         auto vkSceneColor = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
         auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
@@ -2780,9 +2785,9 @@ namespace Luth
             // ---- Phase 3: bind pipelines + descriptors, replay draws ----
             // Same descriptor sets as the live GeometryPass — the underlying
             // UBOs/SSBOs are byte-stable in Frozen state (no live writers).
-            auto* opaquePipeline = m_System.m_GeoPipelineManager.GetOrCreate(
+            auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                 pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back,
-                polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                polyMode, m_PBRVertSpv, m_PBRFragSpv);
             if (!opaquePipeline)
             {
                 DynamicRendering::EndRendering(cmd);
@@ -2792,8 +2797,8 @@ namespace Luth
 
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                m_System.m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
-                m_System.m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), m_System.m_ObjectSSBODescSet
+                m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
+                m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), m_ObjectSSBODescSet
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipelineLayout, 0, 6, sets, 0, nullptr);
@@ -2811,8 +2816,8 @@ namespace Luth
 
                 Material::CullMode currentCull = Material::CullMode::Back;
                 bool currentSkinned = false;
-                auto* pipeline = m_System.m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv, m_System.m_PBRFragSpv);
+                auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!pipeline) return;
                 pipeline->Bind(cmd);
 
@@ -2825,8 +2830,8 @@ namespace Luth
                         currentCull    = dc.cullMode;
                         currentSkinned = dc.isSkinned;
                         VKPipeline* newPipeline = currentSkinned
-                            ? m_System.m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_System.m_PBRSkinnedVertSpv, m_System.m_PBRFragSpv)
-                            : m_System.m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, m_System.m_PBRVertSpv,        m_System.m_PBRFragSpv);
+                            ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
+                            : m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv,        m_PBRFragSpv);
                         if (!newPipeline) continue;
                         newPipeline->Bind(cmd);
                     }
@@ -2846,7 +2851,7 @@ namespace Luth
                     // in Frozen state). gpuObjectIndex is also the firstInstance
                     // base — same as live GeometryPass.
                     VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, m_System.m_IndirectBuffer, indirectOffset, 1,
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     --drawsRemaining;
@@ -2884,7 +2889,7 @@ namespace Luth
             // (which we'd overwrite anyway).
             toCopy[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
             toCopy[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toCopy[1].image               = m_System.m_PerDrawPreviewImage;
+            toCopy[1].image               = m_PerDrawPreviewImage;
             toCopy[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             toCopy[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toCopy[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -2900,7 +2905,7 @@ namespace Luth
             copy.extent         = { width, height, 1 };
             vkCmdCopyImage(cmd,
                 sceneColorImg,         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                m_System.m_PerDrawPreviewImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                m_PerDrawPreviewImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 1, &copy);
 
             // ---- Phase 5: restore layouts for next consumer ----
@@ -2928,7 +2933,7 @@ namespace Luth
             fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
             fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            fin[1].image               = m_System.m_PerDrawPreviewImage;
+            fin[1].image               = m_PerDrawPreviewImage;
             fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -2939,7 +2944,7 @@ namespace Luth
             vkCmdPipelineBarrier2(cmd, &depFin);
         });
 
-        m_System.m_PerDrawPreviewKey = key;
+        m_PerDrawPreviewKey = key;
     }
 
     // =========================================================================
@@ -2948,23 +2953,23 @@ namespace Luth
 
     void RenderPipeline::EnsureDepthPreviewTexture(u32 width, u32 height)
     {
-        if (m_System.m_DepthPreviewImage != VK_NULL_HANDLE
-            && m_System.m_DepthPreviewWidth == width
-            && m_System.m_DepthPreviewHeight == height) return;
+        if (m_DepthPreviewImage != VK_NULL_HANDLE
+            && m_DepthPreviewWidth == width
+            && m_DepthPreviewHeight == height) return;
 
-        if (m_System.m_DepthPreviewImage != VK_NULL_HANDLE)
+        if (m_DepthPreviewImage != VK_NULL_HANDLE)
         {
-            VkImage       img   = m_System.m_DepthPreviewImage;
-            VkImageView   view  = m_System.m_DepthPreviewView;
-            VmaAllocation alloc = m_System.m_DepthPreviewAlloc;
+            VkImage       img   = m_DepthPreviewImage;
+            VkImageView   view  = m_DepthPreviewView;
+            VmaAllocation alloc = m_DepthPreviewAlloc;
             VulkanContext::Get().PushDeletion([img, view, alloc]() {
                 auto dev = VulkanContext::Get().GetDevice();
                 vkDestroyImageView(dev, view, nullptr);
                 VulkanAllocator::FreeImage(img, alloc);
             });
-            m_System.m_DepthPreviewImage = VK_NULL_HANDLE;
-            m_System.m_DepthPreviewView  = VK_NULL_HANDLE;
-            m_System.m_DepthPreviewAlloc = nullptr;
+            m_DepthPreviewImage = VK_NULL_HANDLE;
+            m_DepthPreviewView  = VK_NULL_HANDLE;
+            m_DepthPreviewAlloc = nullptr;
         }
 
         VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -2982,32 +2987,32 @@ namespace Luth
         ci.samples       = VK_SAMPLE_COUNT_1_BIT;
         ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
-        m_System.m_DepthPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_System.m_DepthPreviewImage);
+        m_DepthPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_DepthPreviewImage);
 
         VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        vci.image            = m_System.m_DepthPreviewImage;
+        vci.image            = m_DepthPreviewImage;
         vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
         vci.format           = ci.format;
         vci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_System.m_DepthPreviewView);
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_DepthPreviewView);
 
-        m_System.m_DepthPreviewWidth  = width;
-        m_System.m_DepthPreviewHeight = height;
-        m_System.m_DepthPreviewKey    = UINT64_MAX;
+        m_DepthPreviewWidth  = width;
+        m_DepthPreviewHeight = height;
+        m_DepthPreviewKey    = UINT64_MAX;
     }
 
     void RenderPipeline::DestroyDepthPreviewTexture()
     {
-        if (m_System.m_DepthPreviewImage == VK_NULL_HANDLE) return;
+        if (m_DepthPreviewImage == VK_NULL_HANDLE) return;
         auto dev = VulkanContext::Get().GetDevice();
-        vkDestroyImageView(dev, m_System.m_DepthPreviewView, nullptr);
-        VulkanAllocator::FreeImage(m_System.m_DepthPreviewImage, m_System.m_DepthPreviewAlloc);
-        m_System.m_DepthPreviewImage  = VK_NULL_HANDLE;
-        m_System.m_DepthPreviewView   = VK_NULL_HANDLE;
-        m_System.m_DepthPreviewAlloc  = nullptr;
-        m_System.m_DepthPreviewWidth  = 0;
-        m_System.m_DepthPreviewHeight = 0;
-        m_System.m_DepthPreviewKey    = UINT64_MAX;
+        vkDestroyImageView(dev, m_DepthPreviewView, nullptr);
+        VulkanAllocator::FreeImage(m_DepthPreviewImage, m_DepthPreviewAlloc);
+        m_DepthPreviewImage  = VK_NULL_HANDLE;
+        m_DepthPreviewView   = VK_NULL_HANDLE;
+        m_DepthPreviewAlloc  = nullptr;
+        m_DepthPreviewWidth  = 0;
+        m_DepthPreviewHeight = 0;
+        m_DepthPreviewKey    = UINT64_MAX;
     }
 
     void RenderPipeline::BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ)
@@ -3024,11 +3029,11 @@ namespace Luth
 
         // Cache short-circuit (use layer+1 in the low bits so layer == -1 maps to 0).
         const u64 key = ((u64)archiveIdx << 32) | (u64)((layer < 0 ? 0u : (u32)layer + 1u));
-        if (key == m_System.m_DepthPreviewKey && m_System.m_DepthPreviewImage != VK_NULL_HANDLE) return;
+        if (key == m_DepthPreviewKey && m_DepthPreviewImage != VK_NULL_HANDLE) return;
 
         // Preview matches archive dimensions so sampling = 1:1 texel mapping.
         EnsureDepthPreviewTexture(archive.width, archive.height);
-        if (m_System.m_DepthPreviewImage == VK_NULL_HANDLE) return;
+        if (m_DepthPreviewImage == VK_NULL_HANDLE) return;
 
         // Resolve the source view.
         //
@@ -3066,8 +3071,8 @@ namespace Luth
 
         const u32 width  = archive.width;
         const u32 height = archive.height;
-        VkImage     dstImg  = m_System.m_DepthPreviewImage;
-        VkImageView dstView = m_System.m_DepthPreviewView;
+        VkImage     dstImg  = m_DepthPreviewImage;
+        VkImageView dstView = m_DepthPreviewView;
 
         VulkanContext::Get().ImmediateSubmit([this, dstImg, dstView, width, height, nearZ, farZ](VkCommandBuffer cmd)
         {
@@ -3140,6 +3145,6 @@ namespace Luth
             vkCmdPipelineBarrier2(cmd, &depFin);
         });
 
-        m_System.m_DepthPreviewKey = key;
+        m_DepthPreviewKey = key;
     }
 }
