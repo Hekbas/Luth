@@ -2310,6 +2310,11 @@ namespace Luth
             // Build GPU object buffer (after materials are registered)
             BuildGPUObjectBuffer(registry);
 
+            // Partition entities into opaque/cutout/transparent draw buckets.
+            // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
+            // reference the freshly populated indirect buffer.
+            m_DrawListBuilder.Build(registry, m_MaterialSlotMap, m_EntityToSSBOIndex, m_DrawList);
+
             RG::RenderGraph rg(*m_FrameAllocator);
 
             // Import persistent buffers into render graph for barrier tracking
@@ -2619,8 +2624,8 @@ namespace Luth
             snapshot.passes.push_back(std::move(ps));
         }
 
-        // Compute geometry stats from draw command vectors (from previous frame's recording)
-        u32 totalDraws = (u32)(m_OpaqueDraws.size() + m_CutoutDraws.size() + m_TransparentDraws.size());
+        // Compute geometry stats from the current DrawList (built before pass dispatch)
+        u32 totalDraws = (u32)(m_DrawList.opaque.size() + m_DrawList.cutout.size() + m_DrawList.transparent.size());
         u32 totalIndices = 0;
         auto sumIndices = [&](const std::vector<DrawCommand>& draws) {
             for (auto& dc : draws)
@@ -2631,9 +2636,9 @@ namespace Luth
                     totalIndices += mesh->GetIndexBuffer()->GetCount();
             }
         };
-        sumIndices(m_OpaqueDraws);
-        sumIndices(m_CutoutDraws);
-        sumIndices(m_TransparentDraws);
+        sumIndices(m_DrawList.opaque);
+        sumIndices(m_DrawList.cutout);
+        sumIndices(m_DrawList.transparent);
 
         // Enrich per-pass pipeline state (known at RenderingSystem level, not RenderGraph)
         for (auto& ps : snapshot.passes)
@@ -3257,9 +3262,9 @@ namespace Luth
                 }
             };
 
-            ReplayBatch(m_OpaqueDraws,      Material::RenderMode::Opaque);
-            ReplayBatch(m_CutoutDraws,      Material::RenderMode::Cutout);
-            ReplayBatch(m_TransparentDraws, Material::RenderMode::Transparent);
+            ReplayBatch(m_DrawList.opaque,      Material::RenderMode::Opaque);
+            ReplayBatch(m_DrawList.cutout,      Material::RenderMode::Cutout);
+            ReplayBatch(m_DrawList.transparent, Material::RenderMode::Transparent);
 
             DynamicRendering::EndRendering(cmd);
 

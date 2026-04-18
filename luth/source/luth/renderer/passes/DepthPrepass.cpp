@@ -96,39 +96,19 @@ namespace Luth
 
                 bool currentSkinned = false;
 
-                auto view = registry.view<WorldTransform, MeshRenderer>();
-                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                // Opaque-only: cutouts and transparents write their depth in
+                // GeometryPass (LESS_EQUAL, so opaque depth written here wins).
+                for (const auto& dc : m_DrawList.opaque)
                 {
-                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
-                    if (!model) continue;
-                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
-                    if (!mesh) continue;
-
-                    // Opaque-only: skip cutout/transparent. They shade in GeometryPass.
-                    Material::RenderMode mode = Material::RenderMode::Opaque;
-                    if (meshRenderer.MaterialUUID.IsValid())
-                    {
-                        auto material = AssetManager::GetAsset<Material>(meshRenderer.MaterialUUID);
-                        if (material) mode = material->GetRenderMode();
-                    }
-                    if (mode != Material::RenderMode::Opaque) continue;
-
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
 
-                    auto it = m_EntityToSSBOIndex.find(entity);
-                    if (it == m_EntityToSSBOIndex.end()) continue;
-                    u32 gpuObjectIndex = it->second;
-
-                    bool isSkinned = false;
-                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
-                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
-
-                    if (isSkinned != currentSkinned)
+                    if (dc.isSkinned != currentSkinned)
                     {
-                        currentSkinned = isSkinned;
-                        if (isSkinned && m_DepthPrepassSkinnedPipeline)
+                        currentSkinned = dc.isSkinned;
+                        if (currentSkinned && m_DepthPrepassSkinnedPipeline)
                         {
                             m_DepthPrepassSkinnedPipeline->Bind(cmd);
                             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -148,20 +128,20 @@ namespace Luth
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                     // Camera region of the indirect buffer (region 0).
-                    VkDeviceSize indirectOffset = gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
                     {
-                        std::string entName = registry.any_of<Component::Tag>(entity)
-                            ? registry.get<Component::Tag>(entity).Value : "Entity";
-                        u32 entityIndex = gpuObjectIndex + 1;
+                        std::string entName = "Entity";
+                        if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
+                            entName = registry.get<Component::Tag>(dc.entity).Value;
                         m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
-                            model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
-                            entName, entityIndex, ib->GetCount(), gpuObjectIndex, indirectOffset,
+                            dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                            entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                             { "depthPrepass", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
-                              VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
+                              VK_POLYGON_MODE_FILL, dc.isSkinned, true, true, false });
                     }
                 }
 

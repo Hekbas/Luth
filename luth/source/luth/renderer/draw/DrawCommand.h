@@ -4,6 +4,7 @@
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 
+#include <entt/entt.hpp>
 #include <glm/glm.hpp>
 #include <memory>
 
@@ -15,6 +16,7 @@ namespace Luth
         std::shared_ptr<Model> model;
         u32 meshIndex;
         u32 entityIndex = 0;
+        entt::entity entity = entt::null;
         Material::CullMode cullMode = Material::CullMode::Back;
         bool isSkinned = false;
         u32 boneOffset = 0;

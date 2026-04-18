@@ -114,76 +114,68 @@ namespace Luth
 
                 bool currentSkinned = false;
 
-                auto view = registry.view<WorldTransform, MeshRenderer>();
-                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                auto DrawBatch = [&](const std::vector<DrawCommand>& draws)
                 {
-                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
-                    if (!model) continue;
-                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
-                    if (!mesh) continue;
-
-                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
-                    auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
-                    if (!vb || !ib) continue;
-
-                    // Look up SSBO index for this entity
-                    auto it = m_EntityToSSBOIndex.find(entity);
-                    if (it == m_EntityToSSBOIndex.end()) continue;
-                    u32 gpuObjectIndex = it->second;
-
-                    // Per-mesh skinning flag
-                    bool isSkinned = false;
-                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
-                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
-
-                    // Switch pipeline if skinned state changed
-                    if (isSkinned != currentSkinned)
+                    for (const auto& dc : draws)
                     {
-                        currentSkinned = isSkinned;
-                        if (isSkinned && m_ShadowSkinnedPipeline)
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                        if (!vb || !ib) continue;
+
+                        // Switch pipeline if skinned state changed
+                        if (dc.isSkinned != currentSkinned)
                         {
-                            m_ShadowSkinnedPipeline->Bind(cmd);
-                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
-                            vkCmdPushConstants(cmd, m_ShadowSkinnedPipeline->GetLayout(),
-                                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
+                            currentSkinned = dc.isSkinned;
+                            if (currentSkinned && m_ShadowSkinnedPipeline)
+                            {
+                                m_ShadowSkinnedPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_ShadowSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                vkCmdPushConstants(cmd, m_ShadowSkinnedPipeline->GetLayout(),
+                                    VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
+                            }
+                            else
+                            {
+                                m_ShadowPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                                vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
+                                    VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
+                            }
                         }
-                        else
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                        // Indirect draw — per-cascade cull region writes independent instanceCount values,
+                        // so shadow casters outside the camera frustum but inside the cascade still render.
+                        // Region layout: [camera | C0 | C1 | C2 | C3], each of size k_IndirectRegionStride.
+                        const u32 cmdIndex = (data.cascadeIndex + 1) * k_IndirectRegionStride + dc.gpuObjectIndex;
+                        VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                            sizeof(VkDrawIndexedIndirectCommand));
+
+                        if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
                         {
-                            m_ShadowPipeline->Bind(cmd);
-                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_ShadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
-                            vkCmdPushConstants(cmd, m_ShadowPipeline->GetLayout(),
-                                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascadeIdxVal);
+                            std::string entName = "Entity";
+                            if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
+                                entName = registry.get<Component::Tag>(dc.entity).Value;
+                            m_FrameDebugger.CaptureIndirectDraw(passName,
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
+                                { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
+                                  VK_POLYGON_MODE_FILL, dc.isSkinned, true, true, false });
                         }
                     }
+                };
 
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
-                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-                    // Indirect draw — per-cascade cull region writes independent instanceCount values,
-                    // so shadow casters outside the camera frustum but inside the cascade still render.
-                    // Region layout: [camera | C0 | C1 | C2 | C3], each of size k_IndirectRegionStride.
-                    const u32 cmdIndex = (data.cascadeIndex + 1) * k_IndirectRegionStride + gpuObjectIndex;
-                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
-                        sizeof(VkDrawIndexedIndirectCommand));
-
-                    // Capture for frame debugger
-                    if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
-                    {
-                        std::string entName = registry.any_of<Component::Tag>(entity)
-                            ? registry.get<Component::Tag>(entity).Value : "Entity";
-                        u32 entityIndex = gpuObjectIndex + 1;
-                        m_FrameDebugger.CaptureIndirectDraw(passName,
-                            model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
-                            entName, entityIndex, ib->GetCount(), gpuObjectIndex, indirectOffset,
-                            { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
-                              VK_POLYGON_MODE_FILL, isSkinned, true, true, false });
-                    }
-                }
+                // Shadow casters = all visible geometry (opaque + cutout + transparent).
+                DrawBatch(m_DrawList.opaque);
+                DrawBatch(m_DrawList.cutout);
+                DrawBatch(m_DrawList.transparent);
 
                 m_FrameDebugger.EndCapturePass();
             }

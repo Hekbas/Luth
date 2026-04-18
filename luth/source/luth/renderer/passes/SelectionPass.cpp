@@ -122,81 +122,58 @@ namespace Luth
 
                 bool currentSkinned = false;
 
-                auto view = registry.view<WorldTransform, MeshRenderer>();
-                for (auto [entity, worldTransform, meshRenderer] : view.each())
+                auto DrawBatch = [&](const std::vector<DrawCommand>& draws)
                 {
-                    // Only draw selected entities
-                    if (selectedSet.find(entity) == selectedSet.end()) continue;
-
-                    auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID);
-                    if (!model) continue;
-                    auto mesh = model->GetMesh(meshRenderer.MeshIndex);
-                    if (!mesh) continue;
-
-                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
-                    auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
-                    if (!vb || !ib) continue;
-
-                    // Check per-mesh skinning
-                    bool isSkinned = false;
-                    u32 boneOffset = 0;
-                    if (meshRenderer.MeshIndex < model->GetMeshesData().size())
-                        isSkinned = model->GetMeshesData()[meshRenderer.MeshIndex].IsSkinned;
-
-                    if (isSkinned)
+                    for (const auto& dc : draws)
                     {
-                        entt::entity animEntity = entt::null;
-                        if (registry.any_of<Component::Animation>(entity))
-                            animEntity = entity;
-                        else if (registry.any_of<Component::Parent>(entity)) {
-                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).Value;
-                            if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
-                                animEntity = parentEnt;
-                        }
-                        if (animEntity != entt::null) {
-                            auto& anim = registry.get<Component::Animation>(animEntity);
-                            if (anim.BufferAllocated)
-                                boneOffset = anim.BoneBufferOffset;
-                        }
-                    }
+                        if (selectedSet.find(dc.entity) == selectedSet.end()) continue;
 
-                    // Switch pipeline if skinned state changed
-                    if (isSkinned != currentSkinned)
-                    {
-                        currentSkinned = isSkinned;
-                        if (isSkinned && m_SelectionMaskSkinnedPipeline)
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                        if (!vb || !ib) continue;
+
+                        if (dc.isSkinned != currentSkinned)
                         {
-                            m_SelectionMaskSkinnedPipeline->Bind(cmd);
-                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                            currentSkinned = dc.isSkinned;
+                            if (currentSkinned && m_SelectionMaskSkinnedPipeline)
+                            {
+                                m_SelectionMaskSkinnedPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_SelectionMaskSkinnedPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                            }
+                            else
+                            {
+                                m_SelectionMaskPipeline->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                            }
                         }
-                        else
-                        {
-                            m_SelectionMaskPipeline->Bind(cmd);
-                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
-                        }
+
+                        VkPipelineLayout activeLayout = (currentSkinned && m_SelectionMaskSkinnedPipeline)
+                            ? m_SelectionMaskSkinnedPipeline->GetLayout()
+                            : m_SelectionMaskPipeline->GetLayout();
+
+                        ObjectPushConstants pc{};
+                        pc.modelMatrix   = dc.modelMatrix;
+                        pc.materialIndex = 0;
+                        pc.boneOffset    = dc.boneOffset;
+
+                        vkCmdPushConstants(cmd, activeLayout,
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                            0, sizeof(ObjectPushConstants), &pc);
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
                     }
+                };
 
-                    VkPipelineLayout activeLayout = (currentSkinned && m_SelectionMaskSkinnedPipeline)
-                        ? m_SelectionMaskSkinnedPipeline->GetLayout()
-                        : m_SelectionMaskPipeline->GetLayout();
-
-                    ObjectPushConstants pc{};
-                    pc.modelMatrix   = worldTransform.Matrix;
-                    pc.materialIndex = 0;
-                    pc.boneOffset    = boneOffset;
-
-                    vkCmdPushConstants(cmd, activeLayout,
-                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, sizeof(ObjectPushConstants), &pc);
-
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
-                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
-                }
+                DrawBatch(m_DrawList.opaque);
+                DrawBatch(m_DrawList.cutout);
+                DrawBatch(m_DrawList.transparent);
 
                 m_FrameDebugger.EndCapturePass();
             }

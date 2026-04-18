@@ -4,8 +4,10 @@
 #include "luth/scene/Entity.h"
 #include "luth/memory/Memory.h"
 #include "luth/renderer/CameraParams.h"
+#include "luth/renderer/DrawListBuilder.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/FrameTargets.h"
+#include "luth/renderer/draw/DrawList.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -87,7 +89,7 @@ namespace Luth
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
         std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
 
-        u32 GetTriangleCount() const { return m_VisibleTriCount; }
+        u32 GetTriangleCount() const { return m_DrawList.visibleTriCount; }
 
         ShadeMode GetShadeMode() const { return m_ShadeMode; }
         void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
@@ -362,10 +364,11 @@ namespace Luth
         // Cached view-projection (for frustum extraction — populated in UpdateGlobalUniforms)
         glm::mat4 m_CachedViewProj = glm::mat4(1.0f);
 
-        // Draw command buffers (reused across frames to avoid per-frame heap allocation)
-        std::vector<DrawCommand> m_OpaqueDraws;
-        std::vector<DrawCommand> m_CutoutDraws;
-        std::vector<DrawCommand> m_TransparentDraws;
+        // Per-frame draw list (RenderMode-sorted opaque/cutout/transparent buckets +
+        // tri-count summary). Built by m_DrawListBuilder before pass dispatch; vectors
+        // are reused across frames (Clear() just resets sizes).
+        DrawListBuilder m_DrawListBuilder;
+        DrawList        m_DrawList;
 
         // Post-process settings & UBO
         PostProcessSettings m_PostProcessSettings;
@@ -441,8 +444,7 @@ namespace Luth
 
         void RecompileUtilityShaders();
 
-        // Stats
-        u32 m_VisibleTriCount = 0;
+        // Stats (tri count lives on m_DrawList.visibleTriCount)
         ShadeMode m_ShadeMode = ShadeMode::Lit;
 
         // Mouse picking state
