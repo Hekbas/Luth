@@ -27,6 +27,12 @@ Temp/
 *imgui.ini
 *.log
 
+# Editor persisted state (per-user, not shippable)
+editor_settings.json
+
+# Pipeline / asset caches (rebuilt on demand)
+samples/cache/
+
 # OS
 .DS_Store
 Thumbs.db
