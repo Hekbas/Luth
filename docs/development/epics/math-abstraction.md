@@ -254,6 +254,6 @@ After each pass, rebuild and re-grep to catch missed patterns.
 | C: Pass A (engine) — types | done | 9c6f2b9 | 2026-04-18 |
 | D: Pass A (editor) — types | done | 430beca | 2026-04-18 |
 | E: Pass B (engine) — functions | done | fc55bd8 | 2026-04-18 |
-| F: Pass B (editor) — functions | pending | — | — |
+| F: Pass B (editor) — functions | done | c9188f3 | 2026-04-18 |
 | G: Purge direct glm includes | pending | — | — |
 | H: Wrap-up + v2.2.0 | pending | — | — |

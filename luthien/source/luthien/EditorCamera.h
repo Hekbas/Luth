@@ -2,8 +2,6 @@
 
 #include "luth/scene/Entity.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
 
 namespace Luth
 {

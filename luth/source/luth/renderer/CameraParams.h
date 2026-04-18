@@ -2,7 +2,6 @@
 
 #include "luth/scene/Entity.h"
 
-#include <glm/glm.hpp>
 #include <vector>
 
 namespace Luth

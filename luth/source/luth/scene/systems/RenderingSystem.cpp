@@ -27,7 +27,6 @@
 #include "luth/renderer/backend/vulkan/DynamicRendering.h"
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
-#include <glm/gtc/matrix_transform.hpp>
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth

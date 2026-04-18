@@ -4,7 +4,6 @@
 #include "luth/renderer/CameraParams.h"
 #include "luth/renderer/lighting/LightTypes.h"
 
-#include <glm/glm.hpp>
 
 namespace Luth
 {

@@ -5,7 +5,6 @@
 #include "luth/renderer/resources/Model.h"
 
 #include <entt/entt.hpp>
-#include <glm/glm.hpp>
 #include <memory>
 
 namespace Luth

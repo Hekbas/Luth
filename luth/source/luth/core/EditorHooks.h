@@ -3,7 +3,6 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/scene/Entity.h"
 
-#include <glm/glm.hpp>
 #include <filesystem>
 #include <memory>
 #include <string>

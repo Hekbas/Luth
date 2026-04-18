@@ -5,7 +5,6 @@
 #include "luth/renderer/rendergraph/ArchivedImage.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"
 
-#include <glm/glm.hpp>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>

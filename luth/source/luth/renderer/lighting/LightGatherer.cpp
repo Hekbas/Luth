@@ -2,7 +2,6 @@
 #include "luth/renderer/lighting/LightGatherer.h"
 #include "luth/scene/Components.h"
 
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace Luth
 {

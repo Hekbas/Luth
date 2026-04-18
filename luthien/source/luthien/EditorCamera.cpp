@@ -3,7 +3,6 @@
 #include "luthien/EditorSettings.h"
 #include "luth/scene/Components.h"
 
-#include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 
 namespace Luth

@@ -97,14 +97,12 @@ namespace Luth
 
     // =============================================
     //           Custom Formatters (Logging)
-    // =============================================   
-    // Format glm::vec3
-    inline std::ostream& operator<<(std::ostream& os, const glm::vec3& v) {
+    // =============================================
+    inline std::ostream& operator<<(std::ostream& os, const Vec3& v) {
         return os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
     }
 
-    // Format glm::mat4
-    inline std::ostream& operator<<(std::ostream& os, const glm::mat4& m) {
+    inline std::ostream& operator<<(std::ostream& os, const Mat4& m) {
         for (int i = 0; i < 4; ++i) {
             os << "\n| ";
             for (int j = 0; j < 4; ++j)

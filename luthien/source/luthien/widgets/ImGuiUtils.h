@@ -3,7 +3,6 @@
 #include "luth/core/Log.h"
 
 #include <functional>
-#include <glm/glm.hpp>
 #include <imgui.h>
 
 namespace Luth

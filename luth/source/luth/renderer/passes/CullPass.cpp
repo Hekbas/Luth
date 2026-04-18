@@ -2,7 +2,6 @@
 #include "CullPass.h"
 #include "luth/renderer/FrameDebugger.h"
 
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace Luth

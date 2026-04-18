@@ -5,7 +5,6 @@
 #include "luth/core/LuthTypes.h"
 
 #include <array>
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace Luth

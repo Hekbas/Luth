@@ -1,7 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/lighting/CascadeBuilder.h"
 
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cmath>

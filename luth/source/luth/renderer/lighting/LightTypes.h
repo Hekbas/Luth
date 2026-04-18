@@ -2,7 +2,6 @@
 
 #include "luth/core/LuthTypes.h"
 
-#include <glm/glm.hpp>
 
 namespace Luth
 {

@@ -27,7 +27,6 @@
 #include "luth/scene/Components.h"
 #include "luth/scene/Scene.h"
 
-#include <glm/gtc/matrix_transform.hpp>
 #include <vma/vk_mem_alloc.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>

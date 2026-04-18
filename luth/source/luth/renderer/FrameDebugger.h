@@ -6,7 +6,6 @@
 #include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <string>

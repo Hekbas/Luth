@@ -19,7 +19,6 @@
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include <backends/imgui_impl_vulkan.h>
-#include <glm/gtc/type_ptr.hpp>
 #include <ImGuizmo.h>
 
 namespace Luth

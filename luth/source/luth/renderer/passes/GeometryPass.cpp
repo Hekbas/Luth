@@ -16,7 +16,6 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
-#include <glm/gtc/matrix_transform.hpp>
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth

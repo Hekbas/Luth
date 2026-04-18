@@ -8,7 +8,6 @@
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 
 #include <cmath>
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace Luth

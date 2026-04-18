@@ -6,7 +6,6 @@
 #include "luth/renderer/resources/Texture.h"
 
 #include <string>
-#include <glm/glm.hpp>
 #include <imgui.h>
 #include <functional>
 

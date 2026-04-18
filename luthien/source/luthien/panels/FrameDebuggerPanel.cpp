@@ -6,8 +6,6 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 #include <vulkan/vulkan.h>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 #include <backends/imgui_impl_vulkan.h>
 
 namespace Luth
