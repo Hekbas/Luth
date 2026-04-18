@@ -36,7 +36,7 @@
 | v1.7.0 | `arch-renderer-split` | RenderingSystem god-class dissolved (3 500→350 LOC, −90%): FrameTargets, DrawListBuilder, LightGatherer, CascadeBuilder extracted; RenderPipeline owns graph assembly + all graphics resources (pipelines, descriptor sets, SPIR-V, UBOs/SSBOs, IBL maps, bloom textures, GPU timers, preview textures, named-texture registry); RS retains ECS-glue state only (CameraParams, ShadowParams, Cascades, FrameTargets, FrameDebugger, editor toggles); animation/ module consolidates AnimationClip + Skeleton + BoneMatrixBuffer + AnimationController | 2026-04-18 |
 | v2.0.0 | `arch-target-split` | Editor extracted from Luth.lib into new Luthien.lib (~12 k LOC moved to luthien/source/luthien/); luthien/ exe folder renamed to runtime/; IEditorHooks interface breaks engine→editor include dependency (App/Input/Luth.h route through nullptr-safe hook registry populated by LuthienApp::CreateApp); EditorViewportState snapshot replaces per-getter dispatch for camera/IBL/selection; Sandbox.exe descoped (structural guarantee enforced by `git grep luth/source luthien/\|Luthien` = zero); new lepch.h editor PCH; VS project-name split (Runtime project, targetname Luthien) | 2026-04-18 |
 
-> Detailed writeups in [`history/v1.x/`](history/v1.x/) — one file per epic slug.
+> Detailed writeups in [`history/`](history/) — `v1.x/` and `v2.x/` subfolders, one file per epic slug.
 
 ---
 
