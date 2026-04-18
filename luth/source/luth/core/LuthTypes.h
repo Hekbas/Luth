@@ -1,11 +1,11 @@
 ﻿#pragma once
 
 #include <cstdint>
-#include <limits>
 #include <type_traits>
 #include <filesystem>
 #include <spdlog/fmt/ostr.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace Luth
 {
@@ -39,20 +39,19 @@ namespace Luth
     using Vec3 = glm::vec3;
     using Vec4 = glm::vec4;
 
+    using IVec2 = glm::ivec2;
+    using IVec3 = glm::ivec3;
+    using IVec4 = glm::ivec4;
+
+    using UVec2 = glm::uvec2;
+    using UVec3 = glm::uvec3;
+    using UVec4 = glm::uvec4;
+
+    using Mat2 = glm::mat2;
     using Mat3 = glm::mat3;
     using Mat4 = glm::mat4;
 
     using Quat = glm::quat;
-
-    // =============================================
-    //              Math Constants
-    // =============================================
-    constexpr f32 PI = 3.14159265358979323846f;
-    constexpr f32 TWO_PI = 2.0f * PI;
-    constexpr f32 HALF_PI = 0.5f * PI;
-    constexpr f32 EPSILON = std::numeric_limits<f32>::epsilon();
-    constexpr f32 FLOAT_MAX = std::numeric_limits<f32>::max();
-    constexpr f32 FLOAT_MIN = std::numeric_limits<f32>::min();
 
     // =============================================
     //              Type Traits
@@ -84,9 +83,17 @@ namespace Luth
     // =============================================
     //          Static Assertions (Safety)
     // =============================================
-    static_assert(sizeof(Luth::i32) == 4, "i32 must be 4 bytes!");
-    static_assert(sizeof(Luth::f32) == 4, "f32 must be 4 bytes!");
-    static_assert(sizeof(Luth::Vec3) == 12, "Vec3 must be 12 bytes!");
+    static_assert(sizeof(Luth::i32)   == 4,  "i32 must be 4 bytes!");
+    static_assert(sizeof(Luth::f32)   == 4,  "f32 must be 4 bytes!");
+    static_assert(sizeof(Luth::Vec2)  == 8,  "Vec2 must be 8 bytes!");
+    static_assert(sizeof(Luth::Vec3)  == 12, "Vec3 must be 12 bytes!");
+    static_assert(sizeof(Luth::Vec4)  == 16, "Vec4 must be 16 bytes!");
+    static_assert(sizeof(Luth::IVec2) == 8,  "IVec2 must be 8 bytes!");
+    static_assert(sizeof(Luth::IVec4) == 16, "IVec4 must be 16 bytes!");
+    static_assert(sizeof(Luth::UVec2) == 8,  "UVec2 must be 8 bytes!");
+    static_assert(sizeof(Luth::Mat3)  == 36, "Mat3 must be 36 bytes!");
+    static_assert(sizeof(Luth::Mat4)  == 64, "Mat4 must be 64 bytes!");
+    static_assert(sizeof(Luth::Quat)  == 16, "Quat must be 16 bytes!");
 
     // =============================================
     //           Custom Formatters (Logging)
