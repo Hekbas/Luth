@@ -20,46 +20,85 @@
 
 ---
 
+## Build Targets
+
+Since `arch-target-split` (v2.0.0) the engine and editor are separate static libs:
+
+| Target | Kind | Links | Contents |
+|--------|------|-------|----------|
+| `Luth.lib`    | StaticLib  | —             | Engine only — no ImGui panels, no editor classes |
+| `Luthien.lib` | StaticLib  | Luth          | Editor — panels, inspectors, commands, style, widgets, `LuthienEditorHooks` impl |
+| `Luthien.exe` | ConsoleApp | Luth, Luthien | Thin runtime at `runtime/` — `LuthienApp` subclass; `CreateApp()` installs editor hooks before app ctor |
+
+Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` interface in `luth/core/EditorHooks.h`. A runtime-only host can link `Luth.lib` alone; every engine-side hook call short-circuits when the registry is empty.
+
 ## System Hierarchy
 
 ```text
-[Luth Engine]
+[Luth Engine — Luth.lib]
  │
  ├── [Core]
  │    ├── JobSystem .............. N:M Fiber Scheduler (FLS, Chase-Lev, MPMC)
  │    ├── Memory ................. TaggedPageAllocator + LinearAllocator
  │    ├── FrameData .............. Triple-buffered FrameContext
  │    ├── IOThread ............... Dedicated OS thread for disk I/O
- │    ├── EventBus ............... Deferred queue-swap dispatch
  │    ├── ProjectFile ............ .luthproj loader/saver, CLI discovery
+ │    ├── EditorHooks ............ IEditorHooks interface + Register/Get (engine → editor decoupling)
  │    └── App .................... Two-phase init: Engine boot → Project load
  │
+ ├── [Events]
+ │    └── EventBus ............... Deferred queue-swap dispatch (AppEvent, KeyEvent, MouseEvent, RenderEvent, FileDropEvent)
+ │
+ ├── [Platform]
+ │    ├── Window / WinWindow ..... GLFW window + Win32 dark-mode title bar
+ │    ├── Input .................. Keyboard/mouse state (queries editor capture via EditorHooks)
+ │    └── FileDialog ............. Native open/save dialogs
+ │
  ├── [Renderer (Vulkan 1.3)]
- │    ├── RenderGraph ............ DAG Compile → Barrier Inject → Execute
+ │    ├── RenderGraph ............ DAG compile → barrier inject → execute
+ │    ├── RenderPipeline ......... Graph assembly + all graphics resources (descriptor sets, SPIR-V, UBOs/SSBOs, IBL maps, bloom textures, GPU timers)
+ │    ├── FrameTargets ........... SceneColor / SceneDepth / EntityID / LDROutput / Selection {mask,depth}
+ │    ├── DrawListBuilder ........ ECS walk → opaque/cutout/transparent buckets
  │    ├── Backend ................ VulkanContext, VulkanBackend, Timeline Semaphores
- │    ├── Passes ................. 9 extracted pass files (Shadow, Geometry, Skybox, Bloom, PostProcess, Selection, Outline, Grid, ImGui)
+ │    ├── passes/ ................ Shadow, DepthPrepass, AO (GTAO), Cull, Geometry, Selection, Skybox, Grid, Bloom, PostProcess, Outline, ImGui
+ │    ├── lighting/ .............. LightGatherer, CascadeBuilder, IBLPrecompute, LightTypes
+ │    ├── resources/ ............. Texture, Mesh, Model, Buffer
+ │    ├── material/ .............. Material, MaterialSystem
+ │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary
+ │    ├── pipeline/ .............. PipelineManager
+ │    ├── settings/ .............. GTAOSettings, PostProcessSettings
+ │    ├── draw/ .................. DrawCommand
  │    ├── FrameDebugger .......... Capture state machine, per-draw scrubbing, debug blit
- │    ├── IBLPrecompute .......... Equirect→cubemap, irradiance, prefiltered env, BRDF LUT
- │    ├── Material/Shader/Texture/Buffer/Mesh
- │    └── Renderer ............... High-level BeginFrame/EndFrame
+ │    └── Renderer ............... High-level BeginFrame/EndFrame façade
+ │
+ ├── [Animation]  ← consolidated module since arch-renderer-split v1.7.0
+ │    ├── AnimationClip, Skeleton
+ │    ├── BoneMatrixBuffer ....... Per-entity bone block SSBO (Set 4)
+ │    └── AnimationController .... Blend layers, crossfade, bone masks, root motion
  │
  ├── [Scene / ECS]
- │    ├── Scene, Entity, Components (EnTT)
- │    └── Systems (Transform, Camera, Rendering, Animation)
+ │    ├── Scene, Entity
+ │    ├── components/ ............ Granular headers (Common, Transform, Camera, Rendering, Lights, Animation); Components.h umbrella preserved
+ │    └── SystemRegistry ......... vector<unique_ptr<ISystem>>, Update<T>() dispatch
+ │         ├── TransformSystem ... Parallel level-based hierarchy propagation
+ │         ├── AnimationSystem ... Fiber-parallel keyframe sampling, GPU skinning
+ │         └── RenderingSystem ... ~350-LOC ECS glue (owns FrameTargets, CameraParams, ShadowParams, FrameDebugger); graph assembly on RenderPipeline
  │
- ├── [Asset Pipeline]
- │    ├── AssetDatabase .......... Two-phase: InitEngine() → LoadProject()
- │    ├── AssetManager ........... Async loading, GPU upload queue, GC
- │    ├── Importers (Model, Texture, Shader, Material)
- │    └── FileSystem ............. Dual-root: engine assets + project assets
+ └── [Asset Pipeline (resources/)]
+      ├── AssetDatabase .......... Two-phase: InitEngine() → LoadProject()
+      ├── AssetManager ........... Async loading, GPU upload queue, GC
+      ├── Importers (Model, Texture, Shader, Material)
+      └── FileSystem ............. Dual-root: engine assets + project assets
+
+[Luthien Editor — Luthien.lib, at luthien/source/luthien/]  (details: arch/editor.md)
  │
- └── [Editor]
-      ├── Editor, UI, EditorSelection
-      ├── EditorCamera ........... Extracted from ScenePanel (orbit/fly, input, frustum)
-      ├── commands/ .............. Undo/redo: ICommand, EntityCommands, ComponentCommands, AssetCommands, ComponentPropertyCommand
-      ├── CommandHistory ......... Execute/Undo/Redo stacks, compound recording
-      ├── ProjectLauncher ........ Startup project selector, recent projects
-      └── Panels (Scene, Hierarchy, Inspector, Project, Render, FrameDebugger, History)
+ ├── Editor, UI, EditorSelection, EditorCamera, EditorSettings, EditorStyle
+ ├── Bootstrap.h / EditorHooks.cpp ─ InstallLuthienEditorHooks() forwards IEditorHooks → Editor::*
+ ├── CommandHistory + commands/ ... Undo/redo: ICommand + 14 command types, compound recording
+ ├── ProjectLauncher ............. Startup project selector, recent projects
+ ├── panels/ ..................... Scene, Hierarchy, Inspector, Project, Render, FrameDebugger, Profiler, History, TextureRemapDialog
+ ├── inspectors/ ................. MaterialEditor, ModelViewer, TextureEditor, ShaderEditor, SceneViewer, FontViewer
+ └── widgets/ .................... Icons (FontAwesome defs), ImGuiUtils
 ```
 
 > For pipelined frame execution details, see [`arch/frame-pipeline.md`](arch/frame-pipeline.md).
@@ -75,7 +114,10 @@
 | Shader | Cook-Torrance BRDF (GGX + Smith + Fresnel-Schlick) |
 | Material | `GPUMaterialData` SSBO (Set 2), 9 map types, JSON serialization |
 | Lighting | `LightUBO` (Set 3): 1 directional + 64 point lights from ECS |
-| Shadows | `ShadowPass` (2048² D32), PCF 3×3 via `sampler2DShadow` |
+| Shadows | `ShadowPass` (2048² D32) + 4-cascade PSSM (Sascha Willems bounding-sphere fit), PCF 3×3 via `sampler2DShadow` |
+| AO | GTAO half-res compute chain (prefilter → horizon integral → bilateral denoise), Jimenez 2016 slice integral |
+| GPU culling | Compute frustum cull per shadow cascade + main scene, `GPUObjectData` SSBO (Set 5), `vkCmdDrawIndexedIndirect` |
+| Animation | Fiber-parallel keyframe sampling, GPU skinning via `BoneMatrixBuffer` SSBO (Set 4), SQT blending, crossfade, layered override, root motion |
 | Post-processing | HDR (RGBA16F), bloom, tonemapping (4 operators), vignette, grain, CA |
 | Shader system | `ShaderLibrary` singleton, hot-reload via `FileWatcher`, SPIRV-Cross reflection |
 | Frame Debugger | GPU timers, pass tree, pipeline state, texture preview |
@@ -98,4 +140,5 @@
 | Frame pipeline (triple-buffer model) | [`arch/frame-pipeline.md`](arch/frame-pipeline.md) | Working on frame pipeline |
 | Asset pipeline (importers, loading, caching) | [`arch/asset-pipeline.md`](arch/asset-pipeline.md) | Working on assets/resources |
 | Scene & ECS (components, systems, serialization) | [`arch/scene-ecs.md`](arch/scene-ecs.md) | Working on scene/ECS |
-| Editor (panels, selection, UI) | [`arch/editor.md`](arch/editor.md) | Working on editor |
+| Animation (clips, skeleton, GPU skinning, blending) | [`arch/animation-system.md`](arch/animation-system.md) | Working on animation |
+| Editor (panels, IEditorHooks, selection, UI) | [`arch/editor.md`](arch/editor.md) | Working on editor |

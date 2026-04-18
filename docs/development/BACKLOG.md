@@ -4,7 +4,7 @@
 
 ---
 
-## Architecture Snapshot (as of v1.4.0)
+## Architecture Snapshot (as of v2.0.0)
 
 What exists today — directly shapes sequencing for remaining work.
 

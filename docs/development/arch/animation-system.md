@@ -6,7 +6,7 @@ Skeletal animation pipeline for the Luth engine. CPU-side keyframe evaluation wi
 
 ## Data Model (Phase 7A)
 
-### Skeleton (`renderer/Skeleton.h`)
+### Skeleton (`animation/Skeleton.h`)
 
 ```
 Skeleton
@@ -20,7 +20,7 @@ Skeleton
 
 Constants: `MAX_BONES = 256`, `MAX_BONES_PER_VERTEX = 4`
 
-### AnimationClip (`renderer/AnimationClip.h`)
+### AnimationClip (`animation/AnimationClip.h`)
 
 ```
 AnimationClip
@@ -79,7 +79,7 @@ Model::Create() — ProcessMeshData() uploads to GPU with appropriate vertex lay
 
 ## GPU Skinning Pipeline (Phase 7B)
 
-### BoneMatrixBuffer (`renderer/BoneMatrixBuffer.h/.cpp`)
+### BoneMatrixBuffer (`animation/BoneMatrixBuffer.h/.cpp`)
 
 Static singleton following the MaterialSystem pattern. Persistently-mapped SSBO for bone matrices.
 
@@ -154,7 +154,7 @@ Shadow pass uses two separate `VKPipeline` objects (`m_ShadowPipeline`, `m_Shado
 
 ### Bone Block Allocation
 
-Bone blocks are owned per-entity by the `Animation` component (`BoneBufferOffset`). AnimationSystem allocates blocks on first update via `BoneMatrixBuffer::AllocateBlock()` and frees them when entities are removed. RenderingSystem reads `BoneBufferOffset` from the Animation component during draw command collection — two entities sharing the same model get independent bone blocks and animate independently.
+Bone blocks are owned per-entity by the `Animation` component (`BoneBufferOffset`). AnimationSystem allocates blocks on first update via `BoneMatrixBuffer::AllocateBlock()` and frees them when entities are removed. `DrawListBuilder` reads `BoneBufferOffset` from the Animation component during draw command collection (was `RenderingSystem` before arch-renderer-split v1.7.0) — two entities sharing the same model get independent bone blocks and animate independently.
 
 ## Runtime Evaluation (Phase 7C)
 
@@ -254,7 +254,7 @@ Intermediate arrays per evaluation job: `localTransforms`, `globalTransforms`, `
 
 ## Editor Integration (Phase 7E)
 
-### Animation Inspector (`editor/panels/InspectorPanel.cpp`)
+### Animation Inspector (`luthien/panels/InspectorPanel.cpp`)
 
 Component-level UI in `DrawComponent<Animation>`:
 
@@ -265,7 +265,7 @@ Component-level UI in `DrawComponent<Animation>`:
 - **Frame counter**: `time * ticksPerSecond` display
 - **Show Bones**: Toggles `EditorSettings::showBoneDebug`
 
-### Model Instantiation (`editor/panels/HierarchyPanel.cpp`)
+### Model Instantiation (`luthien/panels/HierarchyPanel.cpp`)
 
 `InstantiateModel()` creates the full entity hierarchy for skinned models:
 
@@ -286,7 +286,7 @@ Animation component lives on the root entity only. MeshRenderer children referen
 - **AnimationSystem** queries `<Animation, WorldTransform>` (no MeshRenderer required on root)
 - **RenderingSystem** traverses parent entity for Animation component lookup — both shadow pass and geometry pass check `Parent` component to find `BoneBufferOffset`
 
-### Bone Debug Overlay (`editor/panels/ScenePanel.cpp`)
+### Bone Debug Overlay (`luthien/panels/ScenePanel.cpp`)
 
 `DrawBoneDebugOverlay()` renders skeleton wireframe:
 
@@ -301,7 +301,7 @@ Animation component lives on the root entity only. MeshRenderer children referen
 
 ## Blending & Root Motion (Phase 7D)
 
-### AnimationController Component (`scene/AnimationController.h`)
+### AnimationController Component (`animation/AnimationController.h`)
 
 Additive overlay on the `Animation` component. Entities with only `Animation` continue using the single-clip evaluation path from 7C unchanged.
 

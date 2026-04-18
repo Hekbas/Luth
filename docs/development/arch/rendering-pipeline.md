@@ -4,26 +4,46 @@
 
 | Set | Content | Updated |
 |-----|---------|---------|
-| 0 | GlobalUniforms (view/proj/camera) + shadowMap + IBL | Per frame |
+| 0 | GlobalUniforms + shadow cascade array + IBL irradiance + IBL prefiltered env + BRDF LUT + GTAO settings UBO (6 bindings) | Per frame |
 | 1 | Bindless textures (16384 slots) | On texture load |
 | 2 | Material SSBO (16384 entries) | Per frame if dirty |
-| 3 | Light UBO (dir + point lights) | Per frame |
+| 3 | Light UBO (dir + point lights) + shadow map sampler | Per frame |
+| 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per frame (animated entities only) |
+| 5 | `GPUObjectData` SSBO (4096 entries) — per-draw transforms/IDs for indirect dispatch | Per frame |
+
+> Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0).
 
 ## Current RenderGraph Pass Order
 
 ```
-ShadowPass (depth-only, light POV)
+(per shadow cascade × 4)
+CullComputePass (shadow) ─┐
+ShadowPass (depth-only)   ─┘
+
+DepthPrepass (depth-only, main view, indirect draw)
   ↓
-GeometryPass (PBR forward, 3 pipeline variants)
+GTAO: PrefilterPass → MainPass (horizon integral) → DenoisePass (bilateral)
   ↓
-BloomExtractPass (bright pixels → half-res)
+CullComputePass (main scene) — populates per-draw indirect args
   ↓
-BloomBlurH → BloomBlurV (separable 9-tap Gaussian)
+GeometryPass (PBR forward — opaque/cutout/transparent variants, reads prepass depth + AO + shadows)
   ↓
-PostProcessPass (tonemap + bloom compose + effects → LDR)
+SelectionMaskPass (entity-ID → mask for outline)
   ↓
-ImGuiPass (swapchain)
+SkyboxPass (depth = 1.0 trick, HDR)
+  ↓
+GridPass (optional, editor-only overlay)
+  ↓
+BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res)
+  ↓
+PostProcessPass (tonemap + bloom compose + vignette + grain + CA → LDR)
+  ↓
+OutlinePass (reads mask + depth, composites onto LDR)
+  ↓
+ImGuiPass (composites editor UI onto LDR → swapchain)
 ```
+
+Pass invocations live in `RenderPipeline.cpp::BuildGraph` (chain visible at lines ~400–442). All passes go through the render graph for barrier insertion + dead-pass culling.
 
 ## Target RenderGraph Pass Order (End State)
 

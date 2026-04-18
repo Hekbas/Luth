@@ -62,9 +62,9 @@ Lightweight handle wrapper: `entt::entity` handle + `Scene*` back-reference. Cop
 
 ## Systems
 
-Static `Systems` class holds an ordered vector. `Systems::Update()` calls each in sequence.
+Static `SystemRegistry` class (renamed from `Systems` in arch-cleanup v1.6.0) holds a `vector<unique_ptr<ISystem>>`. Per-system dispatch via `SystemRegistry::Update<T>()` (called explicitly from `App::Run` for each registered system).
 
-**Update order:** TransformSystem → CameraSystem → RenderingSystem
+**Update order:** TransformSystem → AnimationSystem → RenderingSystem (camera state fed directly into RenderingSystem from App via `CameraParams`)
 
 ### TransformSystem — Parallel Level-Based Hierarchy
 1. If hierarchy version changed, rebuild level arrays via BFS from roots
@@ -77,10 +77,11 @@ Static `Systems` class holds an ordered vector. `Systems::Update()` calls each i
 - Computes `ViewMatrix = inverse(WorldTransform.Matrix)`
 - Recomputes `ProjectionMatrix` from properties only if `IsDirty`
 
-### RenderingSystem
-- Collects MeshRenderer + Light components → builds draw lists + UBOs
-- Orchestrates render graph (shadow, geometry, bloom, post-process)
-- Detailed rendering architecture documented in `arch/rendering-pipeline.md`
+### RenderingSystem (ECS-glue layer since arch-renderer-split v1.7.0)
+- ~350 LOC; orchestration only. Graph assembly + graphics resources live on `RenderPipeline` in `renderer/`.
+- Owns per-frame scene inputs: `FrameTargets`, `CameraParams`, `DirectionalLightShadowParams`, cascade data, `FrameDebugger`, editor toggles.
+- Delegates: `DrawListBuilder` (ECS walk → opaque/cutout/transparent buckets), `LightGatherer` (ECS → `LightUniforms`), `CascadeBuilder` (PSSM cascade fit).
+- Detailed rendering architecture in `arch/rendering-pipeline.md`.
 
 ## Scene Serialization (JSON `.luth` format)
 

@@ -4,6 +4,25 @@
 
 ImGui-based editor with modular panel architecture, docking layout, asset drag-drop, and ImGuizmo gizmos. Renders as an ImGui pass at the end of the render graph.
 
+Editor code lives in its own static library `Luthien.lib` at `luthien/source/luthien/` (since `arch-target-split` v2.0.0). The engine (`Luth.lib`) has no `luthien/...` includes — it reaches the editor only through the `IEditorHooks` interface.
+
+## Editor Integration via `IEditorHooks`
+
+The engine calls into the editor through a nullptr-safe hook registry declared in `luth/core/EditorHooks.h`:
+
+```cpp
+namespace Luth::EditorHooks {
+    void Register(IEditorHooks* hooks);
+    IEditorHooks* Get();  // nullptr in runtime-only builds
+}
+```
+
+`IEditorHooks` exposes the editor-driven lifecycle, per-frame, project, input-capture, and viewport-snapshot calls the engine needs (Init / BeginFrame / Render / EndFrame / Shutdown / WantCaptureKeyboard / WantCaptureMouse / GetViewportState / OnProjectChanged / etc.).
+
+`LuthienEditorHooks` in `luthien/source/luthien/EditorHooks.cpp` implements the interface by forwarding each call to the corresponding `Editor::` / `ProjectLauncher::` / `EditorSelection::` static API. Registration happens in `runtime/source/LuthienApp.cpp::CreateApp` via `InstallLuthienEditorHooks()` *before* `App::App()` runs — so the hook is live from the first engine call onward.
+
+A runtime-only build that skips linking `Luthien.lib` leaves the registry empty and every engine-side `if (auto* h = EditorHooks::Get())` short-circuits cleanly.
+
 ## Core (Editor.h/.cpp)
 
 **Lifecycle:** `Init(Window*)` → `BeginFrame()` → `Render()` → `EndFrame()` → `Shutdown()`
@@ -25,7 +44,7 @@ ImGui-based editor with modular panel architecture, docking layout, asset drag-d
 - File menu: Open Project, Project Launcher
 - `OnProjectChanged()` — reloads editor settings, clears scene, refreshes ProjectPanel and HierarchyPanel
 
-**Frame integration:** Editor::Render() is called during App::OnUpdate(). ImGui draw data is consumed by `RenderingSystem::AddImGuiPass()` in the render graph.
+**Frame integration:** `App::Run()` calls `EditorHooks::Get()->BeginFrame()`, then `OnUpdate()` (app override), then `EditorHooks::Get()->Render()` and `EndFrame()`. The hook impl forwards each to the corresponding `Editor::*` static. ImGui draw data is consumed by `RenderPipeline::AddImGuiPass()` in the render graph (moved from `RenderingSystem` in `arch-renderer-split` v1.7.0). `ImGui::UpdatePlatformWindows` / `RenderPlatformWindowsDefault` run inside `Editor::EndFrame` when viewports are enabled.
 
 ## UI Utilities (UI.h/.cpp)
 
