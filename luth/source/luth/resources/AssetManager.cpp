@@ -10,7 +10,7 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/shader/Shader.h"
-#include "luth/core/Time.h"
+#include "luth/core/time/Time.h"
 
 namespace Luth
 {

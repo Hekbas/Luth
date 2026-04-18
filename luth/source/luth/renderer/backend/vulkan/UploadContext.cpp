@@ -2,8 +2,8 @@
 #include "UploadContext.h"
 #include "VulkanContext.h"
 #include "VulkanAllocator.h"
-#include "luth/core/Log.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Log.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 #include <vma/vk_mem_alloc.h>
 

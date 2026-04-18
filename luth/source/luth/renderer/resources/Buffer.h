@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/Math.h"
+#include "luth/core/types/LuthMath.h"
 
 #include <vector>
 #include <string>

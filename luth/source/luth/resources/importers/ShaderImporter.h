@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/resources/AssetImporter.h"
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/shader/Shader.h" // ShaderStage
 #include <vector>
 

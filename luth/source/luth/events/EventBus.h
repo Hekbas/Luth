@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include "luth/events/Event.h"
 
 #include <memory>

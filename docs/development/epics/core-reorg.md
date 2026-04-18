@@ -152,6 +152,6 @@ Custom `operator<<` overloads exist solely to enable `LH_CORE_INFO("{}", vec3)` 
 
 | Sub-Task | Status | Commit | Date |
 |----------|--------|--------|------|
-| A: Spec scaffold | pending | — | — |
-| B: Reorganize core/ subfolders + include rewrite | pending | — | — |
+| A: Spec scaffold | done | `9c5af8f` | 2026-04-18 |
+| B: Reorganize core/ subfolders + include rewrite | done | (this commit) | 2026-04-18 |
 | C: Wrap-up + v2.3.0 release | pending | — | — |

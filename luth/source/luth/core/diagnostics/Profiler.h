@@ -3,7 +3,7 @@
 // Enable Tracy in Debug/Release, disable in Dist
 #if defined(TRACY_ENABLE)
     #include <tracy/Tracy.hpp>
-    
+
     #define LH_PROFILE_FRAME(name)          FrameMarkNamed(name)
     #define LH_PROFILE_FUNCTION()           ZoneScoped
     #define LH_PROFILE_SCOPE(name)          ZoneScopedN(name)

@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "VulkanSwapchain.h"
 #include "VulkanContext.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>

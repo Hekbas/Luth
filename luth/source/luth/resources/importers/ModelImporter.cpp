@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "ModelImporter.h"
-#include "luth/core/Math.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/FileSystem.h"

@@ -15,7 +15,7 @@
 #include "luth/scene/systems/TransformSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/PipelineCache.h"

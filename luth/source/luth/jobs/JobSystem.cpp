@@ -4,8 +4,8 @@
 #include "luth/jobs/SpinLock.h"
 #include "luth/jobs/MPMCQueue.h"
 #include "luth/jobs/WorkStealingDeque.h"
-#include "luth/core/Log.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Log.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 #include <thread>
 #include <vector>

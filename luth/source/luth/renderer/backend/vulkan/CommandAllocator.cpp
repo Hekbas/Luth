@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "CommandAllocator.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 namespace Luth
 {

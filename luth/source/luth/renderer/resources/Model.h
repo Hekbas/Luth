@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/Math.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/animation/Skeleton.h"

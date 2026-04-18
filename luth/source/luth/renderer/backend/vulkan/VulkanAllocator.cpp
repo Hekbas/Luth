@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "VulkanAllocator.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include "luth/memory/MemoryTracker.h"
 
 #define VMA_IMPLEMENTATION

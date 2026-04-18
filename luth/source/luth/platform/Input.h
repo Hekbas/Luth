@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/events/KeyEvent.h"
 #include "luth/events/MouseEvent.h"
 

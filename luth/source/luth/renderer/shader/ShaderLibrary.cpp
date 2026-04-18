@@ -3,7 +3,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 namespace Luth
 {

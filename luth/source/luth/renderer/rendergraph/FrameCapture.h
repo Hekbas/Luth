@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/ArchivedImage.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"

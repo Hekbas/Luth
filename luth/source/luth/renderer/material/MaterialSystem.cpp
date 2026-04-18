@@ -2,7 +2,7 @@
 #include "MaterialSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 #include <vma/vk_mem_alloc.h>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include <atomic>
 #include <array>
 #include <new> // std::hardware_destructive_interference_size

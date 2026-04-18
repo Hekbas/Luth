@@ -2,7 +2,7 @@
 
 #include "luth/scene/systems/ISystem.h"
 #include "luth/scene/Components.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {

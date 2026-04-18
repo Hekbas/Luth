@@ -4,7 +4,7 @@
 #include "luth/resources/Asset.h"
 #include "luth/resources/AssetImporter.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/core/Time.h"
+#include "luth/core/time/Time.h"
 
 #include <unordered_map>
 #include <queue>

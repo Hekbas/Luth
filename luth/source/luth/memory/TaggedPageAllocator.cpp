@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/memory/TaggedPageAllocator.h"
 #include "luth/memory/MemoryTracker.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 #ifdef _WIN32
 #include <windows.h>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
 #include <vulkan/vulkan.h>
 #include <vector>
