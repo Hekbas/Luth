@@ -59,7 +59,7 @@ namespace Luth
 
         // Destroy all children first (recursively)
         if (entity.HasComponent<Children>()) {
-            auto children = entity.GetComponent<Children>().m_Children;
+            auto children = entity.GetComponent<Children>().Value;
             for (auto child : children) {
                 DestroyEntity(child);
             }
@@ -67,9 +67,9 @@ namespace Luth
 
         // Remove from parent's children list
         if (entity.HasComponent<Parent>()) {
-            Entity parent = entity.GetComponent<Parent>().m_Parent;
+            Entity parent = entity.GetComponent<Parent>().Value;
             if (parent.IsValid() && parent.HasComponent<Children>()) {
-                auto& siblings = parent.GetComponent<Children>().m_Children;
+                auto& siblings = parent.GetComponent<Children>().Value;
                 siblings.erase(std::remove(siblings.begin(), siblings.end(), entity), siblings.end());
             }
         }
@@ -101,21 +101,21 @@ namespace Luth
 
         // Handle parent relationship if not skipped
         if (!skipParentAddition && original.HasComponent<Parent>()) {
-            Entity parent = original.GetComponent<Parent>().m_Parent;
+            Entity parent = original.GetComponent<Parent>().Value;
 
             if (parent.IsValid()) {
                 // Add duplicate to parent's children list
                 if (parent.HasComponent<Children>()) {
-                    auto& parentChildren = parent.GetComponent<Children>().m_Children;
+                    auto& parentChildren = parent.GetComponent<Children>().Value;
                     parentChildren.push_back(duplicate);
                 }
                 else {
-                    auto& parentChildren = parent.AddComponent<Children>().m_Children;
+                    auto& parentChildren = parent.AddComponent<Children>().Value;
                     parentChildren.push_back(duplicate);
                 }
 
                 // Set duplicate's parent
-                duplicate.AddComponent<Parent>().m_Parent = parent;
+                duplicate.AddComponent<Parent>().Value = parent;
             }
         }
         else
@@ -123,13 +123,13 @@ namespace Luth
 
         // Recursively duplicate children
         if (original.HasComponent<Children>()) {
-            auto& originalChildren = original.GetComponent<Children>().m_Children;
-            auto& duplicateChildren = duplicate.AddComponent<Children>().m_Children;
+            auto& originalChildren = original.GetComponent<Children>().Value;
+            auto& duplicateChildren = duplicate.AddComponent<Children>().Value;
 
             for (Entity child : originalChildren) {
                 // Pass 'true' to skip adding the child duplicate to the original parent's children
                 Entity duplicatedChild = DuplicateEntity(child, true);
-                duplicatedChild.AddOrReplaceComponent<Parent>().m_Parent = duplicate;
+                duplicatedChild.AddOrReplaceComponent<Parent>().Value = duplicate;
                 duplicateChildren.push_back(duplicatedChild);
             }
         }
@@ -154,7 +154,7 @@ namespace Luth
         std::vector<Entity>* list = nullptr;
         if (entity.HasParent())
         {
-            list = &entity.GetParent().GetComponent<Children>().m_Children;
+            list = &entity.GetParent().GetComponent<Children>().Value;
         }
         else
         {
@@ -184,7 +184,7 @@ namespace Luth
     {
         auto view = m_Registry.view<ID>();
         for (auto e : view) {
-            if (view.get<ID>(e).m_ID == uuid)
+            if (view.get<ID>(e).Value == uuid)
                 return Entity{ e, const_cast<Scene*>(this) };
         }
         return {};
@@ -205,14 +205,14 @@ namespace Luth
         // Get the parent of the entity
         Entity parent;
         if (entity.HasComponent<Parent>()) {
-            parent = entity.GetComponent<Parent>().m_Parent;
+            parent = entity.GetComponent<Parent>().Value;
         }
 
         // Get all siblings (children of the parent or root entities)
         std::vector<Entity> siblings;
         if (parent.IsValid()) {
             if (parent.HasComponent<Children>()) {
-                siblings = parent.GetComponent<Children>().m_Children;
+                siblings = parent.GetComponent<Children>().Value;
             }
         }
         else {

@@ -9,33 +9,33 @@
 namespace Luth::Component
 {
     struct ID {
-        UUID m_ID;
+        UUID Value;
 
         ID() = default;
         ID(const ID&) = default;
     };
 
     struct Tag {
-        std::string m_Tag;
+        std::string Value;
 
         Tag() = default;
         Tag(const Tag&) = default;
-        Tag(const std::string& tag) : m_Tag(tag) {}
+        Tag(const std::string& tag) : Value(tag) {}
     };
 
     struct Parent {
-        Entity m_Parent;
+        Entity Value;
 
         Parent() = default;
         Parent(const Parent&) = default;
-        Parent(const Entity& parent) : m_Parent(parent) {}
+        Parent(const Entity& parent) : Value(parent) {}
     };
 
     struct Children {
-        std::vector<Entity> m_Children;
+        std::vector<Entity> Value;
 
         Children() = default;
         Children(const Children&) = default;
-        Children(const std::vector<Entity>& children) : m_Children(children) {}
+        Children(const std::vector<Entity>& children) : Value(children) {}
     };
 }

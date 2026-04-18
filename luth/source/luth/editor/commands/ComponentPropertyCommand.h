@@ -23,7 +23,7 @@ namespace Luth
               m_Member(member), m_OldValue(std::move(oldValue)), m_NewValue(std::move(newValue))
         {
             Entity e{ entity, scene };
-            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+            m_EntityUUID = e.GetComponent<Component::ID>().Value;
         }
 
         void Execute() override { Apply(m_NewValue); }

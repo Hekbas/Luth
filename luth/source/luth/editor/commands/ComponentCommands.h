@@ -18,7 +18,7 @@ namespace Luth
             : m_Name(name), m_Scene(scene)
         {
             Entity e{ entity, scene };
-            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+            m_EntityUUID = e.GetComponent<Component::ID>().Value;
         }
 
         ComponentAddCommand(const char* name, Scene* scene, entt::entity entity, T initValue)
@@ -26,7 +26,7 @@ namespace Luth
               m_InitValue(std::move(initValue)), m_HasInitValue(true)
         {
             Entity e{ entity, scene };
-            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+            m_EntityUUID = e.GetComponent<Component::ID>().Value;
         }
 
         void Execute() override {
@@ -64,7 +64,7 @@ namespace Luth
             : m_Name(name), m_Scene(scene)
         {
             Entity e{ entity, scene };
-            m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+            m_EntityUUID = e.GetComponent<Component::ID>().Value;
         }
 
         void Execute() override {

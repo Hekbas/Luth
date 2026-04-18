@@ -13,13 +13,13 @@ namespace Luth
     std::string Entity::GetName() const
     {
         if (HasComponent<Tag>())
-            return GetComponent<Tag>().m_Tag;
+            return GetComponent<Tag>().Value;
         return "Unnamed Entity";
     }
 
     void Entity::SetName(const std::string& name)
     {
-        GetComponent<Tag>().m_Tag = name;
+        GetComponent<Tag>().Value = name;
     }
 
     void Entity::SetParent(Entity parent)
@@ -32,9 +32,9 @@ namespace Luth
 
         // Remove from old parent
         if (HasComponent<Parent>()) {
-            Entity oldParent = GetComponent<Parent>().m_Parent;
+            Entity oldParent = GetComponent<Parent>().Value;
             if (oldParent && oldParent.HasComponent<Children>()) {
-                auto& children = oldParent.GetComponent<Children>().m_Children;
+                auto& children = oldParent.GetComponent<Children>().Value;
                 children.erase(std::remove(children.begin(), children.end(), *this), children.end());
             }
         }
@@ -49,10 +49,10 @@ namespace Luth
             auto& childrenComp = parent.HasComponent<Children>() ?
                 parent.GetComponent<Children>() :
                 parent.AddComponent<Children>();
-            childrenComp.m_Children.push_back(*this);
+            childrenComp.Value.push_back(*this);
 
             // Set new parent component
-            AddOrReplaceComponent<Parent>().m_Parent = parent;
+            AddOrReplaceComponent<Parent>().Value = parent;
         }
         else
         {
@@ -67,7 +67,7 @@ namespace Luth
     Entity Entity::GetParent() const
     {
         if (HasComponent<Parent>())
-            return GetComponent<Parent>().m_Parent;
+            return GetComponent<Parent>().Value;
         return {};
     }
 
@@ -82,7 +82,7 @@ namespace Luth
     std::vector<Entity> Entity::GetChildren() const
     {
         if (HasComponent<Children>())
-            return GetComponent<Children>().m_Children;
+            return GetComponent<Children>().Value;
         return {};
     }
 

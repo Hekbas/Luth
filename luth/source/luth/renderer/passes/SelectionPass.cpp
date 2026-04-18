@@ -149,7 +149,7 @@ namespace Luth
                         if (registry.any_of<Component::Animation>(entity))
                             animEntity = entity;
                         else if (registry.any_of<Component::Parent>(entity)) {
-                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).Value;
                             if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
                                 animEntity = parentEnt;
                         }

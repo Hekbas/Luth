@@ -32,14 +32,14 @@ namespace Luth
         json j;
 
         // Core data (always present)
-        j["uuid"]   = entity.GetComponent<ID>().m_ID.ToString();
-        j["tag"]    = entity.GetComponent<Tag>().m_Tag;
+        j["uuid"]   = entity.GetComponent<ID>().Value.ToString();
+        j["tag"]    = entity.GetComponent<Tag>().Value;
         j["active"] = entity.IsActive();
 
         // Parent UUID (empty string if root)
         if (entity.HasParent()) {
             Entity parent = entity.GetParent();
-            j["parent"] = parent.GetComponent<ID>().m_ID.ToString();
+            j["parent"] = parent.GetComponent<ID>().Value.ToString();
         }
         else {
             j["parent"] = "";
@@ -120,7 +120,7 @@ namespace Luth
             auto& ba = entity.GetComponent<BoneAttachment>();
             json baj;
             if (ba.TargetEntity) {
-                baj["targetUUID"] = ba.TargetEntity.GetComponent<ID>().m_ID.ToString();
+                baj["targetUUID"] = ba.TargetEntity.GetComponent<ID>().Value.ToString();
             }
             baj["boneName"]      = ba.BoneName;
             baj["localOffset"]   = SerializeVec3(ba.LocalOffset);
@@ -239,7 +239,7 @@ namespace Luth
             // Overwrite auto-generated UUID
             std::string uuidStr = ej.value("uuid", "");
             if (!uuidStr.empty()) {
-                entity.GetComponent<ID>().m_ID = UUID::FromString(uuidStr);
+                entity.GetComponent<ID>().Value = UUID::FromString(uuidStr);
             }
 
             // Active state

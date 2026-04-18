@@ -155,7 +155,7 @@ namespace Luth
                     if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
                     {
                         std::string entName = registry.any_of<Component::Tag>(entity)
-                            ? registry.get<Component::Tag>(entity).m_Tag : "Entity";
+                            ? registry.get<Component::Tag>(entity).Value : "Entity";
                         u32 entityIndex = gpuObjectIndex + 1;
                         m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
                             model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",
