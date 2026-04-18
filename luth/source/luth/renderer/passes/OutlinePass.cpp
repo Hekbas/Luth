@@ -24,7 +24,7 @@ namespace Luth
     RG::ResourceHandle RenderingSystem::AddOutlinePass(
         RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth)
     {
-        if (!m_OutlinePipeline || !m_LDROutput)
+        if (!m_OutlinePipeline || !m_Targets.GetLDROutput())
             return ldrOutput;
 
         struct OutlinePassData {
@@ -61,8 +61,8 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_OutlinePipeline->GetLayout(), 0, 1, &m_OutlineDescSet, 0, nullptr);
 
-                u32 w = m_LDROutput->GetWidth();
-                u32 h = m_LDROutput->GetHeight();
+                u32 w = m_Targets.GetLDROutput()->GetWidth();
+                u32 h = m_Targets.GetLDROutput()->GetHeight();
 
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);

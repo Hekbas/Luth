@@ -49,11 +49,11 @@ namespace Luth
             [&](SelectionMaskPassData& data, RG::RenderPassBuilder& builder)
             {
                 // Import selection mask (RGBA8)
-                auto vkMask = std::static_pointer_cast<VKTexture>(m_SelectionMask);
+                auto vkMask = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionMask());
                 RG::TextureDesc maskDesc;
                 maskDesc.name   = "SelectionMask";
-                maskDesc.width  = m_SelectionMask->GetWidth();
-                maskDesc.height = m_SelectionMask->GetHeight();
+                maskDesc.width  = m_Targets.GetSelectionMask()->GetWidth();
+                maskDesc.height = m_Targets.GetSelectionMask()->GetHeight();
                 maskDesc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.maskTex = rg.ImportResource(maskDesc,
@@ -66,11 +66,11 @@ namespace Luth
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, colorClear);
 
                 // Import selection depth (D32_Float)
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionDepth());
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SelectionDepth";
-                depthDesc.width  = m_SelectionDepth->GetWidth();
-                depthDesc.height = m_SelectionDepth->GetHeight();
+                depthDesc.width  = m_Targets.GetSelectionDepth()->GetWidth();
+                depthDesc.height = m_Targets.GetSelectionDepth()->GetHeight();
                 depthDesc.format = RG::TextureFormat::D32_Float;
 
                 data.depthTex = rg.ImportResource(depthDesc,
@@ -113,8 +113,8 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
-                u32 w = m_SelectionMask->GetWidth();
-                u32 h = m_SelectionMask->GetHeight();
+                u32 w = m_Targets.GetSelectionMask()->GetWidth();
+                u32 h = m_Targets.GetSelectionMask()->GetHeight();
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 VkRect2D sc{}; sc.extent = { w, h };

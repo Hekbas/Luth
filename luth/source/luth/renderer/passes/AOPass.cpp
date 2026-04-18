@@ -81,8 +81,8 @@ namespace Luth
 
                 const u32 halfW = m_GTAOLinearDepth->GetWidth();
                 const u32 halfH = m_GTAOLinearDepth->GetHeight();
-                const u32 fullW = m_SceneDepth->GetWidth();
-                const u32 fullH = m_SceneDepth->GetHeight();
+                const u32 fullW = m_Targets.GetSceneDepth()->GetWidth();
+                const u32 fullH = m_Targets.GetSceneDepth()->GetHeight();
 
                 GTAOPrefilterPC pc{};
                 pc.halfResSize = { (i32)halfW, (i32)halfH };

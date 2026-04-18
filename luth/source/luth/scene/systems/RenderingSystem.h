@@ -5,6 +5,7 @@
 #include "luth/memory/Memory.h"
 #include "luth/renderer/CameraParams.h"
 #include "luth/renderer/FrameDebugger.h"
+#include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -73,7 +74,10 @@ namespace Luth
         void OnProjectLoaded();
         void OnProjectUnloaded();
 
-        std::shared_ptr<Texture> GetSceneColor() const { return m_LDROutput ? m_LDROutput : m_SceneColor; }
+        std::shared_ptr<Texture> GetSceneColor() const {
+            const auto& ldr = m_Targets.GetLDROutput();
+            return ldr ? ldr : m_Targets.GetSceneColor();
+        }
         PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
         const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 
@@ -235,13 +239,12 @@ namespace Luth
         // Memory
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
 
-        // Scene color + depth output
-        std::shared_ptr<Texture> m_SceneColor;
-        std::shared_ptr<Texture> m_SceneDepth;
+        // Persistent viewport-sized render targets (scene color, depth, LDR,
+        // entity-ID, selection mask/depth). Allocated in ctor, resized via Resize().
+        FrameTargets m_Targets;
 
-        // Entity ID buffer (R32_UINT, for mouse picking + selection outline)
-        std::shared_ptr<Texture> m_EntityIDBuffer;
-        std::vector<entt::entity> m_EntityLookup; // index 0 = entt::null
+        // Entity ID → entity lookup (populated by BuildGPUObjectBuffer; index 0 = entt::null)
+        std::vector<entt::entity> m_EntityLookup;
 
         // Global UBO (Set 0)
         std::shared_ptr<VKUniformBuffer> m_GlobalUniformBuffer;
@@ -368,9 +371,6 @@ namespace Luth
         PostProcessSettings m_PostProcessSettings;
         std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
 
-        // LDR output (post-tonemapped, for ScenePanel display)
-        std::shared_ptr<Texture> m_LDROutput;
-
         // Bloom textures (half-res RGBA16F, persistent)
         std::shared_ptr<Texture> m_BloomA;
         std::shared_ptr<Texture> m_BloomB;
@@ -395,9 +395,7 @@ namespace Luth
         std::vector<u32> m_BloomBlurFragSpv;
         std::vector<u32> m_PostProcessFragSpv;
 
-        // Selection mask pass resources
-        std::shared_ptr<Texture>        m_SelectionMask;      // RGBA8 — .r = 1.0 for selected
-        std::shared_ptr<Texture>        m_SelectionDepth;     // D32_Float — depth of selected geometry
+        // Selection mask pass resources (mask + depth owned by m_Targets)
         std::unique_ptr<VKPipeline>     m_SelectionMaskPipeline;
         std::unique_ptr<VKPipeline>     m_SelectionMaskSkinnedPipeline;
         std::vector<u32>                m_SelectionMaskVertSpv;
@@ -463,7 +461,7 @@ namespace Luth
 
         // Phase 14E — per-draw preview (RGBA16F mirror of SceneColor at draw N).
         // Allocated lazily on first ReplayPassUpToDraw and resized whenever
-        // m_SceneColor's dimensions change. Persistent across captures.
+        // the scene color target's dimensions change. Persistent across captures.
         VkImage         m_PerDrawPreviewImage  = VK_NULL_HANDLE;
         VkImageView     m_PerDrawPreviewView   = VK_NULL_HANDLE;
         VmaAllocation   m_PerDrawPreviewAlloc  = nullptr;

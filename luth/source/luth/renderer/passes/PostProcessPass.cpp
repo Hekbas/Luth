@@ -24,7 +24,7 @@ namespace Luth
     RG::ResourceHandle RenderingSystem::AddPostProcessPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
     {
-        if (!m_PostProcessPipeline || !m_LDROutput)
+        if (!m_PostProcessPipeline || !m_Targets.GetLDROutput())
             return sceneColor; // Fallback: pass HDR scene color through
 
         struct PostProcessPassData {
@@ -34,15 +34,15 @@ namespace Luth
         };
 
         RG::ResourceHandle outputHandle;
-        auto ldrVk = std::static_pointer_cast<VKTexture>(m_LDROutput);
+        auto ldrVk = std::static_pointer_cast<VKTexture>(m_Targets.GetLDROutput());
 
         rg.AddPass<PostProcessPassData>("PostProcess",
             [&](PostProcessPassData& data, RG::RenderPassBuilder& builder)
             {
                 RG::TextureDesc desc;
                 desc.name   = "LDROutput";
-                desc.width  = m_LDROutput->GetWidth();
-                desc.height = m_LDROutput->GetHeight();
+                desc.width  = m_Targets.GetLDROutput()->GetWidth();
+                desc.height = m_Targets.GetLDROutput()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.output = rg.ImportResource(desc,
@@ -67,8 +67,8 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_PostProcessPipeline->GetLayout(), 0, 1, &m_CompositeDescSet, 0, nullptr);
 
-                u32 w = m_LDROutput->GetWidth();
-                u32 h = m_LDROutput->GetHeight();
+                u32 w = m_Targets.GetLDROutput()->GetWidth();
+                u32 h = m_Targets.GetLDROutput()->GetHeight();
 
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);

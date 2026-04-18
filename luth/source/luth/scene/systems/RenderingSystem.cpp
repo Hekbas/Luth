@@ -44,12 +44,7 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            m_SceneColor     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA16F);
-            m_SceneDepth     = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
-            m_LDROutput      = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
-            m_EntityIDBuffer = Texture::Create(viewportWidth, viewportHeight, TextureFormat::R32_Uint);
-            m_SelectionMask  = Texture::Create(viewportWidth, viewportHeight, TextureFormat::RGBA8);
-            m_SelectionDepth = Texture::Create(viewportWidth, viewportHeight, TextureFormat::D32_Float);
+            m_Targets.Allocate(viewportWidth, viewportHeight);
 
             InitGlobalUniforms();
             InitShadowResources();
@@ -579,8 +574,8 @@ namespace Luth
     void RenderingSystem::InitPostProcessResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        u32 w = m_SceneColor->GetWidth();
-        u32 h = m_SceneColor->GetHeight();
+        u32 w = m_Targets.GetSceneColor()->GetWidth();
+        u32 h = m_Targets.GetSceneColor()->GetHeight();
 
         // Bloom textures (half-res)
         m_BloomA = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
@@ -712,9 +707,9 @@ namespace Luth
             vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_OutlineDescSet);
 
             // Write all 3 descriptors: selection mask, selection depth, scene depth
-            auto vkMask      = std::static_pointer_cast<VKTexture>(m_SelectionMask);
-            auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
-            auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+            auto vkMask      = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionMask());
+            auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionDepth());
+            auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
 
             VkDescriptorImageInfo maskImgInfo{};
             maskImgInfo.sampler     = m_OutlineSampler;
@@ -813,7 +808,7 @@ namespace Luth
             gridUBOInfo.offset = 0;
             gridUBOInfo.range  = sizeof(GlobalUniforms);
 
-            auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+            auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
             VkDescriptorImageInfo gridDepthImgInfo{};
             gridDepthImgInfo.sampler     = m_GridDepthSampler;
             gridDepthImgInfo.imageView   = vkScnDepthGrid->GetImageView();
@@ -842,7 +837,7 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        auto sceneVk  = std::static_pointer_cast<VKTexture>(m_SceneColor);
+        auto sceneVk  = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneColor());
         auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
         auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
 
@@ -1754,8 +1749,8 @@ namespace Luth
         auto shadersPath = FileSystem::EngineAssetsPath("shaders");
 
         // ---- Half-res persistent textures ----
-        const u32 halfW = std::max(m_SceneColor->GetWidth()  / 2, 1u);
-        const u32 halfH = std::max(m_SceneColor->GetHeight() / 2, 1u);
+        const u32 halfW = std::max(m_Targets.GetSceneColor()->GetWidth()  / 2, 1u);
+        const u32 halfH = std::max(m_Targets.GetSceneColor()->GetHeight() / 2, 1u);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -1930,7 +1925,7 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
         auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
         auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
         auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
@@ -2086,8 +2081,8 @@ namespace Luth
 
         const u32 halfW = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetWidth()  : 1u;
         const u32 halfH = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetHeight() : 1u;
-        const u32 fullW = m_SceneColor ? m_SceneColor->GetWidth()  : 1u;
-        const u32 fullH = m_SceneColor ? m_SceneColor->GetHeight() : 1u;
+        const u32 fullW = m_Targets.GetSceneColor() ? m_Targets.GetSceneColor()->GetWidth()  : 1u;
+        const u32 fullH = m_Targets.GetSceneColor() ? m_Targets.GetSceneColor()->GetHeight() : 1u;
         ubo.invResolution[0]     = 1.0f / float(halfW);
         ubo.invResolution[1]     = 1.0f / float(halfH);
         ubo.invFullResolution[0] = 1.0f / float(fullW);
@@ -2233,9 +2228,9 @@ namespace Luth
         // Phase 14C — strict snapshot model with auto-recapture on camera move.
         //
         // While Frozen, the live render graph is NOT rebuilt or re-executed.
-        // m_LDROutput retains the LAST CAPTURED image (no other code writes it
-        // in this state), so the editor's ScenePanel — which samples m_LDROutput
-        // through ImGui — keeps showing the GPU-true captured frame.
+        // The LDR output target retains the LAST CAPTURED image (no other code
+        // writes it in this state), so the editor's ScenePanel — which samples
+        // it through ImGui — keeps showing the GPU-true captured frame.
         //
         // Each Frozen tick we cheaply recompute the camera viewProj (no GPU
         // upload) and bit-compare against captureViewProj. If different, the
@@ -2259,7 +2254,7 @@ namespace Luth
             if (!cameraMoved)
             {
                 // Static — minimal graph: just blit ImGui to the swapchain.
-                // The editor panel reads m_LDROutput through ImGui::Image; the
+                // The editor panel reads the LDR output through ImGui::Image; the
                 // image's persistent layout (SHADER_READ_ONLY_OPTIMAL after the
                 // capture's outline pass) is preserved across frames.
                 RG::RenderGraph rg(*m_FrameAllocator);
@@ -2500,9 +2495,9 @@ namespace Luth
                 int px = m_PickCoord.x;
                 int py = m_PickCoord.y;
 
-                if (px >= 0 && py >= 0 && px < (int)m_EntityIDBuffer->GetWidth() && py < (int)m_EntityIDBuffer->GetHeight())
+                if (px >= 0 && py >= 0 && px < (int)m_Targets.GetEntityIDBuffer()->GetWidth() && py < (int)m_Targets.GetEntityIDBuffer()->GetHeight())
                 {
-                    auto vkID = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+                    auto vkID = std::static_pointer_cast<VKTexture>(m_Targets.GetEntityIDBuffer());
 
                     // Create a small staging buffer for readback
                     VkBuffer stagingBuf;
@@ -2712,10 +2707,10 @@ namespace Luth
     {
         m_NamedTextures.clear();
         if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
-        if (m_SceneColor)    m_NamedTextures["SceneColor"]    = m_SceneColor;
-        if (m_SceneDepth)    m_NamedTextures["SceneDepth"]    = m_SceneDepth;
-        if (m_LDROutput)     m_NamedTextures["LDROutput"]     = m_LDROutput;
-        if (m_EntityIDBuffer)m_NamedTextures["EntityID"]     = m_EntityIDBuffer;
+        if (m_Targets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_Targets.GetSceneColor();
+        if (m_Targets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_Targets.GetSceneDepth();
+        if (m_Targets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_Targets.GetLDROutput();
+        if (m_Targets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_Targets.GetEntityIDBuffer();
         if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
         if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
         if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
@@ -2753,16 +2748,11 @@ namespace Luth
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         // Guard against unsigned underflow from negative float→u32 casts at startup
-        if (m_SceneColor && width > 0 && height > 0 && width <= 16384 && height <= 16384)
+        if (m_Targets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            m_SceneColor    = Texture::Create(width, height, TextureFormat::RGBA16F);
-            m_SceneDepth    = Texture::Create(width, height, TextureFormat::D32_Float);
-            m_LDROutput     = Texture::Create(width, height, TextureFormat::RGBA8);
-            m_EntityIDBuffer = Texture::Create(width, height, TextureFormat::R32_Uint);
-            m_BloomA     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-            m_BloomB     = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-            m_SelectionMask  = Texture::Create(width, height, TextureFormat::RGBA8);
-            m_SelectionDepth = Texture::Create(width, height, TextureFormat::D32_Float);
+            m_Targets.Resize(width, height);
+            m_BloomA = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
+            m_BloomB = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
             UpdatePostProcessDescriptors();
 
             // GTAO half-res storage textures (recreated on Resize; descriptors
@@ -2783,9 +2773,9 @@ namespace Luth
             // Update outline descriptors with new mask + depth buffers
             if (m_OutlineDescSet && m_OutlineSampler)
             {
-                auto vkMask      = std::static_pointer_cast<VKTexture>(m_SelectionMask);
-                auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_SelectionDepth);
-                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+                auto vkMask      = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionMask());
+                auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_Targets.GetSelectionDepth());
+                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
 
                 VkDescriptorImageInfo maskImgInfo{};
                 maskImgInfo.sampler     = m_OutlineSampler;
@@ -2830,7 +2820,7 @@ namespace Luth
             // Update grid descriptor set: scene depth view changed on resize
             if (m_GridDescSet && m_GridDepthSampler)
             {
-                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
+                auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
 
                 VkDescriptorImageInfo gridDepthImgInfo{};
                 gridDepthImgInfo.sampler     = m_GridDepthSampler;
@@ -2942,7 +2932,7 @@ namespace Luth
 
     RG::ResourceHandle RenderingSystem::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
     {
-        if (!m_FrameDebugger.blitPipeline || !m_LDROutput) return inputHandle;
+        if (!m_FrameDebugger.blitPipeline || !m_Targets.GetLDROutput()) return inputHandle;
 
         struct DebugBlitData {
             RG::ResourceHandle output;
@@ -2954,11 +2944,11 @@ namespace Luth
         rg.AddPass<DebugBlitData>("DebugDisplayBlit",
             [&](DebugBlitData& data, RG::RenderPassBuilder& builder)
             {
-                auto ldrVk = std::static_pointer_cast<VKTexture>(m_LDROutput);
+                auto ldrVk = std::static_pointer_cast<VKTexture>(m_Targets.GetLDROutput());
                 RG::TextureDesc desc;
                 desc.name   = "LDROutput";
-                desc.width  = m_LDROutput->GetWidth();
-                desc.height = m_LDROutput->GetHeight();
+                desc.width  = m_Targets.GetLDROutput()->GetWidth();
+                desc.height = m_Targets.GetLDROutput()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.output = rg.ImportResource(desc,
@@ -2973,8 +2963,8 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                u32 w = m_LDROutput->GetWidth();
-                u32 h = m_LDROutput->GetHeight();
+                u32 w = m_Targets.GetLDROutput()->GetWidth();
+                u32 h = m_Targets.GetLDROutput()->GetHeight();
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 VkRect2D sc{}; sc.extent = { w, h };
@@ -3041,7 +3031,7 @@ namespace Luth
         ci.extent        = { width, height, 1 };
         ci.mipLevels     = 1;
         ci.arrayLayers   = 1;
-        // Match m_SceneColor's format so vkCmdCopyImage is layout-compatible.
+        // Match the scene color target's format so vkCmdCopyImage is layout-compatible.
         ci.format        = VK_FORMAT_R16G16B16A16_SFLOAT;
         ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -3088,20 +3078,20 @@ namespace Luth
         // v1 — only GeometryPass per-draw replay is wired. Other passes leave
         // the cache key unchanged so the panel falls back to pass-output archive.
         if (pass.name != "GeometryPass") return;
-        if (!m_SceneColor || !m_SceneDepth || !m_EntityIDBuffer) return;
+        if (!m_Targets.GetSceneColor() || !m_Targets.GetSceneDepth() || !m_Targets.GetEntityIDBuffer()) return;
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
-        const u32 width  = m_SceneColor->GetWidth();
-        const u32 height = m_SceneColor->GetHeight();
+        const u32 width  = m_Targets.GetSceneColor()->GetWidth();
+        const u32 height = m_Targets.GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
         if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        auto vkSceneColor = std::static_pointer_cast<VKTexture>(m_SceneColor);
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_SceneDepth);
-        auto vkEntityID   = std::static_pointer_cast<VKTexture>(m_EntityIDBuffer);
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneColor());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_Targets.GetSceneDepth());
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(m_Targets.GetEntityIDBuffer());
         VkImage     sceneColorImg  = vkSceneColor->GetImage();
         VkImageView sceneColorView = vkSceneColor->GetImageView();
         VkImage     sceneDepthImg  = vkSceneDepth->GetImage();
