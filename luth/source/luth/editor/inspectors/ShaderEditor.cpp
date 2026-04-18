@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/inspectors/ShaderEditor.h"
 #include "luth/editor/UI.h"
-#include "luth/renderer/Shader.h"
+#include "luth/renderer/shader/Shader.h"
 
 namespace Luth
 {

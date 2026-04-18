@@ -4,14 +4,14 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/MaterialSystem.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <vma/vk_mem_alloc.h>
@@ -155,7 +155,7 @@ namespace Luth
                     if (m_FrameDebugger.state == DebuggerState::CaptureRequested)
                     {
                         std::string entName = registry.any_of<Component::Tag>(entity)
-                            ? registry.get<Component::Tag>(entity).m_Tag : "Entity";
+                            ? registry.get<Component::Tag>(entity).Value : "Entity";
                         u32 entityIndex = gpuObjectIndex + 1;
                         m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
                             model->GetName() + "[" + std::to_string(meshRenderer.MeshIndex) + "]",

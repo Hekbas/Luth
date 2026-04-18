@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/renderer/Shader.h"
+#include "luth/renderer/shader/Shader.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 

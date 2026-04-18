@@ -29,13 +29,13 @@ namespace Luth
         json SerializeEntity(Entity entity)
         {
             json j;
-            j["uuid"]   = entity.GetComponent<ID>().m_ID.ToString();
-            j["tag"]    = entity.GetComponent<Tag>().m_Tag;
+            j["uuid"]   = entity.GetComponent<ID>().Value.ToString();
+            j["tag"]    = entity.GetComponent<Tag>().Value;
             j["active"] = entity.IsActive();
 
             if (entity.HasParent()) {
                 Entity parent = entity.GetParent();
-                j["parent"] = parent.GetComponent<ID>().m_ID.ToString();
+                j["parent"] = parent.GetComponent<ID>().Value.ToString();
             } else {
                 j["parent"] = "";
             }
@@ -113,7 +113,7 @@ namespace Luth
                 auto& ba = entity.GetComponent<BoneAttachment>();
                 json baj;
                 if (ba.TargetEntity && ba.TargetEntity.IsValid()) {
-                    baj["targetUUID"] = ba.TargetEntity.GetComponent<ID>().m_ID.ToString();
+                    baj["targetUUID"] = ba.TargetEntity.GetComponent<ID>().Value.ToString();
                 }
                 baj["boneName"]      = ba.BoneName;
                 baj["localOffset"]   = Vec3ToJson(ba.LocalOffset);
@@ -184,7 +184,7 @@ namespace Luth
                 // Overwrite auto-generated UUID
                 std::string uuidStr = ej.value("uuid", "");
                 if (!uuidStr.empty())
-                    entity.GetComponent<ID>().m_ID = UUID::FromString(uuidStr);
+                    entity.GetComponent<ID>().Value = UUID::FromString(uuidStr);
 
                 entity.SetActive(ej.value("active", true));
 
@@ -362,7 +362,7 @@ namespace Luth
             if (entity.HasParent()) {
                 Entity parent = entity.GetParent();
                 if (parent.HasComponent<Children>())
-                    list = &parent.GetComponent<Children>().m_Children;
+                    list = &parent.GetComponent<Children>().Value;
             } else {
                 list = &scene->GetRootEntities();
             }
@@ -380,7 +380,7 @@ namespace Luth
             if (parent.IsValid()) {
                 entity.SetParent(parent);
 
-                auto& children = parent.GetComponent<Children>().m_Children;
+                auto& children = parent.GetComponent<Children>().Value;
                 children.erase(std::remove(children.begin(), children.end(), entity), children.end());
                 i32 idx = std::min(index, (i32)children.size());
                 children.insert(children.begin() + idx, entity);
@@ -409,7 +409,7 @@ namespace Luth
           m_NewPos(newPos), m_NewRot(newRot), m_NewScale(newScale)
     {
         Entity e{ entity, scene };
-        m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        m_EntityUUID = e.GetComponent<Component::ID>().Value;
     }
 
     void GizmoTransformCommand::Execute() { Apply(m_NewPos, m_NewRot, m_NewScale); }
@@ -439,7 +439,7 @@ namespace Luth
         if (m_FirstExecution)
         {
             Entity entity = m_Scene->CreateEntity(m_EntityName);
-            m_CreatedUUID = entity.GetComponent<ID>().m_ID;
+            m_CreatedUUID = entity.GetComponent<ID>().Value;
 
             if (m_ParentUUID.IsValid()) {
                 Entity parent = m_Scene->FindEntityByUUID(m_ParentUUID);
@@ -464,7 +464,7 @@ namespace Luth
     void EntityCreateCommand::Redo()
     {
         Entity entity = m_Scene->CreateEntity(m_EntityName);
-        entity.GetComponent<ID>().m_ID = m_CreatedUUID;
+        entity.GetComponent<ID>().Value = m_CreatedUUID;
 
         if (m_ParentUUID.IsValid()) {
             Entity parent = m_Scene->FindEntityByUUID(m_ParentUUID);
@@ -485,11 +485,11 @@ namespace Luth
     EntityDestroyCommand::EntityDestroyCommand(Scene* scene, Entity entity)
         : m_Scene(scene)
     {
-        m_EntityUUID = entity.GetComponent<ID>().m_ID;
+        m_EntityUUID = entity.GetComponent<ID>().Value;
 
         if (entity.HasParent()) {
             Entity parent = entity.GetParent();
-            m_ParentUUID = parent.GetComponent<ID>().m_ID;
+            m_ParentUUID = parent.GetComponent<ID>().Value;
         }
         m_SiblingIndex = CommandUtil::GetSiblingIndex(entity);
         m_WasSelected = EditorSelection::IsSelected(entity);
@@ -535,7 +535,7 @@ namespace Luth
           m_OldName(std::move(oldName)), m_NewName(std::move(newName))
     {
         Entity e{ entity, scene };
-        m_EntityUUID = e.GetComponent<Component::ID>().m_ID;
+        m_EntityUUID = e.GetComponent<Component::ID>().Value;
     }
 
     void EntityRenameCommand::Execute()
@@ -561,13 +561,13 @@ namespace Luth
     EntityReparentCommand::EntityReparentCommand(Scene* scene, Entity entity, Entity newParent)
         : m_Scene(scene)
     {
-        m_EntityUUID = entity.GetComponent<ID>().m_ID;
+        m_EntityUUID = entity.GetComponent<ID>().Value;
 
         if (entity.HasParent())
-            m_OldParentUUID = entity.GetParent().GetComponent<ID>().m_ID;
+            m_OldParentUUID = entity.GetParent().GetComponent<ID>().Value;
 
         if (newParent.IsValid())
-            m_NewParentUUID = newParent.GetComponent<ID>().m_ID;
+            m_NewParentUUID = newParent.GetComponent<ID>().Value;
 
         m_OldSiblingIndex = CommandUtil::GetSiblingIndex(entity);
     }
@@ -606,11 +606,11 @@ namespace Luth
     EntityReorderCommand::EntityReorderCommand(Scene* scene, Entity entity, Entity target, bool after)
         : m_Scene(scene), m_After(after)
     {
-        m_EntityUUID = entity.GetComponent<ID>().m_ID;
-        m_TargetUUID = target.GetComponent<ID>().m_ID;
+        m_EntityUUID = entity.GetComponent<ID>().Value;
+        m_TargetUUID = target.GetComponent<ID>().Value;
 
         if (entity.HasParent())
-            m_OldParentUUID = entity.GetParent().GetComponent<ID>().m_ID;
+            m_OldParentUUID = entity.GetParent().GetComponent<ID>().Value;
 
         m_OldSiblingIndex = CommandUtil::GetSiblingIndex(entity);
     }
@@ -649,7 +649,7 @@ namespace Luth
     EntityDuplicateCommand::EntityDuplicateCommand(Scene* scene, Entity original)
         : m_Scene(scene)
     {
-        m_OriginalUUID = original.GetComponent<ID>().m_ID;
+        m_OriginalUUID = original.GetComponent<ID>().Value;
     }
 
     void EntityDuplicateCommand::Execute()
@@ -660,7 +660,7 @@ namespace Luth
             if (!original.IsValid()) return;
 
             Entity duplicate = m_Scene->DuplicateEntity(original);
-            m_DuplicateUUID = duplicate.GetComponent<ID>().m_ID;
+            m_DuplicateUUID = duplicate.GetComponent<ID>().Value;
             m_DuplicateSnapshot = CommandUtil::SerializeEntitySubtree(duplicate);
             m_FirstExecution = false;
         }

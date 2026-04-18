@@ -1,10 +1,10 @@
 #include "luthpch.h"
 #include "luth/platform/WinWindow.h"
-#include "luth/platform/EventBus.h"
-#include "luth/platform/AppEvent.h"
-#include "luth/platform/KeyEvent.h"
-#include "luth/platform/MouseEvent.h"
-#include "luth/platform/FileDropEvent.h"
+#include "luth/events/EventBus.h"
+#include "luth/events/AppEvent.h"
+#include "luth/events/KeyEvent.h"
+#include "luth/events/MouseEvent.h"
+#include "luth/events/FileDropEvent.h"
 #include "luth/resources/FileSystem.h"
 
 #include <backends/imgui_impl_glfw.h>

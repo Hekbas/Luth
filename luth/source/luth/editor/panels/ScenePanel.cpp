@@ -10,11 +10,11 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/platform/RenderEvent.h"
-#include "luth/utils/ImGuiUtils.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/events/RenderEvent.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/editor/UI.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
@@ -26,7 +26,7 @@ namespace Luth
 {
     using namespace Component;
 
-    ScenePanel::ScenePanel(std::shared_ptr<RenderingSystem> renderingSystem)
+    ScenePanel::ScenePanel(RenderingSystem* renderingSystem)
         : m_RenderingSystem(renderingSystem)
     {
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);

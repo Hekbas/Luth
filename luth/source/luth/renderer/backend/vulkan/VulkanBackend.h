@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/renderer/RenderBackend.h"
-#include "luth/renderer/FrameData.h"
+#include "luth/core/FrameData.h"
 #include "VulkanSwapchain.h"
 #include "TimelineSemaphore.h"
 #include "CommandAllocatorPool.h"

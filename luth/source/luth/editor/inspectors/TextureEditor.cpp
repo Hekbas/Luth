@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/inspectors/TextureEditor.h"
 #include "luth/editor/UI.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"

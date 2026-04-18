@@ -1,13 +1,13 @@
 #pragma once
 
-#include "luth/scene/System.h"
+#include "luth/scene/systems/ISystem.h"
 #include "luth/scene/Components.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 
 namespace Luth
 {
-    class TransformSystem : public System
+    class TransformSystem : public ISystem
     {
     public:
         TransformSystem() {}
@@ -52,7 +52,7 @@ namespace Luth
                 // Parent is guaranteed to be updated because we process by levels
                 if (reg.any_of<Component::Parent>(entity))
                 {
-                    entt::entity parent = reg.get<Component::Parent>(entity).m_Parent;
+                    entt::entity parent = reg.get<Component::Parent>(entity).Value;
                     const auto& parentWorld = reg.get<Component::WorldTransform>(parent);
                     world.Matrix = parentWorld.Matrix * transform.LocalMatrix;
                 }
@@ -116,7 +116,7 @@ namespace Luth
                 {
                     if (reg.any_of<Component::Children>(parent))
                     {
-                        const auto& children = reg.get<Component::Children>(parent).m_Children;
+                        const auto& children = reg.get<Component::Children>(parent).Value;
                         for (auto child : children)
                             nextLevel.push_back((entt::entity)child);
                     }

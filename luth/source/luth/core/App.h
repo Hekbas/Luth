@@ -2,11 +2,11 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/platform/Window.h"
-#include "luth/platform/EventBus.h"
-#include "luth/platform/AppEvent.h"
-#include "luth/platform/FileDropEvent.h"
+#include "luth/events/EventBus.h"
+#include "luth/events/AppEvent.h"
+#include "luth/events/FileDropEvent.h"
 #include "luth/scene/Scene.h"
-#include "luth/renderer/FrameData.h"
+#include "luth/core/FrameData.h"
 
 #include <vector>
 #include <memory>

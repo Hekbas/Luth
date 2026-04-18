@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/renderer/DrawCommand.h"
+#include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"

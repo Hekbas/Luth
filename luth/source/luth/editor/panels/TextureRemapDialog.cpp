@@ -6,9 +6,9 @@
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/importers/TextureResolver.h"
 #include "luth/platform/FileDialog.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/Icons.h"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>

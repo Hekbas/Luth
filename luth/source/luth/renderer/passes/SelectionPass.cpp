@@ -4,16 +4,16 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/MaterialSystem.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/ShaderCompiler.h"
+#include "luth/renderer/shader/ShaderCompiler.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <vma/vk_mem_alloc.h>
 
@@ -149,7 +149,7 @@ namespace Luth
                         if (registry.any_of<Component::Animation>(entity))
                             animEntity = entity;
                         else if (registry.any_of<Component::Parent>(entity)) {
-                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).m_Parent;
+                            auto parentEnt = (entt::entity)registry.get<Component::Parent>(entity).Value;
                             if (registry.valid(parentEnt) && registry.any_of<Component::Animation>(parentEnt))
                                 animEntity = parentEnt;
                         }

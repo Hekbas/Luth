@@ -5,12 +5,12 @@
 #include "luth/editor/Command.h"
 #include "luth/editor/CommandHistory.h"
 #include "luth/scene/Components.h"
-#include "luth/scene/Systems.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/scene/systems/SystemRegistry.h"
+#include "luth/editor/widgets/Icons.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -146,7 +146,7 @@ namespace Luth
         if (!entity.IsValid()) return;
 
         // Use pointer-based ID to ensure uniqueness for 32-bit/64-bit entity handles
-        ImGui::PushID((void*)(uintptr_t)(uint32_t)entity.GetComponent<ID>().m_ID.GetHalf0());
+        ImGui::PushID((void*)(uintptr_t)(uint32_t)entity.GetComponent<ID>().Value.GetHalf0());
 
         const std::string& name = entity.GetName();
 
@@ -439,7 +439,7 @@ namespace Luth
         if (ImGui::MenuItem("Create Empty"))
         {
             UUID parentUUID = (parent && parent.IsValid())
-                ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
             m_DeferredActions.push_back([this, parentUUID]() {
                 auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "New Entity", parentUUID);
                 auto* rawCmd = cmd.get();
@@ -503,7 +503,7 @@ namespace Luth
         if (ImGui::MenuItem("Camera"))
         {
             UUID parentUUID = (parent && parent.IsValid())
-                ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
             m_DeferredActions.push_back([this, parentUUID]() {
                 CommandHistory::BeginCompound("Create Camera");
                 auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Camera", parentUUID);
@@ -522,7 +522,7 @@ namespace Luth
         {
             if (ImGui::MenuItem("Directional Light")) {
                 UUID parentUUID = (parent && parent.IsValid())
-                    ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                    ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
                 m_DeferredActions.push_back([this, parentUUID]() {
                     CommandHistory::BeginCompound("Create Directional Light");
                     auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Directional Light", parentUUID);
@@ -547,7 +547,7 @@ namespace Luth
             if (ImGui::MenuItem("Point Light"))
             {
                 UUID parentUUID = (parent && parent.IsValid())
-                    ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+                    ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
                 m_DeferredActions.push_back([this, parentUUID]() {
                     CommandHistory::BeginCompound("Create Point Light");
                     auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Point Light", parentUUID);
@@ -634,7 +634,7 @@ namespace Luth
     void HierarchyPanel::InstantiateModel(UUID assetUuid, Entity parent)
     {
         UUID parentUUID = (parent && parent.IsValid())
-            ? parent.GetComponent<Component::ID>().m_ID : UUID::Invalid();
+            ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
 
         auto cmd = std::make_unique<ModelInstantiateCommand>(m_Context.get(), assetUuid, parentUUID);
         auto* rawCmd = cmd.get();

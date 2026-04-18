@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/platform/Input.h"
 #include "luth/editor/Editor.h"
-#include "luth/platform/EventBus.h"
+#include "luth/events/EventBus.h"
 
 namespace Luth
 {

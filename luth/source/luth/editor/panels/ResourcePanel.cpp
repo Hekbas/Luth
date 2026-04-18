@@ -3,8 +3,8 @@
 #include "luth/editor/EditorSelection.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/utils/ImGuiUtils.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
 
 namespace Luth
 {

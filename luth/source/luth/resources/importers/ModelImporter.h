@@ -2,7 +2,7 @@
 
 #include "luth/resources/AssetImporter.h"
 #include "luth/resources/importers/ImportReport.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/renderer/Skeleton.h"
 #include "luth/renderer/AnimationClip.h"
 

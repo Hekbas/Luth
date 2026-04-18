@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/renderer/FrameData.h"
+#include "luth/core/FrameData.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>

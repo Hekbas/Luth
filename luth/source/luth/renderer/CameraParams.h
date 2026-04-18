@@ -8,7 +8,7 @@
 namespace Luth
 {
     // Camera and editor state needed by RenderingSystem each frame.
-    // Populated by App before Systems::Update<RenderingSystem>() to avoid
+    // Populated by App before SystemRegistry::Update<RenderingSystem>() to avoid
     // a scene-layer dependency on the editor.
     struct CameraParams
     {

@@ -22,4 +22,4 @@
 #include "luth/core/Profiler.h"
 #include "luth/memory/MemoryMacros.h"
 
-#include "luth/utils/CustomFormatters.h"
+#include "luth/core/LogFormatters.h"

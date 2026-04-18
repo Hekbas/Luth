@@ -6,13 +6,13 @@
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/Model.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Texture.h"
-#include "luth/renderer/Shader.h"
+#include "luth/renderer/resources/Model.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/shader/Shader.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/utils/ImGuiUtils.h"
-#include "luth/utils/LuthIcons.h"
+#include "luth/editor/widgets/ImGuiUtils.h"
+#include "luth/editor/widgets/Icons.h"
 
 namespace Luth
 {
@@ -75,10 +75,10 @@ namespace Luth
             float lockBtnWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
             ImGui::PushItemWidth(-lockBtnWidth);
             char buffer[256];
-            strncpy(buffer, tag.m_Tag.c_str(), sizeof(buffer) - 1);
+            strncpy(buffer, tag.Value.c_str(), sizeof(buffer) - 1);
             buffer[sizeof(buffer) - 1] = 0;
             if (ImGui::InputText("##Name", buffer, sizeof(buffer))) {
-                std::string oldName = tag.m_Tag;
+                std::string oldName = tag.Value;
                 std::string newName = buffer;
                 if (oldName != newName) {
                     CommandHistory::Execute(std::make_unique<EntityRenameCommand>(
@@ -112,12 +112,12 @@ namespace Luth
         // Draw each component with a collapsible UI section
         #if defined(DEBUG)
         DrawComponent<ID>("ID", m_SelectedEntity, [](Entity entity, ID& component) {
-            ImGui::Text("ID: %llu", component.m_ID);
+            ImGui::Text("ID: %llu", component.Value);
         });
 
         DrawComponent<Parent>("Parent", m_SelectedEntity, [](Entity entity, Parent& component) {
-            if (component.m_Parent && component.m_Parent.IsValid()) {
-                ImGui::Text("Parent: %s", component.m_Parent.GetName().c_str());
+            if (component.Value && component.Value.IsValid()) {
+                ImGui::Text("Parent: %s", component.Value.GetName().c_str());
                 if (ImGui::Button("Clear Parent")) {
                     entity.SetParent({});
                 }
@@ -128,8 +128,8 @@ namespace Luth
         });
 
         DrawComponent<Children>("Children", m_SelectedEntity, [](Entity entity, Children& component) {
-            ImGui::Text("Children: %d", component.m_Children.size());
-            for (auto& child : component.m_Children) {
+            ImGui::Text("Children: %d", component.Value.size());
+            for (auto& child : component.Value) {
                 if (child.IsValid()) {
                     ImGui::BulletText("%s", child.GetName().c_str());
                 }
@@ -461,7 +461,7 @@ namespace Luth
             auto view = registry.view<Animation, Tag>();
             for (auto e : view) {
                 animEntities.push_back(e);
-                entityNames.push_back(registry.get<Tag>(e).m_Tag);
+                entityNames.push_back(registry.get<Tag>(e).Value);
                 if (attachment.TargetEntity && (entt::entity)attachment.TargetEntity == e)
                     currentIndex = (int)animEntities.size(); // 1-based index relates to entityNames
             }

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "VulkanShader.h"
-#include "luth/renderer/ShaderCompiler.h"
+#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/core/Log.h"
 

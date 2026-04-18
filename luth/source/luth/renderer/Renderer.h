@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/renderer/RenderBackend.h"
-#include "luth/renderer/FrameData.h"
+#include "luth/core/FrameData.h"
 
 #include <memory>
 

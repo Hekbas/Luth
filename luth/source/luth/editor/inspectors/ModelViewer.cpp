@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/editor/inspectors/ModelViewer.h"
 #include "luth/editor/UI.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"

@@ -15,7 +15,7 @@
 #include "luth/resources/AssetDatabase.h"
 
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/Buffer.h"
-#include "luth/renderer/Shader.h"
-#include "luth/renderer/Texture.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Buffer.h"
+#include "luth/renderer/shader/Shader.h"
+#include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/resources/Model.h"
