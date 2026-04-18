@@ -176,26 +176,13 @@ namespace Luth
         u32         GetDepthPreviewHeight() const { return m_DepthPreviewHeight; }
 
     private:
-        void InitGlobalUniforms();
-        void InitObjectSSBODescriptorLayout();
-        void InitGPUObjectBuffers();
-        void InitCullPipeline();
-        void InitAOResources();         // GTAO persistent textures + pipelines (epic #58)
-        void UpdateAODescriptors();     // Rewrite GTAO descriptor sets (post-Resize)
-        void UpdateGTAOUBO();           // Push GTAOSettings → GPU UBO each frame
-        void InitShadowResources();
-        void InitPostProcessResources();
-        void InitIBLResources(const std::filesystem::path& hdrPath);
+        // Per-frame update helpers (remain on RS for sub-task E2).
+        void UpdateGTAOUBO();
         void UpdateGlobalUniforms();
         void UpdateLightUniforms(Scene* scene);
-
         void UpdatePostProcessUBO();
-        void UpdatePostProcessDescriptors();
-        void CreatePipelines();
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
         void BuildGPUObjectBuffer(entt::registry& registry);
-
-        void RegisterNamedTextures();
 
         // Phase 14C — RenderCapturedFrame removed (live re-replay).
         // AddDebugBlitPass + InitDebugBlitResources kept for Phase 14D
@@ -418,8 +405,6 @@ namespace Luth
         std::mutex m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
         bool m_PendingUtilityReload = false;
-
-        void RecompileUtilityShaders();
 
         // Stats (tri count lives on m_DrawList.visibleTriCount)
         ShadeMode m_ShadeMode = ShadeMode::Lit;
