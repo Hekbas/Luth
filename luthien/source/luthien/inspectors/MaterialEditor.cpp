@@ -239,7 +239,7 @@ namespace Luth
                 };
 
                 DrawSurfaceInput(MapType::Diffuse, "Albedo", [&]() {
-                    glm::vec4 color = material.GetColor();
+                    Vec4 color = material.GetColor();
                     if (ImGui::ColorEdit4("##AlbedoColor", &color.x, ImGuiColorEditFlags_NoInputs)) {
                         material.SetColor(color);
                         material.MarkDirty();
@@ -279,7 +279,7 @@ namespace Luth
                 DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
-                    glm::vec3 emColor = material.Get<glm::vec3>("u_EmissiveColor", glm::vec3(0.0f));
+                    Vec3 emColor = material.Get<Vec3>("u_EmissiveColor", Vec3(0.0f));
                     if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_NoInputs)) {
                         material.Set("u_EmissiveColor", emColor);
                         material.MarkDirty();

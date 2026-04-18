@@ -907,7 +907,7 @@ namespace Luth
                 if (UI::BeginCollapsingHeader("Light-space Matrix"))
                 {
                     ImGui::Indent(4.0f);
-                    const glm::mat4& M = capture.lightSpaceMatrix[ci];
+                    const Mat4& M = capture.lightSpaceMatrix[ci];
                     if (ImGui::BeginTable("##LSM", 4)) {
                         for (int row = 0; row < 4; ++row)
                         {
@@ -1004,11 +1004,11 @@ namespace Luth
         if (isGraphicsDraw && UI::BeginCollapsingHeader("Transform"))
         {
             ImGui::Indent(4.0f);
-            glm::vec3 scale, translation, skew;
-            glm::vec4 perspective;
-            glm::quat rotation;
+            Vec3 scale, translation, skew;
+            Vec4 perspective;
+            Quat rotation;
             glm::decompose(dc.modelMatrix, scale, rotation, translation, skew, perspective);
-            glm::vec3 euler = glm::degrees(glm::eulerAngles(rotation));
+            Vec3 euler = glm::degrees(glm::eulerAngles(rotation));
 
             if (ImGui::BeginTable("##TransformInfo", 2)) {
                 ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 130.0f);

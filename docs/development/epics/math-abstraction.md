@@ -249,9 +249,9 @@ After each pass, rebuild and re-grep to catch missed patterns.
 
 | Sub-Task | Status | Commit | Date |
 |----------|--------|--------|------|
-| A: Reshape LuthTypes.h primitive layer | pending | — | — |
-| B: Build Luth::Math facade | pending | — | — |
-| C: Pass A (engine) — types | pending | — | — |
+| A: Reshape LuthTypes.h primitive layer | done | eaeaa00 | 2026-04-18 |
+| B: Build Luth::Math facade | done | 7d91417 | 2026-04-18 |
+| C: Pass A (engine) — types | done | 9c6f2b9 | 2026-04-18 |
 | D: Pass A (editor) — types | pending | — | — |
 | E: Pass B (engine) — functions | pending | — | — |
 | F: Pass B (editor) — functions | pending | — | — |

@@ -8,17 +8,17 @@
 
 namespace Luth
 {
-    // Conversion from ImVec2 to glm::vec2
-    inline glm::vec2 ToGlmVec2(const ImVec2& vec) {
+    // Conversion from ImVec2 to Vec2
+    inline Vec2 ToGlmVec2(const ImVec2& vec) {
         return { vec.x, vec.y };
     }
 
-    // Conversion from glm::vec2 to ImVec2  
-    inline ImVec2 ToImVec2(const glm::vec2& vec) {
+    // Conversion from Vec2 to ImVec2  
+    inline ImVec2 ToImVec2(const Vec2& vec) {
         return { vec.x, vec.y };
     }
 
-    inline glm::vec2 operator*(const glm::vec2& lhs, const ImVec2& rhs) {
+    inline Vec2 operator*(const Vec2& lhs, const ImVec2& rhs) {
         return { lhs.x * rhs.x, lhs.y * rhs.y };
     }
 

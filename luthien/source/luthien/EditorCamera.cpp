@@ -11,7 +11,7 @@ namespace Luth
     EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)
         : m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
     {
-        glm::vec3 direction = glm::normalize(m_FocalPoint - m_Position);
+        Vec3 direction = glm::normalize(m_FocalPoint - m_Position);
         m_Distance = glm::length(m_FocalPoint - m_Position);
 
         m_Yaw = glm::degrees(atan2(direction.z, direction.x));
@@ -23,8 +23,8 @@ namespace Luth
 
     void EditorCamera::OnUpdate(float dt) {
         auto [x, y] = ImGui::GetMousePos();
-        glm::vec2 currentMousePos(x, y);
-        glm::vec2 delta = (currentMousePos - m_LastMousePosition) * 0.002f;
+        Vec2 currentMousePos(x, y);
+        Vec2 delta = (currentMousePos - m_LastMousePosition) * 0.002f;
         m_LastMousePosition = currentMousePos;
 
         // Input state
@@ -46,12 +46,12 @@ namespace Luth
             m_Pitch  = glm::clamp(m_Pitch, -89.0f, 89.0f);
 
             // WASD + QE movement
-            glm::vec3 forward = GetForwardDirection();
-            glm::vec3 right   = GetRightDirection();
-            glm::vec3 worldUp = glm::vec3(0.0f, 1.0f, 0.0f);
+            Vec3 forward = GetForwardDirection();
+            Vec3 right   = GetRightDirection();
+            Vec3 worldUp = Vec3(0.0f, 1.0f, 0.0f);
 
             float speed = m_FlySpeed * (shiftHeld ? m_ShiftMultiplier : 1.0f) * dt;
-            glm::vec3 movement(0.0f);
+            Vec3 movement(0.0f);
 
             if (ImGui::IsKeyDown(ImGuiKey_W)) movement += forward;
             if (ImGui::IsKeyDown(ImGuiKey_S)) movement -= forward;
@@ -95,8 +95,8 @@ namespace Luth
         // --- Pan (Middle mouse) ---
         else if (mmb)
         {
-            glm::vec3 right = GetRightDirection();
-            glm::vec3 up    = GetUpDirection();
+            Vec3 right = GetRightDirection();
+            Vec3 up    = GetUpDirection();
             float speed      = m_PanSpeed * m_Distance * dt;
 
             m_FocalPoint += -right * delta.x * speed;
@@ -141,7 +141,7 @@ namespace Luth
         UpdateProjection();
     }
 
-    void EditorCamera::SetFocalPoint(glm::vec3 focalPoint) {
+    void EditorCamera::SetFocalPoint(Vec3 focalPoint) {
         m_FocalPoint = focalPoint;
         m_Position = CalculatePosition();
         UpdateView();
@@ -162,24 +162,24 @@ namespace Luth
         m_IsTrackingEntity = false;
     }
 
-    glm::vec3 EditorCamera::GetForwardDirection() const {
+    Vec3 EditorCamera::GetForwardDirection() const {
         float yawRad = glm::radians(m_Yaw);
         float pitchRad = glm::radians(m_Pitch);
-        return glm::vec3(
+        return Vec3(
             cos(yawRad) * cos(pitchRad),
             sin(pitchRad),
             sin(yawRad) * cos(pitchRad)
         );
     }
 
-    glm::vec3 EditorCamera::GetRightDirection() const {
+    Vec3 EditorCamera::GetRightDirection() const {
         float yawRad = glm::radians(m_Yaw);
-        return glm::vec3(-sin(yawRad), 0.0f, cos(yawRad));
+        return Vec3(-sin(yawRad), 0.0f, cos(yawRad));
     }
 
-    glm::vec3 EditorCamera::GetUpDirection() const {
-        glm::vec3 forward = GetForwardDirection();
-        glm::vec3 right = GetRightDirection();
+    Vec3 EditorCamera::GetUpDirection() const {
+        Vec3 forward = GetForwardDirection();
+        Vec3 right = GetRightDirection();
         return glm::normalize(glm::cross(right, forward));
     }
 
@@ -190,15 +190,15 @@ namespace Luth
     }
 
     void EditorCamera::UpdateView() {
-        m_ViewMatrix = glm::lookAt(m_Position, m_FocalPoint, glm::vec3(0.0f, 1.0f, 0.0f));
+        m_ViewMatrix = glm::lookAt(m_Position, m_FocalPoint, Vec3(0.0f, 1.0f, 0.0f));
     }
 
-    glm::vec3 EditorCamera::CalculatePosition() const {
+    Vec3 EditorCamera::CalculatePosition() const {
         return m_FocalPoint - GetForwardDirection() * m_Distance;
     }
 
-    glm::quat EditorCamera::GetOrientation() const {
-        return glm::quatLookAt(GetForwardDirection(), glm::vec3(0.0f, 1.0f, 0.0f));
+    Quat EditorCamera::GetOrientation() const {
+        return glm::quatLookAt(GetForwardDirection(), Vec3(0.0f, 1.0f, 0.0f));
     }
 
     void EditorCamera::ApplySettings(const EditorSettings& s) {

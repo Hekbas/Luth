@@ -17,24 +17,24 @@ namespace Luth
 
         void OnUpdate(float dt);
 
-        glm::vec3 GetPosition() const { return m_Position; }
+        Vec3 GetPosition() const { return m_Position; }
         bool IsFlying() const { return m_IsFlying; }
 
         void SetLockedEntity(Entity entity);
         void ClearLockedEntity();
-        const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-        const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
-        glm::mat4 GetViewProjection() const { return m_ProjectionMatrix * m_ViewMatrix; }
+        const Mat4& GetViewMatrix() const { return m_ViewMatrix; }
+        const Mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
+        Mat4 GetViewProjection() const { return m_ProjectionMatrix * m_ViewMatrix; }
 
         void SetViewportSize(float width, float height);
-        void SetFocalPoint(glm::vec3 focalPoint);
+        void SetFocalPoint(Vec3 focalPoint);
         float GetFlySpeed() const { return m_FlySpeed; }
         void  SetFlySpeed(float speed) { m_FlySpeed = glm::clamp(speed, 0.1f, 200.0f); }
         float& GetFlySpeedRef() { return m_FlySpeed; }
 
-        glm::vec3 GetForwardDirection() const;
-        glm::vec3 GetRightDirection() const;
-        glm::vec3 GetUpDirection() const;
+        Vec3 GetForwardDirection() const;
+        Vec3 GetRightDirection() const;
+        Vec3 GetUpDirection() const;
 
         // Settings accessors
         float GetFOV() const { return m_FOV; }
@@ -67,8 +67,8 @@ namespace Luth
     private:
         void UpdateProjection();
         void UpdateView();
-        glm::vec3 CalculatePosition() const;
-        glm::quat GetOrientation() const;
+        Vec3 CalculatePosition() const;
+        Quat GetOrientation() const;
 
     private:
         float m_FOV = 70.0f;
@@ -76,11 +76,11 @@ namespace Luth
         float m_NearClip = 0.1f;
         float m_FarClip = 1000.0f;
 
-        glm::mat4 m_ViewMatrix;
-        glm::mat4 m_ProjectionMatrix;
+        Mat4 m_ViewMatrix;
+        Mat4 m_ProjectionMatrix;
 
-        glm::vec3 m_Position = { 400.0f, 220.0f, 400.0f };
-        glm::vec3 m_FocalPoint = { 0.0f, 50.0f, 0.0f };
+        Vec3 m_Position = { 400.0f, 220.0f, 400.0f };
+        Vec3 m_FocalPoint = { 0.0f, 50.0f, 0.0f };
 
         float m_Distance = 10.0f;
         float m_Pitch = 0.0f;
@@ -93,7 +93,7 @@ namespace Luth
         float m_RotationSpeed = 20000.0f;
         float m_PanSpeed = 200.0f;
         float m_ZoomSpeed = 100.0f;
-        glm::vec2 m_LastMousePosition = { 0.0f, 0.0f };
+        Vec2 m_LastMousePosition = { 0.0f, 0.0f };
 
         // Flythrough
         bool  m_IsFlying        = false;

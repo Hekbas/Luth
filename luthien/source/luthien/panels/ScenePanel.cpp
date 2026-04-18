@@ -398,7 +398,7 @@ namespace Luth
                             m_EditorCamera.SetLockedEntity(m_SelectedEntity);
                         } else {
                             m_EditorCamera.ClearLockedEntity();
-                            glm::vec3 newFocus = m_SelectedEntity.GetComponent<Transform>().Position;
+                            Vec3 newFocus = m_SelectedEntity.GetComponent<Transform>().Position;
                             m_EditorCamera.SetFocalPoint(newFocus);
                         }
                     }
@@ -493,14 +493,14 @@ namespace Luth
         ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportSize.x, m_ViewportSize.y);
 
         // Camera
-        const glm::mat4& view = m_EditorCamera.GetViewMatrix();
-        const glm::mat4& proj = m_EditorCamera.GetProjectionMatrix();
+        const Mat4& view = m_EditorCamera.GetViewMatrix();
+        const Mat4& proj = m_EditorCamera.GetProjectionMatrix();
 
         // Entity Transform
         auto& tc = m_SelectedEntity.GetComponent<Transform>();
         
         // Get World Matrix for Gizmo
-        glm::mat4 worldMatrix = m_SelectedEntity.GetComponent<WorldTransform>().Matrix;
+        Mat4 worldMatrix = m_SelectedEntity.GetComponent<WorldTransform>().Matrix;
 
         // If we are in Local mode, we still need the world matrix for position, but we want to edit in local axes.
         // ImGuizmo handles this via the MODE parameter.
@@ -541,11 +541,11 @@ namespace Luth
             if (isUsing)
             {
                 // Convert back to Local Space
-                glm::mat4 localMatrix = worldMatrix;
+                Mat4 localMatrix = worldMatrix;
                 if (m_SelectedEntity.HasParent())
                 {
                     Entity parent = m_SelectedEntity.GetParent();
-                    glm::mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
+                    Mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
                     localMatrix = glm::inverse(parentWorld) * worldMatrix;
                 }
 
