@@ -329,7 +329,7 @@ namespace Luth
         trackedRTs.insert(name);
     }
 
-    void FrameDebugger::FinalizeCapture(const glm::mat4& viewProj)
+    void FrameDebugger::FinalizeCapture(const Mat4& viewProj)
     {
         capturedFrame.captureViewProj = viewProj;
         // Build the hierarchical event tree from the just-finished capture.

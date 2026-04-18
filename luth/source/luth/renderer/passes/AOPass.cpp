@@ -19,8 +19,8 @@ namespace Luth
         // the `PC` block in gtao_depth_prefilter.comp.
         struct GTAOPrefilterPC
         {
-            glm::ivec2 halfResSize;     // 0
-            glm::vec2  invFullRes;      // 8
+            IVec2 halfResSize;     // 0
+            Vec2  invFullRes;      // 8
             float      nearZ;           // 16
             float      farZ;            // 20
             float      _pad0;           // 24
@@ -112,7 +112,7 @@ namespace Luth
     {
         struct GTAOMainPC
         {
-            glm::vec2 projParams;   // 0   (P[0][0], |P[1][1]|)
+            Vec2 projParams;   // 0   (P[0][0], |P[1][1]|)
             float     nearZ;        // 8
             float     farZ;         // 12
             u32       frameIndex;   // 16

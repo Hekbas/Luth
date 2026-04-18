@@ -153,7 +153,7 @@ namespace Luth
         m_CullMode = static_cast<CullMode>(json.value("cull_mode", static_cast<int>(CullMode::Back)));
 
         if (json.contains("color") && json["color"].is_array() && json["color"].size() == 4)
-            m_GPUData.color = glm::vec4(json["color"][0], json["color"][1], json["color"][2], json["color"][3]);
+            m_GPUData.color = Vec4(json["color"][0], json["color"][1], json["color"][2], json["color"][3]);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

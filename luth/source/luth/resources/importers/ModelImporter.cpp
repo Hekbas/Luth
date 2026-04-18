@@ -375,7 +375,7 @@ namespace Luth
 
             if (influenceCount[i] == 0) {
                 // No bone influences — bind to first bone with full weight
-                sv.BoneIDs = glm::ivec4(0, 0, 0, 0);
+                sv.BoneIDs = IVec4(0, 0, 0, 0);
                 sv.BoneWeights = Vec4(1.0f, 0.0f, 0.0f, 0.0f);
                 continue;
             }

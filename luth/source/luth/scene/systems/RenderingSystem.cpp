@@ -169,13 +169,13 @@ namespace Luth
 
             // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
             // comparison matches what the GPU actually saw at capture time.
-            glm::mat4 currentProj = m_CameraParams.projection;
+            Mat4 currentProj = m_CameraParams.projection;
             currentProj[1][1] *= -1.0f;
-            glm::mat4 currentViewProj = currentProj * m_CameraParams.view;
+            Mat4 currentViewProj = currentProj * m_CameraParams.view;
 
             const bool cameraMoved = std::memcmp(&currentViewProj,
                                                   &m_FrameDebugger.capturedFrame.captureViewProj,
-                                                  sizeof(glm::mat4)) != 0;
+                                                  sizeof(Mat4)) != 0;
 
             if (!cameraMoved)
             {

@@ -13,16 +13,16 @@ namespace Luth
     // ---- Light data structs (mirrored in pbr.frag Set 3) ----
 
     struct DirectionalLightData {
-        glm::vec3 direction;   // 12
+        Vec3 direction;   // 12
         float     intensity;   // 4
-        glm::vec3 color;       // 12
+        Vec3 color;       // 12
         float     _pad;        // 4
     };  // 32 bytes
 
     struct PointLightData {
-        glm::vec3 position;    // 12
+        Vec3 position;    // 12
         float     range;       // 4
-        glm::vec3 color;       // 12
+        Vec3 color;       // 12
         float     intensity;   // 4
     };  // 32 bytes
 
@@ -40,8 +40,8 @@ namespace Luth
     // blend width + debug visualize).
     struct DirectionalLightShadowParams
     {
-        glm::vec4 shadowBias            = glm::vec4(0.005f, 0.008f, 0.012f, 0.02f);
-        glm::vec4 shadowNormalBias      = glm::vec4(1.0f);
+        Vec4 shadowBias            = Vec4(0.005f, 0.008f, 0.012f, 0.02f);
+        Vec4 shadowNormalBias      = Vec4(1.0f);
         float     splitLambda           = 0.5f;
         float     shadowDistance        = 200.0f;
         float     cascadeBlendWidth     = 0.2f;
@@ -55,10 +55,10 @@ namespace Luth
     // texel size for normal-bias scaling).
     struct CascadeData
     {
-        glm::mat4 lightSpaceMatrix[k_ShadowCascadeCount] = {
-            glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)
+        Mat4 lightSpaceMatrix[k_ShadowCascadeCount] = {
+            Mat4(1.0f), Mat4(1.0f), Mat4(1.0f), Mat4(1.0f)
         };
-        glm::vec4 splitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
-        glm::vec4 texelSize   = glm::vec4(1.0f);  // World-space size of one shadow texel per cascade
+        Vec4 splitsViewZ = Vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        Vec4 texelSize   = Vec4(1.0f);  // World-space size of one shadow texel per cascade
     };
 }

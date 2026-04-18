@@ -15,7 +15,7 @@ namespace Luth
 
     struct CullPushConstants
     {
-        glm::vec4 frustumPlanes[6]; // 96B
+        Vec4 frustumPlanes[6]; // 96B
         u32       objectCount;      // 4B
         u32       destOffset;       // 4B — index offset into commands[]
     };
@@ -26,7 +26,7 @@ namespace Luth
         RG::BufferHandle                indirectBuffer,
         VKComputePipeline*              pipeline,
         VkDescriptorSet                 descSet,
-        const std::array<glm::vec4, 6>& frustumPlanes,
+        const std::array<Vec4, 6>& frustumPlanes,
         u32                             objectCount,
         u32                             destOffset,
         const char*                     passName,

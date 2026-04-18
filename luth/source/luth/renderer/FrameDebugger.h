@@ -66,7 +66,7 @@ namespace Luth
         // Phase 14B — Archive lifecycle (called from RenderingSystem around capture frame)
         void BeginCapture(VkDevice device, VmaAllocator allocator);
         void RegisterTrackedRT(const std::string& name);
-        void FinalizeCapture(const glm::mat4& viewProj);
+        void FinalizeCapture(const Mat4& viewProj);
         void DestroyArchives();
 
         // IArchiveSink — invoked post-pass during RenderGraph::Execute

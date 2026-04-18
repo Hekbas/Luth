@@ -42,7 +42,7 @@ namespace Luth
     // This matches the shader struct
     struct GPUMaterialData
     {
-        glm::vec4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        Vec4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
         
         // Texture Indices (Bindless)
         u32 diffuseIndex = 0;
@@ -170,8 +170,8 @@ namespace Luth
         const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
         
         // Albedo color (direct access — bypasses uniform storage)
-        glm::vec4 GetColor() const { return m_GPUData.color; }
-        void SetColor(const glm::vec4& color) { m_GPUData.color = color; }
+        Vec4 GetColor() const { return m_GPUData.color; }
+        void SetColor(const Vec4& color) { m_GPUData.color = color; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }

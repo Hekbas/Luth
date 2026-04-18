@@ -15,21 +15,21 @@
 namespace Luth
 {
     struct Vertex {
-        glm::vec3 Position;
-        glm::vec3 Normal;
-        glm::vec2 TexCoord0;
-        glm::vec2 TexCoord1;
-        glm::vec3 Tangent;
+        Vec3 Position;
+        Vec3 Normal;
+        Vec2 TexCoord0;
+        Vec2 TexCoord1;
+        Vec3 Tangent;
     };
 
     struct SkinnedVertex {
-        glm::vec3  Position;
-        glm::vec3  Normal;
-        glm::vec2  TexCoord0;
-        glm::vec2  TexCoord1;
-        glm::vec3  Tangent;
-        glm::ivec4 BoneIDs    = glm::ivec4(-1);
-        glm::vec4  BoneWeights = glm::vec4(0.0f);
+        Vec3  Position;
+        Vec3  Normal;
+        Vec2  TexCoord0;
+        Vec2  TexCoord1;
+        Vec3  Tangent;
+        IVec4 BoneIDs    = IVec4(-1);
+        Vec4  BoneWeights = Vec4(0.0f);
     };
 
     struct MeshData {

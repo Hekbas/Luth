@@ -253,7 +253,7 @@ namespace Luth
             if (glm::length2(ctrl.RootMotionDelta) < 1e-10f) continue;
 
             auto& transform = registry.get<Transform>(entity);
-            Quat entityRot = glm::quat(glm::radians(transform.Rotation));
+            Quat entityRot = Quat(glm::radians(transform.Rotation));
             Vec3 worldDelta = entityRot * ctrl.RootMotionDelta;
             transform.Position += worldDelta;
             transform.IsDirty = true;
@@ -290,7 +290,7 @@ namespace Luth
             // Apply local offset
             Mat4 offset = ComposeTransform(
                 attachment.LocalOffset,
-                glm::quat(glm::radians(attachment.LocalRotation)),
+                Quat(glm::radians(attachment.LocalRotation)),
                 Vec3(1.0f));
             Mat4 finalMatrix = boneWorld * offset;
 

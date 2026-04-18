@@ -11,7 +11,7 @@
 namespace Luth
 {
     struct DrawCommand {
-        glm::mat4 modelMatrix;
+        Mat4 modelMatrix;
         u32 materialSlot;
         std::shared_ptr<Model> model;
         u32 meshIndex;
@@ -24,7 +24,7 @@ namespace Luth
     };
 
     struct ObjectPushConstants {
-        glm::mat4 modelMatrix;  // 64 bytes
+        Mat4 modelMatrix;  // 64 bytes
         u32 materialIndex;      // 4 bytes — index into material SSBO
         u32 shadeMode;          // 4 bytes
         u32 entityID;           // 4 bytes — entity index for picking
@@ -33,8 +33,8 @@ namespace Luth
 
     // Per-object data uploaded to GPU SSBO each frame (std430 layout, 112 bytes)
     struct GPUObjectData {
-        glm::mat4 model;          // 64B
-        glm::vec4 boundingSphere; // 16B — xyz=center (local space), w=radius (local space)
+        Mat4 model;          // 64B
+        Vec4 boundingSphere; // 16B — xyz=center (local space), w=radius (local space)
         u32 materialIndex;        // 4B
         u32 shadeMode;            // 4B
         u32 entityID;             // 4B

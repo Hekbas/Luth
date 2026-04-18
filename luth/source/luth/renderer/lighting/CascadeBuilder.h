@@ -18,7 +18,7 @@ namespace Luth
     class CascadeBuilder
     {
     public:
-        void Build(const glm::vec3& lightDir,
+        void Build(const Vec3& lightDir,
                    const CameraParams& camera,
                    const DirectionalLightShadowParams& params,
                    CascadeData& out) const;
@@ -29,10 +29,10 @@ namespace Luth
 
         // Returns the ortho light-space matrix for a single slice and writes
         // its world-space half-extent into outWorldHalfExtent.
-        glm::mat4 ComputeMatrix(float nearD, float farD,
-                                 const glm::vec3& lightDir,
+        Mat4 ComputeMatrix(float nearD, float farD,
+                                 const Vec3& lightDir,
                                  float tanHalfFovY, float aspect,
-                                 const glm::mat4& camViewInv,
+                                 const Mat4& camViewInv,
                                  bool stabilize,
                                  float& outWorldHalfExtent) const;
     };

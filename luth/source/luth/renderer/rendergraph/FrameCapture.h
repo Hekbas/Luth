@@ -42,7 +42,7 @@ namespace Luth::RG
         u32 indexCount   = 0;
 
         // Snapshot of the push constants at draw time (Direct / IndexedIndirect only)
-        glm::mat4 modelMatrix = glm::mat4(1.0f);
+        Mat4 modelMatrix = Mat4(1.0f);
         u32 materialIndex = 0;
         u32 shadeMode     = 0;
         u32 entityID      = 0;
@@ -105,7 +105,7 @@ namespace Luth::RG
         // first.
         std::vector<ArchivedImage>     archivedImages;
         std::vector<std::vector<u32>>  passArchives;
-        glm::mat4                       captureViewProj = glm::mat4(1.0f);
+        Mat4                       captureViewProj = Mat4(1.0f);
 
         // Phase 14D — Hierarchical event tree built at capture finalize from
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
@@ -115,11 +115,11 @@ namespace Luth::RG
         // m_Cached* values at FinalizeCapture so the cascade detail panel
         // shows GPU-true values from the captured frame, not whatever the
         // editor has currently dialled in. Indices 0..3 = cascade index.
-        glm::vec4 cascadeSplitsViewZ = glm::vec4(0.0f);  // Per-cascade far view-Z (absolute)
-        glm::vec4 shadowBias         = glm::vec4(0.0f);  // Per-cascade depth bias
-        glm::vec4 shadowNormalBias   = glm::vec4(0.0f);  // Per-cascade normal bias (texels)
-        glm::vec4 cascadeTexelSize   = glm::vec4(0.0f);  // World-space texel footprint
-        glm::mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
+        Vec4 cascadeSplitsViewZ = Vec4(0.0f);  // Per-cascade far view-Z (absolute)
+        Vec4 shadowBias         = Vec4(0.0f);  // Per-cascade depth bias
+        Vec4 shadowNormalBias   = Vec4(0.0f);  // Per-cascade normal bias (texels)
+        Vec4 cascadeTexelSize   = Vec4(0.0f);  // World-space texel footprint
+        Mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
 
         // Metadata-only reset. GPU-owned archives are NOT touched; the owner
         // (FrameDebugger) must call DestroyArchives separately to free them.
@@ -130,12 +130,12 @@ namespace Luth::RG
             passes.clear();
             resources.clear();
             rootEvent           = EventNode{};
-            captureViewProj     = glm::mat4(1.0f);
-            cascadeSplitsViewZ  = glm::vec4(0.0f);
-            shadowBias          = glm::vec4(0.0f);
-            shadowNormalBias    = glm::vec4(0.0f);
-            cascadeTexelSize    = glm::vec4(0.0f);
-            for (auto& m : lightSpaceMatrix) m = glm::mat4(0.0f);
+            captureViewProj     = Mat4(1.0f);
+            cascadeSplitsViewZ  = Vec4(0.0f);
+            shadowBias          = Vec4(0.0f);
+            shadowNormalBias    = Vec4(0.0f);
+            cascadeTexelSize    = Vec4(0.0f);
+            for (auto& m : lightSpaceMatrix) m = Mat4(0.0f);
             totalGpuTimeMs      = 0.0f;
             valid               = false;
         }

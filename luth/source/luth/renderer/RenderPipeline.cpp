@@ -179,7 +179,7 @@ namespace Luth
             // Rebuild the matching compute pipeline (descriptor layouts untouched).
             if (name == "gpu_cull.comp" && m_CullDescLayout)
             {
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4) * 6 + sizeof(u32) * 2 };
+                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
                 m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
                     std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
                     std::vector<VkPushConstantRange>{ pc });
@@ -1844,7 +1844,7 @@ namespace Luth
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         pcRange.offset     = 0;
-        pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32) * 2;
+        pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 2;
 
         auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
         auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
@@ -2308,7 +2308,7 @@ namespace Luth
 
             // Bounding sphere from BindPoseAABB (local space)
             const auto& aabb   = meshesData[mr.MeshIndex].BindPoseAABB;
-            obj.boundingSphere = glm::vec4(aabb.Center(), glm::length(aabb.Extents()));
+            obj.boundingSphere = Vec4(aabb.Center(), glm::length(aabb.Extents()));
 
             // Material slot
             u32 matSlot = 0;
@@ -2375,7 +2375,7 @@ namespace Luth
             ubo.lightSpaceMatrix[i] = m_System.m_Cascades.lightSpaceMatrix[i];
         ubo.cascadeSplitsViewZ = m_System.m_Cascades.splitsViewZ;
         // Negative bias (sentinel) disables shadows entirely in the PBR shader.
-        ubo.shadowBias       = m_System.m_ShadowParams.castShadows ? m_System.m_ShadowParams.shadowBias : glm::vec4(-1.0f);
+        ubo.shadowBias       = m_System.m_ShadowParams.castShadows ? m_System.m_ShadowParams.shadowBias : Vec4(-1.0f);
         ubo.shadowNormalBias = m_System.m_ShadowParams.shadowNormalBias;
         ubo.cascadeTexelSize = m_System.m_Cascades.texelSize;
         ubo.iblIntensity    = m_System.m_CameraParams.iblIntensity;
