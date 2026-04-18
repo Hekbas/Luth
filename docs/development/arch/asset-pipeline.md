@@ -82,13 +82,13 @@ Project Load (Phase 2, after user selects a project):
 | **TextureImporter** | .png/.jpg/.tga | stb_image → RGBA8 pixels, reads .meta settings | `[AssetHeader][TextureHeader][pixels]` |
 | **ModelImporter** | .fbx/.obj/.gltf/.dae | Assimp (triangulate, normals, tangents, flip UVs), axis correction, extracts embedded textures + materials as side-effect | `[AssetHeader][ModelHeader][MaterialUUIDs][Meshes]` |
 | **MaterialImporter** | .mat (JSON) | Wraps JSON in artifact | `[AssetHeader][JsonSize][JsonData]` |
-| **ShaderImporter** | .vert/.frag (GLSL) | Compiles both via shaderc → SPIR-V | `[AssetHeader][ShaderHeader][VertSpirV][FragSpirV]` |
+| **ShaderImporter** | .vert / .frag / .comp (GLSL) | Infers stage from extension, compiles one file via shaderc → SPIR-V | `[AssetHeader(v=2)][ShaderHeader{Stage,SpirVSize}][SpirV]` |
 
 All importers run on worker threads (no Vulkan access). GPU resource creation happens on main thread only.
 
 ## Binary Artifact Format
 
-All artifacts start with `AssetHeader { magic='LUTH', version=1, type }`. Type-specific headers follow with dimensions, counts, or sizes, then raw data. See `AssetSerializer.h` for exact layouts.
+All artifacts start with `AssetHeader { magic='LUTH', version, type }`. Most assets use `version=1`; Model uses `version=2` (skeleton + animations); Shader uses `version=2` (single-stage — V1 paired `.vert+.frag` artifacts are rejected on load and re-imported). Type-specific headers follow with dimensions, counts, or sizes, then raw data. See `AssetSerializer.h` for exact layouts.
 
 ## Supporting Systems
 

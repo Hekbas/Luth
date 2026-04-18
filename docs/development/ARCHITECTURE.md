@@ -119,7 +119,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | GPU culling | Compute frustum cull per shadow cascade + main scene, `GPUObjectData` SSBO (Set 5), `vkCmdDrawIndexedIndirect` |
 | Animation | Fiber-parallel keyframe sampling, GPU skinning via `BoneMatrixBuffer` SSBO (Set 4), SQT blending, crossfade, layered override, root motion |
 | Post-processing | HDR (RGBA16F), bloom, tonemapping (4 operators), vignette, grain, CA |
-| Shader system | `ShaderLibrary` singleton, hot-reload via `FileWatcher`, SPIRV-Cross reflection |
+| Shader system | Single-stage shader assets (.vert/.frag/.comp each one artifact + UUID); `ShaderLibrary::LoadEngine` routes engine shaders through the asset pipeline; hot-reload via `FileWatcher` on any stage; SPIRV-Cross reflection |
 | Frame Debugger | GPU timers, pass tree, pipeline state, texture preview |
 | Mipmaps | `vkCmdBlitImage` chain, per-texture `.meta` settings |
 | Scene serialization | JSON `.luth` format, native file dialogs |
