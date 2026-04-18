@@ -7,12 +7,8 @@
 #include "luth/events/AppEvent.h"
 #include "luth/core/ProjectFile.h"
 #include "luth/core/Version.h"
+#include "luth/core/EditorHooks.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/editor/Editor.h"
-#include "luth/editor/EditorSelection.h"
-#include "luth/editor/ProjectLauncher.h"
-#include "luth/editor/panels/ScenePanel.h"
-#include "luth/editor/panels/ProjectPanel.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
@@ -83,16 +79,18 @@ namespace Luth
         Renderer::Init(m_Window->GetNativeWindow());
         Renderer::SetFrameData(&m_FrameData);
         ShaderLibrary::Init();
-        
+
         // 4. Scene & Systems (RenderingSystem loads engine shaders — no project needed)
         m_Scene = std::make_shared<Scene>();
         SystemRegistry::Init();
         SystemRegistry::SetScene(m_Scene.get());
 
-        // 5. Editor + Launcher
-        Editor::Init(m_Window.get());
-        Editor::SetActiveScene(m_Scene);
-        ProjectLauncher::Init();
+        // 5. Editor + Launcher (no-op in runtime-only builds with no hooks registered)
+        if (auto* h = EditorHooks::Get())
+        {
+            h->Init(m_Window.get());
+            h->SetActiveScene(m_Scene);
+        }
 
         // 6. Check CLI args for a .luthproj to open immediately
         fs::path projectHint;
@@ -117,14 +115,14 @@ namespace Luth
             else
             {
                 LH_CORE_WARN("CLI project hint not found: {}", projectHint.string());
-                Editor::ShowProjectLauncher();
+                if (auto* h = EditorHooks::Get()) h->ShowProjectLauncher();
             }
         }
         else
         {
             // No project specified — show the launcher
             LH_CORE_INFO("No project specified -- showing Project Launcher");
-            Editor::ShowProjectLauncher();
+            if (auto* h = EditorHooks::Get()) h->ShowProjectLauncher();
         }
 
         // Subscribe to events
@@ -167,7 +165,7 @@ namespace Luth
         while (m_Running)
         {
             LH_PROFILE_FRAME("MainThread");
-            
+
             u64 frameIndex = m_FrameData.GetFrameIndex();
 
             // ── Step 1: OS Message Pump ──
@@ -176,11 +174,11 @@ namespace Luth
             EventBus::ProcessEvents(BusType::MainThread);
 
             // Check if user selected a project from launcher
-            if (ProjectLauncher::HasPendingProject())
+            if (auto* h = EditorHooks::Get(); h && h->HasPendingProject())
             {
-                LoadProject(ProjectLauncher::ConsumePendingProject());
+                LoadProject(h->ConsumePendingProject());
             }
-            
+
             if (m_Window->IsMinimized())
             {
                 std::this_thread::yield();
@@ -203,7 +201,7 @@ namespace Luth
             currentFrame.Params.FrameNumber = frameIndex;
 
             // ── Step 4: Game Logic + Editor ──
-            Editor::BeginFrame();
+            if (auto* h = EditorHooks::Get()) h->BeginFrame();
             OnUpdate();
 
             // Only update project-dependent systems when a project is loaded
@@ -215,31 +213,32 @@ namespace Luth
                 AssetDatabase::ClearDirtyAssets();
             }
 
-            Editor::Render();
-            Editor::EndFrame();
-
-            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+            if (auto* h = EditorHooks::Get())
             {
-                ImGui::UpdatePlatformWindows();
-                ImGui::RenderPlatformWindowsDefault();
+                h->Render();
+                h->EndFrame();
             }
 
             // Feed camera/editor state into RenderingSystem before its Update
             if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             {
                 CameraParams cp;
-                if (auto scenePanel = Editor::GetPanel<ScenePanel>())
+                if (auto* h = EditorHooks::Get())
                 {
-                    EditorCamera& cam = scenePanel->GetEditorCamera();
-                    cp.view       = cam.GetViewMatrix();
-                    cp.projection = cam.GetProjectionMatrix();
-                    cp.position   = cam.GetPosition();
-                    cp.nearZ      = cam.GetNearClip();
-                    cp.farZ       = cam.GetFarClip();
+                    EditorViewportState state;
+                    h->GetViewportState(state);
+                    if (state.hasCamera)
+                    {
+                        cp.view       = state.view;
+                        cp.projection = state.projection;
+                        cp.position   = state.position;
+                        cp.nearZ      = state.nearZ;
+                        cp.farZ       = state.farZ;
+                    }
+                    cp.iblIntensity     = state.iblIntensity;
+                    cp.skyboxIntensity  = state.skyboxIntensity;
+                    cp.selectedEntities = std::move(state.selectedEntities);
                 }
-                cp.iblIntensity    = Editor::GetSettings().iblIntensity;
-                cp.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
-                cp.selectedEntities = EditorSelection::GetSelectedEntities();
                 rs->SetCameraParams(cp);
             }
 
@@ -250,7 +249,7 @@ namespace Luth
 
             // ── Step 5: End Frame (Submit + Present) ──
             Renderer::EndFrame();
-            
+
             // ── Step 6: Advance Frame ──
             m_FrameData.Advance();
             JobSystem::ResetFrameStats();
@@ -272,8 +271,8 @@ namespace Luth
         // down systems / the renderer. SaveToProject is a no-op if no project.
         PipelineCache::SaveToProject();
 
-		Editor::Shutdown();
-		SystemRegistry::Shutdown();
+        if (auto* h = EditorHooks::Get()) h->Shutdown();
+        SystemRegistry::Shutdown();
 
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
@@ -312,7 +311,7 @@ namespace Luth
         // If switching away from an existing project, clean up first
         if (m_ProjectLoaded)
         {
-            Editor::SaveSettings();
+            if (auto* h = EditorHooks::Get()) h->SaveSettings();
             PipelineCache::SaveToProject();
             if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
                 rs->OnProjectUnloaded();
@@ -336,15 +335,18 @@ namespace Luth
         AssetDatabase::StartWatching();
 
         // Refresh the editor for the new project
-        Editor::OnProjectChanged();
+        if (auto* h = EditorHooks::Get()) h->OnProjectChanged();
 
         // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             rs->OnProjectLoaded();
 
         // Track in recent projects and hide launcher
-        ProjectLauncher::AddRecent(project.Name, project.FilePath);
-        ProjectLauncher::Hide();
+        if (auto* h = EditorHooks::Get())
+        {
+            h->AddRecentProject(project.Name, project.FilePath);
+            h->HideProjectLauncher();
+        }
 
         m_ProjectLoaded = true;
         LH_CORE_INFO("Project loaded: '{}'", project.Name);
@@ -393,16 +395,23 @@ namespace Luth
         for (const auto& srcPath : e.GetPaths()) {
             if (srcPath.extension() == ".luthproj")
             {
-                ProjectLauncher::AddRecent(srcPath.stem().string(), srcPath);
-                ProjectLauncher::SetPendingProject(srcPath);
+                if (auto* h = EditorHooks::Get())
+                {
+                    h->AddRecentProject(srcPath.stem().string(), srcPath);
+                    h->SetPendingProject(srcPath);
+                }
                 return;
             }
         }
 
         if (!m_ProjectLoaded) return;
 
-        auto* panel = Editor::GetPanel<ProjectPanel>();
-        fs::path destDir = panel ? panel->GetCurrentDirectory() : FileSystem::AssetsPath();
+        fs::path destDir = FileSystem::AssetsPath();
+        if (auto* h = EditorHooks::Get())
+        {
+            auto dir = h->GetProjectCurrentDir();
+            if (!dir.empty()) destDir = dir;
+        }
 
         for (const auto& srcPath : e.GetPaths()) {
             if (srcPath.extension() == ".luthproj") continue;

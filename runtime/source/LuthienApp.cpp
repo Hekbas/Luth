@@ -1,5 +1,6 @@
 #include <Luth.h>
 #include <Luth/core/EntryPoint.h>
+#include "luthien/Bootstrap.h"
 
 #include <imgui.h>
 
@@ -35,6 +36,9 @@ namespace Luth
 
     App* CreateApp(int argc, char** argv)
     {
+        // Register the editor-hook impl before App ctor runs so engine code
+        // (App.cpp, Input.cpp) can reach the editor via EditorHooks::Get().
+        InstallLuthienEditorHooks();
         return new LuthienApp(argc, argv);
     }
 }

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/platform/Input.h"
-#include "luth/editor/Editor.h"
+#include "luth/core/EditorHooks.h"
 #include "luth/events/EventBus.h"
 
 namespace Luth
@@ -36,7 +36,8 @@ namespace Luth
 
     bool Input::IsKeyPressed(int keycode)
     {
-        if (Editor::WantCaptureKeyboard()) return false;
+        auto* h = EditorHooks::Get();
+        if (h && h->WantCaptureKeyboard()) return false;
         if (keycode >= 0 && keycode < 512)
             return s_KeyData[keycode];
         return false;
@@ -44,7 +45,8 @@ namespace Luth
 
     bool Input::IsMouseButtonPressed(int button)
     {
-        if (Editor::WantCaptureMouse()) return false;
+        auto* h = EditorHooks::Get();
+        if (h && h->WantCaptureMouse()) return false;
         if (button >= 0 && button < 8)
             return s_MouseData[button];
         return false;

@@ -35,6 +35,7 @@ group "Luth/Extern"
 group ""
 
 group "Luthien"
+   include "luthien"
    include "runtime"
 group ""
 
