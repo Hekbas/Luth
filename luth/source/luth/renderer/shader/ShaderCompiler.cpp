@@ -10,17 +10,35 @@
 
 namespace Luth
 {
-    static shaderc_shader_kind GetShaderKind(const fs::path& path)
+    ShaderStage ShaderCompiler::InferStage(const fs::path& path)
     {
         std::string ext = path.extension().string();
-        if (ext == ".vert") return shaderc_glsl_vertex_shader;
-        if (ext == ".frag") return shaderc_glsl_fragment_shader;
-        if (ext == ".comp") return shaderc_glsl_compute_shader;
-        return shaderc_glsl_infer_from_source;
+        if (ext == ".vert") return ShaderStage::Vertex;
+        if (ext == ".frag") return ShaderStage::Fragment;
+        if (ext == ".comp") return ShaderStage::Compute;
+        return ShaderStage::Unknown;
+    }
+
+    static shaderc_shader_kind ToShadercKind(ShaderStage stage)
+    {
+        switch (stage)
+        {
+            case ShaderStage::Vertex:   return shaderc_glsl_vertex_shader;
+            case ShaderStage::Fragment: return shaderc_glsl_fragment_shader;
+            case ShaderStage::Compute:  return shaderc_glsl_compute_shader;
+            default:                    return shaderc_glsl_infer_from_source;
+        }
     }
 
     std::vector<u32> ShaderCompiler::Compile(const fs::path& sourcePath, bool optimize)
     {
+        ShaderStage stage = InferStage(sourcePath);
+        if (stage == ShaderStage::Unknown)
+        {
+            LH_CORE_ERROR("ShaderCompiler: unsupported shader extension for '{}'", sourcePath.string());
+            return {};
+        }
+
         // Read source
         std::ifstream file(sourcePath, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
@@ -43,9 +61,9 @@ namespace Luth
         if (optimize) options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
         shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(
-            sourceStr, 
-            GetShaderKind(sourcePath), 
-            sourcePath.filename().string().c_str(), 
+            sourceStr,
+            ToShadercKind(stage),
+            sourcePath.filename().string().c_str(),
             options
         );
 

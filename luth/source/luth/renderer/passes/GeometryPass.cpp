@@ -104,7 +104,7 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
-                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }

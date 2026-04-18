@@ -10,6 +10,16 @@
 
 namespace Luth
 {
+	// A single pipeline stage a shader occupies. Each shader asset holds exactly one.
+	enum class ShaderStage : u32
+	{
+		Unknown  = 0,
+		Vertex   = 1,
+		Fragment = 2,
+		Compute  = 3,
+		// Future: Geometry, TessControl, TessEval, Mesh, Task, Raygen, ...
+	};
+
 	// Represents a single uniform variable inside a UBO/PushConstant
 	struct ShaderUniform
 	{
@@ -43,18 +53,19 @@ namespace Luth
 	public:
 		virtual AssetType GetType() const override { return AssetType::Shader; }
 		virtual ~Shader() = default;
-        
+
+		virtual ShaderStage GetStage() const = 0;
+		virtual const std::vector<u32>& GetSpirV() const = 0;
 		virtual const fs::path& GetPath() const = 0;
+		virtual bool IsValid() const = 0;
 		virtual void Reload() {}
-		virtual bool IsValid() const { return false; }
 
 		// Reflection Data Access
 		const std::unordered_map<std::string, ShaderBuffer>& GetBuffers() const { return m_Buffers; }
 		const std::unordered_map<std::string, ShaderResource>& GetResources() const { return m_Resources; }
 		const std::unordered_map<std::string, ShaderBuffer>& GetPushConstants() const { return m_PushConstants; }
 
-		static std::shared_ptr<Shader> Create(const fs::path& filePath);
-		static std::shared_ptr<Shader> Create(const std::vector<u32>& vertSpv, const std::vector<u32>& fragSpv, const fs::path& path);
+		static std::shared_ptr<Shader> Create(ShaderStage stage, const std::vector<u32>& spirv, const fs::path& path);
 
 	protected:
 		std::unordered_map<std::string, ShaderBuffer> m_Buffers;

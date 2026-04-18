@@ -227,7 +227,7 @@ namespace Luth
         }
         else if (type == AssetType::Shader) {
             auto* d = static_cast<ShaderAssetData*>(data);
-            return Shader::Create(d->VertexSpirV, d->FragmentSpirV, sourcePath);
+            return Shader::Create(d->Stage, d->SpirV, sourcePath);
         }
         return nullptr;
     }

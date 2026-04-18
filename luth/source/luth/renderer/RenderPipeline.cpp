@@ -58,40 +58,35 @@ namespace Luth
         InitGlobalUniforms();
         InitShadowResources();
 
-        // Load shaders via AssetManager (imports + caches SPIR-V on first run)
-        UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
-        auto pbrShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(pbrUUID));
-        if (!pbrShader)
+        // Load shaders via AssetManager. Each file is a single-stage asset;
+        // pipelines combine stages at creation time (see CreatePipelines).
+        auto loadEngineShader = [](const char* relPath) -> std::shared_ptr<VulkanShader>
         {
-            LH_CORE_ERROR("Failed to load PBR shader via AssetManager!");
-            return;
-        }
-        ShaderLibrary::Register("pbr", pbrShader);
+            UUID uuid = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath(relPath));
+            auto sh = std::static_pointer_cast<VulkanShader>(AssetManager::LoadImmediate(uuid));
+            if (!sh) LH_CORE_ERROR("Failed to load engine shader: {0}", relPath);
+            return sh;
+        };
 
-        UUID shadowUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/shadowDepth.vert"));
-        auto shadowShader = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(shadowUUID));
-        if (!shadowShader)
-        {
-            LH_CORE_ERROR("Failed to load shadow shader via AssetManager!");
-            return;
-        }
-        ShaderLibrary::Register("shadowDepth", shadowShader);
+        auto pbrVert    = loadEngineShader("shaders/pbr.vert");
+        auto pbrFrag    = loadEngineShader("shaders/pbr.frag");
+        auto shadowVert = loadEngineShader("shaders/shadowDepth.vert");
+        auto shadowFrag = loadEngineShader("shaders/shadowDepth.frag");
+        if (!pbrVert || !pbrFrag || !shadowVert || !shadowFrag) return;
 
-        auto vkPbr = std::static_pointer_cast<VulkanShader>(pbrShader);
-        m_PBRVertSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-        m_PBRFragSpv = vkPbr->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty())
-        {
-            LH_CORE_ERROR("Failed to compile PBR shaders!");
-            return;
-        }
+        ShaderLibrary::Register("pbr.vert",         pbrVert);
+        ShaderLibrary::Register("pbr.frag",         pbrFrag);
+        ShaderLibrary::Register("shadowDepth.vert", shadowVert);
+        ShaderLibrary::Register("shadowDepth.frag", shadowFrag);
 
-        auto vkShadow = std::static_pointer_cast<VulkanShader>(shadowShader);
-        m_ShadowVertSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-        m_ShadowFragSpv = vkShadow->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-        if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty())
+        m_PBRVertSpv    = pbrVert->GetSpirV();
+        m_PBRFragSpv    = pbrFrag->GetSpirV();
+        m_ShadowVertSpv = shadowVert->GetSpirV();
+        m_ShadowFragSpv = shadowFrag->GetSpirV();
+        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() ||
+            m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty())
         {
-            LH_CORE_ERROR("Failed to compile shadow shaders!");
+            LH_CORE_ERROR("Engine shader SPIR-V empty after asset load!");
             return;
         }
 
@@ -141,23 +136,26 @@ namespace Luth
         InitAOResources();
 
         // Shader hot-reload callback: rebuilds pipelines when a shader reloads.
+        // With single-stage assets, keys are filename (e.g. "pbr.vert", "pbr.frag").
         ShaderLibrary::SetReloadCallback([this](const std::string& name) {
             auto& s = m_System;
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
 
-            if (name == "pbr") {
-                auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("pbr"));
-                m_PBRVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-                m_PBRFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-            } else if (name == "shadowDepth") {
-                auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get("shadowDepth"));
-                m_ShadowVertSpv = vk->GetSpirV(VK_SHADER_STAGE_VERTEX_BIT);
-                m_ShadowFragSpv = vk->GetSpirV(VK_SHADER_STAGE_FRAGMENT_BIT);
-            }
+            auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get(name));
+            if (!vk) return;
 
-            if (name == "pbr") {
-                m_GeoPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
-                m_GeoSkinnedPipelineManager.InvalidateShader(ShaderLibrary::Get("pbr")->Handle);
+            if      (name == "pbr.vert")         m_PBRVertSpv    = vk->GetSpirV();
+            else if (name == "pbr.frag")         m_PBRFragSpv    = vk->GetSpirV();
+            else if (name == "shadowDepth.vert") m_ShadowVertSpv = vk->GetSpirV();
+            else if (name == "shadowDepth.frag") m_ShadowFragSpv = vk->GetSpirV();
+
+            const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
+            if (isPBR) {
+                // PipelineManager is keyed by the vertex shader's UUID;
+                // invalidate with that key regardless of which stage reloaded.
+                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
+                m_GeoPipelineManager.InvalidateShader(pbrKey);
+                m_GeoSkinnedPipelineManager.InvalidateShader(pbrKey);
             } else {
                 m_GeoPipelineManager.Clear();
                 m_GeoSkinnedPipelineManager.Clear();
@@ -187,10 +185,10 @@ namespace Luth
             std::string ext = changedFile.extension().string();
             if (ext != ".vert" && ext != ".frag") return;
 
-            std::string stem = changedFile.stem().string();
+            std::string fileName = changedFile.filename().string();
             bool matched = false;
             for (const auto& [name, shader] : ShaderLibrary::GetAll()) {
-                if (shader->GetPath().stem().string() == stem) {
+                if (shader->GetPath().filename().string() == fileName) {
                     std::lock_guard lock(m_System.m_ReloadMutex);
                     m_System.m_PendingReloads.insert(name);
                     matched = true;
@@ -2708,7 +2706,7 @@ namespace Luth
         // Capture the CPU-side data we need by value (the lambda runs inside
         // ImmediateSubmit and must be self-contained).
         VkPolygonMode polyMode = (m_System.m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+        UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
 
         VulkanContext::Get().ImmediateSubmit([&, this](VkCommandBuffer cmd)
         {

@@ -190,6 +190,7 @@ namespace Luth
             { ".glsl",    AssetType::Shader   },
             { ".vert",    AssetType::Shader   },
             { ".frag",    AssetType::Shader   },
+            { ".comp",    AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             { ".luth",    AssetType::Scene    },
         };

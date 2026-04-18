@@ -2,15 +2,17 @@
 
 #include "luth/resources/AssetImporter.h"
 #include "luth/core/LuthTypes.h"
+#include "luth/renderer/shader/Shader.h" // ShaderStage
 #include <vector>
 
 namespace Luth
 {
+    // Single-stage shader asset payload. One file on disk = one stage = one artifact.
     struct ShaderAssetData : public AssetData
     {
-        std::vector<u32> VertexSpirV;
-        std::vector<u32> FragmentSpirV;
-        std::string SourcePath; // Original source path for debug/reload
+        ShaderStage      Stage = ShaderStage::Unknown;
+        std::vector<u32> SpirV;
+        std::string      SourcePath; // Original source path for debug/reload
     };
 
     class ShaderImporter : public AssetImporter

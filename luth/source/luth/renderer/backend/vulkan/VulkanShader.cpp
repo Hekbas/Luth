@@ -36,127 +36,79 @@ namespace Luth
     }
 #endif
 
-    VulkanShader::VulkanShader(const fs::path& path)
-        : m_Path(path)
+    static VkShaderStageFlagBits ToVkStage(ShaderStage stage)
     {
-        CompileOrGetVulkanBinaries();
+        switch (stage)
+        {
+            case ShaderStage::Vertex:   return VK_SHADER_STAGE_VERTEX_BIT;
+            case ShaderStage::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
+            case ShaderStage::Compute:  return VK_SHADER_STAGE_COMPUTE_BIT;
+            default:                    return VkShaderStageFlagBits(0);
+        }
     }
 
-    VulkanShader::VulkanShader(const std::vector<u32>& vertSpv, const std::vector<u32>& fragSpv, const fs::path& path)
-        : m_Path(path)
+    VulkanShader::VulkanShader(ShaderStage stage, const std::vector<u32>& spirv, const fs::path& path)
+        : m_Stage(stage), m_SpirV(spirv), m_Path(path)
     {
-        if (!vertSpv.empty())
+        if (m_Stage == ShaderStage::Unknown || m_SpirV.empty())
         {
-            m_SpirVData[VK_SHADER_STAGE_VERTEX_BIT] = vertSpv;
-            Reflect(VK_SHADER_STAGE_VERTEX_BIT, vertSpv);
-            CreateShaderModule(VK_SHADER_STAGE_VERTEX_BIT, vertSpv);
+            LH_CORE_ERROR("VulkanShader: invalid stage or empty SPIR-V for '{}'", m_Path.string());
+            return;
         }
 
-        if (!fragSpv.empty())
-        {
-            m_SpirVData[VK_SHADER_STAGE_FRAGMENT_BIT] = fragSpv;
-            Reflect(VK_SHADER_STAGE_FRAGMENT_BIT, fragSpv);
-            CreateShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, fragSpv);
-        }
+        Reflect();
+        CreateShaderModule();
     }
 
     VulkanShader::~VulkanShader()
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
-        for (auto& [stage, module] : m_ShaderModules)
+        Destroy();
+    }
+
+    void VulkanShader::Destroy()
+    {
+        if (m_ShaderModule != VK_NULL_HANDLE)
         {
-            vkDestroyShaderModule(device, module, nullptr);
+            vkDestroyShaderModule(VulkanContext::Get().GetDevice(), m_ShaderModule, nullptr);
+            m_ShaderModule = VK_NULL_HANDLE;
         }
+        m_ShaderStageInfo = {};
     }
 
     void VulkanShader::Reload()
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
-        vkDeviceWaitIdle(device);
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
 
-        // Destroy old shader modules
-        for (auto& [stage, module] : m_ShaderModules)
-            vkDestroyShaderModule(device, module, nullptr);
-
-        m_ShaderModules.clear();
-        m_ShaderStages.clear();
-        m_SpirVData.clear();
+        Destroy();
+        m_SpirV.clear();
         m_Buffers.clear();
         m_Resources.clear();
         m_PushConstants.clear();
 
-        // Recompile from disk
-        CompileOrGetVulkanBinaries();
-
-        if (IsValid())
-            LH_CORE_INFO("VulkanShader: reloaded '{}'", m_Path.string());
-        else
+        m_SpirV = ShaderCompiler::Compile(m_Path);
+        if (m_SpirV.empty())
+        {
             LH_CORE_ERROR("VulkanShader: reload failed for '{}'", m_Path.string());
-    }
-
-    bool VulkanShader::IsValid() const
-    {
-        return !m_ShaderModules.empty();
-    }
-
-    const std::vector<u32>& VulkanShader::GetSpirV(VkShaderStageFlagBits stage) const
-    {
-        static const std::vector<u32> empty;
-        auto it = m_SpirVData.find(stage);
-        return (it != m_SpirVData.end()) ? it->second : empty;
-    }
-
-    VkShaderModule VulkanShader::GetShaderModule(VkShaderStageFlagBits stage) const
-    {
-        auto it = m_ShaderModules.find(stage);
-        return (it != m_ShaderModules.end()) ? it->second : VK_NULL_HANDLE;
-    }
-
-    void VulkanShader::CompileOrGetVulkanBinaries()
-    {
-        // For now, we assume the path points to a file that might have .vert/.frag extensions
-        // In a real asset system, we might bundle them. 
-        // Here we try to deduce the stage from the file or load related files.
-        // Simplification: Assume m_Path is the base name or we check for extensions.
-        
-        // Check for Vertex Shader
-        fs::path vertPath = m_Path;
-        if (vertPath.extension() != ".vert") vertPath.replace_extension(".vert");
-        
-        if (fs::exists(vertPath))
-        {
-            std::vector<u32> spirv = ShaderCompiler::Compile(vertPath);
-            if (!spirv.empty())
-            {
-                m_SpirVData[VK_SHADER_STAGE_VERTEX_BIT] = spirv;
-                Reflect(VK_SHADER_STAGE_VERTEX_BIT, spirv);
-                CreateShaderModule(VK_SHADER_STAGE_VERTEX_BIT, spirv);
-            }
+            return;
         }
 
-        // Check for Fragment Shader
-        fs::path fragPath = m_Path;
-        if (fragPath.extension() != ".frag") fragPath.replace_extension(".frag");
-
-        if (fs::exists(fragPath))
-        {
-            std::vector<u32> spirv = ShaderCompiler::Compile(fragPath);
-            if (!spirv.empty())
-            {
-                m_SpirVData[VK_SHADER_STAGE_FRAGMENT_BIT] = spirv;
-                Reflect(VK_SHADER_STAGE_FRAGMENT_BIT, spirv);
-                CreateShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, spirv);
-            }
-        }
+        Reflect();
+        CreateShaderModule();
+        LH_CORE_INFO("VulkanShader: reloaded '{}'", m_Path.string());
     }
 
-    void VulkanShader::Reflect(VkShaderStageFlagBits stage, const std::vector<u32>& spirv)
+    VkShaderStageFlagBits VulkanShader::GetVkStage() const
+    {
+        return ToVkStage(m_Stage);
+    }
+
+    void VulkanShader::Reflect()
     {
 #if LUTH_SPIRV_CROSS_ENABLED
-        spirv_cross::Compiler compiler(spirv.data(), spirv.size());
+        spirv_cross::Compiler compiler(m_SpirV.data(), m_SpirV.size());
         spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-        LH_CORE_TRACE("Reflecting Shader: {0} (Stage: {1})", m_Path.string(), (int)stage);
+        LH_CORE_TRACE("Reflecting Shader: {0} (Stage: {1})", m_Path.string(), (int)m_Stage);
 
         // Uniform Buffers
         for (const auto& resource : resources.uniform_buffers)
@@ -247,32 +199,28 @@ namespace Luth
             LH_CORE_TRACE("  Texture: {0} (Set: {1}, Binding: {2})", resource.name, set, binding);
         }
 #else
-        (void)stage; (void)spirv;
         LH_CORE_WARN("VulkanShader::Reflect() disabled — spirv-cross not linked (ABI mismatch with Vulkan SDK pre-built libs)");
 #endif
     }
 
-    void VulkanShader::CreateShaderModule(VkShaderStageFlagBits stage, const std::vector<u32>& spirv)
+    void VulkanShader::CreateShaderModule()
     {
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize = spirv.size() * sizeof(u32);
-        createInfo.pCode = spirv.data();
+        createInfo.codeSize = m_SpirV.size() * sizeof(u32);
+        createInfo.pCode = m_SpirV.data();
 
-        VkShaderModule module;
-        if (vkCreateShaderModule(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &module) != VK_SUCCESS)
+        if (vkCreateShaderModule(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &m_ShaderModule) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("Failed to create shader module!");
+            LH_CORE_ERROR("Failed to create shader module for '{}'", m_Path.string());
+            m_ShaderModule = VK_NULL_HANDLE;
             return;
         }
 
-        m_ShaderModules[stage] = module;
-
-        VkPipelineShaderStageCreateInfo stageInfo{};
-        stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stageInfo.stage = stage;
-        stageInfo.module = module;
-        stageInfo.pName = "main";
-        m_ShaderStages.push_back(stageInfo);
+        m_ShaderStageInfo = {};
+        m_ShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        m_ShaderStageInfo.stage = ToVkStage(m_Stage);
+        m_ShaderStageInfo.module = m_ShaderModule;
+        m_ShaderStageInfo.pName = "main";
     }
 }

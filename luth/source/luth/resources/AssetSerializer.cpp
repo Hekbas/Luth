@@ -385,16 +385,16 @@ namespace Luth
         if (!out.is_open()) return false;
 
         AssetHeader header;
+        header.Version = 2; // V2: single-stage shader asset
         header.Type = AssetType::Shader;
         out.write((char*)&header, sizeof(AssetHeader));
 
         ShaderHeader shaderHeader;
-        shaderHeader.VertexSpirVSize = (u32)data.VertexSpirV.size();
-        shaderHeader.FragmentSpirVSize = (u32)data.FragmentSpirV.size();
+        shaderHeader.Stage = (u32)data.Stage;
+        shaderHeader.SpirVSize = (u32)data.SpirV.size();
         out.write((char*)&shaderHeader, sizeof(ShaderHeader));
 
-        out.write((char*)data.VertexSpirV.data(), data.VertexSpirV.size() * sizeof(u32));
-        out.write((char*)data.FragmentSpirV.data(), data.FragmentSpirV.size() * sizeof(u32));
+        out.write((char*)data.SpirV.data(), data.SpirV.size() * sizeof(u32));
 
         return true;
     }
@@ -408,14 +408,16 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Shader) return false;
 
+        // V2 schema: single-stage shader. V1 artifacts (paired vert+frag) are
+        // rejected so they get re-imported under the new schema on first load.
+        if (header.Version != 2) return false;
+
         ShaderHeader shaderHeader;
         in.read((char*)&shaderHeader, sizeof(ShaderHeader));
 
-        outData.VertexSpirV.resize(shaderHeader.VertexSpirVSize);
-        in.read((char*)outData.VertexSpirV.data(), shaderHeader.VertexSpirVSize * sizeof(u32));
-
-        outData.FragmentSpirV.resize(shaderHeader.FragmentSpirVSize);
-        in.read((char*)outData.FragmentSpirV.data(), shaderHeader.FragmentSpirVSize * sizeof(u32));
+        outData.Stage = (ShaderStage)shaderHeader.Stage;
+        outData.SpirV.resize(shaderHeader.SpirVSize);
+        in.read((char*)outData.SpirV.data(), shaderHeader.SpirVSize * sizeof(u32));
 
         return true;
     }
