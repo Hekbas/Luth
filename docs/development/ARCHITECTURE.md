@@ -40,11 +40,12 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  ├── [Core]
  │    ├── JobSystem .............. N:M Fiber Scheduler (FLS, Chase-Lev, MPMC)
  │    ├── Memory ................. TaggedPageAllocator + LinearAllocator
- │    ├── FrameData .............. Triple-buffered FrameContext
  │    ├── IOThread ............... Dedicated OS thread for disk I/O
- │    ├── ProjectFile ............ .luthproj loader/saver, CLI discovery
- │    ├── EditorHooks ............ IEditorHooks interface + Register/Get (engine → editor decoupling)
- │    └── App .................... Two-phase init: Engine boot → Project load
+ │    ├── App .................... Two-phase init: Engine boot → Project load
+ │    ├── EntryPoint, Version, FrameData, UUID, ProjectFile, EditorHooks .. top-level lifecycle (core/ root)
+ │    ├── types/                 LuthTypes (primitives), LuthMath (Vec/Mat/Quat aliases + `Math::` facade + Assimp/AABB/Frustum), TypeTraits (IsGLMVector/Matrix)
+ │    ├── diagnostics/           Log, LogFormatters (fmt + ostream<< Vec3/Mat4), Profiler
+ │    └── time/                  Time, Timer
  │
  ├── [Events]
  │    └── EventBus ............... Deferred queue-swap dispatch (AppEvent, KeyEvent, MouseEvent, RenderEvent, FileDropEvent)

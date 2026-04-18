@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/memory/MemoryTracker.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 // ===================================================================================
 // Tracked allocation macros — opt-in, per call-site category tagging

@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "TimelineSemaphore.h"
 #include "VulkanContext.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 namespace Luth
 {

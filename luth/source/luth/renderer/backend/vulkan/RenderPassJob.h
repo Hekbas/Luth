@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include "DynamicRendering.h"
 #include "luth/jobs/JobSystem.h"
 #include "CommandAllocatorPool.h"

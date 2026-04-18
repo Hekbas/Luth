@@ -1,7 +1,7 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
-#include "luth/core/Log.h"
+#include "luth/core/types/LuthTypes.h"
+#include "luth/core/diagnostics/Log.h"
 #include <atomic>
 #include <cassert>
 

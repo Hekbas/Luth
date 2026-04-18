@@ -2,7 +2,7 @@
 #include "VulkanShader.h"
 #include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 #if LUTH_SPIRV_CROSS_ENABLED
 #include <spirv_cross.hpp>

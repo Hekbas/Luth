@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 #include <functional>
 #include <imgui.h>

@@ -2,7 +2,7 @@
 #include "ProfilerPanel.h"
 #include "luth/jobs/JobSystem.h"
 #include "luthien/EditorColors.h"
-#include "luth/core/Time.h"
+#include "luth/core/time/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"

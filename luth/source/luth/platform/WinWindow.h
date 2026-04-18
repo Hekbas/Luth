@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/platform/Window.h"
 
 #define GLFW_EXPOSE_NATIVE_WIN32

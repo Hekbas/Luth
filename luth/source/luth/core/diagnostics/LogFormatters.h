@@ -9,7 +9,10 @@
 
 #pragma once
 
+#include "luth/core/types/LuthMath.h"
+
 #include <spdlog/fmt/bundled/format.h>
+#include <spdlog/fmt/ostr.h>
 #include <vulkan/vulkan.h>
 #include <filesystem>
 #include <optional>
@@ -21,6 +24,7 @@
 #include <unordered_map>
 #include <set>
 #include <utility>
+#include <ostream>
 
 
 // =================================================================
@@ -178,6 +182,17 @@ namespace fmt
 // =================================================================
 namespace Luth
 {
-    // Add formatters for Luth types as needed
-    // template <> struct fmt::formatter<LuthObj> { ... };
+    // ostream<< adapters used by spdlog/fmt's ostream formatter
+    inline std::ostream& operator<<(std::ostream& os, const Vec3& v) {
+        return os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+    }
+
+    inline std::ostream& operator<<(std::ostream& os, const Mat4& m) {
+        for (int i = 0; i < 4; ++i) {
+            os << "\n| ";
+            for (int j = 0; j < 4; ++j)
+                os << m[i][j] << " ";
+        }
+        return os << " |";
+    }
 }

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "ShaderCompiler.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include <shaderc/shaderc.hpp>
 #include <fstream>
 

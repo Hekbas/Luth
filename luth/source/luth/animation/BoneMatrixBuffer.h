@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/animation/Skeleton.h"
 #include <vulkan/vulkan.h>
 #include <deque>

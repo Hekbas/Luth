@@ -2,7 +2,7 @@
 
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
 
 #include <array>
 #include <vulkan/vulkan.h>

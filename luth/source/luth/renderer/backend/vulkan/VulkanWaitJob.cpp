@@ -2,7 +2,7 @@
 #include "VulkanWaitJob.h"
 #include "TimelineSemaphore.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include <thread> // For std::this_thread::yield
 
 namespace Luth

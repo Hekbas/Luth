@@ -2,7 +2,7 @@
 #include "VulkanPipeline.h"
 #include "VulkanContext.h"
 #include "PipelineCache.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include <fstream>
 
 namespace Luth

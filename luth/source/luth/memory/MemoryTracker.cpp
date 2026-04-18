@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/memory/MemoryTracker.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 
 namespace Luth::Memory
 {

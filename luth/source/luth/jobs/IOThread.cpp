@@ -1,8 +1,8 @@
 #include "luthpch.h"
 #include "luth/jobs/IOThread.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 #include <fstream>
 

@@ -15,11 +15,11 @@
 #include <random>
 #include <regex>
 
-#include "luth/core/LuthTypes.h"
-#include "luth/core/Log.h"
-#include "luth/core/Time.h"
-#include "luth/core/Math.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/types/LuthTypes.h"
+#include "luth/core/types/LuthMath.h"
+#include "luth/core/diagnostics/Log.h"
+#include "luth/core/diagnostics/Profiler.h"
+#include "luth/core/time/Time.h"
 #include "luth/memory/MemoryMacros.h"
 
-#include "luth/core/LogFormatters.h"
+#include "luth/core/diagnostics/LogFormatters.h"

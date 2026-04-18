@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luthien/Command.h"
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 
 #include <memory>
 #include <vector>

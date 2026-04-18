@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luthien/commands/ICommand.h"
-#include "luth/core/Math.h"
+#include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Entity.h"

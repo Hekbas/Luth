@@ -2,7 +2,7 @@
 
 // Convenience header — includes all memory subsystem headers
 
-#include "luth/core/LuthTypes.h"
+#include "luth/core/types/LuthTypes.h"
 #include "luth/memory/LinearAllocator.h"
 #include "luth/memory/TaggedPageAllocator.h"
 

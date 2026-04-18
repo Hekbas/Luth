@@ -21,9 +21,9 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/core/Math.h"
-#include "luth/core/Time.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/types/LuthMath.h"
+#include "luth/core/time/Time.h"
+#include "luth/core/diagnostics/Profiler.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Scene.h"
 

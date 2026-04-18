@@ -2,7 +2,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/core/Profiler.h"
+#include "luth/core/diagnostics/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"

@@ -2,7 +2,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/MetaFile.h"
-#include "luth/core/Log.h"
+#include "luth/core/diagnostics/Log.h"
 #include "luth/resources/AssetManager.h"
 #include <fstream>
 

@@ -8,7 +8,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/MaterialImporter.h"
-#include "luth/core/Time.h"
+#include "luth/core/time/Time.h"
 #include "luth/jobs/IOThread.h"
 #include "luthien/Command.h"
 #include "luthien/CommandHistory.h"
