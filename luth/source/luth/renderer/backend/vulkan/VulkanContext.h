@@ -60,10 +60,17 @@ namespace Luth
         void CreateLogicalDevice();
         void InitAllocator();
 
-        // Validation Layers
+        // Validation Layers — enabled in Debug builds only.
+        // Release builds skip validation for zero overhead; override with -DLUTH_ENABLE_VALIDATION=1 if needed.
         bool CheckValidationLayerSupport();
         std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };
-        bool m_EnableValidationLayers = true; // TODO: Disable in Release
+#if defined(LUTH_ENABLE_VALIDATION)
+        bool m_EnableValidationLayers = (LUTH_ENABLE_VALIDATION != 0);
+#elif defined(_DEBUG) || !defined(NDEBUG)
+        bool m_EnableValidationLayers = true;
+#else
+        bool m_EnableValidationLayers = false;
+#endif
 
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
