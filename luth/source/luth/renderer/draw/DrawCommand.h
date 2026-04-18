@@ -1,8 +1,8 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/resources/Model.h"
 
 #include <glm/glm.hpp>
 #include <memory>

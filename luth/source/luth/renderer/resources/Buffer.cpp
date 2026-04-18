@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/Buffer.h"
+#include "luth/renderer/resources/Buffer.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
 

@@ -6,7 +6,7 @@
 #include "luth/scene/Components.h"
 #include "luth/core/Time.h"
 #include "luth/renderer/BoneMatrixBuffer.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 
 #include <glm/gtc/matrix_transform.hpp>

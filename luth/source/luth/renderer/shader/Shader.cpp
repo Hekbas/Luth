@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/Shader.h"
+#include "luth/renderer/shader/Shader.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"

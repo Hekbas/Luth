@@ -10,7 +10,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>

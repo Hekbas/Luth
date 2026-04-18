@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/UUID.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include <functional>
 

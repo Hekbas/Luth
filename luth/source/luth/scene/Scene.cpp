@@ -1,8 +1,8 @@
 #include "luthpch.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/resources/AssetManager.h"
 
 namespace Luth

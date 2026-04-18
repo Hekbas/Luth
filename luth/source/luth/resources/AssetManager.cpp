@@ -6,10 +6,10 @@
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
 #include "luth/resources/importers/ShaderImporter.h"
-#include "luth/renderer/Texture.h"
-#include "luth/renderer/Model.h"
-#include "luth/renderer/Material.h"
-#include "luth/renderer/Shader.h"
+#include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/resources/Model.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/shader/Shader.h"
 #include "luth/core/Time.h"
 
 namespace Luth

@@ -1,6 +1,6 @@
 #include "luthpch.h"
 
-#include "luth/renderer/Mesh.h"
+#include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
 

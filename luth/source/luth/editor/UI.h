@@ -3,7 +3,7 @@
 #include "luth/core/LuthTypes.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/Asset.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/resources/Texture.h"
 
 #include <string>
 #include <glm/glm.hpp>

@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 
 namespace Luth

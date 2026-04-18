@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/resources/AssetImporter.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/resources/Texture.h"
 #include <vector>
 
 namespace Luth

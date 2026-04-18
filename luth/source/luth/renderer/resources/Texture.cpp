@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"

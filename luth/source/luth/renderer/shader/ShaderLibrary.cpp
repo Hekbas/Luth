@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/ShaderLibrary.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/core/Log.h"
 
 namespace Luth

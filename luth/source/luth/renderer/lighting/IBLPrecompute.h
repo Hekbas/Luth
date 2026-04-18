@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 
 #include <vulkan/vulkan.h>

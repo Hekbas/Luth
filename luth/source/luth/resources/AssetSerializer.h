@@ -2,7 +2,7 @@
 
 #include "luth/core/LuthTypes.h"
 #include "luth/resources/Asset.h"
-#include "luth/renderer/Buffer.h"
+#include "luth/renderer/resources/Buffer.h"
 #include "luth/resources/importers/MaterialImporter.h"
 #include "luth/resources/importers/ShaderImporter.h"
 

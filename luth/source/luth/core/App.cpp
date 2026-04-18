@@ -21,7 +21,7 @@
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/Profiler.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/ShaderLibrary.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/PipelineCache.h"
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"

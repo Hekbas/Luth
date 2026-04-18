@@ -1,7 +1,7 @@
 #pragma once
 
-#include "luth/renderer/Buffer.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/resources/Buffer.h"
+#include "luth/renderer/material/Material.h"
 
 #include <memory>
 

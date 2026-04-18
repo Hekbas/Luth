@@ -4,8 +4,8 @@
 #include "luth/core/UUID.h"
 #include "luth/resources/Asset.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/Shader.h"
-#include "luth/renderer/Texture.h"
+#include "luth/renderer/shader/Shader.h"
+#include "luth/renderer/resources/Texture.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>

@@ -1,6 +1,6 @@
 #include "luthpch.h"
-#include "luth/renderer/IBLPrecompute.h"
-#include "luth/renderer/ShaderCompiler.h"
+#include "luth/renderer/lighting/IBLPrecompute.h"
+#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"

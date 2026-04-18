@@ -12,7 +12,7 @@
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 

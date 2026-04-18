@@ -1,7 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
-#include "luth/renderer/GTAOSettings.h"
+#include "luth/renderer/settings/GTAOSettings.h"
 
 namespace Luth
 {

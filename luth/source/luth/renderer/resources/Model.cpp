@@ -1,5 +1,5 @@
 #include "luthpch.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/core/Log.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"

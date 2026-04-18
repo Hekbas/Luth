@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/LuthTypes.h"
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <deque>

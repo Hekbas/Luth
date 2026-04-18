@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/renderer/Buffer.h"
+#include "luth/renderer/resources/Buffer.h"
 #include "VulkanAllocator.h"
 
 namespace Luth

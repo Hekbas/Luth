@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luth/renderer/Material.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/core/UUID.h"
 
 #include <filesystem>

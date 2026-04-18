@@ -14,7 +14,7 @@
 #include "luth/editor/widgets/ImGuiUtils.h"
 #include "luth/editor/widgets/Icons.h"
 #include "luth/editor/UI.h"
-#include "luth/renderer/Model.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
