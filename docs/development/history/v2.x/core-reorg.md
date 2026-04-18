@@ -165,7 +165,7 @@ Files that don't share a domain with another file stay at the root. `App`, `Vers
 
 - 3 commits on `epic/core-reorg`; every commit builds Debug x64 + Release x64 clean.
 - Only pre-existing warnings present (LNK4006 from vulkan-1.lib transitively colliding with shaderc/ws2_32/dbghelp; C4996 from `getenv` / `strncpy` in editor; C4244 chrono narrowing in `Editor.cpp:420`).
-- `rg "luth/core/(LuthTypes|Math|Log|Profiler|Time|Timer|LogFormatters)\.h"` matches only docs (CLAUDE.md, this history file).
+- `rg "luth/core/(LuthTypes|Math|Log|Profiler|Time|Timer|LogFormatters)\.h"` matches only docs (this history file).
 
 ---
 

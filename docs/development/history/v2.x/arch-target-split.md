@@ -141,4 +141,4 @@ Pre-epic `Luth.lib` baseline not captured — measurement deferred (would requir
 - `git grep -l 'Editor::' luth/source` → zero matches ✓
 - `Luthien.exe` launches, loads project, renders scene, all panels functional
 - `.gitignore` covers per-user editor-state drift (`editor_settings.json`, `*imgui.ini`, `samples/cache/`)
-- CLAUDE.md is currently untracked; its "Targets" and "Source Structure" bullets were updated locally but not committed this epic — track whenever desired
+- Local project context (untracked) updated for the new "Targets" and "Source Structure" — not committed this epic

@@ -174,4 +174,4 @@ Runtime state (`ActiveTransition`, `RootMotionDelta`, layer `CurrentTime`) is no
 | `editor/panels/InspectorPanel.cpp` | MODIFY | AnimationController inspector UI, Add Component menu entry |
 | `docs/development/arch/animation-system.md` | MODIFY | Full blending & root motion architecture section |
 | `docs/development/ROADMAP.md` | MODIFY | 7D marked complete |
-| `CLAUDE.md` | MODIFY | Current Progress updated |
+| Project context | MODIFY | Current Progress updated |
