@@ -7,64 +7,29 @@ namespace Luth
 {
     bool ShaderImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
-        // .frag files are tracked for visibility but don't produce their own artifacts.
-        // Paired .frag content is included in the .vert's artifact.
-        // Standalone .frag files are compiled directly via ShaderCompiler at runtime.
-        if (source.extension() == ".frag")
-            return true;
-
-        // Determine vertex and fragment paths from source
-        // Convention: .vert is the primary asset, matching .frag is found automatically
-        fs::path vertPath = source;
-        fs::path fragPath = source;
-
-        if (vertPath.extension() == ".vert")
+        ShaderStage stage = ShaderCompiler::InferStage(source);
+        if (stage == ShaderStage::Unknown)
         {
-            fragPath.replace_extension(".frag");
-        }
-        else if (vertPath.extension() == ".frag")
-        {
-            // If given a .frag, find the matching .vert
-            vertPath.replace_extension(".vert");
-        }
-        else
-        {
-            LH_CORE_ERROR("ShaderImporter: Unsupported shader extension '{0}'", source.string());
+            LH_CORE_ERROR("ShaderImporter: unsupported shader extension for '{0}'", source.string());
             return false;
         }
 
-        // Compile vertex shader
-        if (!fs::exists(vertPath))
+        if (!fs::exists(source))
         {
-            LH_CORE_ERROR("ShaderImporter: Vertex shader not found: {0}", vertPath.string());
+            LH_CORE_ERROR("ShaderImporter: source not found: {0}", source.string());
             return false;
         }
 
-        auto vertSpv = ShaderCompiler::Compile(vertPath);
-        if (vertSpv.empty())
+        auto spirv = ShaderCompiler::Compile(source);
+        if (spirv.empty())
         {
-            LH_CORE_ERROR("ShaderImporter: Failed to compile vertex shader: {0}", vertPath.string());
+            LH_CORE_ERROR("ShaderImporter: compilation failed for '{0}'", source.string());
             return false;
         }
 
-        // Compile fragment shader
-        if (!fs::exists(fragPath))
-        {
-            LH_CORE_ERROR("ShaderImporter: Fragment shader not found: {0}", fragPath.string());
-            return false;
-        }
-
-        auto fragSpv = ShaderCompiler::Compile(fragPath);
-        if (fragSpv.empty())
-        {
-            LH_CORE_ERROR("ShaderImporter: Failed to compile fragment shader: {0}", fragPath.string());
-            return false;
-        }
-
-        // Pack into asset data
         ShaderAssetData data;
-        data.VertexSpirV = std::move(vertSpv);
-        data.FragmentSpirV = std::move(fragSpv);
+        data.Stage = stage;
+        data.SpirV = std::move(spirv);
         data.SourcePath = source.string();
 
         return AssetSerializer::SerializeShader(destination, data);

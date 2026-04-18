@@ -19,6 +19,12 @@ namespace Luth
         static std::shared_ptr<Shader> Get(const std::string& name);
         static const std::unordered_map<std::string, std::shared_ptr<Shader>>& GetAll();
 
+        // Load an engine shader by path relative to luth/assets (e.g. "shaders/pbr.vert"),
+        // register it in the library keyed by filename, and return the shader.
+        // Idempotent: returns the cached entry if the filename is already registered.
+        // Returns nullptr on failure.
+        static std::shared_ptr<Shader> LoadEngine(const std::string& engineRelPath);
+
         static bool Reload(const std::string& name);
         static void SetReloadCallback(std::function<void(const std::string&)> cb);
 

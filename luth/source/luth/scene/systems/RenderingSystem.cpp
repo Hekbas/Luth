@@ -18,7 +18,6 @@
 #include "luth/renderer/resources/Buffer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetDatabase.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/lighting/IBLPrecompute.h"
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/passes/CullPass.h"
@@ -147,13 +146,6 @@ namespace Luth
                 ShaderLibrary::Reload(name);
             }
             m_PendingReloads.clear();
-
-            if (m_PendingUtilityReload)
-            {
-                LH_CORE_INFO("Utility shader changed — recompiling all utility shaders");
-                m_Pipeline->RecompileUtilityShaders();
-                m_PendingUtilityReload = false;
-            }
         }
 
         m_FrameAllocator->Reset();

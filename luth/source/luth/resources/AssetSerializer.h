@@ -59,11 +59,10 @@ namespace Luth
 
     struct ShaderHeader
     {
-        u32 VertexSpirVSize;   // u32 count (not byte count)
-        u32 FragmentSpirVSize; // u32 count (not byte count)
+        u32 Stage;      // ShaderStage enum as u32
+        u32 SpirVSize;  // u32 count (not byte count)
         // Followed by:
-        // - VertexSpirV [VertexSpirVSize * sizeof(u32)]
-        // - FragmentSpirV [FragmentSpirVSize * sizeof(u32)]
+        // - SpirV [SpirVSize * sizeof(u32)]
     };
 
     class AssetSerializer

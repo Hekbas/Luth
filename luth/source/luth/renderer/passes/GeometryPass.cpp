@@ -14,7 +14,6 @@
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
 #include <glm/gtc/matrix_transform.hpp>
@@ -104,7 +103,7 @@ namespace Luth
                 m_System.m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
-                UUID pbrUUID = ShaderLibrary::Get("pbr")->Handle;
+                UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }

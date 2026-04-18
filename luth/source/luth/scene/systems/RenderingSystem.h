@@ -189,6 +189,5 @@ namespace Luth
         std::filesystem::path m_WatchedProjectShaderDir;
         std::mutex            m_ReloadMutex;
         std::set<std::string> m_PendingReloads;
-        bool                  m_PendingUtilityReload = false;
     };
 }

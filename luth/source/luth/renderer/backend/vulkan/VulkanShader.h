@@ -9,27 +9,30 @@ namespace Luth
     class VulkanShader : public Shader
     {
     public:
-        VulkanShader(const fs::path& path);
-        VulkanShader(const std::vector<u32>& vertSpv, const std::vector<u32>& fragSpv, const fs::path& path);
+        VulkanShader(ShaderStage stage, const std::vector<u32>& spirv, const fs::path& path);
         virtual ~VulkanShader();
 
-        virtual const fs::path& GetPath() const override { return m_Path; }
+        // Shader interface
+        ShaderStage GetStage() const override { return m_Stage; }
+        const std::vector<u32>& GetSpirV() const override { return m_SpirV; }
+        const fs::path& GetPath() const override { return m_Path; }
+        bool IsValid() const override { return m_ShaderModule != VK_NULL_HANDLE; }
         void Reload() override;
-        bool IsValid() const override;
 
         // Vulkan specific
-        const std::vector<u32>& GetSpirV(VkShaderStageFlagBits stage) const;
-        VkShaderModule GetShaderModule(VkShaderStageFlagBits stage) const;
-        const std::vector<VkPipelineShaderStageCreateInfo>& GetShaderStages() const { return m_ShaderStages; }
+        VkShaderModule GetShaderModule() const { return m_ShaderModule; }
+        const VkPipelineShaderStageCreateInfo& GetShaderStageInfo() const { return m_ShaderStageInfo; }
+        VkShaderStageFlagBits GetVkStage() const;
 
     private:
-        void CompileOrGetVulkanBinaries();
-        void Reflect(VkShaderStageFlagBits stage, const std::vector<u32>& spirv);
-        void CreateShaderModule(VkShaderStageFlagBits stage, const std::vector<u32>& spirv);
+        void Reflect();
+        void CreateShaderModule();
+        void Destroy();
 
-        fs::path m_Path;
-        std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> m_SpirVData;
-        std::unordered_map<VkShaderStageFlagBits, VkShaderModule> m_ShaderModules;
-        std::vector<VkPipelineShaderStageCreateInfo> m_ShaderStages;
+        ShaderStage      m_Stage = ShaderStage::Unknown;
+        std::vector<u32> m_SpirV;
+        fs::path         m_Path;
+        VkShaderModule   m_ShaderModule = VK_NULL_HANDLE;
+        VkPipelineShaderStageCreateInfo m_ShaderStageInfo{};
     };
 }

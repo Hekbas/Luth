@@ -1,5 +1,8 @@
 #include "luthpch.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/resources/FileSystem.h"
 #include "luth/core/Log.h"
 
 namespace Luth
@@ -42,6 +45,27 @@ namespace Luth
     const std::unordered_map<std::string, std::shared_ptr<Shader>>& ShaderLibrary::GetAll()
     {
         return s_Shaders;
+    }
+
+    std::shared_ptr<Shader> ShaderLibrary::LoadEngine(const std::string& engineRelPath)
+    {
+        fs::path abs = FileSystem::EngineAssetsPath(engineRelPath);
+        std::string key = abs.filename().string();
+
+        // Idempotent: return cached entry
+        if (auto it = s_Shaders.find(key); it != s_Shaders.end())
+            return it->second;
+
+        UUID uuid = AssetDatabase::GetUUID(abs);
+        auto sh = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(uuid));
+        if (!sh)
+        {
+            LH_CORE_ERROR("ShaderLibrary::LoadEngine: failed to load '{0}'", engineRelPath);
+            return nullptr;
+        }
+
+        Register(key, sh);
+        return sh;
     }
 
     bool ShaderLibrary::Reload(const std::string& name)
