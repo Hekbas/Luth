@@ -14,7 +14,6 @@
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
 #include <glm/gtc/matrix_transform.hpp>

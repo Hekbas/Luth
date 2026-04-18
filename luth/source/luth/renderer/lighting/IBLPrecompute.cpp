@@ -1,6 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/lighting/IBLPrecompute.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
@@ -48,7 +48,6 @@ namespace Luth
         {
             IBLResult result;
             VkDevice device = VulkanContext::Get().GetDevice();
-            auto shadersPath = FileSystem::EngineAssetsPath("shaders");
 
             // ---- 1. Load HDR environment map ----
             int hdrW, hdrH, hdrChannels;
@@ -111,7 +110,8 @@ namespace Luth
 
                 // ---- 4. Equirect → Cubemap conversion ----
                 {
-                    auto spv = ShaderCompiler::Compile(shadersPath / "equirect_to_cubemap.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/equirect_to_cubemap.comp");
+                    auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
                     layoutBindings[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr };
@@ -254,7 +254,8 @@ namespace Luth
                     result.irradianceMap = std::make_shared<VKTexture>(irrSize, irrSize, TextureFormat::RGBA16F, 6,
                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto spv = ShaderCompiler::Compile(shadersPath / "irradiance_convolve.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/irradiance_convolve.comp");
+                    auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
                     layoutBindings[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr };
@@ -344,7 +345,8 @@ namespace Luth
                     result.prefilteredMap = std::make_shared<VKTexture>(pfSize, pfSize, TextureFormat::RGBA16F, 6,
                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, pfMips, VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto spv = ShaderCompiler::Compile(shadersPath / "prefilter_env.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/prefilter_env.comp");
+                    auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
                     layoutBindings[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr };
@@ -448,7 +450,8 @@ namespace Luth
                     result.brdfLut = std::make_shared<VKTexture>(lutSize, lutSize, TextureFormat::RG16F, 1, 0, 1,
                         VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto spv = ShaderCompiler::Compile(shadersPath / "brdf_lut.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/brdf_lut.comp");
+                    auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBinding = { 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr };
 
@@ -536,8 +539,10 @@ namespace Luth
                 };
                 result.skyboxVB = std::make_shared<VKVertexBuffer>(cubeVertices, sizeof(cubeVertices));
 
-                result.skyboxVertSpv = ShaderCompiler::Compile(shadersPath / "skybox.vert");
-                result.skyboxFragSpv = ShaderCompiler::Compile(shadersPath / "skybox.frag");
+                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.vert"))
+                    result.skyboxVertSpv = sh->GetSpirV();
+                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.frag"))
+                    result.skyboxFragSpv = sh->GetSpirV();
                 if (result.skyboxVertSpv.empty() || result.skyboxFragSpv.empty())
                     LH_CORE_ERROR("Failed to compile skybox shaders!");
             }

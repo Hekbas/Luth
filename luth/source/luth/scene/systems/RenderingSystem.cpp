@@ -18,7 +18,6 @@
 #include "luth/renderer/resources/Buffer.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetDatabase.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/lighting/IBLPrecompute.h"
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/passes/CullPass.h"

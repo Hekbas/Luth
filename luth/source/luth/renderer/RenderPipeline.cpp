@@ -17,7 +17,6 @@
 #include "luth/renderer/lighting/IBLPrecompute.h"
 #include "luth/renderer/passes/CullPass.h"
 #include "luth/renderer/draw/DrawCommand.h"
-#include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
@@ -58,73 +57,46 @@ namespace Luth
         InitGlobalUniforms();
         InitShadowResources();
 
-        // Load shaders via AssetManager. Each file is a single-stage asset;
-        // pipelines combine stages at creation time (see CreatePipelines).
-        auto loadEngineShader = [](const char* relPath) -> std::shared_ptr<VulkanShader>
+        // Load all engine shaders through the asset pipeline. Each file is a
+        // single-stage asset; pipelines combine stages at creation time.
+        // LoadEngine is idempotent and registers the shader in the library
+        // keyed by filename (e.g. "pbr.vert").
+        auto loadSpv = [](const char* relPath) -> std::vector<u32>
         {
-            UUID uuid = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath(relPath));
-            auto sh = std::static_pointer_cast<VulkanShader>(AssetManager::LoadImmediate(uuid));
-            if (!sh) LH_CORE_ERROR("Failed to load engine shader: {0}", relPath);
-            return sh;
+            auto sh = ShaderLibrary::LoadEngine(relPath);
+            return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
 
-        auto pbrVert    = loadEngineShader("shaders/pbr.vert");
-        auto pbrFrag    = loadEngineShader("shaders/pbr.frag");
-        auto shadowVert = loadEngineShader("shaders/shadowDepth.vert");
-        auto shadowFrag = loadEngineShader("shaders/shadowDepth.frag");
-        if (!pbrVert || !pbrFrag || !shadowVert || !shadowFrag) return;
+        m_PBRVertSpv                  = loadSpv("shaders/pbr.vert");
+        m_PBRFragSpv                  = loadSpv("shaders/pbr.frag");
+        m_ShadowVertSpv               = loadSpv("shaders/shadowDepth.vert");
+        m_ShadowFragSpv               = loadSpv("shaders/shadowDepth.frag");
+        m_PBRSkinnedVertSpv           = loadSpv("shaders/pbr_skinned.vert");
+        m_ShadowSkinnedVertSpv        = loadSpv("shaders/shadowDepth_skinned.vert");
+        m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
+        m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
+        m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
+        m_DepthPrepassVertSpv         = loadSpv("shaders/depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv  = loadSpv("shaders/depthPrepass_skinned.vert");
+        m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.vert");
+        m_BloomExtractFragSpv         = loadSpv("shaders/bloomExtract.frag");
+        m_BloomBlurFragSpv            = loadSpv("shaders/bloomBlur.frag");
+        m_PostProcessFragSpv          = loadSpv("shaders/postprocess.frag");
+        m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
+        m_GridFragSpv                 = loadSpv("shaders/grid.frag");
 
-        ShaderLibrary::Register("pbr.vert",         pbrVert);
-        ShaderLibrary::Register("pbr.frag",         pbrFrag);
-        ShaderLibrary::Register("shadowDepth.vert", shadowVert);
-        ShaderLibrary::Register("shadowDepth.frag", shadowFrag);
-
-        m_PBRVertSpv    = pbrVert->GetSpirV();
-        m_PBRFragSpv    = pbrFrag->GetSpirV();
-        m_ShadowVertSpv = shadowVert->GetSpirV();
-        m_ShadowFragSpv = shadowFrag->GetSpirV();
         if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() ||
-            m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty())
+            m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() ||
+            m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty() ||
+            m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
+            m_SelectionMaskSkinnedVertSpv.empty() ||
+            m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty() ||
+            m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
+            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
+            m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
         {
             LH_CORE_ERROR("Engine shader SPIR-V empty after asset load!");
             return;
-        }
-
-        // Skinned + selection + depth-prepass SPIR-V (compiled inline — not asset pipeline).
-        {
-            auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-            m_PBRSkinnedVertSpv            = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
-            m_ShadowSkinnedVertSpv         = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
-            m_SelectionMaskVertSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
-            m_SelectionMaskFragSpv         = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
-            m_SelectionMaskSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
-            m_DepthPrepassVertSpv          = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
-            m_DepthPrepassSkinnedVertSpv   = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
-
-            if (m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty())
-                LH_CORE_ERROR("Failed to compile skinned shaders!");
-            if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty())
-                LH_CORE_ERROR("Failed to compile selection mask shaders!");
-            if (m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty())
-                LH_CORE_ERROR("Failed to compile depth prepass shaders!");
-        }
-
-        // Post-process / outline / grid SPIR-V.
-        {
-            auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-            m_FullscreenVertSpv    = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
-            m_BloomExtractFragSpv  = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
-            m_BloomBlurFragSpv     = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
-            m_PostProcessFragSpv   = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
-            m_OutlineFragSpv       = ShaderCompiler::Compile(shadersPath / "outline.frag");
-            m_GridFragSpv          = ShaderCompiler::Compile(shadersPath / "grid.frag");
-
-            if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
-                m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
-                m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
-            {
-                LH_CORE_ERROR("Failed to compile post-process shaders!");
-            }
         }
 
         BoneMatrixBuffer::Init();
@@ -704,28 +676,36 @@ namespace Luth
     }
     void RenderPipeline::RecompileUtilityShaders()
     {
-        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
+        // Reload through the library so the asset pipeline stays in sync
+        // (pbr/shadowDepth have their own reload path via the callback).
+        auto reloadSpv = [](const std::string& key) -> std::vector<u32>
+        {
+            auto sh = ShaderLibrary::Get(key);
+            if (!sh) return {};
+            sh->Reload();
+            return sh->GetSpirV();
+        };
 
-        m_PBRSkinnedVertSpv           = ShaderCompiler::Compile(shadersPath / "pbr_skinned.vert");
-        m_ShadowSkinnedVertSpv        = ShaderCompiler::Compile(shadersPath / "shadowDepth_skinned.vert");
-        m_SelectionMaskVertSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.vert");
-        m_SelectionMaskFragSpv        = ShaderCompiler::Compile(shadersPath / "selectionMask.frag");
-        m_SelectionMaskSkinnedVertSpv = ShaderCompiler::Compile(shadersPath / "selectionMask_skinned.vert");
-        m_DepthPrepassVertSpv         = ShaderCompiler::Compile(shadersPath / "depthPrepass.vert");
-        m_DepthPrepassSkinnedVertSpv  = ShaderCompiler::Compile(shadersPath / "depthPrepass_skinned.vert");
-        m_GTAOPrefilterSpv            = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
-        m_GTAOMainSpv                 = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
-        m_GTAODenoiseSpv              = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+        m_PBRSkinnedVertSpv           = reloadSpv("pbr_skinned.vert");
+        m_ShadowSkinnedVertSpv        = reloadSpv("shadowDepth_skinned.vert");
+        m_SelectionMaskVertSpv        = reloadSpv("selectionMask.vert");
+        m_SelectionMaskFragSpv        = reloadSpv("selectionMask.frag");
+        m_SelectionMaskSkinnedVertSpv = reloadSpv("selectionMask_skinned.vert");
+        m_DepthPrepassVertSpv         = reloadSpv("depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv  = reloadSpv("depthPrepass_skinned.vert");
+        m_GTAOPrefilterSpv            = reloadSpv("gtao_depth_prefilter.comp");
+        m_GTAOMainSpv                 = reloadSpv("gtao_main.comp");
+        m_GTAODenoiseSpv              = reloadSpv("gtao_denoise.comp");
 
-        m_FullscreenVertSpv   = ShaderCompiler::Compile(shadersPath / "fullscreen.vert");
-        m_BloomExtractFragSpv = ShaderCompiler::Compile(shadersPath / "bloomExtract.frag");
-        m_BloomBlurFragSpv    = ShaderCompiler::Compile(shadersPath / "bloomBlur.frag");
-        m_PostProcessFragSpv  = ShaderCompiler::Compile(shadersPath / "postprocess.frag");
-        m_OutlineFragSpv      = ShaderCompiler::Compile(shadersPath / "outline.frag");
-        m_GridFragSpv         = ShaderCompiler::Compile(shadersPath / "grid.frag");
+        m_FullscreenVertSpv   = reloadSpv("fullscreen.vert");
+        m_BloomExtractFragSpv = reloadSpv("bloomExtract.frag");
+        m_BloomBlurFragSpv    = reloadSpv("bloomBlur.frag");
+        m_PostProcessFragSpv  = reloadSpv("postprocess.frag");
+        m_OutlineFragSpv      = reloadSpv("outline.frag");
+        m_GridFragSpv         = reloadSpv("grid.frag");
 
-        m_SkyboxVertSpv = ShaderCompiler::Compile(shadersPath / "skybox.vert");
-        m_SkyboxFragSpv = ShaderCompiler::Compile(shadersPath / "skybox.frag");
+        m_SkyboxVertSpv = reloadSpv("skybox.vert");
+        m_SkyboxFragSpv = reloadSpv("skybox.frag");
 
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         m_GeoPipelineManager.Clear();
@@ -1893,10 +1873,11 @@ namespace Luth
         pcRange.offset     = 0;
         pcRange.size       = sizeof(glm::vec4) * 6 + sizeof(u32) * 2;
 
-        auto spv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/gpu_cull.comp"));
+        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
+        auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
         if (spv.empty())
         {
-            LH_CORE_ERROR("RenderingSystem: Failed to compile gpu_cull.comp!");
+            LH_CORE_ERROR("RenderingSystem: Failed to load gpu_cull.comp!");
             return;
         }
 
@@ -1922,7 +1903,6 @@ namespace Luth
     void RenderPipeline::InitAOResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
 
         // ---- Half-res persistent textures ----
         const u32 halfW = std::max(m_System.m_Targets.GetSceneColor()->GetWidth()  / 2, 1u);
@@ -1996,10 +1976,11 @@ namespace Luth
             pcRange.offset     = 0;
             pcRange.size       = sizeof(i32) * 2 + sizeof(float) * 6; // halfResSize + invFullRes + nearZ + farZ + pads
 
-            m_GTAOPrefilterSpv = ShaderCompiler::Compile(shadersPath / "gtao_depth_prefilter.comp");
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_depth_prefilter.comp"))
+                m_GTAOPrefilterSpv = sh->GetSpirV();
             if (m_GTAOPrefilterSpv.empty())
             {
-                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_depth_prefilter.comp!");
+                LH_CORE_ERROR("RenderingSystem: Failed to load gtao_depth_prefilter.comp!");
                 return;
             }
             m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
@@ -2040,10 +2021,11 @@ namespace Luth
             pcRange.offset     = 0;
             pcRange.size       = sizeof(float) * 4 + sizeof(u32) * 4; // projParams + near/far + frameIndex + pads
 
-            m_GTAOMainSpv = ShaderCompiler::Compile(shadersPath / "gtao_main.comp");
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_main.comp"))
+                m_GTAOMainSpv = sh->GetSpirV();
             if (m_GTAOMainSpv.empty())
             {
-                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_main.comp!");
+                LH_CORE_ERROR("RenderingSystem: Failed to load gtao_main.comp!");
                 return;
             }
             m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
@@ -2080,10 +2062,11 @@ namespace Luth
             vkAllocateDescriptorSets(device, &allocInfo, &m_GTAODenoiseDescSet);
 
             // No push constants — resolution derived from textureSize() inside the shader.
-            m_GTAODenoiseSpv = ShaderCompiler::Compile(shadersPath / "gtao_denoise.comp");
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_denoise.comp"))
+                m_GTAODenoiseSpv = sh->GetSpirV();
             if (m_GTAODenoiseSpv.empty())
             {
-                LH_CORE_ERROR("RenderingSystem: Failed to compile gtao_denoise.comp!");
+                LH_CORE_ERROR("RenderingSystem: Failed to load gtao_denoise.comp!");
                 return;
             }
             m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
@@ -2449,9 +2432,10 @@ namespace Luth
     {
         if (m_System.m_FrameDebugger.blitPipeline) return; // Already initialized
 
-        auto shadersPath = FileSystem::EngineAssetsPath("shaders");
-        m_System.m_FrameDebugger.blitFragSpv  = ShaderCompiler::Compile(shadersPath / "debugBlit.frag");
-        m_System.m_FrameDebugger.depthFragSpv = ShaderCompiler::Compile(shadersPath / "debugDepth.frag");
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.frag"))
+            m_System.m_FrameDebugger.blitFragSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
+            m_System.m_FrameDebugger.depthFragSpv = sh->GetSpirV();
 
         if (m_System.m_FrameDebugger.blitFragSpv.empty() || m_System.m_FrameDebugger.depthFragSpv.empty() || m_FullscreenVertSpv.empty())
         {

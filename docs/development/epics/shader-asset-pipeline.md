@@ -185,7 +185,7 @@ The watcher scans all `.vert`/`.frag`/`.comp` files. When one changes, it looks 
 
 | Sub-Task | Status | Commit | Date |
 |----------|--------|--------|------|
-| ABC: Single-stage shader asset model | pending | — | — |
-| D: RenderPipeline + IBLPrecompute migration | pending | — | — |
+| ABC: Single-stage shader asset model | done | 51d796a | 2026-04-18 |
+| D: RenderPipeline + IBLPrecompute migration | in-progress | — | — |
 | E: Hot-reload any stage | pending | — | — |
 | F: Docs + version + history | pending | — | — |
