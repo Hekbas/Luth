@@ -252,7 +252,7 @@ After each pass, rebuild and re-grep to catch missed patterns.
 | A: Reshape LuthTypes.h primitive layer | done | eaeaa00 | 2026-04-18 |
 | B: Build Luth::Math facade | done | 7d91417 | 2026-04-18 |
 | C: Pass A (engine) — types | done | 9c6f2b9 | 2026-04-18 |
-| D: Pass A (editor) — types | pending | — | — |
+| D: Pass A (editor) — types | done | 430beca | 2026-04-18 |
 | E: Pass B (engine) — functions | pending | — | — |
 | F: Pass B (editor) — functions | pending | — | — |
 | G: Purge direct glm includes | pending | — | — |

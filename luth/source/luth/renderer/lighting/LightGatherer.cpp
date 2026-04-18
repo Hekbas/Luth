@@ -20,24 +20,24 @@ namespace Luth
             if (foundDir) break;
 
             // Forward vector = -Z column of the world matrix
-            outLights.dirLight.direction = glm::normalize(-Vec3(wt.Matrix[2]));
+            outLights.dirLight.direction = Math::Normalize(-Vec3(wt.Matrix[2]));
             outLights.dirLight.color     = dl.Color;
             outLights.dirLight.intensity = dl.Intensity;
 
             outShadow.castShadows           = dl.CastShadows;
             outShadow.shadowBias            = Vec4(dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3]);
             outShadow.shadowNormalBias      = Vec4(dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3]);
-            outShadow.splitLambda           = glm::clamp(dl.SplitLambda, 0.0f, 1.0f);
+            outShadow.splitLambda           = Math::Clamp(dl.SplitLambda, 0.0f, 1.0f);
             outShadow.shadowDistance        = dl.ShadowDistance;
             outShadow.stabilizeCascades     = dl.StabilizeCascades;
-            outShadow.cascadeBlendWidth     = glm::clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
+            outShadow.cascadeBlendWidth     = Math::Clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
             outShadow.debugVisualizeCascades = dl.DebugVisualizeCascades;
             foundDir = true;
         }
 
         if (!foundDir)
         {
-            outLights.dirLight.direction = glm::normalize(Vec3(1.0f, 1.0f, 0.5f));
+            outLights.dirLight.direction = Math::Normalize(Vec3(1.0f, 1.0f, 0.5f));
             outLights.dirLight.color     = Vec3(1.0f);
             outLights.dirLight.intensity = 3.0f;
             // Shadow params: leave outShadow untouched so last-known config persists.

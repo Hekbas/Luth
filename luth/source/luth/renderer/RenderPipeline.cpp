@@ -2308,7 +2308,7 @@ namespace Luth
 
             // Bounding sphere from BindPoseAABB (local space)
             const auto& aabb   = meshesData[mr.MeshIndex].BindPoseAABB;
-            obj.boundingSphere = Vec4(aabb.Center(), glm::length(aabb.Extents()));
+            obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
 
             // Material slot
             u32 matSlot = 0;

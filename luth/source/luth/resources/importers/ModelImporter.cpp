@@ -73,9 +73,9 @@ namespace Luth
             if (hasFront) { frontSign = frontAxis >= 0 ? 1 : -1; frontAxis = abs(frontAxis); }
 
             if (hasUp && upAxis == 2) {
-                correction = glm::rotate(correction, glm::radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
+                correction = Math::Rotate(correction, Math::Radians(-90.0f), Vec3(1.0f, 0.0f, 0.0f));
                 if (hasFront && frontAxis == 1) {
-                    correction = glm::rotate(correction, glm::radians(90.0f), Vec3(0.0f, 0.0f, 1.0f));
+                    correction = Math::Rotate(correction, Math::Radians(90.0f), Vec3(0.0f, 0.0f, 1.0f));
                 }
             }
 
@@ -83,7 +83,7 @@ namespace Luth
                 int axisMode;
                 if (scene->mMetaData->Get("AxisMode", axisMode)) {
                     if (axisMode == 2) {
-                        correction = glm::scale(correction, Vec3(-1.0f, 1.0f, 1.0f));
+                        correction = Math::Scale(correction, Vec3(-1.0f, 1.0f, 1.0f));
                     }
                 }
             }
@@ -278,7 +278,7 @@ namespace Luth
         // 1. Strip the axis correction off the root temporarily so we are in pure Assimp space
         for (auto& bone : skeleton.Bones) {
             if (bone.ParentIndex == -1) {
-                bone.LocalBindPose = glm::inverse(axisCorrection) * bone.LocalBindPose;
+                bone.LocalBindPose = Math::Inverse(axisCorrection) * bone.LocalBindPose;
             }
         }
 
@@ -290,7 +290,7 @@ namespace Luth
                 // mOffsetMatrix transforms from Mesh-local to Bone space. Its inverse is the
                 // Bone Global Transform in mesh-local space. Multiply by meshSpaceCorrection
                 // to lift into engine space (matching the space where vertices are baked).
-                trueGlobalBindPoses[i] = meshSpaceCorrection * glm::inverse(it->second);
+                trueGlobalBindPoses[i] = meshSpaceCorrection * Math::Inverse(it->second);
             } else {
                 // Structural node (no offset matrix): fallback to the exported pose
                 i32 parent = skeleton.Bones[i].ParentIndex;
@@ -303,7 +303,7 @@ namespace Luth
         for (u32 i = 0; i < skeleton.BoneCount(); ++i) {
             i32 parent = skeleton.Bones[i].ParentIndex;
             if (parent >= 0) {
-                skeleton.Bones[i].LocalBindPose = glm::inverse(trueGlobalBindPoses[parent]) * trueGlobalBindPoses[i];
+                skeleton.Bones[i].LocalBindPose = Math::Inverse(trueGlobalBindPoses[parent]) * trueGlobalBindPoses[i];
             } else {
                 skeleton.Bones[i].LocalBindPose = axisCorrection * trueGlobalBindPoses[i];
             }
@@ -331,7 +331,7 @@ namespace Luth
                 ? globalBindPose[parent] * skeleton.Bones[i].LocalBindPose
                 : skeleton.Bones[i].LocalBindPose;
 
-            skeleton.Bones[i].InverseBindPose = glm::inverse(globalBindPose[i]);
+            skeleton.Bones[i].InverseBindPose = Math::Inverse(globalBindPose[i]);
         }
     }
 
@@ -475,7 +475,7 @@ namespace Luth
 
             Mat3 normalMatrix = ConvertToNormalMatrix(transform);
             if (mesh->HasNormals())
-                vertex.Normal = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
+                vertex.Normal = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
             else
                 vertex.Normal = Vec3(0.0f);
 
@@ -485,7 +485,7 @@ namespace Luth
                 vertex.TexCoord0 = Vec2(0.0f);
 
             if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
+                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
                 vertex.Tangent = Vec3(0.0f);
 
@@ -525,7 +525,7 @@ namespace Luth
             vertex.Position = Vec3(pos);
 
             if (mesh->HasNormals())
-                vertex.Normal = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
+                vertex.Normal = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mNormals[i]));
             else
                 vertex.Normal = Vec3(0.0f);
 
@@ -535,7 +535,7 @@ namespace Luth
                 vertex.TexCoord0 = Vec2(0.0f);
 
             if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = glm::normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
+                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
                 vertex.Tangent = Vec3(0.0f);
 
@@ -823,7 +823,7 @@ namespace Luth
 
         // Apply scale factor to axis correction
         if (std::abs(settings.ScaleFactor - 1.0f) > 1e-4f)
-            axisCorrection = glm::scale(axisCorrection, Vec3(settings.ScaleFactor));
+            axisCorrection = Math::Scale(axisCorrection, Vec3(settings.ScaleFactor));
 
         bool isSkinned = SceneHasBones(scene);
         modelData.IsSkinned = isSkinned;

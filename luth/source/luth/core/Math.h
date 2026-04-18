@@ -13,6 +13,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/norm.hpp>
 
 #include <assimp/matrix3x3.h>
 #include <assimp/matrix4x4.h>
@@ -74,6 +75,7 @@ namespace Luth::Math
     template<class T> inline T    Transpose(const T& v)                                 { return glm::transpose(v); }
     template<class T> inline T    Normalize(const T& v)                                 { return glm::normalize(v); }
     template<class T> inline auto Length(const T& v)                                    { return glm::length(v); }
+    template<class T> inline auto Length2(const T& v)                                   { return glm::length2(v); }
     template<class T> inline auto Dot(const T& a, const T& b)                           { return glm::dot(a, b); }
     template<class T> inline T    Cross(const T& a, const T& b)                         { return glm::cross(a, b); }
 
@@ -89,6 +91,14 @@ namespace Luth::Math
     inline Mat4 ToMat4(const Quat& q)                                                   { return glm::toMat4(q); }
     inline Vec3 EulerAngles(const Quat& q)                                              { return glm::eulerAngles(q); }
     inline Quat QuatLookAt(const Vec3& direction, const Vec3& up)                       { return glm::quatLookAt(direction, up); }
+
+    // Full matrix decomposition (translation/rotation/scale + skew/perspective).
+    // Use Luth::DecomposeTransform for the trs-only case.
+    inline bool Decompose(const Mat4& m, Vec3& scale, Quat& rotation, Vec3& translation,
+                          Vec3& skew, Vec4& perspective)
+    {
+        return glm::decompose(m, scale, rotation, translation, skew, perspective);
+    }
 
     // =============================================
     //         Angle conversions

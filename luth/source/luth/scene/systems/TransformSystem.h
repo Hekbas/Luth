@@ -42,10 +42,10 @@ namespace Luth
                 // 1. Update Local
                 if (transform.IsDirty)
                 {
-                    Mat4 rotation = glm::toMat4(Quat(glm::radians(transform.Rotation)));
-                    transform.LocalMatrix = glm::translate(Mat4(1.0f), transform.Position)
+                    Mat4 rotation = Math::ToMat4(Quat(Math::Radians(transform.Rotation)));
+                    transform.LocalMatrix = Math::Translate(Mat4(1.0f), transform.Position)
                         * rotation
-                        * glm::scale(Mat4(1.0f), transform.Scale);
+                        * Math::Scale(Mat4(1.0f), transform.Scale);
                 }
 
                 // 2. Update World

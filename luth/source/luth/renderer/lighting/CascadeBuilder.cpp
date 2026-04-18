@@ -51,7 +51,7 @@ namespace Luth
         }
         center *= (1.0f / 8.0f);
 
-        const Vec3 up = (glm::abs(glm::dot(lightDir, Vec3(0, 1, 0))) > 0.99f)
+        const Vec3 up = (Math::Abs(Math::Dot(lightDir, Vec3(0, 1, 0))) > 0.99f)
                              ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
 
         // Direct port of Sascha Willems' updateCascades() from
@@ -66,7 +66,7 @@ namespace Luth
         // size is deterministic across frames (anti-shimmer).
         float radius = 0.0f;
         for (int i = 0; i < 8; ++i)
-            radius = glm::max(radius, glm::length(cornersWS[i] - center));
+            radius = Math::Max(radius, Math::Length(cornersWS[i] - center));
         radius = std::ceil(radius * 16.0f) / 16.0f;
 
         outWorldHalfExtent = radius;
@@ -77,8 +77,8 @@ namespace Luth
         //
         // No Y-flip: the shadow pass writes and pbr.frag samples through the same
         // matrix, so the pair is self-consistent regardless of NDC Y orientation.
-        Mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
-        Mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
+        Mat4 lightView = Math::LookAt(center - lightDir * radius, center, up);
+        Mat4 lightProj = Math::Ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
         return lightProj * lightView;
     }
 
@@ -92,11 +92,11 @@ namespace Luth
         const Mat4& proj = camera.projection;
         const float tanHalfFovY = (proj[1][1] != 0.0f) ? std::abs(1.0f / proj[1][1]) : 1.0f;
         const float aspect      = (proj[0][0] != 0.0f) ? std::abs(proj[1][1] / proj[0][0]) : 1.0f;
-        const Mat4 camViewInv = glm::inverse(camera.view);
+        const Mat4 camViewInv = Math::Inverse(camera.view);
 
-        const float nearZ = glm::max(camera.nearZ, 1e-3f);
-        const float farZ  = glm::max(nearZ + 1e-3f,
-                                     glm::min(camera.farZ, params.shadowDistance));
+        const float nearZ = Math::Max(camera.nearZ, 1e-3f);
+        const float farZ  = Math::Max(nearZ + 1e-3f,
+                                     Math::Min(camera.farZ, params.shadowDistance));
 
         float cascadeFar[k_ShadowCascadeCount];
         ComputeSplits(nearZ, farZ, params.splitLambda, cascadeFar);
