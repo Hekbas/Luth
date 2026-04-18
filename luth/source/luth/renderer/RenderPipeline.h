@@ -70,12 +70,6 @@ namespace Luth
         // Reload the environment HDR → irradiance + prefiltered cubemaps + BRDF LUT.
         void ReloadSkybox(const fs::path& hdrPath);
 
-        // Recompile all inline (non-AssetManager) shader SPIR-V (fullscreen,
-        // bloom, post-process, outline, grid, selection, depth-prepass, skinned
-        // variants) and rebuild their pipelines. Invoked by RenderingSystem's
-        // shader hot-reload drain when a utility shader file changes on disk.
-        void RecompileUtilityShaders();
-
         // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
         // before the draw list is built and the graph executes.
         void UpdateGlobalUniforms();

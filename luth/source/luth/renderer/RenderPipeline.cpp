@@ -107,24 +107,54 @@ namespace Luth
         InitCullPipeline();
         InitAOResources();
 
-        // Shader hot-reload callback: rebuilds pipelines when a shader reloads.
-        // With single-stage assets, keys are filename (e.g. "pbr.vert", "pbr.frag").
+        // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
+        // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
+        // has already recompiled and re-reflected the single-stage shader.
+        // Library keys are the shader filename (e.g. "pbr.vert", "gtao_main.comp").
         ShaderLibrary::SetReloadCallback([this](const std::string& name) {
-            auto& s = m_System;
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
 
             auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get(name));
-            if (!vk) return;
+            if (!vk || !vk->IsValid())
+            {
+                LH_CORE_ERROR("Shader reload: '{}' invalid — keeping existing pipelines", name);
+                return;
+            }
+            const auto& spv = vk->GetSpirV();
 
-            if      (name == "pbr.vert")         m_PBRVertSpv    = vk->GetSpirV();
-            else if (name == "pbr.frag")         m_PBRFragSpv    = vk->GetSpirV();
-            else if (name == "shadowDepth.vert") m_ShadowVertSpv = vk->GetSpirV();
-            else if (name == "shadowDepth.frag") m_ShadowFragSpv = vk->GetSpirV();
+            // Pull fresh SPIR-V into the cached blob used by pipeline builders.
+            if      (name == "pbr.vert")                   m_PBRVertSpv                  = spv;
+            else if (name == "pbr.frag")                   m_PBRFragSpv                  = spv;
+            else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv           = spv;
+            else if (name == "shadowDepth.vert")           m_ShadowVertSpv               = spv;
+            else if (name == "shadowDepth.frag")           m_ShadowFragSpv               = spv;
+            else if (name == "shadowDepth_skinned.vert")   m_ShadowSkinnedVertSpv        = spv;
+            else if (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
+            else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
+            else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
+            else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv         = spv;
+            else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv  = spv;
+            else if (name == "fullscreen.vert")            m_FullscreenVertSpv           = spv;
+            else if (name == "bloomExtract.frag")          m_BloomExtractFragSpv         = spv;
+            else if (name == "bloomBlur.frag")             m_BloomBlurFragSpv            = spv;
+            else if (name == "postprocess.frag")           m_PostProcessFragSpv          = spv;
+            else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
+            else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
+            else if (name == "skybox.vert")                m_SkyboxVertSpv               = spv;
+            else if (name == "skybox.frag")                m_SkyboxFragSpv               = spv;
+            else if (name == "gtao_depth_prefilter.comp")  m_GTAOPrefilterSpv            = spv;
+            else if (name == "gtao_main.comp")             m_GTAOMainSpv                 = spv;
+            else if (name == "gtao_denoise.comp")          m_GTAODenoiseSpv              = spv;
+            else if (name == "debugBlit.frag")             m_System.m_FrameDebugger.blitFragSpv  = spv;
+            else if (name == "debugDepth.frag")            m_System.m_FrameDebugger.depthFragSpv = spv;
+            // gpu_cull.comp: pipeline rebuilt below using `spv` directly
+            // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut):
+            // library entries refresh, but the precomputed results don't
+            // re-bake on edit — ReloadSkybox() must be invoked for that.
 
+            // Rebuild graphics pipelines (invalidate PBR cache by its canonical key).
             const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
             if (isPBR) {
-                // PipelineManager is keyed by the vertex shader's UUID;
-                // invalidate with that key regardless of which stage reloaded.
                 UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
                 m_GeoPipelineManager.InvalidateShader(pbrKey);
                 m_GeoSkinnedPipelineManager.InvalidateShader(pbrKey);
@@ -145,32 +175,60 @@ namespace Luth
             m_SelectionMaskPipeline.reset();
             m_SelectionMaskSkinnedPipeline.reset();
             CreatePipelines();
+
+            // Rebuild the matching compute pipeline (descriptor layouts untouched).
+            if (name == "gpu_cull.comp" && m_CullDescLayout)
+            {
+                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(glm::vec4) * 6 + sizeof(u32) * 2 };
+                m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
+                    std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
+                    std::vector<VkPushConstantRange>{ pc });
+            }
+            else if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
+            {
+                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
+                m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(m_GTAOPrefilterSpv,
+                    std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
+                    std::vector<VkPushConstantRange>{ pc });
+            }
+            else if (name == "gtao_main.comp" && m_GTAOMainDescLayout)
+            {
+                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float) * 4 + sizeof(u32) * 4 };
+                m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(m_GTAOMainSpv,
+                    std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
+                    std::vector<VkPushConstantRange>{ pc });
+            }
+            else if (name == "gtao_denoise.comp" && m_GTAODenoiseDescLayout)
+            {
+                m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(m_GTAODenoiseSpv,
+                    std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
+                    std::vector<VkPushConstantRange>{});
+            }
+
             LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
         });
 
         // File watcher for shader hot-reload (fires on background thread).
         m_System.m_ShaderWatcher.AddWatch(FileSystem::EngineAssetsPath("shaders"));
         m_System.m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
-            auto& s = m_System;
             if (status != FileWatcher::FileStatus::Modified) return;
 
             std::string ext = changedFile.extension().string();
-            if (ext != ".vert" && ext != ".frag") return;
+            if (ext != ".vert" && ext != ".frag" && ext != ".comp") return;
 
             std::string fileName = changedFile.filename().string();
-            bool matched = false;
-            for (const auto& [name, shader] : ShaderLibrary::GetAll()) {
-                if (shader->GetPath().filename().string() == fileName) {
+            for (const auto& [name, shader] : ShaderLibrary::GetAll())
+            {
+                if (shader->GetPath().filename().string() == fileName)
+                {
                     std::lock_guard lock(m_System.m_ReloadMutex);
                     m_System.m_PendingReloads.insert(name);
-                    matched = true;
-                    break;
+                    return;
                 }
             }
-            if (!matched) {
-                std::lock_guard lock(m_System.m_ReloadMutex);
-                m_System.m_PendingUtilityReload = true;
-            }
+            // No library match — asset database should have scanned the file.
+            // Skip: there's no valid recovery path from here.
+            LH_CORE_WARN("Shader watcher: changed file '{}' not registered in ShaderLibrary", fileName);
         });
         m_System.m_ShaderWatcher.Start(true);
 
@@ -674,91 +732,6 @@ namespace Luth
 
         return snapshot;
     }
-    void RenderPipeline::RecompileUtilityShaders()
-    {
-        // Reload through the library so the asset pipeline stays in sync
-        // (pbr/shadowDepth have their own reload path via the callback).
-        auto reloadSpv = [](const std::string& key) -> std::vector<u32>
-        {
-            auto sh = ShaderLibrary::Get(key);
-            if (!sh) return {};
-            sh->Reload();
-            return sh->GetSpirV();
-        };
-
-        m_PBRSkinnedVertSpv           = reloadSpv("pbr_skinned.vert");
-        m_ShadowSkinnedVertSpv        = reloadSpv("shadowDepth_skinned.vert");
-        m_SelectionMaskVertSpv        = reloadSpv("selectionMask.vert");
-        m_SelectionMaskFragSpv        = reloadSpv("selectionMask.frag");
-        m_SelectionMaskSkinnedVertSpv = reloadSpv("selectionMask_skinned.vert");
-        m_DepthPrepassVertSpv         = reloadSpv("depthPrepass.vert");
-        m_DepthPrepassSkinnedVertSpv  = reloadSpv("depthPrepass_skinned.vert");
-        m_GTAOPrefilterSpv            = reloadSpv("gtao_depth_prefilter.comp");
-        m_GTAOMainSpv                 = reloadSpv("gtao_main.comp");
-        m_GTAODenoiseSpv              = reloadSpv("gtao_denoise.comp");
-
-        m_FullscreenVertSpv   = reloadSpv("fullscreen.vert");
-        m_BloomExtractFragSpv = reloadSpv("bloomExtract.frag");
-        m_BloomBlurFragSpv    = reloadSpv("bloomBlur.frag");
-        m_PostProcessFragSpv  = reloadSpv("postprocess.frag");
-        m_OutlineFragSpv      = reloadSpv("outline.frag");
-        m_GridFragSpv         = reloadSpv("grid.frag");
-
-        m_SkyboxVertSpv = reloadSpv("skybox.vert");
-        m_SkyboxFragSpv = reloadSpv("skybox.frag");
-
-        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        m_GeoPipelineManager.Clear();
-        m_GeoSkinnedPipelineManager.Clear();
-        m_ShadowPipeline.reset();
-        m_ShadowSkinnedPipeline.reset();
-        m_DepthPrepassPipeline.reset();
-        m_DepthPrepassSkinnedPipeline.reset();
-        m_SkyboxPipeline.reset();
-        m_BloomExtractPipeline.reset();
-        m_BloomBlurPipeline.reset();
-        m_PostProcessPipeline.reset();
-        m_OutlinePipeline.reset();
-        m_GridPipeline.reset();
-        m_SelectionMaskPipeline.reset();
-        m_SelectionMaskSkinnedPipeline.reset();
-        CreatePipelines();
-
-        // Rebuild GTAO compute pipelines from freshly-compiled SPIR-V. The
-        // descriptor layouts are unchanged, so the descriptor sets survive.
-        if (!m_GTAOPrefilterSpv.empty() && m_GTAOPrefilterDescLayout)
-        {
-            VkPushConstantRange pc{};
-            pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-            pc.offset     = 0;
-            pc.size       = sizeof(i32) * 2 + sizeof(float) * 6;
-            m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(
-                m_GTAOPrefilterSpv,
-                std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
-                std::vector<VkPushConstantRange>{ pc });
-        }
-        if (!m_GTAOMainSpv.empty() && m_GTAOMainDescLayout)
-        {
-            VkPushConstantRange pc{};
-            pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-            pc.offset     = 0;
-            pc.size       = sizeof(float) * 4 + sizeof(u32) * 4;
-            m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(
-                m_GTAOMainSpv,
-                std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
-                std::vector<VkPushConstantRange>{ pc });
-        }
-        if (!m_GTAODenoiseSpv.empty() && m_GTAODenoiseDescLayout)
-        {
-            m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(
-                m_GTAODenoiseSpv,
-                std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
-                std::vector<VkPushConstantRange>{});
-        }
-
-        LH_CORE_INFO("Utility shaders recompiled and pipelines rebuilt");
-    }
-
     // =========================================================================
     // Initialization
     // =========================================================================

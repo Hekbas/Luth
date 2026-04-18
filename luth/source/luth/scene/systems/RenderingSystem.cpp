@@ -146,13 +146,6 @@ namespace Luth
                 ShaderLibrary::Reload(name);
             }
             m_PendingReloads.clear();
-
-            if (m_PendingUtilityReload)
-            {
-                LH_CORE_INFO("Utility shader changed — recompiling all utility shaders");
-                m_Pipeline->RecompileUtilityShaders();
-                m_PendingUtilityReload = false;
-            }
         }
 
         m_FrameAllocator->Reset();
