@@ -858,6 +858,20 @@ namespace Luth
         if (auto* hp = GetPanel<HierarchyPanel>())
             hp->SetContext(s_ActiveScene);
 
+        // Reload the skybox now that the project's asset paths are live.
+        // RenderingSystem::ctor runs before any project is loaded, so its IBL
+        // init falls back to engine-assets (which don't ship an HDR). Once the
+        // project root is set, re-resolve the settings path and reload.
+        if (auto rs = SystemRegistry::GetSystem<RenderingSystem>();
+            rs && !s_Settings.skyboxPath.empty())
+        {
+            fs::path skyboxAbsPath = fs::path(s_Settings.skyboxPath).is_absolute()
+                ? fs::path(s_Settings.skyboxPath)
+                : FileSystem::ResolveAsset(s_Settings.skyboxPath);
+            if (fs::exists(skyboxAbsPath))
+                rs->ReloadSkybox(skyboxAbsPath);
+        }
+
         LH_CORE_INFO("Editor: Project changed, panels refreshed");
     }
 }
