@@ -1,13 +1,11 @@
-project "Luthien"
-   kind "StaticLib"
+project "Runtime"
+   kind "ConsoleApp"
    language "C++"
    cppdialect "C++20"
+   targetname "Luthien"
 
    targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
-
-   pchheader "lepch.h"
-   pchsource "source/lepch.cpp"
 
    buildoptions { "/utf-8" }
 
@@ -20,41 +18,49 @@ project "Luthien"
    files
    {
       "source/**.h",
-      "source/**.cpp",
+      "source/**.cpp"
    }
+
+   filter "system:windows"
+      files
+      {
+         "resource.h",
+         "Luthien.rc",
+         "icons/Luth.ico"
+      }
+   filter {}
 
    includedirs
    {
       "source",
       "%{wks.location}/luth/source",
+      "%{wks.location}/luthien/source",
       "%{wks.location}/luth/extern/source",
       "%{wks.location}/luth/extern/config-headers",
       IncludeDir["assimp"],
       IncludeDir["glfw"],
       IncludeDir["glm"],
       IncludeDir["imgui"],
-      IncludeDir["imguizmo"],
       IncludeDir["spdlog"],
-      IncludeDir["tracy"],
-      IncludeDir["vulkan"],
-      IncludeDir["spirv_cross"]
+      IncludeDir["vulkan"]
    }
 
    libdirs
    {
-      "%{wks.location}/luth/extern/source/vulkan/lib",
+      LibraryDir["vulkan"]
    }
 
-   local vulkanSDK = os.getenv("VULKAN_SDK")
-   if vulkanSDK then
-      libdirs { vulkanSDK .. "/Lib" }
-   end
+   postbuildcommands
+   {
+      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
+   }
 
    links
    {
       "Luth",
-      "imgui",
-      "ImGuizmo"
+      "Luthien",
+      "vulkan-1",
+      "shaderc_shared"
    }
 
    filter "configurations:Debug"
@@ -71,3 +77,4 @@ project "Luthien"
       defines { "DIST" }
       runtime "Release"
       optimize "on"
+      

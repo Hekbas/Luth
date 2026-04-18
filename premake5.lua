@@ -2,7 +2,7 @@ include "dependencies.lua"
 
 workspace "Luth"
    architecture "x86_64"
-   startproject "Luthien"
+   startproject "Runtime"
 
    buildoptions { "/utf-8" }
 
@@ -35,7 +35,8 @@ group "Luth/Extern"
 group ""
 
 group "Luthien"
-   include "Luthien"
+   include "luthien"
+   include "runtime"
 group ""
 
 

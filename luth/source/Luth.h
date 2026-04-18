@@ -8,7 +8,6 @@
 #include "luth/core/UUID.h"
 
 #include "luth/platform/Input.h"
-#include "luth/editor/Editor.h"
 
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetManager.h"
