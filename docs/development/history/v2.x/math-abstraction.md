@@ -8,7 +8,7 @@
 
 ## Overview
 
-Second epic of the post-v2.0 architecture-review series (see local plan `plans/analyze-my-engine-in-magical-moore.md`). Built **`Luth::Math`** as a single-source facade for every glm type and function the engine uses. After this epic, only `LuthTypes.h` and `Math.h` include `<glm/...>`; engine and editor code use `Vec*/Mat*/Quat` aliases and `Math::*` wrappers exclusively. CLAUDE.md gains a math convention rule.
+Second epic of the post-v2.0 architecture-review series. Built **`Luth::Math`** as a single-source facade for every glm type and function the engine uses. After this epic, only `LuthTypes.h` and `Math.h` include `<glm/...>`; engine and editor code use `Vec*/Mat*/Quat` aliases and `Math::*` wrappers exclusively. CLAUDE.md gains a math convention rule.
 
 Minor version bump to **v2.2.0** per the ROADMAP MINOR rule (one completed epic with engineering-visible changes — single math include, modern C++20 templated constants, type-aware tolerances, latent `numeric_limits::min` vs `lowest` confusion fixed in AABB).
 

@@ -8,7 +8,7 @@
 
 ## Overview
 
-First epic of the post-v2.0 architecture-review series (see the local plan file `plans/analyze-my-engine-in-magical-moore.md`). Rewrote the shader asset pipeline around **single-stage shader assets**: each `.vert`, `.frag`, or `.comp` file on disk is one asset with one UUID and one SPIR-V artifact. No more `.vert+.frag` pairing assumption in the importer, no more runtime `ShaderCompiler::Compile` fallback in the renderer, no more `Fragment shader not found` errors on startup.
+First epic of the post-v2.0 architecture-review series. Rewrote the shader asset pipeline around **single-stage shader assets**: each `.vert`, `.frag`, or `.comp` file on disk is one asset with one UUID and one SPIR-V artifact. No more `.vert+.frag` pairing assumption in the importer, no more runtime `ShaderCompiler::Compile` fallback in the renderer, no more `Fragment shader not found` errors on startup.
 
 Minor version bump to **v2.1.0** per the ROADMAP MINOR rule (one completed epic with user-visible changes — gone-startup error, faster launches on second run via cached SPIR-V for all 24 engine shaders).
 

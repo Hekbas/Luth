@@ -8,7 +8,7 @@
 
 ## Overview
 
-Third epic of the post-v2.0 architecture-review series (see local plan `plans/analyze-my-engine-in-magical-moore.md`). Reorganized `luth/source/luth/core/` from a flat 20-file folder spanning 9 unrelated domains into three semantic sub-folders — `types/`, `diagnostics/`, `time/`. Split the overloaded `LuthTypes.h` (primitives + GLM aliases + traits + ostream formatters) into focused single-purpose headers. `Math.h` renamed to `types/LuthMath.h`, finally living next to its sibling type aliases. Pure file-organization refactor — zero runtime behavior change.
+Third epic of the post-v2.0 architecture-review series. Reorganized `luth/source/luth/core/` from a flat 20-file folder spanning 9 unrelated domains into three semantic sub-folders — `types/`, `diagnostics/`, `time/`. Split the overloaded `LuthTypes.h` (primitives + GLM aliases + traits + ostream formatters) into focused single-purpose headers. `Math.h` renamed to `types/LuthMath.h`, finally living next to its sibling type aliases. Pure file-organization refactor — zero runtime behavior change.
 
 Minor version bump to **v2.3.0** per the ROADMAP MINOR rule (one completed epic with engineering-visible changes — first reorg of the core/ folder since the v1.6 `arch-cleanup` series; the foundation primitives layer is now properly grouped).
 
