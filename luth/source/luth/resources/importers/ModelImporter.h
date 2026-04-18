@@ -3,8 +3,8 @@
 #include "luth/resources/AssetImporter.h"
 #include "luth/resources/importers/ImportReport.h"
 #include "luth/renderer/resources/Model.h"
-#include "luth/renderer/Skeleton.h"
-#include "luth/renderer/AnimationClip.h"
+#include "luth/animation/Skeleton.h"
+#include "luth/animation/AnimationClip.h"
 
 #include <nlohmann/json.hpp>
 

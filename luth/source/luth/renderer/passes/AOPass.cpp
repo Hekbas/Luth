@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
@@ -28,7 +29,7 @@ namespace Luth
         static_assert(sizeof(GTAOPrefilterPC) == 32, "GTAOPrefilterPC layout mismatch");
     }
 
-    RG::ResourceHandle RenderingSystem::AddGTAODepthPrefilterPass(
+    RG::ResourceHandle RenderPipeline::AddGTAODepthPrefilterPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneDepth)
     {
         struct GTAOPrefilterData
@@ -66,12 +67,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass("GTAODepthPrefilter", "GTAOLinearDepth", false,
+                m_System.m_FrameDebugger.BeginCapturePass("GTAODepthPrefilter", "GTAOLinearDepth", false,
                     { "gtao_depth_prefilter", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAOPrefilterPipeline || m_GTAOPrefilterDescSet == VK_NULL_HANDLE)
                 {
-                    m_FrameDebugger.EndCapturePass();
+                    m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
@@ -81,14 +82,14 @@ namespace Luth
 
                 const u32 halfW = m_GTAOLinearDepth->GetWidth();
                 const u32 halfH = m_GTAOLinearDepth->GetHeight();
-                const u32 fullW = m_SceneDepth->GetWidth();
-                const u32 fullH = m_SceneDepth->GetHeight();
+                const u32 fullW = m_System.m_Targets.GetSceneDepth()->GetWidth();
+                const u32 fullH = m_System.m_Targets.GetSceneDepth()->GetHeight();
 
                 GTAOPrefilterPC pc{};
                 pc.halfResSize = { (i32)halfW, (i32)halfH };
                 pc.invFullRes  = { 1.0f / float(fullW), 1.0f / float(fullH) };
-                pc.nearZ       = m_CameraParams.nearZ;
-                pc.farZ        = m_CameraParams.farZ;
+                pc.nearZ       = m_System.m_CameraParams.nearZ;
+                pc.farZ        = m_System.m_CameraParams.farZ;
 
                 vkCmdPushConstants(cmd, m_GTAOPrefilterPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GTAOPrefilterPC), &pc);
@@ -99,9 +100,9 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_FrameDebugger.CaptureComputeDispatch("GTAODepthPrefilter",
+                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAODepthPrefilter",
                     "gtao_depth_prefilter", groupX, groupY, 1);
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             });
 
         return outputHandle;
@@ -122,7 +123,7 @@ namespace Luth
         static_assert(sizeof(GTAOMainPC) == 32, "GTAOMainPC layout mismatch");
     }
 
-    RG::ResourceHandle RenderingSystem::AddGTAOMainPass(
+    RG::ResourceHandle RenderPipeline::AddGTAOMainPass(
         RG::RenderGraph& rg, RG::ResourceHandle linearDepth)
     {
         struct GTAOMainData
@@ -158,12 +159,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass("GTAOMain", "GTAORawAO", false,
+                m_System.m_FrameDebugger.BeginCapturePass("GTAOMain", "GTAORawAO", false,
                     { "gtao_main", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAOMainPipeline || m_GTAOMainDescSet == VK_NULL_HANDLE)
                 {
-                    m_FrameDebugger.EndCapturePass();
+                    m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
@@ -178,11 +179,11 @@ namespace Luth
                 // frame's GlobalUniforms were built with. Vulkan's Y-flipped
                 // projection has P[1][1] < 0; pass the absolute value so the
                 // shader works in a conventional +Y-up view space.
-                const auto& P = m_CameraParams.projection;
+                const auto& P = m_System.m_CameraParams.projection;
                 GTAOMainPC pc{};
                 pc.projParams  = { P[0][0], std::abs(P[1][1]) };
-                pc.nearZ       = m_CameraParams.nearZ;
-                pc.farZ        = m_CameraParams.farZ;
+                pc.nearZ       = m_System.m_CameraParams.nearZ;
+                pc.farZ        = m_System.m_CameraParams.farZ;
                 pc.frameIndex  = (u32)Renderer::GetFrameData()->GetFrameIndex();
 
                 vkCmdPushConstants(cmd, m_GTAOMainPipeline->GetLayout(),
@@ -192,15 +193,15 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_FrameDebugger.CaptureComputeDispatch("GTAOMain",
+                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAOMain",
                     "gtao_main", groupX, groupY, 1);
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             });
 
         return outputHandle;
     }
 
-    RG::ResourceHandle RenderingSystem::AddGTAODenoisePass(
+    RG::ResourceHandle RenderPipeline::AddGTAODenoisePass(
         RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth)
     {
         struct GTAODenoiseData
@@ -237,12 +238,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_FrameDebugger.BeginCapturePass("GTAODenoise", "GTAOFinal", false,
+                m_System.m_FrameDebugger.BeginCapturePass("GTAODenoise", "GTAOFinal", false,
                     { "gtao_denoise", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAODenoisePipeline || m_GTAODenoiseDescSet == VK_NULL_HANDLE)
                 {
-                    m_FrameDebugger.EndCapturePass();
+                    m_System.m_FrameDebugger.EndCapturePass();
                     return;
                 }
 
@@ -256,9 +257,9 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_FrameDebugger.CaptureComputeDispatch("GTAODenoise",
+                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAODenoise",
                     "gtao_denoise", groupX, groupY, 1);
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             });
 
         return outputHandle;

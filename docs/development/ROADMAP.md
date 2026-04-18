@@ -33,6 +33,7 @@
 | v1.4.0 | `frame-debugger-sync` | Archive sink + per-pass image staging, frozen-state model with auto-recapture on camera move, hierarchical EventNode tree (Group/Pass/Cascade/Draw), per-draw replay-then-copy for GeometryPass, CSM cascade detail panel + linearized depth preview, deferred archive teardown | 2026-04-17 |
 | v1.5.0 | `gtao` | DepthPrepass + half-res GTAO compute chain (prefilter → horizon integral → bilateral denoise), Jimenez 2016 analytical slice integral with VS-normal reconstruction from depth derivatives, Set 0 expanded to 6 bindings, editor UI + visualize mode, R8/R32F formats added across renderer/RG/FrameDebugger | 2026-04-17 |
 | v1.6.0 | `arch-cleanup` | events/ extracted from platform/; utils/ dispersed to editor/core/resources; FrameData moved to core/; Systems→SystemRegistry with unique_ptr ownership fix; Components.h split into components/ subfolder (umbrella preserved); POD component members m_X→Value; renderer/ subdivided into 7 concept folders (resources/material/shader/pipeline/lighting/settings/draw); LightTypes.h extracted from RenderingSystem | 2026-04-18 |
+| v1.7.0 | `arch-renderer-split` | RenderingSystem god-class dissolved (3 500→350 LOC, −90%): FrameTargets, DrawListBuilder, LightGatherer, CascadeBuilder extracted; RenderPipeline owns graph assembly + all graphics resources (pipelines, descriptor sets, SPIR-V, UBOs/SSBOs, IBL maps, bloom textures, GPU timers, preview textures, named-texture registry); RS retains ECS-glue state only (CameraParams, ShadowParams, Cascades, FrameTargets, FrameDebugger, editor toggles); animation/ module consolidates AnimationClip + Skeleton + BoneMatrixBuffer + AnimationController | 2026-04-18 |
 
 > Detailed writeups in [`history/v1.x/`](history/v1.x/) — one file per epic slug.
 
@@ -40,18 +41,17 @@
 
 ## Planned Epics
 
-> **Priority freeze:** The `arch-*` epics below take absolute priority. No new feature work lands on `main` until all three are complete. Detailed plan: [`ARCH-REFACTOR-PLAN.md`](ARCH-REFACTOR-PLAN.md).
+> **Priority freeze:** `arch-target-split` (the remaining `arch-*` epic) takes absolute priority. No new feature work lands on `main` until it's complete. Detailed plan: [`ARCH-REFACTOR-PLAN.md`](ARCH-REFACTOR-PLAN.md).
 
 | Priority | Epic | Issue | Target | Est. Time | Deps |
 |----------|------|-------|--------|-----------|------|
-| 1 | `arch-renderer-split` | TBD | v1.7.0 | 3-5 days | — |
-| 2 | `arch-target-split` | TBD | v2.0.0 | 2-3 days | `arch-renderer-split` |
-| 3 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.1.0 | 1-2 weeks | `arch-target-split` |
-| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.2.0 | 2-3 weeks | `play-mode` |
-| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.2.1 | 1 week | — |
-| 6 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.3.0 | 2 weeks | `compute-gpu-culling` |
-| 7 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.3.1 | 1 week | — |
-| 8 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.4.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
+| 1 | `arch-target-split` | [#78](https://github.com/Hekbas/Luth/issues/78) | v2.0.0 | 2-3 days | — |
+| 2 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.1.0 | 1-2 weeks | `arch-target-split` |
+| 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.2.0 | 2-3 weeks | `play-mode` |
+| 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.2.1 | 1 week | — |
+| 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.3.0 | 2 weeks | `compute-gpu-culling` |
+| 6 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.3.1 | 1 week | — |
+| 7 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.4.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 

@@ -1,11 +1,12 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/core/Profiler.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/BoneMatrixBuffer.h"
+#include "luth/animation/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -21,7 +22,7 @@ namespace Luth
 {
     using namespace Component;
 
-    RG::ResourceHandle RenderingSystem::AddSkyboxPass(
+    RG::ResourceHandle RenderPipeline::AddSkyboxPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
     {
         struct SkyboxPassData {
@@ -44,10 +45,10 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
+                m_System.m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
@@ -81,9 +82,9 @@ namespace Luth
                 vkCmdDraw(cmd, 36, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
+                m_System.m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
-                m_FrameDebugger.EndCapturePass();
+                m_System.m_FrameDebugger.EndCapturePass();
             }
         );
         return outputHandle;
