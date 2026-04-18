@@ -525,8 +525,8 @@ namespace Luth
 
             float snapValues[3] = { snapValue, snapValue, snapValue };
 
-            ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
-                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(worldMatrix),
+            ImGuizmo::Manipulate(Math::ValuePtr(view), Math::ValuePtr(proj),
+                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, Math::ValuePtr(worldMatrix),
                 nullptr, snap ? snapValues : nullptr);
 
             bool isUsing = ImGuizmo::IsUsing();
@@ -546,15 +546,15 @@ namespace Luth
                 {
                     Entity parent = m_SelectedEntity.GetParent();
                     Mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
-                    localMatrix = glm::inverse(parentWorld) * worldMatrix;
+                    localMatrix = Math::Inverse(parentWorld) * worldMatrix;
                 }
 
                 float translation[3], rotation[3], scale[3];
-                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(localMatrix), translation, rotation, scale);
+                ImGuizmo::DecomposeMatrixToComponents(Math::ValuePtr(localMatrix), translation, rotation, scale);
 
-                tc.Position = glm::make_vec3(translation);
-                tc.Rotation = glm::make_vec3(rotation);
-                tc.Scale = glm::make_vec3(scale);
+                tc.Position = Math::MakeVec3(translation);
+                tc.Rotation = Math::MakeVec3(rotation);
+                tc.Scale = Math::MakeVec3(scale);
                 tc.IsDirty = true;
             }
 
@@ -669,9 +669,9 @@ namespace Luth
     ImU32 ScenePanel::LightColorToImU32(const Vec3& color, float alpha) const
     {
         return IM_COL32(
-            (u8)(glm::clamp(color.r, 0.0f, 1.0f) * 255.0f),
-            (u8)(glm::clamp(color.g, 0.0f, 1.0f) * 255.0f),
-            (u8)(glm::clamp(color.b, 0.0f, 1.0f) * 255.0f),
+            (u8)(Math::Clamp(color.r, 0.0f, 1.0f) * 255.0f),
+            (u8)(Math::Clamp(color.g, 0.0f, 1.0f) * 255.0f),
+            (u8)(Math::Clamp(color.b, 0.0f, 1.0f) * 255.0f),
             (u8)(alpha * 255.0f));
     }
 
@@ -711,8 +711,8 @@ namespace Luth
         float wb = vp[0][3] * b.x + vp[1][3] * b.y + vp[2][3] * b.z + vp[3][3];
         constexpr float eps = 0.01f;
         if (wa < eps && wb < eps) return false; // both behind camera
-        if (wa < eps) { float t = (eps - wa) / (wb - wa); a = glm::mix(a, b, t); }
-        if (wb < eps) { float t = (eps - wb) / (wa - wb); b = glm::mix(b, a, t); }
+        if (wa < eps) { float t = (eps - wa) / (wb - wa); a = Math::Mix(a, b, t); }
+        if (wb < eps) { float t = (eps - wb) / (wa - wb); b = Math::Mix(b, a, t); }
         return true;
     }
 
@@ -745,7 +745,7 @@ namespace Luth
                 auto& dl = view.get<DirectionalLight>(entity);
 
                 Vec3 pos = Vec3(wt.Matrix[3]);
-                Vec3 dir = glm::normalize(-Vec3(wt.Matrix[2]));
+                Vec3 dir = Math::Normalize(-Vec3(wt.Matrix[2]));
                 ImU32 color = LightColorToImU32(dl.Color);
 
                 // Icon (only if in front of camera)
@@ -765,7 +765,7 @@ namespace Luth
                                       + (unitScreen.y - startScreen.y) * (unitScreen.y - startScreen.y));
                 if (pxPerUnit < 0.001f) continue;
                 constexpr float desiredPx = 80.0f;
-                float worldLen = glm::clamp(desiredPx / pxPerUnit, 0.5f, 50.0f);
+                float worldLen = Math::Clamp(desiredPx / pxPerUnit, 0.5f, 50.0f);
 
                 Vec3 endWorld = startPos + dir * worldLen;
                 ImVec2 endScreen = ProjectToScreen(endWorld);
@@ -811,7 +811,7 @@ namespace Luth
                 ImU32 color = LightColorToImU32(pl.Color, 0.6f);
 
                 constexpr int segments = 32;
-                constexpr float twoPi = glm::two_pi<float>();
+                constexpr float twoPi = Math::TwoPi<float>;
 
                 for (int plane = 0; plane < 3; plane++) {
                     Vec3 prevWorld;
@@ -862,11 +862,11 @@ namespace Luth
                 DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity);
 
             // Compute frustum corners in camera local space (looking along -Z)
-            float visualFar = glm::min(cam.FarClip, 1000.0f);
+            float visualFar = Math::Min(cam.FarClip, 1000.0f);
             Vec3 nearCorners[4], farCorners[4];
 
             if (cam.Projection == Camera::ProjectionType::Perspective) {
-                float fovRad = glm::radians(cam.VerticalFOV);
+                float fovRad = Math::Radians(cam.VerticalFOV);
                 float nearH = tanf(fovRad * 0.5f) * cam.NearClip;
                 float nearW = nearH * cam.AspectRatio;
                 float farH  = tanf(fovRad * 0.5f) * visualFar;
@@ -891,7 +891,7 @@ namespace Luth
                 nearCorners[2] = Vec3( halfW, -halfH, -cam.OrthographicNear);
                 nearCorners[3] = Vec3(-halfW, -halfH, -cam.OrthographicNear);
 
-                float orthoFar = glm::min(cam.OrthographicFar, 50.0f);
+                float orthoFar = Math::Min(cam.OrthographicFar, 50.0f);
                 farCorners[0] = Vec3(-halfW,  halfH, -orthoFar);
                 farCorners[1] = Vec3( halfW,  halfH, -orthoFar);
                 farCorners[2] = Vec3( halfW, -halfH, -orthoFar);

@@ -29,7 +29,7 @@ namespace Luth
         void SetViewportSize(float width, float height);
         void SetFocalPoint(Vec3 focalPoint);
         float GetFlySpeed() const { return m_FlySpeed; }
-        void  SetFlySpeed(float speed) { m_FlySpeed = glm::clamp(speed, 0.1f, 200.0f); }
+        void  SetFlySpeed(float speed) { m_FlySpeed = Math::Clamp(speed, 0.1f, 200.0f); }
         float& GetFlySpeedRef() { return m_FlySpeed; }
 
         Vec3 GetForwardDirection() const;

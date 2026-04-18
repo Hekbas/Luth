@@ -1007,8 +1007,8 @@ namespace Luth
             Vec3 scale, translation, skew;
             Vec4 perspective;
             Quat rotation;
-            glm::decompose(dc.modelMatrix, scale, rotation, translation, skew, perspective);
-            Vec3 euler = glm::degrees(glm::eulerAngles(rotation));
+            Math::Decompose(dc.modelMatrix, scale, rotation, translation, skew, perspective);
+            Vec3 euler = Math::Degrees(Math::EulerAngles(rotation));
 
             if (ImGui::BeginTable("##TransformInfo", 2)) {
                 ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 130.0f);

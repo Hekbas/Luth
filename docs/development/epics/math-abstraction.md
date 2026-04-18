@@ -253,7 +253,7 @@ After each pass, rebuild and re-grep to catch missed patterns.
 | B: Build Luth::Math facade | done | 7d91417 | 2026-04-18 |
 | C: Pass A (engine) — types | done | 9c6f2b9 | 2026-04-18 |
 | D: Pass A (editor) — types | done | 430beca | 2026-04-18 |
-| E: Pass B (engine) — functions | pending | — | — |
+| E: Pass B (engine) — functions | done | fc55bd8 | 2026-04-18 |
 | F: Pass B (editor) — functions | pending | — | — |
 | G: Purge direct glm includes | pending | — | — |
 | H: Wrap-up + v2.2.0 | pending | — | — |

@@ -11,11 +11,11 @@ namespace Luth
     EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)
         : m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
     {
-        Vec3 direction = glm::normalize(m_FocalPoint - m_Position);
-        m_Distance = glm::length(m_FocalPoint - m_Position);
+        Vec3 direction = Math::Normalize(m_FocalPoint - m_Position);
+        m_Distance = Math::Length(m_FocalPoint - m_Position);
 
-        m_Yaw = glm::degrees(atan2(direction.z, direction.x));
-        m_Pitch = glm::degrees(asin(direction.y));
+        m_Yaw = Math::Degrees(atan2(direction.z, direction.x));
+        m_Pitch = Math::Degrees(asin(direction.y));
 
         UpdateProjection();
         UpdateView();
@@ -43,7 +43,7 @@ namespace Luth
             // Mouse look
             m_Yaw   += delta.x * m_RotationSpeed * dt;
             m_Pitch -= delta.y * m_RotationSpeed * dt;
-            m_Pitch  = glm::clamp(m_Pitch, -89.0f, 89.0f);
+            m_Pitch  = Math::Clamp(m_Pitch, -89.0f, 89.0f);
 
             // WASD + QE movement
             Vec3 forward = GetForwardDirection();
@@ -60,14 +60,14 @@ namespace Luth
             if (ImGui::IsKeyDown(ImGuiKey_E)) movement += worldUp;
             if (ImGui::IsKeyDown(ImGuiKey_Q)) movement -= worldUp;
 
-            if (glm::length(movement) > 0.0001f)
-                m_Position += glm::normalize(movement) * speed;
+            if (Math::Length(movement) > 0.0001f)
+                m_Position += Math::Normalize(movement) * speed;
 
             // Scroll adjusts base fly speed while in flythrough
             float scrollDelta = ImGui::GetIO().MouseWheel;
             if (scrollDelta != 0.0f) {
                 m_FlySpeed += scrollDelta * 0.5f;
-                m_FlySpeed = glm::clamp(m_FlySpeed, 0.1f, 200.0f);
+                m_FlySpeed = Math::Clamp(m_FlySpeed, 0.1f, 200.0f);
             }
 
             // Keep focal point in sync so orbit works after releasing RMB
@@ -79,7 +79,7 @@ namespace Luth
         {
             m_Yaw   += delta.x * m_RotationSpeed * dt;
             m_Pitch -= delta.y * m_RotationSpeed * dt;
-            m_Pitch  = glm::clamp(m_Pitch, -89.0f, 89.0f);
+            m_Pitch  = Math::Clamp(m_Pitch, -89.0f, 89.0f);
             m_Position = CalculatePosition();
             updated = true;
         }
@@ -88,7 +88,7 @@ namespace Luth
         {
             float zoomAmount = (delta.x + delta.y) * m_ZoomSpeed * m_Distance * dt;
             m_Distance -= zoomAmount;
-            m_Distance  = glm::max(m_Distance, 0.1f);
+            m_Distance  = Math::Max(m_Distance, 0.1f);
             m_Position  = CalculatePosition();
             updated = true;
         }
@@ -111,7 +111,7 @@ namespace Luth
             if (zoomDelta != 0.0f) {
                 float adaptiveSpeed = m_ZoomSpeed * m_Distance * dt;
                 m_Distance -= zoomDelta * adaptiveSpeed;
-                m_Distance  = glm::max(m_Distance, 0.1f);
+                m_Distance  = Math::Max(m_Distance, 0.1f);
                 m_Position  = CalculatePosition();
                 updated = true;
             }
@@ -163,8 +163,8 @@ namespace Luth
     }
 
     Vec3 EditorCamera::GetForwardDirection() const {
-        float yawRad = glm::radians(m_Yaw);
-        float pitchRad = glm::radians(m_Pitch);
+        float yawRad = Math::Radians(m_Yaw);
+        float pitchRad = Math::Radians(m_Pitch);
         return Vec3(
             cos(yawRad) * cos(pitchRad),
             sin(pitchRad),
@@ -173,24 +173,24 @@ namespace Luth
     }
 
     Vec3 EditorCamera::GetRightDirection() const {
-        float yawRad = glm::radians(m_Yaw);
+        float yawRad = Math::Radians(m_Yaw);
         return Vec3(-sin(yawRad), 0.0f, cos(yawRad));
     }
 
     Vec3 EditorCamera::GetUpDirection() const {
         Vec3 forward = GetForwardDirection();
         Vec3 right = GetRightDirection();
-        return glm::normalize(glm::cross(right, forward));
+        return Math::Normalize(Math::Cross(right, forward));
     }
 
     void EditorCamera::UpdateProjection() {
-        m_ProjectionMatrix = glm::perspective(
-            glm::radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip);
+        m_ProjectionMatrix = Math::Perspective(
+            Math::Radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip);
         // No Y-flip here — applied at GPU uniform upload only (RenderingSystem::UpdateGlobalUniforms)
     }
 
     void EditorCamera::UpdateView() {
-        m_ViewMatrix = glm::lookAt(m_Position, m_FocalPoint, Vec3(0.0f, 1.0f, 0.0f));
+        m_ViewMatrix = Math::LookAt(m_Position, m_FocalPoint, Vec3(0.0f, 1.0f, 0.0f));
     }
 
     Vec3 EditorCamera::CalculatePosition() const {
@@ -198,7 +198,7 @@ namespace Luth
     }
 
     Quat EditorCamera::GetOrientation() const {
-        return glm::quatLookAt(GetForwardDirection(), Vec3(0.0f, 1.0f, 0.0f));
+        return Math::QuatLookAt(GetForwardDirection(), Vec3(0.0f, 1.0f, 0.0f));
     }
 
     void EditorCamera::ApplySettings(const EditorSettings& s) {
