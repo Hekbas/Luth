@@ -3,7 +3,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/BoneMatrixBuffer.h"
+#include "luth/animation/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"

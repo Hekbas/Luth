@@ -1,10 +1,10 @@
 #pragma once
 
 #include "luth/scene/systems/ISystem.h"
-#include "luth/scene/AnimationController.h"
+#include "luth/animation/AnimationController.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/renderer/AnimationClip.h"
-#include "luth/renderer/Skeleton.h"
+#include "luth/animation/AnimationClip.h"
+#include "luth/animation/Skeleton.h"
 
 #include <memory>
 

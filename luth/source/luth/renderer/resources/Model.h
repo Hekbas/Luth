@@ -3,8 +3,8 @@
 #include "luth/core/Math.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Mesh.h"
-#include "luth/renderer/Skeleton.h"
-#include "luth/renderer/AnimationClip.h"
+#include "luth/animation/Skeleton.h"
+#include "luth/animation/AnimationClip.h"
 #include "luth/resources/Asset.h"
 
 #include <string>

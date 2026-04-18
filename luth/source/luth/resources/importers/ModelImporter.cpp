@@ -8,8 +8,8 @@
 #include "luth/resources/importers/TextureResolver.h"
 #include "luth/resources/importers/ImportReport.h"
 #include "luth/renderer/material/Material.h"
-#include "luth/renderer/Skeleton.h"
-#include "luth/renderer/AnimationClip.h"
+#include "luth/animation/Skeleton.h"
+#include "luth/animation/AnimationClip.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
