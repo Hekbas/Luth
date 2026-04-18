@@ -16,6 +16,7 @@
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/pipeline/PipelineManager.h"
+#include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/core/UUID.h"
 #include "luth/resources/FileWatcher.h"
@@ -28,10 +29,6 @@
 
 namespace Luth
 {
-    // Number of shadow cascades for directional-light CSM (Phase 13)
-    inline constexpr u32 k_ShadowCascadeCount = 4;
-    inline constexpr u32 k_ShadowResolution   = 2048;
-
     struct GlobalUniforms {
         glm::mat4 viewProjection;
         glm::mat4 view;
@@ -50,29 +47,6 @@ namespace Luth
     };
 
     enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
-
-    // ---- Light data structs (mirrored in pbr.frag Set 3) ----
-
-    struct DirectionalLightData {
-        glm::vec3 direction;   // 12
-        float     intensity;   // 4
-        glm::vec3 color;       // 12
-        float     _pad;        // 4
-    };  // 32 bytes
-
-    struct PointLightData {
-        glm::vec3 position;    // 12
-        float     range;       // 4
-        glm::vec3 color;       // 12
-        float     intensity;   // 4
-    };  // 32 bytes
-
-    struct LightUniforms {
-        DirectionalLightData dirLight;
-        PointLightData       pointLights[64];
-        int                  numPointLights;
-        int                  _pad[3];
-    };
 
     struct GeometryOutput {
         RG::ResourceHandle color;
