@@ -1,0 +1,111 @@
+#include "luthpch.h"
+#include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+
+namespace Luth
+{
+    void RenderPipeline::InitShadowResources()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // --- Shadow map: k_ShadowResolution^2, D32_Float, k_ShadowCascadeCount-layer 2D array (Phase 13) ---
+        m_ShadowMap = std::make_shared<VKTexture>(
+            k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
+            k_ShadowCascadeCount, /*createFlags*/ 0u, /*mipLevels*/ 1u, /*extraUsage*/ 0u);
+
+        // Per-layer 2D views for ShadowPass.Ci depth attachments (Phase 13C).
+        auto shadowTexForViews = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
+
+        // --- Shadow sampler (PCF compare: less) ---
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        samplerInfo.compareEnable = VK_TRUE;
+        samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
+
+        // --- Light UBO ---
+        m_LightUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(LightUniforms));
+
+        // --- Set 3 descriptor layout: binding 0 = LightUBO, binding 1 = shadow sampler ---
+        VkDescriptorSetLayoutBinding bindings[2] = {};
+
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo lightLayoutInfo{};
+        lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        lightLayoutInfo.bindingCount = 2;
+        lightLayoutInfo.pBindings = bindings;
+        vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
+
+        // --- Pool ---
+        VkDescriptorPoolSize poolSizes[2] = {};
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSizes[0].descriptorCount = 1;
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[1].descriptorCount = 1;
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = 2;
+        poolInfo.pPoolSizes = poolSizes;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_LightDescPool);
+
+        // --- Allocate set ---
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = m_LightDescPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &m_LightSetLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_LightDescSet);
+
+        // --- Write descriptors ---
+        VkDescriptorBufferInfo lightBufInfo{};
+        lightBufInfo.buffer = m_LightUniformBuffer->GetVulkanBuffer();
+        lightBufInfo.offset = 0;
+        lightBufInfo.range = sizeof(LightUniforms);
+
+        auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+        VkDescriptorImageInfo shadowImgInfo{};
+        shadowImgInfo.sampler     = m_ShadowSampler;
+        shadowImgInfo.imageView   = vkShadowTex->GetImageView();
+        shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writes[2] = {};
+
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = m_LightDescSet;
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &lightBufInfo;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = m_LightDescSet;
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &shadowImgInfo;
+
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    }
+}
