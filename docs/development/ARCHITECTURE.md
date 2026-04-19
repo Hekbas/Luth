@@ -57,19 +57,22 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │
  ├── [Renderer (Vulkan 1.3)]
  │    ├── RenderGraph ............ DAG compile → barrier inject → execute
- │    ├── RenderPipeline ......... Graph assembly + all graphics resources (descriptor sets, SPIR-V, UBOs/SSBOs, IBL maps, bloom textures, GPU timers)
+ │    ├── RenderPipeline ......... ~780-LOC orchestrator — Initialize / Shutdown / Execute / OnResize / CaptureSnapshot; Init* / Update* helpers + CreatePipelines live in sibling topic files
  │    ├── FrameTargets ........... SceneColor / SceneDepth / EntityID / LDROutput / Selection {mask,depth}
  │    ├── DrawListBuilder ........ ECS walk → opaque/cutout/transparent buckets
  │    ├── Backend ................ VulkanContext, VulkanBackend, Timeline Semaphores
- │    ├── passes/ ................ Shadow, DepthPrepass, AO (GTAO), Cull, Geometry, Selection, Skybox, Grid, Bloom, PostProcess, Outline, ImGui
- │    ├── lighting/ .............. LightGatherer, CascadeBuilder, IBLPrecompute, LightTypes
- │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4 bone SSBO)
+ │    ├── passes/ ................ Shadow, DepthPrepass, AO (GTAO + AOInit), Cull, Geometry, Selection, Skybox, Grid, Bloom, PostProcess, Outline, ImGui
+ │    ├── lighting/ .............. LightGatherer, CascadeBuilder, IBLPrecompute, LightTypes, ShadowInit, IBLInit
+ │    ├── postprocess/ ........... PostProcessInit (bloom textures + PP UBO + outline/grid descriptors)
+ │    ├── gpu/ ................... GPUObjectBuffers (object SSBO + indirect buffer + cull pipeline + per-frame fill)
+ │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4 bone SSBO), GlobalUniforms
  │    ├── material/ .............. Material, MaterialSystem
  │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary
- │    ├── pipeline/ .............. PipelineManager
+ │    ├── pipeline/ .............. PipelineManager, PipelineFactory (8 per-family pipeline builders: PBR / Shadow / DepthPrepass / Selection / Skybox / Post / Outline / Grid)
  │    ├── settings/ .............. GTAOSettings, PostProcessSettings
  │    ├── draw/ .................. DrawCommand
- │    ├── FrameDebugger .......... Capture state machine, per-draw scrubbing, debug blit
+ │    ├── debug/ ................. FrameDebuggerContext (preview textures + blit pass + per-draw replay-then-copy + depth archive blit)
+ │    ├── FrameDebugger .......... Archive + state machine (owned by RenderingSystem); render-side infrastructure in debug/FrameDebuggerContext
  │    └── Renderer ............... High-level BeginFrame/EndFrame façade
  │
  ├── [Scene / ECS]

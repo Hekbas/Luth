@@ -39,6 +39,7 @@
 | v2.2.0 | `math-abstraction` | `Luth::Math` facade — single owner of `<glm/...>` includes (Math.h + LuthTypes.h only). Templated constants (`Math::Pi<T>`/`TwoPi<T>`/`HalfPi<T>`/`SmallNumber<T>`/`KindaSmallNumber<T>`/`FloatMax<T>`/`FloatLowest<T>`/...) delegating to `<numbers>` and `<limits>` where applicable. 25 function wrappers (`Math::Translate/Rotate/Scale/Perspective/Ortho/LookAt/Inverse/Transpose/Normalize/Length/Length2/Dot/Cross/Mix/Slerp/ToMat4/EulerAngles/QuatLookAt/Decompose/Radians/Degrees/Clamp/Min/Max/Abs`) plus `ValuePtr/MakeVec3` pointer helpers and `Math::length_t/qualifier` re-exports. Alias set extended (`IVec2/3/4`, `UVec2/3/4`, `Mat2`). LuthTypes.h dropped 6 unused magic constants (`PI/EPSILON/FLOAT_MAX/...`). Bulk-rewrite migrated 37 files (450 `glm::` refs collapsed to 50 inside the facade only); 38 `<glm/...>` includes purged outside the facade. Latent `numeric_limits::min` vs `lowest` confusion in AABB sentinel resolved | 2026-04-18 |
 | v2.3.0 | `core-reorg` | `luth/core/` reorganized into three semantic sub-folders. `types/` houses `LuthTypes.h` (primitives only — i8…u64, f32/f64, byte, fs alias), `LuthMath.h` (Vec/IVec/UVec/Mat/Quat aliases + sizeof asserts + the full `Math::` facade + Assimp/AABB/Frustum helpers — formerly `Math.h`), and `TypeTraits.h` (`IsGLMVector`/`IsGLMMatrix`). `diagnostics/` houses `Log.{h,cpp}`, `LogFormatters.h` (now also owns the ostream<< Vec3/Mat4 operators previously in `LuthTypes.h`), and `Profiler.h`. `time/` houses `Time.h` and `Timer.h`. Top-level lifecycle (App, EntryPoint, Version, FrameData, UUID, EditorHooks, ProjectFile) stays at `core/` root. Dead `Luth::Normalize`/`Cross` forward decls deleted (no definitions, no callers — superseded by `Math::*`). 132 caller files rewritten; LuthTypes.h consumers split by Vec/Mat/Quat usage (18 → LuthMath.h; 48 → LuthTypes.h primitives-only) | 2026-04-18 |
 | v2.4.0 | `animation-split` | `luth/animation/` dissolved — each file lands with its actual owner. `BoneMatrixBuffer.{h,cpp}` + `Skeleton.h` + `AnimationClip.h` → `renderer/resources/` (Skeleton/AnimationClip are asset data already held by-value inside `Model.h`; BoneMatrixBuffer is a Vulkan SSBO singleton). `AnimationController.h` → `scene/components/`, aligning path with its existing `namespace Luth::Component` declaration. 20 include sites rewritten via perl; 3 atomic refactor commits, each builds Debug x64 clean | 2026-04-19 |
+| v2.5.0 | `render-pipeline-split` | `RenderPipeline.cpp` god-orchestrator split across 7 topic files + new `FrameDebuggerContext` class (3,104 → 781 LOC, −75%). `InitShadowResources` + `InitIBLResources` + `ReloadSkybox` → `renderer/lighting/`; `InitPostProcessResources` + `UpdatePostProcessDescriptors` + `UpdatePostProcessUBO` → new `renderer/postprocess/`; `InitAOResources` + `UpdateAODescriptors` + `UpdateGTAOUBO` → `renderer/passes/`; `InitGlobalUniforms` + `UpdateGlobalUniforms` → `renderer/resources/`; `InitObjectSSBODescriptorLayout` + `InitGPUObjectBuffers` + `InitCullPipeline` + `BuildGPUObjectBuffer` + `EnsureMaterialRegistered` + `UploadLightUBO` → new `renderer/gpu/`. `CreatePipelines` broken into 8 per-family builders (`BuildPBRPipelines`/`BuildShadowPipelines`/`BuildDepthPrepassPipelines`/`BuildSelectionPipelines`/`BuildSkyboxPipeline`/`BuildPostPipelines`/`BuildOutlinePipeline`/`BuildGridPipeline`) in `renderer/pipeline/PipelineFactory.cpp`. Preview textures + 8 debugger methods extracted into `FrameDebuggerContext` class in new `renderer/debug/`; `RenderPipeline` holds `unique_ptr<FrameDebuggerContext>` + forwarding accessors so external callers stay unchanged. 7 atomic refactor commits, each builds Debug x64 clean | 2026-04-19 |
 
 > Detailed writeups in [`history/`](history/) — `v1.x/` and `v2.x/` subfolders, one file per epic slug.
 
@@ -51,14 +52,13 @@ Full roadmap + per-epic scope: [`../../plans/analyze-my-engine-in-magical-moore.
 
 | Priority | Epic | Issue | Target | Est. Time | Deps |
 |----------|------|-------|--------|-----------|------|
-| 1 | `render-pipeline-split` | TBD | v2.5.0 | 1-2 weeks | — |
-| 2 | `rendering-system-slim` | TBD | v2.6.0 | 1 week | `render-pipeline-split` |
-| 3 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.7.0 | 1-2 weeks | — |
-| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.8.0 | 2-3 weeks | `play-mode` |
-| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.8.1 | 1 week | — |
-| 6 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.9.0 | 2 weeks | `compute-gpu-culling` |
-| 7 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.9.1 | 1 week | — |
-| 8 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.10.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
+| 1 | `rendering-system-slim` | TBD | v2.6.0 | 1 week | `render-pipeline-split` |
+| 2 | `play-mode` | [#66](https://github.com/Hekbas/Luth/issues/66) | v2.7.0 | 1-2 weeks | — |
+| 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.8.0 | 2-3 weeks | `play-mode` |
+| 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.8.1 | 1 week | — |
+| 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.9.0 | 2 weeks | `compute-gpu-culling` |
+| 6 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.9.1 | 1 week | — |
+| 7 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.10.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
