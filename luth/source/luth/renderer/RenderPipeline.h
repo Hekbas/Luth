@@ -25,6 +25,7 @@ namespace Luth
     class Entity;
     class Material;
     class RenderingSystem;
+    class FrameDebuggerContext;
     struct GeometryOutput;
     struct SelectionMaskOutput;
     namespace fs = std::filesystem;
@@ -43,6 +44,7 @@ namespace Luth
     {
     public:
         explicit RenderPipeline(RenderingSystem& system);
+        ~RenderPipeline();
 
         // One-time init: allocates all Vulkan pipeline resources (UBOs,
         // descriptor sets, samplers, SPIR-V, IBL maps, pipelines). Runs
@@ -119,12 +121,6 @@ namespace Luth
         void BuildOutlinePipeline();
         void BuildGridPipeline();
         void RegisterNamedTextures();
-        void InitDebugBlitResources();
-        RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
-        void EnsurePerDrawPreviewTexture(u32 width, u32 height);
-        void DestroyPerDrawPreviewTexture();
-        void EnsureDepthPreviewTexture(u32 width, u32 height);
-        void DestroyDepthPreviewTexture();
 
         // Render-graph pass builders. Each declares one RG pass (setup +
         // execute lambdas) and returns a handle to its primary output so
@@ -151,7 +147,10 @@ namespace Luth
 
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
 
+        friend class FrameDebuggerContext;
+
         RenderingSystem& m_System;
+        std::unique_ptr<FrameDebuggerContext> m_Debugger;
 
         // ---- Constants (shared with RS-side callers when needed) ----
     public:
@@ -311,34 +310,20 @@ namespace Luth
         GPUTimerPool            m_GPUTimers;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
 
-        // ---- Frame debugger preview textures (owned by Pipeline; RS exposes getters) ----
-        VkImage       m_PerDrawPreviewImage  = VK_NULL_HANDLE;
-        VkImageView   m_PerDrawPreviewView   = VK_NULL_HANDLE;
-        VmaAllocation m_PerDrawPreviewAlloc  = nullptr;
-        u32           m_PerDrawPreviewWidth  = 0;
-        u32           m_PerDrawPreviewHeight = 0;
-        u64           m_PerDrawPreviewKey    = UINT64_MAX;
-
-        VkImage       m_DepthPreviewImage  = VK_NULL_HANDLE;
-        VkImageView   m_DepthPreviewView   = VK_NULL_HANDLE;
-        VmaAllocation m_DepthPreviewAlloc  = nullptr;
-        u32           m_DepthPreviewWidth  = 0;
-        u32           m_DepthPreviewHeight = 0;
-        u64           m_DepthPreviewKey    = UINT64_MAX;
-
     public:
-        // Accessors exposed so RenderingSystem can forward editor-panel getters
-        // without needing friend-class access.
-        VkImageView GetPerDrawPreviewView()  const { return m_PerDrawPreviewView; }
-        u64         GetPerDrawPreviewKey()   const { return m_PerDrawPreviewKey; }
-        u32         GetPerDrawPreviewWidth() const { return m_PerDrawPreviewWidth; }
-        u32         GetPerDrawPreviewHeight()const { return m_PerDrawPreviewHeight; }
-        VkImageView GetDepthPreviewView()    const { return m_DepthPreviewView; }
-        u32         GetDepthPreviewWidth()   const { return m_DepthPreviewWidth; }
-        u32         GetDepthPreviewHeight()  const { return m_DepthPreviewHeight; }
+        // Accessors forwarded to the frame-debugger context so editor panels
+        // can sample preview textures and invalidate caches without needing
+        // access to the context class directly.
+        VkImageView GetPerDrawPreviewView()  const;
+        u64         GetPerDrawPreviewKey()   const;
+        u32         GetPerDrawPreviewWidth() const;
+        u32         GetPerDrawPreviewHeight()const;
+        VkImageView GetDepthPreviewView()    const;
+        u32         GetDepthPreviewWidth()   const;
+        u32         GetDepthPreviewHeight()  const;
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
 
         // Resets the per-draw preview cache key — called from RS::ExitCapture.
-        void ResetPreviewCacheKeys() { m_PerDrawPreviewKey = UINT64_MAX; m_DepthPreviewKey = UINT64_MAX; }
+        void ResetPreviewCacheKeys();
     };
 }

@@ -73,6 +73,7 @@ namespace Luth
     class RenderingSystem : public ISystem
     {
         friend class RenderPipeline;
+        friend class FrameDebuggerContext;
 
     public:
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
