@@ -23,8 +23,9 @@ namespace Luth
             std::ifstream file(path);
             json j = json::parse(file);
 
-            settings.activeStyle    = j.value("activeStyle", settings.activeStyle);
-            settings.activeLayout   = j.value("activeLayout", settings.activeLayout);
+            settings.activeStyle     = j.value("activeStyle", settings.activeStyle);
+            settings.activeStylePath = j.value("activeStylePath", settings.activeStylePath);
+            settings.activeLayout    = j.value("activeLayout", settings.activeLayout);
             settings.iblIntensity    = j.value("iblIntensity", settings.iblIntensity);
             settings.skyboxIntensity = j.value("skyboxIntensity", settings.skyboxIntensity);
             settings.skyboxPath      = j.value("skyboxPath", settings.skyboxPath);
@@ -61,6 +62,7 @@ namespace Luth
         {
             json j;
             j["activeStyle"]     = settings.activeStyle;
+            j["activeStylePath"] = settings.activeStylePath;
             j["activeLayout"]    = settings.activeLayout;
             j["iblIntensity"]    = settings.iblIntensity;
             j["skyboxIntensity"] = settings.skyboxIntensity;
