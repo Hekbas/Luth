@@ -110,6 +110,14 @@ namespace Luth
         void InitAOResources();
         void UpdateAODescriptors();
         void CreatePipelines();
+        void BuildPBRPipelines();
+        void BuildShadowPipelines();
+        void BuildDepthPrepassPipelines();
+        void BuildSelectionPipelines();
+        void BuildSkyboxPipeline();
+        void BuildPostPipelines();
+        void BuildOutlinePipeline();
+        void BuildGridPipeline();
         void RegisterNamedTextures();
         void InitDebugBlitResources();
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
