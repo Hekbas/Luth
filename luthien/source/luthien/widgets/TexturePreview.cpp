@@ -1,5 +1,5 @@
 #include "lepch.h"
-#include "UI.h"
+#include "luthien/widgets/TexturePreview.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
