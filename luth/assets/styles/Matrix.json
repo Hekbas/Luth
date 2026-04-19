@@ -3,8 +3,8 @@
     "font": {
         "mainFont": "CourierPrime-Regular.ttf",
         "mainSize": 14.0,
-        "mergeMainWithSolid": false,
-        "iconSize": 48.0
+        "mergeMainWithSolid": true,
+        "iconSize": 14.0
     },
     "dockingSeparatorSize": 0.0,
     "windowRounding": 4.0,
