@@ -4,6 +4,7 @@
 #include "luth/core/types/LuthTypes.h"
 
 #include <memory>
+#include <deque>
 #include <vector>
 #include <string>
 
@@ -34,14 +35,15 @@ namespace Luth
         static void Clear();
 
         // Read-only stack access (for debug panel)
-        static const std::vector<std::unique_ptr<ICommand>>& GetUndoStack() { return s_UndoStack; }
-        static const std::vector<std::unique_ptr<ICommand>>& GetRedoStack() { return s_RedoStack; }
+        static const std::deque<std::unique_ptr<ICommand>>& GetUndoStack() { return s_UndoStack; }
+        static const std::deque<std::unique_ptr<ICommand>>& GetRedoStack() { return s_RedoStack; }
         static bool IsInCompound() { return s_InCompound; }
         static const char* GetCompoundName() { return s_CompoundName; }
 
     private:
-        static inline std::vector<std::unique_ptr<ICommand>> s_UndoStack;
-        static inline std::vector<std::unique_ptr<ICommand>> s_RedoStack;
+        // deque for O(1) pop_front on FIFO eviction when the stack exceeds kMaxHistorySize.
+        static inline std::deque<std::unique_ptr<ICommand>> s_UndoStack;
+        static inline std::deque<std::unique_ptr<ICommand>> s_RedoStack;
         static inline std::vector<std::unique_ptr<ICommand>> s_CompoundBuffer;
         static inline const char* s_CompoundName = nullptr;
         static inline bool s_InCompound = false;

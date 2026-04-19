@@ -218,7 +218,7 @@ namespace Luth
                         currentNodeIndex++;
                     }
 
-                    auto renderCommands = [&](const std::vector<std::unique_ptr<ICommand>>& stack, bool isUndo, bool reverse) {
+                    auto renderCommands = [&](const std::deque<std::unique_ptr<ICommand>>& stack, bool isUndo, bool reverse) {
                         
                         i32 start = reverse ? (i32)stack.size() - 1 : 0;
                         i32 end   = reverse ? -1 : (i32)stack.size();
