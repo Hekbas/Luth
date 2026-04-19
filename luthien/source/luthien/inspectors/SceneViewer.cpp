@@ -1,7 +1,7 @@
 #include "lepch.h"
 #include "luthien/inspectors/SceneViewer.h"
 #include "luthien/Editor.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luth/resources/FileSystem.h"
 #include <nlohmann/json.hpp>
 

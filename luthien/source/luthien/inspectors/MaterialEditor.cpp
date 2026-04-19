@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/inspectors/MaterialEditor.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
