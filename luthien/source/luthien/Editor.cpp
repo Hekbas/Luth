@@ -179,6 +179,7 @@ namespace Luth
         SaveSettings();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        s_PanelRegistry.clear();
         s_Panels.clear();
         UI::ClearTextureCache();
 
@@ -365,6 +366,7 @@ namespace Luth
     void Editor::AddPanel(Panel* panel)
     {
         LH_CORE_ASSERT(panel, "Tried to add null panel");
+        s_PanelRegistry[std::type_index(typeid(*panel))] = panel;
         s_Panels.emplace_back(panel);
     }
 

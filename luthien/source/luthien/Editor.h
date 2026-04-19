@@ -8,6 +8,8 @@
 
 #include <memory>
 #include <filesystem>
+#include <typeindex>
+#include <unordered_map>
 #include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <imgui/imgui_internal.h>
@@ -41,11 +43,8 @@ namespace Luth
 
         template<typename T>
         static T* GetPanel() {
-            for (auto& panel : s_Panels) {
-                if (auto found = dynamic_cast<T*>(panel.get()))
-                    return found;
-            }
-            return nullptr;
+            auto it = s_PanelRegistry.find(std::type_index(typeid(T)));
+            return it != s_PanelRegistry.end() ? static_cast<T*>(it->second) : nullptr;
         }
 
         static bool ApplyRandomStyle();
@@ -92,6 +91,7 @@ namespace Luth
         static inline ImGuiContext* s_Context = nullptr;
         static inline VkDescriptorPool s_ImGuiPool = VK_NULL_HANDLE;
         static inline std::vector<std::unique_ptr<Panel>> s_Panels;
+        static inline std::unordered_map<std::type_index, Panel*> s_PanelRegistry;
 
         static inline ImFont* m_MainFont = nullptr;
         static inline ImFont* m_FARegular = nullptr;
