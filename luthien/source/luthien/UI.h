@@ -5,15 +5,14 @@
 #include "luth/resources/Asset.h"
 #include "luth/renderer/resources/Texture.h"
 
+#include "luthien/widgets/CollapsingHeader.h"
+#include "luthien/widgets/InfoTable.h"
+
 #include <string>
 #include <imgui.h>
-#include <functional>
 
 namespace Luth::UI
 {
-    bool BeginCollapsingHeader(const char* label, bool defaultOpen = false, const std::function<void()>& contextMenu = nullptr);
-    void EndCollapsingHeader();
-
     bool BeginProperties(const char* id = "Properties");
     void EndProperties();
 
@@ -33,10 +32,6 @@ namespace Luth::UI
     bool PropertyAsset(const char* label, UUID& assetHandle, AssetType type);
 
     bool PropertyCombo(const char* label, int& currentIndex, const char* const items[], int count);
-
-    bool BeginInfoTable(const char* id);
-    void InfoRow(const char* label, const char* fmt, ...);
-    void EndInfoTable();
 
     void TexturePreview(const std::shared_ptr<Texture>& texture, float maxWidth = 0.0f);
 
