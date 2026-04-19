@@ -1,33 +1,18 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/LightingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/RenderPipeline.h"
-#include "luth/jobs/JobSystem.h"
-#include "luth/core/diagnostics/Profiler.h"
-#include "luth/scene/Scene.h"
-#include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
-#include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/renderer/backend/vulkan/VulkanTexture.h"
-#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/resources/Buffer.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/AssetDatabase.h"
-#include "luth/renderer/lighting/IBLPrecompute.h"
-#include "luth/renderer/draw/DrawCommand.h"
-#include "luth/renderer/passes/CullPass.h"
-#include "luth/renderer/backend/vulkan/VulkanAllocator.h"
-#include "luth/renderer/shader/ShaderLibrary.h"
-#include "luth/renderer/backend/vulkan/VulkanShader.h"
-#include "luth/renderer/backend/vulkan/DynamicRendering.h"
-#include <backends/imgui_impl_vulkan.h>
-#include <imgui.h>
-#include <vma/vk_mem_alloc.h>
+#include "luth/scene/Scene.h"
+#include "luth/scene/Components.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
@@ -99,53 +84,23 @@ namespace Luth
 
     void RenderingSystem::OnProjectLoaded()
     {
-        // Add the project's shaders dir (if it exists) to the hot-reload watcher
-        // alongside the engine shader dir registered in the constructor.
         if (!FileSystem::HasProject()) return;
-
-        fs::path projectShaders = FileSystem::AssetsPath("shaders");
-        if (!fs::exists(projectShaders) || !fs::is_directory(projectShaders))
-            return;
-
-        m_ShaderWatcher.AddWatch(projectShaders);
-        m_WatchedProjectShaderDir = projectShaders;
-        LH_CORE_INFO("Shader hot-reload watching project dir: {}", projectShaders.string());
+        m_Pipeline->GetShaderWatcher().AddProjectDir(FileSystem::AssetsPath("shaders"));
     }
 
     void RenderingSystem::OnProjectUnloaded()
     {
-        if (m_WatchedProjectShaderDir.empty()) return;
-        m_ShaderWatcher.RemoveWatch(m_WatchedProjectShaderDir);
-        m_WatchedProjectShaderDir.clear();
-    }
-
-    void RenderingSystem::UpdateLightUniforms(Scene* scene)
-    {
-        LightUniforms lights{};
-        m_LightGatherer.Gather(scene->Registry(), lights, m_ShadowParams);
-        m_Pipeline->UploadLightUBO(lights);
-        m_CascadeBuilder.Build(lights.dirLight.direction, m_CameraParams, m_ShadowParams, m_Cascades);
+        m_Pipeline->GetShaderWatcher().RemoveProjectDir();
     }
 
     // =========================================================================
-    // GPU Object Buffer + Cull Pipeline
+    // Per-frame dispatcher
     // =========================================================================
 
     void RenderingSystem::Update(Scene* scene)
     {
         LH_PROFILE_FUNCTION();
         auto& registry = scene->Registry();
-
-        // Drain pending shader reloads (queued by FileWatcher on background thread)
-        {
-            std::lock_guard lock(m_ReloadMutex);
-            for (const auto& name : m_PendingReloads)
-            {
-                LH_CORE_INFO("Shader file changed — reloading '{}'", name);
-                ShaderLibrary::Reload(name);
-            }
-            m_PendingReloads.clear();
-        }
 
         m_FrameAllocator->Reset();
 
@@ -198,10 +153,11 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            // Light uniforms first (sets m_Cascades.lightSpaceMatrix)
-            UpdateLightUniforms(scene);
-            // Global UBO second (reads m_Cascades.lightSpaceMatrix)
-            m_Pipeline->UpdateGlobalUniforms();
+            // Gather lights + fit CSM cascades on the CPU; upload to GPU.
+            auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
+            lighting->UpdateFor(registry, m_CameraParams);
+            m_Pipeline->UploadLightUBO(lighting->GetLights());
+            m_Pipeline->UpdateGlobalUniforms(lighting->GetCascades(), lighting->GetShadowParams());
 
             // Register materials and hold assets for all visible entities
             auto matView = registry.view<WorldTransform, MeshRenderer>();
@@ -240,82 +196,8 @@ namespace Luth
             // Build + execute the render graph (graph assembly lives in RenderPipeline).
             m_Pipeline->Execute(registry);
 
-            // --- Mouse picking readback (immediate, single pixel) ---
-            if (m_PickPending)
-            {
-                m_PickPending = false;
-                int px = m_PickCoord.x;
-                int py = m_PickCoord.y;
-
-                if (px >= 0 && py >= 0 && px < (int)m_Targets.GetEntityIDBuffer()->GetWidth() && py < (int)m_Targets.GetEntityIDBuffer()->GetHeight())
-                {
-                    auto vkID = std::static_pointer_cast<VKTexture>(m_Targets.GetEntityIDBuffer());
-
-                    // Create a small staging buffer for readback
-                    VkBuffer stagingBuf;
-                    VkBufferCreateInfo bufInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-                    bufInfo.size = sizeof(u32);
-                    bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                    VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(bufInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, stagingBuf);
-
-                    VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
-                    {
-                        // Transition entity ID image to transfer src
-                        VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-                        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                        barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-                        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                        barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-                        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                        barrier.image = vkID->GetImage();
-                        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-                        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-                        dep.imageMemoryBarrierCount = 1;
-                        dep.pImageMemoryBarriers = &barrier;
-                        vkCmdPipelineBarrier2(cmd, &dep);
-
-                        // Copy single pixel
-                        VkBufferImageCopy region{};
-                        region.bufferOffset = 0;
-                        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-                        region.imageOffset = { px, py, 0 };
-                        region.imageExtent = { 1, 1, 1 };
-                        vkCmdCopyImageToBuffer(cmd, vkID->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuf, 1, &region);
-                    });
-
-                    // Read the result
-                    void* mapped = VulkanAllocator::Map(stagingAlloc);
-                    u32 entityIdx = *reinterpret_cast<u32*>(mapped);
-                    VulkanAllocator::Unmap(stagingAlloc);
-                    VulkanAllocator::FreeBuffer(stagingBuf, stagingAlloc);
-
-                    const auto& entityLookup = m_Pipeline->GetEntityLookup();
-                    if (entityIdx > 0 && entityIdx < (u32)entityLookup.size())
-                        m_PickedEntity = entityLookup[entityIdx];
-                    else
-                        m_PickedEntity = entt::null;
-
-                    m_PickResultReady = true;
-                }
-            }
-
             return;
         }
-    }
-
-    void RenderingSystem::RequestPick(int x, int y)
-    {
-        m_PickCoord = { x, y };
-        m_PickPending = true;
-        m_PickResultReady = false;
-    }
-
-    entt::entity RenderingSystem::ConsumePickResult()
-    {
-        m_PickResultReady = false;
-        return m_PickedEntity;
     }
 
     // =========================================================================
@@ -331,9 +213,4 @@ namespace Luth
             m_Pipeline->OnResize(width, height);
         }
     }
-
-    // =========================================================================
-    //  Frame Debugger: Re-Recording (Frozen State)
-    // =========================================================================
-
 }

@@ -8,19 +8,14 @@
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/draw/DrawList.h"
-#include "luth/renderer/lighting/CascadeBuilder.h"
-#include "luth/renderer/lighting/LightGatherer.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
-#include "luth/resources/FileWatcher.h"
 
 #include <entt/entt.hpp>
 #include <memory>
-#include <mutex>
-#include <set>
 #include <string>
 
 namespace Luth
@@ -60,16 +55,18 @@ namespace Luth
     };
 
     // ECS-glue layer for the renderer. Owns frame-level scene inputs
-    // (CameraParams, ShadowParams, Cascades, DrawList, FrameTargets) and
-    // orchestrates per-frame work by invoking RenderPipeline.
+    // (CameraParams, DrawList, FrameTargets) and orchestrates per-frame
+    // work by invoking RenderPipeline. Lighting inputs (gatherer, cascade
+    // fit, shadow params) live on LightingSystem; RenderingSystem looks
+    // it up from SystemRegistry each frame.
     //
     // All graphics resources (pipelines, descriptor sets, samplers, UBOs,
     // SSBOs, indirect/object buffers, IBL cubemaps, bloom textures, GPU
     // timers, named-texture registry, captured graph snapshot, per-draw +
     // depth preview textures) live on RenderPipeline. RenderPipeline is
     // friend of RenderingSystem so it can read RS-side scene state
-    // (CameraParams, ShadowParams, Cascades, FrameTargets, FrameDebugger,
-    // DrawList, editor toggles) without a wide public accessor surface.
+    // (CameraParams, FrameTargets, FrameDebugger, DrawList, editor toggles)
+    // without a wide public accessor surface.
     class RenderingSystem : public ISystem
     {
         friend class RenderPipeline;
@@ -105,10 +102,10 @@ namespace Luth
         ShadeMode GetShadeMode() const { return m_ShadeMode; }
         void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
 
-        // Mouse picking
-        void RequestPick(int x, int y);
-        bool HasPickResult() const { return m_PickResultReady; }
-        entt::entity ConsumePickResult();
+        // Accessors used by PickingSystem (readback reads the EntityID target
+        // and maps the sampled index back to an entity via the Pipeline).
+        FrameTargets&   GetFrameTargets() { return m_Targets; }
+        RenderPipeline& GetPipeline()     { return *m_Pipeline; }
 
         // Selection outline
         void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
@@ -143,10 +140,6 @@ namespace Luth
         u32         GetDepthPreviewHeight() const;
 
     private:
-        // Gathers lights + builds cascades on the CPU side, then pushes the result
-        // into RenderPipeline via UploadLightUBO + the m_Cascades snapshot.
-        void UpdateLightUniforms(Scene* scene);
-
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
 
@@ -155,12 +148,6 @@ namespace Luth
 
         // Persistent viewport-sized render targets.
         FrameTargets m_Targets;
-
-        // Per-frame light gathering + CSM cascade fit.
-        LightGatherer                m_LightGatherer;
-        CascadeBuilder               m_CascadeBuilder;
-        DirectionalLightShadowParams m_ShadowParams;
-        CascadeData                  m_Cascades;
 
         // Per-frame draw list (RenderMode-sorted buckets + tri count).
         DrawListBuilder m_DrawListBuilder;
@@ -178,17 +165,5 @@ namespace Luth
 
         // Frame debugger runtime state (capture state machine + archives).
         FrameDebugger m_FrameDebugger;
-
-        // Mouse picking state.
-        bool         m_PickPending     = false;
-        bool         m_PickResultReady = false;
-        IVec2   m_PickCoord       = { 0, 0 };
-        entt::entity m_PickedEntity    = entt::null;
-
-        // Shader hot-reload (file watcher + queued reloads drained in Update).
-        FileWatcher           m_ShaderWatcher;
-        std::filesystem::path m_WatchedProjectShaderDir;
-        std::mutex            m_ReloadMutex;
-        std::set<std::string> m_PendingReloads;
     };
 }

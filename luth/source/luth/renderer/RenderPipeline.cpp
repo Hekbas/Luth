@@ -211,29 +211,10 @@ namespace Luth
             LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
         });
 
-        // File watcher for shader hot-reload (fires on background thread).
-        m_System.m_ShaderWatcher.AddWatch(FileSystem::EngineAssetsPath("shaders"));
-        m_System.m_ShaderWatcher.SetCallback([this](const fs::path& changedFile, FileWatcher::FileStatus status) {
-            if (status != FileWatcher::FileStatus::Modified) return;
-
-            std::string ext = changedFile.extension().string();
-            if (ext != ".vert" && ext != ".frag" && ext != ".comp") return;
-
-            std::string fileName = changedFile.filename().string();
-            for (const auto& [name, shader] : ShaderLibrary::GetAll())
-            {
-                if (shader->GetPath().filename().string() == fileName)
-                {
-                    std::lock_guard lock(m_System.m_ReloadMutex);
-                    m_System.m_PendingReloads.insert(name);
-                    return;
-                }
-            }
-            // No library match — asset database should have scanned the file.
-            // Skip: there's no valid recovery path from here.
-            LH_CORE_WARN("Shader watcher: changed file '{}' not registered in ShaderLibrary", fileName);
-        });
-        m_System.m_ShaderWatcher.Start(true);
+        // Shader hot-reload watcher (engine-shaders dir; project dirs added via
+        // RenderingSystem::OnProjectLoaded). Queues background-thread detections
+        // for main-thread Poll at the top of Execute.
+        m_ShaderWatcher.Start(FileSystem::EngineAssetsPath("shaders"));
 
         // Capacity covers worst-case current frame (5 cull + 4 shadow cascades +
         // geometry + selection + skybox + 3 bloom + grid + post-process + outline
@@ -246,7 +227,7 @@ namespace Luth
     {
         auto& s = m_System;
 
-        m_System.m_ShaderWatcher.Stop();
+        m_ShaderWatcher.Stop();
         ShaderLibrary::SetReloadCallback(nullptr);
         m_GPUTimers.Shutdown();
 
@@ -407,6 +388,11 @@ namespace Luth
     {
         auto& s = m_System;
 
+        // Drain pending shader reloads (queued by FileWatcher on bg thread)
+        // before the next graph is assembled so pipelines rebuilt via the
+        // ShaderLibrary::Reload callback are ready for this frame.
+        m_ShaderWatcher.Poll();
+
         RG::RenderGraph rg(*m_System.m_FrameAllocator);
 
         // Import persistent buffers into the render graph for barrier tracking.
@@ -434,7 +420,7 @@ namespace Luth
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(m_System.m_Cascades.lightSpaceMatrix[i]);
+                Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
                 const u32 destOffset = (i + 1) * RenderPipeline::k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
@@ -568,12 +554,12 @@ namespace Luth
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_System.m_Cascades.splitsViewZ;
-            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_System.m_ShadowParams.shadowBias;
-            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_System.m_ShadowParams.shadowNormalBias;
-            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_System.m_Cascades.texelSize;
+            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_FrameCascades.splitsViewZ;
+            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_FrameShadowParams.shadowBias;
+            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_FrameShadowParams.shadowNormalBias;
+            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_FrameCascades.texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_System.m_Cascades.lightSpaceMatrix[i];
+                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
 
             m_System.m_FrameDebugger.capturedFrame.valid = true;
             m_System.m_FrameDebugger.state               = DebuggerState::Frozen;

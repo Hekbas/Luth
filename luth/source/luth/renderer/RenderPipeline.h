@@ -11,6 +11,7 @@
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/pipeline/PipelineManager.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/shader/ShaderWatcher.h"
 
 #include <entt/entt.hpp>
 #include <filesystem>
@@ -73,15 +74,18 @@ namespace Luth
         void ReloadSkybox(const fs::path& hdrPath);
 
         // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
-        // before the draw list is built and the graph executes.
-        void UpdateGlobalUniforms();
+        // before the draw list is built and the graph executes. The CascadeData
+        // + DirectionalLightShadowParams are produced by LightingSystem and
+        // cached on this Pipeline for the remainder of the frame (Execute +
+        // CaptureSnapshot read them through m_FrameCascades / m_FrameShadowParams).
+        void UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
         void BuildGPUObjectBuffer(entt::registry& registry);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
-        // UpdateLightUniforms after LightGatherer populates the struct.
+        // Update after LightingSystem populates the struct.
         void UploadLightUBO(const LightUniforms& lights);
 
         // Editor + frame-debugger lookups (RenderingSystem forwards to these).
@@ -96,6 +100,11 @@ namespace Luth
         // Entity lookup table for mouse picking (index 0 = null sentinel;
         // valid entities start at 1). Populated by BuildGPUObjectBuffer.
         const std::vector<entt::entity>& GetEntityLookup() const { return m_EntityLookup; }
+
+        // Engine-side hot-reload service for .vert/.frag/.comp files. Project
+        // shader dirs register via RenderingSystem::OnProjectLoaded, which
+        // forwards to this getter.
+        ShaderWatcher& GetShaderWatcher() { return m_ShaderWatcher; }
 
     private:
         // Init / Update helpers (moved from RenderingSystem in sub-task E1).
@@ -245,6 +254,13 @@ namespace Luth
         // ---- Cached view-projection (feeds frustum cull + Frozen-state comparison) ----
         Mat4 m_CachedViewProj = Mat4(1.0f);
 
+        // ---- Per-frame lighting snapshot (written by UpdateGlobalUniforms) ----
+        // Decouples the pipeline from RenderingSystem's cascade state, which
+        // now lives on LightingSystem. Read by Execute (cascade-frustum cull)
+        // and the capturedFrame snapshot.
+        CascadeData                  m_FrameCascades{};
+        DirectionalLightShadowParams m_FrameShadowParams{};
+
         // ---- Post-process UBO / sampler / descriptors ----
         std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
         VkSampler              m_PPSampler          = VK_NULL_HANDLE;
@@ -309,6 +325,9 @@ namespace Luth
         RG::RenderGraphSnapshot m_GraphSnapshot;
         GPUTimerPool            m_GPUTimers;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
+
+        // ---- Shader hot-reload (engine + project dirs) ----
+        ShaderWatcher m_ShaderWatcher;
 
     public:
         // Accessors forwarded to the frame-debugger context so editor panels

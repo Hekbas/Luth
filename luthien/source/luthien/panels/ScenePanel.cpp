@@ -9,6 +9,8 @@
 #include "luth/platform/FileDialog.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
+#include "luth/scene/systems/PickingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/events/RenderEvent.h"
 #include "luthien/widgets/ImGuiUtils.h"
@@ -324,13 +326,15 @@ namespace Luth
                 int py = (int)(my - m_ViewportBounds[0].y);
                 // Ensure click is inside viewport
                 if (px >= 0 && px < m_ViewportSize.x && py >= 0 && py < m_ViewportSize.y)
-                    m_RenderingSystem->RequestPick(px, py);
+                    if (auto* ps = SystemRegistry::GetSystem<PickingSystem>())
+                        ps->RequestPick(px, py);
             }
 
             // Consume pick result — hierarchy-aware + multi-select
-            if (!m_GizmoIconClicked && m_RenderingSystem->HasPickResult())
+            auto* picker = SystemRegistry::GetSystem<PickingSystem>();
+            if (!m_GizmoIconClicked && picker && picker->HasResult())
             {
-                entt::entity picked = m_RenderingSystem->ConsumePickResult();
+                entt::entity picked = picker->ConsumeResult();
                 if (picked != entt::null && m_Context)
                 {
                     Entity rawEntity(picked, m_Context.get());
@@ -379,8 +383,8 @@ namespace Luth
             if (m_GizmoIconClicked && m_GizmoIconEntity != entt::null && m_Context)
             {
                 // Discard any stale pick result
-                if (m_RenderingSystem->HasPickResult())
-                    m_RenderingSystem->ConsumePickResult();
+                if (picker && picker->HasResult())
+                    picker->ConsumeResult();
 
                 Entity e(m_GizmoIconEntity, m_Context.get());
                 EditorSelection::SelectEntity(e);
