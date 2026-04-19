@@ -73,15 +73,18 @@ namespace Luth
         void ReloadSkybox(const fs::path& hdrPath);
 
         // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
-        // before the draw list is built and the graph executes.
-        void UpdateGlobalUniforms();
+        // before the draw list is built and the graph executes. The CascadeData
+        // + DirectionalLightShadowParams are produced by LightingSystem and
+        // cached on this Pipeline for the remainder of the frame (Execute +
+        // CaptureSnapshot read them through m_FrameCascades / m_FrameShadowParams).
+        void UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
         void BuildGPUObjectBuffer(entt::registry& registry);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
-        // UpdateLightUniforms after LightGatherer populates the struct.
+        // Update after LightingSystem populates the struct.
         void UploadLightUBO(const LightUniforms& lights);
 
         // Editor + frame-debugger lookups (RenderingSystem forwards to these).
@@ -244,6 +247,13 @@ namespace Luth
 
         // ---- Cached view-projection (feeds frustum cull + Frozen-state comparison) ----
         Mat4 m_CachedViewProj = Mat4(1.0f);
+
+        // ---- Per-frame lighting snapshot (written by UpdateGlobalUniforms) ----
+        // Decouples the pipeline from RenderingSystem's cascade state, which
+        // now lives on LightingSystem. Read by Execute (cascade-frustum cull)
+        // and the capturedFrame snapshot.
+        CascadeData                  m_FrameCascades{};
+        DirectionalLightShadowParams m_FrameShadowParams{};
 
         // ---- Post-process UBO / sampler / descriptors ----
         std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;

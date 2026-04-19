@@ -1,5 +1,7 @@
 #include "luthpch.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/LightingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/diagnostics/Profiler.h"
@@ -119,14 +121,6 @@ namespace Luth
         m_WatchedProjectShaderDir.clear();
     }
 
-    void RenderingSystem::UpdateLightUniforms(Scene* scene)
-    {
-        LightUniforms lights{};
-        m_LightGatherer.Gather(scene->Registry(), lights, m_ShadowParams);
-        m_Pipeline->UploadLightUBO(lights);
-        m_CascadeBuilder.Build(lights.dirLight.direction, m_CameraParams, m_ShadowParams, m_Cascades);
-    }
-
     // =========================================================================
     // GPU Object Buffer + Cull Pipeline
     // =========================================================================
@@ -198,10 +192,11 @@ namespace Luth
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
         {
-            // Light uniforms first (sets m_Cascades.lightSpaceMatrix)
-            UpdateLightUniforms(scene);
-            // Global UBO second (reads m_Cascades.lightSpaceMatrix)
-            m_Pipeline->UpdateGlobalUniforms();
+            // Gather lights + fit CSM cascades on the CPU; upload to GPU.
+            auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
+            lighting->UpdateFor(registry, m_CameraParams);
+            m_Pipeline->UploadLightUBO(lighting->GetLights());
+            m_Pipeline->UpdateGlobalUniforms(lighting->GetCascades(), lighting->GetShadowParams());
 
             // Register materials and hold assets for all visible entities
             auto matView = registry.view<WorldTransform, MeshRenderer>();

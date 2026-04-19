@@ -8,8 +8,6 @@
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/draw/DrawList.h"
-#include "luth/renderer/lighting/CascadeBuilder.h"
-#include "luth/renderer/lighting/LightGatherer.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/FrameCapture.h"
@@ -60,16 +58,18 @@ namespace Luth
     };
 
     // ECS-glue layer for the renderer. Owns frame-level scene inputs
-    // (CameraParams, ShadowParams, Cascades, DrawList, FrameTargets) and
-    // orchestrates per-frame work by invoking RenderPipeline.
+    // (CameraParams, DrawList, FrameTargets) and orchestrates per-frame
+    // work by invoking RenderPipeline. Lighting inputs (gatherer, cascade
+    // fit, shadow params) live on LightingSystem; RenderingSystem looks
+    // it up from SystemRegistry each frame.
     //
     // All graphics resources (pipelines, descriptor sets, samplers, UBOs,
     // SSBOs, indirect/object buffers, IBL cubemaps, bloom textures, GPU
     // timers, named-texture registry, captured graph snapshot, per-draw +
     // depth preview textures) live on RenderPipeline. RenderPipeline is
     // friend of RenderingSystem so it can read RS-side scene state
-    // (CameraParams, ShadowParams, Cascades, FrameTargets, FrameDebugger,
-    // DrawList, editor toggles) without a wide public accessor surface.
+    // (CameraParams, FrameTargets, FrameDebugger, DrawList, editor toggles)
+    // without a wide public accessor surface.
     class RenderingSystem : public ISystem
     {
         friend class RenderPipeline;
@@ -143,10 +143,6 @@ namespace Luth
         u32         GetDepthPreviewHeight() const;
 
     private:
-        // Gathers lights + builds cascades on the CPU side, then pushes the result
-        // into RenderPipeline via UploadLightUBO + the m_Cascades snapshot.
-        void UpdateLightUniforms(Scene* scene);
-
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
 
@@ -155,12 +151,6 @@ namespace Luth
 
         // Persistent viewport-sized render targets.
         FrameTargets m_Targets;
-
-        // Per-frame light gathering + CSM cascade fit.
-        LightGatherer                m_LightGatherer;
-        CascadeBuilder               m_CascadeBuilder;
-        DirectionalLightShadowParams m_ShadowParams;
-        CascadeData                  m_Cascades;
 
         // Per-frame draw list (RenderMode-sorted buckets + tri count).
         DrawListBuilder m_DrawListBuilder;

@@ -3,6 +3,7 @@
 #include "luth/scene/systems/TransformSystem.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/scene/systems/CameraSystem.h"
+#include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 
 namespace Luth
@@ -15,6 +16,7 @@ namespace Luth
         AddSystem<TransformSystem>();
         AddSystem<AnimationSystem>();
         AddSystem<CameraSystem>();
+        AddSystem<LightingSystem>();
         AddSystem<RenderingSystem>();
     }
 

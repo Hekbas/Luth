@@ -75,8 +75,12 @@ namespace Luth
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
     }
 
-    void RenderPipeline::UpdateGlobalUniforms()
+    void RenderPipeline::UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
     {
+        // Cache for downstream per-frame reads (Execute + capturedFrame snapshot).
+        m_FrameCascades     = cascades;
+        m_FrameShadowParams = shadowParams;
+
         GlobalUniforms ubo{};
         ubo.view = m_System.m_CameraParams.view;
         ubo.projection = m_System.m_CameraParams.projection;
@@ -85,16 +89,16 @@ namespace Luth
         ubo.cameraPos = m_System.m_CameraParams.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            ubo.lightSpaceMatrix[i] = m_System.m_Cascades.lightSpaceMatrix[i];
-        ubo.cascadeSplitsViewZ = m_System.m_Cascades.splitsViewZ;
+            ubo.lightSpaceMatrix[i] = cascades.lightSpaceMatrix[i];
+        ubo.cascadeSplitsViewZ = cascades.splitsViewZ;
         // Negative bias (sentinel) disables shadows entirely in the PBR shader.
-        ubo.shadowBias       = m_System.m_ShadowParams.castShadows ? m_System.m_ShadowParams.shadowBias : Vec4(-1.0f);
-        ubo.shadowNormalBias = m_System.m_ShadowParams.shadowNormalBias;
-        ubo.cascadeTexelSize = m_System.m_Cascades.texelSize;
+        ubo.shadowBias       = shadowParams.castShadows ? shadowParams.shadowBias : Vec4(-1.0f);
+        ubo.shadowNormalBias = shadowParams.shadowNormalBias;
+        ubo.cascadeTexelSize = cascades.texelSize;
         ubo.iblIntensity    = m_System.m_CameraParams.iblIntensity;
         ubo.skyboxIntensity = m_System.m_CameraParams.skyboxIntensity;
-        ubo.debugVisualizeCascades = m_System.m_ShadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
-        ubo.cascadeBlendWidth      = m_System.m_ShadowParams.cascadeBlendWidth;
+        ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
+        ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
         m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;

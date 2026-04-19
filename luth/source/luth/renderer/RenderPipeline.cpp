@@ -434,7 +434,7 @@ namespace Luth
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(m_System.m_Cascades.lightSpaceMatrix[i]);
+                Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
                 const u32 destOffset = (i + 1) * RenderPipeline::k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
@@ -568,12 +568,12 @@ namespace Luth
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_System.m_Cascades.splitsViewZ;
-            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_System.m_ShadowParams.shadowBias;
-            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_System.m_ShadowParams.shadowNormalBias;
-            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_System.m_Cascades.texelSize;
+            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_FrameCascades.splitsViewZ;
+            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_FrameShadowParams.shadowBias;
+            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_FrameShadowParams.shadowNormalBias;
+            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_FrameCascades.texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_System.m_Cascades.lightSpaceMatrix[i];
+                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
 
             m_System.m_FrameDebugger.capturedFrame.valid = true;
             m_System.m_FrameDebugger.state               = DebuggerState::Frozen;
