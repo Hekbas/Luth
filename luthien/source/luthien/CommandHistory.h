@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luth/core/types/LuthTypes.h"
 
 #include <memory>

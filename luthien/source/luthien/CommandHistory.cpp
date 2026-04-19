@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/CommandHistory.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/Editor.h"
 
 namespace Luth

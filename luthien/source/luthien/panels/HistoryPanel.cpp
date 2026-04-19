@@ -1,7 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/HistoryPanel.h"
 #include "luthien/CommandHistory.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/EditorColors.h"
 #include "luthien/Editor.h"

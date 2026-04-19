@@ -1,7 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/InspectorPanel.h"
 #include "luthien/UI.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"

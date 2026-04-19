@@ -2,7 +2,7 @@
 #include "luthien/panels/ScenePanel.h"
 #include "luthien/panels/RenderPanel.h"
 #include "luthien/EditorSelection.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/EditorColors.h"
