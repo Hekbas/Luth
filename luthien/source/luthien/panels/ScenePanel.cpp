@@ -15,7 +15,7 @@
 #include "luth/events/RenderEvent.h"
 #include "luthien/widgets/ImGuiUtils.h"
 #include "luthien/widgets/Icons.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"

@@ -28,7 +28,7 @@
 #include "luthien/panels/HistoryPanel.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
 #include "luthien/EditorSettings.h"

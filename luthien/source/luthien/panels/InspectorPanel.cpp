@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/panels/InspectorPanel.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"

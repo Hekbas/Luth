@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/inspectors/TextureEditor.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"

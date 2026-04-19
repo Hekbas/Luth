@@ -9,7 +9,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/Editor.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 
 #include <imgui.h>
 #include <algorithm>

@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/inspectors/ShaderEditor.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luth/renderer/shader/Shader.h"
 
 namespace Luth

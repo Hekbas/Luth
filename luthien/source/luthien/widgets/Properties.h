@@ -1,21 +1,17 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
-#include "luth/core/UUID.h"
-#include "luth/resources/Asset.h"
-#include "luth/renderer/resources/Texture.h"
 
 #include <string>
-#include <imgui.h>
-#include <functional>
 
 namespace Luth::UI
 {
-    bool BeginCollapsingHeader(const char* label, bool defaultOpen = false, const std::function<void()>& contextMenu = nullptr);
-    void EndCollapsingHeader();
-
     bool BeginProperties(const char* id = "Properties");
     void EndProperties();
+
+    // Lays out a label cell + value cell within an active BeginProperties() table.
+    // Exposed so adjacent widgets (e.g. AssetSlot) can participate in the same layout.
+    void PropertyLabel(const char* label);
 
     bool Property(const char* label, std::string& value);
     bool Property(const char* label, bool& value);
@@ -30,19 +26,5 @@ namespace Luth::UI
     bool PropertyColor(const char* label, Vec3& value);
     bool PropertyColor(const char* label, Vec4& value);
 
-    bool PropertyAsset(const char* label, UUID& assetHandle, AssetType type);
-
     bool PropertyCombo(const char* label, int& currentIndex, const char* const items[], int count);
-
-    bool BeginInfoTable(const char* id);
-    void InfoRow(const char* label, const char* fmt, ...);
-    void EndInfoTable();
-
-    void TexturePreview(const std::shared_ptr<Texture>& texture, float maxWidth = 0.0f);
-
-    // Allocates and caches a per-texture Vulkan descriptor set.
-    ImTextureID GetTextureID(const std::shared_ptr<Texture>& texture);
-
-    // Must run before ImGui_ImplVulkan_Shutdown to free cached descriptor sets.
-    void ClearTextureCache();
 }

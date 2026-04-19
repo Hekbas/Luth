@@ -5,7 +5,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luthien/widgets/Icons.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 
 
 namespace Luth

@@ -1,7 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luth/scene/systems/SystemRegistry.h"
-#include "luthien/UI.h"
+#include "luthien/widgets/Widgets.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 
