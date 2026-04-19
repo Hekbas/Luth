@@ -13,12 +13,9 @@
 #include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
-#include "luth/resources/FileWatcher.h"
 
 #include <entt/entt.hpp>
 #include <memory>
-#include <mutex>
-#include <set>
 #include <string>
 
 namespace Luth
@@ -174,11 +171,5 @@ namespace Luth
         bool         m_PickResultReady = false;
         IVec2   m_PickCoord       = { 0, 0 };
         entt::entity m_PickedEntity    = entt::null;
-
-        // Shader hot-reload (file watcher + queued reloads drained in Update).
-        FileWatcher           m_ShaderWatcher;
-        std::filesystem::path m_WatchedProjectShaderDir;
-        std::mutex            m_ReloadMutex;
-        std::set<std::string> m_PendingReloads;
     };
 }

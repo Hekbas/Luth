@@ -24,7 +24,6 @@
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/passes/CullPass.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
-#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/VulkanShader.h"
 #include "luth/renderer/backend/vulkan/DynamicRendering.h"
 #include <backends/imgui_impl_vulkan.h>
@@ -101,24 +100,13 @@ namespace Luth
 
     void RenderingSystem::OnProjectLoaded()
     {
-        // Add the project's shaders dir (if it exists) to the hot-reload watcher
-        // alongside the engine shader dir registered in the constructor.
         if (!FileSystem::HasProject()) return;
-
-        fs::path projectShaders = FileSystem::AssetsPath("shaders");
-        if (!fs::exists(projectShaders) || !fs::is_directory(projectShaders))
-            return;
-
-        m_ShaderWatcher.AddWatch(projectShaders);
-        m_WatchedProjectShaderDir = projectShaders;
-        LH_CORE_INFO("Shader hot-reload watching project dir: {}", projectShaders.string());
+        m_Pipeline->GetShaderWatcher().AddProjectDir(FileSystem::AssetsPath("shaders"));
     }
 
     void RenderingSystem::OnProjectUnloaded()
     {
-        if (m_WatchedProjectShaderDir.empty()) return;
-        m_ShaderWatcher.RemoveWatch(m_WatchedProjectShaderDir);
-        m_WatchedProjectShaderDir.clear();
+        m_Pipeline->GetShaderWatcher().RemoveProjectDir();
     }
 
     // =========================================================================
@@ -129,17 +117,6 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         auto& registry = scene->Registry();
-
-        // Drain pending shader reloads (queued by FileWatcher on background thread)
-        {
-            std::lock_guard lock(m_ReloadMutex);
-            for (const auto& name : m_PendingReloads)
-            {
-                LH_CORE_INFO("Shader file changed — reloading '{}'", name);
-                ShaderLibrary::Reload(name);
-            }
-            m_PendingReloads.clear();
-        }
 
         m_FrameAllocator->Reset();
 

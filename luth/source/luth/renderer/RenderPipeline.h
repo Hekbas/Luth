@@ -11,6 +11,7 @@
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/pipeline/PipelineManager.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/shader/ShaderWatcher.h"
 
 #include <entt/entt.hpp>
 #include <filesystem>
@@ -99,6 +100,11 @@ namespace Luth
         // Entity lookup table for mouse picking (index 0 = null sentinel;
         // valid entities start at 1). Populated by BuildGPUObjectBuffer.
         const std::vector<entt::entity>& GetEntityLookup() const { return m_EntityLookup; }
+
+        // Engine-side hot-reload service for .vert/.frag/.comp files. Project
+        // shader dirs register via RenderingSystem::OnProjectLoaded, which
+        // forwards to this getter.
+        ShaderWatcher& GetShaderWatcher() { return m_ShaderWatcher; }
 
     private:
         // Init / Update helpers (moved from RenderingSystem in sub-task E1).
@@ -319,6 +325,9 @@ namespace Luth
         RG::RenderGraphSnapshot m_GraphSnapshot;
         GPUTimerPool            m_GPUTimers;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_NamedTextures;
+
+        // ---- Shader hot-reload (engine + project dirs) ----
+        ShaderWatcher m_ShaderWatcher;
 
     public:
         // Accessors forwarded to the frame-debugger context so editor panels
