@@ -4,8 +4,185 @@
 #include "luth/resources/FileSystem.h"
 #include "luthien/widgets/Icons.h"
 
+#include <nlohmann/json.hpp>
+#include <fstream>
+#include <unordered_map>
+
 namespace Luth::EditorStyle
 {
+    using json = nlohmann::json;
+
+    // ── JSON helpers ──
+
+    static json VecToJson(const ImVec2& v)  { return json::array({ v.x, v.y }); }
+    static json VecToJson(const ImVec4& v)  { return json::array({ v.x, v.y, v.z, v.w }); }
+
+    static ImVec2 JsonToVec2(const json& j, ImVec2 fallback = {})
+    {
+        if (!j.is_array() || j.size() < 2) return fallback;
+        return { j[0].get<float>(), j[1].get<float>() };
+    }
+    static ImVec4 JsonToVec4(const json& j, ImVec4 fallback = {})
+    {
+        if (!j.is_array() || j.size() < 4) return fallback;
+        return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() };
+    }
+
+    // Lookup: stable color-name → ImGuiCol index. ImGui::GetStyleColorName returns
+    // e.g. "Text"/"WindowBg" — robust against enum reordering between ImGui versions.
+    static const std::unordered_map<std::string, int>& ColorNameToIndex()
+    {
+        static const auto map = []() {
+            std::unordered_map<std::string, int> m;
+            for (int i = 0; i < ImGuiCol_COUNT; ++i)
+                m.emplace(ImGui::GetStyleColorName(i), i);
+            return m;
+        }();
+        return map;
+    }
+
+    static json Serialise(const StylePreset& p, const FontConfig& f)
+    {
+        json j;
+        j["name"] = p.Name;
+
+        j["font"] = {
+            { "mainFont",           f.MainFontName },
+            { "mainSize",           f.MainFontSize },
+            { "mergeMainWithSolid", f.MergeMainWithSolid },
+            { "iconSize",           f.IconFontSize },
+        };
+
+        j["dockingSeparatorSize"] = p.DockingSeparatorSize;
+
+        j["windowRounding"]    = p.WindowRounding;
+        j["childRounding"]     = p.ChildRounding;
+        j["frameRounding"]     = p.FrameRounding;
+        j["grabRounding"]      = p.GrabRounding;
+        j["popupRounding"]     = p.PopupRounding;
+        j["scrollbarRounding"] = p.ScrollbarRounding;
+        j["tabRounding"]       = p.TabRounding;
+
+        j["windowBorderSize"] = p.WindowBorderSize;
+        j["childBorderSize"]  = p.ChildBorderSize;
+        j["popupBorderSize"]  = p.PopupBorderSize;
+        j["frameBorderSize"]  = p.FrameBorderSize;
+        j["tabBorderSize"]    = p.TabBorderSize;
+
+        j["windowPadding"]     = VecToJson(p.WindowPadding);
+        j["framePadding"]      = VecToJson(p.FramePadding);
+        j["itemSpacing"]       = VecToJson(p.ItemSpacing);
+        j["itemInnerSpacing"]  = VecToJson(p.ItemInnerSpacing);
+        j["touchExtraPadding"] = VecToJson(p.TouchExtraPadding);
+
+        j["indentSpacing"] = p.IndentSpacing;
+        j["scrollbarSize"] = p.ScrollbarSize;
+        j["grabMinSize"]   = p.GrabMinSize;
+        j["alpha"]         = p.Alpha;
+
+        json colors = json::object();
+        for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+            const ImVec4& c = p.Colors[i];
+            // Skip fully-zero entries — factory presets leave unset colors at {0,0,0,0}
+            if (c.x == 0 && c.y == 0 && c.z == 0 && c.w == 0) continue;
+            colors[ImGui::GetStyleColorName(i)] = VecToJson(c);
+        }
+        j["colors"] = std::move(colors);
+
+        return j;
+    }
+
+    static std::optional<StyleFile> Deserialise(const json& j)
+    {
+        StyleFile sf{};
+        sf.Preset.Name = j.value("name", std::string("Unnamed"));
+
+        if (auto it = j.find("font"); it != j.end() && it->is_object()) {
+            sf.Font.MainFontName       = it->value("mainFont", std::string{});
+            sf.Font.MainFontSize       = it->value("mainSize", 15.0f);
+            sf.Font.MergeMainWithSolid = it->value("mergeMainWithSolid", false);
+            sf.Font.IconFontSize       = it->value("iconSize", 14.0f);
+        } else {
+            LH_CORE_WARN("Style JSON missing 'font' block for '{}'", sf.Preset.Name);
+            return std::nullopt;
+        }
+
+        auto& p = sf.Preset;
+        p.DockingSeparatorSize = j.value("dockingSeparatorSize", 0.0f);
+
+        p.WindowRounding    = j.value("windowRounding",    0.0f);
+        p.ChildRounding     = j.value("childRounding",     0.0f);
+        p.FrameRounding     = j.value("frameRounding",     0.0f);
+        p.GrabRounding      = j.value("grabRounding",      0.0f);
+        p.PopupRounding     = j.value("popupRounding",     0.0f);
+        p.ScrollbarRounding = j.value("scrollbarRounding", 0.0f);
+        p.TabRounding       = j.value("tabRounding",       0.0f);
+
+        p.WindowBorderSize = j.value("windowBorderSize", 0.0f);
+        p.ChildBorderSize  = j.value("childBorderSize",  0.0f);
+        p.PopupBorderSize  = j.value("popupBorderSize",  0.0f);
+        p.FrameBorderSize  = j.value("frameBorderSize",  0.0f);
+        p.TabBorderSize    = j.value("tabBorderSize",    0.0f);
+
+        p.WindowPadding     = JsonToVec2(j.value("windowPadding",     json::array()), {8,8});
+        p.FramePadding      = JsonToVec2(j.value("framePadding",      json::array()), {6,4});
+        p.ItemSpacing       = JsonToVec2(j.value("itemSpacing",       json::array()), {6,4});
+        p.ItemInnerSpacing  = JsonToVec2(j.value("itemInnerSpacing",  json::array()), {4,4});
+        p.TouchExtraPadding = JsonToVec2(j.value("touchExtraPadding", json::array()), {0,0});
+
+        p.IndentSpacing = j.value("indentSpacing", 20.0f);
+        p.ScrollbarSize = j.value("scrollbarSize", 14.0f);
+        p.GrabMinSize   = j.value("grabMinSize",   12.0f);
+        p.Alpha         = j.value("alpha",         1.0f);
+
+        for (auto& c : p.Colors) c = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+        if (auto it = j.find("colors"); it != j.end() && it->is_object()) {
+            const auto& nameMap = ColorNameToIndex();
+            for (auto& [key, val] : it->items()) {
+                auto m = nameMap.find(key);
+                if (m == nameMap.end()) {
+                    LH_CORE_WARN("Unknown ImGui color '{}' in style '{}'", key, sf.Preset.Name);
+                    continue;
+                }
+                p.Colors[m->second] = JsonToVec4(val);
+            }
+        }
+
+        return sf;
+    }
+
+    std::optional<StyleFile> LoadFromFile(const fs::path& path)
+    {
+        if (!fs::exists(path)) {
+            LH_CORE_WARN("Style file not found: {}", path.string());
+            return std::nullopt;
+        }
+        try {
+            std::ifstream file(path);
+            return Deserialise(json::parse(file));
+        } catch (const std::exception& e) {
+            LH_CORE_ERROR("Failed to load style '{}': {}", path.string(), e.what());
+            return std::nullopt;
+        }
+    }
+
+    bool SaveToFile(const StylePreset& preset, const FontConfig& font, const fs::path& path)
+    {
+        try {
+            if (path.has_parent_path())
+                fs::create_directories(path.parent_path());
+            std::ofstream file(path);
+            file << Serialise(preset, font).dump(4);
+            LH_CORE_INFO("Saved style '{}' to '{}'", preset.Name, path.string());
+            return true;
+        } catch (const std::exception& e) {
+            LH_CORE_ERROR("Failed to save style '{}': {}", path.string(), e.what());
+            return false;
+        }
+    }
+
+
     // 25002500 Font Loading 25002500
 
     static ImFont* LoadIconFont(const char* filename, float size, bool mergeMode)
