@@ -212,82 +212,8 @@ namespace Luth
             // Build + execute the render graph (graph assembly lives in RenderPipeline).
             m_Pipeline->Execute(registry);
 
-            // --- Mouse picking readback (immediate, single pixel) ---
-            if (m_PickPending)
-            {
-                m_PickPending = false;
-                int px = m_PickCoord.x;
-                int py = m_PickCoord.y;
-
-                if (px >= 0 && py >= 0 && px < (int)m_Targets.GetEntityIDBuffer()->GetWidth() && py < (int)m_Targets.GetEntityIDBuffer()->GetHeight())
-                {
-                    auto vkID = std::static_pointer_cast<VKTexture>(m_Targets.GetEntityIDBuffer());
-
-                    // Create a small staging buffer for readback
-                    VkBuffer stagingBuf;
-                    VkBufferCreateInfo bufInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-                    bufInfo.size = sizeof(u32);
-                    bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                    VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(bufInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, stagingBuf);
-
-                    VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
-                    {
-                        // Transition entity ID image to transfer src
-                        VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-                        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                        barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-                        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                        barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-                        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                        barrier.image = vkID->GetImage();
-                        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-                        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-                        dep.imageMemoryBarrierCount = 1;
-                        dep.pImageMemoryBarriers = &barrier;
-                        vkCmdPipelineBarrier2(cmd, &dep);
-
-                        // Copy single pixel
-                        VkBufferImageCopy region{};
-                        region.bufferOffset = 0;
-                        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-                        region.imageOffset = { px, py, 0 };
-                        region.imageExtent = { 1, 1, 1 };
-                        vkCmdCopyImageToBuffer(cmd, vkID->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stagingBuf, 1, &region);
-                    });
-
-                    // Read the result
-                    void* mapped = VulkanAllocator::Map(stagingAlloc);
-                    u32 entityIdx = *reinterpret_cast<u32*>(mapped);
-                    VulkanAllocator::Unmap(stagingAlloc);
-                    VulkanAllocator::FreeBuffer(stagingBuf, stagingAlloc);
-
-                    const auto& entityLookup = m_Pipeline->GetEntityLookup();
-                    if (entityIdx > 0 && entityIdx < (u32)entityLookup.size())
-                        m_PickedEntity = entityLookup[entityIdx];
-                    else
-                        m_PickedEntity = entt::null;
-
-                    m_PickResultReady = true;
-                }
-            }
-
             return;
         }
-    }
-
-    void RenderingSystem::RequestPick(int x, int y)
-    {
-        m_PickCoord = { x, y };
-        m_PickPending = true;
-        m_PickResultReady = false;
-    }
-
-    entt::entity RenderingSystem::ConsumePickResult()
-    {
-        m_PickResultReady = false;
-        return m_PickedEntity;
     }
 
     // =========================================================================

@@ -14,6 +14,7 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/scene/systems/TransformSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/PickingSystem.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/Renderer.h"
@@ -246,6 +247,7 @@ namespace Luth
             SystemRegistry::Update<TransformSystem>();
             SystemRegistry::Update<AnimationSystem>();
             SystemRegistry::Update<RenderingSystem>();
+            SystemRegistry::Update<PickingSystem>();
 
             // ── Step 5: End Frame (Submit + Present) ──
             Renderer::EndFrame();

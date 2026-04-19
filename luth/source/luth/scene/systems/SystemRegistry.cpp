@@ -5,6 +5,7 @@
 #include "luth/scene/systems/CameraSystem.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/PickingSystem.h"
 
 namespace Luth
 {
@@ -18,6 +19,7 @@ namespace Luth
         AddSystem<CameraSystem>();
         AddSystem<LightingSystem>();
         AddSystem<RenderingSystem>();
+        AddSystem<PickingSystem>();
     }
 
     void SystemRegistry::Shutdown() {

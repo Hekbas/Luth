@@ -102,10 +102,10 @@ namespace Luth
         ShadeMode GetShadeMode() const { return m_ShadeMode; }
         void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
 
-        // Mouse picking
-        void RequestPick(int x, int y);
-        bool HasPickResult() const { return m_PickResultReady; }
-        entt::entity ConsumePickResult();
+        // Accessors used by PickingSystem (readback reads the EntityID target
+        // and maps the sampled index back to an entity via the Pipeline).
+        FrameTargets&   GetFrameTargets() { return m_Targets; }
+        RenderPipeline& GetPipeline()     { return *m_Pipeline; }
 
         // Selection outline
         void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
@@ -165,11 +165,5 @@ namespace Luth
 
         // Frame debugger runtime state (capture state machine + archives).
         FrameDebugger m_FrameDebugger;
-
-        // Mouse picking state.
-        bool         m_PickPending     = false;
-        bool         m_PickResultReady = false;
-        IVec2   m_PickCoord       = { 0, 0 };
-        entt::entity m_PickedEntity    = entt::null;
     };
 }
