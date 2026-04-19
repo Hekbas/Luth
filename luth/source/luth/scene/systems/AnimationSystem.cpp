@@ -5,7 +5,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/Components.h"
 #include "luth/core/time/Time.h"
-#include "luth/animation/BoneMatrixBuffer.h"
+#include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 

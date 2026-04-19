@@ -3,7 +3,7 @@
 #include "luth/core/UUID.h"
 #include "luth/core/types/LuthMath.h"
 #include "luth/scene/Entity.h"
-#include "luth/animation/AnimationController.h"
+#include "luth/scene/components/AnimationController.h"
 
 #include <entt/entt.hpp>
 #include <functional>

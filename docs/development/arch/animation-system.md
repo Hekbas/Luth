@@ -6,7 +6,7 @@ Skeletal animation pipeline for the Luth engine. CPU-side keyframe evaluation wi
 
 ## Data Model (Phase 7A)
 
-### Skeleton (`animation/Skeleton.h`)
+### Skeleton (`renderer/resources/Skeleton.h`)
 
 ```
 Skeleton
@@ -20,7 +20,7 @@ Skeleton
 
 Constants: `MAX_BONES = 256`, `MAX_BONES_PER_VERTEX = 4`
 
-### AnimationClip (`animation/AnimationClip.h`)
+### AnimationClip (`renderer/resources/AnimationClip.h`)
 
 ```
 AnimationClip
@@ -79,7 +79,7 @@ Model::Create() — ProcessMeshData() uploads to GPU with appropriate vertex lay
 
 ## GPU Skinning Pipeline (Phase 7B)
 
-### BoneMatrixBuffer (`animation/BoneMatrixBuffer.h/.cpp`)
+### BoneMatrixBuffer (`renderer/resources/BoneMatrixBuffer.h/.cpp`)
 
 Static singleton following the MaterialSystem pattern. Persistently-mapped SSBO for bone matrices.
 
@@ -301,7 +301,7 @@ Animation component lives on the root entity only. MeshRenderer children referen
 
 ## Blending & Root Motion (Phase 7D)
 
-### AnimationController Component (`animation/AnimationController.h`)
+### AnimationController Component (`scene/components/AnimationController.h`)
 
 Additive overlay on the `Animation` component. Entities with only `Animation` continue using the single-clip evaluation path from 7C unchanged.
 
