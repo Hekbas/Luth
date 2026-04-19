@@ -56,10 +56,7 @@ namespace Luth
         std::optional<StyleFile> LoadFromFile(const std::filesystem::path& path);
         bool SaveToFile(const StylePreset& preset, const FontConfig& font, const std::filesystem::path& path);
 
-        // Built-in presets (transitional — will resolve to luth/assets/styles/<name>.json)
-        const StylePreset& Custom();
-        const StylePreset& Bubblegum();
-        const StylePreset& Matrix();
-        const StylePreset& Rider();
+        // Load one of the built-in styles shipped under luth/assets/styles/<name>.json.
+        std::optional<StyleFile> LoadBuiltin(const std::string& name);
     }
 }

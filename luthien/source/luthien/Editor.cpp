@@ -378,29 +378,18 @@ namespace Luth
         }
     }
 
-    void Editor::SetCustomStyle()
+    static void ApplyBuiltinStyle(const char* name)
     {
-        EditorStyle::LoadFonts({"Roboto-Regular.ttf", 15.0f, true, 14.0f});
-        EditorStyle::Apply(EditorStyle::Custom());
+        if (auto sf = EditorStyle::LoadBuiltin(name)) {
+            EditorStyle::LoadFonts(sf->Font);
+            EditorStyle::Apply(sf->Preset);
+        }
     }
 
-    void Editor::SetBubblegumStyle()
-    {
-        EditorStyle::LoadFonts({"HoneySalt.otf", 14.0f, false, 48.0f});
-        EditorStyle::Apply(EditorStyle::Bubblegum());
-    }
-
-    void Editor::SetMatrixStyle()
-    {
-        EditorStyle::LoadFonts({"CourierPrime-Regular.ttf", 14.0f, false, 48.0f});
-        EditorStyle::Apply(EditorStyle::Matrix());
-    }
-
-    void Editor::SetRiderStyle()
-    {
-        EditorStyle::LoadFonts({"JetBrainsMono-Regular.ttf", 16.0f, true, 14.0f});
-        EditorStyle::Apply(EditorStyle::Rider());
-    }
+    void Editor::SetCustomStyle()    { ApplyBuiltinStyle("Custom"); }
+    void Editor::SetBubblegumStyle() { ApplyBuiltinStyle("Bubblegum"); }
+    void Editor::SetMatrixStyle()    { ApplyBuiltinStyle("Matrix"); }
+    void Editor::SetRiderStyle()     { ApplyBuiltinStyle("Rider"); }
 
     void Editor::SetRandomStyle()
     {
