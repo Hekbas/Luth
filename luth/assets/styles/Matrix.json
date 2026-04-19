@@ -1,0 +1,282 @@
+{
+    "name": "Matrix",
+    "font": {
+        "mainFont": "CourierPrime-Regular.ttf",
+        "mainSize": 14.0,
+        "mergeMainWithSolid": false,
+        "iconSize": 48.0
+    },
+    "dockingSeparatorSize": 0.0,
+    "windowRounding": 4.0,
+    "childRounding": 0.0,
+    "frameRounding": 2.0,
+    "grabRounding": 2.0,
+    "popupRounding": 0.0,
+    "scrollbarRounding": 4.0,
+    "tabRounding": 0.0,
+    "windowBorderSize": 0.0,
+    "childBorderSize": 0.0,
+    "popupBorderSize": 0.0,
+    "frameBorderSize": 0.0,
+    "tabBorderSize": 0.0,
+    "windowPadding": [
+        8,
+        8
+    ],
+    "framePadding": [
+        6,
+        4
+    ],
+    "itemSpacing": [
+        6,
+        4
+    ],
+    "itemInnerSpacing": [
+        4,
+        4
+    ],
+    "touchExtraPadding": [
+        0,
+        0
+    ],
+    "indentSpacing": 20,
+    "scrollbarSize": 14,
+    "grabMinSize": 12,
+    "alpha": 1.0,
+    "colors": {
+        "Border": [
+            0.0,
+            0.5,
+            0.0,
+            0.5
+        ],
+        "BorderShadow": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ],
+        "Button": [
+            0.0,
+            0.2,
+            0.0,
+            0.4
+        ],
+        "ButtonActive": [
+            0.0,
+            0.7,
+            0.0,
+            1.0
+        ],
+        "ButtonHovered": [
+            0.0,
+            0.5,
+            0.0,
+            1.0
+        ],
+        "CheckMark": [
+            0.0,
+            1.0,
+            0.0,
+            1.0
+        ],
+        "ChildBg": [
+            0.0,
+            0.02,
+            0.0,
+            0.0
+        ],
+        "DockingEmptyBg": [
+            0.0,
+            0.05,
+            0.0,
+            1.0
+        ],
+        "DockingPreview": [
+            0.0,
+            0.6,
+            0.0,
+            0.7
+        ],
+        "FrameBg": [
+            0.0,
+            0.05,
+            0.0,
+            0.54
+        ],
+        "FrameBgActive": [
+            0.0,
+            0.4,
+            0.0,
+            0.67
+        ],
+        "FrameBgHovered": [
+            0.0,
+            0.3,
+            0.0,
+            0.4
+        ],
+        "Header": [
+            0.0,
+            0.3,
+            0.0,
+            0.31
+        ],
+        "HeaderActive": [
+            0.0,
+            0.7,
+            0.0,
+            1.0
+        ],
+        "HeaderHovered": [
+            0.0,
+            0.5,
+            0.0,
+            0.8
+        ],
+        "PopupBg": [
+            0.0,
+            0.03,
+            0.0,
+            0.94
+        ],
+        "ResizeGrip": [
+            0.0,
+            0.3,
+            0.0,
+            0.2
+        ],
+        "ResizeGripActive": [
+            0.0,
+            0.8,
+            0.0,
+            0.9
+        ],
+        "ResizeGripHovered": [
+            0.0,
+            0.6,
+            0.0,
+            0.6
+        ],
+        "ScrollbarGrab": [
+            0.0,
+            0.3,
+            0.0,
+            0.8
+        ],
+        "ScrollbarGrabActive": [
+            0.0,
+            0.7,
+            0.0,
+            1.0
+        ],
+        "ScrollbarGrabHovered": [
+            0.0,
+            0.5,
+            0.0,
+            0.8
+        ],
+        "Separator": [
+            0.0,
+            0.5,
+            0.0,
+            0.5
+        ],
+        "SeparatorActive": [
+            0.0,
+            0.9,
+            0.0,
+            0.7
+        ],
+        "SeparatorHovered": [
+            0.0,
+            0.7,
+            0.0,
+            0.6
+        ],
+        "SliderGrab": [
+            0.0,
+            0.6,
+            0.0,
+            1.0
+        ],
+        "SliderGrabActive": [
+            0.0,
+            0.8,
+            0.0,
+            1.0
+        ],
+        "Tab": [
+            0.0,
+            0.15,
+            0.0,
+            0.86
+        ],
+        "TabDimmed": [
+            0.0,
+            0.1,
+            0.0,
+            0.97
+        ],
+        "TabDimmedSelected": [
+            0.0,
+            0.2,
+            0.0,
+            1.0
+        ],
+        "TabHovered": [
+            0.0,
+            0.5,
+            0.0,
+            0.8
+        ],
+        "TabSelected": [
+            0.0,
+            0.3,
+            0.0,
+            1.0
+        ],
+        "TabSelectedOverline": [
+            0.0,
+            0.5,
+            0.0,
+            1.0
+        ],
+        "Text": [
+            0.0,
+            1.0,
+            0.0,
+            1.0
+        ],
+        "TextDisabled": [
+            0.0,
+            0.4,
+            0.0,
+            1.0
+        ],
+        "TitleBg": [
+            0.0,
+            0.1,
+            0.0,
+            1.0
+        ],
+        "TitleBgActive": [
+            0.0,
+            0.2,
+            0.0,
+            1.0
+        ],
+        "TitleBgCollapsed": [
+            0.0,
+            0.1,
+            0.0,
+            0.51
+        ],
+        "WindowBg": [
+            0.0,
+            0.02,
+            0.0,
+            1.0
+        ]
+    }
+}
