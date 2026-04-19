@@ -64,7 +64,7 @@ Lightweight handle wrapper: `entt::entity` handle + `Scene*` back-reference. Cop
 
 Static `SystemRegistry` class (renamed from `Systems` in arch-cleanup v1.6.0) holds a `vector<unique_ptr<ISystem>>`. Per-system dispatch via `SystemRegistry::Update<T>()` (called explicitly from `App::Run` for each registered system).
 
-**Update order:** TransformSystem → AnimationSystem → RenderingSystem (camera state fed directly into RenderingSystem from App via `CameraParams`)
+**Update order:** TransformSystem → AnimationSystem → RenderingSystem → PickingSystem (camera state fed directly into RenderingSystem from App via `CameraParams`; `LightingSystem` is registered for lookup but its `Update` is a no-op — `RenderingSystem::Update` drives it inline via `UpdateFor`)
 
 ### TransformSystem — Parallel Level-Based Hierarchy
 1. If hierarchy version changed, rebuild level arrays via BFS from roots
@@ -77,10 +77,20 @@ Static `SystemRegistry` class (renamed from `Systems` in arch-cleanup v1.6.0) ho
 - Computes `ViewMatrix = inverse(WorldTransform.Matrix)`
 - Recomputes `ProjectionMatrix` from properties only if `IsDirty`
 
-### RenderingSystem (ECS-glue layer since arch-renderer-split v1.7.0)
-- ~350 LOC; orchestration only. Graph assembly + graphics resources live on `RenderPipeline` in `renderer/`.
-- Owns per-frame scene inputs: `FrameTargets`, `CameraParams`, `DirectionalLightShadowParams`, cascade data, `FrameDebugger`, editor toggles.
-- Delegates: `DrawListBuilder` (ECS walk → opaque/cutout/transparent buckets), `LightGatherer` (ECS → `LightUniforms`), `CascadeBuilder` (PSSM cascade fit).
+### RenderingSystem (ECS-glue layer since arch-renderer-split v1.7.0; slimmed further in rendering-system-slim v2.6.0)
+- ~200 LOC; narrow ECS→DrawList dispatcher. Graph assembly + graphics resources live on `RenderPipeline` in `renderer/`.
+- Owns per-frame scene inputs: `FrameTargets`, `CameraParams`, `DrawList`, `FrameDebugger`, editor toggles.
+- Calls `LightingSystem::UpdateFor` then `RenderPipeline::Execute` each frame.
+
+### LightingSystem (since rendering-system-slim v2.6.0)
+- Owns `LightGatherer` (ECS → `LightUniforms`) and `CascadeBuilder` (PSSM cascade fit).
+- `UpdateFor(registry, camera)` is invoked from `RenderingSystem::Update` (its `ISystem::Update` is a no-op); `RenderingSystem` then hands the outputs to `RenderPipeline::UploadLightUBO` + `UpdateGlobalUniforms`.
+
+### PickingSystem (since rendering-system-slim v2.6.0)
+- Owns the single-pixel Vulkan readback from the `EntityID` target + the `RequestPick`/`HasResult`/`ConsumeResult` state.
+- Registered last in the update order so the `EntityID` target has valid contents when it reads.
+- Editor panels reach it via `SystemRegistry::GetSystem<PickingSystem>()`.
+
 - Detailed rendering architecture in `arch/rendering-pipeline.md`.
 
 ## Scene Serialization (JSON `.luth` format)

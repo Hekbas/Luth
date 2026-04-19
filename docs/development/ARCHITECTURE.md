@@ -67,7 +67,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │    ├── gpu/ ................... GPUObjectBuffers (object SSBO + indirect buffer + cull pipeline + per-frame fill)
  │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4 bone SSBO), GlobalUniforms
  │    ├── material/ .............. Material, MaterialSystem
- │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary
+ │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary, ShaderWatcher (hot-reload service owned by RenderPipeline)
  │    ├── pipeline/ .............. PipelineManager, PipelineFactory (8 per-family pipeline builders: PBR / Shadow / DepthPrepass / Selection / Skybox / Post / Outline / Grid)
  │    ├── settings/ .............. GTAOSettings, PostProcessSettings
  │    ├── draw/ .................. DrawCommand
@@ -81,7 +81,10 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │    └── SystemRegistry ......... vector<unique_ptr<ISystem>>, Update<T>() dispatch
  │         ├── TransformSystem ... Parallel level-based hierarchy propagation
  │         ├── AnimationSystem ... Fiber-parallel keyframe sampling, GPU skinning
- │         └── RenderingSystem ... ~350-LOC ECS glue (owns FrameTargets, CameraParams, ShadowParams, FrameDebugger); graph assembly on RenderPipeline
+ │         ├── CameraSystem ..... Projection + view matrix computation per frame
+ │         ├── LightingSystem ... Light gather + CSM cascade fit (LightGatherer + CascadeBuilder); outputs consumed by RenderPipeline
+ │         ├── RenderingSystem .. ~200-LOC ECS→DrawList dispatcher; owns FrameTargets + CameraParams + FrameDebugger + DrawList; invokes RenderPipeline::Execute
+ │         └── PickingSystem .... Mouse-pick readback from EntityID buffer; runs post-render
  │
  └── [Asset Pipeline (resources/)]
       ├── AssetDatabase .......... Two-phase: InitEngine() → LoadProject()

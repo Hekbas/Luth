@@ -3,32 +3,16 @@
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/RenderPipeline.h"
-#include "luth/jobs/JobSystem.h"
-#include "luth/core/diagnostics/Profiler.h"
-#include "luth/scene/Scene.h"
-#include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
-#include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/renderer/backend/vulkan/VulkanTexture.h"
-#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/resources/Buffer.h"
 #include "luth/resources/FileSystem.h"
-#include "luth/resources/AssetDatabase.h"
-#include "luth/renderer/lighting/IBLPrecompute.h"
-#include "luth/renderer/draw/DrawCommand.h"
-#include "luth/renderer/passes/CullPass.h"
-#include "luth/renderer/backend/vulkan/VulkanAllocator.h"
-#include "luth/renderer/backend/vulkan/VulkanShader.h"
-#include "luth/renderer/backend/vulkan/DynamicRendering.h"
-#include <backends/imgui_impl_vulkan.h>
-#include <imgui.h>
-#include <vma/vk_mem_alloc.h>
+#include "luth/scene/Scene.h"
+#include "luth/scene/Components.h"
+#include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
@@ -110,7 +94,7 @@ namespace Luth
     }
 
     // =========================================================================
-    // GPU Object Buffer + Cull Pipeline
+    // Per-frame dispatcher
     // =========================================================================
 
     void RenderingSystem::Update(Scene* scene)
@@ -229,9 +213,4 @@ namespace Luth
             m_Pipeline->OnResize(width, height);
         }
     }
-
-    // =========================================================================
-    //  Frame Debugger: Re-Recording (Frozen State)
-    // =========================================================================
-
 }
