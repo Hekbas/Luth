@@ -381,29 +381,10 @@ namespace Luth
         s_Panels.emplace_back(panel);
     }
 
-    bool Editor::ApplyRandomStyle()
+    void Editor::LoadStyle(const std::string& nameOrPath)
     {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(1, 1);
-     
-        int randomValue = dis(gen);
-
-		if (randomValue == 1000) { // 0.1% chance
-            SetMatrixStyle();
-			LH_CORE_ERROR("Wake up, Neo...");
-            return true;
-        }
-        else {
-            SetRiderStyle();
-            return false;
-        }
+        s_PendingStyle = nameOrPath;
     }
-
-    void Editor::SetCustomStyle()    { ApplyBuiltinStyle("Custom"); }
-    void Editor::SetBubblegumStyle() { ApplyBuiltinStyle("Bubblegum"); }
-    void Editor::SetMatrixStyle()    { ApplyBuiltinStyle("Matrix"); }
-    void Editor::SetRiderStyle()     { ApplyBuiltinStyle("Rider"); }
 
     void Editor::SetRandomStyle()
     {

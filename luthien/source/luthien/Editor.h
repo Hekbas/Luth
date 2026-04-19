@@ -47,11 +47,12 @@ namespace Luth
             return it != s_PanelRegistry.end() ? static_cast<T*>(it->second) : nullptr;
         }
 
-        static bool ApplyRandomStyle();
-        static void SetCustomStyle();
-        static void SetBubblegumStyle();
-		static void SetMatrixStyle();
-        static void SetRiderStyle();
+        // Deferred style change — applied on next BeginFrame (font atlas can't
+        // rebuild mid-frame). Accepts a built-in name (Custom/Bubblegum/Matrix/
+        // Rider) or an absolute JSON path.
+        static void LoadStyle(const std::string& nameOrPath);
+
+        // Easter egg — randomised color palette. Unrelated to LoadStyle.
         static void SetRandomStyle();
 
         static ImFont*  GetMainFont()     { return m_MainFont; }
