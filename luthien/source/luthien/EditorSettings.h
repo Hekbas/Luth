@@ -8,7 +8,8 @@ namespace Luth
     struct EditorSettings
     {
         // Style
-        std::string activeStyle = "Rider";
+        std::string activeStyle = "Rider";      // Built-in name (Custom/Bubblegum/Matrix/Rider)
+        std::string activeStylePath = "";       // Optional: user-loaded style file; takes precedence
 
         // Layout
         std::string activeLayout = "Default";

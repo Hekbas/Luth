@@ -2,23 +2,27 @@
 
 #include <imgui.h>
 
+#include <filesystem>
+#include <optional>
+#include <string>
+
 struct ImFont;
 
 namespace Luth
 {
     struct FontConfig {
-        const char* MainFontName;       // e.g. "Roboto-Regular.ttf"
+        std::string MainFontName;       // e.g. "Roboto-Regular.ttf"
         float       MainFontSize;       // e.g. 15.0f
         bool        MergeMainWithSolid; // true for Custom style (merge FA-Solid into main font)
         float       IconFontSize;       // e.g. 14.0f or 48.0f
     };
 
     struct StylePreset {
-        const char* Name;
-        
+        std::string Name;
+
         // Docking
         float DockingSeparatorSize;
-        
+
         // Rounding
         float WindowRounding, ChildRounding, FrameRounding, GrabRounding;
         float PopupRounding, ScrollbarRounding, TabRounding;
@@ -35,6 +39,11 @@ namespace Luth
         ImVec4 Colors[ImGuiCol_COUNT];
     };
 
+    struct StyleFile {
+        StylePreset Preset;
+        FontConfig  Font;
+    };
+
     namespace EditorStyle
     {
         // Load fonts for a given style. Sets Editor font pointers.
@@ -43,10 +52,11 @@ namespace Luth
         // Apply a preset's style properties and colors
         void Apply(const StylePreset& preset);
 
-        // Built-in presets
-        const StylePreset& Custom();
-        const StylePreset& Bubblegum();
-        const StylePreset& Matrix();
-        const StylePreset& Rider();
+        // JSON (de)serialise. File format pairs a StylePreset with its FontConfig.
+        std::optional<StyleFile> LoadFromFile(const std::filesystem::path& path);
+        bool SaveToFile(const StylePreset& preset, const FontConfig& font, const std::filesystem::path& path);
+
+        // Load one of the built-in styles shipped under luth/assets/styles/<name>.json.
+        std::optional<StyleFile> LoadBuiltin(const std::string& name);
     }
 }

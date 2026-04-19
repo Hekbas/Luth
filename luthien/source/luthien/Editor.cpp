@@ -41,6 +41,26 @@
 
 namespace Luth
 {
+    // Cached so Style → Save Current As can round-trip the live style.
+    static std::optional<StyleFile> s_CurrentStyle;
+
+    static void ApplyStyleFile(std::optional<StyleFile> sf)
+    {
+        if (!sf) return;
+        EditorStyle::LoadFonts(sf->Font);
+        EditorStyle::Apply(sf->Preset);
+        s_CurrentStyle = std::move(sf);
+    }
+
+    static void ApplyBuiltinStyle(const char* name)           { ApplyStyleFile(EditorStyle::LoadBuiltin(name)); }
+    static void ApplyStyleFromFile(const fs::path& path)      { ApplyStyleFile(EditorStyle::LoadFromFile(path)); }
+
+    static bool PendingIsPath(const std::string& s)
+    {
+        return s.find('/') != std::string::npos || s.find('\\') != std::string::npos
+            || (s.size() > 5 && s.compare(s.size() - 5, 5, ".json") == 0);
+    }
+
     void Editor::Init(Window* window)
     {
         s_Window = window;
@@ -66,14 +86,14 @@ namespace Luth
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         LH_CORE_TRACE(" - Enabled docking + multi-viewport");
 
-        // Apply persisted style BEFORE CreateFontsTexture: Set*Style() calls
-        // EditorStyle::LoadFonts() which populates io.Fonts. Window-chrome colors
-        // belong here too since the Matrix theme tints them.
-        bool matrix = false;
-        if (s_Settings.activeStyle == "Custom")         SetCustomStyle();
-        else if (s_Settings.activeStyle == "Bubblegum") SetBubblegumStyle();
-        else if (s_Settings.activeStyle == "Matrix")  { SetMatrixStyle(); matrix = true; }
-        else                                            SetRiderStyle();
+        // Apply persisted style BEFORE CreateFontsTexture: LoadFonts populates
+        // io.Fonts. Window-chrome colors belong here too since Matrix tints them.
+        if (!s_Settings.activeStylePath.empty() && fs::exists(s_Settings.activeStylePath))
+            ApplyStyleFromFile(s_Settings.activeStylePath);
+        else
+            ApplyBuiltinStyle(s_Settings.activeStyle.c_str());
+
+        bool matrix = (s_CurrentStyle && s_CurrentStyle->Preset.Name == "Matrix");
 
         #ifdef _WIN32
             if (matrix)
@@ -218,15 +238,17 @@ namespace Luth
     {
         // Apply deferred style change (fonts can't be rebuilt between NewFrame/Render)
         if (!s_PendingStyle.empty()) {
-            if (s_PendingStyle == "Custom")         SetCustomStyle();
-            else if (s_PendingStyle == "Bubblegum") SetBubblegumStyle();
-            else if (s_PendingStyle == "Matrix")    SetMatrixStyle();
-            else                                    SetRiderStyle();
-
-            s_Settings.activeStyle = s_PendingStyle;
+            if (PendingIsPath(s_PendingStyle)) {
+                ApplyStyleFromFile(s_PendingStyle);
+                s_Settings.activeStylePath = s_PendingStyle;
+                s_Settings.activeStyle     = s_CurrentStyle ? s_CurrentStyle->Preset.Name : "";
+            } else {
+                ApplyBuiltinStyle(s_PendingStyle.c_str());
+                s_Settings.activeStyle = s_PendingStyle;
+                s_Settings.activeStylePath.clear();
+            }
             s_PendingStyle.clear();
 
-            // Rebuild font texture after atlas change
             if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
                 ImGui_ImplVulkan_CreateFontsTexture();
         }
@@ -359,47 +381,9 @@ namespace Luth
         s_Panels.emplace_back(panel);
     }
 
-    bool Editor::ApplyRandomStyle()
+    void Editor::LoadStyle(const std::string& nameOrPath)
     {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(1, 1);
-     
-        int randomValue = dis(gen);
-
-		if (randomValue == 1000) { // 0.1% chance
-            SetMatrixStyle();
-			LH_CORE_ERROR("Wake up, Neo...");
-            return true;
-        }
-        else {
-            SetRiderStyle();
-            return false;
-        }
-    }
-
-    void Editor::SetCustomStyle()
-    {
-        EditorStyle::LoadFonts({"Roboto-Regular.ttf", 15.0f, true, 14.0f});
-        EditorStyle::Apply(EditorStyle::Custom());
-    }
-
-    void Editor::SetBubblegumStyle()
-    {
-        EditorStyle::LoadFonts({"HoneySalt.otf", 14.0f, false, 48.0f});
-        EditorStyle::Apply(EditorStyle::Bubblegum());
-    }
-
-    void Editor::SetMatrixStyle()
-    {
-        EditorStyle::LoadFonts({"CourierPrime-Regular.ttf", 14.0f, false, 48.0f});
-        EditorStyle::Apply(EditorStyle::Matrix());
-    }
-
-    void Editor::SetRiderStyle()
-    {
-        EditorStyle::LoadFonts({"JetBrainsMono-Regular.ttf", 16.0f, true, 14.0f});
-        EditorStyle::Apply(EditorStyle::Rider());
+        s_PendingStyle = nameOrPath;
     }
 
     void Editor::SetRandomStyle()
@@ -734,14 +718,32 @@ namespace Luth
             if (ImGui::BeginMenu("View")) {
                 // Style submenu — deferred to next BeginFrame (font atlas can't change mid-frame)
                 if (ImGui::BeginMenu("Style")) {
-                    auto deferStyle = [](const char* name) {
-                        if (ImGui::MenuItem(name, nullptr, s_Settings.activeStyle == name))
+                    auto deferBuiltin = [](const char* name) {
+                        bool active = s_Settings.activeStylePath.empty()
+                                   && s_Settings.activeStyle == name;
+                        if (ImGui::MenuItem(name, nullptr, active))
                             s_PendingStyle = name;
                     };
-                    deferStyle("Custom");
-                    deferStyle("Bubblegum");
-                    deferStyle("Matrix");
-                    deferStyle("Rider");
+                    deferBuiltin("Custom");
+                    deferBuiltin("Bubblegum");
+                    deferBuiltin("Matrix");
+                    deferBuiltin("Rider");
+
+                    ImGui::Separator();
+
+                    if (ImGui::MenuItem("Load From File...")) {
+                        auto picked = FileDialog::OpenFile("Luth Style (*.json)\0*.json\0All Files (*.*)\0*.*\0");
+                        if (picked.has_value())
+                            s_PendingStyle = picked.value().string();
+                    }
+                    if (ImGui::MenuItem("Save Current As...", nullptr, false, s_CurrentStyle.has_value())) {
+                        auto picked = FileDialog::SaveFile("Luth Style (*.json)\0*.json\0All Files (*.*)\0*.*\0");
+                        if (picked.has_value()) {
+                            fs::path out = picked.value();
+                            if (out.extension() != ".json") out += ".json";
+                            EditorStyle::SaveToFile(s_CurrentStyle->Preset, s_CurrentStyle->Font, out);
+                        }
+                    }
                     ImGui::EndMenu();
                 }
 
