@@ -63,7 +63,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │    ├── Backend ................ VulkanContext, VulkanBackend, Timeline Semaphores
  │    ├── passes/ ................ Shadow, DepthPrepass, AO (GTAO), Cull, Geometry, Selection, Skybox, Grid, Bloom, PostProcess, Outline, ImGui
  │    ├── lighting/ .............. LightGatherer, CascadeBuilder, IBLPrecompute, LightTypes
- │    ├── resources/ ............. Texture, Mesh, Model, Buffer
+ │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4 bone SSBO)
  │    ├── material/ .............. Material, MaterialSystem
  │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary
  │    ├── pipeline/ .............. PipelineManager
@@ -72,14 +72,9 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │    ├── FrameDebugger .......... Capture state machine, per-draw scrubbing, debug blit
  │    └── Renderer ............... High-level BeginFrame/EndFrame façade
  │
- ├── [Animation]  ← consolidated module since arch-renderer-split v1.7.0
- │    ├── AnimationClip, Skeleton
- │    ├── BoneMatrixBuffer ....... Per-entity bone block SSBO (Set 4)
- │    └── AnimationController .... Blend layers, crossfade, bone masks, root motion
- │
  ├── [Scene / ECS]
  │    ├── Scene, Entity
- │    ├── components/ ............ Granular headers (Common, Transform, Camera, Rendering, Lights, Animation); Components.h umbrella preserved
+ │    ├── components/ ............ Granular headers (Common, Transform, Camera, Rendering, Lights, Animation, AnimationController); Components.h umbrella preserved
  │    └── SystemRegistry ......... vector<unique_ptr<ISystem>>, Update<T>() dispatch
  │         ├── TransformSystem ... Parallel level-based hierarchy propagation
  │         ├── AnimationSystem ... Fiber-parallel keyframe sampling, GPU skinning
