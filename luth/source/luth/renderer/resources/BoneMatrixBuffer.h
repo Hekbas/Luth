@@ -1,7 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
-#include "luth/animation/Skeleton.h"
+#include "luth/renderer/resources/Skeleton.h"
 #include <vulkan/vulkan.h>
 #include <deque>
 #include <mutex>

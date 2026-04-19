@@ -3,8 +3,8 @@
 #include "luth/scene/systems/ISystem.h"
 #include "luth/animation/AnimationController.h"
 #include "luth/jobs/JobSystem.h"
-#include "luth/animation/AnimationClip.h"
-#include "luth/animation/Skeleton.h"
+#include "luth/renderer/resources/AnimationClip.h"
+#include "luth/renderer/resources/Skeleton.h"
 
 #include <memory>
 
