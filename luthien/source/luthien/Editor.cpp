@@ -46,6 +46,9 @@ namespace Luth
         s_Window = window;
         LH_CORE_INFO("Initializing Luth Editor");
 
+        // Settings must be loaded first so InitImGui can apply the persisted style,
+        // which populates io.Fonts before the Vulkan font atlas is built.
+        LoadSettings();
         InitImGui(window);
         ProjectLauncher::Init();
         InitPanels();
@@ -62,6 +65,22 @@ namespace Luth
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         LH_CORE_TRACE(" - Enabled docking + multi-viewport");
+
+        // Apply persisted style BEFORE CreateFontsTexture: Set*Style() calls
+        // EditorStyle::LoadFonts() which populates io.Fonts. Window-chrome colors
+        // belong here too since the Matrix theme tints them.
+        bool matrix = false;
+        if (s_Settings.activeStyle == "Custom")         SetCustomStyle();
+        else if (s_Settings.activeStyle == "Bubblegum") SetBubblegumStyle();
+        else if (s_Settings.activeStyle == "Matrix")  { SetMatrixStyle(); matrix = true; }
+        else                                            SetRiderStyle();
+
+        #ifdef _WIN32
+            if (matrix)
+                window->SetWindowColors({ 0, 4, 0 }, { 0, 255, 0 }, { 0, 255, 0 });
+            else
+                window->SetWindowColors({ 30, 31, 34 }, { 67, 69, 74 }, { 223, 225, 229 });
+        #endif
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
@@ -126,21 +145,6 @@ namespace Luth
 
     void Editor::ApplyPersistence()
     {
-        LoadSettings();
-
-        bool matrix = false;
-        if (s_Settings.activeStyle == "Custom")         SetCustomStyle();
-        else if (s_Settings.activeStyle == "Bubblegum") SetBubblegumStyle();
-        else if (s_Settings.activeStyle == "Matrix")  { SetMatrixStyle(); matrix = true; }
-        else                                            SetRiderStyle();
-
-        #ifdef _WIN32
-            if (matrix)
-                s_Window->SetWindowColors({ 0, 4, 0 }, { 0, 255, 0 }, { 0, 255, 0 });
-            else
-                s_Window->SetWindowColors({ 30, 31, 34 }, { 67, 69, 74 }, { 223, 225, 229 });
-        #endif
-
         if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().ApplySettings(s_Settings);
             sp->SetShowControlsOverlay(s_Settings.showControlsOverlay);
