@@ -45,45 +45,40 @@ namespace Luth
     {
         s_Window = window;
         LH_CORE_INFO("Initializing Luth Editor");
+
+        InitImGui(window);
+        ProjectLauncher::Init();
+        InitPanels();
+        ApplyPersistence();
+    }
+
+    void Editor::InitImGui(Window* window)
+    {
         IMGUI_CHECKVERSION();
-        LH_CORE_TRACE(" - Initialized ImGui context for OpenGL");
         s_Context = ImGui::CreateContext();
+        LH_CORE_TRACE(" - Created ImGui context");
+
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        LH_CORE_TRACE(" - Enabled ImGui docking support");
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        LH_CORE_TRACE(" - Enabled ImGui multi-viewport support");
-        
-        // Load persisted settings (style, layout, IBL, etc.)
-        LoadSettings();
+        LH_CORE_TRACE(" - Enabled docking + multi-viewport");
 
-        // Initialize project launcher (loads recent projects list)
-        ProjectLauncher::Init();
-
-        // Apply persisted style (or fallback to Rider)
-        bool matrix = false;
-        if (s_Settings.activeStyle == "Custom")         SetCustomStyle();
-        else if (s_Settings.activeStyle == "Bubblegum") SetBubblegumStyle();
-        else if (s_Settings.activeStyle == "Matrix")  { SetMatrixStyle(); matrix = true; }
-        else                                            SetRiderStyle();
-
-        #ifdef _WIN32
-            if (matrix) {
-                window->SetWindowColors({ 0, 4, 0 }, { 0, 255, 0 }, { 0, 255, 0 });
-            }
-            else {
-                window->SetWindowColors({ 30, 31, 34 }, { 67, 69, 74 }, { 223, 225, 229 });
-            }
-        #endif
-        
-        // TODO: Set Render specific Imgui Backends (GL/VK)
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
-            // We install callbacks manually in WinWindow to handle event routing
+            // Callbacks installed manually in WinWindow for event routing.
             ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)window->GetNativeWindow(), false);
 
             auto& ctx = VulkanContext::Get();
-            auto* vkRenderer = static_cast<VulkanBackend*>(Renderer::GetBackend()); // Need access to swapchain info
+            auto* vkRenderer = static_cast<VulkanBackend*>(Renderer::GetBackend());
+
+            // Dedicated pool: ImGui freely allocates/frees per-texture descriptor sets.
+            VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2000 } };
+            VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+            pool_info.maxSets = 2000;
+            pool_info.poolSizeCount = 1;
+            pool_info.pPoolSizes = pool_sizes;
+            vkCreateDescriptorPool(ctx.GetDevice(), &pool_info, nullptr, &s_ImGuiPool);
 
             ImGui_ImplVulkan_InitInfo init_info = {};
             init_info.Instance = ctx.GetInstance();
@@ -92,47 +87,29 @@ namespace Luth
             init_info.QueueFamily = ctx.GetGraphicsFamily();
             init_info.Queue = ctx.GetGraphicsQueue();
             init_info.PipelineCache = VK_NULL_HANDLE;
-            init_info.DescriptorPool = ctx.GetBindlessSet().GetPool(); // Reuse bindless pool or create specific one? 
-            // Better create specific one for ImGui to avoid running out of sets
-            // For now, let's assume we create a small pool here or use a dedicated one in Context.
-            // Ideally: init_info.DescriptorPool = ctx.GetImGuiPool();
-            
-            // Hack: Create a temporary pool for ImGui
-            VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2000 } };
-            VkDescriptorPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-            pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-            pool_info.maxSets = 2000;
-            pool_info.poolSizeCount = 1;
-            pool_info.pPoolSizes = pool_sizes;
-            vkCreateDescriptorPool(ctx.GetDevice(), &pool_info, nullptr, &init_info.DescriptorPool);
-            s_ImGuiPool = init_info.DescriptorPool;
-
+            init_info.DescriptorPool = s_ImGuiPool;
             init_info.Subpass = 0;
             init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
             init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
             init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
             init_info.Allocator = nullptr;
             init_info.CheckVkResultFn = nullptr;
-            
-            // Dynamic Rendering: No RenderPass
             init_info.UseDynamicRendering = true;
-            
-            // Setup dynamic rendering info
+
             static const VkFormat swapChainFormat = vkRenderer->GetSwapchain().GetImageFormat();
             init_info.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
             init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
             init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainFormat;
 
             ImGui_ImplVulkan_Init(&init_info);
-            
-            // Upload Fonts
             ImGui_ImplVulkan_CreateFontsTexture();
         }
+    }
 
+    void Editor::InitPanels()
+    {
         auto rs = SystemRegistry::GetSystem<RenderingSystem>();
 
-        // Set Panels
         AddPanel(new HierarchyPanel());
         AddPanel(new InspectorPanel());
         AddPanel(new ProjectPanel());
@@ -143,11 +120,27 @@ namespace Luth
         AddPanel(new FrameDebuggerPanel());
         AddPanel(new HistoryPanel());
 
-        // Init all panels
         for (auto& panel : s_Panels)
             panel->OnInit();
+    }
 
-        // Apply persisted panel settings
+    void Editor::ApplyPersistence()
+    {
+        LoadSettings();
+
+        bool matrix = false;
+        if (s_Settings.activeStyle == "Custom")         SetCustomStyle();
+        else if (s_Settings.activeStyle == "Bubblegum") SetBubblegumStyle();
+        else if (s_Settings.activeStyle == "Matrix")  { SetMatrixStyle(); matrix = true; }
+        else                                            SetRiderStyle();
+
+        #ifdef _WIN32
+            if (matrix)
+                s_Window->SetWindowColors({ 0, 4, 0 }, { 0, 255, 0 }, { 0, 255, 0 });
+            else
+                s_Window->SetWindowColors({ 30, 31, 34 }, { 67, 69, 74 }, { 223, 225, 229 });
+        #endif
+
         if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().ApplySettings(s_Settings);
             sp->SetShowControlsOverlay(s_Settings.showControlsOverlay);
@@ -155,13 +148,12 @@ namespace Luth
         if (auto* pp = GetPanel<ProjectPanel>())
             pp->SetThumbnailSize(s_Settings.thumbnailSize);
 
-        // Reload skybox if settings specify a non-default path
         if (s_Settings.skyboxPath != "textures/environment.hdr" && !s_Settings.skyboxPath.empty()) {
             fs::path skyboxAbsPath = fs::path(s_Settings.skyboxPath).is_absolute()
                 ? fs::path(s_Settings.skyboxPath)
                 : FileSystem::ResolveAsset(s_Settings.skyboxPath);
             if (fs::exists(skyboxAbsPath))
-                rs->ReloadSkybox(skyboxAbsPath);
+                SystemRegistry::GetSystem<RenderingSystem>()->ReloadSkybox(skyboxAbsPath);
         }
     }
 

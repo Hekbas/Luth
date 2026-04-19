@@ -84,6 +84,10 @@ namespace Luth
         static std::vector<std::string> GetLayoutNames();
 
     private:
+        static void InitImGui(Window* window);
+        static void InitPanels();
+        static void ApplyPersistence();
+
         static void ProcessShortcuts();
         static void DrawMenuBar();
         static void UpdateWindowTitle();
