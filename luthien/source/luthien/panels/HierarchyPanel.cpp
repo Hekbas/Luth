@@ -2,7 +2,7 @@
 #include "luthien/panels/HierarchyPanel.h"
 #include "luthien/EditorColors.h"
 #include "luthien/EditorSelection.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/systems/SystemRegistry.h"

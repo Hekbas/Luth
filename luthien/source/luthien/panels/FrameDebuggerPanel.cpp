@@ -133,9 +133,7 @@ namespace Luth
         ImGui::End();
     }
 
-    // =========================================================================
-    //  Live Mode (pass-level, same as before)
-    // =========================================================================
+    // 25002500  Live Mode (pass-level, same as before) 25002500
 
     void FrameDebuggerPanel::DrawLiveView(const RG::RenderGraphSnapshot& snapshot)
     {
@@ -411,9 +409,7 @@ namespace Luth
         }
     }
 
-    // =========================================================================
-    //  Capture Mode (Phase 14D — hierarchical EventNode tree)
-    // =========================================================================
+    // 25002500  Capture Mode (Phase 14D — hierarchical EventNode tree) 25002500
 
     void FrameDebuggerPanel::DrawCaptureView(const RG::CapturedFrame& capture)
     {

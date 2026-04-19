@@ -16,15 +16,14 @@ namespace Luth
     private:
         void SaveMaterial(Material& material);
 
-        // Auto-save debounce state
         float m_SaveTimer    = 0.0f;
         bool  m_PendingSave  = false;
         UUID  m_PendingHandle;
 
-        // Undo snapshot: captured when editing begins
+        // Captured when editing begins so undo can restore the full pre-edit state.
         nlohmann::json m_UndoSnapshot;
         bool m_HasUndoSnapshot = false;
 
-        static constexpr float kAutoSaveDelay = 0.5f; // seconds after last edit
+        static constexpr float kAutoSaveDelay = 0.5f; // seconds idle before autosave fires
     };
 }

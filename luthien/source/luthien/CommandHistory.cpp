@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/CommandHistory.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/Editor.h"
 
 namespace Luth
@@ -30,9 +30,8 @@ namespace Luth
         // New action invalidates the redo branch
         s_RedoStack.clear();
 
-        // Cap history size
         while (s_UndoStack.size() > kMaxHistorySize)
-            s_UndoStack.erase(s_UndoStack.begin());
+            s_UndoStack.pop_front();
 
         Editor::MarkDirty();
     }
@@ -83,7 +82,7 @@ namespace Luth
         s_RedoStack.clear();
 
         while (s_UndoStack.size() > kMaxHistorySize)
-            s_UndoStack.erase(s_UndoStack.begin());
+            s_UndoStack.pop_front();
 
         Editor::MarkDirty();
     }

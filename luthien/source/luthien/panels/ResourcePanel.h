@@ -40,7 +40,6 @@ namespace Luth
         ImVec4 GetTypeColor(const std::string& type) const;
 
     private:
-        // Filtering state
         char m_SearchBuffer[256] = "";
         bool m_ShowModels    = true;
         bool m_ShowTextures  = true;
@@ -49,13 +48,10 @@ namespace Luth
         bool m_ShowFonts     = true;
         bool m_ShowScenes    = true;
 
-        // Selection
         UUID m_SelectedUUID = UUID::Invalid();
 
-        // Cached resource data
         std::vector<ResourceEntry> m_FilteredResources;
 
-        // Resource color / icon
         static const std::unordered_map<std::string, ImVec4> m_TypeColors;
 
         const char* GetTypeIcon(const std::string& type) const;

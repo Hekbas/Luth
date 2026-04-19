@@ -8,8 +8,6 @@
 
 namespace Luth
 {
-    // ── MaterialSnapshotCommand ───────────────────────────────────────────────
-
     class MaterialSnapshotCommand : public ICommand
     {
     public:
@@ -25,8 +23,6 @@ namespace Luth
         nlohmann::json m_OldState;
         nlohmann::json m_NewState;
     };
-
-    // ── ModelInstantiateCommand ───────────────────────────────────────────────
 
     class ModelInstantiateCommand : public ICommand
     {

@@ -10,7 +10,7 @@
 #include "luth/resources/importers/MaterialImporter.h"
 #include "luth/core/time/Time.h"
 #include "luth/jobs/IOThread.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 
 #include <imgui/imgui_internal.h>

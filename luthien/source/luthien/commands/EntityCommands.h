@@ -11,9 +11,7 @@
 
 namespace Luth
 {
-    // ── Serialization Helpers ─────────────────────────────────────────────────
-    // Extracted from SceneSerializer for command use.
-
+    // Entity serialization helpers used by destroy/duplicate commands.
     namespace CommandUtil
     {
         nlohmann::json SerializeEntity(Entity entity);
@@ -23,9 +21,7 @@ namespace Luth
         void InsertAtSiblingIndex(Scene& scene, Entity entity, Entity parent, i32 index);
     }
 
-    // ── GizmoTransformCommand ─────────────────────────────────────────────────
     // Coalesced gizmo drag: captures start/end transform.
-
     class GizmoTransformCommand : public ICommand
     {
     public:
@@ -44,8 +40,6 @@ namespace Luth
         Vec3 m_OldPos, m_OldRot, m_OldScale;
         Vec3 m_NewPos, m_NewRot, m_NewScale;
     };
-
-    // ── Entity Lifecycle Commands ─────────────────────────────────────────────
 
     class EntityCreateCommand : public ICommand
     {
@@ -100,8 +94,6 @@ namespace Luth
         std::string m_OldName;
         std::string m_NewName;
     };
-
-    // ── Hierarchy Commands ────────────────────────────────────────────────────
 
     class EntityReparentCommand : public ICommand
     {

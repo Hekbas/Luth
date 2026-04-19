@@ -6,9 +6,7 @@
 
 namespace Luth::EditorStyle
 {
-    // ================================================================
-    // Font Loading
-    // ================================================================
+    // 25002500 Font Loading 25002500
 
     static ImFont* LoadIconFont(const char* filename, float size, bool mergeMode)
     {
@@ -61,9 +59,7 @@ namespace Luth::EditorStyle
         }
     }
 
-    // ================================================================
-    // Style Application
-    // ================================================================
+    // 25002500 Style Application 25002500
 
     void Apply(const StylePreset& preset)
     {
@@ -100,9 +96,7 @@ namespace Luth::EditorStyle
         memcpy(style.Colors, preset.Colors, sizeof(preset.Colors));
     }
 
-    // ================================================================
-    // Preset Definitions
-    // ================================================================
+    // 25002500 Preset Definitions 25002500
 
     const StylePreset& Custom()
     {

@@ -2,7 +2,7 @@
 #include "luthien/panels/ScenePanel.h"
 #include "luthien/panels/RenderPanel.h"
 #include "luthien/EditorSelection.h"
-#include "luthien/Command.h"
+#include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/EditorColors.h"
@@ -69,7 +69,7 @@ namespace Luth
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
         if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
-            // Toolbar — Left | Mid | Right
+            // Toolbar â Left | Mid | Right
             {
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
                 const float framePad = ImGui::GetStyle().FramePadding.x;
@@ -98,7 +98,7 @@ namespace Luth
                         ImGui::PopStyleColor(3); // Button, ButtonHovered, Border
                 };
 
-                // ======= LEFT: Gizmo tools =======
+                // ── Left: gizmo tools ──
                 ImGui::AlignTextToFramePadding();
                 ToolButton(ICON_FA_CROSSHAIRS, "##Select", "Select (Q)", -1);
                 ImGui::SameLine(0, 2.0f);
@@ -110,7 +110,7 @@ namespace Luth
 
                 ImGui::SameLine();
 
-                // ======= MID: Stats / View (centered) =======
+                // ── Center: stats / view ──
                 // Pre-calculate mid section width
                 u32 triCount = m_RenderingSystem->GetTriangleCount();
                 char triText[64];
@@ -180,7 +180,7 @@ namespace Luth
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Environment");
 
-                // ======= RIGHT: Camera & Overlay (right-aligned) =======
+                // ── Right: camera & overlay ──
                 float rightWidth = btnSize*3 + sepWidth + itemSpacing*2;
                 float rightStart = toolbarWidth - rightWidth + ImGui::GetStyle().WindowPadding.x;
                 ImGui::SameLine(rightStart);
@@ -259,8 +259,8 @@ namespace Luth
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-            // Viewport sizing — compare as integers to avoid an infinite resize
-            // loop caused by float ↔ u32 truncation in the RenderResizeEvent path.
+            // Viewport sizing â compare as integers to avoid an infinite resize
+            // loop caused by float â u32 truncation in the RenderResizeEvent path.
             const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
             const u32 newW = (u32)avail.x;
             const u32 newH = (u32)avail.y;
@@ -316,7 +316,7 @@ namespace Luth
             DrawCameraGizmos();
             DrawAABBGizmos();
 
-            // Mouse picking — LMB click in viewport (not on gizmo or icon)
+            // Mouse picking â LMB click in viewport (not on gizmo or icon)
             if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
                 && !m_GizmoIconClicked
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
@@ -330,7 +330,7 @@ namespace Luth
                         ps->RequestPick(px, py);
             }
 
-            // Consume pick result — hierarchy-aware + multi-select
+            // Consume pick result â hierarchy-aware + multi-select
             auto* picker = SystemRegistry::GetSystem<PickingSystem>();
             if (!m_GizmoIconClicked && picker && picker->HasResult())
             {
@@ -379,7 +379,7 @@ namespace Luth
                 }
             }
 
-            // Deferred icon selection — always wins over pick results
+            // Deferred icon selection â always wins over pick results
             if (m_GizmoIconClicked && m_GizmoIconEntity != entt::null && m_Context)
             {
                 // Discard any stale pick result
@@ -593,7 +593,7 @@ namespace Luth
         Entity selectedEntity = EditorSelection::GetSelectedEntity();
         if (!selectedEntity || !selectedEntity.IsValid()) return;
 
-        // Find the entity that owns Animation — selected entity or its parent
+        // Find the entity that owns Animation â selected entity or its parent
         Entity animEntity = selectedEntity;
         if (!animEntity.HasComponent<Animation>() && animEntity.HasParent()) {
             Entity parent = animEntity.GetParent();
@@ -649,9 +649,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ======================================
-    // Shared gizmo helpers
-    // ======================================
+    // ── Shared gizmo helpers ──
 
     ImVec2 ScenePanel::ProjectToScreen(const Vec3& worldPos) const
     {
@@ -687,7 +685,7 @@ namespace Luth
         ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
         drawList->AddText(textPos, color, icon);
 
-        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
+        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active â
         // otherwise it returns stale state from the previous frame
         bool gizmoActive = m_SelectedEntity && m_SelectedEntity.IsValid()
                         && m_ShowTransformGizmo && m_GizmoType != -1;
@@ -727,9 +725,7 @@ namespace Luth
         drawList->AddLine(ProjectToScreen(a), ProjectToScreen(b), color, thickness);
     }
 
-    // ======================================
-    // Light Gizmos
-    // ======================================
+    // ── Light Gizmos ──
 
     void ScenePanel::DrawLightGizmos()
     {
@@ -756,7 +752,7 @@ namespace Luth
                 if (screenPos.x >= 0.0f)
                     DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity);
 
-                // Direction arrow — only when selected
+                // Direction arrow â only when selected
                 Entity e(entity, m_Context.get());
                 if (!EditorSelection::IsSelected(e)) continue;
 
@@ -806,7 +802,7 @@ namespace Luth
                 if (screenCenter.x >= 0.0f)
                     DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, iconColor, entity);
 
-                // Range circles — only when selected
+                // Range circles â only when selected
                 Entity e(entity, m_Context.get());
                 if (!EditorSelection::IsSelected(e)) continue;
 
@@ -839,9 +835,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ======================================
-    // Camera Gizmos
-    // ======================================
+    // ── Camera Gizmos ──
 
     void ScenePanel::DrawCameraGizmos()
     {
@@ -924,9 +918,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ======================================
-    // AABB Gizmos
-    // ======================================
+    // ── AABB Gizmos ──
 
     void ScenePanel::DrawAABBGizmos()
     {

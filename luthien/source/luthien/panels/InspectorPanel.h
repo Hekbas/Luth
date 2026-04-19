@@ -20,7 +20,6 @@ namespace Luth
         void OnRender() override;
 
     private:
-
         void DrawEntityComponents(Entity entity);
 
         template<typename T, typename UIFunction>
@@ -28,11 +27,10 @@ namespace Luth
 
         void DrawResourceProperties(UUID resource);
 
-        // Lock feature — keeps inspector pinned to a specific entity
+        // When locked, the inspector stays pinned to m_LockedEntity regardless of selection.
         bool   m_IsLocked = false;
         Entity m_LockedEntity;
 
-    private:
         ModelViewer    m_ModelViewer;
         MaterialEditor m_MaterialEditor;
         TextureEditor  m_TextureEditor;

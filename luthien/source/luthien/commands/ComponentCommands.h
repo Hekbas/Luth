@@ -8,8 +8,6 @@
 
 namespace Luth
 {
-    // ── ComponentAddCommand<T> ────────────────────────────────────────────────
-
     template<typename T>
     class ComponentAddCommand : public ICommand
     {
@@ -53,8 +51,6 @@ namespace Luth
         T m_InitValue{};
         bool m_HasInitValue = false;
     };
-
-    // ── ComponentRemoveCommand<T> ─────────────────────────────────────────────
 
     template<typename T>
     class ComponentRemoveCommand : public ICommand
