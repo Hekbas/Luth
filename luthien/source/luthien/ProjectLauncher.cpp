@@ -18,9 +18,7 @@ namespace Luth
 {
     namespace fs = std::filesystem;
 
-    // ================================================================
-    // Time Helpers
-    // ================================================================
+    // 25002500 Time Helpers 25002500
 
     static int64_t NowUnix()
     {
@@ -43,9 +41,7 @@ namespace Luth
         return std::to_string(delta / 2592000) + " months ago";
     }
 
-    // ================================================================
-    // Lifecycle
-    // ================================================================
+    // 25002500 Lifecycle 25002500
 
     void ProjectLauncher::Init()
     {
@@ -64,9 +60,7 @@ namespace Luth
         return std::move(s_PendingProject);
     }
 
-    // ================================================================
-    // Recent Projects Persistence
-    // ================================================================
+    // 25002500 Recent Projects Persistence 25002500
 
     fs::path ProjectLauncher::GetConfigPath()
     {
@@ -173,9 +167,7 @@ namespace Luth
         s_HasPending = true;
     }
 
-    // ================================================================
-    // Rendering
-    // ================================================================
+    // 25002500 Rendering 25002500
 
     void ProjectLauncher::Render()
     {

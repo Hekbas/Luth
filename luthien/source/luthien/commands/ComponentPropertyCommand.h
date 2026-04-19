@@ -8,11 +8,8 @@
 
 namespace Luth
 {
-    // ── ComponentPropertyCommand<C, T> ────────────────────────────────────────
-    // Generic: change one member of component C on an entity.
-    // Uses pointer-to-member so the reference is re-resolved on undo/redo
-    // (safe across EnTT pool relocations).
-
+    // Pointer-to-member is re-resolved on each apply so undo/redo stays safe
+    // across EnTT pool relocations.
     template<typename C, typename T>
     class ComponentPropertyCommand : public ICommand
     {

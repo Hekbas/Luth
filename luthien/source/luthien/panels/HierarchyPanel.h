@@ -26,13 +26,11 @@ namespace Luth
         void DrawTopBar();
         void DrawEntityNode(Entity entity);
         void DrawContextMenu(Entity parent = {});
-        
-        // Drag & Drop Logic
+
         void HandleDragDropSource(Entity entity);
         void HandleDragDropTarget(Entity targetEntity);
         void HandleRootDragDropTarget();
 
-        // Helpers
         void RenameEntity(Entity entity);
         void DeleteSelectedEntity();
         bool IsDescendant(Entity potentialDescendant, Entity potentialAncestor);
@@ -42,16 +40,14 @@ namespace Luth
     private:
         std::shared_ptr<Scene> m_Context;
         Entity m_Selection;
-        
-        // Renaming State
+
         Entity m_RenamingEntity;
         bool m_IsRenaming = false;
         bool m_FocusRename = false;
         char m_RenameBuffer[256] = "";
 
-        // Search
         char m_SearchFilter[256] = "";
-        
+
         std::vector<std::function<void()>> m_DeferredActions;
 
         struct PendingInstantiation {

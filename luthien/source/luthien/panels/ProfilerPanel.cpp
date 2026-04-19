@@ -76,9 +76,7 @@ namespace Luth
 
         if (ImGui::Begin(title.c_str()))
         {
-            // ================================================================
-            // Per-frame sampling (worker states + job counters)
-            // ================================================================
+            // 25002500 Per-frame sampling (worker states + job counters) 25002500
             {
                 JobSystem::Stats stats = JobSystem::GetStats();
                 m_WorkerThreadCount = stats.ThreadCount;
@@ -94,9 +92,7 @@ namespace Luth
                     m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
             }
 
-            // ================================================================
-            // Update cached stats at 10Hz
-            // ================================================================
+            // 25002500 Update cached stats at 10Hz 25002500
             m_UpdateTimer += Time::UnscaledDeltaTime();
             if (m_UpdateTimer >= 0.1f)
             {
@@ -142,9 +138,7 @@ namespace Luth
                 }
             };
 
-            // ================================================================
-            // Overview — CPU/GPU Frame Budget Bars
-            // ================================================================
+            // 25002500 Overview — CPU/GPU Frame Budget Bars 25002500
             if (UI::BeginCollapsingHeader("Overview", true))
             {
                 // Align text vertically with the adjacent input field for visual consistency.
@@ -259,9 +253,7 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // ============================================================
-            // CPU — Worker Timeline Swimlanes
-            // ============================================================
+            // 25002500 CPU — Worker Timeline Swimlanes 25002500
             if (UI::BeginCollapsingHeader("CPU"))
             {
                 // --- Summary Line with Right-Aligned Legend Tooltip ---
@@ -410,9 +402,7 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // ============================================================
-            // Memory — Stacked Bar Chart
-            // ============================================================
+            // 25002500 Memory — Stacked Bar Chart 25002500
             if (UI::BeginCollapsingHeader("Memory"))
             {
                 char buf1[64], buf2[64];
@@ -593,9 +583,7 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // ============================================================
-            // GPU Memory
-            // ============================================================
+            // 25002500 GPU Memory 25002500
             if (UI::BeginCollapsingHeader("GPU Memory"))
             {
                 float usedMB  = (float)m_GPUStats.UsedBytes / (1024.0f * 1024.0f);

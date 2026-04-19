@@ -41,7 +41,6 @@ namespace Luth
         void DrawCameraGizmos();
         void DrawAABBGizmos();
 
-        // Shared gizmo helpers
         ImVec2 ProjectToScreen(const Vec3& worldPos) const;
         bool   IsInViewport(const ImVec2& p) const;
         ImU32  LightColorToImU32(const Vec3& color, float alpha = 0.85f) const;
@@ -60,26 +59,24 @@ namespace Luth
         bool m_IsFocused = false;
         bool m_IsHovered = false;
 
-        // Scene viewport texture tracking (must not be static — leaks on shutdown)
+        // Per-instance to avoid leaking across editor teardown.
         VkDescriptorSet m_SceneDS = VK_NULL_HANDLE;
         std::shared_ptr<Texture> m_LastSceneTex = nullptr;
 
-        // Gizmo state
         Entity m_SelectedEntity;
-        int m_GizmoType = -1; // -1 = None, or ImGuizmo::OPERATION
+        int m_GizmoType = -1; // -1 = none, otherwise ImGuizmo::OPERATION
         bool m_ShowTransformGizmo = true;
 
-        // Gizmo drag tracking (for undo coalescing)
+        // Captured on drag start so the whole drag coalesces into one undo entry.
         bool m_WasUsingGizmo = false;
         Vec3 m_GizmoStartPos{};
         Vec3 m_GizmoStartRot{};
         Vec3 m_GizmoStartScale{};
 
-        // Gizmo icon click tracking — deferred selection that wins over pick results
+        // Icon click wins over pick result when both fire in the same frame.
         bool m_GizmoIconClicked = false;
         entt::entity m_GizmoIconEntity = entt::null;
 
-        // Controls overlay
         bool m_ShowControlsOverlay = true;
     };
 }

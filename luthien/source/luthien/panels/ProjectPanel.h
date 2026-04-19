@@ -43,21 +43,17 @@ namespace Luth
         void UpdateSearchResults();
         void RecursiveSearch(DirectoryNode* node, const std::string& query);
 
-        // UI rendering
         void DrawTree();
         void DrawTreeNode(DirectoryNode* node);
         void DrawContent();
         void DrawPathBar(float width);
-
         void DrawItem(DirectoryNode* node, bool isGrid);
 
-        // Interaction
         void HandleDragDrop(DirectoryNode* node);
         void HandleClick(DirectoryNode* node, bool doubleClick);
         void HandleContextMenu(DirectoryNode* node);
         void HandleRenaming();
 
-        // Actions
         void CreateNewFolder();
         void CreateNewMaterial();
         void DeleteItem(DirectoryNode* node);
@@ -65,7 +61,6 @@ namespace Luth
 
         const char* GetIcon(AssetType type, bool isDirectory) const;
 
-        // Runtime state
         fs::path m_AssetsPath;
 
         std::unique_ptr<DirectoryNode> m_RootNode;

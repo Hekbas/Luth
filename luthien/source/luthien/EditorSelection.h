@@ -11,7 +11,7 @@ namespace Luth
     class EditorSelection
     {
     public:
-        // Single-select (clears previous selection) — backwards-compatible
+        // Replace selection with a single entity (plain click).
         static void SelectEntity(Entity entity) {
             s_SelectedEntities.clear();
             if (entity)
@@ -20,7 +20,7 @@ namespace Luth
             s_Version++;
         }
 
-        // Add entity to selection (Shift+Click)
+        // Extend selection (Shift+Click).
         static void AddEntity(Entity entity) {
             if (!entity || IsSelected(entity)) return;
             s_SelectedEntities.push_back(entity);
@@ -28,7 +28,7 @@ namespace Luth
             s_Version++;
         }
 
-        // Toggle entity in selection (Ctrl+Click)
+        // Toggle membership (Ctrl+Click).
         static void ToggleEntity(Entity entity) {
             if (!entity) return;
             auto it = std::find(s_SelectedEntities.begin(), s_SelectedEntities.end(), entity);
@@ -40,7 +40,6 @@ namespace Luth
             s_Version++;
         }
 
-        // Remove single entity from selection
         static void RemoveEntity(Entity entity) {
             auto it = std::find(s_SelectedEntities.begin(), s_SelectedEntities.end(), entity);
             if (it != s_SelectedEntities.end()) {
@@ -66,7 +65,7 @@ namespace Luth
             s_Version++;
         }
 
-        // Returns primary (last-added) selected entity — backwards-compatible
+        // Primary = last-added entity. Callers that only care about one selection use this.
         static Entity GetSelectedEntity() {
             return s_SelectedEntities.empty() ? Entity{} : s_SelectedEntities.back();
         }
@@ -77,7 +76,7 @@ namespace Luth
         static UUID GetSelectedResource()   { return s_SelectedResource; }
         static u32 GetVersion()             { return s_Version; }
 
-        // Hierarchy drill-down state
+        // Raw pick = the entity under the cursor before any drill-down rewiring.
         static void SetLastRawPick(Entity e) { s_LastRawPick = e; }
         static Entity GetLastRawPick()       { return s_LastRawPick; }
 

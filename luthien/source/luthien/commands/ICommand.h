@@ -5,8 +5,6 @@
 
 namespace Luth
 {
-    // ── ICommand ─────────────────────────────────────────────────────────────
-
     class ICommand
     {
     public:
@@ -16,12 +14,10 @@ namespace Luth
         virtual void Redo() { Execute(); }
         virtual const char* GetName() const = 0;
 
-        // For coalescing continuous edits (gizmo drags, sliders)
+        // Coalescing for continuous edits (gizmo drags, sliders).
         virtual bool CanMerge(const ICommand&) const { return false; }
         virtual void MergeWith(const ICommand&) {}
     };
-
-    // ── CompoundCommand ───────────────────────────────────────────────────────
 
     class CompoundCommand : public ICommand
     {

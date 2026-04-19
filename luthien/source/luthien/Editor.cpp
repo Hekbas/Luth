@@ -241,21 +241,14 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             ImGui::Render();
 
-            // Multi-viewport: update/render detached platform windows. Moved here
-            // from App::Run as part of the arch-target-split editor decoupling.
+            // Update/render detached platform windows.
             if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
                 ImGui::UpdatePlatformWindows();
                 ImGui::RenderPlatformWindowsDefault();
             }
 
-            // [ARCHITECTURAL DEBT] Phase 1 Bootstrap
-            // TODO(Phase 4): Remove this immediate rendering.
-            // ImGui rendering must be moved to an 'ImGuiPass' in the RenderGraph.
-            // This current implementation bypasses the graph to verify the JobSystem/Windowing.
-
-            // NOTE: We removed the immediate rendering here because it's now handled by RenderingSystem::AddImGuiPass
-            // inside the RenderGraph execution.
-            // So Editor::EndFrame just finalizes the ImGui frame data.
+            // Actual ImGui draw calls run through RenderingSystem::AddImGuiPass
+            // inside the RenderGraph; EndFrame just finalizes the frame.
         }
     }
 
@@ -465,9 +458,7 @@ namespace Luth
                     hue, style.WindowRounding);
     }
 
-    // ================================================================
-    // Scene Management
-    // ================================================================
+    // ── Scene Management ──
 
     void Editor::SetActiveScene(std::shared_ptr<Scene> scene)
     {
@@ -585,9 +576,7 @@ namespace Luth
         s_IsDirty = true;
     }
 
-    // ================================================================
-    // Settings & Layout
-    // ================================================================
+    // ── Settings & Layout ──
 
     void Editor::LoadSettings()
     {
