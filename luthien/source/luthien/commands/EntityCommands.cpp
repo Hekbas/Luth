@@ -555,6 +555,34 @@ namespace Luth
     void EntityRenameCommand::Redo() { Execute(); }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    //  EntityActiveCommand
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    EntityActiveCommand::EntityActiveCommand(Scene* scene, entt::entity entity,
+                                             bool oldValue, bool newValue)
+        : m_Scene(scene), m_OldValue(oldValue), m_NewValue(newValue)
+    {
+        Entity e{ entity, scene };
+        m_EntityUUID = e.GetComponent<Component::ID>().Value;
+    }
+
+    void EntityActiveCommand::Execute()
+    {
+        Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+        if (!e.IsValid()) return;
+        e.SetActive(m_NewValue);
+    }
+
+    void EntityActiveCommand::Undo()
+    {
+        Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+        if (!e.IsValid()) return;
+        e.SetActive(m_OldValue);
+    }
+
+    void EntityActiveCommand::Redo() { Execute(); }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     //  EntityReparentCommand
     // ═══════════════════════════════════════════════════════════════════════════
 

@@ -5,6 +5,7 @@
 
 #include "luthien/commands/ICommand.h"
 #include "luthien/commands/ComponentPropertyCommand.h"
+#include "luthien/commands/VectorCommands.h"
 #include "luthien/commands/EntityCommands.h"
 #include "luthien/commands/ComponentCommands.h"
 #include "luthien/commands/AssetCommands.h"

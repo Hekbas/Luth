@@ -61,11 +61,12 @@ namespace Luth
             // Horizontal group: [checkbox] [name...............] [lock]
             ImGui::BeginGroup();
 
-            // Checkbox for active state
+            // Active state lives on Component::Disabled in the registry; the
+            // command's Execute() does the actual add/remove of the tag.
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
-                m_SelectedEntity.SetActive(isActive);
-                Editor::MarkDirty(); // Active state lives on Entity wrapper, not in registry
+                CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
+                    m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, !isActive, isActive));
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
@@ -144,30 +145,26 @@ namespace Luth
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             if (UI::BeginProperties()) {
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
                 {
                     auto old = transform.Position;
                     if (UI::Property("Position", transform.Position)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Position", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Position, old, transform.Position));
+                        EXEC_COMPONENT_PROP("Change Position", scene, ent, Transform, Position, old, transform.Position);
                         transform.IsDirty = true;
                     }
                 }
                 {
                     auto old = transform.Rotation;
                     if (UI::Property("Rotation", transform.Rotation)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Rotation", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Rotation, old, transform.Rotation));
+                        EXEC_COMPONENT_PROP("Change Rotation", scene, ent, Transform, Rotation, old, transform.Rotation);
                         transform.IsDirty = true;
                     }
                 }
                 {
                     auto old = transform.Scale;
                     if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Scale", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Scale, old, transform.Scale));
+                        EXEC_COMPONENT_PROP("Change Scale", scene, ent, Transform, Scale, old, transform.Scale);
                         transform.IsDirty = true;
                     }
                 }
@@ -203,13 +200,11 @@ namespace Luth
                 bool changed = false;
                 if (camera.Projection == Camera::ProjectionType::Perspective) {
                     if (UI::Property("FOV", camera.VerticalFOV, 0.1f, 1.0f, 180.0f)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
-                            "Change FOV", scene, ent, &Camera::VerticalFOV, snapFOV, camera.VerticalFOV));
+                        EXEC_COMPONENT_PROP("Change FOV", scene, ent, Camera, VerticalFOV, snapFOV, camera.VerticalFOV);
                         changed = true;
                     }
                     if (UI::Property("Near", camera.NearClip, 0.01f, 0.01f, camera.FarClip)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
-                            "Change Near Clip", scene, ent, &Camera::NearClip, snapNear, camera.NearClip));
+                        EXEC_COMPONENT_PROP("Change Near Clip", scene, ent, Camera, NearClip, snapNear, camera.NearClip);
                         changed = true;
                     }
                     if (UI::Property("Far", camera.FarClip, 0.1f, camera.NearClip, 10000.0f)) {
@@ -360,8 +355,8 @@ namespace Luth
                     }
                 }
 
-                if (UI::Property("Show Bones", Editor::GetSettings().showBoneDebug))
-                    Editor::MarkDirty();
+                // Editor preference, not scene state — no command + no scene MarkDirty.
+                UI::Property("Show Bones", Editor::GetSettings().showBoneDebug);
 
                 UI::EndProperties();
             }
@@ -472,6 +467,10 @@ namespace Luth
 
             if (UI::BeginProperties("BoneAttachProps")) {
                 if (UI::PropertyCombo("Target", currentIndex, entityNamePtrs.data(), (int)entityNamePtrs.size())) {
+                    Entity      oldTarget = attachment.TargetEntity;
+                    i32         oldIndex  = attachment.BoneIndex;
+                    std::string oldName   = attachment.BoneName;
+
                     if (currentIndex == 0) {
                         attachment.TargetEntity = {};
                         attachment.BoneIndex = -1;
@@ -481,7 +480,18 @@ namespace Luth
                         attachment.BoneIndex = -1;
                         attachment.BoneName = "";
                     }
-                    Editor::MarkDirty();
+
+                    CommandHistory::BeginCompound("Set Bone Attachment Target");
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Entity>>(
+                        "Target", scene, (entt::entity)entity,
+                        &BoneAttachment::TargetEntity, oldTarget, attachment.TargetEntity));
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, i32>>(
+                        "BoneIndex", scene, (entt::entity)entity,
+                        &BoneAttachment::BoneIndex, oldIndex, attachment.BoneIndex));
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, std::string>>(
+                        "BoneName", scene, (entt::entity)entity,
+                        &BoneAttachment::BoneName, oldName, attachment.BoneName));
+                    CommandHistory::EndCompound();
                 }
 
                 // Bone name dropdown
@@ -501,9 +511,19 @@ namespace Luth
                             if (boneIdx < 0) boneIdx = 0;
 
                             if (UI::PropertyCombo("Bone", boneIdx, boneNames.data(), boneCount)) {
+                                std::string oldName  = attachment.BoneName;
+                                i32         oldIndex = attachment.BoneIndex;
                                 attachment.BoneName = skeleton.Bones[boneIdx].Name;
                                 attachment.BoneIndex = -1; // Force re-resolve by AnimationSystem
-                                Editor::MarkDirty();
+
+                                CommandHistory::BeginCompound("Set Attached Bone");
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, std::string>>(
+                                    "BoneName", scene, (entt::entity)entity,
+                                    &BoneAttachment::BoneName, oldName, attachment.BoneName));
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, i32>>(
+                                    "BoneIndex", scene, (entt::entity)entity,
+                                    &BoneAttachment::BoneIndex, oldIndex, attachment.BoneIndex));
+                                CommandHistory::EndCompound();
                             }
                         }
                     }
@@ -565,24 +585,21 @@ namespace Luth
             if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
                 auto oldClip = ctrl.CurrentClipIndex;
                 ctrl.Play(currentClip);
-                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, int>>(
-                    "Change Clip", scene, ent, &AnimationController::CurrentClipIndex, oldClip, ctrl.CurrentClipIndex));
+                EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipIndex, oldClip, ctrl.CurrentClipIndex);
             }
 
             // Root motion
             {
                 auto oldVal = ctrl.ApplyRootMotion;
                 if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
-                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, bool>>(
-                        "Toggle Root Motion", scene, ent, &AnimationController::ApplyRootMotion, oldVal, ctrl.ApplyRootMotion));
+                    EXEC_COMPONENT_PROP("Toggle Root Motion", scene, ent, AnimationController, ApplyRootMotion, oldVal, ctrl.ApplyRootMotion);
             }
 
             // Default transition duration
             {
                 auto oldVal = ctrl.DefaultTransitionDuration;
                 if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
-                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, float>>(
-                        "Change Transition", scene, ent, &AnimationController::DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration));
+                    EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration);
             }
 
             ImGui::Separator();
@@ -600,27 +617,48 @@ namespace Luth
 
                 ImGui::PushID((int)layerIdx);
                 if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // Clip selector
+                    // Clip selector. CurrentTime reset on change is a runtime side effect
+                    // (playback position regenerates each frame) — only ClipIndex is undoable.
                     int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
+                    int oldClipIdx = layer.ClipIndex;
                     if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
                         layer.ClipIndex = layerClip;
                         layer.CurrentTime = 0.0f;
-                        Editor::MarkDirty();
+                        CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, i32>>(
+                            "Change Layer Clip", scene, ent,
+                            &AnimationController::Layers, layerIdx, &BlendLayer::ClipIndex,
+                            oldClipIdx, layerClip));
                     }
 
                     // Weight (not shown for base layer — always 1.0)
                     if (layerIdx > 0) {
+                        f32 oldWeight = layer.Weight;
                         if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
-                            Editor::MarkDirty();
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                "Change Layer Weight", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Weight,
+                                oldWeight, layer.Weight));
                     }
 
                     // Speed
-                    if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
-                        Editor::MarkDirty();
+                    {
+                        f32 oldSpeed = layer.Speed;
+                        if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                "Change Layer Speed", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Speed,
+                                oldSpeed, layer.Speed));
+                    }
 
                     // Loop
-                    if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
-                        Editor::MarkDirty();
+                    {
+                        bool oldLoop = layer.Loop;
+                        if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, bool>>(
+                                "Toggle Layer Loop", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Loop,
+                                oldLoop, layer.Loop));
+                    }
 
                     // Bone mask (only for override layers)
                     if (layerIdx > 0) {
@@ -640,25 +678,41 @@ namespace Luth
                             }
 
                             if (ImGui::Button("All")) {
+                                auto oldMask = layer.BoneMask;
                                 std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), true);
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Set Bone Mask All", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
                             ImGui::SameLine();
                             if (ImGui::Button("None")) {
+                                auto oldMask = layer.BoneMask;
                                 std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), false);
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Set Bone Mask None", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
                             ImGui::SameLine();
                             if (ImGui::Button("Clear Mask")) {
+                                auto oldMask = layer.BoneMask;
                                 layer.BoneMask.clear();
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Clear Bone Mask", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
 
                             for (u32 b = 0; b < boneCount; b++) {
                                 bool enabled = layer.BoneMask[b];
                                 if (ImGui::Checkbox(skeleton.Bones[b].Name.c_str(), &enabled)) {
+                                    auto oldMask = layer.BoneMask;
                                     layer.BoneMask[b] = enabled;
-                                    Editor::MarkDirty();
+                                    CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                        "Toggle Bone Mask Bit", scene, ent,
+                                        &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                        oldMask, layer.BoneMask));
                                 }
                             }
                             ImGui::TreePop();
@@ -668,8 +722,9 @@ namespace Luth
                     // Remove button (not for base layer)
                     if (layerIdx > 0) {
                         if (ImGui::Button("Remove Layer")) {
-                            ctrl.Layers.erase(ctrl.Layers.begin() + layerIdx);
-                            Editor::MarkDirty();
+                            CommandHistory::Execute(std::make_unique<VectorEraseCommand<AnimationController, BlendLayer>>(
+                                "Remove Layer", scene, ent,
+                                &AnimationController::Layers, layerIdx));
                             ImGui::TreePop();
                             ImGui::PopID();
                             break;
@@ -685,8 +740,9 @@ namespace Luth
             if (ImGui::Button("+ Add Layer##Ctrl")) {
                 BlendLayer newLayer;
                 newLayer.ClipIndex = 0;
-                ctrl.Layers.push_back(newLayer);
-                Editor::MarkDirty();
+                CommandHistory::Execute(std::make_unique<VectorInsertCommand<AnimationController, BlendLayer>>(
+                    "Add Layer", scene, ent,
+                    &AnimationController::Layers, ctrl.Layers.size(), newLayer));
             }
         });
 
