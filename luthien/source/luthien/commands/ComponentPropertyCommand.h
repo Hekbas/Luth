@@ -10,12 +10,6 @@
 #include <memory>
 #include <type_traits>
 
-// Boilerplate cutter for the most common pattern:
-//   auto old = comp.Field;
-//   if (UI::Property("Label", comp.Field)) {
-//       EXEC_COMPONENT_PROP("Change Field", scene, ent, Comp, Field, old, comp.Field);
-//   }
-// Resolves the property type via decltype(OLD) so call sites stay terse.
 #define EXEC_COMPONENT_PROP(NAME, SCENE, ENTITY, COMP, MEMBER, OLD, NEW)                  \
     ::Luth::CommandHistory::Execute(std::make_unique<                                     \
         ::Luth::ComponentPropertyCommand<COMP, std::decay_t<decltype(OLD)>>>(             \

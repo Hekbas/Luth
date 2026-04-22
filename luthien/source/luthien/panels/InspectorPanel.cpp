@@ -61,8 +61,6 @@ namespace Luth
             // Horizontal group: [checkbox] [name...............] [lock]
             ImGui::BeginGroup();
 
-            // Active state lives on Component::Disabled in the registry; the
-            // command's Execute() does the actual add/remove of the tag.
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
                 CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
@@ -355,7 +353,7 @@ namespace Luth
                     }
                 }
 
-                // Editor preference, not scene state — no command + no scene MarkDirty.
+                // Editor pref; no command needed.
                 UI::Property("Show Bones", Editor::GetSettings().showBoneDebug);
 
                 UI::EndProperties();
@@ -617,8 +615,7 @@ namespace Luth
 
                 ImGui::PushID((int)layerIdx);
                 if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // Clip selector. CurrentTime reset on change is a runtime side effect
-                    // (playback position regenerates each frame) — only ClipIndex is undoable.
+                    // CurrentTime reset is runtime; only ClipIndex is undoable.
                     int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
                     int oldClipIdx = layer.ClipIndex;
                     if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {

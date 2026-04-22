@@ -82,8 +82,7 @@ namespace Luth
 
         Scene* GetScene() const { return m_Scene; }
 
-        // Active state lives in the registry (Component::Disabled tag) so it
-        // survives wrapper rebinds via Scene::FindEntityByUUID and scene save/load.
+        // Backed by Component::Disabled — survives wrapper rebinds and save/load.
         void SetActive(bool active);
         bool IsActive() const;
 

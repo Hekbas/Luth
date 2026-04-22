@@ -8,11 +8,8 @@
 
 namespace Luth
 {
-    // Edit a leaf field on element [idx] of a std::vector<Elem> member of component C.
-    // Pointer-to-members are re-resolved on each apply so undo/redo stays safe across
-    // EnTT pool relocations. Use for per-element scalar edits (Layer.Speed, etc.) and
-    // for whole-element-vector replacements where the field itself is a vector
-    // (e.g. BoneMask snapshots — works around std::vector<bool>'s proxy reference).
+    // Pointer-to-members are re-resolved on each apply so undo/redo stays safe
+    // across EnTT pool relocations.
     template<typename C, typename Elem, typename T>
     class VectorElementPropertyCommand : public ICommand
     {
@@ -71,8 +68,6 @@ namespace Luth
         T m_NewValue;
     };
 
-    // Insert a snapshot element at [index] in a std::vector<Elem> member of C.
-    // Undo erases at [index]. Used for "+ Add Layer" buttons.
     template<typename C, typename Elem>
     class VectorInsertCommand : public ICommand
     {
@@ -118,8 +113,6 @@ namespace Luth
         Elem m_Element;
     };
 
-    // Erase element at [index] from a std::vector<Elem> member of C, snapshotting
-    // the removed element so Undo can re-insert it. Used for "Remove Layer".
     template<typename C, typename Elem>
     class VectorEraseCommand : public ICommand
     {
@@ -133,7 +126,6 @@ namespace Luth
         {
             Entity e{ entity, scene };
             m_EntityUUID = e.GetComponent<Component::ID>().Value;
-            // Snapshot the element at construction so the first Execute can remove it.
             auto& comp = e.GetComponent<C>();
             auto& vec_ref = comp.*m_Vector;
             if (m_Index < vec_ref.size())

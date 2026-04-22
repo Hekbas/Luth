@@ -9,8 +9,7 @@ namespace Luth::UI
     bool BeginProperties(const char* id = "Properties");
     void EndProperties();
 
-    // Lays out a label cell + value cell within an active BeginProperties() table.
-    // Exposed so adjacent widgets (e.g. AssetSlot) can participate in the same layout.
+    // Call between BeginProperties() and the value widget to lay out the label cell.
     void PropertyLabel(const char* label);
 
     bool Property(const char* label, std::string& value);

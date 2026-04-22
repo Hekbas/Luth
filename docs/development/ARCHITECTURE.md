@@ -1,7 +1,6 @@
 # Luth Engine — Architecture Reference
 
-> For full project context, conventions, and build instructions, see `CLAUDE.md` at the repo root.
-> For progress tracking and upcoming work, see `ROADMAP.md`.
+> For progress tracking and upcoming work, see [`ROADMAP.md`](ROADMAP.md).
 
 ---
 

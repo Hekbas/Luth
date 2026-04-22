@@ -39,9 +39,6 @@ namespace Luth::Component
         Children(const std::vector<Entity>& children) : Value(children) {}
     };
 
-    // Empty tag — present on entities that have been toggled inactive.
-    // Default state is "active" (no tag), so the registry stays sparse.
-    // Storage in the registry (not on the Entity wrapper) is what makes the
-    // state survive Scene::FindEntityByUUID rebinds + scene save/load round-trips.
+    // Presence marks an inactive entity. Sparse by default (most entities are active).
     struct Disabled {};
 }
