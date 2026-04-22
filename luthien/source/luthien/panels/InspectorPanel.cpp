@@ -61,11 +61,14 @@ namespace Luth
             // Horizontal group: [checkbox] [name...............] [lock]
             ImGui::BeginGroup();
 
-            // Checkbox for active state
+            // Checkbox for active state. Note: Entity::isActive lives on the wrapper;
+            // EntityActiveCommand re-resolves the wrapper via UUID on undo/redo.
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
+                bool oldActive = !isActive;
                 m_SelectedEntity.SetActive(isActive);
-                Editor::MarkDirty(); // Active state lives on Entity wrapper, not in registry
+                CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
+                    m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, oldActive, isActive));
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
@@ -472,6 +475,10 @@ namespace Luth
 
             if (UI::BeginProperties("BoneAttachProps")) {
                 if (UI::PropertyCombo("Target", currentIndex, entityNamePtrs.data(), (int)entityNamePtrs.size())) {
+                    Entity      oldTarget = attachment.TargetEntity;
+                    i32         oldIndex  = attachment.BoneIndex;
+                    std::string oldName   = attachment.BoneName;
+
                     if (currentIndex == 0) {
                         attachment.TargetEntity = {};
                         attachment.BoneIndex = -1;
@@ -481,7 +488,18 @@ namespace Luth
                         attachment.BoneIndex = -1;
                         attachment.BoneName = "";
                     }
-                    Editor::MarkDirty();
+
+                    CommandHistory::BeginCompound("Set Bone Attachment Target");
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Entity>>(
+                        "Target", scene, (entt::entity)entity,
+                        &BoneAttachment::TargetEntity, oldTarget, attachment.TargetEntity));
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, i32>>(
+                        "BoneIndex", scene, (entt::entity)entity,
+                        &BoneAttachment::BoneIndex, oldIndex, attachment.BoneIndex));
+                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, std::string>>(
+                        "BoneName", scene, (entt::entity)entity,
+                        &BoneAttachment::BoneName, oldName, attachment.BoneName));
+                    CommandHistory::EndCompound();
                 }
 
                 // Bone name dropdown
@@ -501,9 +519,19 @@ namespace Luth
                             if (boneIdx < 0) boneIdx = 0;
 
                             if (UI::PropertyCombo("Bone", boneIdx, boneNames.data(), boneCount)) {
+                                std::string oldName  = attachment.BoneName;
+                                i32         oldIndex = attachment.BoneIndex;
                                 attachment.BoneName = skeleton.Bones[boneIdx].Name;
                                 attachment.BoneIndex = -1; // Force re-resolve by AnimationSystem
-                                Editor::MarkDirty();
+
+                                CommandHistory::BeginCompound("Set Attached Bone");
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, std::string>>(
+                                    "BoneName", scene, (entt::entity)entity,
+                                    &BoneAttachment::BoneName, oldName, attachment.BoneName));
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, i32>>(
+                                    "BoneIndex", scene, (entt::entity)entity,
+                                    &BoneAttachment::BoneIndex, oldIndex, attachment.BoneIndex));
+                                CommandHistory::EndCompound();
                             }
                         }
                     }
