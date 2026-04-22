@@ -147,30 +147,26 @@ namespace Luth
 
         DrawComponent<Transform>("Transform", m_SelectedEntity, [](Entity entity, Transform& transform) {
             if (UI::BeginProperties()) {
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
                 {
                     auto old = transform.Position;
                     if (UI::Property("Position", transform.Position)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Position", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Position, old, transform.Position));
+                        EXEC_COMPONENT_PROP("Change Position", scene, ent, Transform, Position, old, transform.Position);
                         transform.IsDirty = true;
                     }
                 }
                 {
                     auto old = transform.Rotation;
                     if (UI::Property("Rotation", transform.Rotation)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Rotation", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Rotation, old, transform.Rotation));
+                        EXEC_COMPONENT_PROP("Change Rotation", scene, ent, Transform, Rotation, old, transform.Rotation);
                         transform.IsDirty = true;
                     }
                 }
                 {
                     auto old = transform.Scale;
                     if (UI::Property("Scale", transform.Scale, 0.1f, 1.0f)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Transform, Vec3>>(
-                            "Change Scale", entity.GetScene(), (entt::entity)entity,
-                            &Transform::Scale, old, transform.Scale));
+                        EXEC_COMPONENT_PROP("Change Scale", scene, ent, Transform, Scale, old, transform.Scale);
                         transform.IsDirty = true;
                     }
                 }
@@ -206,13 +202,11 @@ namespace Luth
                 bool changed = false;
                 if (camera.Projection == Camera::ProjectionType::Perspective) {
                     if (UI::Property("FOV", camera.VerticalFOV, 0.1f, 1.0f, 180.0f)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
-                            "Change FOV", scene, ent, &Camera::VerticalFOV, snapFOV, camera.VerticalFOV));
+                        EXEC_COMPONENT_PROP("Change FOV", scene, ent, Camera, VerticalFOV, snapFOV, camera.VerticalFOV);
                         changed = true;
                     }
                     if (UI::Property("Near", camera.NearClip, 0.01f, 0.01f, camera.FarClip)) {
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Camera, float>>(
-                            "Change Near Clip", scene, ent, &Camera::NearClip, snapNear, camera.NearClip));
+                        EXEC_COMPONENT_PROP("Change Near Clip", scene, ent, Camera, NearClip, snapNear, camera.NearClip);
                         changed = true;
                     }
                     if (UI::Property("Far", camera.FarClip, 0.1f, camera.NearClip, 10000.0f)) {
@@ -593,24 +587,21 @@ namespace Luth
             if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
                 auto oldClip = ctrl.CurrentClipIndex;
                 ctrl.Play(currentClip);
-                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, int>>(
-                    "Change Clip", scene, ent, &AnimationController::CurrentClipIndex, oldClip, ctrl.CurrentClipIndex));
+                EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipIndex, oldClip, ctrl.CurrentClipIndex);
             }
 
             // Root motion
             {
                 auto oldVal = ctrl.ApplyRootMotion;
                 if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
-                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, bool>>(
-                        "Toggle Root Motion", scene, ent, &AnimationController::ApplyRootMotion, oldVal, ctrl.ApplyRootMotion));
+                    EXEC_COMPONENT_PROP("Toggle Root Motion", scene, ent, AnimationController, ApplyRootMotion, oldVal, ctrl.ApplyRootMotion);
             }
 
             // Default transition duration
             {
                 auto oldVal = ctrl.DefaultTransitionDuration;
                 if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
-                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<AnimationController, float>>(
-                        "Change Transition", scene, ent, &AnimationController::DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration));
+                    EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration);
             }
 
             ImGui::Separator();
