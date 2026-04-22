@@ -22,6 +22,25 @@ namespace Luth
         GetComponent<Tag>().Value = name;
     }
 
+    void Entity::SetActive(bool active)
+    {
+        if (!IsValid()) return;
+        auto& registry = m_Scene->Registry();
+        if (active) {
+            if (registry.all_of<Disabled>(m_EntityHandle))
+                registry.remove<Disabled>(m_EntityHandle);
+        } else {
+            if (!registry.all_of<Disabled>(m_EntityHandle))
+                registry.emplace<Disabled>(m_EntityHandle);
+        }
+    }
+
+    bool Entity::IsActive() const
+    {
+        if (!IsValid()) return false;
+        return !m_Scene->Registry().all_of<Disabled>(m_EntityHandle);
+    }
+
     void Entity::SetParent(Entity parent)
     {
         // Prevent invalid parenting

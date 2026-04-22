@@ -1,7 +1,7 @@
 # v2.7.3 — editor-undo-gaps
 
 **Date:** 2026-04-23
-**Commits:** 6 (on `epic/editor-undo-gaps`)
+**Commits:** 7 (on `epic/editor-undo-gaps`)
 **Issue:** [#88](https://github.com/Hekbas/Luth/issues/88)
 
 ---
@@ -27,7 +27,8 @@ and an `EXEC_COMPONENT_PROP` macro that collapses the existing 6-line
 | C | Wrap vector mutations — `+ Add Layer`/`Remove Layer`/`BoneMask All`/`None`/`Clear` (5 callsites); drop spurious `MarkDirty()` on `EditorSettings::showBoneDebug` | [`a399ab0`](../../../../commit/a399ab0) |
 | D | Wrap entity active toggle (1) + `BoneAttachment` Target/Bone combos via compound (2 compound = 5 child commands); audit other panels | [`3099aa1`](../../../../commit/3099aa1) |
 | E | `EXEC_COMPONENT_PROP` macro + apply to 8 representative existing callsites | [`1e749f5`](../../../../commit/1e749f5) |
-| F | Version bump + docs | this commit |
+| F | Version bump + docs | [`1932a3b`](../../../../commit/1932a3b) |
+| G | Drive-by fix: `Entity::isActive` wrapper-storage → `Component::Disabled` tag (smoke-test surfaced the latent bug) | this commit |
 
 ---
 
@@ -41,6 +42,7 @@ and an `EXEC_COMPONENT_PROP` macro that collapses the existing 6-line
 - **Spurious `showBoneDebug` `MarkDirty` removed** — `EditorSettings::showBoneDebug` is an editor preference saved to `editor_settings.json`, not scene state. Marking the scene dirty for it was wrong; no command added (editor toggles aren't on the scene undo stack).
 - **`EXEC_COMPONENT_PROP(NAME, SCENE, ENTITY, COMP, MEMBER, OLD, NEW)`** macro derives `T` via `std::decay_t<decltype(OLD)>`, drops the explicit template parameter list, and collapses the 6-line boilerplate to 1. Applied to 8 representative existing callsites (Transform Position/Rotation/Scale, Camera FOV/Near, AnimationController CurrentClipIndex/ApplyRootMotion/DefaultTransitionDuration). Remaining ~30 callsites stay as-is for incremental migration in later epics.
 - **Audit results** — `CommandHistory.cpp:36/48/60/87` `MarkDirty` calls are correct (the system itself marks the scene dirty after every Execute/Undo/Redo/EndCompound). `ScenePanel.cpp:174` (Browse HDR) documented out-of-scope: async IBL reload + one-shot file dialog need design before wrapping.
+- **Drive-by — `Entity` active persistence (G)** — Smoke test surfaced a latent bug pre-dating EE4: `Entity::isActive` and `Entity::isVisible` were `bool` members on the **wrapper struct** (`Entity = handle + Scene*` was constructed fresh by every `Scene::FindEntityByUUID(uuid)` call), so writes to either flag were lost as soon as the wrapper went out of scope. Active state never round-tripped through scene save/load (serializer always wrote `"active": true`), and the inspector toggle visually snapped back the next frame. Fix: new empty `Component::Disabled` tag in `scene/components/Common.h` (present = inactive, sparse storage so default "active" entities carry no extra data); `Entity::SetActive` adds/removes the tag via the registry; `Entity::IsActive` queries `registry.all_of<Disabled>(handle)`. Behavior now: undo/redo flips persist, save/load round-trips, inspector checkbox tracks the registry state. The `bool isVisible` wrapper member is left for now (no UI surface today); a follow-up can replicate the same pattern when a visibility toggle ships.
 
 ---
 

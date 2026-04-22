@@ -82,8 +82,10 @@ namespace Luth
 
         Scene* GetScene() const { return m_Scene; }
 
-        void SetActive(bool active) { isActive = active; }
-        bool IsActive() const { return isActive; }
+        // Active state lives in the registry (Component::Disabled tag) so it
+        // survives wrapper rebinds via Scene::FindEntityByUUID and scene save/load.
+        void SetActive(bool active);
+        bool IsActive() const;
 
         bool operator==(const Entity& other) const {
             return m_EntityHandle == other.m_EntityHandle && m_Scene == other.m_Scene;
@@ -97,6 +99,5 @@ namespace Luth
         entt::entity m_EntityHandle{ entt::null };
         Scene* m_Scene = nullptr;
         bool isVisible = true;
-        bool isActive = true;
     };
 }

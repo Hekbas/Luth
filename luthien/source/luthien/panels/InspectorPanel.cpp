@@ -61,14 +61,12 @@ namespace Luth
             // Horizontal group: [checkbox] [name...............] [lock]
             ImGui::BeginGroup();
 
-            // Checkbox for active state. Note: Entity::isActive lives on the wrapper;
-            // EntityActiveCommand re-resolves the wrapper via UUID on undo/redo.
+            // Active state lives on Component::Disabled in the registry; the
+            // command's Execute() does the actual add/remove of the tag.
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
-                bool oldActive = !isActive;
-                m_SelectedEntity.SetActive(isActive);
                 CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
-                    m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, oldActive, isActive));
+                    m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, !isActive, isActive));
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
