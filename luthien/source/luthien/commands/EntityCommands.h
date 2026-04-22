@@ -95,6 +95,22 @@ namespace Luth
         std::string m_NewName;
     };
 
+    class EntityActiveCommand : public ICommand
+    {
+    public:
+        EntityActiveCommand(Scene* scene, entt::entity entity, bool oldValue, bool newValue);
+        void Execute() override;
+        void Undo() override;
+        void Redo() override;
+        const char* GetName() const override { return "Toggle Entity Active"; }
+
+    private:
+        Scene* m_Scene;
+        UUID m_EntityUUID;
+        bool m_OldValue;
+        bool m_NewValue;
+    };
+
     class EntityReparentCommand : public ICommand
     {
     public:
