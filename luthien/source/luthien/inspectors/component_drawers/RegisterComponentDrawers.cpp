@@ -9,5 +9,6 @@ namespace Luth::ComponentDrawers
 {
     void RegisterComponentDrawers()
     {
+        RegisterPointLight();
     }
 }
