@@ -600,27 +600,48 @@ namespace Luth
 
                 ImGui::PushID((int)layerIdx);
                 if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // Clip selector
+                    // Clip selector. CurrentTime reset on change is a runtime side effect
+                    // (playback position regenerates each frame) — only ClipIndex is undoable.
                     int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
+                    int oldClipIdx = layer.ClipIndex;
                     if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
                         layer.ClipIndex = layerClip;
                         layer.CurrentTime = 0.0f;
-                        Editor::MarkDirty();
+                        CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, i32>>(
+                            "Change Layer Clip", scene, ent,
+                            &AnimationController::Layers, layerIdx, &BlendLayer::ClipIndex,
+                            oldClipIdx, layerClip));
                     }
 
                     // Weight (not shown for base layer — always 1.0)
                     if (layerIdx > 0) {
+                        f32 oldWeight = layer.Weight;
                         if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
-                            Editor::MarkDirty();
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                "Change Layer Weight", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Weight,
+                                oldWeight, layer.Weight));
                     }
 
                     // Speed
-                    if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
-                        Editor::MarkDirty();
+                    {
+                        f32 oldSpeed = layer.Speed;
+                        if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                "Change Layer Speed", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Speed,
+                                oldSpeed, layer.Speed));
+                    }
 
                     // Loop
-                    if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
-                        Editor::MarkDirty();
+                    {
+                        bool oldLoop = layer.Loop;
+                        if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, bool>>(
+                                "Toggle Layer Loop", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::Loop,
+                                oldLoop, layer.Loop));
+                    }
 
                     // Bone mask (only for override layers)
                     if (layerIdx > 0) {
@@ -657,8 +678,12 @@ namespace Luth
                             for (u32 b = 0; b < boneCount; b++) {
                                 bool enabled = layer.BoneMask[b];
                                 if (ImGui::Checkbox(skeleton.Bones[b].Name.c_str(), &enabled)) {
+                                    auto oldMask = layer.BoneMask;
                                     layer.BoneMask[b] = enabled;
-                                    Editor::MarkDirty();
+                                    CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                        "Toggle Bone Mask Bit", scene, ent,
+                                        &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                        oldMask, layer.BoneMask));
                                 }
                             }
                             ImGui::TreePop();
