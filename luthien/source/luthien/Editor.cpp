@@ -17,6 +17,8 @@
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
 #include "luthien/CommandHistory.h"
+#include "luthien/inspectors/ComponentDrawerRegistry.h"
+#include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
 #include "luthien/panels/HierarchyPanel.h"
 #include "luthien/panels/InspectorPanel.h"
 #include "luthien/panels/ProjectPanel.h"
@@ -159,6 +161,8 @@ namespace Luth
         AddPanel(new FrameDebuggerPanel());
         AddPanel(new HistoryPanel());
 
+        ComponentDrawers::RegisterComponentDrawers();
+
         for (auto& panel : s_Panels)
             panel->OnInit();
     }
@@ -195,6 +199,7 @@ namespace Luth
         SaveSettings();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        ComponentDrawerRegistry::Shutdown();
         s_PanelRegistry.clear();
         s_Panels.clear();
         UI::ClearTextureCache();
