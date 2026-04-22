@@ -360,8 +360,8 @@ namespace Luth
                     }
                 }
 
-                if (UI::Property("Show Bones", Editor::GetSettings().showBoneDebug))
-                    Editor::MarkDirty();
+                // Editor preference, not scene state — no command + no scene MarkDirty.
+                UI::Property("Show Bones", Editor::GetSettings().showBoneDebug);
 
                 UI::EndProperties();
             }
@@ -661,18 +661,30 @@ namespace Luth
                             }
 
                             if (ImGui::Button("All")) {
+                                auto oldMask = layer.BoneMask;
                                 std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), true);
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Set Bone Mask All", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
                             ImGui::SameLine();
                             if (ImGui::Button("None")) {
+                                auto oldMask = layer.BoneMask;
                                 std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), false);
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Set Bone Mask None", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
                             ImGui::SameLine();
                             if (ImGui::Button("Clear Mask")) {
+                                auto oldMask = layer.BoneMask;
                                 layer.BoneMask.clear();
-                                Editor::MarkDirty();
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                    "Clear Bone Mask", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                    oldMask, layer.BoneMask));
                             }
 
                             for (u32 b = 0; b < boneCount; b++) {
@@ -693,8 +705,9 @@ namespace Luth
                     // Remove button (not for base layer)
                     if (layerIdx > 0) {
                         if (ImGui::Button("Remove Layer")) {
-                            ctrl.Layers.erase(ctrl.Layers.begin() + layerIdx);
-                            Editor::MarkDirty();
+                            CommandHistory::Execute(std::make_unique<VectorEraseCommand<AnimationController, BlendLayer>>(
+                                "Remove Layer", scene, ent,
+                                &AnimationController::Layers, layerIdx));
                             ImGui::TreePop();
                             ImGui::PopID();
                             break;
@@ -710,8 +723,9 @@ namespace Luth
             if (ImGui::Button("+ Add Layer##Ctrl")) {
                 BlendLayer newLayer;
                 newLayer.ClipIndex = 0;
-                ctrl.Layers.push_back(newLayer);
-                Editor::MarkDirty();
+                CommandHistory::Execute(std::make_unique<VectorInsertCommand<AnimationController, BlendLayer>>(
+                    "Add Layer", scene, ent,
+                    &AnimationController::Layers, ctrl.Layers.size(), newLayer));
             }
         });
 
