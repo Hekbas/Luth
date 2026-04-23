@@ -60,11 +60,15 @@ Full roadmap + per-epic scope: [`../../plans/analyze-my-engine-in-magical-moore.
 
 | Priority | Epic | Issue | Target | Est. Time | Deps |
 |----------|------|-------|--------|-----------|------|
-| 1 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | 2-3 weeks | `play-mode` |
-| 2 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | 1 week | — |
-| 3 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | 2 weeks | `compute-gpu-culling` |
-| 4 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | 1 week | — |
-| 5 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.11.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
+| 1 | `game-panel` | [#91](https://github.com/Hekbas/Luth/issues/91) | v2.8.1 | 1-2 days | `play-mode` |
+| 2 | `frame-debugger-scrub` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.2 | ½ day | — |
+| 3 | `animation-assets` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.3 | 3-5 days | — |
+| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | 2-3 weeks | `play-mode` |
+| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | 1 week | — |
+| 6 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | 2 weeks | `compute-gpu-culling` |
+| 7 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | 1 week | — |
+| 8 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | multi-week | `animation-assets` |
+| 9 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | 2-3 weeks | `compute-gpu-culling`, `forward-plus` |
 
 An editor architecture review series (`editor-cleanup` v2.7.0, `editor-style-assets` v2.7.1, `editor-widgets-reorg` v2.7.2, `editor-undo-gaps` v2.7.3, `editor-component-registry` v2.7.4, `editor-scene-panel-slim` v2.7.5) shipped across six patch releases. Feature epics resumed at v2.8.0 with `play-mode`.
 
