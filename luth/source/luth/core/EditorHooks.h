@@ -13,6 +13,17 @@ namespace Luth
     class Window;
     class Scene;
 
+    /// Editor-owned simulation state. Engine queries this via IEditorHooks to
+    /// decide whether game systems (Animation, future Physics / Scripting)
+    /// should tick on the current frame. A headless runtime leaves the hook
+    /// registry empty and the engine defaults to "always tick".
+    enum class PlayState
+    {
+        Editing,
+        Playing,
+        Paused,
+    };
+
     /// Per-frame snapshot of editor-owned state the engine feeds into
     /// RenderingSystem. When no editor is registered, stays default-constructed
     /// and the engine uses identity camera + empty selection.
@@ -59,6 +70,11 @@ namespace Luth
 
         // Editor-owned viewport / selection snapshot fed to RenderingSystem
         virtual void GetViewportState(EditorViewportState& out) = 0;
+
+        // Play-mode state + single-frame step request. Defaults keep the
+        // runtime-only (no-editor) build "always ticking" game systems.
+        virtual PlayState GetPlayState() const { return PlayState::Editing; }
+        virtual bool ConsumeStepRequest() { return false; }
 
         // ProjectPanel: current directory for file-drop ingestion.
         // Returns empty path if no panel is available.
