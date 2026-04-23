@@ -374,7 +374,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
+        auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? AddSelectionMaskPass(rg, registry)
                                          : SelectionMaskOutput{};

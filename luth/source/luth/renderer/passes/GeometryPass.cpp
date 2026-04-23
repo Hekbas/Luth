@@ -26,13 +26,15 @@ namespace Luth
         RG::RenderGraph& rg, entt::registry& registry,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle,
-        RG::ResourceHandle sceneDepth)
+        RG::ResourceHandle sceneDepth,
+        RG::ResourceHandle gtaoFinalAO)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
             RG::ResourceHandle entityIDTex;
             RG::ResourceHandle depthTex;
             RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
+            RG::ResourceHandle gtaoFinalAO;
             RG::BufferHandle   indirectBuf;
         };
 
@@ -86,6 +88,15 @@ namespace Luth
                     if (shadowHandles[i].IsValid())
                         data.shadowCascades[i] = builder.Read(shadowHandles[i]);
                 }
+
+                // pbr.frag samples the GTAO final texture through Set 0
+                // binding 4 (outside the RG's descriptor visibility), so we
+                // must explicitly declare the read here. GTAODenoise leaves
+                // it in LAYOUT_GENERAL; this builder.Read triggers the
+                // GENERAL → SHADER_READ_ONLY_OPTIMAL transition before the
+                // geometry pass's secondary cmd executes.
+                if (gtaoFinalAO.IsValid())
+                    data.gtaoFinalAO = builder.Read(gtaoFinalAO);
 
                 // Declare indirect buffer read (triggers compute-write→indirect-read barrier)
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);

@@ -242,7 +242,8 @@ namespace Luth
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                         RG::BufferHandle indirectBufferHandle,
-                                        RG::ResourceHandle sceneDepth);
+                                        RG::ResourceHandle sceneDepth,
+                                        RG::ResourceHandle gtaoFinalAO);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);

@@ -137,6 +137,13 @@ namespace Luth
                 // The editor panel reads the LDR output through ImGui::Image; the
                 // image's persistent layout (SHADER_READ_ONLY_OPTIMAL after the
                 // capture's outline pass) is preserved across frames.
+                //
+                // Drop any views queued by panels this frame — we can't render
+                // them in Frozen state, and letting the queue grow unbounded
+                // causes a massive spike the moment the camera moves or the
+                // debugger is disabled (all accumulated views get flushed in
+                // one frame).
+                m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
             }
