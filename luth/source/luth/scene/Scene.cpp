@@ -23,6 +23,11 @@ namespace Luth
     void Scene::Clear()
     {
         ReleaseAllAssets();
+        ClearPreservingAssets();
+    }
+
+    void Scene::ClearPreservingAssets()
+    {
         m_RootEntities.clear();
 
         // Destroy every entity individually. This keeps the registry's

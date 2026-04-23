@@ -169,7 +169,7 @@ namespace Luth
 
     // ── Save ────────────────────────────────────────────────────
 
-    bool SceneSerializer::Save(const Scene& scene, const fs::path& path)
+    std::string SceneSerializer::SaveToString(const Scene& scene)
     {
         // Collect entities in depth-first order (parents before children)
         std::vector<Entity> ordered;
@@ -186,13 +186,18 @@ namespace Luth
         }
         root["entities"] = entities;
 
+        return root.dump(4);
+    }
+
+    bool SceneSerializer::Save(const Scene& scene, const fs::path& path)
+    {
         std::ofstream file(path);
         if (!file.is_open()) {
             LH_CORE_ERROR("SceneSerializer::Save — failed to open '{}'", path.string());
             return false;
         }
 
-        file << root.dump(4);
+        file << SaveToString(scene);
         file.close();
 
         LH_CORE_INFO("Scene saved to '{}'", path.string());
@@ -209,23 +214,40 @@ namespace Luth
             return false;
         }
 
-        json root;
-        try {
-            root = json::parse(file);
-        }
-        catch (const json::parse_error& e) {
-            LH_CORE_ERROR("SceneSerializer::Load — parse error: {}", e.what());
-            return false;
-        }
+        std::string contents((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
         file.close();
 
+        if (!LoadFromString(scene, contents, /*preserveAssets=*/false)) {
+            LH_CORE_ERROR("SceneSerializer::Load — failed to load '{}'", path.string());
+            return false;
+        }
+
+        LH_CORE_INFO("Scene loaded from '{}'", path.string());
+        return true;
+    }
+
+    bool SceneSerializer::LoadFromString(Scene& scene, std::string_view jsonStr, bool preserveAssets)
+    {
+        json root;
+        try {
+            root = json::parse(jsonStr);
+        }
+        catch (const json::parse_error& e) {
+            LH_CORE_ERROR("SceneSerializer::LoadFromString — parse error: {}", e.what());
+            return false;
+        }
+
         if (!root.contains("entities") || !root["entities"].is_array()) {
-            LH_CORE_ERROR("SceneSerializer::Load — invalid scene format (missing entities array)");
+            LH_CORE_ERROR("SceneSerializer::LoadFromString — invalid scene format (missing entities array)");
             return false;
         }
 
         // ── Clear existing scene ────────────────────────────────
-        scene.Clear();
+        // preserveAssets=true keeps Scene::m_HeldAssets alive — used by play-mode
+        // Stop so AssetManager doesn't re-resolve every mesh/texture on restore.
+        if (preserveAssets) scene.ClearPreservingAssets();
+        else                scene.Clear();
 
         // ── Pass 1: Create all entities, populate components ────
         std::unordered_map<std::string, Entity> uuidToEntity;
@@ -398,7 +420,7 @@ namespace Luth
                 child.SetParent(it->second);
             }
             else {
-                LH_CORE_WARN("SceneSerializer::Load — parent UUID '{}' not found for entity '{}'",
+                LH_CORE_WARN("SceneSerializer::LoadFromString — parent UUID '{}' not found for entity '{}'",
                     parentUUID, child.GetName());
             }
         }
@@ -410,12 +432,12 @@ namespace Luth
                 child.GetComponent<BoneAttachment>().TargetEntity = it->second;
             }
             else {
-                LH_CORE_WARN("SceneSerializer::Load — BoneAttachment target UUID '{}' not found for '{}'",
+                LH_CORE_WARN("SceneSerializer::LoadFromString — BoneAttachment target UUID '{}' not found for '{}'",
                     targetUUID, child.GetName());
             }
         }
 
-        LH_CORE_INFO("Scene loaded from '{}' ({} entities)", path.string(), uuidToEntity.size());
+        LH_CORE_INFO("Scene loaded ({} entities)", uuidToEntity.size());
         return true;
     }
 }
