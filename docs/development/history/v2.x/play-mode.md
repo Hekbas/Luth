@@ -1,7 +1,7 @@
 # v2.8.0 — play-mode
 
 **Date:** 2026-04-23
-**Commits:** 8 (on `feat/play-mode`)
+**Commits:** 9 (on `feat/play-mode`)
 **Issue:** [#66](https://github.com/Hekbas/Luth/issues/66)
 
 ---
@@ -27,7 +27,8 @@ Editor UI: Play / Pause / Stop / Step transport buttons appended to `ScenePanel`
 | E | Transport bar + viewport tint in `ScenePanel` | [`bfd4d9c`](../../../../commit/bfd4d9c) |
 | F | Block `CommandHistory::Execute/Undo/Redo` during play | [`11b577c`](../../../../commit/11b577c) |
 | G | Scene-camera override during play + camera-source toggle | [`fe1fa88`](../../../../commit/fe1fa88) |
-| H | Version bump + history + ROADMAP | this commit |
+| H | Version bump + history + ROADMAP | [`2b6b5e2`](../../../../commit/2b6b5e2) |
+| I | Fix skinned-mesh freeze on scene reload (pre-existing bug surfaced by Play→Stop) | [`2e28034`](../../../../commit/2e28034) |
 
 ---
 
@@ -79,9 +80,15 @@ Editor UI: Play / Pause / Stop / Step transport buttons appended to `ScenePanel`
 
 ---
 
+## Bugs Fixed Along the Way
+
+- **Skinned-mesh freeze on scene reload** (sub-task I, pre-existing). `GPUObjectBuffers::BuildGPUObjectBuffer` only looked for an `Animation` component on the mesh entity itself, never on its parent. Mesh entities are typically children (Model loader parents mesh-per-submesh under an entity that holds the `Animation` component), so `obj.boneOffset` silently fell back to `0`. On first engine load, slot 0 usually belonged to the parent's `BoneMatrixBuffer` allocation, so the mismatch rendered correctly by coincidence. Any path that destroyed + recreated the animated character (scene reload, Play→Stop, hot reload) reshuffled slot-0 ownership and the geometry pass started reading a stale slot → frozen pose. Outline + bone-debug overlays were unaffected because they pull `boneOffset` from `DrawCommand` which `DrawListBuilder` had populated via an entity-or-parent fallback. Fix: mirror the same fallback in `GPUObjectBuffers.cpp:222`.
+
+---
+
 ## Build Verification
 
-- 8 atomic commits on `feat/play-mode`; every commit builds Debug x64 clean. Pre-existing warnings (LNK4006 in `shaderc_shared.lib`/`ws2_32.lib`/`dbghelp.lib`, C4996 `getenv`/`strncpy`, C4244 `Editor.cpp:400` chrono-to-uint) untouched.
+- 9 atomic commits on `feat/play-mode`; every commit builds Debug x64 clean. Pre-existing warnings (LNK4006 in `shaderc_shared.lib`/`ws2_32.lib`/`dbghelp.lib`, C4996 `getenv`/`strncpy`, C4244 `Editor.cpp:400` chrono-to-uint) untouched.
 - Runtime smoke (user-tested): Play enters, viewport tints green, animations run. Pause freezes animations, tint yellow. Step advances one frame, returns to paused. Stop reverts scene to pre-Play state (byte-identical after `SaveToString`). Transport button enable/disable matches state matrix. Camera-source toggle flips between editor and scene camera during Play. Preview-animation toggle off → animations frozen in Editing. Inspector property edits during Play produce a single warn log and no state change. Ctrl+Z during Play is no-op. Repeated Play→Stop cycles don't leak (`BoneMatrixBuffer` free-list stable).
 
 ---
