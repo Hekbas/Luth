@@ -24,6 +24,7 @@
 #include "luthien/panels/ProjectPanel.h"
 #include "luthien/panels/ResourcePanel.h"
 #include "luthien/panels/ScenePanel.h"
+#include "luthien/panels/GamePanel.h"
 #include "luthien/panels/RenderPanel.h"
 #include "luthien/panels/ProfilerPanel.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
@@ -156,6 +157,7 @@ namespace Luth
         AddPanel(new ProjectPanel());
         AddPanel(new ResourcePanel());
         AddPanel(new ScenePanel(rs));
+        AddPanel(new GamePanel(rs));
         AddPanel(new RenderPanel());
         AddPanel(new ProfilerPanel());
         AddPanel(new FrameDebuggerPanel());
