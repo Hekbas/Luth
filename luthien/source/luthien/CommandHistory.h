@@ -34,6 +34,13 @@ namespace Luth
         // Clear history (on scene change)
         static void Clear();
 
+        // Block mutations — PlayModeController flips this during Play/Stop.
+        // Execute / Undo / Redo / BeginCompound / EndCompound all early-return
+        // when blocked so gizmo + inspector edits during play have no effect
+        // on the (snapshot-restored) scene.
+        static void SetBlocked(bool blocked);
+        static bool IsBlocked() { return s_Blocked; }
+
         // Read-only stack access (for debug panel)
         static const std::deque<std::unique_ptr<ICommand>>& GetUndoStack() { return s_UndoStack; }
         static const std::deque<std::unique_ptr<ICommand>>& GetRedoStack() { return s_RedoStack; }
@@ -47,6 +54,8 @@ namespace Luth
         static inline std::vector<std::unique_ptr<ICommand>> s_CompoundBuffer;
         static inline const char* s_CompoundName = nullptr;
         static inline bool s_InCompound = false;
+        static inline bool s_Blocked = false;
+        static inline bool s_WarnedBlocked = false;
         static constexpr u32 kMaxHistorySize = 100;
     };
 }

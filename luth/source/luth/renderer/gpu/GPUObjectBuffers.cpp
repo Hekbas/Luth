@@ -218,12 +218,29 @@ namespace Luth
             m_EntityLookup.push_back(entity);      // m_EntityLookup[count + 1] = entity
             m_EntityToSSBOIndex[entity] = count;   // entity → 0-based SSBO index
 
-            // Skinned mesh: get bone offset from Animation component on this entity
-            if (meshesData[mr.MeshIndex].IsSkinned && registry.all_of<Animation>(entity))
+            // Skinned mesh: get bone offset from Animation on this entity OR
+            // its parent (mesh entities are usually children; Animation lives
+            // on the parent). Matches the lookup in DrawListBuilder — without
+            // the parent fallback, child meshes read boneOffset=0 and render
+            // a frozen pose (only happens to look right when slot 0 is the
+            // parent's allocation, which breaks on entity recreate/reload).
+            if (meshesData[mr.MeshIndex].IsSkinned)
             {
-                auto& anim = registry.get<Animation>(entity);
-                if (anim.BufferAllocated)
-                    obj.boneOffset = anim.BoneBufferOffset;
+                entt::entity animEntity = entt::null;
+                if (registry.all_of<Animation>(entity))
+                    animEntity = entity;
+                else if (registry.all_of<Parent>(entity))
+                {
+                    auto parentEnt = (entt::entity)registry.get<Parent>(entity).Value;
+                    if (registry.valid(parentEnt) && registry.all_of<Animation>(parentEnt))
+                        animEntity = parentEnt;
+                }
+                if (animEntity != entt::null)
+                {
+                    auto& anim = registry.get<Animation>(animEntity);
+                    if (anim.BufferAllocated)
+                        obj.boneOffset = anim.BoneBufferOffset;
+                }
             }
 
             auto* ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer()).get();

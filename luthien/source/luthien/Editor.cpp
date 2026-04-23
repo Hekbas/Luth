@@ -569,6 +569,12 @@ namespace Luth
         s_IsDirty = true;
     }
 
+    void Editor::ResetDirtyState(bool dirty)
+    {
+        s_IsDirty = dirty;
+        s_LastHierarchyVersion = s_ActiveScene ? s_ActiveScene->GetHierarchyVersion() : 0;
+    }
+
     // ── Settings & Layout ──
 
     void Editor::LoadSettings()
