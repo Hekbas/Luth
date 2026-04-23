@@ -140,11 +140,15 @@ namespace Luth
         // Tear down all Vulkan resources. Called from RenderingSystem::dtor.
         void Shutdown();
 
-        // Build + execute the render graph for one view. Called once per
-        // visible panel (Scene + Game). The pipeline caches the view pointer
-        // in m_CurrentView so passes can reach the per-view targets and
-        // camera through the member.
-        void Execute(entt::registry& registry, const RenderView& view);
+        // Build + record the render graph for one view into the supplied
+        // primary command buffer. RenderingSystem::Update owns the cmd
+        // lifecycle (Renderer::BeginPrimaryCmd / EndPrimaryCmdAndSubmit) and
+        // calls Execute once per visible view inside that pair — all views
+        // share one submit+present per frame. The pipeline caches the view
+        // pointer in m_CurrentView + m_CurrentViewResources so passes can
+        // reach the per-view targets / camera / descriptors without
+        // threading the RenderView through every AddXPass signature.
+        void Execute(entt::registry& registry, const RenderView& view, void* primaryCmd);
 
         // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
         // when the camera hasn't moved — the LDR output still holds the last

@@ -62,23 +62,28 @@ namespace Luth
         s_Backend->OnResize(width, height);
     }
 
-    void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers)
+    void* Renderer::BeginPrimaryCmd(u64 frameIndex)
     {
-        // Get the primary command buffer for this frame
         VkCommandBuffer primaryCmd = (VkCommandBuffer)s_Backend->GetFrameCommandBuffer(frameIndex);
-
-        // Begin Primary
         VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(primaryCmd, &beginInfo);
+        return primaryCmd;
+    }
 
-        // Execute the render graph — barriers + recording + secondary execution
-        graph.Execute(primaryCmd, timers);
-        
+    void Renderer::RecordGraph(void* cmd, RG::RenderGraph& graph, GPUTimerPool* timers)
+    {
+        graph.Execute((VkCommandBuffer)cmd, timers);
+    }
+
+    void Renderer::EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex)
+    {
+        VkCommandBuffer primaryCmd = (VkCommandBuffer)cmd;
+
         // Present Barrier for Swapchain Image
         auto* vkBackend = static_cast<VulkanBackend*>(s_Backend.get());
         VkImage swapchainImage = vkBackend->GetSwapchain().GetImage(vkBackend->GetSwapchain().GetCurrentFrameIndex());
-        
+
         VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
         barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         barrier.dstAccessMask = 0;
@@ -90,11 +95,15 @@ namespace Luth
         barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
         vkCmdPipelineBarrier(primaryCmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-        
-        // End Primary
+
         vkEndCommandBuffer(primaryCmd);
-        
-        // Submit to GPU + Present
         s_Backend->SubmitFrame(frameIndex, primaryCmd);
+    }
+
+    void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers)
+    {
+        void* cmd = BeginPrimaryCmd(frameIndex);
+        RecordGraph(cmd, graph, timers);
+        EndPrimaryCmdAndSubmit(cmd, frameIndex);
     }
 }

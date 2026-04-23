@@ -7,6 +7,7 @@
 #include "luth/renderer/DrawListBuilder.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/FrameTargets.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/draw/DrawList.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
@@ -17,12 +18,11 @@
 #include <entt/entt.hpp>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Luth
 {
-    class RenderPipeline;
     class Texture;
-    struct RenderView;
 
     // Per-frame global shader inputs (Set 0 UBO). Layout mirrors GLSL binding.
     struct GlobalUniforms {
@@ -80,16 +80,12 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
-        // Per-view render entry point. Called from Update (for the scene
-        // panel's view, using m_SceneTargets + m_CameraParams) and from
-        // GamePanel::OnRender (for the game view, with its own FrameTargets
-        // + a CameraParams built from the first Component::Camera entity).
-        //
-        // Assumes Update has already run for this frame (shared draw list
-        // + GPU object buffer + materials are already uploaded); per-view
-        // work (cascade fit, UBO updates, PrepareForTargets, Execute)
-        // happens inside.
-        void RenderToView(const RenderView& view, entt::registry& registry);
+        // Queue an additional view for this frame. Called by editor panels
+        // (e.g. GamePanel::OnRender) before Update runs — Update collects
+        // queued views and records each one into the frame's primary cmd
+        // buffer, in queued order, before the primary (scene) view's
+        // subgraph. The queue is cleared at the end of Update.
+        void QueueView(const RenderView& view) { m_QueuedViews.push_back(view); }
 
         // Project lifecycle hooks: extend / restrict the shader hot-reload
         // watcher to cover the active project's shaders directory.
@@ -153,8 +149,18 @@ namespace Luth
         u32         GetDepthPreviewHeight() const;
 
     private:
+        // Per-frame view record-into-cmd helper. Called from Update for both
+        // the scene view + each queued view. Owns the per-view state-prep
+        // chain (lighting fit → PrepareForTargets → UBO uploads → subgraph
+        // record) and writes directly into the supplied primary cmd buffer.
+        void RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd);
+
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
+
+        // Views queued for this frame by editor panels (GamePanel etc.).
+        // Cleared at the end of every Update.
+        std::vector<RenderView> m_QueuedViews;
 
         // Memory.
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;

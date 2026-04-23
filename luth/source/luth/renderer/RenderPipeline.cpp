@@ -307,7 +307,7 @@ namespace Luth
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 
-    void RenderPipeline::Execute(entt::registry& registry, const RenderView& view)
+    void RenderPipeline::Execute(entt::registry& registry, const RenderView& view, void* primaryCmd)
     {
         auto& s = m_System;
         m_CurrentView          = &view;
@@ -334,19 +334,22 @@ namespace Luth
         RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
         RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
-        // Frustum cull — 5 dispatches: camera region + 4 shadow cascade regions.
-        // Each cascade uses its own light-space viewProj frustum so shadow casters
-        // outside the camera frustum but inside the cascade still get rendered.
+        // Frustum cull — 5 dispatches per view (camera region + 4 shadow
+        // cascade regions). Each view claims a disjoint range in the shared
+        // indirect buffer ([viewIndex * k_IndirectRegionsPerView, +5)) so
+        // multiple views can record into one cmd buffer without stomping
+        // on each other's cull output.
         {
+            const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
             AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                 m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
-                /*destOffset*/ 0, "FrustumCull.Cam", &m_System.m_FrameDebugger);
+                baseRegion * k_IndirectRegionStride, "FrustumCull.Cam", &m_System.m_FrameDebugger);
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
                 Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
-                const u32 destOffset = (i + 1) * RenderPipeline::k_IndirectRegionStride;
+                const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                     m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
@@ -418,7 +421,11 @@ namespace Luth
         // after each pass that writes it. Keep the tracked-RT set tight to bound
         // memory (~50 MB at 1080p for the v1 set). The sink is a no-op when state
         // != CaptureRequested, so re-checking here is sufficient.
-        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        //
+        // Frame debugger is scene-view-only — gate on emitImGuiPass so the
+        // game panel's subgraph doesn't double-register tracked RTs or
+        // overwrite the scene view's capture state.
+        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -452,10 +459,12 @@ namespace Luth
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
+        Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
         // --- Frame Debugger: Finalize capture and enter frozen state ---
-        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // Only the primary (scene) view finalizes the frame-debugger state,
+        // matching the gate above that attached the archive sink.
+        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the

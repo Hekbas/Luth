@@ -182,8 +182,11 @@ namespace Luth
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                         // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
-                        // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance]
-                        VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance].
+                        // Per-view offset: view 0 = region 0, view 1 starts at k_IndirectRegionsPerView.
+                        const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                        const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 
