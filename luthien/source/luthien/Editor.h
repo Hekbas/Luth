@@ -64,6 +64,7 @@ namespace Luth
 
         // Scene management
         static void SetActiveScene(std::shared_ptr<Scene> scene);
+        static std::shared_ptr<Scene> GetActiveScene() { return s_ActiveScene; }
         static void NewScene();
         static void OpenScene();
         static void OpenScene(const std::filesystem::path& path);
@@ -71,6 +72,10 @@ namespace Luth
         static void SaveSceneAs();
         static void MarkDirty();
         static bool IsDirty() { return s_IsDirty; }
+        // Resets dirty flag + hierarchy version together. Used after scene
+        // load and play-mode Stop to prevent the load itself from bumping
+        // s_IsDirty via the hierarchy-version delta check.
+        static void ResetDirtyState(bool dirty = false);
 
         // Project switching
         static void ShowProjectLauncher();

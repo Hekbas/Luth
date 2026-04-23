@@ -4,6 +4,7 @@
 #include "luthien/Editor.h"
 #include "luthien/EditorCamera.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/PlayModeController.h"
 #include "luthien/ProjectLauncher.h"
 #include "luthien/panels/ScenePanel.h"
 #include "luthien/panels/ProjectPanel.h"
@@ -54,6 +55,10 @@ namespace
             out.skyboxIntensity  = Editor::GetSettings().skyboxIntensity;
             out.selectedEntities = EditorSelection::GetSelectedEntities();
         }
+
+        // Play-mode state forwarded from PlayModeController
+        PlayState GetPlayState() const override { return PlayModeController::GetState(); }
+        bool ConsumeStepRequest() override      { return PlayModeController::ConsumeStepRequest(); }
 
         std::filesystem::path GetProjectCurrentDir() override
         {
