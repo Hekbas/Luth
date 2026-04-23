@@ -2,13 +2,14 @@
 
 #include "luthien/Editor.h"
 #include "luthien/EditorCamera.h"
+#include "luthien/viewport/ViewportRenderer.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/events/Event.h"
 #include "luth/events/EventBus.h"
 
-#include <vulkan/vulkan.h>
 #include <ImGuizmo.h>
+#include <memory>
 
 namespace Luth
 {
@@ -25,8 +26,8 @@ namespace Luth
 
         void SetContext(const std::shared_ptr<Scene>& context) { m_Context = context; }
 
-        bool IsViewportFocused() const { return m_IsFocused; }
-        bool IsViewportHovered() const { return m_IsHovered; }
+        bool IsViewportFocused() const { return m_Viewport->IsFocused(); }
+        bool IsViewportHovered() const { return m_Viewport->IsHovered(); }
 
         EditorCamera& GetEditorCamera() { return m_EditorCamera; }
 
@@ -53,15 +54,7 @@ namespace Luth
         std::shared_ptr<Scene> m_Context;
         RenderingSystem* m_RenderingSystem = nullptr;
         EditorCamera m_EditorCamera;
-
-        Vec2 m_ViewportSize = { 0.0f, 0.0f };
-        ImVec2 m_ViewportBounds[2];
-        bool m_IsFocused = false;
-        bool m_IsHovered = false;
-
-        // Per-instance to avoid leaking across editor teardown.
-        VkDescriptorSet m_SceneDS = VK_NULL_HANDLE;
-        std::shared_ptr<Texture> m_LastSceneTex = nullptr;
+        std::unique_ptr<ViewportRenderer> m_Viewport;
 
         Entity m_SelectedEntity;
         int m_GizmoType = -1; // -1 = none, otherwise ImGuizmo::OPERATION

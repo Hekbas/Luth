@@ -6,6 +6,7 @@
 #include "luthien/CommandHistory.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/EditorColors.h"
+#include "luthien/viewport/ViewportRenderer.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
@@ -18,9 +19,6 @@
 #include "luthien/widgets/Widgets.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
-#include "luth/renderer/backend/vulkan/VulkanTexture.h"
-#include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include <backends/imgui_impl_vulkan.h>
 #include <ImGuizmo.h>
 
 namespace Luth
@@ -29,6 +27,7 @@ namespace Luth
 
     ScenePanel::ScenePanel(RenderingSystem* renderingSystem)
         : m_RenderingSystem(renderingSystem)
+        , m_Viewport(std::make_unique<ViewportRenderer>())
     {
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
         m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
@@ -40,14 +39,7 @@ namespace Luth
         LH_CORE_INFO("Created Scene panel");
     }
 
-    ScenePanel::~ScenePanel()
-    {
-        if (m_SceneDS) {
-            ImGui_ImplVulkan_RemoveTexture(m_SceneDS);
-            m_SceneDS = VK_NULL_HANDLE;
-        }
-        m_LastSceneTex.reset();
-    }
+    ScenePanel::~ScenePanel() = default;
 
     void ScenePanel::OnInit()
     {
@@ -259,53 +251,8 @@ namespace Luth
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-            // Viewport sizing â compare as integers to avoid an infinite resize
-            // loop caused by float â u32 truncation in the RenderResizeEvent path.
-            const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
-            const u32 newW = (u32)avail.x;
-            const u32 newH = (u32)avail.y;
-            const u32 curW = (u32)m_ViewportSize.x;
-            const u32 curH = (u32)m_ViewportSize.y;
-            if ((newW != curW || newH != curH) && newW > 0 && newH > 0) {
-                m_ViewportSize = { (float)newW, (float)newH };
-
-                // Update rendering system and camera
-                EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newW, newH);
-            }
-
-            // Update viewport bounds for gizmos & mouse picking
-            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
-            m_ViewportBounds[0] = cursorScreenPos;
-            m_ViewportBounds[1] = { cursorScreenPos.x + m_ViewportSize.x, cursorScreenPos.y + m_ViewportSize.y };
-
-            // Get final output from active rendering technique
-            if (auto texture = m_RenderingSystem->GetSceneColor())
-            {
-                if (texture != m_LastSceneTex)
-                {
-                    if (m_SceneDS)
-                    {
-                        VkDescriptorSet oldSet = m_SceneDS;
-                        VulkanContext::Get().PushDeletion([oldSet]() {
-                            ImGui_ImplVulkan_RemoveTexture(oldSet);
-                        });
-                    }
-
-                    auto vkTex = std::static_pointer_cast<VKTexture>(texture);
-                    m_SceneDS = ImGui_ImplVulkan_AddTexture(vkTex->GetSampler(), vkTex->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    m_LastSceneTex = texture;
-                }
-
-                ImGui::Image((ImTextureID)m_SceneDS, ToImVec2(m_ViewportSize), { 0, 0 }, { 1, 1 });
-            }
-            else
-            {
-                ImGui::Text("No Scene Output");
-            }
-
-            // Interaction states
-            m_IsFocused = ImGui::IsWindowFocused();
-            m_IsHovered = ImGui::IsWindowHovered();
+            m_Viewport->BeginViewport();
+            m_Viewport->DrawSceneTexture(m_RenderingSystem);
 
             // Handle gizmos
             DrawGizmos();
@@ -317,15 +264,15 @@ namespace Luth
             DrawAABBGizmos();
 
             // Mouse picking â LMB click in viewport (not on gizmo or icon)
-            if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
+            if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
                 && !m_GizmoIconClicked
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
             {
                 auto [mx, my] = ImGui::GetMousePos();
-                int px = (int)(mx - m_ViewportBounds[0].x);
-                int py = (int)(my - m_ViewportBounds[0].y);
+                int px = (int)(mx - m_Viewport->GetBounds()[0].x);
+                int py = (int)(my - m_Viewport->GetBounds()[0].y);
                 // Ensure click is inside viewport
-                if (px >= 0 && px < m_ViewportSize.x && py >= 0 && py < m_ViewportSize.y)
+                if (px >= 0 && px < m_Viewport->GetSize().x && py >= 0 && py < m_Viewport->GetSize().y)
                     if (auto* ps = SystemRegistry::GetSystem<PickingSystem>())
                         ps->RequestPick(px, py);
             }
@@ -392,7 +339,7 @@ namespace Luth
 
             // Camera Control
             ImGui::SetNavCursorVisible(!m_EditorCamera.IsFlying());
-            if (m_IsHovered) {
+            if (m_Viewport->IsHovered()) {
                 // F = frame selected, Shift+F = lock/track selected
                 if (ImGui::IsKeyPressed(ImGuiKey_F)) {
                     bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
@@ -411,7 +358,7 @@ namespace Luth
             }
 
             // Controls overlay (bottom-left)
-            if (m_ShowControlsOverlay && m_IsHovered && m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
+            if (m_ShowControlsOverlay && m_Viewport->IsHovered() && m_Viewport->GetSize().x > 0 && m_Viewport->GetSize().y > 0)
             {
                 std::vector<std::string> pressedKeys;
                 
@@ -459,8 +406,8 @@ namespace Luth
                     float boxW = textSize.x + pad * 2.0f;
                     float boxH = textSize.y + pad * 2.0f;
 
-                    float vpBottom = m_ViewportBounds[1].y;
-                    float vpLeft   = m_ViewportBounds[0].x;
+                    float vpBottom = m_Viewport->GetBounds()[1].y;
+                    float vpLeft   = m_Viewport->GetBounds()[0].x;
 
                     ImVec2 boxMin = { vpLeft + pad, vpBottom - boxH - pad };
                     ImVec2 boxMax = { vpLeft + pad + boxW, vpBottom - pad };
@@ -481,7 +428,7 @@ namespace Luth
     /*void ScenePanel::SetViewportCamera(const std::shared_ptr<Camera>& camera) {
         m_EditorCamera = camera;
         if (m_EditorCamera) {
-            m_EditorCamera->SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+            m_EditorCamera->SetViewportSize(m_Viewport->GetSize().x, m_Viewport->GetSize().y);
         }
     }*/
 
@@ -493,7 +440,7 @@ namespace Luth
         ImGuizmo::SetDrawlist();
 
         // Use the exact viewport bounds calculated during OnRender
-        ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportSize.x, m_ViewportSize.y);
+        ImGuizmo::SetRect(m_Viewport->GetBounds()[0].x, m_Viewport->GetBounds()[0].y, m_Viewport->GetSize().x, m_Viewport->GetSize().y);
 
         // Camera
         const Mat4& view = m_EditorCamera.GetViewMatrix();
@@ -573,7 +520,7 @@ namespace Luth
         }
 
         // Gizmo Shortcuts
-        if (m_IsFocused && !ImGuizmo::IsUsing() && !m_EditorCamera.IsFlying())
+        if (m_Viewport->IsFocused() && !ImGuizmo::IsUsing() && !m_EditorCamera.IsFlying())
         {
             if (ImGui::IsKeyPressed(ImGuiKey_Q))
                 m_GizmoType = -1;
@@ -614,7 +561,7 @@ namespace Luth
         if (skeleton.IsEmpty()) return;
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+        drawList->PushClipRect(m_Viewport->GetBounds()[0], m_Viewport->GetBounds()[1], true);
 
         u32 boneCount = skeleton.BoneCount();
         u32 transformCount = (u32)anim.GlobalBoneTransforms.size();
@@ -656,15 +603,15 @@ namespace Luth
         Vec4 clipPos = m_EditorCamera.GetViewProjection() * Vec4(worldPos, 1.0f);
         if (clipPos.w <= 0.001f) return { -1.0f, -1.0f };
         Vec3 ndc = Vec3(clipPos) / clipPos.w;
-        float screenX = m_ViewportBounds[0].x + (ndc.x * 0.5f + 0.5f) * m_ViewportSize.x;
-        float screenY = m_ViewportBounds[0].y + (-ndc.y * 0.5f + 0.5f) * m_ViewportSize.y;
+        float screenX = m_Viewport->GetBounds()[0].x + (ndc.x * 0.5f + 0.5f) * m_Viewport->GetSize().x;
+        float screenY = m_Viewport->GetBounds()[0].y + (-ndc.y * 0.5f + 0.5f) * m_Viewport->GetSize().y;
         return { screenX, screenY };
     }
 
     bool ScenePanel::IsInViewport(const ImVec2& p) const
     {
-        return p.x >= m_ViewportBounds[0].x && p.x <= m_ViewportBounds[1].x
-            && p.y >= m_ViewportBounds[0].y && p.y <= m_ViewportBounds[1].y;
+        return p.x >= m_Viewport->GetBounds()[0].x && p.x <= m_Viewport->GetBounds()[1].x
+            && p.y >= m_Viewport->GetBounds()[0].y && p.y <= m_Viewport->GetBounds()[1].y;
     }
 
     ImU32 ScenePanel::LightColorToImU32(const Vec3& color, float alpha) const
@@ -691,7 +638,7 @@ namespace Luth
                         && m_ShowTransformGizmo && m_GizmoType != -1;
 
         // Hit-test for click-to-select
-        if (m_IsHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+        if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
             && !(gizmoActive && ImGuizmo::IsOver())
             && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
         {
@@ -734,7 +681,7 @@ namespace Luth
 
         auto& registry = m_Context->Registry();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+        drawList->PushClipRect(m_Viewport->GetBounds()[0], m_Viewport->GetBounds()[1], true);
 
         // --- Directional Lights ---
         {
@@ -844,7 +791,7 @@ namespace Luth
 
         auto& registry = m_Context->Registry();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+        drawList->PushClipRect(m_Viewport->GetBounds()[0], m_Viewport->GetBounds()[1], true);
 
         auto view = registry.view<WorldTransform, Camera>();
         for (auto entity : view) {
@@ -927,7 +874,7 @@ namespace Luth
 
         auto& registry = m_Context->Registry();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->PushClipRect(m_ViewportBounds[0], m_ViewportBounds[1], true);
+        drawList->PushClipRect(m_Viewport->GetBounds()[0], m_Viewport->GetBounds()[1], true);
 
         constexpr int edges[12][2] = {
             {0,1},{1,2},{2,3},{3,0},
@@ -992,7 +939,7 @@ namespace Luth
             auto& resizeEvent = static_cast<RenderResizeEvent&>(e);
             m_RenderingSystem->Resize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
             m_EditorCamera.SetViewportSize((float)resizeEvent.GetWidth(), (float)resizeEvent.GetHeight());
-            m_ViewportSize = { (float)resizeEvent.GetWidth(), (float)resizeEvent.GetHeight() };
+            m_Viewport->SetSize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
             e.m_Handled = true;
             LH_CORE_TRACE("Resized Viewport {0}x{1}", resizeEvent.GetWidth(), resizeEvent.GetHeight());
         }
