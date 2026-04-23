@@ -25,10 +25,6 @@ namespace Luth
 
     private:
         void DrawEntityComponents(Entity entity);
-
-        template<typename T, typename UIFunction>
-        void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction);
-
         void DrawResourceProperties(UUID resource);
 
         // When locked, the inspector stays pinned to m_LockedEntity regardless of selection.
