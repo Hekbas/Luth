@@ -55,7 +55,7 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         auto& s = m_System;
-        m_System.m_Targets.Allocate(viewportWidth, viewportHeight);
+        m_System.m_SceneTargets.Allocate(viewportWidth, viewportHeight);
 
         InitGlobalUniforms();
         InitShadowResources();
@@ -283,17 +283,43 @@ namespace Luth
 
     void RenderPipeline::OnResize(u32 width, u32 height)
     {
-        auto& s = m_System;
+        // Scene-panel resize path — FrameTargets has already been resized in
+        // RenderingSystem::Resize. PrepareForTargets handles bloom / GTAO
+        // storage texture recreation + all descriptor rewrites bound to the
+        // scene FrameTargets.
+        PrepareForTargets(m_System.m_SceneTargets);
+        RegisterNamedTextures();
+    }
 
-        m_BloomA = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-        m_BloomB = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-        UpdatePostProcessDescriptors();
+    void RenderPipeline::PrepareForTargets(FrameTargets& targets)
+    {
+        if (!targets.GetSceneColor()) return;
 
-        // GTAO half-res storage textures (recreated on resize; descriptors
-        // refreshed below because they cache image-view pointers).
+        const u32 viewW = targets.GetSceneColor()->GetWidth();
+        const u32 viewH = targets.GetSceneColor()->GetHeight();
+        const u32 halfW = std::max(viewW / 2, 1u);
+        const u32 halfH = std::max(viewH / 2, 1u);
+
+        // Recreate bloom textures if size mismatch with the view. Bloom A/B
+        // are half-res of the scene color target; when switching between
+        // scene + game panels at different resolutions the textures are
+        // thrown away and rebuilt. Descriptors that sample them are rewritten
+        // below via UpdatePostProcessDescriptors.
+        const bool bloomSizeChanged = !m_BloomA
+            || m_BloomA->GetWidth()  != halfW
+            || m_BloomA->GetHeight() != halfH;
+        if (bloomSizeChanged)
         {
-            const u32 halfW = std::max(width  / 2, 1u);
-            const u32 halfH = std::max(height / 2, 1u);
+            m_BloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
+            m_BloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
+        }
+
+        // Recreate GTAO half-res storage textures if size mismatch.
+        const bool gtaoSizeChanged = !m_GTAOLinearDepth
+            || m_GTAOLinearDepth->GetWidth()  != halfW
+            || m_GTAOLinearDepth->GetHeight() != halfH;
+        if (gtaoSizeChanged)
+        {
             auto makeStorage = [&](TextureFormat fmt) {
                 return std::make_shared<VKTexture>(halfW, halfH, fmt, 1u, 0u, 1u, VK_IMAGE_USAGE_STORAGE_BIT);
             };
@@ -302,14 +328,16 @@ namespace Luth
             m_GTAOEdges       = makeStorage(TextureFormat::R8);
             m_GTAOFinal       = makeStorage(TextureFormat::R8);
         }
-        UpdateAODescriptors();
+
+        UpdatePostProcessDescriptors(targets);
+        UpdateAODescriptors(targets);
 
         // Update outline descriptors — mask + depth buffer views changed.
         if (m_OutlineDescSet && m_OutlineSampler)
         {
-            auto vkMask       = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
-            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionDepth());
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+            auto vkMask       = std::static_pointer_cast<VKTexture>(targets.GetSelectionMask());
+            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(targets.GetSelectionDepth());
+            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
 
             VkDescriptorImageInfo maskImgInfo{};
             maskImgInfo.sampler     = m_OutlineSampler;
@@ -354,7 +382,7 @@ namespace Luth
         // Update grid descriptor set: scene depth view changed on resize.
         if (m_GridDescSet && m_GridDepthSampler)
         {
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
 
             VkDescriptorImageInfo gridDepthImgInfo{};
             gridDepthImgInfo.sampler     = m_GridDepthSampler;
@@ -371,8 +399,6 @@ namespace Luth
 
             vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &gridWrite, 0, nullptr);
         }
-
-        RegisterNamedTextures();
     }
 
     void RenderPipeline::ExecuteMinimal()
@@ -384,9 +410,10 @@ namespace Luth
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 
-    void RenderPipeline::Execute(entt::registry& registry)
+    void RenderPipeline::Execute(entt::registry& registry, const RenderView& view)
     {
         auto& s = m_System;
+        m_CurrentView = &view;
 
         // Drain pending shader reloads (queued by FileWatcher on bg thread)
         // before the next graph is assembled so pipelines rebuilt via the
@@ -447,14 +474,18 @@ namespace Luth
         RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
         auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
-        auto maskOutput                = AddSelectionMaskPass(rg, registry);
+        SelectionMaskOutput maskOutput = view.drawSelectionOutline
+                                         ? AddSelectionMaskPass(rg, registry)
+                                         : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = m_System.m_GridVisible
+        RG::ResourceHandle gridColor   = view.drawGrid
                                          ? AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
         RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
-        RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth);
+        RG::ResourceHandle finalOutput = view.drawSelectionOutline
+                                         ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
+                                         : ldrOutput;
         AddImGuiPass(rg, finalOutput);
 
         rg.Compile();
@@ -718,10 +749,10 @@ namespace Luth
     {
         m_NamedTextures.clear();
         if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
-        if (m_System.m_Targets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_Targets.GetSceneColor();
-        if (m_System.m_Targets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_Targets.GetSceneDepth();
-        if (m_System.m_Targets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_Targets.GetLDROutput();
-        if (m_System.m_Targets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_Targets.GetEntityIDBuffer();
+        if (m_System.m_SceneTargets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_SceneTargets.GetSceneColor();
+        if (m_System.m_SceneTargets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_SceneTargets.GetSceneDepth();
+        if (m_System.m_SceneTargets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_SceneTargets.GetLDROutput();
+        if (m_System.m_SceneTargets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_SceneTargets.GetEntityIDBuffer();
         if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
         if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
         if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;

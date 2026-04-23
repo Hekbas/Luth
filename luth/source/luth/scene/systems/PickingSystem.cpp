@@ -33,7 +33,7 @@ namespace Luth
         auto* rs = SystemRegistry::GetSystem<RenderingSystem>();
         if (!rs) return;
 
-        auto& targets  = rs->GetFrameTargets();
+        auto& targets  = rs->GetSceneTargets();
         auto& pipeline = rs->GetPipeline();
 
         const auto& entityIDTex = targets.GetEntityIDBuffer();

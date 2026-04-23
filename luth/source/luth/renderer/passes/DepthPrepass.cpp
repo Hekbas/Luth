@@ -41,11 +41,11 @@ namespace Luth
             {
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SceneDepth";
-                depthDesc.width  = m_System.m_Targets.GetSceneDepth()->GetWidth();
-                depthDesc.height = m_System.m_Targets.GetSceneDepth()->GetHeight();
+                depthDesc.width  = m_CurrentView->targets->GetSceneDepth()->GetWidth();
+                depthDesc.height = m_CurrentView->targets->GetSceneDepth()->GetHeight();
                 depthDesc.format = RG::TextureFormat::D32_Float;
 
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSceneDepth());
                 data.depthTex = rg.ImportResource(depthDesc,
                     (void*)vkDepth->GetImage(),
                     (void*)vkDepth->GetImageView(),

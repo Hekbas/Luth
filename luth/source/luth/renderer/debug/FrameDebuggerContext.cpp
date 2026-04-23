@@ -120,7 +120,7 @@ namespace Luth
     RG::ResourceHandle FrameDebuggerContext::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
     {
         auto& sys = m_Pipeline.m_System;
-        if (!sys.m_FrameDebugger.blitPipeline || !sys.m_Targets.GetLDROutput()) return inputHandle;
+        if (!sys.m_FrameDebugger.blitPipeline || !sys.m_SceneTargets.GetLDROutput()) return inputHandle;
 
         struct DebugBlitData {
             RG::ResourceHandle output;
@@ -132,11 +132,11 @@ namespace Luth
         rg.AddPass<DebugBlitData>("DebugDisplayBlit",
             [&](DebugBlitData& data, RG::RenderPassBuilder& builder)
             {
-                auto ldrVk = std::static_pointer_cast<VKTexture>(sys.m_Targets.GetLDROutput());
+                auto ldrVk = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetLDROutput());
                 RG::TextureDesc desc;
                 desc.name   = "LDROutput";
-                desc.width  = sys.m_Targets.GetLDROutput()->GetWidth();
-                desc.height = sys.m_Targets.GetLDROutput()->GetHeight();
+                desc.width  = sys.m_SceneTargets.GetLDROutput()->GetWidth();
+                desc.height = sys.m_SceneTargets.GetLDROutput()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.output = rg.ImportResource(desc,
@@ -152,8 +152,8 @@ namespace Luth
                 auto& sys = m_Pipeline.m_System;
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                u32 w = sys.m_Targets.GetLDROutput()->GetWidth();
-                u32 h = sys.m_Targets.GetLDROutput()->GetHeight();
+                u32 w = sys.m_SceneTargets.GetLDROutput()->GetWidth();
+                u32 h = sys.m_SceneTargets.GetLDROutput()->GetHeight();
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 VkRect2D sc{}; sc.extent = { w, h };
@@ -260,20 +260,20 @@ namespace Luth
         // v1 — only GeometryPass per-draw replay is wired. Other passes leave
         // the cache key unchanged so the panel falls back to pass-output archive.
         if (pass.name != "GeometryPass") return;
-        if (!sys.m_Targets.GetSceneColor() || !sys.m_Targets.GetSceneDepth() || !sys.m_Targets.GetEntityIDBuffer()) return;
+        if (!sys.m_SceneTargets.GetSceneColor() || !sys.m_SceneTargets.GetSceneDepth() || !sys.m_SceneTargets.GetEntityIDBuffer()) return;
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
-        const u32 width  = sys.m_Targets.GetSceneColor()->GetWidth();
-        const u32 height = sys.m_Targets.GetSceneColor()->GetHeight();
+        const u32 width  = sys.m_SceneTargets.GetSceneColor()->GetWidth();
+        const u32 height = sys.m_SceneTargets.GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
         if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.m_Targets.GetSceneColor());
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.m_Targets.GetSceneDepth());
-        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.m_Targets.GetEntityIDBuffer());
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetSceneColor());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetSceneDepth());
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetEntityIDBuffer());
         VkImage     sceneColorImg  = vkSceneColor->GetImage();
         VkImageView sceneColorView = vkSceneColor->GetImageView();
         VkImage     sceneDepthImg  = vkSceneDepth->GetImage();

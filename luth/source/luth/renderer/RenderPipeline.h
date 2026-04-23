@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
+#include "luth/renderer/CameraParams.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/lighting/LightTypes.h"
@@ -24,12 +25,24 @@
 namespace Luth
 {
     class Entity;
+    class FrameTargets;
     class Material;
     class RenderingSystem;
     class FrameDebuggerContext;
     struct GeometryOutput;
     struct SelectionMaskOutput;
     namespace fs = std::filesystem;
+
+    // Per-view inputs for a single Execute call. Scene panel and Game panel
+    // each supply their own RenderView; the pipeline runs Execute once per
+    // view on the same pre-built draw list. Targets pointer is non-owning.
+    struct RenderView
+    {
+        FrameTargets* targets              = nullptr;
+        CameraParams  camera;
+        bool          drawGrid             = true;
+        bool          drawSelectionOutline = true;
+    };
 
     // Owns the per-frame render-graph assembly and execution. Created by
     // RenderingSystem in its ctor and invoked once per frame from Update
@@ -56,8 +69,11 @@ namespace Luth
         // Tear down all Vulkan resources. Called from RenderingSystem::dtor.
         void Shutdown();
 
-        // Build + execute the render graph for one frame.
-        void Execute(entt::registry& registry);
+        // Build + execute the render graph for one view. Called once per
+        // visible panel (Scene + Game). The pipeline caches the view pointer
+        // in m_CurrentView so passes can reach the per-view targets and
+        // camera through the member.
+        void Execute(entt::registry& registry, const RenderView& view);
 
         // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
         // when the camera hasn't moved — the LDR output still holds the last
@@ -67,18 +83,26 @@ namespace Luth
 
         // Recreate viewport-dependent resources (post-process descriptors,
         // GTAO storage textures, outline/grid descriptors). Called from
-        // RenderingSystem::Resize after FrameTargets::Resize.
+        // RenderingSystem::Resize after FrameTargets::Resize — rebinds
+        // descriptors to the scene panel's FrameTargets by default.
         void OnResize(u32 width, u32 height);
+
+        // Rebind viewport-dependent descriptors to the supplied targets and
+        // recreate bloom/GTAO storage textures if the target size differs
+        // from the current allocation. Called once per view from RenderToView
+        // before Execute to switch the pipeline between scene and game
+        // panels — ~7 vkUpdateDescriptorSets per call.
+        void PrepareForTargets(FrameTargets& targets);
 
         // Reload the environment HDR → irradiance + prefiltered cubemaps + BRDF LUT.
         void ReloadSkybox(const fs::path& hdrPath);
 
-        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
-        // before the draw list is built and the graph executes. The CascadeData
-        // + DirectionalLightShadowParams are produced by LightingSystem and
-        // cached on this Pipeline for the remainder of the frame (Execute +
+        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::
+        // RenderToView before the graph executes. The CascadeData +
+        // DirectionalLightShadowParams are produced by LightingSystem and
+        // cached on this Pipeline for the remainder of the view (Execute +
         // CaptureSnapshot read them through m_FrameCascades / m_FrameShadowParams).
-        void UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
+        void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
         void BuildGPUObjectBuffer(entt::registry& registry);
@@ -113,13 +137,13 @@ namespace Luth
         void InitGlobalUniforms();
         void InitShadowResources();
         void InitPostProcessResources();
-        void UpdatePostProcessDescriptors();
+        void UpdatePostProcessDescriptors(FrameTargets& targets);
         void InitIBLResources(const fs::path& hdrPath);
         void InitObjectSSBODescriptorLayout();
         void InitGPUObjectBuffers();
         void InitCullPipeline();
         void InitAOResources();
-        void UpdateAODescriptors();
+        void UpdateAODescriptors(FrameTargets& targets);
         void CreatePipelines();
         void BuildPBRPipelines();
         void BuildShadowPipelines();
@@ -160,6 +184,12 @@ namespace Luth
 
         RenderingSystem& m_System;
         std::unique_ptr<FrameDebuggerContext> m_Debugger;
+
+        // Non-owning pointer to the view being rendered. Set at the top of
+        // Execute, cleared at exit. Passes read it to resolve per-view
+        // targets + camera without threading the RenderView through every
+        // AddXPass signature.
+        const RenderView* m_CurrentView = nullptr;
 
         // ---- Constants (shared with RS-side callers when needed) ----
     public:

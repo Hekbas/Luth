@@ -22,6 +22,7 @@ namespace Luth
 {
     class RenderPipeline;
     class Texture;
+    struct RenderView;
 
     // Per-frame global shader inputs (Set 0 UBO). Layout mirrors GLSL binding.
     struct GlobalUniforms {
@@ -79,14 +80,25 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
+        // Per-view render entry point. Called from Update (for the scene
+        // panel's view, using m_SceneTargets + m_CameraParams) and from
+        // GamePanel::OnRender (for the game view, with its own FrameTargets
+        // + a CameraParams built from the first Component::Camera entity).
+        //
+        // Assumes Update has already run for this frame (shared draw list
+        // + GPU object buffer + materials are already uploaded); per-view
+        // work (cascade fit, UBO updates, PrepareForTargets, Execute)
+        // happens inside.
+        void RenderToView(const RenderView& view, entt::registry& registry);
+
         // Project lifecycle hooks: extend / restrict the shader hot-reload
         // watcher to cover the active project's shaders directory.
         void OnProjectLoaded();
         void OnProjectUnloaded();
 
         std::shared_ptr<Texture> GetSceneColor() const {
-            const auto& ldr = m_Targets.GetLDROutput();
-            return ldr ? ldr : m_Targets.GetSceneColor();
+            const auto& ldr = m_SceneTargets.GetLDROutput();
+            return ldr ? ldr : m_SceneTargets.GetSceneColor();
         }
         PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
         const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
@@ -103,8 +115,9 @@ namespace Luth
         void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
 
         // Accessors used by PickingSystem (readback reads the EntityID target
-        // and maps the sampled index back to an entity via the Pipeline).
-        FrameTargets&   GetFrameTargets() { return m_Targets; }
+        // and maps the sampled index back to an entity via the Pipeline) and
+        // GamePanel (which owns its own FrameTargets but shares the Pipeline).
+        FrameTargets&   GetSceneTargets() { return m_SceneTargets; }
         RenderPipeline& GetPipeline()     { return *m_Pipeline; }
 
         // Selection outline
@@ -146,8 +159,11 @@ namespace Luth
         // Memory.
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
 
-        // Persistent viewport-sized render targets.
-        FrameTargets m_Targets;
+        // Persistent viewport-sized render targets for the scene panel's
+        // view. The Game panel owns its own FrameTargets as a direct member
+        // (see luthien/.../panels/GamePanel.h) so the two views can resize
+        // independently.
+        FrameTargets m_SceneTargets;
 
         // Per-frame draw list (RenderMode-sorted buckets + tri count).
         DrawListBuilder m_DrawListBuilder;

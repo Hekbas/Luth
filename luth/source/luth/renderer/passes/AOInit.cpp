@@ -28,8 +28,8 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // ---- Half-res persistent textures ----
-        const u32 halfW = std::max(m_System.m_Targets.GetSceneColor()->GetWidth()  / 2, 1u);
-        const u32 halfH = std::max(m_System.m_Targets.GetSceneColor()->GetHeight() / 2, 1u);
+        const u32 halfW = std::max(m_System.m_SceneTargets.GetSceneColor()->GetWidth()  / 2, 1u);
+        const u32 halfH = std::max(m_System.m_SceneTargets.GetSceneColor()->GetHeight() / 2, 1u);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -198,16 +198,16 @@ namespace Luth
                 std::vector<VkPushConstantRange>{});
         }
 
-        UpdateAODescriptors();
+        UpdateAODescriptors(m_System.m_SceneTargets);
     }
 
-    void RenderPipeline::UpdateAODescriptors()
+    void RenderPipeline::UpdateAODescriptors(FrameTargets& targets)
     {
         if (m_GTAOPrefilterDescSet == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
         auto vkLinDepth   = std::static_pointer_cast<VKTexture>(m_GTAOLinearDepth);
         auto vkRawAO      = std::static_pointer_cast<VKTexture>(m_GTAORawAO);
         auto vkFinalAO    = std::static_pointer_cast<VKTexture>(m_GTAOFinal);
@@ -361,10 +361,14 @@ namespace Luth
         ubo.enabled        = s.enabled  ? 1 : 0;
         ubo.visualize      = s.visualize ? 1 : 0;
 
+        // Half-res GTAO textures are resized per-view in PrepareForTargets,
+        // so they already match the active view's scene color. Derive the
+        // full-res from them (halfW*2, halfH*2) — exact enough for the
+        // invResolution ratio used by the GTAO shaders.
         const u32 halfW = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetWidth()  : 1u;
         const u32 halfH = m_GTAOLinearDepth ? m_GTAOLinearDepth->GetHeight() : 1u;
-        const u32 fullW = m_System.m_Targets.GetSceneColor() ? m_System.m_Targets.GetSceneColor()->GetWidth()  : 1u;
-        const u32 fullH = m_System.m_Targets.GetSceneColor() ? m_System.m_Targets.GetSceneColor()->GetHeight() : 1u;
+        const u32 fullW = halfW * 2;
+        const u32 fullH = halfH * 2;
         ubo.invResolution[0]     = 1.0f / float(halfW);
         ubo.invResolution[1]     = 1.0f / float(halfH);
         ubo.invFullResolution[0] = 1.0f / float(fullW);

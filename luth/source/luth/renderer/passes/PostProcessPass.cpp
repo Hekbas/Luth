@@ -23,7 +23,7 @@ namespace Luth
     RG::ResourceHandle RenderPipeline::AddPostProcessPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
     {
-        if (!m_PostProcessPipeline || !m_System.m_Targets.GetLDROutput())
+        if (!m_PostProcessPipeline || !m_CurrentView->targets->GetLDROutput())
             return sceneColor; // Fallback: pass HDR scene color through
 
         struct PostProcessPassData {
@@ -33,15 +33,15 @@ namespace Luth
         };
 
         RG::ResourceHandle outputHandle;
-        auto ldrVk = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetLDROutput());
+        auto ldrVk = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetLDROutput());
 
         rg.AddPass<PostProcessPassData>("PostProcess",
             [&](PostProcessPassData& data, RG::RenderPassBuilder& builder)
             {
                 RG::TextureDesc desc;
                 desc.name   = "LDROutput";
-                desc.width  = m_System.m_Targets.GetLDROutput()->GetWidth();
-                desc.height = m_System.m_Targets.GetLDROutput()->GetHeight();
+                desc.width  = m_CurrentView->targets->GetLDROutput()->GetWidth();
+                desc.height = m_CurrentView->targets->GetLDROutput()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.output = rg.ImportResource(desc,
@@ -66,8 +66,8 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_PostProcessPipeline->GetLayout(), 0, 1, &m_CompositeDescSet, 0, nullptr);
 
-                u32 w = m_System.m_Targets.GetLDROutput()->GetWidth();
-                u32 h = m_System.m_Targets.GetLDROutput()->GetHeight();
+                u32 w = m_CurrentView->targets->GetLDROutput()->GetWidth();
+                u32 h = m_CurrentView->targets->GetLDROutput()->GetHeight();
 
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);

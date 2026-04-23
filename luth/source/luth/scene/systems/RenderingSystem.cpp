@@ -146,58 +146,80 @@ namespace Luth
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
         }
 
-        // --- Frame Debugger: Prepare for capture (BeginCapture below handles reset) ---
-        // Capture metadata + GPU archives are reset together inside FrameDebugger::
-        // BeginCapture (called after rg.Compile, just before ExecuteGraph) so prior
-        // archives get freed in the right order.
-
-        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
-        {
-            // Gather lights + fit CSM cascades on the CPU; upload to GPU.
-            auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-            lighting->UpdateFor(registry, m_CameraParams);
-            m_Pipeline->UploadLightUBO(lighting->GetLights());
-            m_Pipeline->UpdateGlobalUniforms(lighting->GetCascades(), lighting->GetShadowParams());
-
-            // Register materials and hold assets for all visible entities
-            auto matView = registry.view<WorldTransform, MeshRenderer>();
-            for (auto [entity, wt, mr] : matView.each())
-            {
-                if (mr.ModelUUID.IsValid())
-                {
-                    auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
-                    if (model)
-                        scene->HoldAsset(mr.ModelUUID, model);
-                }
-                if (!mr.MaterialUUID.IsValid()) continue;
-                auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
-                if (material)
-                {
-                    scene->HoldAsset(mr.MaterialUUID, material);
-                    m_Pipeline->EnsureMaterialRegistered(material);
-                }
-            }
-
-            // Upload dirty materials
-            MaterialSystem::Update(VK_NULL_HANDLE);
-
-            // Upload post-process settings
-            m_Pipeline->UpdatePostProcessUBO();
-            m_Pipeline->UpdateGTAOUBO();
-
-            // Build GPU object buffer (after materials are registered)
-            m_Pipeline->BuildGPUObjectBuffer(registry);
-
-            // Partition entities into opaque/cutout/transparent draw buckets.
-            // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
-            // reference the freshly populated indirect buffer.
-            m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
-
-            // Build + execute the render graph (graph assembly lives in RenderPipeline).
-            m_Pipeline->Execute(registry);
-
+        if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
+
+        // Camera-independent per-frame prep. These outputs are shared across
+        // every view rendered this frame (scene + game panels).
+        //
+        // Register materials and hold assets for all visible entities
+        auto matView = registry.view<WorldTransform, MeshRenderer>();
+        for (auto [entity, wt, mr] : matView.each())
+        {
+            if (mr.ModelUUID.IsValid())
+            {
+                auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+                if (model)
+                    scene->HoldAsset(mr.ModelUUID, model);
+            }
+            if (!mr.MaterialUUID.IsValid()) continue;
+            auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
+            if (material)
+            {
+                scene->HoldAsset(mr.MaterialUUID, material);
+                m_Pipeline->EnsureMaterialRegistered(material);
+            }
         }
+
+        // Upload dirty materials
+        MaterialSystem::Update(VK_NULL_HANDLE);
+
+        // Build GPU object buffer (after materials are registered)
+        m_Pipeline->BuildGPUObjectBuffer(registry);
+
+        // Partition entities into opaque/cutout/transparent draw buckets.
+        // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
+        // reference the freshly populated indirect buffer.
+        m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
+
+        // Render the scene panel view. The game panel (if visible) calls
+        // RenderToView again from its OnRender with its own FrameTargets +
+        // a CameraParams built from the first Component::Camera entity.
+        RenderView sceneView;
+        sceneView.targets              = &m_SceneTargets;
+        sceneView.camera               = m_CameraParams;
+        sceneView.drawGrid             = m_GridVisible;
+        sceneView.drawSelectionOutline = true;
+        RenderToView(sceneView, registry);
+    }
+
+    // =========================================================================
+    // Per-view render
+    // =========================================================================
+
+    void RenderingSystem::RenderToView(const RenderView& view, entt::registry& registry)
+    {
+        LH_PROFILE_FUNCTION();
+
+        if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
+            return;
+
+        // Gather lights + fit CSM cascades on the CPU; upload to GPU. Cascade
+        // fit is camera-dependent, so refits per view — ~1 ms extra GPU while
+        // both panels are visible. A frustum-union fit is a follow-up.
+        auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
+        lighting->UpdateFor(registry, view.camera);
+        m_Pipeline->UploadLightUBO(lighting->GetLights());
+        m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
+
+        // Rebind descriptors that point at per-view targets, then upload the
+        // per-view UBOs (post-process + GTAO read target size from view).
+        m_Pipeline->PrepareForTargets(*view.targets);
+        m_Pipeline->UpdatePostProcessUBO();
+        m_Pipeline->UpdateGTAOUBO();
+
+        // Build + execute the render graph (graph assembly lives in RenderPipeline).
+        m_Pipeline->Execute(registry, view);
     }
 
     // =========================================================================
@@ -207,9 +229,9 @@ namespace Luth
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         // Guard against unsigned underflow from negative float→u32 casts at startup
-        if (m_Targets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
+        if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            m_Targets.Resize(width, height);
+            m_SceneTargets.Resize(width, height);
             m_Pipeline->OnResize(width, height);
         }
     }

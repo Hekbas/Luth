@@ -13,8 +13,8 @@ namespace Luth
     void RenderPipeline::InitPostProcessResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        u32 w = m_System.m_Targets.GetSceneColor()->GetWidth();
-        u32 h = m_System.m_Targets.GetSceneColor()->GetHeight();
+        u32 w = m_System.m_SceneTargets.GetSceneColor()->GetWidth();
+        u32 h = m_System.m_SceneTargets.GetSceneColor()->GetHeight();
 
         // Bloom textures (half-res)
         m_BloomA = Texture::Create(std::max(w / 2, 1u), std::max(h / 2, 1u), TextureFormat::RGBA16F);
@@ -86,7 +86,7 @@ namespace Luth
         m_BloomBlurVDescSet   = sets[2];
         m_CompositeDescSet    = sets[3];
 
-        UpdatePostProcessDescriptors();
+        UpdatePostProcessDescriptors(m_System.m_SceneTargets);
 
         // ---- Outline pass resources ----
         {
@@ -146,9 +146,9 @@ namespace Luth
             vkAllocateDescriptorSets(device, &outlineAllocInfo, &m_OutlineDescSet);
 
             // Write all 3 descriptors: selection mask, selection depth, scene depth
-            auto vkMask      = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
-            auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionDepth());
-            auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+            auto vkMask      = std::static_pointer_cast<VKTexture>(m_System.m_SceneTargets.GetSelectionMask());
+            auto vkSelDepth  = std::static_pointer_cast<VKTexture>(m_System.m_SceneTargets.GetSelectionDepth());
+            auto vkScnDepth  = std::static_pointer_cast<VKTexture>(m_System.m_SceneTargets.GetSceneDepth());
 
             VkDescriptorImageInfo maskImgInfo{};
             maskImgInfo.sampler     = m_OutlineSampler;
@@ -247,7 +247,7 @@ namespace Luth
             gridUBOInfo.offset = 0;
             gridUBOInfo.range  = sizeof(GlobalUniforms);
 
-            auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+            auto vkScnDepthGrid = std::static_pointer_cast<VKTexture>(m_System.m_SceneTargets.GetSceneDepth());
             VkDescriptorImageInfo gridDepthImgInfo{};
             gridDepthImgInfo.sampler     = m_GridDepthSampler;
             gridDepthImgInfo.imageView   = vkScnDepthGrid->GetImageView();
@@ -272,11 +272,11 @@ namespace Luth
         }
     }
 
-    void RenderPipeline::UpdatePostProcessDescriptors()
+    void RenderPipeline::UpdatePostProcessDescriptors(FrameTargets& targets)
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        auto sceneVk  = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
+        auto sceneVk  = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
         auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
         auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
 

@@ -43,11 +43,11 @@ namespace Luth
             {
                 RG::TextureDesc desc;
                 desc.name   = "SceneColor";
-                desc.width  = m_System.m_Targets.GetSceneColor()->GetWidth();
-                desc.height = m_System.m_Targets.GetSceneColor()->GetHeight();
+                desc.width  = m_CurrentView->targets->GetSceneColor()->GetWidth();
+                desc.height = m_CurrentView->targets->GetSceneColor()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA16_Float;
 
-                auto vkTex = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
+                auto vkTex = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSceneColor());
                 data.outputTex = rg.ImportResource(desc,
                     (void*)vkTex->GetImage(),
                     (void*)vkTex->GetImageView(),
@@ -56,11 +56,11 @@ namespace Luth
                 // Entity ID buffer (R32_UINT)
                 RG::TextureDesc idDesc;
                 idDesc.name   = "EntityID";
-                idDesc.width  = m_System.m_Targets.GetEntityIDBuffer()->GetWidth();
-                idDesc.height = m_System.m_Targets.GetEntityIDBuffer()->GetHeight();
+                idDesc.width  = m_CurrentView->targets->GetEntityIDBuffer()->GetWidth();
+                idDesc.height = m_CurrentView->targets->GetEntityIDBuffer()->GetHeight();
                 idDesc.format = RG::TextureFormat::R32_Uint;
 
-                auto vkID = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetEntityIDBuffer());
+                auto vkID = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetEntityIDBuffer());
                 data.entityIDTex = rg.ImportResource(idDesc,
                     (void*)vkID->GetImage(),
                     (void*)vkID->GetImageView(),

@@ -75,18 +75,18 @@ namespace Luth
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
     }
 
-    void RenderPipeline::UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
+    void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
     {
         // Cache for downstream per-frame reads (Execute + capturedFrame snapshot).
         m_FrameCascades     = cascades;
         m_FrameShadowParams = shadowParams;
 
         GlobalUniforms ubo{};
-        ubo.view = m_System.m_CameraParams.view;
-        ubo.projection = m_System.m_CameraParams.projection;
+        ubo.view = camera.view;
+        ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
-        ubo.cameraPos = m_System.m_CameraParams.position;
+        ubo.cameraPos = camera.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             ubo.lightSpaceMatrix[i] = cascades.lightSpaceMatrix[i];
@@ -95,8 +95,8 @@ namespace Luth
         ubo.shadowBias       = shadowParams.castShadows ? shadowParams.shadowBias : Vec4(-1.0f);
         ubo.shadowNormalBias = shadowParams.shadowNormalBias;
         ubo.cascadeTexelSize = cascades.texelSize;
-        ubo.iblIntensity    = m_System.m_CameraParams.iblIntensity;
-        ubo.skyboxIntensity = m_System.m_CameraParams.skyboxIntensity;
+        ubo.iblIntensity    = camera.iblIntensity;
+        ubo.skyboxIntensity = camera.skyboxIntensity;
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 

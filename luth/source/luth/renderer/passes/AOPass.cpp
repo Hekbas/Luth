@@ -81,14 +81,14 @@ namespace Luth
 
                 const u32 halfW = m_GTAOLinearDepth->GetWidth();
                 const u32 halfH = m_GTAOLinearDepth->GetHeight();
-                const u32 fullW = m_System.m_Targets.GetSceneDepth()->GetWidth();
-                const u32 fullH = m_System.m_Targets.GetSceneDepth()->GetHeight();
+                const u32 fullW = m_CurrentView->targets->GetSceneDepth()->GetWidth();
+                const u32 fullH = m_CurrentView->targets->GetSceneDepth()->GetHeight();
 
                 GTAOPrefilterPC pc{};
                 pc.halfResSize = { (i32)halfW, (i32)halfH };
                 pc.invFullRes  = { 1.0f / float(fullW), 1.0f / float(fullH) };
-                pc.nearZ       = m_System.m_CameraParams.nearZ;
-                pc.farZ        = m_System.m_CameraParams.farZ;
+                pc.nearZ       = m_CurrentView->camera.nearZ;
+                pc.farZ        = m_CurrentView->camera.farZ;
 
                 vkCmdPushConstants(cmd, m_GTAOPrefilterPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GTAOPrefilterPC), &pc);
@@ -178,11 +178,11 @@ namespace Luth
                 // frame's GlobalUniforms were built with. Vulkan's Y-flipped
                 // projection has P[1][1] < 0; pass the absolute value so the
                 // shader works in a conventional +Y-up view space.
-                const auto& P = m_System.m_CameraParams.projection;
+                const auto& P = m_CurrentView->camera.projection;
                 GTAOMainPC pc{};
                 pc.projParams  = { P[0][0], std::abs(P[1][1]) };
-                pc.nearZ       = m_System.m_CameraParams.nearZ;
-                pc.farZ        = m_System.m_CameraParams.farZ;
+                pc.nearZ       = m_CurrentView->camera.nearZ;
+                pc.farZ        = m_CurrentView->camera.farZ;
                 pc.frameIndex  = (u32)Renderer::GetFrameData()->GetFrameIndex();
 
                 vkCmdPushConstants(cmd, m_GTAOMainPipeline->GetLayout(),
