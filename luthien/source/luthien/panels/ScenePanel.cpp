@@ -142,28 +142,6 @@ namespace Luth
                                  playState == PlayState::Paused))
                     PlayModeController::RequestStep();
 
-                // Camera-source toggle — only during Playing/Paused
-                if (playState != PlayState::Editing) {
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                    ImGui::SameLine(0, 4.0f);
-
-                    auto& settings = Editor::GetSettings();
-                    const bool usingSceneCam = !settings.useEditorCameraInPlay;
-                    if (usingSceneCam) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
-                    }
-                    std::string camLabel = std::string(ICON_FA_CAMERA) + "##CamSource";
-                    if (ImGui::Button(camLabel.c_str(), { btnSize, btnSize }))
-                        settings.useEditorCameraInPlay = !settings.useEditorCameraInPlay;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", usingSceneCam
-                            ? "Scene camera — click to use editor camera"
-                            : "Editor camera — click to use scene camera");
-                    if (usingSceneCam) ImGui::PopStyleColor(2);
-                }
-
                 ImGui::SameLine();
 
                 // ── Center: stats / view ──

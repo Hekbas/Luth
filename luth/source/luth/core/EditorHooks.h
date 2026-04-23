@@ -43,15 +43,6 @@ namespace Luth
         // characters animate in the scene view. Flip off for strict
         // "game systems only run during Play" behavior.
         bool      previewAnimationInEditor = true;
-
-        // Scene-camera override during play. When set, engine replaces the
-        // editor-camera view/proj/position with these values before handing
-        // CameraParams to RenderingSystem. Populated by the editor when a
-        // Camera entity exists AND useEditorCameraInPlay is off.
-        bool      hasPlayCamera   = false;
-        Mat4      playView        = Mat4(1.0f);
-        Mat4      playProjection  = Mat4(1.0f);
-        Vec3      playPosition    = Vec3(0.0f);
     };
 
     /// Interface the engine uses to drive the editor without depending on
