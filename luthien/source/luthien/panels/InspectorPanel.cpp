@@ -114,69 +114,13 @@ namespace Luth
         ImGui::Dummy({ 0, 4 });
         AlignItemToCenter(100);
         ButtonDropdown("Add Component", "inspector_addcomponent", [&m_SelectedEntity]() {
-            #if defined(DEBUG)
-            if (!m_SelectedEntity.HasComponent<Tag>() && ImGui::MenuItem("Tag")) {
-                m_SelectedEntity.AddOrReplaceComponent<Tag>();
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<Parent>() && ImGui::MenuItem("Parent")) {
-                m_SelectedEntity.AddOrReplaceComponent<Parent>();
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<Children>() && ImGui::MenuItem("Children")) {
-                m_SelectedEntity.AddOrReplaceComponent<Children>();
-                ImGui::CloseCurrentPopup();
-            }
-            #endif
-            if (!m_SelectedEntity.HasComponent<Camera>() && ImGui::MenuItem("Camera")) {
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<Camera>>(
-                    "Add Camera", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<DirectionalLight>() && ImGui::MenuItem("Directional Light")) {
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<DirectionalLight>>(
-                    "Add DirectionalLight", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<PointLight>() && ImGui::MenuItem("Point Light")) {
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<PointLight>>(
-                    "Add PointLight", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<MeshRenderer>() && ImGui::MenuItem("Mesh Renderer")) {
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<MeshRenderer>>(
-                    "Add MeshRenderer", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<Animation>() && ImGui::MenuItem("Animation")) {
-                UUID modelUUID;
-                if (m_SelectedEntity.HasComponent<MeshRenderer>())
-                    modelUUID = m_SelectedEntity.GetComponent<MeshRenderer>().ModelUUID;
-                Animation initAnim(modelUUID);
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<Animation>>(
-                    "Add Animation", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, initAnim));
-                ImGui::CloseCurrentPopup();
-            }
-            if (!m_SelectedEntity.HasComponent<BoneAttachment>() && ImGui::MenuItem("Bone Attachment")) {
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<BoneAttachment>>(
-                    "Add BoneAttachment", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity));
-                ImGui::CloseCurrentPopup();
-            }
-            if (m_SelectedEntity.HasComponent<Animation>() &&
-                !m_SelectedEntity.HasComponent<AnimationController>() &&
-                ImGui::MenuItem("Animation Controller"))
-            {
-                auto& a = m_SelectedEntity.GetComponent<Animation>();
-                AnimationController initCtrl;
-                BlendLayer baseLayer;
-                baseLayer.ClipIndex = a.AnimationIndex;
-                baseLayer.Speed = a.Speed;
-                baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
-                initCtrl.Layers.push_back(baseLayer);
-                initCtrl.CurrentClipIndex = a.AnimationIndex;
-                CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
-                    "Add AnimationController", m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, initCtrl));
-                ImGui::CloseCurrentPopup();
+            for (const auto& d : ComponentDrawerRegistry::GetDrawers()) {
+                if (!d.ShowInAddMenu) continue;
+                if (!d.CanAdd(m_SelectedEntity)) continue;
+                if (ImGui::MenuItem(d.Name.c_str())) {
+                    d.OnAdd(m_SelectedEntity);
+                    ImGui::CloseCurrentPopup();
+                }
             }
         });
 
