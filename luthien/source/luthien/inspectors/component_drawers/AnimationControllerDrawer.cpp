@@ -1,0 +1,221 @@
+#include "lepch.h"
+#include "luthien/inspectors/ComponentDrawerRegistry.h"
+#include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
+#include "luthien/widgets/Widgets.h"
+#include "luthien/commands/Commands.h"
+#include "luthien/CommandHistory.h"
+#include "luth/scene/Components.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/resources/Model.h"
+
+namespace Luth::ComponentDrawers
+{
+    using namespace Component;
+
+    void RegisterAnimationController()
+    {
+        ComponentDrawerOptions opts;
+        opts.CanAdd = [](Entity e) {
+            return e.HasComponent<Animation>() && !e.HasComponent<AnimationController>();
+        };
+        opts.OnAdd = [](Entity e) {
+            auto& a = e.GetComponent<Animation>();
+            AnimationController initCtrl;
+            BlendLayer baseLayer;
+            baseLayer.ClipIndex = a.AnimationIndex;
+            baseLayer.Speed = a.Speed;
+            baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
+            initCtrl.Layers.push_back(baseLayer);
+            initCtrl.CurrentClipIndex = a.AnimationIndex;
+            CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
+                "Add AnimationController", e.GetScene(), (entt::entity)e, initCtrl));
+        };
+
+        ComponentDrawerRegistry::Register<AnimationController>(
+            "Animation Controller",
+            [](Entity entity, AnimationController& ctrl) {
+                if (!entity.HasComponent<Animation>()) {
+                    ImGui::TextDisabled("Requires Animation component");
+                    return;
+                }
+                auto& anim = entity.GetComponent<Animation>();
+                if (!anim.ModelUUID.IsValid()) {
+                    ImGui::TextDisabled("No model assigned");
+                    return;
+                }
+                auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
+                if (!model || !model->IsSkinned()) {
+                    ImGui::TextDisabled("Model has no animations");
+                    return;
+                }
+
+                const auto& clips = model->GetAnimationClips();
+                int clipCount = (int)clips.size();
+                if (clipCount == 0) {
+                    ImGui::TextDisabled("No animation clips");
+                    return;
+                }
+
+                std::vector<const char*> clipNames(clipCount);
+                for (int i = 0; i < clipCount; i++)
+                    clipNames[i] = clips[i].Name.c_str();
+
+                Scene* scene = entity.GetScene();
+                entt::entity ent = (entt::entity)entity;
+
+                int currentClip = ctrl.CurrentClipIndex;
+                currentClip = std::clamp(currentClip, 0, clipCount - 1);
+                if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
+                    auto oldClip = ctrl.CurrentClipIndex;
+                    ctrl.Play(currentClip);
+                    EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipIndex, oldClip, ctrl.CurrentClipIndex);
+                }
+
+                {
+                    auto oldVal = ctrl.ApplyRootMotion;
+                    if (ImGui::Checkbox("Root Motion##Ctrl", &ctrl.ApplyRootMotion))
+                        EXEC_COMPONENT_PROP("Toggle Root Motion", scene, ent, AnimationController, ApplyRootMotion, oldVal, ctrl.ApplyRootMotion);
+                }
+
+                {
+                    auto oldVal = ctrl.DefaultTransitionDuration;
+                    if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
+                        EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration);
+                }
+
+                ImGui::Separator();
+                ImGui::Text("Layers");
+
+                if (ctrl.Layers.empty()) {
+                    ctrl.Layers.resize(1);
+                    ctrl.Layers[0].ClipIndex = ctrl.CurrentClipIndex;
+                }
+
+                for (u32 layerIdx = 0; layerIdx < (u32)ctrl.Layers.size(); layerIdx++) {
+                    auto& layer = ctrl.Layers[layerIdx];
+                    std::string layerLabel = (layerIdx == 0) ? "Base Layer" : "Layer " + std::to_string(layerIdx);
+
+                    ImGui::PushID((int)layerIdx);
+                    if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                        int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
+                        int oldClipIdx = layer.ClipIndex;
+                        if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
+                            layer.ClipIndex = layerClip;
+                            layer.CurrentTime = 0.0f;
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, i32>>(
+                                "Change Layer Clip", scene, ent,
+                                &AnimationController::Layers, layerIdx, &BlendLayer::ClipIndex,
+                                oldClipIdx, layerClip));
+                        }
+
+                        if (layerIdx > 0) {
+                            f32 oldWeight = layer.Weight;
+                            if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                    "Change Layer Weight", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::Weight,
+                                    oldWeight, layer.Weight));
+                        }
+
+                        {
+                            f32 oldSpeed = layer.Speed;
+                            if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
+                                    "Change Layer Speed", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::Speed,
+                                    oldSpeed, layer.Speed));
+                        }
+
+                        {
+                            bool oldLoop = layer.Loop;
+                            if (ImGui::Checkbox("Loop##Layer", &layer.Loop))
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, bool>>(
+                                    "Toggle Layer Loop", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::Loop,
+                                    oldLoop, layer.Loop));
+                        }
+
+                        if (layerIdx > 0) {
+                            const auto& skeleton = model->GetSkeleton();
+                            u32 boneCount = skeleton.BoneCount();
+
+                            if (ImGui::TreeNode("Bone Mask##Layer")) {
+                                if (layer.BoneMask.size() != boneCount)
+                                    layer.BoneMask.resize(boneCount, layer.BoneMask.empty());
+
+                                bool allEnabled = true;
+                                bool noneEnabled = true;
+                                for (u32 b = 0; b < boneCount; b++) {
+                                    if (layer.BoneMask[b]) noneEnabled = false;
+                                    else allEnabled = false;
+                                }
+
+                                if (ImGui::Button("All")) {
+                                    auto oldMask = layer.BoneMask;
+                                    std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), true);
+                                    CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                        "Set Bone Mask All", scene, ent,
+                                        &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                        oldMask, layer.BoneMask));
+                                }
+                                ImGui::SameLine();
+                                if (ImGui::Button("None")) {
+                                    auto oldMask = layer.BoneMask;
+                                    std::fill(layer.BoneMask.begin(), layer.BoneMask.end(), false);
+                                    CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                        "Set Bone Mask None", scene, ent,
+                                        &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                        oldMask, layer.BoneMask));
+                                }
+                                ImGui::SameLine();
+                                if (ImGui::Button("Clear Mask")) {
+                                    auto oldMask = layer.BoneMask;
+                                    layer.BoneMask.clear();
+                                    CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                        "Clear Bone Mask", scene, ent,
+                                        &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                        oldMask, layer.BoneMask));
+                                }
+
+                                for (u32 b = 0; b < boneCount; b++) {
+                                    bool enabled = layer.BoneMask[b];
+                                    if (ImGui::Checkbox(skeleton.Bones[b].Name.c_str(), &enabled)) {
+                                        auto oldMask = layer.BoneMask;
+                                        layer.BoneMask[b] = enabled;
+                                        CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, std::vector<bool>>>(
+                                            "Toggle Bone Mask Bit", scene, ent,
+                                            &AnimationController::Layers, layerIdx, &BlendLayer::BoneMask,
+                                            oldMask, layer.BoneMask));
+                                    }
+                                }
+                                ImGui::TreePop();
+                            }
+                        }
+
+                        if (layerIdx > 0) {
+                            if (ImGui::Button("Remove Layer")) {
+                                CommandHistory::Execute(std::make_unique<VectorEraseCommand<AnimationController, BlendLayer>>(
+                                    "Remove Layer", scene, ent,
+                                    &AnimationController::Layers, layerIdx));
+                                ImGui::TreePop();
+                                ImGui::PopID();
+                                break;
+                            }
+                        }
+
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+
+                if (ImGui::Button("+ Add Layer##Ctrl")) {
+                    BlendLayer newLayer;
+                    newLayer.ClipIndex = 0;
+                    CommandHistory::Execute(std::make_unique<VectorInsertCommand<AnimationController, BlendLayer>>(
+                        "Add Layer", scene, ent,
+                        &AnimationController::Layers, ctrl.Layers.size(), newLayer));
+                }
+            },
+            std::move(opts));
+    }
+}

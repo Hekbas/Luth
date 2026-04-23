@@ -19,17 +19,22 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
+        // Component drawers call this to hand off the active material UUID
+        // to the trailing MaterialEditor panel drawn after DrawEntityComponents.
+        void SetActiveMaterial(UUID uuid) { m_ActiveMaterialUUID = uuid; }
+
     private:
         void DrawEntityComponents(Entity entity);
-
-        template<typename T, typename UIFunction>
-        void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction);
-
         void DrawResourceProperties(UUID resource);
 
         // When locked, the inspector stays pinned to m_LockedEntity regardless of selection.
         bool   m_IsLocked = false;
         Entity m_LockedEntity;
+
+        // Written by the MeshRenderer drawer, read after the component loop to
+        // render the trailing MaterialEditor panel. Reset at the top of each
+        // DrawEntityComponents call.
+        UUID m_ActiveMaterialUUID;
 
         ModelViewer    m_ModelViewer;
         MaterialEditor m_MaterialEditor;
