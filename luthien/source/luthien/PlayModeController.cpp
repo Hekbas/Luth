@@ -20,6 +20,7 @@ namespace Luth
         s_Snapshot = SceneSerializer::SaveToString(*scene);
         s_SavedDirtyFlag = Editor::IsDirty();
         CommandHistory::Clear();
+        CommandHistory::SetBlocked(true);
 
         s_State = PlayState::Playing;
         s_StepRequested = false;
@@ -52,6 +53,7 @@ namespace Luth
         }
         s_Snapshot.clear();
 
+        CommandHistory::SetBlocked(false);
         Editor::ResetDirtyState(s_SavedDirtyFlag);
         CommandHistory::Clear();
 
