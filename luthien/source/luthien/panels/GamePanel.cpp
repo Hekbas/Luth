@@ -36,8 +36,11 @@ namespace Luth
 
     void GamePanel::OnInit() {}
 
-    // Build CameraParams from the first <Camera, WorldTransform> entity. Lifted
-    // from the v2.8.0 EditorHooks scene-camera override path removed in C1.
+    // Build CameraParams from the first <Camera, WorldTransform> entity.
+    // NOTE: we leave projection Y-up (Math::Perspective / Math::Ortho output).
+    // RenderPipeline::UpdateGlobalUniforms applies the Vulkan Y-flip uniformly
+    // for every view — matching EditorCamera's convention. Pre-flipping here
+    // double-flips and inverts triangle winding (upside-down + backfaces).
     static bool BuildCameraFromScene(entt::registry& reg, CameraParams& out)
     {
         auto view = reg.view<Camera, WorldTransform>();
@@ -64,7 +67,6 @@ namespace Luth
             out.nearZ = cam.OrthographicNear;
             out.farZ  = cam.OrthographicFar;
         }
-        out.projection[1][1] *= -1.0f; // Vulkan Y-flip
         out.position = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
         return true;
     }
