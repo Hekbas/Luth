@@ -461,6 +461,32 @@ namespace Luth
 
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
+        // --- Non-primary view: transition LDR → SHADER_READ_ONLY_OPTIMAL ---
+        // The RG ended with PostProcessPass writing LDR (COLOR_ATTACHMENT
+        // layout). The scene view's ImGui pass samples this LDR through
+        // an ImGui descriptor set declared with SHADER_READ_ONLY_OPTIMAL,
+        // so we must transition before the primary view's subgraph runs.
+        // Scene view's RG already ends in SHADER_READ via its ImGuiPass's
+        // builder.Read(sceneColor), so only non-primary views need this.
+        if (!view.emitImGuiPass && view.targets && view.targets->GetLDROutput())
+        {
+            auto vkLdr = std::static_pointer_cast<VKTexture>(view.targets->GetLDROutput());
+            VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+            barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = vkLdr->GetImage();
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+            vkCmdPipelineBarrier((VkCommandBuffer)primaryCmd,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+
         // --- Frame Debugger: Finalize capture and enter frozen state ---
         // Only the primary (scene) view finalizes the frame-debugger state,
         // matching the gate above that attached the archive sink.

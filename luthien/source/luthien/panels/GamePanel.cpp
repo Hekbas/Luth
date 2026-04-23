@@ -81,13 +81,28 @@ namespace Luth
             m_Viewport->BeginViewport();
 
             auto scene = Editor::GetActiveScene();
+            const bool haveBackend = Renderer::GetBackend() && Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan;
 
-            // GamePanel rendering is wired up in a follow-up commit — the
-            // current branch is mid-refactor for per-view descriptor sets.
-            // Until that lands, show a placeholder rather than triggering
-            // the unsafe two-Execute-per-frame path.
-            const bool haveCamera = false;
+            CameraParams camera;
+            const bool haveCamera = scene && haveBackend && m_TargetsAllocated
+                                        && BuildCameraFromScene(scene->Registry(), camera);
+
             if (haveCamera) {
+                // Queue this view for rendering in RS::Update. The scene
+                // view's ImGui pass (which finalizes the frame after every
+                // view's subgraph has recorded into the same primary cmd
+                // buffer) will sample this LDR via ImGui::Image below.
+                RenderView gameView;
+                gameView.targets              = &m_Targets;
+                gameView.camera               = camera;
+                gameView.viewIndex            = 1;
+                gameView.drawGrid             = false;
+                gameView.drawSelectionOutline = false;
+                gameView.emitImGuiPass        = false;
+                m_RenderingSystem->QueueView(gameView);
+
+                const auto& ldr = m_Targets.GetLDROutput();
+                m_Viewport->DrawSceneTexture(ldr ? ldr : m_Targets.GetSceneColor());
             } else {
                 // Center placeholder in the viewport region
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
