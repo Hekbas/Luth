@@ -54,7 +54,7 @@ namespace Luth
                 m_GridPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_GridPipeline->GetLayout(), 0, 1, &m_GridDescSet, 0, nullptr);
+                    m_GridPipeline->GetLayout(), 0, 1, &m_CurrentViewResources->gridDescSet, 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport vp{};

@@ -235,18 +235,21 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        // Release every cached per-view descriptor pool + texture set before
+        // tearing down shared state (the sets reference shared layouts).
+        for (auto& [targets, vr] : m_ViewResources)
+            DestroyViewResources(vr);
+        m_ViewResources.clear();
+
         m_Debugger->Shutdown();
         m_System.m_FrameDebugger.Shutdown(device);
 
         if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
         if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
-        if (m_OutlineDescPool)      vkDestroyDescriptorPool(device, m_OutlineDescPool, nullptr);
         if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
         if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
-        if (m_GridDescPool)         vkDestroyDescriptorPool(device, m_GridDescPool, nullptr);
         if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
         if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
-        if (m_PPDescPool)           vkDestroyDescriptorPool(device, m_PPDescPool, nullptr);
         if (m_IBLSampler)           vkDestroySampler(device, m_IBLSampler, nullptr);
         if (m_ShadowSampler)        vkDestroySampler(device, m_ShadowSampler, nullptr);
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i) {
@@ -269,136 +272,30 @@ namespace Luth
         if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
         m_CullPipeline.reset();
 
-        // GTAO resources (epic #58).
+        // GTAO resources (epic #58) — shared.
         m_GTAOPrefilterPipeline.reset();
         m_GTAOMainPipeline.reset();
         m_GTAODenoisePipeline.reset();
-        if (m_GTAOSampler)            vkDestroySampler(device, m_GTAOSampler, nullptr);
-        if (m_GTAODescPool)           vkDestroyDescriptorPool(device, m_GTAODescPool, nullptr);
+        if (m_GTAOSampler)             vkDestroySampler(device, m_GTAOSampler, nullptr);
         if (m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
         if (m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
         if (m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
-        // Textures + UBO destroyed automatically via shared_ptr reset when RenderingSystem dies.
     }
 
     void RenderPipeline::OnResize(u32 width, u32 height)
     {
         // Scene-panel resize path — FrameTargets has already been resized in
-        // RenderingSystem::Resize. PrepareForTargets handles bloom / GTAO
-        // storage texture recreation + all descriptor rewrites bound to the
-        // scene FrameTargets.
-        PrepareForTargets(m_System.m_SceneTargets);
+        // RenderingSystem::Resize. EnsureViewResources sees the size change
+        // and rebuilds the scene view's bloom / GTAO textures + rewrites its
+        // descriptor sets. Game panel's resize follows the same path through
+        // its own FrameTargets pointer.
+        EnsureViewResources(m_System.m_SceneTargets);
         RegisterNamedTextures();
     }
 
     void RenderPipeline::PrepareForTargets(FrameTargets& targets)
     {
-        if (!targets.GetSceneColor()) return;
-
-        const u32 viewW = targets.GetSceneColor()->GetWidth();
-        const u32 viewH = targets.GetSceneColor()->GetHeight();
-        const u32 halfW = std::max(viewW / 2, 1u);
-        const u32 halfH = std::max(viewH / 2, 1u);
-
-        // Recreate bloom textures if size mismatch with the view. Bloom A/B
-        // are half-res of the scene color target; when switching between
-        // scene + game panels at different resolutions the textures are
-        // thrown away and rebuilt. Descriptors that sample them are rewritten
-        // below via UpdatePostProcessDescriptors.
-        const bool bloomSizeChanged = !m_BloomA
-            || m_BloomA->GetWidth()  != halfW
-            || m_BloomA->GetHeight() != halfH;
-        if (bloomSizeChanged)
-        {
-            m_BloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
-            m_BloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
-        }
-
-        // Recreate GTAO half-res storage textures if size mismatch.
-        const bool gtaoSizeChanged = !m_GTAOLinearDepth
-            || m_GTAOLinearDepth->GetWidth()  != halfW
-            || m_GTAOLinearDepth->GetHeight() != halfH;
-        if (gtaoSizeChanged)
-        {
-            auto makeStorage = [&](TextureFormat fmt) {
-                return std::make_shared<VKTexture>(halfW, halfH, fmt, 1u, 0u, 1u, VK_IMAGE_USAGE_STORAGE_BIT);
-            };
-            m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
-            m_GTAORawAO       = makeStorage(TextureFormat::R8);
-            m_GTAOEdges       = makeStorage(TextureFormat::R8);
-            m_GTAOFinal       = makeStorage(TextureFormat::R8);
-        }
-
-        UpdatePostProcessDescriptors(targets);
-        UpdateAODescriptors(targets);
-
-        // Update outline descriptors — mask + depth buffer views changed.
-        if (m_OutlineDescSet && m_OutlineSampler)
-        {
-            auto vkMask       = std::static_pointer_cast<VKTexture>(targets.GetSelectionMask());
-            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(targets.GetSelectionDepth());
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
-
-            VkDescriptorImageInfo maskImgInfo{};
-            maskImgInfo.sampler     = m_OutlineSampler;
-            maskImgInfo.imageView   = vkMask->GetImageView();
-            maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo selDepthImgInfo{};
-            selDepthImgInfo.sampler     = m_OutlineSampler;
-            selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
-            selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo sceneDepthImgInfo{};
-            sceneDepthImgInfo.sampler     = m_OutlineSampler;
-            sceneDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
-            sceneDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet writes[3] = {};
-            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = m_OutlineDescSet;
-            writes[0].dstBinding = 0;
-            writes[0].descriptorCount = 1;
-            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[0].pImageInfo = &maskImgInfo;
-
-            writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[1].dstSet = m_OutlineDescSet;
-            writes[1].dstBinding = 1;
-            writes[1].descriptorCount = 1;
-            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[1].pImageInfo = &selDepthImgInfo;
-
-            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[2].dstSet = m_OutlineDescSet;
-            writes[2].dstBinding = 2;
-            writes[2].descriptorCount = 1;
-            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[2].pImageInfo = &sceneDepthImgInfo;
-
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
-        }
-
-        // Update grid descriptor set: scene depth view changed on resize.
-        if (m_GridDescSet && m_GridDepthSampler)
-        {
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
-
-            VkDescriptorImageInfo gridDepthImgInfo{};
-            gridDepthImgInfo.sampler     = m_GridDepthSampler;
-            gridDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
-            gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet gridWrite{};
-            gridWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            gridWrite.dstSet = m_GridDescSet;
-            gridWrite.dstBinding = 1;
-            gridWrite.descriptorCount = 1;
-            gridWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            gridWrite.pImageInfo = &gridDepthImgInfo;
-
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &gridWrite, 0, nullptr);
-        }
+        m_CurrentViewResources = &EnsureViewResources(targets);
     }
 
     void RenderPipeline::ExecuteMinimal()
@@ -413,7 +310,8 @@ namespace Luth
     void RenderPipeline::Execute(entt::registry& registry, const RenderView& view)
     {
         auto& s = m_System;
-        m_CurrentView = &view;
+        m_CurrentView          = &view;
+        m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
 
         // Drain pending shader reloads (queued by FileWatcher on bg thread)
         // before the next graph is assembled so pipelines rebuilt via the
@@ -486,7 +384,8 @@ namespace Luth
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
-        AddImGuiPass(rg, finalOutput);
+        if (view.emitImGuiPass)
+            AddImGuiPass(rg, finalOutput);
 
         rg.Compile();
 
@@ -753,8 +652,11 @@ namespace Luth
         if (m_System.m_SceneTargets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_SceneTargets.GetSceneDepth();
         if (m_System.m_SceneTargets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_SceneTargets.GetLDROutput();
         if (m_System.m_SceneTargets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_SceneTargets.GetEntityIDBuffer();
-        if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
-        if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
+        // Scene-view bloom textures — Frame Debugger is scene-view-only.
+        if (auto it = m_ViewResources.find(&m_System.m_SceneTargets); it != m_ViewResources.end()) {
+            if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
+            if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
+        }
         if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
         if (m_PrefilteredMap)m_NamedTextures["PrefilteredMap"]= m_PrefilteredMap;
         if (m_BRDFLut)       m_NamedTextures["BRDF_LUT"]     = m_BRDFLut;

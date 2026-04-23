@@ -22,7 +22,7 @@ namespace Luth
 
     RG::ResourceHandle RenderPipeline::AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
-        if (!m_BloomExtractPipeline || !m_BloomBlurPipeline || !m_BloomA || !m_BloomB)
+        if (!m_BloomExtractPipeline || !m_BloomBlurPipeline || !m_CurrentViewResources->bloomA || !m_CurrentViewResources->bloomB)
             return {}; // Post-process not initialized, skip bloom
 
         struct BloomPassData {
@@ -30,11 +30,11 @@ namespace Luth
             RG::ResourceHandle input;
         };
 
-        u32 halfW = m_BloomA->GetWidth();
-        u32 halfH = m_BloomA->GetHeight();
+        u32 halfW = m_CurrentViewResources->bloomA->GetWidth();
+        u32 halfH = m_CurrentViewResources->bloomA->GetHeight();
 
-        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_BloomA);
-        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_BloomB);
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(m_CurrentViewResources->bloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(m_CurrentViewResources->bloomB);
 
         // --- Bloom Extract: SceneColor -> BloomA ---
         RG::ResourceHandle bloomAHandle;
@@ -64,7 +64,7 @@ namespace Luth
                 m_BloomExtractPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomExtractPipeline->GetLayout(), 0, 1, &m_BloomExtractDescSet, 0, nullptr);
+                    m_BloomExtractPipeline->GetLayout(), 0, 1, &m_CurrentViewResources->bloomExtractDescSet, 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -112,7 +112,7 @@ namespace Luth
                 m_BloomBlurPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_BloomBlurHDescSet, 0, nullptr);
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_CurrentViewResources->bloomBlurHDescSet, 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -161,7 +161,7 @@ namespace Luth
                 m_BloomBlurPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_BloomBlurVDescSet, 0, nullptr);
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &m_CurrentViewResources->bloomBlurVDescSet, 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);

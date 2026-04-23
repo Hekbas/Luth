@@ -58,7 +58,7 @@ namespace Luth
                 m_OutlinePipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_OutlinePipeline->GetLayout(), 0, 1, &m_OutlineDescSet, 0, nullptr);
+                    m_OutlinePipeline->GetLayout(), 0, 1, &m_CurrentViewResources->outlineDescSet, 0, nullptr);
 
                 u32 w = m_CurrentView->targets->GetLDROutput()->GetWidth();
                 u32 h = m_CurrentView->targets->GetLDROutput()->GetHeight();

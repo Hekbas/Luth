@@ -8,8 +8,6 @@ namespace Luth
 {
     void RenderPipeline::InitIBLResources(const fs::path& hdrPath)
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
-
         // Run precomputation (equirect -> cubemap -> irradiance -> prefilter -> BRDF LUT)
         IBLResult ibl = IBL::Precompute(hdrPath);
 
@@ -21,51 +19,13 @@ namespace Luth
         m_SkyboxVertSpv  = std::move(ibl.skyboxVertSpv);
         m_SkyboxFragSpv  = std::move(ibl.skyboxFragSpv);
 
-        // Write IBL descriptors to Set 0 (bindings 1-3)
-        {
-            auto vkIrr = std::static_pointer_cast<VKTexture>(m_IrradianceMap);
-            auto vkPf  = std::static_pointer_cast<VKTexture>(m_PrefilteredMap);
-            auto vkLut = std::static_pointer_cast<VKTexture>(m_BRDFLut);
-
-            VkDescriptorImageInfo irrInfo{};
-            irrInfo.sampler = m_IBLSampler;
-            irrInfo.imageView = vkIrr->GetImageView();
-            irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo pfInfo{};
-            pfInfo.sampler = m_IBLSampler;
-            pfInfo.imageView = vkPf->GetImageView();
-            pfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo lutInfo{};
-            lutInfo.sampler = m_IBLSampler;
-            lutInfo.imageView = vkLut->GetImageView();
-            lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet writes[3] = {};
-            writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[0].dstSet = m_GlobalDescriptorSet;
-            writes[0].dstBinding = 1;
-            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[0].descriptorCount = 1;
-            writes[0].pImageInfo = &irrInfo;
-
-            writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[1].dstSet = m_GlobalDescriptorSet;
-            writes[1].dstBinding = 2;
-            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[1].descriptorCount = 1;
-            writes[1].pImageInfo = &pfInfo;
-
-            writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[2].dstSet = m_GlobalDescriptorSet;
-            writes[2].dstBinding = 3;
-            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[2].descriptorCount = 1;
-            writes[2].pImageInfo = &lutInfo;
-
-            vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
-        }
+        // IBL bindings (Set 0 binding 1-3) live on the per-view global
+        // descriptor set; rewrite every cached view so ReloadSkybox picks
+        // up the new textures without forcing viewers to re-create their
+        // ViewResources entry. Empty on first-time init — views created
+        // afterwards will pick up these pointers via WriteViewGlobalSet.
+        for (auto& [targets, vr] : m_ViewResources)
+            WriteViewGlobalSet(vr);
     }
 
     void RenderPipeline::ReloadSkybox(const fs::path& hdrPath)

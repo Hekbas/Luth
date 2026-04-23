@@ -81,22 +81,13 @@ namespace Luth
             m_Viewport->BeginViewport();
 
             auto scene = Editor::GetActiveScene();
-            const bool haveBackend = Renderer::GetBackend() && Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan;
 
-            CameraParams camera;
-            const bool haveCamera = scene && haveBackend && m_TargetsAllocated
-                                        && BuildCameraFromScene(scene->Registry(), camera);
-
+            // GamePanel rendering is wired up in a follow-up commit — the
+            // current branch is mid-refactor for per-view descriptor sets.
+            // Until that lands, show a placeholder rather than triggering
+            // the unsafe two-Execute-per-frame path.
+            const bool haveCamera = false;
             if (haveCamera) {
-                RenderView gameView;
-                gameView.targets              = &m_Targets;
-                gameView.camera               = camera;
-                gameView.drawGrid             = false;
-                gameView.drawSelectionOutline = false;
-                m_RenderingSystem->RenderToView(gameView, scene->Registry());
-
-                const auto& ldr = m_Targets.GetLDROutput();
-                m_Viewport->DrawSceneTexture(ldr ? ldr : m_Targets.GetSceneColor());
             } else {
                 // Center placeholder in the viewport region
                 const ImVec2 avail = ImGui::GetContentRegionAvail();

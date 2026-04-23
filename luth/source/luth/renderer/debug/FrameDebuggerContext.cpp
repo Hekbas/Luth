@@ -381,7 +381,7 @@ namespace Luth
 
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                rp.m_GlobalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
+                rp.m_CurrentViewResources->globalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
                 rp.m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), rp.m_ObjectSSBODescSet
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,

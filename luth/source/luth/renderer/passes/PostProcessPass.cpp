@@ -64,7 +64,7 @@ namespace Luth
                 m_PostProcessPipeline->Bind(cmd);
 
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_PostProcessPipeline->GetLayout(), 0, 1, &m_CompositeDescSet, 0, nullptr);
+                    m_PostProcessPipeline->GetLayout(), 0, 1, &m_CurrentViewResources->compositeDescSet, 0, nullptr);
 
                 u32 w = m_CurrentView->targets->GetLDROutput()->GetWidth();
                 u32 h = m_CurrentView->targets->GetLDROutput()->GetHeight();

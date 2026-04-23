@@ -204,17 +204,23 @@ namespace Luth
         if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
 
-        // Gather lights + fit CSM cascades on the CPU; upload to GPU. Cascade
-        // fit is camera-dependent, so refits per view — ~1 ms extra GPU while
-        // both panels are visible. A frustum-union fit is a follow-up.
+        // Gather lights + fit CSM cascades on the CPU. Cascade fit is
+        // camera-dependent, so refits per view — ~1 ms extra GPU while both
+        // panels are visible. A frustum-union fit is a follow-up.
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
         lighting->UpdateFor(registry, view.camera);
+
+        // Cache/allocate per-view GPU resources (bloom + GTAO textures, 9
+        // descriptor sets pointing at this view's targets). Must precede any
+        // per-view UBO write — those read m_CurrentViewResources internally.
+        m_Pipeline->PrepareForTargets(*view.targets);
+
+        // Upload per-frame GPU state. LightUBO + PP UBO are shared-content
+        // (view-independent) so one upload per frame is enough; they're
+        // written inside Execute for the scene view today and are harmless
+        // to repeat for additional views.
         m_Pipeline->UploadLightUBO(lighting->GetLights());
         m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
-
-        // Rebind descriptors that point at per-view targets, then upload the
-        // per-view UBOs (post-process + GTAO read target size from view).
-        m_Pipeline->PrepareForTargets(*view.targets);
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
