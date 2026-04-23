@@ -81,7 +81,7 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 - Displays `RenderingSystem::GetSceneColor()` texture
 - **Editor Camera:** Orbit, pan, zoom, flythrough (WASD), entity tracking (F/Shift+F)
 - **ImGuizmo gizmos:** Translate/Rotate/Scale with Ctrl-snap
-- Fires `RenderResizeEvent` on viewport size change
+- Per-instance resize callback (`ViewportRenderer::SetOnResize`) — resizes `RenderingSystem` + `EditorCamera`
 
 ### HierarchyPanel — Entity Tree
 - Hierarchical tree view with expand/collapse

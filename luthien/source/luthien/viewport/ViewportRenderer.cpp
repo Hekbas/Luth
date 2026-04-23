@@ -2,8 +2,6 @@
 #include "luthien/viewport/ViewportRenderer.h"
 
 #include "luthien/widgets/ImGuiUtils.h"
-#include "luth/events/RenderEvent.h"
-#include "luth/events/EventBus.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -24,7 +22,7 @@ namespace Luth
     void ViewportRenderer::BeginViewport()
     {
         // Viewport sizing — compare as integers to avoid an infinite resize
-        // loop caused by float → u32 truncation in the RenderResizeEvent path.
+        // loop caused by float → u32 truncation in the callback path.
         const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
         const u32 newW = (u32)avail.x;
         const u32 newH = (u32)avail.y;
@@ -32,7 +30,7 @@ namespace Luth
         const u32 curH = (u32)m_Size.y;
         if ((newW != curW || newH != curH) && newW > 0 && newH > 0) {
             m_Size = { (float)newW, (float)newH };
-            EventBus::Enqueue<RenderResizeEvent>(BusType::MainThread, newW, newH);
+            if (m_OnResize) m_OnResize(newW, newH);
         }
 
         // Update viewport bounds for gizmos & mouse picking
@@ -43,7 +41,12 @@ namespace Luth
 
     void ViewportRenderer::DrawSceneTexture(RenderingSystem* renderingSystem)
     {
-        if (auto texture = renderingSystem->GetSceneColor())
+        DrawSceneTexture(renderingSystem ? renderingSystem->GetSceneColor() : nullptr);
+    }
+
+    void ViewportRenderer::DrawSceneTexture(const std::shared_ptr<Texture>& texture)
+    {
+        if (texture)
         {
             if (texture != m_LastSceneTex)
             {
