@@ -28,9 +28,10 @@ namespace Luth
     ScenePanel::ScenePanel(RenderingSystem* renderingSystem)
         : m_RenderingSystem(renderingSystem)
         , m_Viewport(std::make_unique<ViewportRenderer>())
+        , m_Gizmo(std::make_unique<GizmoController>())
     {
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
-        m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+        m_Gizmo->SetOperation(ImGuizmo::OPERATION::TRANSLATE);
 
         EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) {
             HandleRenderResize(e);
@@ -48,8 +49,7 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
-        m_GizmoIconClicked = false;
-        m_GizmoIconEntity = entt::null;
+        m_Gizmo->ResetFrameState();
 
         // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
@@ -74,14 +74,14 @@ namespace Luth
                 ImVec4 normalCol = ImGui::GetStyleColorVec4(ImGuiCol_Button);
 
                 auto ToolButton = [&](const char* icon, const char* id, const char* tooltip, int gizmoOp) {
-                    bool isActive = (m_GizmoType == gizmoOp);
+                    bool isActive = (m_Gizmo->GetOperation() == gizmoOp);
                     if (isActive) {
                         ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
                     }
                     std::string label = std::string(icon) + id;
                     if (ImGui::Button(label.c_str(), { btnSize, btnSize }))
-                        m_GizmoType = gizmoOp;
+                        m_Gizmo->SetOperation(gizmoOp);
                     if (isActive)
                         ImGui::PushStyleColor(ImGuiCol_Border, activeCol); // pop below
                     if (ImGui::IsItemHovered())
@@ -225,7 +225,7 @@ namespace Luth
                 ButtonDropdown(ICON_FA_EYE, "##GizmoVis", [this]() {
                     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
                     ImGui::PushFont(Editor::GetMainFont());
-                    ImGui::Checkbox("Transform Gizmo", &m_ShowTransformGizmo);
+                    ImGui::Checkbox("Transform Gizmo", m_Gizmo->GetTransformGizmoVisibleRef());
                     ImGui::Checkbox("Grid", &Editor::GetSettings().showGrid);
                     ImGui::Checkbox("Bone Debug", &Editor::GetSettings().showBoneDebug);
                     ImGui::Checkbox("Light Gizmos", &Editor::GetSettings().showLightGizmos);
@@ -255,7 +255,12 @@ namespace Luth
             m_Viewport->DrawSceneTexture(m_RenderingSystem);
 
             // Handle gizmos
-            DrawGizmos();
+            m_Gizmo->DrawManipulator(
+                m_EditorCamera.GetViewMatrix(),
+                m_EditorCamera.GetProjectionMatrix(),
+                m_Viewport->GetBounds(), m_Viewport->GetSize(),
+                m_SelectedEntity, m_Context.get(),
+                m_Viewport->IsFocused(), m_EditorCamera.IsFlying());
 
             // Debug overlays
             DrawBoneDebugOverlay();
@@ -265,7 +270,7 @@ namespace Luth
 
             // Mouse picking â LMB click in viewport (not on gizmo or icon)
             if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
-                && !m_GizmoIconClicked
+                && !m_Gizmo->WasIconClicked()
                 && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
             {
                 auto [mx, my] = ImGui::GetMousePos();
@@ -279,7 +284,7 @@ namespace Luth
 
             // Consume pick result â hierarchy-aware + multi-select
             auto* picker = SystemRegistry::GetSystem<PickingSystem>();
-            if (!m_GizmoIconClicked && picker && picker->HasResult())
+            if (!m_Gizmo->WasIconClicked() && picker && picker->HasResult())
             {
                 entt::entity picked = picker->ConsumeResult();
                 if (picked != entt::null && m_Context)
@@ -327,13 +332,13 @@ namespace Luth
             }
 
             // Deferred icon selection â always wins over pick results
-            if (m_GizmoIconClicked && m_GizmoIconEntity != entt::null && m_Context)
+            if (m_Gizmo->WasIconClicked() && m_Gizmo->IconEntity() != entt::null && m_Context)
             {
                 // Discard any stale pick result
                 if (picker && picker->HasResult())
                     picker->ConsumeResult();
 
-                Entity e(m_GizmoIconEntity, m_Context.get());
+                Entity e(m_Gizmo->IconEntity(), m_Context.get());
                 EditorSelection::SelectEntity(e);
             }
 
@@ -432,107 +437,6 @@ namespace Luth
         }
     }*/
 
-    void ScenePanel::DrawGizmos()
-    {
-        if (!m_SelectedEntity || !m_SelectedEntity.IsValid()) return;
-
-        ImGuizmo::SetOrthographic(false);
-        ImGuizmo::SetDrawlist();
-
-        // Use the exact viewport bounds calculated during OnRender
-        ImGuizmo::SetRect(m_Viewport->GetBounds()[0].x, m_Viewport->GetBounds()[0].y, m_Viewport->GetSize().x, m_Viewport->GetSize().y);
-
-        // Camera
-        const Mat4& view = m_EditorCamera.GetViewMatrix();
-        const Mat4& proj = m_EditorCamera.GetProjectionMatrix();
-
-        // Entity Transform
-        auto& tc = m_SelectedEntity.GetComponent<Transform>();
-        
-        // Get World Matrix for Gizmo
-        Mat4 worldMatrix = m_SelectedEntity.GetComponent<WorldTransform>().Matrix;
-
-        // If we are in Local mode, we still need the world matrix for position, but we want to edit in local axes.
-        // ImGuizmo handles this via the MODE parameter.
-        
-        // However, if we edit in World mode, we need to decompose the result back to Local.
-        // If dirty, reconstruct world matrix on the fly to be responsive
-        if (tc.IsDirty)
-        {
-             // We can't easily reconstruct world matrix here without parent info.
-             // Rely on the System to have updated it, OR force a quick calc if needed.
-             // For now, let's trust the system update loop which runs before Render.
-        }
-
-        // Only draw & interact with the manipulator when visible and a tool is active
-        if (m_ShowTransformGizmo && m_GizmoType != -1)
-        {
-            // Snapping
-            bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
-            float snapValue = 0.5f; // Snap to 0.5m for translation/scale
-            if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
-                snapValue = 45.0f; // Snap to 45 degrees for rotation
-
-            float snapValues[3] = { snapValue, snapValue, snapValue };
-
-            ImGuizmo::Manipulate(Math::ValuePtr(view), Math::ValuePtr(proj),
-                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, Math::ValuePtr(worldMatrix),
-                nullptr, snap ? snapValues : nullptr);
-
-            bool isUsing = ImGuizmo::IsUsing();
-
-            // Capture transform at drag start
-            if (isUsing && !m_WasUsingGizmo) {
-                m_GizmoStartPos   = tc.Position;
-                m_GizmoStartRot   = tc.Rotation;
-                m_GizmoStartScale = tc.Scale;
-            }
-
-            if (isUsing)
-            {
-                // Convert back to Local Space
-                Mat4 localMatrix = worldMatrix;
-                if (m_SelectedEntity.HasParent())
-                {
-                    Entity parent = m_SelectedEntity.GetParent();
-                    Mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
-                    localMatrix = Math::Inverse(parentWorld) * worldMatrix;
-                }
-
-                float translation[3], rotation[3], scale[3];
-                ImGuizmo::DecomposeMatrixToComponents(Math::ValuePtr(localMatrix), translation, rotation, scale);
-
-                tc.Position = Math::MakeVec3(translation);
-                tc.Rotation = Math::MakeVec3(rotation);
-                tc.Scale = Math::MakeVec3(scale);
-                tc.IsDirty = true;
-            }
-
-            // Push command at drag end
-            if (!isUsing && m_WasUsingGizmo) {
-                CommandHistory::Execute(std::make_unique<GizmoTransformCommand>(
-                    m_Context.get(), (entt::entity)m_SelectedEntity,
-                    m_GizmoStartPos, m_GizmoStartRot, m_GizmoStartScale,
-                    tc.Position, tc.Rotation, tc.Scale));
-            }
-
-            m_WasUsingGizmo = isUsing;
-        }
-
-        // Gizmo Shortcuts
-        if (m_Viewport->IsFocused() && !ImGuizmo::IsUsing() && !m_EditorCamera.IsFlying())
-        {
-            if (ImGui::IsKeyPressed(ImGuiKey_Q))
-                m_GizmoType = -1;
-            if (ImGui::IsKeyPressed(ImGuiKey_W))
-                m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_E))
-                m_GizmoType = ImGuizmo::OPERATION::ROTATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_R))
-                m_GizmoType = ImGuizmo::OPERATION::SCALE;
-        }
-    }
-
     void ScenePanel::DrawBoneDebugOverlay()
     {
         if (!Editor::GetSettings().showBoneDebug) return;
@@ -623,34 +527,6 @@ namespace Luth
             (u8)(alpha * 255.0f));
     }
 
-    void ScenePanel::DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
-                                   ImU32 color, entt::entity entity)
-    {
-        constexpr float hitRadius = 16.0f;
-
-        ImVec2 textSize = ImGui::CalcTextSize(icon);
-        ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
-        drawList->AddText(textPos, color, icon);
-
-        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active â
-        // otherwise it returns stale state from the previous frame
-        bool gizmoActive = m_SelectedEntity && m_SelectedEntity.IsValid()
-                        && m_ShowTransformGizmo && m_GizmoType != -1;
-
-        // Hit-test for click-to-select
-        if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !(gizmoActive && ImGuizmo::IsOver())
-            && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
-        {
-            ImVec2 mouse = ImGui::GetMousePos();
-            float dx = mouse.x - screenPos.x, dy = mouse.y - screenPos.y;
-            if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-                m_GizmoIconClicked = true;
-                m_GizmoIconEntity = entity;
-            }
-        }
-    }
-
     bool ScenePanel::ClipLineToNearPlane(Vec3& a, Vec3& b) const
     {
         Mat4 vp = m_EditorCamera.GetViewProjection();
@@ -697,7 +573,7 @@ namespace Luth
                 // Icon (only if in front of camera)
                 ImVec2 screenPos = ProjectToScreen(pos);
                 if (screenPos.x >= 0.0f)
-                    DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity);
+                    m_Gizmo->DrawGizmoIcon(drawList, screenPos, ICON_FA_SUN, color, entity, m_Viewport->IsHovered(), m_SelectedEntity && m_SelectedEntity.IsValid());
 
                 // Direction arrow â only when selected
                 Entity e(entity, m_Context.get());
@@ -747,7 +623,7 @@ namespace Luth
                 // Icon (only if in front of camera)
                 ImVec2 screenCenter = ProjectToScreen(center);
                 if (screenCenter.x >= 0.0f)
-                    DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, iconColor, entity);
+                    m_Gizmo->DrawGizmoIcon(drawList, screenCenter, ICON_FA_LIGHTBULB, iconColor, entity, m_Viewport->IsHovered(), m_SelectedEntity && m_SelectedEntity.IsValid());
 
                 // Range circles â only when selected
                 Entity e(entity, m_Context.get());
@@ -803,7 +679,7 @@ namespace Luth
             // Icon (only if in front of camera)
             ImVec2 screenPos = ProjectToScreen(pos);
             if (screenPos.x >= 0.0f)
-                DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity);
+                m_Gizmo->DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO, EditorColors::GizmoCamera, entity, m_Viewport->IsHovered(), m_SelectedEntity && m_SelectedEntity.IsValid());
 
             // Compute frustum corners in camera local space (looking along -Z)
             float visualFar = Math::Min(cam.FarClip, 1000.0f);
