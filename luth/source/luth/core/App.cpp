@@ -220,32 +220,58 @@ namespace Luth
                 h->EndFrame();
             }
 
+            // Snapshot editor state once per frame — reused for camera setup
+            // and play-mode system gating below. Headless runtime (no editor
+            // hook) leaves defaults: hasCamera=false, playState=Editing,
+            // previewAnimationInEditor=true → game systems always tick.
+            EditorViewportState viewState;
+            bool haveEditor  = false;
+            PlayState playState = PlayState::Editing;
+            bool stepThisFrame = false;
+            if (auto* h = EditorHooks::Get())
+            {
+                h->GetViewportState(viewState);
+                playState     = h->GetPlayState();
+                stepThisFrame = h->ConsumeStepRequest();
+                haveEditor    = true;
+            }
+
             // Feed camera/editor state into RenderingSystem before its Update
             if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             {
                 CameraParams cp;
-                if (auto* h = EditorHooks::Get())
+                if (haveEditor)
                 {
-                    EditorViewportState state;
-                    h->GetViewportState(state);
-                    if (state.hasCamera)
+                    if (viewState.hasCamera)
                     {
-                        cp.view       = state.view;
-                        cp.projection = state.projection;
-                        cp.position   = state.position;
-                        cp.nearZ      = state.nearZ;
-                        cp.farZ       = state.farZ;
+                        cp.view       = viewState.view;
+                        cp.projection = viewState.projection;
+                        cp.position   = viewState.position;
+                        cp.nearZ      = viewState.nearZ;
+                        cp.farZ       = viewState.farZ;
                     }
-                    cp.iblIntensity     = state.iblIntensity;
-                    cp.skyboxIntensity  = state.skyboxIntensity;
-                    cp.selectedEntities = std::move(state.selectedEntities);
+                    cp.iblIntensity     = viewState.iblIntensity;
+                    cp.skyboxIntensity  = viewState.skyboxIntensity;
+                    cp.selectedEntities = std::move(viewState.selectedEntities);
                 }
                 rs->SetCameraParams(cp);
             }
 
-            // Scene systems always run (RenderingSystem must present the swapchain)
+            // Game systems tick only in Playing, Paused+Step, or Editing when
+            // the preview toggle is on. Standalone runtime (no editor) always
+            // ticks them.
+            bool runGameSystems = !haveEditor;
+            if (haveEditor)
+            {
+                runGameSystems = (playState == PlayState::Playing)
+                              || (playState == PlayState::Paused && stepThisFrame)
+                              || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
+            }
+
+            // Scene systems (RenderingSystem must present the swapchain)
             SystemRegistry::Update<TransformSystem>();
-            SystemRegistry::Update<AnimationSystem>();
+            if (runGameSystems)
+                SystemRegistry::Update<AnimationSystem>();
             SystemRegistry::Update<RenderingSystem>();
             SystemRegistry::Update<PickingSystem>();
 

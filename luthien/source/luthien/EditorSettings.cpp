@@ -44,6 +44,7 @@ namespace Luth
             settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
             settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
+            settings.previewAnimationInEditor = j.value("previewAnimationInEditor", settings.previewAnimationInEditor);
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
@@ -82,6 +83,7 @@ namespace Luth
             j["showCameraGizmos"]    = settings.showCameraGizmos;
             j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["showGrid"]            = settings.showGrid;
+            j["previewAnimationInEditor"] = settings.previewAnimationInEditor;
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 
             std::ofstream file(path);

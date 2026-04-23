@@ -38,6 +38,9 @@ namespace Luth
         bool  showAABBGizmos       = false;
         bool  showGrid             = true;
 
+        // Play mode
+        bool  previewAnimationInEditor = true;   // Animations tick in Editing state
+
         // Scene persistence
         std::string lastSceneUUID;
 

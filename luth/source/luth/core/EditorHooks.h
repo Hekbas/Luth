@@ -38,6 +38,11 @@ namespace Luth
         float     iblIntensity     = 1.0f;
         float     skyboxIntensity  = 1.0f;
         std::vector<Entity> selectedEntities;
+
+        // When true, AnimationSystem still ticks while PlayState::Editing so
+        // characters animate in the scene view. Flip off for strict
+        // "game systems only run during Play" behavior.
+        bool      previewAnimationInEditor = true;
     };
 
     /// Interface the engine uses to drive the editor without depending on

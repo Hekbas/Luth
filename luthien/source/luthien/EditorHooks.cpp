@@ -54,6 +54,7 @@ namespace
             out.iblIntensity     = Editor::GetSettings().iblIntensity;
             out.skyboxIntensity  = Editor::GetSettings().skyboxIntensity;
             out.selectedEntities = EditorSelection::GetSelectedEntities();
+            out.previewAnimationInEditor = Editor::GetSettings().previewAnimationInEditor;
         }
 
         // Play-mode state forwarded from PlayModeController
