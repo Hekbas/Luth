@@ -54,12 +54,20 @@ namespace Luth
 
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
         {
+            // EntityID is written by GeometryPass as a color attachment and
+            // has no downstream RG reader, so every frame ends with it in
+            // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. Transition from that
+            // actual layout (not SHADER_READ — the texture is never sampled
+            // through the RG) to TRANSFER_SRC so vkCmdCopyImageToBuffer can
+            // read it. After the picking submit the image stays in
+            // TRANSFER_SRC; next frame's GeometryPass imports it with the
+            // correct initial state via its RG::ResourceState hint.
             VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-            barrier.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-            barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            barrier.srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
             barrier.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
             barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             barrier.image = vkID->GetImage();
             barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
