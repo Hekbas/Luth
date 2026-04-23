@@ -1,6 +1,9 @@
 #include "lepch.h"
 #include "luthien/Bootstrap.h"
 #include "luth/core/EditorHooks.h"
+#include "luth/core/types/LuthMath.h"
+#include "luth/scene/Components.h"
+#include "luth/scene/Scene.h"
 #include "luthien/Editor.h"
 #include "luthien/EditorCamera.h"
 #include "luthien/EditorSelection.h"
@@ -55,6 +58,47 @@ namespace
             out.skyboxIntensity  = Editor::GetSettings().skyboxIntensity;
             out.selectedEntities = EditorSelection::GetSelectedEntities();
             out.previewAnimationInEditor = Editor::GetSettings().previewAnimationInEditor;
+
+            // Scene-camera override during Playing/Paused (first Camera entity)
+            const PlayState ps = PlayModeController::GetState();
+            if (ps != PlayState::Editing && !Editor::GetSettings().useEditorCameraInPlay)
+            {
+                if (auto scene = Editor::GetActiveScene())
+                {
+                    auto view = scene->Registry().view<Component::Camera, Component::WorldTransform>();
+                    auto it = view.begin();
+                    if (it != view.end())
+                    {
+                        auto& cam = view.get<Component::Camera>(*it);
+                        auto& xf  = view.get<Component::WorldTransform>(*it);
+
+                        out.playView = Math::Inverse(xf.Matrix);
+                        if (cam.Projection == Component::Camera::ProjectionType::Perspective) {
+                            out.playProjection = Math::Perspective(
+                                Math::Radians(cam.VerticalFOV), cam.AspectRatio,
+                                cam.NearClip, cam.FarClip);
+                        } else {
+                            const float l = -cam.OrthographicSize * cam.AspectRatio * 0.5f;
+                            const float r =  cam.OrthographicSize * cam.AspectRatio * 0.5f;
+                            const float b = -cam.OrthographicSize * 0.5f;
+                            const float t =  cam.OrthographicSize * 0.5f;
+                            out.playProjection = Math::Ortho(l, r, b, t,
+                                cam.OrthographicNear, cam.OrthographicFar);
+                        }
+                        out.playProjection[1][1] *= -1.0f; // Vulkan Y-flip
+                        out.playPosition = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
+                        out.hasPlayCamera = true;
+                    }
+                    else
+                    {
+                        static bool s_WarnedNoPlayCam = false;
+                        if (!s_WarnedNoPlayCam) {
+                            LH_CORE_WARN("Play mode: no Camera entity in scene — using editor camera");
+                            s_WarnedNoPlayCam = true;
+                        }
+                    }
+                }
+            }
         }
 
         // Play-mode state forwarded from PlayModeController
