@@ -6,6 +6,7 @@
 #include "luthien/CommandHistory.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/EditorColors.h"
+#include "luthien/PlayModeController.h"
 #include "luthien/viewport/ViewportRenderer.h"
 #include "luthien/viewport/GizmoController.h"
 #include "luthien/viewport/ViewportOverlays.h"
@@ -100,6 +101,46 @@ namespace Luth
                 ToolButton(ICON_FA_ROTATE, "##Rotate", "Rotate (E)", ImGuizmo::OPERATION::ROTATE);
                 ImGui::SameLine(0, 2.0f);
                 ToolButton(ICON_FA_EXPAND, "##Scale", "Scale (R)", ImGuizmo::OPERATION::SCALE);
+
+                // ── Transport controls ──
+                ImGui::SameLine(0, 4.0f);
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine(0, 4.0f);
+
+                const PlayState playState = PlayModeController::GetState();
+
+                auto TransportBtn = [&](const char* icon, const char* id, const char* tooltip, bool enabled) -> bool {
+                    if (!enabled) ImGui::BeginDisabled();
+                    std::string label = std::string(icon) + id;
+                    bool clicked = ImGui::Button(label.c_str(), { btnSize, btnSize });
+                    if (ImGui::IsItemHovered() && enabled)
+                        ImGui::SetTooltip("%s", tooltip);
+                    if (!enabled) ImGui::EndDisabled();
+                    return clicked;
+                };
+
+                // Play / Resume — same button, tooltip shifts based on state
+                const bool canPlay   = (playState == PlayState::Editing);
+                const bool canResume = (playState == PlayState::Paused);
+                if (TransportBtn(ICON_FA_PLAY, "##Play",
+                                 canResume ? "Resume" : "Play",
+                                 canPlay || canResume)) {
+                    if (canResume) PlayModeController::Resume();
+                    else           PlayModeController::EnterPlay();
+                }
+                ImGui::SameLine(0, 2.0f);
+
+                if (TransportBtn(ICON_FA_PAUSE, "##Pause", "Pause", playState == PlayState::Playing))
+                    PlayModeController::Pause();
+                ImGui::SameLine(0, 2.0f);
+
+                if (TransportBtn(ICON_FA_STOP, "##Stop", "Stop", playState != PlayState::Editing))
+                    PlayModeController::Stop();
+                ImGui::SameLine(0, 2.0f);
+
+                if (TransportBtn(ICON_FA_FORWARD_STEP, "##Step", "Step one frame",
+                                 playState == PlayState::Paused))
+                    PlayModeController::RequestStep();
 
                 ImGui::SameLine();
 
@@ -265,6 +306,20 @@ namespace Luth
 
             // Debug overlays
             m_Overlays->DrawAll(m_Context, m_EditorCamera, m_SelectedEntity);
+
+            // Play-mode viewport border tint (green=Playing, yellow=Paused)
+            {
+                const PlayState ps = PlayModeController::GetState();
+                if (ps != PlayState::Editing) {
+                    const ImU32 col = (ps == PlayState::Playing)
+                        ? IM_COL32(80, 180, 100, 220)
+                        : IM_COL32(220, 180, 80, 220);
+                    ImGui::GetForegroundDrawList()->AddRect(
+                        m_Viewport->GetBounds()[0],
+                        m_Viewport->GetBounds()[1],
+                        col, 0.0f, 0, 3.0f);
+                }
+            }
 
             // Mouse picking â LMB click in viewport (not on gizmo or icon)
             if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
