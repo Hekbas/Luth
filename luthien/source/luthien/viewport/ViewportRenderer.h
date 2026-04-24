@@ -22,13 +22,11 @@ namespace Luth
         ~ViewportRenderer();
 
         // Detect size change (fires m_OnResize) + capture bounds/focus/hover.
-        // Called once per frame just before DrawSceneTexture, inside the
-        // owning ImGui window.
+        // Call once per frame just before DrawSceneTexture.
         //
-        // aspectRatio = 0: free aspect — inner rect fills the panel content
-        // region (Scene panel behaviour). aspectRatio > 0: lock the inner
-        // rect to that aspect and center within the panel (Game panel —
-        // mimics Unity's game view letterbox/pillarbox).
+        // aspectRatio == 0: inner rect fills the panel (Scene panel).
+        // aspectRatio > 0:  lock to that aspect and center — letterbox or
+        //                    pillarbox bars fill the remainder (Game panel).
         void BeginViewport(float aspectRatio = 0.0f);
 
         // Rebind descriptor set if scene texture changed, then ImGui::Image it.
@@ -41,10 +39,9 @@ namespace Luth
         // with the authoritative size used by RenderingSystem + EditorCamera.
         void SetSize(u32 width, u32 height);
 
-        // Per-instance resize handler fired by BeginViewport on dimension change.
-        // Scene panel: resizes RS::m_SceneTargets + EditorCamera. Game panel:
-        // resizes its own FrameTargets. Replaces the single-subscriber
-        // RenderResizeEvent bus that assumed one scene viewport.
+        // Fired by BeginViewport on dimension change. Scene panel resizes
+        // RS::m_SceneTargets + EditorCamera; GamePanel resizes its own
+        // FrameTargets. Per-instance so multi-view stays independent.
         void SetOnResize(ResizeFn fn) { m_OnResize = std::move(fn); }
 
         const Vec2&  GetSize()    const { return m_Size; }

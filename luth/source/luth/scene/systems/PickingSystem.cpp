@@ -54,14 +54,8 @@ namespace Luth
 
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
         {
-            // EntityID is written by GeometryPass as a color attachment and
-            // has no downstream RG reader, so every frame ends with it in
-            // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. Transition from that
-            // actual layout (not SHADER_READ — the texture is never sampled
-            // through the RG) to TRANSFER_SRC so vkCmdCopyImageToBuffer can
-            // read it. After the picking submit the image stays in
-            // TRANSFER_SRC; next frame's GeometryPass imports it with the
-            // correct initial state via its RG::ResourceState hint.
+            // EntityID ends every frame in COLOR_ATTACHMENT_OPTIMAL — it's
+            // written by GeometryPass and has no downstream RG reader.
             VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             barrier.srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
             barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;

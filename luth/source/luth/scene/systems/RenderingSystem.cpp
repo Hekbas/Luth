@@ -134,15 +134,12 @@ namespace Luth
             if (!cameraMoved)
             {
                 // Static — minimal graph: just blit ImGui to the swapchain.
-                // The editor panel reads the LDR output through ImGui::Image; the
-                // image's persistent layout (SHADER_READ_ONLY_OPTIMAL after the
-                // capture's outline pass) is preserved across frames.
+                // The scene LDR retains its last captured image (SHADER_READ
+                // from the capture's outline pass).
                 //
-                // Drop any views queued by panels this frame — we can't render
-                // them in Frozen state, and letting the queue grow unbounded
-                // causes a massive spike the moment the camera moves or the
-                // debugger is disabled (all accumulated views get flushed in
-                // one frame).
+                // Drop queued views — we can't render them in Frozen, and
+                // letting the queue grow unbounded spikes the frame when the
+                // debugger exits (all views flush at once).
                 m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
@@ -189,8 +186,7 @@ namespace Luth
         // reference the freshly populated indirect buffer.
         m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
-        // Scene-panel view — always rendered, always primary (emits ImGui
-        // pass at the end).
+        // Primary view — always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;
         sceneView.targets              = &m_SceneTargets;
         sceneView.camera               = m_CameraParams;
@@ -199,16 +195,12 @@ namespace Luth
         sceneView.drawSelectionOutline = true;
         sceneView.emitImGuiPass        = true;
 
-        // Open the frame's primary command buffer. Every visible view
-        // records its subgraph into this single cmd buffer; one submit +
-        // present closes out the frame.
+        // One primary cmd buffer for the whole frame. Queued views record
+        // first (their LDRs are sampled by the scene view's ImGui pass),
+        // then the scene view closes with the ImGui pass + present barrier.
         const u64 frameIndex = Renderer::GetFrameData()->GetFrameIndex();
         void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
 
-        // Queued views first (their LDRs get sampled by the scene view's
-        // ImGui pass via ImGui::Image). Scene view second (closes with
-        // the ImGui pass + backbuffer barrier). Queue is emptied every
-        // frame — panels re-queue on their next OnRender if still visible.
         for (const RenderView& v : m_QueuedViews)
             RecordView(v, registry, primaryCmd);
         m_QueuedViews.clear();
@@ -229,25 +221,20 @@ namespace Luth
         if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
 
-        // Gather lights + fit CSM cascades on the CPU. Cascade fit is
-        // camera-dependent, so refits per view — ~1 ms extra GPU while both
-        // panels are visible. A frustum-union fit is a follow-up.
+        // Cascade fit is camera-dependent so this refits per view
+        // (~1 ms GPU with game panel open; frustum-union fit is backlog).
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
         lighting->UpdateFor(registry, view.camera);
 
-        // Cache/allocate per-view GPU resources (bloom + GTAO textures, 9
-        // descriptor sets pointing at this view's targets). Must precede any
-        // per-view UBO write — those read m_CurrentViewResources internally.
+        // Must precede the per-view UBO writes below — they read
+        // m_CurrentViewResources, which PrepareForTargets sets.
         m_Pipeline->PrepareForTargets(*view.targets);
 
-        // Upload per-frame GPU state. LightUBO + PP UBO are shared-content
-        // (view-independent) so re-uploading per view is wasted but harmless.
         m_Pipeline->UploadLightUBO(lighting->GetLights());
         m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
-        // Build + record the view's subgraph into the shared cmd buffer.
         m_Pipeline->Execute(registry, view, primaryCmd);
     }
 

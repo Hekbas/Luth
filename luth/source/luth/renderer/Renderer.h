@@ -28,23 +28,14 @@ namespace Luth
         static void BeginFrame(u64 frameIndex);
         static void EndFrame();
         
-        // Single-graph convenience — begins + records + submits one graph in
-        // a self-contained call. Used when only one view renders (ExecuteMinimal
-        // for the frame debugger's Frozen state, or legacy callers).
+        // Single-graph convenience: Begin + Record + End in one call.
         static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers = nullptr);
 
-        // Multi-graph path — split so RS::Update can record multiple views
-        // into one primary command buffer (single vkQueueSubmit + present
-        // per frame). Pattern:
-        //
+        // Multi-graph path. Record N graphs into one primary command buffer;
+        // one submit + present per frame. Pattern:
         //     auto cmd = Renderer::BeginPrimaryCmd(frameIndex);
-        //     for (view : visibleViews) { record the view's graph }
-        //     Renderer::RecordGraph(cmd, graph, timers);
+        //     for (view : views) Renderer::RecordGraph(cmd, rg, timers);
         //     Renderer::EndPrimaryCmdAndSubmit(cmd, frameIndex);
-        //
-        // EndPrimaryCmdAndSubmit attaches the present barrier + end + submit
-        // + present. Every BeginPrimaryCmd call must be paired with an
-        // EndPrimaryCmdAndSubmit in the same frame.
         static void* BeginPrimaryCmd(u64 frameIndex);
         static void  RecordGraph(void* cmd, RG::RenderGraph& graph, GPUTimerPool* timers = nullptr);
         static void  EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex);

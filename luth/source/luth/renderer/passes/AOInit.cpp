@@ -10,25 +10,13 @@
 
 namespace Luth
 {
-    // =========================================================================
-    //  GTAO (Ground Truth Ambient Occlusion) — epic #58
-    // =========================================================================
-    //
-    // Shared GTAO resources:
-    //   - 3 descriptor-set layouts (prefilter / main / denoise).
-    //   - Linear clamp sampler (m_GTAOSampler).
-    //   - 3 compute pipelines (built from .comp SPIR-V).
-    //
-    // Per-view GTAO resources (allocated by EnsureViewResources in
-    // ViewResources.cpp):
-    //   - 4 half-res textures (linearDepth, rawAO, edges, final).
-    //   - 3 descriptor sets, allocated from the view's descPool.
-    //   - GTAOUBO buffer (invResolution depends on view dimensions).
+    // Shared GTAO state: 3 descriptor-set layouts, linear-clamp sampler,
+    // 3 compute pipelines. Per-view textures + UBO + descriptor sets live
+    // in ViewResources (allocated by EnsureViewResources).
     void RenderPipeline::InitAOResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Linear clamp sampler — shared across views.
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         sampCI.magFilter    = VK_FILTER_LINEAR;
         sampCI.minFilter    = VK_FILTER_LINEAR;
@@ -162,8 +150,7 @@ namespace Luth
         ubo.enabled        = s.enabled  ? 1 : 0;
         ubo.visualize      = s.visualize ? 1 : 0;
 
-        // Per-view half-res GTAO textures — derive full-res from them
-        // (halfW*2, halfH*2). Exact enough for invResolution ratios.
+        // Derive full-res from the view's half-res GTAO textures (halfW*2, halfH*2).
         const auto& lin = m_CurrentViewResources->gtaoLinearDepth;
         const u32 halfW = lin ? lin->GetWidth()  : 1u;
         const u32 halfH = lin ? lin->GetHeight() : 1u;

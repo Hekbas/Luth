@@ -80,11 +80,9 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
-        // Queue an additional view for this frame. Called by editor panels
-        // (e.g. GamePanel::OnRender) before Update runs — Update collects
-        // queued views and records each one into the frame's primary cmd
-        // buffer, in queued order, before the primary (scene) view's
-        // subgraph. The queue is cleared at the end of Update.
+        // Queue an extra view to render this frame. Called by editor panels
+        // (e.g. GamePanel) before Update; views record in queued order ahead
+        // of the scene view's subgraph. Cleared each Update.
         void QueueView(const RenderView& view) { m_QueuedViews.push_back(view); }
 
         // Project lifecycle hooks: extend / restrict the shader hot-reload
@@ -149,26 +147,21 @@ namespace Luth
         u32         GetDepthPreviewHeight() const;
 
     private:
-        // Per-frame view record-into-cmd helper. Called from Update for both
-        // the scene view + each queued view. Owns the per-view state-prep
-        // chain (lighting fit → PrepareForTargets → UBO uploads → subgraph
-        // record) and writes directly into the supplied primary cmd buffer.
+        // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO
+        // uploads) and record the subgraph into primaryCmd.
         void RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd);
 
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
 
-        // Views queued for this frame by editor panels (GamePanel etc.).
-        // Cleared at the end of every Update.
+        // Extra views queued by editor panels; drained each Update.
         std::vector<RenderView> m_QueuedViews;
 
         // Memory.
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
 
-        // Persistent viewport-sized render targets for the scene panel's
-        // view. The Game panel owns its own FrameTargets as a direct member
-        // (see luthien/.../panels/GamePanel.h) so the two views can resize
-        // independently.
+        // Scene panel's render targets. GamePanel owns its own FrameTargets
+        // so the two views resize independently.
         FrameTargets m_SceneTargets;
 
         // Per-frame draw list (RenderMode-sorted buckets + tri count).

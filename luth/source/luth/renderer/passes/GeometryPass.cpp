@@ -89,12 +89,9 @@ namespace Luth
                         data.shadowCascades[i] = builder.Read(shadowHandles[i]);
                 }
 
-                // pbr.frag samples the GTAO final texture through Set 0
-                // binding 4 (outside the RG's descriptor visibility), so we
-                // must explicitly declare the read here. GTAODenoise leaves
-                // it in LAYOUT_GENERAL; this builder.Read triggers the
-                // GENERAL → SHADER_READ_ONLY_OPTIMAL transition before the
-                // geometry pass's secondary cmd executes.
+                // pbr.frag samples gtaoFinal via Set 0 binding 4 — outside
+                // the RG's descriptor visibility. Explicit Read triggers the
+                // GENERAL → SHADER_READ_ONLY transition from GTAODenoise.
                 if (gtaoFinalAO.IsValid())
                     data.gtaoFinalAO = builder.Read(gtaoFinalAO);
 
@@ -192,9 +189,8 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                        // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
-                        // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance].
-                        // Per-view offset: view 0 = region 0, view 1 starts at k_IndirectRegionsPerView.
+                        // GPU cull sets instanceCount=0 for culled objects.
+                        // gl_BaseInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance].
                         const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
                         const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                         VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);

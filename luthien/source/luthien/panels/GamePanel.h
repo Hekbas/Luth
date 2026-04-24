@@ -10,11 +10,11 @@ namespace Luth
 {
     class RenderingSystem;
 
-    // Read-only "what the player sees" viewport. Owns its own FrameTargets so
-    // it can resize independently of the Scene panel, and drives a second
-    // RS::RenderToView per frame through the first Component::Camera entity
-    // found in the active scene. No overlays — no grid, outline, gizmos, or
-    // selection outline. Placeholder text when no Camera entity exists.
+    // Read-only viewport rendering through the first Component::Camera
+    // entity in the active scene. Queues its view each frame for
+    // RenderingSystem::Update to record alongside the scene view. No
+    // overlays. Owns its own FrameTargets so it resizes independently
+    // of the scene panel. Placeholder when no Camera entity exists.
     class GamePanel : public Panel
     {
     public:

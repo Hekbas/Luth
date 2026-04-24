@@ -21,8 +21,6 @@ namespace Luth
 
     void ViewportRenderer::BeginViewport(float aspectRatio)
     {
-        // Viewport sizing — compare as integers to avoid an infinite resize
-        // loop caused by float → u32 truncation in the callback path.
         const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
 
         Vec2 innerSize = avail;
@@ -32,18 +30,18 @@ namespace Luth
         {
             const float panelAspect = avail.x / avail.y;
             if (panelAspect > aspectRatio) {
-                // Panel is wider than target aspect → pillarbox (bars on sides).
                 innerSize.x = avail.y * aspectRatio;
                 innerSize.y = avail.y;
-                offset.x    = (avail.x - innerSize.x) * 0.5f;
+                offset.x    = (avail.x - innerSize.x) * 0.5f;  // pillarbox
             } else {
-                // Panel is taller than target aspect → letterbox (bars top/bottom).
                 innerSize.x = avail.x;
                 innerSize.y = avail.x / aspectRatio;
-                offset.y    = (avail.y - innerSize.y) * 0.5f;
+                offset.y    = (avail.y - innerSize.y) * 0.5f;  // letterbox
             }
         }
 
+        // Compare as integers — float → u32 truncation in the callback can
+        // otherwise trigger an infinite resize loop.
         const u32 newW = (u32)innerSize.x;
         const u32 newH = (u32)innerSize.y;
         const u32 curW = (u32)m_Size.x;
@@ -53,7 +51,6 @@ namespace Luth
             if (m_OnResize) m_OnResize(newW, newH);
         }
 
-        // Center the inner rect in the panel (bars are the panel background).
         if (offset.x > 0.0f || offset.y > 0.0f) {
             ImVec2 cursorPos = ImGui::GetCursorPos();
             ImGui::SetCursorPos({ cursorPos.x + offset.x, cursorPos.y + offset.y });

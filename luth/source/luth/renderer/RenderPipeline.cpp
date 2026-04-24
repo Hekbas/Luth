@@ -235,8 +235,7 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Release every cached per-view descriptor pool + texture set before
-        // tearing down shared state (the sets reference shared layouts).
+        // Release per-view state before the shared layouts it references.
         for (auto& [targets, vr] : m_ViewResources)
             DestroyViewResources(vr);
         m_ViewResources.clear();
@@ -284,11 +283,9 @@ namespace Luth
 
     void RenderPipeline::OnResize(u32 width, u32 height)
     {
-        // Scene-panel resize path — FrameTargets has already been resized in
-        // RenderingSystem::Resize. EnsureViewResources sees the size change
-        // and rebuilds the scene view's bloom / GTAO textures + rewrites its
-        // descriptor sets. Game panel's resize follows the same path through
-        // its own FrameTargets pointer.
+        // Scene-panel resize. FrameTargets is already resized by
+        // RenderingSystem::Resize; EnsureViewResources picks up the size
+        // change and rebuilds textures + descriptors.
         EnsureViewResources(m_System.m_SceneTargets);
         RegisterNamedTextures();
     }
@@ -334,11 +331,8 @@ namespace Luth
         RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
         RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
-        // Frustum cull — 5 dispatches per view (camera region + 4 shadow
-        // cascade regions). Each view claims a disjoint range in the shared
-        // indirect buffer ([viewIndex * k_IndirectRegionsPerView, +5)) so
-        // multiple views can record into one cmd buffer without stomping
-        // on each other's cull output.
+        // Frustum cull — 5 dispatches per view (camera + 4 cascades).
+        // Each view owns a disjoint range in the shared indirect buffer.
         {
             const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
@@ -416,15 +410,9 @@ namespace Luth
         }
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
-        // --- Phase 14B — Wire archive sink for the capture frame ---
-        // The sink will copy each tracked render target into a fresh ArchivedImage
-        // after each pass that writes it. Keep the tracked-RT set tight to bound
-        // memory (~50 MB at 1080p for the v1 set). The sink is a no-op when state
-        // != CaptureRequested, so re-checking here is sufficient.
-        //
-        // Frame debugger is scene-view-only — gate on emitImGuiPass so the
-        // game panel's subgraph doesn't double-register tracked RTs or
-        // overwrite the scene view's capture state.
+        // Wire the archive sink for this capture. The sink copies each
+        // tracked RT after the pass that writes it. Gate on emitImGuiPass
+        // so extra views don't double-register tracked RTs.
         if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
@@ -461,13 +449,9 @@ namespace Luth
 
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
-        // --- Non-primary view: transition LDR → SHADER_READ_ONLY_OPTIMAL ---
-        // The RG ended with PostProcessPass writing LDR (COLOR_ATTACHMENT
-        // layout). The scene view's ImGui pass samples this LDR through
-        // an ImGui descriptor set declared with SHADER_READ_ONLY_OPTIMAL,
-        // so we must transition before the primary view's subgraph runs.
-        // Scene view's RG already ends in SHADER_READ via its ImGuiPass's
-        // builder.Read(sceneColor), so only non-primary views need this.
+        // Non-primary views: transition LDR → SHADER_READ so the scene
+        // view's ImGui pass can sample it. (The scene view's RG already
+        // does this via ImGuiPass's builder.Read(sceneColor).)
         if (!view.emitImGuiPass && view.targets && view.targets->GetLDROutput())
         {
             auto vkLdr = std::static_pointer_cast<VKTexture>(view.targets->GetLDROutput());
@@ -487,9 +471,7 @@ namespace Luth
                 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
 
-        // --- Frame Debugger: Finalize capture and enter frozen state ---
-        // Only the primary (scene) view finalizes the frame-debugger state,
-        // matching the gate above that attached the archive sink.
+        // Finalize capture (primary view only — matches the sink gate above).
         if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.

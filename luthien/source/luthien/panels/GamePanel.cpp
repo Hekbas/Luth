@@ -37,18 +37,12 @@ namespace Luth
 
     void GamePanel::OnInit() {}
 
-    // Build CameraParams + expose the camera's aspect ratio from the first
-    // <Camera, WorldTransform> entity. Returns false if no such entity
-    // exists (GamePanel shows a placeholder).
+    // Populate CameraParams + aspect ratio from the first
+    // <Camera, WorldTransform> entity. Returns false if none.
     //
-    // NOTE: we leave projection Y-up (Math::Perspective / Math::Ortho output).
-    // RenderPipeline::UpdateGlobalUniforms applies the Vulkan Y-flip uniformly
-    // for every view — matching EditorCamera's convention. Pre-flipping here
-    // double-flips and inverts triangle winding (upside-down + backfaces).
-    //
-    // IBL + skybox intensities come from EditorSettings (same source the
-    // scene view's CameraParams uses via EditorHooks), so both views stay
-    // in sync when the user tweaks those sliders in the Render panel.
+    // Projection stays Y-up — RenderPipeline::UpdateGlobalUniforms applies
+    // the Vulkan Y-flip uniformly for every view. IBL/skybox intensities
+    // read from EditorSettings so both views share the Render panel sliders.
     static bool BuildCameraFromScene(entt::registry& reg, CameraParams& out, float& outAspect)
     {
         auto view = reg.view<Camera, WorldTransform>();
@@ -94,10 +88,9 @@ namespace Luth
             auto scene = Editor::GetActiveScene();
             const bool haveBackend = Renderer::GetBackend() && Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan;
 
-            // Look up the scene camera first so BeginViewport can lock the
-            // inner rect to its aspect ratio (letterbox / pillarbox). No
-            // camera → free aspect fallback so the placeholder text uses
-            // the full panel area.
+            // Resolve the camera before BeginViewport so the viewport can
+            // lock to its aspect (letterbox/pillarbox). No camera → free
+            // aspect fallback for the placeholder text.
             CameraParams camera;
             float camAspect = 0.0f;
             const bool haveCamera = scene && haveBackend
@@ -106,10 +99,6 @@ namespace Luth
             m_Viewport->BeginViewport(camAspect);
 
             if (haveCamera && m_TargetsAllocated) {
-                // Queue this view for rendering in RS::Update. The scene
-                // view's ImGui pass (which finalizes the frame after every
-                // view's subgraph has recorded into the same primary cmd
-                // buffer) will sample this LDR via ImGui::Image below.
                 RenderView gameView;
                 gameView.targets              = &m_Targets;
                 gameView.camera               = camera;
@@ -122,7 +111,6 @@ namespace Luth
                 const auto& ldr = m_Targets.GetLDROutput();
                 m_Viewport->DrawSceneTexture(ldr ? ldr : m_Targets.GetSceneColor());
             } else {
-                // Center placeholder in the viewport region
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
                 const char* msg = scene
                     ? "No Camera entity in scene"

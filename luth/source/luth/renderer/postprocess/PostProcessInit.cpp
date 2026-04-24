@@ -10,22 +10,16 @@
 
 namespace Luth
 {
-    // Post-process / outline / grid shared state. Per-view resources
-    // (bloomA / bloomB textures + all descriptor sets) are allocated by
-    // EnsureViewResources in ViewResources.cpp — this function only builds
-    // the shared pieces:
-    //   - Post-process UBO (contains scalar settings, view-independent).
-    //   - PP sampler + descriptor-set layout.
-    //   - Outline sampler + descriptor-set layout.
-    //   - Grid depth sampler + descriptor-set layout.
+    // Shared PP / outline / grid state: UBO (scalar settings), samplers,
+    // descriptor-set layouts. Per-view bloom textures + descriptor sets
+    // are allocated by EnsureViewResources.
     void RenderPipeline::InitPostProcessResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Post-process UBO — scalar settings only, shared across views.
+        // Scalar settings only — shared across views.
         m_PostProcessUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(PostProcessUBO));
 
-        // Linear clamp sampler — used by bloom + composite descriptors.
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -62,8 +56,7 @@ namespace Luth
         layoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_PPDescSetLayout);
 
-        // Outline layout — 3 combined image samplers (mask, selection depth,
-        // scene depth). Nearest-filter sampler shared across views.
+        // Outline: 3 combined image samplers (mask, selection depth, scene depth).
         {
             VkSamplerCreateInfo outlineSamplerInfo{};
             outlineSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -90,8 +83,7 @@ namespace Luth
             vkCreateDescriptorSetLayout(device, &outLayoutInfo, nullptr, &m_OutlineDescSetLayout);
         }
 
-        // Grid layout — binding 0 = per-view GlobalUBO (for viewProj),
-        // binding 1 = scene depth sampler.
+        // Grid: binding 0 = per-view GlobalUBO (viewProj), 1 = scene depth sampler.
         {
             VkSamplerCreateInfo gridSamplerInfo{};
             gridSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;

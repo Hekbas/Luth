@@ -19,11 +19,8 @@ namespace Luth
         m_SkyboxVertSpv  = std::move(ibl.skyboxVertSpv);
         m_SkyboxFragSpv  = std::move(ibl.skyboxFragSpv);
 
-        // IBL bindings (Set 0 binding 1-3) live on the per-view global
-        // descriptor set; rewrite every cached view so ReloadSkybox picks
-        // up the new textures without forcing viewers to re-create their
-        // ViewResources entry. Empty on first-time init — views created
-        // afterwards will pick up these pointers via WriteViewGlobalSet.
+        // Rewrite IBL bindings (Set 0 1-3) on every cached view so
+        // ReloadSkybox picks up the new textures. No-op on first init.
         for (auto& [targets, vr] : m_ViewResources)
             WriteViewGlobalSet(vr);
     }

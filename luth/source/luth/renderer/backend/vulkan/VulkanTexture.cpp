@@ -180,10 +180,8 @@ namespace Luth
 
         if (isDepth)
         {
-            // TRANSFER_SRC lets the frame debugger vkCmdCopyImage the depth
-            // attachment into its capture archives. Cheap to include on
-            // every depth image — the flag is universally supported and
-            // has no perf implications when unused.
+            // TRANSFER_SRC so the frame debugger can vkCmdCopyImage depth
+            // attachments into capture archives.
             imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
                             | VK_IMAGE_USAGE_SAMPLED_BIT
                             | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;

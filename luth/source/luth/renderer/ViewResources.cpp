@@ -11,21 +11,9 @@
 
 namespace Luth
 {
-    // Layout of per-view descriptor sets allocated from ViewResources::descPool.
-    // Matches the bindings declared in InitGlobalUniforms / InitPostProcessResources
-    // / InitAOResources — see those for binding-by-binding details.
-    //
-    // Capacity totals (per view):
-    //   Sets:                9  (1 global + 4 PP + 3 GTAO + 1 outline + 1 grid)
-    //   UNIFORM_BUFFER:      5  (global, PP composite ×4, GTAO main)
-    //   STORAGE_IMAGE:       4  (GTAO prefilter, main, denoise × 2)
-    //   COMBINED_IMG_SAMP:  18  (global: IBL ×3 + GTAO final;
-    //                             PP: 2 samplers × 4 sets = 8;
-    //                             GTAO: prefilter 1 + main 1 + denoise 2 = 4;
-    //                             outline: 3; grid: 1)
-    //
-    // The pool is sized slightly above these numbers to absorb future binding
-    // growth without revisiting pool sizes on every shader tweak.
+    // Per-view descriptor pool capacity. 9 sets per view (1 global, 4 PP,
+    // 3 GTAO, 1 outline, 1 grid); binding counts sized above the minimum
+    // so future binding additions don't force a pool-size revisit.
     static constexpr u32 k_ViewPoolMaxSets              = 16;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 12;
     static constexpr u32 k_ViewPoolStorageImageCount    = 12;
@@ -55,11 +43,7 @@ namespace Luth
             WriteViewGTAOSets(vr, targets);
             WriteViewOutlineSet(vr, targets);
             WriteViewGridSet(vr, targets);
-            // Global Set 0 bindings 4 + 5 reference per-view GTAO final
-            // texture + GTAO UBO, which point at new textures after
-            // RecreateViewTextures. Rewrite the whole global set to stay
-            // in sync (IBL bindings 1-3 are shared, rewriting them is a
-            // no-op).
+            // Set 0 bindings 4 + 5 reference the recreated GTAO textures.
             WriteViewGlobalSet(vr);
         }
 
@@ -80,7 +64,6 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // ---- Per-view descriptor pool ----
         VkDescriptorPoolSize poolSizes[3] = {};
         poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = k_ViewPoolUniformBufferCount;
@@ -95,16 +78,13 @@ namespace Luth
         poolInfo.pPoolSizes    = poolSizes;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &vr.descPool);
 
-        // ---- UBOs ----
         vr.globalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
         vr.gtaoUBOBuffer       = std::make_shared<VKUniformBuffer>(sizeof(GTAOUBO));
 
-        // ---- Textures ----
         const u32 halfW = std::max(targets.GetSceneColor()->GetWidth()  / 2, 1u);
         const u32 halfH = std::max(targets.GetSceneColor()->GetHeight() / 2, 1u);
         RecreateViewTextures(vr, halfW, halfH);
 
-        // ---- Allocate all descriptor sets from the per-view pool ----
         auto alloc = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet) {
             if (layout == VK_NULL_HANDLE) return;
             VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -115,20 +95,16 @@ namespace Luth
         };
 
         alloc(m_GlobalSetLayout,          vr.globalDescriptorSet);
-
         alloc(m_PPDescSetLayout,          vr.bloomExtractDescSet);
         alloc(m_PPDescSetLayout,          vr.bloomBlurHDescSet);
         alloc(m_PPDescSetLayout,          vr.bloomBlurVDescSet);
         alloc(m_PPDescSetLayout,          vr.compositeDescSet);
-
         alloc(m_GTAOPrefilterDescLayout,  vr.gtaoPrefilterDescSet);
         alloc(m_GTAOMainDescLayout,       vr.gtaoMainDescSet);
         alloc(m_GTAODenoiseDescLayout,    vr.gtaoDenoiseDescSet);
-
         alloc(m_OutlineDescSetLayout,     vr.outlineDescSet);
         alloc(m_GridDescSetLayout,        vr.gridDescSet);
 
-        // ---- Initial descriptor writes ----
         WriteViewGlobalSet(vr);
         WriteViewPostProcessSets(vr, targets);
         WriteViewGTAOSets(vr, targets);
@@ -138,11 +114,9 @@ namespace Luth
 
     void RenderPipeline::RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH)
     {
-        // Bloom half-res RGBA16F textures (ping-pong)
         vr.bloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
         vr.bloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
 
-        // GTAO half-res storage textures (R32F + R8 × 3)
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
                 halfW, halfH, fmt,
@@ -161,14 +135,14 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Binding 0 — per-view GlobalUBO
+        // Set 0 bindings: 0=GlobalUBO, 1-3=IBL (shared), 4=GTAO final, 5=GTAO UBO.
+        // IBL bindings are skipped if InitIBLResources hasn't run yet;
+        // ReloadSkybox/InitIBLResources rewrites every cached view afterwards.
         VkDescriptorBufferInfo globalBuf{};
         globalBuf.buffer = vr.globalUniformBuffer->GetVulkanBuffer();
         globalBuf.offset = 0;
         globalBuf.range  = sizeof(GlobalUniforms);
 
-        // Bindings 1-3 — shared IBL textures (only written once the IBL
-        // resources have been allocated; harmless no-op otherwise).
         const bool haveIBL = m_IrradianceMap && m_PrefilteredMap && m_BRDFLut && m_IBLSampler;
         VkDescriptorImageInfo irrInfo{}, pfInfo{}, lutInfo{};
         if (haveIBL)
@@ -190,14 +164,12 @@ namespace Luth
             lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 4 — per-view GTAO final texture
         auto vkGTAOFinal = std::static_pointer_cast<VKTexture>(vr.gtaoFinal);
         VkDescriptorImageInfo gtaoFinalInfo{};
         gtaoFinalInfo.sampler     = m_GTAOSampler;
         gtaoFinalInfo.imageView   = vkGTAOFinal->GetImageView();
         gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        // Binding 5 — per-view GTAO UBO
         VkDescriptorBufferInfo gtaoUBOInfo{};
         gtaoUBOInfo.buffer = vr.gtaoUBOBuffer->GetVulkanBuffer();
         gtaoUBOInfo.offset = 0;
@@ -496,9 +468,8 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Binding 0 — per-view GlobalUBO (grid shader reads viewProj via Set 0
-        // in its desc-set-0 binding slot, but the existing layout routes the
-        // UBO through binding 0 of the grid set itself; keep parity here).
+        // Binding 0 sources viewProj from the per-view GlobalUBO (grid
+        // layout binds it directly, not via Set 0).
         VkDescriptorBufferInfo gridUBOInfo{};
         gridUBOInfo.buffer = vr.globalUniformBuffer->GetVulkanBuffer();
         gridUBOInfo.offset = 0;
@@ -530,8 +501,7 @@ namespace Luth
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)
     {
-        // Textures + UBO buffers release via shared_ptr reset. The pool
-        // destruction frees every allocated descriptor set in one call.
+        // Pool destruction frees every descriptor set allocated from it.
         vr.bloomA.reset();
         vr.bloomB.reset();
         vr.gtaoLinearDepth.reset();

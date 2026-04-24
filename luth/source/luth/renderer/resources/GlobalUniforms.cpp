@@ -7,13 +7,8 @@
 
 namespace Luth
 {
-    // InitGlobalUniforms creates the Set 0 descriptor-set layout shared by
-    // every view. The per-view GlobalUBO buffer + descriptor set are
-    // allocated lazily by EnsureViewResources() on first Execute for each
-    // FrameTargets (see ViewResources.cpp). IBL bindings 1-3 are written
-    // into each view's set by WriteViewGlobalSet once the IBL textures are
-    // ready — InitIBLResources populates m_IrradianceMap / m_PrefilteredMap
-    // / m_BRDFLut and ReloadSkybox rebuilds every cached view's set.
+    // Creates the shared Set 0 layout. The per-view UBO + descriptor set
+    // are allocated lazily by EnsureViewResources; see ViewResources.cpp.
     void RenderPipeline::InitGlobalUniforms()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -59,11 +54,8 @@ namespace Luth
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
     }
 
-    // UpdateGlobalUniforms writes the per-view GlobalUBO content. Called by
-    // RS::RenderToView before Execute. The ViewResources for the active view
-    // is cached on the pipeline (m_CurrentViewResources) by PrepareForTargets
-    // — this function only writes buffer contents, never touches descriptor
-    // state, so it's safe to run inside Execute ordering without aliasing
+    // Writes the per-view GlobalUBO content into m_CurrentViewResources
+    // (set by PrepareForTargets). Buffer write only — safe to reorder with
     // other views' GPU work.
     void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
     {
