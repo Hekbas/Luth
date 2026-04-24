@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
+#include "luth/renderer/CameraParams.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/lighting/LightTypes.h"
@@ -24,12 +25,80 @@
 namespace Luth
 {
     class Entity;
+    class FrameTargets;
     class Material;
     class RenderingSystem;
     class FrameDebuggerContext;
     struct GeometryOutput;
     struct SelectionMaskOutput;
     namespace fs = std::filesystem;
+
+    // Per-view input to RenderPipeline::Execute. One RenderView per visible
+    // viewport. targets is non-owning.
+    //
+    // viewIndex selects the view's slice of the shared indirect buffer:
+    // regions [viewIndex * k_IndirectRegionsPerView, +k_IndirectRegionsPerView).
+    // emitImGuiPass: only the primary view records the ImGui pass (backbuffer
+    // write + ImGui::GetDrawData — once per frame, after ImGui::Render).
+    struct RenderView
+    {
+        FrameTargets* targets              = nullptr;
+        CameraParams  camera;
+        u32           viewIndex            = 0;
+        bool          drawGrid             = true;
+        bool          drawSelectionOutline = true;
+        bool          emitImGuiPass        = true;
+    };
+
+    // GPU resources bound to a specific FrameTargets. Keyed by targets
+    // pointer in RenderPipeline::m_ViewResources, allocated on first use
+    // by EnsureViewResources, recreated on size change, destroyed on
+    // ReleaseViewResources or pipeline shutdown. Having a distinct set
+    // per view lets multiple subgraphs share one primary command buffer
+    // without mid-frame vkUpdateDescriptorSets aliasing.
+    struct ViewResources
+    {
+        u32 width  = 0;
+        u32 height = 0;
+
+        // Owns every descriptor set below — one vkDestroyDescriptorPool
+        // frees them all on release.
+        VkDescriptorPool descPool = VK_NULL_HANDLE;
+
+        // Set 0: per-view UBO + per-view GTAO final sampler + shared IBL.
+        std::shared_ptr<VKUniformBuffer> globalUniformBuffer;
+        VkDescriptorSet                  globalDescriptorSet = VK_NULL_HANDLE;
+
+        // GTAO UBO — per-view because invResolution depends on view size.
+        std::shared_ptr<VKUniformBuffer> gtaoUBOBuffer;
+
+        // Bloom half-res ping-pong textures (RGBA16F).
+        std::shared_ptr<Texture> bloomA;
+        std::shared_ptr<Texture> bloomB;
+
+        // GTAO half-res storage textures.
+        std::shared_ptr<Texture> gtaoLinearDepth;
+        std::shared_ptr<Texture> gtaoRawAO;
+        std::shared_ptr<Texture> gtaoEdges;
+        std::shared_ptr<Texture> gtaoFinal;
+
+        // Bloom extract / blur / composite — bind view's SceneColor +
+        // bloomA/B + shared PP UBO.
+        VkDescriptorSet bloomExtractDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet bloomBlurHDescSet   = VK_NULL_HANDLE;
+        VkDescriptorSet bloomBlurVDescSet   = VK_NULL_HANDLE;
+        VkDescriptorSet compositeDescSet    = VK_NULL_HANDLE;
+
+        // GTAO compute passes.
+        VkDescriptorSet gtaoPrefilterDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet gtaoMainDescSet      = VK_NULL_HANDLE;
+        VkDescriptorSet gtaoDenoiseDescSet   = VK_NULL_HANDLE;
+
+        // Editor overlays — allocated for every view, bound only by the
+        // scene view (game view's subgraph skips both passes via flags).
+        VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet gridDescSet    = VK_NULL_HANDLE;
+    };
 
     // Owns the per-frame render-graph assembly and execution. Created by
     // RenderingSystem in its ctor and invoked once per frame from Update
@@ -56,8 +125,12 @@ namespace Luth
         // Tear down all Vulkan resources. Called from RenderingSystem::dtor.
         void Shutdown();
 
-        // Build + execute the render graph for one frame.
-        void Execute(entt::registry& registry);
+        // Build and record the render graph for one view into primaryCmd.
+        // The cmd's begin/end/submit is owned by RenderingSystem::Update so
+        // all visible views share one submission per frame. Caches the
+        // active RenderView + ViewResources on the pipeline for passes to
+        // read without a per-pass parameter.
+        void Execute(entt::registry& registry, const RenderView& view, void* primaryCmd);
 
         // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
         // when the camera hasn't moved — the LDR output still holds the last
@@ -65,20 +138,25 @@ namespace Luth
         // responsive without rebuilding the full graph.
         void ExecuteMinimal();
 
-        // Recreate viewport-dependent resources (post-process descriptors,
-        // GTAO storage textures, outline/grid descriptors). Called from
-        // RenderingSystem::Resize after FrameTargets::Resize.
+        // Post-resize hook — rebuilds the scene view's ViewResources entry
+        // at the new size. Game panel resizes route through its own
+        // FrameTargets and hit EnsureViewResources directly.
         void OnResize(u32 width, u32 height);
+
+        // Cache m_CurrentViewResources before the per-view UBO writes in
+        // RenderingSystem::RecordView run (they read it). Safe to call
+        // every frame — only re-allocates on target-size change.
+        void PrepareForTargets(FrameTargets& targets);
 
         // Reload the environment HDR → irradiance + prefiltered cubemaps + BRDF LUT.
         void ReloadSkybox(const fs::path& hdrPath);
 
-        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::Update
-        // before the draw list is built and the graph executes. The CascadeData
-        // + DirectionalLightShadowParams are produced by LightingSystem and
-        // cached on this Pipeline for the remainder of the frame (Execute +
+        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::
+        // RenderToView before the graph executes. The CascadeData +
+        // DirectionalLightShadowParams are produced by LightingSystem and
+        // cached on this Pipeline for the remainder of the view (Execute +
         // CaptureSnapshot read them through m_FrameCascades / m_FrameShadowParams).
-        void UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
+        void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
         void BuildGPUObjectBuffer(entt::registry& registry);
@@ -108,18 +186,18 @@ namespace Luth
 
     private:
         // Init / Update helpers (moved from RenderingSystem in sub-task E1).
-        // All of these read/write RenderingSystem private fields via friend
-        // access; field ownership migrates to RenderPipeline in sub-task E3.
+        // Per-view state (bloom / GTAO textures, UBOs, descriptor sets) is
+        // allocated lazily by EnsureViewResources; these Init*Resources
+        // functions now set up only the shared state (layouts, samplers,
+        // pipelines, shared UBOs with view-independent content).
         void InitGlobalUniforms();
         void InitShadowResources();
         void InitPostProcessResources();
-        void UpdatePostProcessDescriptors();
         void InitIBLResources(const fs::path& hdrPath);
         void InitObjectSSBODescriptorLayout();
         void InitGPUObjectBuffers();
         void InitCullPipeline();
         void InitAOResources();
-        void UpdateAODescriptors();
         void CreatePipelines();
         void BuildPBRPipelines();
         void BuildShadowPipelines();
@@ -143,7 +221,8 @@ namespace Luth
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                         RG::BufferHandle indirectBufferHandle,
-                                        RG::ResourceHandle sceneDepth);
+                                        RG::ResourceHandle sceneDepth,
+                                        RG::ResourceHandle gtaoFinalAO);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
@@ -161,17 +240,43 @@ namespace Luth
         RenderingSystem& m_System;
         std::unique_ptr<FrameDebuggerContext> m_Debugger;
 
+        // Active RenderView + ViewResources for the current Execute call.
+        // Passes read these instead of taking the view as a parameter.
+        const RenderView*  m_CurrentView          = nullptr;
+        ViewResources*     m_CurrentViewResources = nullptr;
+
+        // Per-view resource cache. Entries are owned here; panels call
+        // ReleaseViewResources on destruction.
+        std::unordered_map<FrameTargets*, ViewResources> m_ViewResources;
+
         // ---- Constants (shared with RS-side callers when needed) ----
     public:
-        static constexpr u32 k_MaxGPUObjects        = 4096;
-        static constexpr u32 k_IndirectRegionCount  = 1 + k_ShadowCascadeCount;
-        static constexpr u32 k_IndirectRegionStride = k_MaxGPUObjects;
+        static constexpr u32 k_MaxGPUObjects          = 4096;
+        static constexpr u32 k_MaxViews               = 2; // scene + game; bump for PIP / reflections later
+        static constexpr u32 k_IndirectRegionsPerView = 1 + k_ShadowCascadeCount;
+        static constexpr u32 k_IndirectRegionCount    = k_MaxViews * k_IndirectRegionsPerView;
+        static constexpr u32 k_IndirectRegionStride   = k_MaxGPUObjects;
+
+        // Return the cached ViewResources for targets, allocating on first
+        // use and rebuilding textures/descriptors on size change. Release*
+        // is called from the owning panel's dtor. Host-only — safe to call
+        // outside a frame.
+        ViewResources& EnsureViewResources(FrameTargets& targets);
+        void           ReleaseViewResources(FrameTargets& targets);
 
     private:
-        // ---- Global UBO (Set 0) ----
-        std::shared_ptr<VKUniformBuffer> m_GlobalUniformBuffer;
-        VkDescriptorSetLayout m_GlobalSetLayout     = VK_NULL_HANDLE;
-        VkDescriptorSet       m_GlobalDescriptorSet = VK_NULL_HANDLE;
+        // Split allocation + per-group descriptor writes for readability.
+        void AllocateViewResources(ViewResources& vr, FrameTargets& targets);
+        void RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH);
+        void WriteViewGlobalSet(ViewResources& vr);
+        void WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets);
+        void WriteViewGTAOSets(ViewResources& vr, FrameTargets& targets);
+        void WriteViewOutlineSet(ViewResources& vr, FrameTargets& targets);
+        void WriteViewGridSet(ViewResources& vr, FrameTargets& targets);
+        void DestroyViewResources(ViewResources& vr);
+
+        // ---- Set 0 layout (shared; per-view UBO + set in ViewResources) ----
+        VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
 
         // ---- Shadow map (4-layer 2D array) + per-layer views ----
         std::shared_ptr<Texture> m_ShadowMap;
@@ -230,23 +335,14 @@ namespace Luth
         VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
         VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
 
-        // ---- GTAO (epic #58) ----
-        std::shared_ptr<Texture>           m_GTAOLinearDepth;
-        std::shared_ptr<Texture>           m_GTAORawAO;
-        std::shared_ptr<Texture>           m_GTAOEdges;
-        std::shared_ptr<Texture>           m_GTAOFinal;
+        // ---- GTAO shared state (per-view textures/UBO/sets in ViewResources) ----
         std::unique_ptr<VKComputePipeline> m_GTAOPrefilterPipeline;
         std::unique_ptr<VKComputePipeline> m_GTAOMainPipeline;
         std::unique_ptr<VKComputePipeline> m_GTAODenoisePipeline;
-        std::shared_ptr<VKUniformBuffer>   m_GTAOUBOBuffer;
-        VkSampler                          m_GTAOSampler    = VK_NULL_HANDLE;
-        VkDescriptorPool                   m_GTAODescPool   = VK_NULL_HANDLE;
+        VkSampler                          m_GTAOSampler             = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_GTAOPrefilterDescLayout = VK_NULL_HANDLE;
-        VkDescriptorSet                    m_GTAOPrefilterDescSet    = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_GTAOMainDescLayout      = VK_NULL_HANDLE;
-        VkDescriptorSet                    m_GTAOMainDescSet         = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_GTAODenoiseDescLayout   = VK_NULL_HANDLE;
-        VkDescriptorSet                    m_GTAODenoiseDescSet      = VK_NULL_HANDLE;
         std::vector<u32>                   m_GTAOPrefilterSpv;
         std::vector<u32>                   m_GTAOMainSpv;
         std::vector<u32>                   m_GTAODenoiseSpv;
@@ -261,19 +357,11 @@ namespace Luth
         CascadeData                  m_FrameCascades{};
         DirectionalLightShadowParams m_FrameShadowParams{};
 
-        // ---- Post-process UBO / sampler / descriptors ----
+        // ---- Post-process shared state (per-view bloom + sets in ViewResources) ----
+        // UBO content is view-independent (scalar settings only).
         std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
-        VkSampler              m_PPSampler          = VK_NULL_HANDLE;
-        VkDescriptorPool       m_PPDescPool         = VK_NULL_HANDLE;
-        VkDescriptorSetLayout  m_PPDescSetLayout    = VK_NULL_HANDLE;
-        VkDescriptorSet        m_BloomExtractDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet        m_BloomBlurHDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet        m_BloomBlurVDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet        m_CompositeDescSet    = VK_NULL_HANDLE;
-
-        // ---- Bloom textures (half-res RGBA16F, persistent) ----
-        std::shared_ptr<Texture> m_BloomA;
-        std::shared_ptr<Texture> m_BloomB;
+        VkSampler              m_PPSampler       = VK_NULL_HANDLE;
+        VkDescriptorSetLayout  m_PPDescSetLayout = VK_NULL_HANDLE;
 
         // ---- Post-process pipelines ----
         std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
@@ -293,20 +381,16 @@ namespace Luth
         std::vector<u32>            m_SelectionMaskFragSpv;
         std::vector<u32>            m_SelectionMaskSkinnedVertSpv;
 
-        // ---- Outline pass resources ----
+        // ---- Outline shared state (per-view set in ViewResources) ----
         std::unique_ptr<VKPipeline> m_OutlinePipeline;
         std::vector<u32>            m_OutlineFragSpv;
-        VkDescriptorPool            m_OutlineDescPool      = VK_NULL_HANDLE;
         VkDescriptorSetLayout       m_OutlineDescSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet             m_OutlineDescSet       = VK_NULL_HANDLE;
         VkSampler                   m_OutlineSampler       = VK_NULL_HANDLE;
 
-        // ---- Grid pass resources ----
+        // ---- Grid shared state (per-view set in ViewResources) ----
         std::unique_ptr<VKPipeline> m_GridPipeline;
         std::vector<u32>            m_GridFragSpv;
-        VkDescriptorPool            m_GridDescPool      = VK_NULL_HANDLE;
         VkDescriptorSetLayout       m_GridDescSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet             m_GridDescSet       = VK_NULL_HANDLE;
         VkSampler                   m_GridDepthSampler  = VK_NULL_HANDLE;
 
         // ---- IBL resources ----

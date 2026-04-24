@@ -7,11 +7,11 @@
 
 namespace Luth
 {
+    // Creates the shared Set 0 layout. The per-view UBO + descriptor set
+    // are allocated lazily by EnsureViewResources; see ViewResources.cpp.
     void RenderPipeline::InitGlobalUniforms()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-
-        m_GlobalUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(GlobalUniforms));
 
         // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO
         VkDescriptorSetLayoutBinding bindings[6] = {};
@@ -36,8 +36,6 @@ namespace Luth
         bindings[3].descriptorCount = 1;
         bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // GTAO final-AO sampler (epic #58). Written by UpdateGlobalIBLSetDescriptors
-        // once m_GTAOFinal is allocated (InitAOResources runs after InitGlobalUniforms).
         bindings[4].binding = 4;
         bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[4].descriptorCount = 1;
@@ -54,39 +52,23 @@ namespace Luth
         layoutInfo.pBindings = bindings;
 
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
-
-        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_GlobalSetLayout, m_GlobalDescriptorSet);
-
-        // Write binding 0 (UBO) immediately; bindings 1-3 written after IBL init
-        VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = m_GlobalUniformBuffer->GetVulkanBuffer();
-        bufferInfo.offset = 0;
-        bufferInfo.range = sizeof(GlobalUniforms);
-
-        VkWriteDescriptorSet descriptorWrite{};
-        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = m_GlobalDescriptorSet;
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pBufferInfo = &bufferInfo;
-
-        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
     }
 
-    void RenderPipeline::UpdateGlobalUniforms(const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
+    // Writes the per-view GlobalUBO content into m_CurrentViewResources
+    // (set by PrepareForTargets). Buffer write only — safe to reorder with
+    // other views' GPU work.
+    void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
     {
         // Cache for downstream per-frame reads (Execute + capturedFrame snapshot).
         m_FrameCascades     = cascades;
         m_FrameShadowParams = shadowParams;
 
         GlobalUniforms ubo{};
-        ubo.view = m_System.m_CameraParams.view;
-        ubo.projection = m_System.m_CameraParams.projection;
+        ubo.view = camera.view;
+        ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
-        ubo.cameraPos = m_System.m_CameraParams.position;
+        ubo.cameraPos = camera.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             ubo.lightSpaceMatrix[i] = cascades.lightSpaceMatrix[i];
@@ -95,12 +77,13 @@ namespace Luth
         ubo.shadowBias       = shadowParams.castShadows ? shadowParams.shadowBias : Vec4(-1.0f);
         ubo.shadowNormalBias = shadowParams.shadowNormalBias;
         ubo.cascadeTexelSize = cascades.texelSize;
-        ubo.iblIntensity    = m_System.m_CameraParams.iblIntensity;
-        ubo.skyboxIntensity = m_System.m_CameraParams.skyboxIntensity;
+        ubo.iblIntensity    = camera.iblIntensity;
+        ubo.skyboxIntensity = camera.skyboxIntensity;
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
-        m_GlobalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
+        if (m_CurrentViewResources && m_CurrentViewResources->globalUniformBuffer)
+            m_CurrentViewResources->globalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;
     }
 }

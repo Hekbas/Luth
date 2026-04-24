@@ -250,13 +250,6 @@ namespace Luth
                         cp.nearZ      = viewState.nearZ;
                         cp.farZ       = viewState.farZ;
                     }
-                    // Play-mode scene camera wins over editor camera when present
-                    if (viewState.hasPlayCamera)
-                    {
-                        cp.view       = viewState.playView;
-                        cp.projection = viewState.playProjection;
-                        cp.position   = viewState.playPosition;
-                    }
                     cp.iblIntensity     = viewState.iblIntensity;
                     cp.skyboxIntensity  = viewState.skyboxIntensity;
                     cp.selectedEntities = std::move(viewState.selectedEntities);

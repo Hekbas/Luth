@@ -48,11 +48,11 @@ namespace Luth
             [&](SelectionMaskPassData& data, RG::RenderPassBuilder& builder)
             {
                 // Import selection mask (RGBA8)
-                auto vkMask = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
+                auto vkMask = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSelectionMask());
                 RG::TextureDesc maskDesc;
                 maskDesc.name   = "SelectionMask";
-                maskDesc.width  = m_System.m_Targets.GetSelectionMask()->GetWidth();
-                maskDesc.height = m_System.m_Targets.GetSelectionMask()->GetHeight();
+                maskDesc.width  = m_CurrentView->targets->GetSelectionMask()->GetWidth();
+                maskDesc.height = m_CurrentView->targets->GetSelectionMask()->GetHeight();
                 maskDesc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.maskTex = rg.ImportResource(maskDesc,
@@ -65,11 +65,11 @@ namespace Luth
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, colorClear);
 
                 // Import selection depth (D32_Float)
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionDepth());
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSelectionDepth());
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SelectionDepth";
-                depthDesc.width  = m_System.m_Targets.GetSelectionDepth()->GetWidth();
-                depthDesc.height = m_System.m_Targets.GetSelectionDepth()->GetHeight();
+                depthDesc.width  = m_CurrentView->targets->GetSelectionDepth()->GetWidth();
+                depthDesc.height = m_CurrentView->targets->GetSelectionDepth()->GetHeight();
                 depthDesc.format = RG::TextureFormat::D32_Float;
 
                 data.depthTex = rg.ImportResource(depthDesc,
@@ -93,7 +93,7 @@ namespace Luth
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
-                CollectSelectedHandles(m_System.m_CameraParams.selectedEntities, selectedSet);
+                CollectSelectedHandles(m_CurrentView->camera.selectedEntities, selectedSet);
                 if (selectedSet.empty()) return;
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -101,7 +101,7 @@ namespace Luth
                 // Bind descriptor sets (same 5 sets as geometry/shadow passes)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
@@ -112,8 +112,8 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_SelectionMaskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
 
-                u32 w = m_System.m_Targets.GetSelectionMask()->GetWidth();
-                u32 h = m_System.m_Targets.GetSelectionMask()->GetHeight();
+                u32 w = m_CurrentView->targets->GetSelectionMask()->GetWidth();
+                u32 h = m_CurrentView->targets->GetSelectionMask()->GetHeight();
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 VkRect2D sc{}; sc.extent = { w, h };

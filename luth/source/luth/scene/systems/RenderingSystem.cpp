@@ -134,9 +134,13 @@ namespace Luth
             if (!cameraMoved)
             {
                 // Static — minimal graph: just blit ImGui to the swapchain.
-                // The editor panel reads the LDR output through ImGui::Image; the
-                // image's persistent layout (SHADER_READ_ONLY_OPTIMAL after the
-                // capture's outline pass) is preserved across frames.
+                // The scene LDR retains its last captured image (SHADER_READ
+                // from the capture's outline pass).
+                //
+                // Drop queued views — we can't render them in Frozen, and
+                // letting the queue grow unbounded spikes the frame when the
+                // debugger exits (all views flush at once).
+                m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
             }
@@ -146,58 +150,92 @@ namespace Luth
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
         }
 
-        // --- Frame Debugger: Prepare for capture (BeginCapture below handles reset) ---
-        // Capture metadata + GPU archives are reset together inside FrameDebugger::
-        // BeginCapture (called after rg.Compile, just before ExecuteGraph) so prior
-        // archives get freed in the right order.
-
-        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
-        {
-            // Gather lights + fit CSM cascades on the CPU; upload to GPU.
-            auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-            lighting->UpdateFor(registry, m_CameraParams);
-            m_Pipeline->UploadLightUBO(lighting->GetLights());
-            m_Pipeline->UpdateGlobalUniforms(lighting->GetCascades(), lighting->GetShadowParams());
-
-            // Register materials and hold assets for all visible entities
-            auto matView = registry.view<WorldTransform, MeshRenderer>();
-            for (auto [entity, wt, mr] : matView.each())
-            {
-                if (mr.ModelUUID.IsValid())
-                {
-                    auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
-                    if (model)
-                        scene->HoldAsset(mr.ModelUUID, model);
-                }
-                if (!mr.MaterialUUID.IsValid()) continue;
-                auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
-                if (material)
-                {
-                    scene->HoldAsset(mr.MaterialUUID, material);
-                    m_Pipeline->EnsureMaterialRegistered(material);
-                }
-            }
-
-            // Upload dirty materials
-            MaterialSystem::Update(VK_NULL_HANDLE);
-
-            // Upload post-process settings
-            m_Pipeline->UpdatePostProcessUBO();
-            m_Pipeline->UpdateGTAOUBO();
-
-            // Build GPU object buffer (after materials are registered)
-            m_Pipeline->BuildGPUObjectBuffer(registry);
-
-            // Partition entities into opaque/cutout/transparent draw buckets.
-            // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
-            // reference the freshly populated indirect buffer.
-            m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
-
-            // Build + execute the render graph (graph assembly lives in RenderPipeline).
-            m_Pipeline->Execute(registry);
-
+        if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
+
+        // Camera-independent per-frame prep. These outputs are shared across
+        // every view rendered this frame (scene + game panels).
+        //
+        // Register materials and hold assets for all visible entities
+        auto matView = registry.view<WorldTransform, MeshRenderer>();
+        for (auto [entity, wt, mr] : matView.each())
+        {
+            if (mr.ModelUUID.IsValid())
+            {
+                auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+                if (model)
+                    scene->HoldAsset(mr.ModelUUID, model);
+            }
+            if (!mr.MaterialUUID.IsValid()) continue;
+            auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
+            if (material)
+            {
+                scene->HoldAsset(mr.MaterialUUID, material);
+                m_Pipeline->EnsureMaterialRegistered(material);
+            }
         }
+
+        // Upload dirty materials
+        MaterialSystem::Update(VK_NULL_HANDLE);
+
+        // Build GPU object buffer (after materials are registered)
+        m_Pipeline->BuildGPUObjectBuffer(registry);
+
+        // Partition entities into opaque/cutout/transparent draw buckets.
+        // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
+        // reference the freshly populated indirect buffer.
+        m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
+
+        // Primary view — always rendered, emits the per-frame ImGui pass.
+        RenderView sceneView;
+        sceneView.targets              = &m_SceneTargets;
+        sceneView.camera               = m_CameraParams;
+        sceneView.viewIndex            = 0;
+        sceneView.drawGrid             = m_GridVisible;
+        sceneView.drawSelectionOutline = true;
+        sceneView.emitImGuiPass        = true;
+
+        // One primary cmd buffer for the whole frame. Queued views record
+        // first (their LDRs are sampled by the scene view's ImGui pass),
+        // then the scene view closes with the ImGui pass + present barrier.
+        const u64 frameIndex = Renderer::GetFrameData()->GetFrameIndex();
+        void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
+
+        for (const RenderView& v : m_QueuedViews)
+            RecordView(v, registry, primaryCmd);
+        m_QueuedViews.clear();
+
+        RecordView(sceneView, registry, primaryCmd);
+
+        Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
+    }
+
+    // =========================================================================
+    // Per-view record
+    // =========================================================================
+
+    void RenderingSystem::RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd)
+    {
+        LH_PROFILE_FUNCTION();
+
+        if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
+            return;
+
+        // Cascade fit is camera-dependent so this refits per view
+        // (~1 ms GPU with game panel open; frustum-union fit is backlog).
+        auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
+        lighting->UpdateFor(registry, view.camera);
+
+        // Must precede the per-view UBO writes below — they read
+        // m_CurrentViewResources, which PrepareForTargets sets.
+        m_Pipeline->PrepareForTargets(*view.targets);
+
+        m_Pipeline->UploadLightUBO(lighting->GetLights());
+        m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
+        m_Pipeline->UpdatePostProcessUBO();
+        m_Pipeline->UpdateGTAOUBO();
+
+        m_Pipeline->Execute(registry, view, primaryCmd);
     }
 
     // =========================================================================
@@ -207,9 +245,9 @@ namespace Luth
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         // Guard against unsigned underflow from negative float→u32 casts at startup
-        if (m_Targets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
+        if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            m_Targets.Resize(width, height);
+            m_SceneTargets.Resize(width, height);
             m_Pipeline->OnResize(width, height);
         }
     }

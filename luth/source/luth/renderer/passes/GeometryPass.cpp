@@ -26,13 +26,15 @@ namespace Luth
         RG::RenderGraph& rg, entt::registry& registry,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle,
-        RG::ResourceHandle sceneDepth)
+        RG::ResourceHandle sceneDepth,
+        RG::ResourceHandle gtaoFinalAO)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
             RG::ResourceHandle entityIDTex;
             RG::ResourceHandle depthTex;
             RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
+            RG::ResourceHandle gtaoFinalAO;
             RG::BufferHandle   indirectBuf;
         };
 
@@ -43,11 +45,11 @@ namespace Luth
             {
                 RG::TextureDesc desc;
                 desc.name   = "SceneColor";
-                desc.width  = m_System.m_Targets.GetSceneColor()->GetWidth();
-                desc.height = m_System.m_Targets.GetSceneColor()->GetHeight();
+                desc.width  = m_CurrentView->targets->GetSceneColor()->GetWidth();
+                desc.height = m_CurrentView->targets->GetSceneColor()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA16_Float;
 
-                auto vkTex = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneColor());
+                auto vkTex = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSceneColor());
                 data.outputTex = rg.ImportResource(desc,
                     (void*)vkTex->GetImage(),
                     (void*)vkTex->GetImageView(),
@@ -56,11 +58,11 @@ namespace Luth
                 // Entity ID buffer (R32_UINT)
                 RG::TextureDesc idDesc;
                 idDesc.name   = "EntityID";
-                idDesc.width  = m_System.m_Targets.GetEntityIDBuffer()->GetWidth();
-                idDesc.height = m_System.m_Targets.GetEntityIDBuffer()->GetHeight();
+                idDesc.width  = m_CurrentView->targets->GetEntityIDBuffer()->GetWidth();
+                idDesc.height = m_CurrentView->targets->GetEntityIDBuffer()->GetHeight();
                 idDesc.format = RG::TextureFormat::R32_Uint;
 
-                auto vkID = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetEntityIDBuffer());
+                auto vkID = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetEntityIDBuffer());
                 data.entityIDTex = rg.ImportResource(idDesc,
                     (void*)vkID->GetImage(),
                     (void*)vkID->GetImageView(),
@@ -87,6 +89,12 @@ namespace Luth
                         data.shadowCascades[i] = builder.Read(shadowHandles[i]);
                 }
 
+                // pbr.frag samples gtaoFinal via Set 0 binding 4 — outside
+                // the RG's descriptor visibility. Explicit Read triggers the
+                // GENERAL → SHADER_READ_ONLY transition from GTAODenoise.
+                if (gtaoFinalAO.IsValid())
+                    data.gtaoFinalAO = builder.Read(gtaoFinalAO);
+
                 // Declare indirect buffer read (triggers compute-write→indirect-read barrier)
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 
@@ -111,7 +119,7 @@ namespace Luth
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
@@ -181,9 +189,11 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                        // Indirect draw — GPU cull has set instanceCount=0 for culled objects.
-                        // gl_BaseInstance = firstInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance]
-                        VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        // GPU cull sets instanceCount=0 for culled objects.
+                        // gl_BaseInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance].
+                        const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                        const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 

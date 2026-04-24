@@ -55,7 +55,7 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         auto& s = m_System;
-        m_System.m_Targets.Allocate(viewportWidth, viewportHeight);
+        m_System.m_SceneTargets.Allocate(viewportWidth, viewportHeight);
 
         InitGlobalUniforms();
         InitShadowResources();
@@ -235,18 +235,20 @@ namespace Luth
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        // Release per-view state before the shared layouts it references.
+        for (auto& [targets, vr] : m_ViewResources)
+            DestroyViewResources(vr);
+        m_ViewResources.clear();
+
         m_Debugger->Shutdown();
         m_System.m_FrameDebugger.Shutdown(device);
 
         if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
         if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
-        if (m_OutlineDescPool)      vkDestroyDescriptorPool(device, m_OutlineDescPool, nullptr);
         if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
         if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
-        if (m_GridDescPool)         vkDestroyDescriptorPool(device, m_GridDescPool, nullptr);
         if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
         if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
-        if (m_PPDescPool)           vkDestroyDescriptorPool(device, m_PPDescPool, nullptr);
         if (m_IBLSampler)           vkDestroySampler(device, m_IBLSampler, nullptr);
         if (m_ShadowSampler)        vkDestroySampler(device, m_ShadowSampler, nullptr);
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i) {
@@ -269,110 +271,28 @@ namespace Luth
         if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
         m_CullPipeline.reset();
 
-        // GTAO resources (epic #58).
+        // GTAO resources (epic #58) — shared.
         m_GTAOPrefilterPipeline.reset();
         m_GTAOMainPipeline.reset();
         m_GTAODenoisePipeline.reset();
-        if (m_GTAOSampler)            vkDestroySampler(device, m_GTAOSampler, nullptr);
-        if (m_GTAODescPool)           vkDestroyDescriptorPool(device, m_GTAODescPool, nullptr);
+        if (m_GTAOSampler)             vkDestroySampler(device, m_GTAOSampler, nullptr);
         if (m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
         if (m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
         if (m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
-        // Textures + UBO destroyed automatically via shared_ptr reset when RenderingSystem dies.
     }
 
     void RenderPipeline::OnResize(u32 width, u32 height)
     {
-        auto& s = m_System;
-
-        m_BloomA = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-        m_BloomB = Texture::Create(std::max(width / 2, 1u), std::max(height / 2, 1u), TextureFormat::RGBA16F);
-        UpdatePostProcessDescriptors();
-
-        // GTAO half-res storage textures (recreated on resize; descriptors
-        // refreshed below because they cache image-view pointers).
-        {
-            const u32 halfW = std::max(width  / 2, 1u);
-            const u32 halfH = std::max(height / 2, 1u);
-            auto makeStorage = [&](TextureFormat fmt) {
-                return std::make_shared<VKTexture>(halfW, halfH, fmt, 1u, 0u, 1u, VK_IMAGE_USAGE_STORAGE_BIT);
-            };
-            m_GTAOLinearDepth = makeStorage(TextureFormat::R32_Float);
-            m_GTAORawAO       = makeStorage(TextureFormat::R8);
-            m_GTAOEdges       = makeStorage(TextureFormat::R8);
-            m_GTAOFinal       = makeStorage(TextureFormat::R8);
-        }
-        UpdateAODescriptors();
-
-        // Update outline descriptors — mask + depth buffer views changed.
-        if (m_OutlineDescSet && m_OutlineSampler)
-        {
-            auto vkMask       = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionMask());
-            auto vkSelDepth   = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSelectionDepth());
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
-
-            VkDescriptorImageInfo maskImgInfo{};
-            maskImgInfo.sampler     = m_OutlineSampler;
-            maskImgInfo.imageView   = vkMask->GetImageView();
-            maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo selDepthImgInfo{};
-            selDepthImgInfo.sampler     = m_OutlineSampler;
-            selDepthImgInfo.imageView   = vkSelDepth->GetImageView();
-            selDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo sceneDepthImgInfo{};
-            sceneDepthImgInfo.sampler     = m_OutlineSampler;
-            sceneDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
-            sceneDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet writes[3] = {};
-            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = m_OutlineDescSet;
-            writes[0].dstBinding = 0;
-            writes[0].descriptorCount = 1;
-            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[0].pImageInfo = &maskImgInfo;
-
-            writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[1].dstSet = m_OutlineDescSet;
-            writes[1].dstBinding = 1;
-            writes[1].descriptorCount = 1;
-            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[1].pImageInfo = &selDepthImgInfo;
-
-            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[2].dstSet = m_OutlineDescSet;
-            writes[2].dstBinding = 2;
-            writes[2].descriptorCount = 1;
-            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[2].pImageInfo = &sceneDepthImgInfo;
-
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
-        }
-
-        // Update grid descriptor set: scene depth view changed on resize.
-        if (m_GridDescSet && m_GridDepthSampler)
-        {
-            auto vkSceneDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
-
-            VkDescriptorImageInfo gridDepthImgInfo{};
-            gridDepthImgInfo.sampler     = m_GridDepthSampler;
-            gridDepthImgInfo.imageView   = vkSceneDepth->GetImageView();
-            gridDepthImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet gridWrite{};
-            gridWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            gridWrite.dstSet = m_GridDescSet;
-            gridWrite.dstBinding = 1;
-            gridWrite.descriptorCount = 1;
-            gridWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            gridWrite.pImageInfo = &gridDepthImgInfo;
-
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &gridWrite, 0, nullptr);
-        }
-
+        // Scene-panel resize. FrameTargets is already resized by
+        // RenderingSystem::Resize; EnsureViewResources picks up the size
+        // change and rebuilds textures + descriptors.
+        EnsureViewResources(m_System.m_SceneTargets);
         RegisterNamedTextures();
+    }
+
+    void RenderPipeline::PrepareForTargets(FrameTargets& targets)
+    {
+        m_CurrentViewResources = &EnsureViewResources(targets);
     }
 
     void RenderPipeline::ExecuteMinimal()
@@ -384,9 +304,11 @@ namespace Luth
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 
-    void RenderPipeline::Execute(entt::registry& registry)
+    void RenderPipeline::Execute(entt::registry& registry, const RenderView& view, void* primaryCmd)
     {
         auto& s = m_System;
+        m_CurrentView          = &view;
+        m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
 
         // Drain pending shader reloads (queued by FileWatcher on bg thread)
         // before the next graph is assembled so pipelines rebuilt via the
@@ -409,19 +331,19 @@ namespace Luth
         RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
         RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
 
-        // Frustum cull — 5 dispatches: camera region + 4 shadow cascade regions.
-        // Each cascade uses its own light-space viewProj frustum so shadow casters
-        // outside the camera frustum but inside the cascade still get rendered.
+        // Frustum cull — 5 dispatches per view (camera + 4 cascades).
+        // Each view owns a disjoint range in the shared indirect buffer.
         {
+            const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
             AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                 m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
-                /*destOffset*/ 0, "FrustumCull.Cam", &m_System.m_FrameDebugger);
+                baseRegion * k_IndirectRegionStride, "FrustumCull.Cam", &m_System.m_FrameDebugger);
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
                 Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
-                const u32 destOffset = (i + 1) * RenderPipeline::k_IndirectRegionStride;
+                const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                     m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
@@ -446,16 +368,21 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth);
-        auto maskOutput                = AddSelectionMaskPass(rg, registry);
+        auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        SelectionMaskOutput maskOutput = view.drawSelectionOutline
+                                         ? AddSelectionMaskPass(rg, registry)
+                                         : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = m_System.m_GridVisible
+        RG::ResourceHandle gridColor   = view.drawGrid
                                          ? AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
         RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
-        RG::ResourceHandle finalOutput = AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth);
-        AddImGuiPass(rg, finalOutput);
+        RG::ResourceHandle finalOutput = view.drawSelectionOutline
+                                         ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
+                                         : ldrOutput;
+        if (view.emitImGuiPass)
+            AddImGuiPass(rg, finalOutput);
 
         rg.Compile();
 
@@ -483,12 +410,10 @@ namespace Luth
         }
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
-        // --- Phase 14B — Wire archive sink for the capture frame ---
-        // The sink will copy each tracked render target into a fresh ArchivedImage
-        // after each pass that writes it. Keep the tracked-RT set tight to bound
-        // memory (~50 MB at 1080p for the v1 set). The sink is a no-op when state
-        // != CaptureRequested, so re-checking here is sufficient.
-        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // Wire the archive sink for this capture. The sink copies each
+        // tracked RT after the pass that writes it. Gate on emitImGuiPass
+        // so extra views don't double-register tracked RTs.
+        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -522,10 +447,32 @@ namespace Luth
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), &m_GPUTimers);
+        Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
-        // --- Frame Debugger: Finalize capture and enter frozen state ---
-        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // Non-primary views: transition LDR → SHADER_READ so the scene
+        // view's ImGui pass can sample it. (The scene view's RG already
+        // does this via ImGuiPass's builder.Read(sceneColor).)
+        if (!view.emitImGuiPass && view.targets && view.targets->GetLDROutput())
+        {
+            auto vkLdr = std::static_pointer_cast<VKTexture>(view.targets->GetLDROutput());
+            VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+            barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = vkLdr->GetImage();
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+            vkCmdPipelineBarrier((VkCommandBuffer)primaryCmd,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+
+        // Finalize capture (primary view only — matches the sink gate above).
+        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the
@@ -718,12 +665,15 @@ namespace Luth
     {
         m_NamedTextures.clear();
         if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
-        if (m_System.m_Targets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_Targets.GetSceneColor();
-        if (m_System.m_Targets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_Targets.GetSceneDepth();
-        if (m_System.m_Targets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_Targets.GetLDROutput();
-        if (m_System.m_Targets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_Targets.GetEntityIDBuffer();
-        if (m_BloomA)        m_NamedTextures["BloomA"]        = m_BloomA;
-        if (m_BloomB)        m_NamedTextures["BloomB"]        = m_BloomB;
+        if (m_System.m_SceneTargets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_SceneTargets.GetSceneColor();
+        if (m_System.m_SceneTargets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_SceneTargets.GetSceneDepth();
+        if (m_System.m_SceneTargets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_SceneTargets.GetLDROutput();
+        if (m_System.m_SceneTargets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_SceneTargets.GetEntityIDBuffer();
+        // Scene-view bloom textures — Frame Debugger is scene-view-only.
+        if (auto it = m_ViewResources.find(&m_System.m_SceneTargets); it != m_ViewResources.end()) {
+            if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
+            if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
+        }
         if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
         if (m_PrefilteredMap)m_NamedTextures["PrefilteredMap"]= m_PrefilteredMap;
         if (m_BRDFLut)       m_NamedTextures["BRDF_LUT"]     = m_BRDFLut;

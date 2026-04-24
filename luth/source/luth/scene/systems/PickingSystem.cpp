@@ -33,7 +33,7 @@ namespace Luth
         auto* rs = SystemRegistry::GetSystem<RenderingSystem>();
         if (!rs) return;
 
-        auto& targets  = rs->GetFrameTargets();
+        auto& targets  = rs->GetSceneTargets();
         auto& pipeline = rs->GetPipeline();
 
         const auto& entityIDTex = targets.GetEntityIDBuffer();
@@ -54,12 +54,14 @@ namespace Luth
 
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
         {
+            // EntityID ends every frame in COLOR_ATTACHMENT_OPTIMAL — it's
+            // written by GeometryPass and has no downstream RG reader.
             VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-            barrier.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-            barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            barrier.srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
             barrier.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
             barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             barrier.image = vkID->GetImage();
             barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };

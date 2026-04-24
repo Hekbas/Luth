@@ -28,7 +28,18 @@ namespace Luth
         static void BeginFrame(u64 frameIndex);
         static void EndFrame();
         
+        // Single-graph convenience: Begin + Record + End in one call.
         static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers = nullptr);
+
+        // Multi-graph path. Record N graphs into one primary command buffer;
+        // one submit + present per frame. Pattern:
+        //     auto cmd = Renderer::BeginPrimaryCmd(frameIndex);
+        //     for (view : views) Renderer::RecordGraph(cmd, rg, timers);
+        //     Renderer::EndPrimaryCmdAndSubmit(cmd, frameIndex);
+        static void* BeginPrimaryCmd(u64 frameIndex);
+        static void  RecordGraph(void* cmd, RG::RenderGraph& graph, GPUTimerPool* timers = nullptr);
+        static void  EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex);
+
         static void OnResize(u32 width, u32 height);
 
         static RenderBackend* GetBackend() { return s_Backend.get(); }

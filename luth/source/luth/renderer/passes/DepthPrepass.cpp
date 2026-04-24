@@ -41,11 +41,11 @@ namespace Luth
             {
                 RG::TextureDesc depthDesc;
                 depthDesc.name   = "SceneDepth";
-                depthDesc.width  = m_System.m_Targets.GetSceneDepth()->GetWidth();
-                depthDesc.height = m_System.m_Targets.GetSceneDepth()->GetHeight();
+                depthDesc.width  = m_CurrentView->targets->GetSceneDepth()->GetWidth();
+                depthDesc.height = m_CurrentView->targets->GetSceneDepth()->GetHeight();
                 depthDesc.format = RG::TextureFormat::D32_Float;
 
-                auto vkDepth = std::static_pointer_cast<VKTexture>(m_System.m_Targets.GetSceneDepth());
+                auto vkDepth = std::static_pointer_cast<VKTexture>(m_CurrentView->targets->GetSceneDepth());
                 data.depthTex = rg.ImportResource(depthDesc,
                     (void*)vkDepth->GetImage(),
                     (void*)vkDepth->GetImageView(),
@@ -71,7 +71,7 @@ namespace Luth
 
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
@@ -127,8 +127,10 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Camera region of the indirect buffer (region 0).
-                    VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    // Camera region (offset 0) within this view's range.
+                    const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 

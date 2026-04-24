@@ -82,7 +82,7 @@ namespace Luth
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
@@ -149,10 +149,10 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                        // Indirect draw — per-cascade cull region writes independent instanceCount values,
-                        // so shadow casters outside the camera frustum but inside the cascade still render.
-                        // Region layout: [camera | C0 | C1 | C2 | C3], each of size RenderPipeline::k_IndirectRegionStride.
-                        const u32 cmdIndex = (data.cascadeIndex + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        // Per-view region layout: [camera | C0 | C1 | C2 | C3].
+                        // View N starts at region (N * k_IndirectRegionsPerView).
+                        const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                        const u32 cmdIndex = (viewBaseRegion + data.cascadeIndex + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                         VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));

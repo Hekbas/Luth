@@ -180,8 +180,11 @@ namespace Luth
 
         if (isDepth)
         {
+            // TRANSFER_SRC so the frame debugger can vkCmdCopyImage depth
+            // attachments into capture archives.
             imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                            | VK_IMAGE_USAGE_SAMPLED_BIT;
+                            | VK_IMAGE_USAGE_SAMPLED_BIT
+                            | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         }
         else
         {

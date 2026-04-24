@@ -7,8 +7,6 @@
 #include "luthien/viewport/ViewportOverlays.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/events/Event.h"
-#include "luth/events/EventBus.h"
 
 #include <memory>
 
@@ -36,8 +34,6 @@ namespace Luth
         void SetShowControlsOverlay(bool show) { m_ShowControlsOverlay = show; }
 
     private:
-        void HandleRenderResize(Event& e);
-
         std::shared_ptr<Scene> m_Context;
         RenderingSystem* m_RenderingSystem = nullptr;
         EditorCamera m_EditorCamera;

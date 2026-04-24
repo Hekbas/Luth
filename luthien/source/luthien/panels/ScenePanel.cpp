@@ -16,7 +16,6 @@
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/Renderer.h"
-#include "luth/events/RenderEvent.h"
 #include "luthien/widgets/ImGuiUtils.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/widgets/Widgets.h"
@@ -35,8 +34,10 @@ namespace Luth
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
         m_Gizmo->SetOperation(ImGuizmo::OPERATION::TRANSLATE);
 
-        EventBus::Subscribe<RenderResizeEvent>(BusType::MainThread, [this](Event& e) {
-            HandleRenderResize(e);
+        m_Viewport->SetOnResize([this](u32 w, u32 h) {
+            m_RenderingSystem->Resize(w, h);
+            m_EditorCamera.SetViewportSize((float)w, (float)h);
+            m_Viewport->SetSize(w, h);
         });
 
         LH_CORE_INFO("Created Scene panel");
@@ -141,28 +142,6 @@ namespace Luth
                 if (TransportBtn(ICON_FA_FORWARD_STEP, "##Step", "Step one frame",
                                  playState == PlayState::Paused))
                     PlayModeController::RequestStep();
-
-                // Camera-source toggle — only during Playing/Paused
-                if (playState != PlayState::Editing) {
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                    ImGui::SameLine(0, 4.0f);
-
-                    auto& settings = Editor::GetSettings();
-                    const bool usingSceneCam = !settings.useEditorCameraInPlay;
-                    if (usingSceneCam) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
-                    }
-                    std::string camLabel = std::string(ICON_FA_CAMERA) + "##CamSource";
-                    if (ImGui::Button(camLabel.c_str(), { btnSize, btnSize }))
-                        settings.useEditorCameraInPlay = !settings.useEditorCameraInPlay;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", usingSceneCam
-                            ? "Scene camera — click to use editor camera"
-                            : "Editor camera — click to use scene camera");
-                    if (usingSceneCam) ImGui::PopStyleColor(2);
-                }
 
                 ImGui::SameLine();
 
@@ -504,17 +483,4 @@ namespace Luth
         ImGui::End();
         ImGui::PopFont();
     }
-
-    void ScenePanel::HandleRenderResize(Event& e)
-    {
-        if (e.IsInCategory(EventCategoryRender)) {
-            auto& resizeEvent = static_cast<RenderResizeEvent&>(e);
-            m_RenderingSystem->Resize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
-            m_EditorCamera.SetViewportSize((float)resizeEvent.GetWidth(), (float)resizeEvent.GetHeight());
-            m_Viewport->SetSize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
-            e.m_Handled = true;
-            LH_CORE_TRACE("Resized Viewport {0}x{1}", resizeEvent.GetWidth(), resizeEvent.GetHeight());
-        }
-    }
-
 }

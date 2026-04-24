@@ -54,7 +54,7 @@ namespace Luth
                 // Bind all 5 descriptor sets (skybox only uses set 0, others required by layout)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_GlobalDescriptorSet,
+                    m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
