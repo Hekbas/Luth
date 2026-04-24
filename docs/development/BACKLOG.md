@@ -253,6 +253,9 @@ Backlog beyond current planned epics, ordered roughly by value:
 
 | Feature | Depends On | Notes |
 |---------|-----------|-------|
+| **Shadow frustum-union fit** | `game-panel` | CSM currently refits per view (2× shadow cost with game panel open); one union fit covers all active views |
+| **Frame Debugger per-view capture** | `game-panel` | Capture currently scene-view-only; extend tracked RTs + archive slots to tag by view |
+| **Scene-panel post-process toggle** | — | Unity-style toggle to disable bloom/tonemap/vignette for lookdev (gate `AddPostProcessPass` + route SceneColor straight to ImGui) |
 | **HZB Occlusion Culling** | `compute-gpu-culling` | Two-phase cull pipeline; depth pyramid generation as compute |
 | **Prefab System** | `play-mode`, `jolt-physics` | Entity templates with override tracking |
 | **Scripting (C# or Lua)** | `play-mode`, `jolt-physics` | Requires play mode + physics for meaningful scripts |
