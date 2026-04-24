@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/GamePanel.h"
 
+#include "luthien/EditorSettings.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
@@ -36,12 +37,19 @@ namespace Luth
 
     void GamePanel::OnInit() {}
 
-    // Build CameraParams from the first <Camera, WorldTransform> entity.
+    // Build CameraParams + expose the camera's aspect ratio from the first
+    // <Camera, WorldTransform> entity. Returns false if no such entity
+    // exists (GamePanel shows a placeholder).
+    //
     // NOTE: we leave projection Y-up (Math::Perspective / Math::Ortho output).
     // RenderPipeline::UpdateGlobalUniforms applies the Vulkan Y-flip uniformly
     // for every view — matching EditorCamera's convention. Pre-flipping here
     // double-flips and inverts triangle winding (upside-down + backfaces).
-    static bool BuildCameraFromScene(entt::registry& reg, CameraParams& out)
+    //
+    // IBL + skybox intensities come from EditorSettings (same source the
+    // scene view's CameraParams uses via EditorHooks), so both views stay
+    // in sync when the user tweaks those sliders in the Render panel.
+    static bool BuildCameraFromScene(entt::registry& reg, CameraParams& out, float& outAspect)
     {
         auto view = reg.view<Camera, WorldTransform>();
         auto it = view.begin();
@@ -67,7 +75,10 @@ namespace Luth
             out.nearZ = cam.OrthographicNear;
             out.farZ  = cam.OrthographicFar;
         }
-        out.position = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
+        out.position        = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
+        out.iblIntensity    = Editor::GetSettings().iblIntensity;
+        out.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
+        outAspect           = cam.AspectRatio;
         return true;
     }
 
@@ -80,16 +91,21 @@ namespace Luth
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-            m_Viewport->BeginViewport();
-
             auto scene = Editor::GetActiveScene();
             const bool haveBackend = Renderer::GetBackend() && Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan;
 
+            // Look up the scene camera first so BeginViewport can lock the
+            // inner rect to its aspect ratio (letterbox / pillarbox). No
+            // camera → free aspect fallback so the placeholder text uses
+            // the full panel area.
             CameraParams camera;
-            const bool haveCamera = scene && haveBackend && m_TargetsAllocated
-                                        && BuildCameraFromScene(scene->Registry(), camera);
+            float camAspect = 0.0f;
+            const bool haveCamera = scene && haveBackend
+                                        && BuildCameraFromScene(scene->Registry(), camera, camAspect);
 
-            if (haveCamera) {
+            m_Viewport->BeginViewport(camAspect);
+
+            if (haveCamera && m_TargetsAllocated) {
                 // Queue this view for rendering in RS::Update. The scene
                 // view's ImGui pass (which finalizes the frame after every
                 // view's subgraph has recorded into the same primary cmd

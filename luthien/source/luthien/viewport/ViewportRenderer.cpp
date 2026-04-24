@@ -19,18 +19,44 @@ namespace Luth
         m_LastSceneTex.reset();
     }
 
-    void ViewportRenderer::BeginViewport()
+    void ViewportRenderer::BeginViewport(float aspectRatio)
     {
         // Viewport sizing — compare as integers to avoid an infinite resize
         // loop caused by float → u32 truncation in the callback path.
         const Vec2 avail = ToGlmVec2(ImGui::GetContentRegionAvail());
-        const u32 newW = (u32)avail.x;
-        const u32 newH = (u32)avail.y;
+
+        Vec2 innerSize = avail;
+        Vec2 offset    = { 0.0f, 0.0f };
+
+        if (aspectRatio > 0.0f && avail.x > 0.0f && avail.y > 0.0f)
+        {
+            const float panelAspect = avail.x / avail.y;
+            if (panelAspect > aspectRatio) {
+                // Panel is wider than target aspect → pillarbox (bars on sides).
+                innerSize.x = avail.y * aspectRatio;
+                innerSize.y = avail.y;
+                offset.x    = (avail.x - innerSize.x) * 0.5f;
+            } else {
+                // Panel is taller than target aspect → letterbox (bars top/bottom).
+                innerSize.x = avail.x;
+                innerSize.y = avail.x / aspectRatio;
+                offset.y    = (avail.y - innerSize.y) * 0.5f;
+            }
+        }
+
+        const u32 newW = (u32)innerSize.x;
+        const u32 newH = (u32)innerSize.y;
         const u32 curW = (u32)m_Size.x;
         const u32 curH = (u32)m_Size.y;
         if ((newW != curW || newH != curH) && newW > 0 && newH > 0) {
             m_Size = { (float)newW, (float)newH };
             if (m_OnResize) m_OnResize(newW, newH);
+        }
+
+        // Center the inner rect in the panel (bars are the panel background).
+        if (offset.x > 0.0f || offset.y > 0.0f) {
+            ImVec2 cursorPos = ImGui::GetCursorPos();
+            ImGui::SetCursorPos({ cursorPos.x + offset.x, cursorPos.y + offset.y });
         }
 
         // Update viewport bounds for gizmos & mouse picking

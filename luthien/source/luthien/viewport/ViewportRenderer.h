@@ -22,8 +22,14 @@ namespace Luth
         ~ViewportRenderer();
 
         // Detect size change (fires m_OnResize) + capture bounds/focus/hover.
-        // Called once per frame just before DrawSceneTexture, inside the owning ImGui window.
-        void BeginViewport();
+        // Called once per frame just before DrawSceneTexture, inside the
+        // owning ImGui window.
+        //
+        // aspectRatio = 0: free aspect — inner rect fills the panel content
+        // region (Scene panel behaviour). aspectRatio > 0: lock the inner
+        // rect to that aspect and center within the panel (Game panel —
+        // mimics Unity's game view letterbox/pillarbox).
+        void BeginViewport(float aspectRatio = 0.0f);
 
         // Rebind descriptor set if scene texture changed, then ImGui::Image it.
         // Scene panel overload reads RenderingSystem::GetSceneColor(); the direct
