@@ -52,6 +52,7 @@
 | v2.8.0 | `play-mode` | Editor state machine (Editing/Playing/Paused) + JSON scene snapshot. AnimationSystem gated; CommandHistory blocks during play; transport bar + viewport tint | 2026-04-23 |
 | v2.8.1 | `game-panel` | Dedicated Game panel rendering first Camera entity with letterbox + no overlays. New `RenderView` + `ViewResources` cache; per-instance resize callback replaces `RenderResizeEvent` | 2026-04-24 |
 | v2.8.2 | `engine-consolidation` | Audit-driven housekeeping: roadmap restructure + 4 new arch docs (memory/profiling/validation-layers/version-glossary) + comment-banner sanitization (14 files, –104 LOC) + Tracy global memory hooks for STL/heap + Tracy CPU coverage gaps filled | 2026-04-25 |
+| v2.8.3 | `tracy-on-demand` | Hotfix: define `TRACY_ON_DEMAND` so Tracy macros no-op when no profiler client is connected. Fixes 10 MB/s launcher leak + 0.2 MB/s in-game leak (#30); uncovered after v2.8.2 wired global `new`/`delete` to Tracy | 2026-04-25 |
 
 ---
 
@@ -61,8 +62,8 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `frame-debugger-polish` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.3 | S | — |
-| 2 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.4 | S | — |
+| 1 | `frame-debugger-polish` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.4 | S | — |
+| 2 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.5 | S | — |
 | 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
 | 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
 | 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling` |
