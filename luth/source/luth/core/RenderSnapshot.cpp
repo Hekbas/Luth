@@ -1,7 +1,6 @@
 #include "luthpch.h"
 #include "luth/core/RenderSnapshot.h"
 
-#include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/memory/LinearAllocator.h"
 #include "luth/renderer/RenderPipeline.h"
@@ -194,9 +193,5 @@ namespace Luth
             }
             MaterialSystem::Update(VK_NULL_HANDLE);
         }
-
-        LH_CORE_TRACE("CaptureSnapshot: meshes={} pointLights={} dirLight={} tags={}",
-                      out.meshes.size(), out.pointLights.size(),
-                      out.directionalLight.present, out.tagsByEntity.size());
     }
 }
