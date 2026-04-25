@@ -51,6 +51,7 @@
 | v2.7.5 | `editor-scene-panel-slim` | `ScenePanel` 1001→443 LOC: ViewportRenderer + GizmoController + ViewportOverlays extracted to `viewport/` | 2026-04-23 |
 | v2.8.0 | `play-mode` | Editor state machine (Editing/Playing/Paused) + JSON scene snapshot. AnimationSystem gated; CommandHistory blocks during play; transport bar + viewport tint | 2026-04-23 |
 | v2.8.1 | `game-panel` | Dedicated Game panel rendering first Camera entity with letterbox + no overlays. New `RenderView` + `ViewResources` cache; per-instance resize callback replaces `RenderResizeEvent` | 2026-04-24 |
+| v2.8.2 | `engine-consolidation` | Audit-driven housekeeping: roadmap restructure + 4 new arch docs (memory/profiling/validation-layers/version-glossary) + comment-banner sanitization (14 files, –104 LOC) + Tracy global memory hooks for STL/heap + Tracy CPU coverage gaps filled | 2026-04-25 |
 
 ---
 
@@ -60,15 +61,14 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `engine-consolidation` | [#95](https://github.com/Hekbas/Luth/issues/95) | v2.8.2 | M | — |
-| 2 | `frame-debugger-polish` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.3 | S | — |
-| 3 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.4 | S | — |
-| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
-| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
-| 6 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling` |
-| 7 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
-| 8 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
-| 9 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `frame-debugger-polish` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.3 | S | — |
+| 2 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.4 | S | — |
+| 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
+| 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
+| 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling` |
+| 6 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
+| 7 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
+| 8 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
