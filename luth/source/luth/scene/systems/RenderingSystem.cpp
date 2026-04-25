@@ -182,6 +182,7 @@ namespace Luth
         // BuildGPUObjectBuffer and DrawListBuilder consume it instead of the
         // registry. boneOffset for skinned meshes is pre-baked.
         const RenderSnapshot& snapshot = Renderer::GetFrameData()->Current().Snapshot;
+        m_ActiveSnapshot = &snapshot;  // Passes read tags etc. via this pointer.
 
         // Build GPU object buffer (after materials are registered)
         m_Pipeline->BuildGPUObjectBuffer(snapshot);

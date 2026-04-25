@@ -9,6 +9,7 @@
 #include "luth/scene/Components.h"
 #include "luth/scene/Scene.h"
 
+#include <cstring>
 #include <new>
 
 namespace Luth
@@ -127,10 +128,42 @@ namespace Luth
             out.pointLights = std::span<const PointLightSnapshot>(lightRows, count);
         }
 
-        // tagsByEntity: empty in S2 — Frame Debugger capture path is wired in S5.
+        // ── Frame Debugger entity tags ──
+        // Indexed by entt::to_entity(handle) (dense index, version stripped).
+        // Strings are copied into LogicMemory so the snapshot stays valid across
+        // game-stage mutations once stages run concurrently.
+        {
+            auto view = registry.view<Component::Tag>();
+            u32 maxIdx = 0;
+            bool any = false;
+            for (auto e : view)
+            {
+                u32 idx = entt::to_entity(e);
+                if (idx > maxIdx) maxIdx = idx;
+                any = true;
+            }
 
-        LH_CORE_TRACE("CaptureSnapshot: meshes={} pointLights={} dirLight={}",
+            if (any)
+            {
+                const size_t arrSize = static_cast<size_t>(maxIdx) + 1;
+                auto** arr = static_cast<const char**>(
+                    mem.Allocate(arrSize * sizeof(const char*), alignof(const char*)));
+                std::memset(arr, 0, arrSize * sizeof(const char*));
+
+                for (auto [e, tag] : view.each())
+                {
+                    const std::string& str = tag.Value;
+                    char* copy = static_cast<char*>(mem.Allocate(str.size() + 1, alignof(char)));
+                    std::memcpy(copy, str.c_str(), str.size() + 1);
+                    arr[entt::to_entity(e)] = copy;
+                }
+
+                out.tagsByEntity = std::span<const char* const>(arr, arrSize);
+            }
+        }
+
+        LH_CORE_TRACE("CaptureSnapshot: meshes={} pointLights={} dirLight={} tags={}",
                       out.meshes.size(), out.pointLights.size(),
-                      out.directionalLight.present);
+                      out.directionalLight.present, out.tagsByEntity.size());
     }
 }
