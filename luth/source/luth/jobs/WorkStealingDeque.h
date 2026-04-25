@@ -6,18 +6,9 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // WorkStealingDeque — Chase-Lev Work-Stealing Deque
-    // ===================================================================================
-    // Per-worker deque for normal-priority jobs.
-    // Owner pushes/pops from the bottom (LIFO — cache locality).
-    // Thieves steal from the top (FIFO — load balancing).
-    //
-    // Based on:
-    //   "Dynamic Circular Work-Stealing Deque" — Chase & Lev, SPAA 2005
-    //   "Correct and Efficient Work-Stealing for Weak Memory Models" — Lê et al., PPoPP 2013
-    //
-    // Capacity is dynamic (grows by doubling). Initial size is set at construction.
+    // WorkStealingDeque — Chase-Lev Work-Stealing Deque (Chase & Lev SPAA 2005, Lê et al. PPoPP 2013).
+    // Per-worker deque for normal-priority jobs. Owner pushes/pops from bottom (LIFO — cache locality).
+    // Thieves steal from top (FIFO — load balancing). Capacity grows by doubling from initial size.
 
     template<typename T>
     class WorkStealingDeque

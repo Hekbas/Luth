@@ -28,6 +28,7 @@ namespace Luth
     void PickingSystem::Update(Scene*)
     {
         if (!m_Pending) return;
+        LH_PROFILE_FUNCTION();
         m_Pending = false;
 
         auto* rs = SystemRegistry::GetSystem<RenderingSystem>();

@@ -8,9 +8,7 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // Descriptor Allocator
-    // ===================================================================================
+    // ── Descriptor Allocator ──
 
     void DescriptorAllocator::Init(VkDevice device)
     {
@@ -95,9 +93,7 @@ namespace Luth
         return pool;
     }
 
-    // ===================================================================================
-    // Bindless Descriptor Set
-    // ===================================================================================
+    // ── Bindless Descriptor Set ──
 
     void BindlessDescriptorSet::Init(VkDevice device)
     {

@@ -5,9 +5,7 @@
 
 namespace Luth::Memory
 {
-    // ===================================================================================
-    // Memory Category — tag each allocation with its subsystem
-    // ===================================================================================
+    // ── Memory Category — tag each allocation with its subsystem ──
 
     enum class Category : u8
     {
@@ -23,9 +21,7 @@ namespace Luth::Memory
         Count
     };
 
-    // ===================================================================================
-    // Per-category stats — lock-free atomics
-    // ===================================================================================
+    // ── Per-category stats — lock-free atomics ──
 
     struct CategoryStats
     {
@@ -36,9 +32,7 @@ namespace Luth::Memory
         std::atomic<u32> FreeCount{ 0 };
     };
 
-    // ===================================================================================
-    // Memory Tracker — singleton with atomic counters
-    // ===================================================================================
+    // ── Memory Tracker — singleton with atomic counters ──
 
     class MemoryTracker
     {

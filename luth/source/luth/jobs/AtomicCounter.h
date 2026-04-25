@@ -7,12 +7,9 @@ namespace Luth::JobSystem
 {
     struct Fiber;
 
-    // ===================================================================================
-    // Atomic Counter with Busy Bit and SpinLock
-    // Value: Bits 1-31 = Count, Bit 0 = Busy Flag
-    // Lock: Protects WaitingListHead
-    // ===================================================================================
-    
+    // Atomic Counter with Busy Bit and SpinLock.
+    // Value: Bits 1-31 = Count, Bit 0 = Busy Flag. Lock: Protects WaitingListHead.
+
     struct AtomicCounter
     {
         std::atomic<u32> Value;

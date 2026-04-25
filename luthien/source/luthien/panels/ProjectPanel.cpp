@@ -63,6 +63,7 @@ namespace Luth
 
     void ProjectPanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string project = ICON_FA_FOLDER + std::string("  Project");
 

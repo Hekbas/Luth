@@ -5,6 +5,8 @@
 #include <functional>
 #include <cassert>
 
+// V<n> markers in this file refer to JobSystem hazards — see docs/development/arch/version-glossary.md
+
 namespace Luth
 {
     struct FrameParams;
@@ -14,9 +16,7 @@ namespace Luth
 
 namespace Luth::JobSystem
 {
-    // ===================================================================================
-    // Job Descriptor
-    // ===================================================================================
+    // ── Job Descriptor ──
 
     struct JobArgs
     {
@@ -28,9 +28,7 @@ namespace Luth::JobSystem
     using JobFunction = void(*)(JobArgs);
     using Counter = AtomicCounter;
 
-    // ===================================================================================
-    // Job Priority
-    // ===================================================================================
+    // ── Job Priority ──
 
     enum class Priority : u8
     {
@@ -39,9 +37,7 @@ namespace Luth::JobSystem
         Low     // Asset loading, background tasks
     };
 
-    // ===================================================================================
-    // Worker State (per-thread, for profiler visualization)
-    // ===================================================================================
+    // ── Worker State (per-thread, profiler viz) ──
 
     enum class WorkerState : u8
     {
@@ -51,9 +47,7 @@ namespace Luth::JobSystem
         Sleeping
     };
 
-    // ===================================================================================
-    // Runtime Stats
-    // ===================================================================================
+    // ── Runtime Stats ──
 
     static constexpr u32 MAX_WORKER_THREADS = 64;
 
@@ -74,11 +68,7 @@ namespace Luth::JobSystem
         u32 ReadyFiberCount;
     };
 
-    // ===================================================================================
-    // Job Context — Fiber Local Storage (FLS)
-    // ===================================================================================
-    // Carried per-fiber, NOT per-thread.
-    // Accessed via GetCurrentJobContext(). Stored in Win32 FLS.
+    // ── Job Context — Fiber Local Storage (carried per-fiber, accessed via GetCurrentJobContext, stored in Win32 FLS) ──
 
     struct JobContext
     {
@@ -92,10 +82,10 @@ namespace Luth::JobSystem
         CommandAllocatorPool* CommandPool = nullptr;
         void* CurrentCommandAllocator = nullptr;
 
-        // V3: Recording Guard — Prevents yield while recording VkCommandBuffer
+        // V3: prevents yield while recording VkCommandBuffer
         bool IsRecording = false;
 
-        // V5: Inline Execution Depth Tracking
+        // V5: inline execution depth tracking
         u32 InlineDepth = 0;
 
         // Metadata
@@ -103,12 +93,9 @@ namespace Luth::JobSystem
         u32 FiberID = 0;
     };
 
-    // ===================================================================================
-    // V3: RAII Recording Scope
-    // ===================================================================================
-    // Sets IsRecording = true for the duration of the scope.
-    // Fiber::Yield() will assert if IsRecording is true, catching violations
-    // of Contract 4 (VkCommandBuffer thread affinity) at the point of violation.
+    // ── V3: RAII Recording Scope ──
+    // Sets IsRecording = true for the scope duration. Fiber::Yield() asserts on
+    // IsRecording, catching VkCommandBuffer thread-affinity violations at the call site.
 
     struct RecordingScope
     {
@@ -131,9 +118,7 @@ namespace Luth::JobSystem
         JobContext* m_Ctx;
     };
 
-    // ===================================================================================
-    // API
-    // ===================================================================================
+    // ── API ──
 
     // Lifecycle
     void Init(u32 numThreads = 0);
@@ -149,13 +134,11 @@ namespace Luth::JobSystem
                   void* data = nullptr, Counter* counter = nullptr,
                   Priority priority = Priority::Normal);
 
-    // Fiber-aware wait.
-    // V5: Uses depth-limited inline execution (up to depth 4) before switching fibers.
-    // If called from main thread: busy-spins (isolated, no job stealing per V2).
+    // Fiber-aware wait. V5: depth-limited inline execution before fiber switch.
+    // Main thread: busy-spins (V2 isolated, no stealing).
     void WaitForCounter(Counter* counter, u32 targetValue = 0);
 
-    // Yield the current fiber to the scheduler.
-    // V3: Asserts that IsRecording == false. Hard crash in debug on violation.
+    // Yield current fiber to scheduler. V3: asserts IsRecording == false.
     void YieldFiber();
 
     // Returns true if the counter has not reached the target value

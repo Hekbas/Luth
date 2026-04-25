@@ -3,19 +3,22 @@
 #include "luth/memory/MemoryTracker.h"
 #include "luth/core/diagnostics/Profiler.h"
 
-// ===================================================================================
-// Tracked allocation macros — opt-in, per call-site category tagging
-// ===================================================================================
+// Tracked allocation macros — opt-in, per call-site category tagging.
 // Usage:
 //   auto* ctx = LH_NEW(Memory::Category::Rendering, VulkanContext);
 //   LH_DELETE(Memory::Category::Rendering, ctx);
+// See docs/development/arch/memory.md for the full policy.
+//
+// Tracy memory profiling: the global operator new/delete overrides in
+// GlobalNewDelete.cpp call TracyAlloc/TracyFree, so the underlying `new`/`delete`
+// here is already visible in Tracy's Memory tab. These macros only add the
+// engine-side MemoryTracker category counter on top.
 
 // Single object new/delete
 #define LH_NEW(Category, Type, ...)                                                     \
     [&]() -> Type* {                                                                    \
         Type* _lh_ptr = new Type(__VA_ARGS__);                                          \
         ::Luth::Memory::MemoryTracker::RecordAlloc(Category, sizeof(Type));             \
-        LH_PROFILE_ALLOC(_lh_ptr, sizeof(Type));                                        \
         return _lh_ptr;                                                                 \
     }()
 
@@ -23,7 +26,6 @@
     do {                                                                                \
         if (ptr) {                                                                      \
             ::Luth::Memory::MemoryTracker::RecordFree(Category, sizeof(*(ptr)));        \
-            LH_PROFILE_FREE(ptr);                                                       \
             delete (ptr);                                                               \
             (ptr) = nullptr;                                                            \
         }                                                                               \
@@ -34,7 +36,6 @@
     [&]() -> void* {                                                                    \
         void* _lh_ptr = ::operator new(size);                                           \
         ::Luth::Memory::MemoryTracker::RecordAlloc(Category, size);                     \
-        LH_PROFILE_ALLOC(_lh_ptr, size);                                                \
         return _lh_ptr;                                                                 \
     }()
 
@@ -42,7 +43,6 @@
     do {                                                                                \
         if (ptr) {                                                                      \
             ::Luth::Memory::MemoryTracker::RecordFree(Category, size);                  \
-            LH_PROFILE_FREE(ptr);                                                       \
             ::operator delete(ptr);                                                     \
             (ptr) = nullptr;                                                            \
         }                                                                               \
@@ -53,7 +53,6 @@
     [&]() -> Type* {                                                                    \
         Type* _lh_ptr = new Type[count];                                                \
         ::Luth::Memory::MemoryTracker::RecordAlloc(Category, sizeof(Type) * (count));   \
-        LH_PROFILE_ALLOC(_lh_ptr, sizeof(Type) * (count));                              \
         return _lh_ptr;                                                                 \
     }()
 
@@ -61,7 +60,6 @@
     do {                                                                                \
         if (ptr) {                                                                      \
             ::Luth::Memory::MemoryTracker::RecordFree(Category, sizeof(*(ptr)) * (count)); \
-            LH_PROFILE_FREE(ptr);                                                       \
             delete[] (ptr);                                                             \
             (ptr) = nullptr;                                                            \
         }                                                                               \

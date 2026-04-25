@@ -52,6 +52,7 @@ namespace Luth
 
     void ScenePanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         m_Gizmo->ResetFrameState();
 
         // Sync selection (primary = last-added for gizmos/camera)

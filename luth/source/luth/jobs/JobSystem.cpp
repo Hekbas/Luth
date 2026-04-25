@@ -17,24 +17,18 @@
 #pragma comment(lib, "Synchronization.lib") // WaitOnAddress / WakeByAddress
 #endif
 
-// ===================================================================================
-// Internal Implementation
-// ===================================================================================
+// V<n> markers refer to JobSystem hazards — see docs/development/arch/version-glossary.md
 
 namespace Luth::JobSystem
 {
-    // -------------------------------------------------------------------------------
-    // Constants
-    // -------------------------------------------------------------------------------
+    // ── Constants ──
 
     static constexpr u32 MAX_FIBERS         = 512;
     static constexpr u32 HIGH_QUEUE_SIZE    = 4096;  // Must be power of 2
     static constexpr u32 LOCAL_DEQUE_SIZE   = 1024;
     static constexpr u32 MAX_INLINE_DEPTH   = 4;     // V5: depth-limited inline execution
 
-    // -------------------------------------------------------------------------------
-    // Internal Job Struct
-    // -------------------------------------------------------------------------------
+    // ── Internal Job Struct ──
 
     struct Job
     {
@@ -45,9 +39,7 @@ namespace Luth::JobSystem
         u32 GroupIndex = 0;
     };
 
-    // -------------------------------------------------------------------------------
-    // Fiber Local Storage (FLS) — Replaces thread_local
-    // -------------------------------------------------------------------------------
+    // ── Fiber Local Storage (FLS) — replaces thread_local ──
 
     static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
 
@@ -56,9 +48,7 @@ namespace Luth::JobSystem
         FlsSetValue(s_FlsIndex, ctx);
     }
 
-    // -------------------------------------------------------------------------------
-    // Per-Worker Data (indexed by thread ID, NOT per-fiber)
-    // -------------------------------------------------------------------------------
+    // ── Per-Worker Data (indexed by thread ID, not per-fiber) ──
 
     struct WorkerData
     {
@@ -72,9 +62,7 @@ namespace Luth::JobSystem
         WorkerData() : LocalDeque(std::make_unique<WorkStealingDeque<Job>>(LOCAL_DEQUE_SIZE)) {}
     };
 
-    // -------------------------------------------------------------------------------
-    // Global Scheduler Data
-    // -------------------------------------------------------------------------------
+    // ── Global Scheduler Data ──
 
     struct SchedulerData
     {
@@ -142,18 +130,14 @@ namespace Luth::JobSystem
         }
     }
 
-    // -------------------------------------------------------------------------------
-    // Worker Thread ID (safe to use thread_local for this ONE variable because
-    // this is per-OS-thread, not per-fiber, and that's correct — worker index
-    // doesn't change when fibers switch on the same OS thread)
-    // -------------------------------------------------------------------------------
+    // ── Worker Thread ID ──
+    // thread_local is safe here: per-OS-thread, not per-fiber. Worker index
+    // doesn't change when fibers switch on the same OS thread.
 
     static thread_local u32 t_WorkerIndex = 0;
     static thread_local bool t_IsMainThread = false;
 
-    // -------------------------------------------------------------------------------
-    // Fiber Pool Management
-    // -------------------------------------------------------------------------------
+    // ── Fiber Pool Management ──
 
     static Fiber* AllocateFiber()
     {
@@ -188,9 +172,7 @@ namespace Luth::JobSystem
         return &s_Data.FiberContexts[index];
     }
 
-    // -------------------------------------------------------------------------------
-    // Counter Decrement Logic
-    // -------------------------------------------------------------------------------
+    // ── Counter Decrement Logic ──
 
     static void DecrementCounter(Counter* counter)
     {
@@ -260,9 +242,7 @@ namespace Luth::JobSystem
         }
     }
 
-    // -------------------------------------------------------------------------------
-    // Fiber Entry Point
-    // -------------------------------------------------------------------------------
+    // ── Fiber Entry Point ──
 
     static void WINAPI FiberEntryPoint(void* args)
     {
@@ -302,9 +282,7 @@ namespace Luth::JobSystem
         Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
     }
 
-    // -------------------------------------------------------------------------------
-    // Worker Thread Loop
-    // -------------------------------------------------------------------------------
+    // ── Worker Thread Loop ──
 
     static void WorkerThreadLoop(u32 workerIndex)
     {
@@ -326,7 +304,7 @@ namespace Luth::JobSystem
 
         while (s_Data.Running.load(std::memory_order_relaxed))
         {
-            // ---- Priority 1: Resume Ready Fibers ----
+            // Priority 1: resume ready fibers
             Fiber* readyFiber = nullptr;
             {
                 SpinLockGuard lock(s_Data.ReadyFibersLock);
@@ -358,7 +336,7 @@ namespace Luth::JobSystem
                 continue;
             }
 
-            // ---- Priority 2: Global High Queue (MPMC) ----
+            // Priority 2: global high queue (MPMC)
             Job job;
             bool foundJob = false;
 
@@ -366,12 +344,12 @@ namespace Luth::JobSystem
             {
                 foundJob = true;
             }
-            // ---- Priority 3: Local Deque (LIFO — cache locality) ----
+            // Priority 3: local deque (LIFO — cache locality)
             else if (worker.LocalDeque->TryPop(job))
             {
                 foundJob = true;
             }
-            // ---- Priority 4: Steal from other workers (FIFO — load balance) ----
+            // Priority 4: steal from other workers (FIFO — load balance)
             else
             {
                 s_Data.FrameStealAttempts.fetch_add(1, std::memory_order_relaxed);
@@ -432,7 +410,7 @@ namespace Luth::JobSystem
                 continue;
             }
 
-            // ---- Priority 5: Idle — Wait for work (V4 compliant) ----
+            // Priority 5: idle — wait for work (V4)
 #ifdef _WIN32
             {
                 // V4: Compare-and-wait pattern to prevent lost wakeups
@@ -463,9 +441,7 @@ namespace Luth::JobSystem
         }
     }
 
-    // -------------------------------------------------------------------------------
-    // API Implementation
-    // -------------------------------------------------------------------------------
+    // ── API Implementation ──
 
     void Init(u32 numThreads)
     {

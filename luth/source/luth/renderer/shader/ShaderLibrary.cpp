@@ -70,6 +70,7 @@ namespace Luth
 
     bool ShaderLibrary::Reload(const std::string& name)
     {
+        LH_PROFILE_FUNCTION();
         auto it = s_Shaders.find(name);
         if (it == s_Shaders.end())
         {

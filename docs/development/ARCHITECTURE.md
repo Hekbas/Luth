@@ -137,6 +137,10 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | Area | File | When to read |
 |------|------|--------------|
 | Fiber system (V1-V6 mitigations) | [`arch/fiber-system.md`](arch/fiber-system.md) | Working on jobs/core |
+| Memory (allocators, tracker, STL gap) | [`arch/memory.md`](arch/memory.md) | Working on allocators or memory budgets |
+| Profiling (Tracy + GPUTimerPool) | [`arch/profiling.md`](arch/profiling.md) | Adding instrumentation or chasing perf |
+| Vulkan validation layers | [`arch/validation-layers.md`](arch/validation-layers.md) | Vulkan setup, debug callback, build-define overrides |
+| Version markers (V1-V6) | [`arch/version-glossary.md`](arch/version-glossary.md) | Reading `Vn` source comments — JobSystem hazards vs asset format versions |
 | Rendering pipeline (descriptor sets, pass order) | [`arch/rendering-pipeline.md`](arch/rendering-pipeline.md) | Working on renderer |
 | Frame pipeline (triple-buffer model) | [`arch/frame-pipeline.md`](arch/frame-pipeline.md) | Working on frame pipeline |
 | Asset pipeline (importers, loading, caching) | [`arch/asset-pipeline.md`](arch/asset-pipeline.md) | Working on assets/resources |

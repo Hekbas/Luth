@@ -26,6 +26,7 @@ namespace Luth
 
     void RenderPanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         if (!m_RS) return;
 
         ImGui::PushFont(Editor::GetFASolid());

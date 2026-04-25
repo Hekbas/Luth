@@ -28,6 +28,7 @@ namespace Luth
 
     void InspectorPanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string inspector = ICON_FA_CIRCLE_INFO + std::string("  Inspector");
 
