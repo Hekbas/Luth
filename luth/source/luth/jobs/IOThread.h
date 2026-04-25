@@ -12,10 +12,7 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // I/O Thread (Dedicated File Reader)
-    // ===================================================================================
-    // Handles blocking file I/O operations on a dedicated OS thread.
+    // I/O Thread — dedicated OS thread for blocking file I/O.
     // Fibers submit requests here and receive a callback (via JobSystem) when done.
     
     class IOThread

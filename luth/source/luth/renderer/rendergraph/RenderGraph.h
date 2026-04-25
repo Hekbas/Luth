@@ -20,9 +20,7 @@ namespace Luth::RG
     class RenderGraph;
     class IArchiveSink;
 
-    // ===================================================================================
-    // Pass Builder — Declares resource reads/writes during setup
-    // ===================================================================================
+    // ── Pass Builder — declares resource reads/writes during setup ──
 
     class RenderPassBuilder
     {
@@ -59,9 +57,7 @@ namespace Luth::RG
         u32 m_PassIndex;
     };
 
-    // ===================================================================================
-    // Pass Execution Context — Passed to pass execute lambdas
-    // ===================================================================================
+    // ── Pass Execution Context — passed to pass execute lambdas ──
 
     class RenderPassContext
     {
@@ -71,21 +67,12 @@ namespace Luth::RG
         std::function<void*(BufferHandle)> GetBuffer;
     };
 
-    // ===================================================================================
-    // Render Graph — DAG Compile → Barrier Inject → Execute
-    // ===================================================================================
+    // ── Render Graph — DAG compile → barrier inject → execute ──
     //
-    // Execution model (Phase 3):
-    //   Iterate sorted passes in order. For each pass:
-    //     1. Emit batched pre-barriers into primary cmd
-    //     2. BeginRendering on primary cmd
-    //     3. Dispatch pass recording as a RenderPassJob (secondary cmd buffer)
-    //     4. WaitForCounter (inline execute if depth allows, V5)
-    //     5. ExecuteCommands (secondary into primary)
-    //     6. EndRendering
-    //
-    //   Parallelism comes from WITHIN a pass (splitting draw calls across N jobs).
-    //   Multi-pass parallelism is NOT supported (inter-pass barriers are serial).
+    // Per pass: batched pre-barriers → BeginRendering → dispatch RenderPassJob
+    // (secondary cmd buffer) → WaitForCounter (V5 inline execute if depth allows)
+    // → ExecuteCommands → EndRendering. Parallelism is intra-pass (split draws
+    // across N jobs); inter-pass barriers run serially.
 
     class RenderGraph
     {

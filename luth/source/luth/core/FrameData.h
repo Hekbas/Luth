@@ -12,15 +12,9 @@ namespace Luth
 {
     class CommandAllocatorPool;
 
-    // ===================================================================================
-    // Engine-wide constant — single source of truth
-    // ===================================================================================
-
     static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
 
-    // ===================================================================================
-    // Frame Params — Read-Only data packet for the frame
-    // ===================================================================================
+    // ── Frame Params — read-only data packet for the frame ──
     // Written by Game(N). Read by Render(N-1). Immutable after GameReady signals.
 
     struct FrameParams
@@ -41,9 +35,7 @@ namespace Luth
         u32 ViewportHeight = 0;
     };
 
-    // ===================================================================================
-    // Frame Context — One per in-flight frame (triple buffered)
-    // ===================================================================================
+    // ── Frame Context — one per in-flight frame (triple buffered) ──
 
     struct FrameContext
     {
@@ -106,9 +98,7 @@ namespace Luth
         }
     };
 
-    // ===================================================================================
-    // Frame Data — Triple-buffered ring
-    // ===================================================================================
+    // ── Frame Data — triple-buffered ring ──
     // Owned exclusively by App. Passed to systems by reference.
 
     class FrameData

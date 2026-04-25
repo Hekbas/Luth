@@ -13,11 +13,7 @@ typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Luth
 {
-    // ===================================================================================
-    // Material System (Global Material Buffer)
-    // ===================================================================================
-    // Manages a massive SSBO containing data for all active materials.
-    // Materials are referenced by index in shaders.
+    // Material System — global SSBO for all active materials. Referenced by index in shaders.
     
     class MaterialSystem
     {

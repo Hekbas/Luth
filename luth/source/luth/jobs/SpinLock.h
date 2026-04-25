@@ -5,9 +5,7 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // SpinLock (V1 Compliant)
-    // ===================================================================================
+    // SpinLock (V1 — see arch/version-glossary.md).
     // Pure spin-lock for micro-critical sections (< 100 cycles).
     // NEVER yields, NEVER sleeps. If your critical section is long enough
     // to need either, restructure it as a lock-free atomic state or a job chain.
