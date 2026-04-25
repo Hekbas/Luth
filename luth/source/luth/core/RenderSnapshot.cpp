@@ -4,10 +4,15 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/memory/LinearAllocator.h"
+#include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/Scene.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 
 #include <cstring>
 #include <new>
@@ -160,6 +165,34 @@ namespace Luth
 
                 out.tagsByEntity = std::span<const char* const>(arr, arrSize);
             }
+        }
+
+        // ── Material registration + dirty flush (game stage) ──
+        // Mirrors the legacy loop from RenderingSystem::Update. Walks the registry
+        // once more so even entities skipped by the mesh capture (no model loaded
+        // yet) still hold their material refs alive, matching prior behavior.
+        // MaterialSystem::Update flushes any dirty material UBO writes; runs here
+        // so its m_Lock stays stage-isolated to the game thread once stages
+        // overlap (asserted in S9).
+        if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
+        {
+            RenderPipeline& pipeline = rs->GetPipeline();
+            auto matView = registry.view<Component::WorldTransform, Component::MeshRenderer>();
+            for (auto [entity, wt, mr] : matView.each())
+            {
+                if (mr.ModelUUID.IsValid())
+                {
+                    if (auto model = AssetManager::GetAsset<Model>(mr.ModelUUID))
+                        scene.HoldAsset(mr.ModelUUID, model);
+                }
+                if (!mr.MaterialUUID.IsValid()) continue;
+                if (auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID))
+                {
+                    scene.HoldAsset(mr.MaterialUUID, material);
+                    pipeline.EnsureMaterialRegistered(material);
+                }
+            }
+            MaterialSystem::Update(VK_NULL_HANDLE);
         }
 
         LH_CORE_TRACE("CaptureSnapshot: meshes={} pointLights={} dirLight={} tags={}",

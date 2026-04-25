@@ -2,21 +2,16 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
-#include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/material/Material.h"
-#include "luth/renderer/resources/Model.h"
-#include "luth/resources/AssetManager.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Scene.h"
-#include "luth/scene/Components.h"
 #include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
-    using namespace Component;
 
     // =========================================================================
     // Construction / Destruction
@@ -153,34 +148,9 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
 
-        // Camera-independent per-frame prep. These outputs are shared across
-        // every view rendered this frame (scene + game panels).
-        //
-        // Register materials and hold assets for all visible entities
-        auto matView = registry.view<WorldTransform, MeshRenderer>();
-        for (auto [entity, wt, mr] : matView.each())
-        {
-            if (mr.ModelUUID.IsValid())
-            {
-                auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
-                if (model)
-                    scene->HoldAsset(mr.ModelUUID, model);
-            }
-            if (!mr.MaterialUUID.IsValid()) continue;
-            auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
-            if (material)
-            {
-                scene->HoldAsset(mr.MaterialUUID, material);
-                m_Pipeline->EnsureMaterialRegistered(material);
-            }
-        }
-
-        // Upload dirty materials
-        MaterialSystem::Update(VK_NULL_HANDLE);
-
-        // RenderSnapshot was captured at end of game stage (App::Run); both
-        // BuildGPUObjectBuffer and DrawListBuilder consume it instead of the
-        // registry. boneOffset for skinned meshes is pre-baked.
+        // RenderSnapshot was captured at end of game stage (App::Run), where
+        // material registration + MaterialSystem::Update also ran. Render
+        // stage just consumes — no registry walks, no slot mutations.
         const RenderSnapshot& snapshot = Renderer::GetFrameData()->Current().Snapshot;
         m_ActiveSnapshot = &snapshot;  // Passes read tags etc. via this pointer.
 
