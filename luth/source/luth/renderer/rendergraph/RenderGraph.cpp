@@ -489,6 +489,8 @@ namespace Luth::RG
             auto& pass = m_Passes[i];
             if (pass.culled) continue;
 
+            LH_PROFILE_SCOPE_DYNAMIC(pass.name);
+
             // ── Step 1: Batched Barriers (image + buffer, combined into one call) ──
             static constexpr u32 k_MaxBarriers = 16;
             LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many image barriers per pass!");

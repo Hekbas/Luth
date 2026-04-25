@@ -51,6 +51,8 @@ namespace Luth
     void ShaderWatcher::Poll()
     {
         std::lock_guard lock(m_Mutex);
+        if (m_Pending.empty()) return;
+        LH_PROFILE_FUNCTION();
         for (const auto& name : m_Pending)
         {
             LH_CORE_INFO("Shader file changed — reloading '{}'", name);

@@ -17,6 +17,7 @@ namespace Luth
 
     void ResourcePanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string resources = ICON_FA_DATABASE + std::string("  Resources");
 

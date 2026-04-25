@@ -29,6 +29,7 @@ namespace Luth
 
     void HierarchyPanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         if (ImGui::Begin(ICON_FA_LIST "  Hierarchy") && m_Context)
         {

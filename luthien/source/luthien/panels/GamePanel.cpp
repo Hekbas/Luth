@@ -78,6 +78,7 @@ namespace Luth
 
     void GamePanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_GAMEPAD + std::string("  Game");
 

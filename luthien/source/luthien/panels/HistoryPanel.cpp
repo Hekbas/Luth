@@ -100,6 +100,7 @@ namespace Luth
 
     void HistoryPanel::OnRender()
     {
+        LH_PROFILE_FUNCTION();
         if (ImGui::Begin(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
         {
             auto& undoStack = CommandHistory::GetUndoStack();
