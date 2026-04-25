@@ -37,6 +37,7 @@ namespace Luth::JobSystem
         Counter* CounterPtr = nullptr;
         u32 JobIndex = 0;
         u32 GroupIndex = 0;
+        const char* Name = "Job"; // Tracy zone label — set at dispatch, used in FiberEntryPoint
     };
 
     // ── Fiber Local Storage (FLS) — replaces thread_local ──
@@ -263,7 +264,7 @@ namespace Luth::JobSystem
         // Execute the job
         if (jobPtr && jobPtr->Function)
         {
-            LH_PROFILE_SCOPE("Job");
+            LH_PROFILE_SCOPE_DYNAMIC_CSTR(jobPtr->Name);
 
             JobArgs jArgs{ jobPtr->JobIndex, jobPtr->GroupIndex, jobPtr->Data };
             jobPtr->Function(jArgs);
@@ -529,7 +530,7 @@ namespace Luth::JobSystem
             s_Data.WorkerPeakStates[i].store(WorkerState::Sleeping, std::memory_order_relaxed);
     }
 
-    void Execute(JobFunction function, void* data, Counter* counter, Priority priority)
+    void Execute(JobFunction function, void* data, Counter* counter, const char* name, Priority priority)
     {
         if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
@@ -539,6 +540,7 @@ namespace Luth::JobSystem
         job.CounterPtr = counter;
         job.JobIndex = 0;
         job.GroupIndex = 0;
+        job.Name = name;
 
         if (priority == Priority::Normal && !t_IsMainThread)
         {
@@ -554,7 +556,7 @@ namespace Luth::JobSystem
     }
 
     void Dispatch(u32 jobCount, u32 groupSize, JobFunction function,
-                  void* data, Counter* counter, Priority priority)
+                  void* data, Counter* counter, const char* name, Priority priority)
     {
         if (jobCount == 0) return;
 
@@ -569,6 +571,7 @@ namespace Luth::JobSystem
             job.CounterPtr = counter;
             job.JobIndex = i * groupSize;
             job.GroupIndex = i;
+            job.Name = name;
 
             if (priority == Priority::Normal && !t_IsMainThread)
             {

@@ -635,7 +635,7 @@ namespace Luth::RG
             JobSystem::Execute([](JobSystem::JobArgs args) {
                 RenderPassJob* j = (RenderPassJob*)args.data;
                 RenderPassJob::Execute(j);
-            }, &job, &jobCounter);
+            }, &job, &jobCounter, "RGPassRecord");
 
             JobSystem::WaitForCounter(&jobCounter);
 

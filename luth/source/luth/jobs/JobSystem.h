@@ -125,14 +125,17 @@ namespace Luth::JobSystem
     void Shutdown();
     void ResetFrameStats();
 
-    // Run a single task (defaults to High priority for backward compat)
+    // Run a single task (defaults to High priority for backward compat).
+    // `name` is a Tracy zone label for the dispatched job's outer fiber zone — pass a
+    // string literal at the call site (e.g. "AssetLoad"). Defaults to "Job" if omitted.
     void Execute(JobFunction function, void* data = nullptr,
-                 Counter* counter = nullptr, Priority priority = Priority::High);
+                 Counter* counter = nullptr, const char* name = "Job",
+                 Priority priority = Priority::High);
 
-    // Run multiple tasks (data parallelism)
+    // Run multiple tasks (data parallelism). See Execute for the `name` contract.
     void Dispatch(u32 jobCount, u32 groupSize, JobFunction function,
                   void* data = nullptr, Counter* counter = nullptr,
-                  Priority priority = Priority::Normal);
+                  const char* name = "Job", Priority priority = Priority::Normal);
 
     // Fiber-aware wait. V5: depth-limited inline execution before fiber switch.
     // Main thread: busy-spins (V2 isolated, no stealing).

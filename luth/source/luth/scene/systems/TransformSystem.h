@@ -22,6 +22,8 @@ namespace Luth
 
         static void UpdateTransformsJob(JobSystem::JobArgs args)
         {
+            LH_PROFILE_FUNCTION();
+
             TransformJobData* data = (TransformJobData*)args.data;
             entt::registry& reg = *data->registry;
 
@@ -87,7 +89,7 @@ namespace Luth
 
                 jobData.entities = &level;
                 jobData.totalCount = (u32)level.size();
-                JobSystem::Dispatch(jobData.totalCount, jobData.groupSize, UpdateTransformsJob, &jobData, &counter);
+                JobSystem::Dispatch(jobData.totalCount, jobData.groupSize, UpdateTransformsJob, &jobData, &counter, "TransformUpdate");
                 JobSystem::WaitForCounter(&counter);
             }
         }

@@ -101,6 +101,8 @@ namespace Luth
 
     static void IOCallbackJob(JobSystem::JobArgs args)
     {
+        LH_PROFILE_FUNCTION();
+
         IOCallbackSlot* slot = (IOCallbackSlot*)args.data;
         slot->Callback(std::move(slot->Data));
         slot->Callback = nullptr;
@@ -178,7 +180,7 @@ namespace Luth
                     LH_CORE_ERROR("IOThread: Failed to open file: {0}", req.Path);
                     slot->Callback = req.Callback;
                     slot->Data.clear();
-                    JobSystem::Execute(IOCallbackJob, slot);
+                    JobSystem::Execute(IOCallbackJob, slot, nullptr, "IOCallback");
                     continue;
                 }
 
@@ -189,7 +191,7 @@ namespace Luth
                 file.close();
 
                 slot->Callback = req.Callback;
-                JobSystem::Execute(IOCallbackJob, slot);
+                JobSystem::Execute(IOCallbackJob, slot, nullptr, "IOCallback");
             }
         }
     }

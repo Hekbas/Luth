@@ -61,7 +61,7 @@ namespace Luth
         LoadRequest* req = new LoadRequest{ handle, info.Path, info.Type };
         
         // Dispatch to JobSystem
-        JobSystem::Execute(LoadJob, req);
+        JobSystem::Execute(LoadJob, req, nullptr, "AssetLoad");
     }
 
     std::shared_ptr<Asset> AssetManager::LoadImmediate(UUID handle)
@@ -175,9 +175,10 @@ namespace Luth
 
         JobSystem::Counter importCounter(0);
         JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
+            LH_PROFILE_SCOPE("AssetImport");
             std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
             AssetManager::Import((*assets)[args.jobIndex]);
-        }, &assetsToImport, &importCounter);
+        }, &assetsToImport, &importCounter, "AssetImport");
         JobSystem::WaitForCounter(&importCounter);
     }
 

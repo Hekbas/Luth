@@ -210,7 +210,7 @@ namespace Luth
         jobData.totalCount = (u32)entities.size();
 
         JobSystem::Counter counter;
-        JobSystem::Dispatch(jobData.totalCount, 1, EvaluateAnimJob, &jobData, &counter);
+        JobSystem::Dispatch(jobData.totalCount, 1, EvaluateAnimJob, &jobData, &counter, "AnimEval");
         JobSystem::WaitForCounter(&counter);
 
         // Fire animation events (main thread — safe to modify ECS)

@@ -16,8 +16,10 @@ namespace Luth
 
     static void WaitJobFunction(JobSystem::JobArgs args)
     {
+        LH_PROFILE_FUNCTION();
+
         WaitJobData* data = (WaitJobData*)args.data;
-        
+
         u64 currentValue = data->semaphore->GetValue();
 
         if (currentValue >= data->targetValue)
@@ -32,15 +34,15 @@ namespace Luth
             std::this_thread::yield();
 
             // Re-queue the job to run again later.
-            JobSystem::Execute(WaitJobFunction, data, data->counter);
+            JobSystem::Execute(WaitJobFunction, data, data->counter, "VkWait");
         }
     }
 
     void VulkanWaitJob::Dispatch(TimelineSemaphore& semaphore, u64 targetValue, JobSystem::Counter* counter)
     {
         WaitJobData* data = new WaitJobData{ &semaphore, targetValue, counter };
-        
+
         // Standard dispatch. Execute increments the counter.
-        JobSystem::Execute(WaitJobFunction, data, counter);
+        JobSystem::Execute(WaitJobFunction, data, counter, "VkWait");
     }
 }
