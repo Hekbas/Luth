@@ -2,8 +2,9 @@
 
 #include "luth/scene/systems/ISystem.h"
 
-#include <vector>
 #include <memory>
+#include <typeinfo>
+#include <vector>
 
 namespace Luth
 {
@@ -19,14 +20,19 @@ namespace Luth
 
         template<typename T, typename... Args>
         static void AddSystem(Args&&... args) {
-            s_Systems.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
+            auto sys = std::make_unique<T>(std::forward<Args>(args)...);
+            T* raw = sys.get();
+            s_Slots.emplace_back(typeid(T).hash_code(), raw);
+            s_Systems.emplace_back(std::move(sys));
         }
 
+        // O(1) typed lookup — typeid hash keyed, no dynamic_cast.
         template<typename T>
         static T* GetSystem() {
-            for (auto& system : s_Systems) {
-                if (auto* found = dynamic_cast<T*>(system.get()))
-                    return found;
+            const size_t h = typeid(T).hash_code();
+            for (size_t i = 0; i < s_Slots.size(); ++i) {
+                if (s_Slots[i].first == h)
+                    return static_cast<T*>(s_Slots[i].second);
             }
             return nullptr;
         }
@@ -43,6 +49,7 @@ namespace Luth
 
     private:
         static std::vector<std::unique_ptr<ISystem>> s_Systems;
+        static std::vector<std::pair<size_t, ISystem*>> s_Slots;
         static Scene* s_Scene;
     };
 }
