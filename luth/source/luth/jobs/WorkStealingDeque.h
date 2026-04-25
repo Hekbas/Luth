@@ -70,15 +70,14 @@ namespace Luth
 
                 if (top == bottom)
                 {
-                    // Last element — race with steal
-                    if (!m_Top.compare_exchange_strong(top, top + 1,
-                        std::memory_order_seq_cst, std::memory_order_relaxed))
-                    {
-                        // Lost race to a thief
-                        m_Bottom.store(top + 1, std::memory_order_relaxed);
-                        return false;
-                    }
-                    m_Bottom.store(top + 1, std::memory_order_relaxed);
+                    // Last element — race with a thief. compare_exchange_strong
+                    // overwrites `top` on failure, so capture the original for
+                    // the Chase-Lev bottom restore (Bottom = origTop + 1, both paths).
+                    const i64 origTop = top;
+                    const bool won = m_Top.compare_exchange_strong(top, top + 1,
+                        std::memory_order_seq_cst, std::memory_order_relaxed);
+                    m_Bottom.store(origTop + 1, std::memory_order_relaxed);
+                    if (!won) return false;
                 }
                 return true;
             }
