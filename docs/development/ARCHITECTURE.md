@@ -137,6 +137,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | Area | File | When to read |
 |------|------|--------------|
 | Fiber system (V1-V6 mitigations) | [`arch/fiber-system.md`](arch/fiber-system.md) | Working on jobs/core |
+| Memory (allocators, tracker, STL gap) | [`arch/memory.md`](arch/memory.md) | Working on allocators or memory budgets |
 | Rendering pipeline (descriptor sets, pass order) | [`arch/rendering-pipeline.md`](arch/rendering-pipeline.md) | Working on renderer |
 | Frame pipeline (triple-buffer model) | [`arch/frame-pipeline.md`](arch/frame-pipeline.md) | Working on frame pipeline |
 | Asset pipeline (importers, loading, caching) | [`arch/asset-pipeline.md`](arch/asset-pipeline.md) | Working on assets/resources |
