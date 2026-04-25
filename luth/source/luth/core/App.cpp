@@ -6,6 +6,7 @@
 #include "luth/events/Event.h"
 #include "luth/events/AppEvent.h"
 #include "luth/core/ProjectFile.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/core/Version.h"
 #include "luth/core/EditorHooks.h"
 #include "luth/resources/FileSystem.h"
@@ -272,6 +273,11 @@ namespace Luth
             SystemRegistry::Update<TransformSystem>();
             if (runGameSystems)
                 SystemRegistry::Update<AnimationSystem>();
+
+            // End-of-game-stage capture: ECS is coherent, snapshot is fresh.
+            // Backing memory lives in LogicMemory; consumers cut over in S3+.
+            CaptureSnapshot(*m_Scene, currentFrame.LogicMemory, currentFrame.Snapshot);
+
             SystemRegistry::Update<RenderingSystem>();
             SystemRegistry::Update<PickingSystem>();
 
