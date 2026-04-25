@@ -192,6 +192,7 @@ namespace Luth
             if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             {
                 FrameContext& gpuFrame = m_FrameData.GPU();
+                (void)gpuFrame;
             }
 
             // ── Step 3: Begin Vulkan Frame ──
@@ -202,7 +203,7 @@ namespace Luth
             currentFrame.Params.TotalTime = Time::GetTime();
             currentFrame.Params.FrameNumber = frameIndex;
 
-            // ── Step 4: Game Logic + Editor ──
+            // ── Step 4: Editor + Asset Update (must precede stage dispatch) ──
             if (auto* h = EditorHooks::Get()) h->BeginFrame();
             OnUpdate();
 
@@ -260,37 +261,60 @@ namespace Luth
 
             // Game systems tick only in Playing, Paused+Step, or Editing when
             // the preview toggle is on. Standalone runtime (no editor) always
-            // ticks them.
-            bool runGameSystems = !haveEditor;
-            if (haveEditor)
-            {
-                runGameSystems = (playState == PlayState::Playing)
-                              || (playState == PlayState::Paused && stepThisFrame)
-                              || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
-            }
+            // ticks them. Read by GameStageFn through m_RunGameSystems.
+            m_RunGameSystems = !haveEditor
+                || (playState == PlayState::Playing)
+                || (playState == PlayState::Paused && stepThisFrame)
+                || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
 
-            // Scene systems (RenderingSystem must present the swapchain)
-            SystemRegistry::Update<TransformSystem>();
-            if (runGameSystems)
-                SystemRegistry::Update<AnimationSystem>();
+            // ── Step 5: Game Stage (worker fiber, sync wait — S7 wiring) ──
+            // S8 will fire RenderStage of frame N-1 *before* this wait so the
+            // two stages overlap; for now they run sequentially via fibers,
+            // which validates the wiring without exposing concurrency hazards.
+            JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
+            JobSystem::WaitForCounter(&currentFrame.GameReady);
 
-            // End-of-game-stage capture: ECS is coherent, snapshot is fresh.
-            // Backing memory lives in LogicMemory; consumers cut over in S3+.
-            CaptureSnapshot(*m_Scene, currentFrame.LogicMemory, currentFrame.Snapshot);
+            // ── Step 6: Render Stage (worker fiber, sync wait — S7 wiring) ──
+            JobSystem::Execute(RenderStageFn, this, &currentFrame.RenderReady, "RenderStage");
+            JobSystem::WaitForCounter(&currentFrame.RenderReady);
 
-            SystemRegistry::Update<RenderingSystem>();
+            // ── Step 7: Mouse picking + Frame end (main thread) ──
+            // PickingSystem reads back the EntityID texture written by the
+            // render stage, so it must follow RenderReady. EndFrame is a
+            // no-op today (Submit + Present happens inside the render stage).
             SystemRegistry::Update<PickingSystem>();
-
-            // ── Step 5: End Frame (Submit + Present) ──
             Renderer::EndFrame();
 
-            // ── Step 6: Advance Frame ──
+            // ── Step 8: Advance Frame ──
             m_FrameData.Advance();
             JobSystem::ResetFrameStats();
         }
 
         OnShutdown();
         Close();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Stage entry points
+    // ────────────────────────────────────────────────────────────────────
+
+    void App::GameStageFn(JobSystem::JobArgs args)
+    {
+        auto* app = static_cast<App*>(args.data);
+
+        SystemRegistry::Update<TransformSystem>();
+        if (app->m_RunGameSystems)
+            SystemRegistry::Update<AnimationSystem>();
+
+        // End-of-game-stage capture: ECS is coherent, snapshot is fresh.
+        FrameContext& cf = Renderer::GetFrameData()->Current();
+        CaptureSnapshot(*app->m_Scene, cf.LogicMemory, cf.Snapshot);
+    }
+
+    void App::RenderStageFn(JobSystem::JobArgs args)
+    {
+        (void)args;  // App* unused for now; S8 will read m_FrameData via it
+        SystemRegistry::Update<RenderingSystem>();
     }
 
     // ================================================================
