@@ -13,8 +13,15 @@
     #define LH_PROFILE_ALLOC(ptr, size)     TracyAlloc(ptr, size)
     #define LH_PROFILE_FREE(ptr)            TracyFree(ptr)
     #define LH_PROFILE_THREAD(name)         tracy::SetThreadName(name)
-    #define LH_PROFILE_FIBER_ENTER(name)    TracyFiberEnter(name)
-    #define LH_PROFILE_FIBER_LEAVE          TracyFiberLeave
+
+    // No-op when TRACY_FIBERS is not defined, so call sites stay clean.
+    #if defined(TRACY_FIBERS)
+        #define LH_PROFILE_FIBER_ENTER(name)    TracyFiberEnter(name)
+        #define LH_PROFILE_FIBER_LEAVE          TracyFiberLeave
+    #else
+        #define LH_PROFILE_FIBER_ENTER(name)    ((void)0)
+        #define LH_PROFILE_FIBER_LEAVE          ((void)0)
+    #endif
 #else
     #define LH_PROFILE_FRAME(name)
     #define LH_PROFILE_FUNCTION()
