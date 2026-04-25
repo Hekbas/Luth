@@ -1,9 +1,10 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/jobs/AtomicCounter.h"
 #include "luth/jobs/SpinLock.h"
-#include "luth/memory/LinearAllocator.h" 
+#include "luth/memory/LinearAllocator.h"
 #include <vector>
 #include <array>
 #include <vulkan/vulkan.h>
@@ -62,8 +63,13 @@ namespace Luth
         bool UsingOverflow = false;
 
         // Secondary command buffers collected from parallel recording
-        std::vector<VkCommandBuffer> CommandBuffers; 
+        std::vector<VkCommandBuffer> CommandBuffers;
         SpinLock CommandBufferLock; // Replaces std::mutex (V1 compliant)
+
+        // ---- Render Snapshot ----
+        // Captured at end of game stage (Game N), read by render stage of frame N+1 (Render N-1
+        // from N+1's perspective). Spans into LogicMemory; reset alongside it. See RenderSnapshot.h.
+        RenderSnapshot Snapshot;
 
         void AddCommandBuffer(VkCommandBuffer cmd)
         {
@@ -88,9 +94,13 @@ namespace Luth
             GpuFinished = false;
             UsingOverflow = false;
 
+            // Snapshot spans point into LogicMemory; clear them BEFORE resetting the allocator
+            // so we never carry dangling pointers across frames.
+            Snapshot.Clear();
+
             LogicMemory.Reset();
             RenderMemory.Reset();
-            
+
             {
                 SpinLockGuard lock(CommandBufferLock);
                 CommandBuffers.clear();
