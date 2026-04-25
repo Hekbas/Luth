@@ -1,7 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/scene/Components.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
@@ -18,7 +18,6 @@
 
 namespace Luth
 {
-    using namespace Component;
 
     void RenderPipeline::InitObjectSSBODescriptorLayout()
     {
@@ -171,7 +170,7 @@ namespace Luth
         return slot;
     }
 
-    void RenderPipeline::BuildGPUObjectBuffer(entt::registry& registry)
+    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
     {
         auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
         auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
@@ -183,65 +182,40 @@ namespace Luth
         m_EntityLookup.push_back(entt::null);
         m_EntityToSSBOIndex.clear();
 
-        auto view = registry.view<WorldTransform, MeshRenderer>();
-        for (auto [entity, wt, mr] : view.each())
+        for (const MeshDrawSnapshot& meshSnap : snapshot.meshes)
         {
             if (count >= RenderPipeline::k_MaxGPUObjects) break;
-            if (!mr.ModelUUID.IsValid()) continue;
 
-            auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
+            // Snapshot already filtered out invalid model + OOB mesh index, but
+            // GetMesh + GetIndexBuffer still need the model lookup for AABB and IB.
+            auto model = AssetManager::GetAsset<Model>(meshSnap.modelUUID);
             if (!model) continue;
             const auto& meshesData = model->GetMeshesData();
-            if (mr.MeshIndex >= (u32)meshesData.size()) continue;
-            auto mesh = model->GetMesh(mr.MeshIndex);
+            auto mesh = model->GetMesh(meshSnap.meshIndex);
             if (!mesh) continue;
 
             GPUObjectData& obj = objectData[count];
-            obj.model = wt.Matrix;
+            obj.model = meshSnap.worldMatrix;
 
             // Bounding sphere from BindPoseAABB (local space)
-            const auto& aabb   = meshesData[mr.MeshIndex].BindPoseAABB;
+            const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
             obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
 
             // Material slot
             u32 matSlot = 0;
-            if (mr.MaterialUUID.IsValid()) {
-                auto it = m_MaterialSlotMap.find(mr.MaterialUUID);
+            if (meshSnap.materialUUID.IsValid()) {
+                auto it = m_MaterialSlotMap.find(meshSnap.materialUUID);
                 if (it != m_MaterialSlotMap.end()) matSlot = it->second;
             }
             obj.materialIndex = matSlot;
             obj.shadeMode     = static_cast<u32>(m_System.m_ShadeMode);
             // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
             obj.entityID      = (u32)m_EntityLookup.size();  // assigned before push_back
-            obj.boneOffset    = 0;
+            obj.boneOffset    = meshSnap.boneOffset;          // baked in CaptureSnapshot
 
+            entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
             m_EntityLookup.push_back(entity);      // m_EntityLookup[count + 1] = entity
             m_EntityToSSBOIndex[entity] = count;   // entity → 0-based SSBO index
-
-            // Skinned mesh: get bone offset from Animation on this entity OR
-            // its parent (mesh entities are usually children; Animation lives
-            // on the parent). Matches the lookup in DrawListBuilder — without
-            // the parent fallback, child meshes read boneOffset=0 and render
-            // a frozen pose (only happens to look right when slot 0 is the
-            // parent's allocation, which breaks on entity recreate/reload).
-            if (meshesData[mr.MeshIndex].IsSkinned)
-            {
-                entt::entity animEntity = entt::null;
-                if (registry.all_of<Animation>(entity))
-                    animEntity = entity;
-                else if (registry.all_of<Parent>(entity))
-                {
-                    auto parentEnt = (entt::entity)registry.get<Parent>(entity).Value;
-                    if (registry.valid(parentEnt) && registry.all_of<Animation>(parentEnt))
-                        animEntity = parentEnt;
-                }
-                if (animEntity != entt::null)
-                {
-                    auto& anim = registry.get<Animation>(animEntity);
-                    if (anim.BufferAllocated)
-                        obj.boneOffset = anim.BoneBufferOffset;
-                }
-            }
 
             auto* ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer()).get();
             obj.indexCount   = ib ? ib->GetCount() : 0;

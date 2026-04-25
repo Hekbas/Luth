@@ -178,13 +178,18 @@ namespace Luth
         // Upload dirty materials
         MaterialSystem::Update(VK_NULL_HANDLE);
 
-        // Build GPU object buffer (after materials are registered)
-        m_Pipeline->BuildGPUObjectBuffer(registry);
+        // RenderSnapshot was captured at end of game stage (App::Run); both
+        // BuildGPUObjectBuffer and DrawListBuilder consume it instead of the
+        // registry. boneOffset for skinned meshes is pre-baked.
+        const RenderSnapshot& snapshot = Renderer::GetFrameData()->Current().Snapshot;
 
-        // Partition entities into opaque/cutout/transparent draw buckets.
+        // Build GPU object buffer (after materials are registered)
+        m_Pipeline->BuildGPUObjectBuffer(snapshot);
+
+        // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
         // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
         // reference the freshly populated indirect buffer.
-        m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
+        m_DrawListBuilder.Build(snapshot, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
         // Primary view — always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;

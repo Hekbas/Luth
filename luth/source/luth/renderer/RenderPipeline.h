@@ -31,6 +31,7 @@ namespace Luth
     class FrameDebuggerContext;
     struct GeometryOutput;
     struct SelectionMaskOutput;
+    struct RenderSnapshot;
     namespace fs = std::filesystem;
 
     // Per-view input to RenderPipeline::Execute. One RenderView per visible
@@ -159,7 +160,7 @@ namespace Luth
         void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
-        void BuildGPUObjectBuffer(entt::registry& registry);
+        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
