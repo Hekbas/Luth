@@ -229,7 +229,7 @@ namespace Luth
         // Cascade fit is camera-dependent so this refits per view
         // (~1 ms GPU with game panel open; frustum-union fit is backlog).
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-        lighting->UpdateFor(registry, view.camera);
+        lighting->UpdateFor(Renderer::GetFrameData()->Current().Snapshot, view.camera);
 
         // Must precede the per-view UBO writes below — they read
         // m_CurrentViewResources, which PrepareForTargets sets.

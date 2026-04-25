@@ -6,10 +6,10 @@
 #include "luth/renderer/lighting/LightGatherer.h"
 #include "luth/renderer/lighting/LightTypes.h"
 
-#include <entt/entt.hpp>
-
 namespace Luth
 {
+    struct RenderSnapshot;
+
     // CPU-side per-frame light gathering + directional-light CSM cascade fit.
     // Outputs feed RenderPipeline's global UBO, shadow-cascade frustum cull,
     // and the frame debugger capturedFrame snapshot.
@@ -22,7 +22,7 @@ namespace Luth
     public:
         void Update(Scene* scene) override {}
 
-        void UpdateFor(entt::registry& registry, const CameraParams& camera);
+        void UpdateFor(const RenderSnapshot& snapshot, const CameraParams& camera);
 
         const LightUniforms&                GetLights()       const { return m_Lights; }
         const CascadeData&                  GetCascades()     const { return m_Cascades; }
