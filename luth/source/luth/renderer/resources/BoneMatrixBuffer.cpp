@@ -3,6 +3,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/JobSystem.h"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -57,6 +58,12 @@ namespace Luth
 
     u32 BoneMatrixBuffer::AllocateBlock()
     {
+        // S9 stage isolation: the bone-block free list is mutated only on the
+        // game stage so the GPU buffer slot a render-stage draw references
+        // (via the snapshot's pre-resolved boneOffset) doesn't shift under it.
+        // Mutex is retained (D6) — the assert documents+enforces the contract.
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::AllocateBlock must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         if (m_FreeBlocks.empty())
@@ -73,6 +80,8 @@ namespace Luth
 
     void BoneMatrixBuffer::FreeBlock(u32 baseIndex)
     {
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::FreeBlock must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         u32 blockIndex = baseIndex / BONES_PER_ENTITY;
@@ -83,6 +92,10 @@ namespace Luth
 
     void BoneMatrixBuffer::UploadBones(u32 baseIndex, const Mat4* matrices, u32 count)
     {
+        // Called from EvaluateAnimJob (sub-job of AnimationSystem::Update);
+        // its StageTag inherits Game from the game-stage parent fiber.
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::UploadBones must run on the game stage");
         if (!m_MappedData) return;
         if (baseIndex + count > TOTAL_MATRICES) return;
 

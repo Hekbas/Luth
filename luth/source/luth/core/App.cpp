@@ -331,6 +331,11 @@ namespace Luth
 
     void App::GameStageFn(JobSystem::JobArgs args)
     {
+        // S9: tag fiber + sub-jobs as Game stage. Stage-isolated subsystems
+        // (MaterialSystem, BoneMatrixBuffer) assert this; AnimationSystem's
+        // EvaluateAnimJob and CaptureSnapshot's MaterialSystem::Update inherit.
+        JobSystem::SetCurrentStage(JobSystem::Stage::Game);
+
         auto* app = static_cast<App*>(args.data);
 
         SystemRegistry::Update<TransformSystem>();
@@ -344,7 +349,12 @@ namespace Luth
 
     void App::RenderStageFn(JobSystem::JobArgs args)
     {
-        (void)args;  // App* unused for now; S8 will read m_FrameData via it
+        // S9: tag fiber + sub-jobs as Render stage. Per-pass RGPassRecord
+        // sub-jobs inherit, so any cross-stage mutation from inside a pass
+        // execute lambda trips the assert at the call site.
+        JobSystem::SetCurrentStage(JobSystem::Stage::Render);
+
+        (void)args;
         SystemRegistry::Update<RenderingSystem>();
     }
 

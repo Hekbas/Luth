@@ -43,6 +43,10 @@ namespace Luth::JobSystem
         u32 JobIndex = 0;
         u32 GroupIndex = 0;
         const char* Name = "Job"; // Tracy zone label — set at dispatch, used in FiberEntryPoint
+        // S9: stage tag inherited from the dispatching fiber. Captured by
+        // Execute/Dispatch from GetCurrentJobContext() at the dispatch site;
+        // applied to the fiber's JobContext by FiberEntryPoint at start.
+        Stage StageTag = Stage::Main;
     };
 
     // ── Fiber Local Storage (FLS) — replaces thread_local ──
@@ -278,6 +282,10 @@ namespace Luth::JobSystem
         ctx->FiberID = (u32)(self - s_Data.FiberPool);
         ctx->IsRecording = false;
         ctx->InlineDepth = 0;
+        // S9: inherit stage from the dispatching parent fiber (or Main if
+        // dispatched from main thread). GameStageFn / RenderStageFn override
+        // via SetCurrentStage as their first action.
+        ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
         SetCurrentContext(ctx);
 
         // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.
@@ -579,6 +587,12 @@ namespace Luth::JobSystem
     {
         if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
+        // S9: capture parent stage for inheritance. Main-thread dispatches
+        // (no JobContext via FLS) tag jobs as Main; the stage entry fns then
+        // call SetCurrentStage at fiber entry to override to Game/Render.
+        JobContext* parentCtx = GetCurrentJobContext();
+        Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
+
         Job job;
         job.Function = function;
         job.Data = data;
@@ -586,6 +600,7 @@ namespace Luth::JobSystem
         job.JobIndex = 0;
         job.GroupIndex = 0;
         job.Name = name;
+        job.StageTag = parentStage;
 
         if (priority == Priority::Normal && !t_IsMainThread)
         {
@@ -608,6 +623,10 @@ namespace Luth::JobSystem
         u32 groupCount = (jobCount + groupSize - 1) / groupSize;
         if (counter) counter->Value.fetch_add(groupCount << 1);
 
+        // S9: capture parent stage once for the whole batch.
+        JobContext* parentCtx = GetCurrentJobContext();
+        Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
+
         for (u32 i = 0; i < groupCount; ++i)
         {
             Job job;
@@ -617,6 +636,7 @@ namespace Luth::JobSystem
             job.JobIndex = i * groupSize;
             job.GroupIndex = i;
             job.Name = name;
+            job.StageTag = parentStage;
 
             if (priority == Priority::Normal && !t_IsMainThread)
             {
@@ -677,6 +697,14 @@ namespace Luth::JobSystem
                 if (found)
                 {
                     ctx->InlineDepth++;
+                    // S9: run inline job under its own stage tag, then restore.
+                    // Without save/restore, an inline job dispatched from main
+                    // (StageTag::Main) running on a Game fiber would (a) bypass
+                    // its own stage assertions and (b) corrupt the parent's
+                    // stage if it called SetCurrentStage internally. Cheap;
+                    // single load+store on a hot path.
+                    Stage savedStage = ctx->CurrentStage;
+                    ctx->CurrentStage = inlineJob.StageTag;
                     {
                         JobArgs jArgs{ inlineJob.JobIndex, inlineJob.GroupIndex, inlineJob.Data };
                         inlineJob.Function(jArgs);
@@ -684,6 +712,7 @@ namespace Luth::JobSystem
                         if (inlineJob.CounterPtr)
                             DecrementCounter(inlineJob.CounterPtr);
                     }
+                    ctx->CurrentStage = savedStage;
                     ctx->InlineDepth--;
                     continue; // Re-check our counter
                 }
@@ -795,5 +824,19 @@ namespace Luth::JobSystem
     void SetGlobalCommandPool(CommandAllocatorPool* pool)
     {
         s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
+    }
+
+    // ── S9: Stage tag accessors ──
+
+    Stage GetCurrentStage()
+    {
+        JobContext* ctx = GetCurrentJobContext();
+        return ctx ? ctx->CurrentStage : Stage::Main;
+    }
+
+    void SetCurrentStage(Stage stage)
+    {
+        JobContext* ctx = GetCurrentJobContext();
+        if (ctx) ctx->CurrentStage = stage;
     }
 }
