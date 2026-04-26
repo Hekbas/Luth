@@ -24,6 +24,7 @@
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/scene/systems/AnimationSystem.h"
+#include "luth/core/time/Timer.h"
 
 namespace Luth
 {
@@ -336,6 +337,9 @@ namespace Luth
         // EvaluateAnimJob and CaptureSnapshot's MaterialSystem::Update inherit.
         JobSystem::SetCurrentStage(JobSystem::Stage::Game);
 
+        // S10: time the stage body for ProfilerPanel readout.
+        Timer stageTimer;
+
         auto* app = static_cast<App*>(args.data);
 
         SystemRegistry::Update<TransformSystem>();
@@ -345,6 +349,8 @@ namespace Luth
         // End-of-game-stage capture: ECS is coherent, snapshot is fresh.
         FrameContext& cf = Renderer::GetFrameData()->Current();
         CaptureSnapshot(*app->m_Scene, cf.LogicMemory, cf.Snapshot);
+
+        JobSystem::RecordStageTime(JobSystem::Stage::Game, stageTimer.ElapsedMillis());
     }
 
     void App::RenderStageFn(JobSystem::JobArgs args)
@@ -354,8 +360,13 @@ namespace Luth
         // execute lambda trips the assert at the call site.
         JobSystem::SetCurrentStage(JobSystem::Stage::Render);
 
+        // S10: time the stage body for ProfilerPanel readout.
+        Timer stageTimer;
+
         (void)args;
         SystemRegistry::Update<RenderingSystem>();
+
+        JobSystem::RecordStageTime(JobSystem::Stage::Render, stageTimer.ElapsedMillis());
     }
 
     // ================================================================

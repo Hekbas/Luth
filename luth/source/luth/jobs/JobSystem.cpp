@@ -115,6 +115,13 @@ namespace Luth::JobSystem
         std::atomic<u32> FrameStealAttempts = 0;
         std::atomic<u32> FrameStealSuccesses = 0;
         std::atomic<u32> FrameFiberYields = 0;
+
+        // S10: per-stage CPU body time of the LAST completed frame.
+        // Sticky (not reset per frame) so ProfilerPanel always shows the
+        // most recent value even on iterations where a stage didn't run
+        // (e.g. game systems gated off in editor pause mode).
+        std::atomic<f32> LastGameStageMs = 0.0f;
+        std::atomic<f32> LastRenderStageMs = 0.0f;
     };
 
     static SchedulerData s_Data;
@@ -807,6 +814,9 @@ namespace Luth::JobSystem
         stats.FiberYields     = s_Data.FrameFiberYields.load(std::memory_order_relaxed);
         stats.ReadyFiberCount = s_Data.ReadyFiberCount;
 
+        stats.GameStageMs   = s_Data.LastGameStageMs.load(std::memory_order_relaxed);
+        stats.RenderStageMs = s_Data.LastRenderStageMs.load(std::memory_order_relaxed);
+
         return stats;
     }
 
@@ -838,5 +848,16 @@ namespace Luth::JobSystem
     {
         JobContext* ctx = GetCurrentJobContext();
         if (ctx) ctx->CurrentStage = stage;
+    }
+
+    // S10: stage timings for ProfilerPanel.
+    void RecordStageTime(Stage stage, f32 ms)
+    {
+        switch (stage)
+        {
+            case Stage::Game:   s_Data.LastGameStageMs.store(ms, std::memory_order_relaxed);   break;
+            case Stage::Render: s_Data.LastRenderStageMs.store(ms, std::memory_order_relaxed); break;
+            default: break;
+        }
     }
 }

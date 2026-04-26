@@ -89,6 +89,12 @@ namespace Luth::JobSystem
         u32 StealSuccesses;
         u32 FiberYields;
         u32 ReadyFiberCount;
+
+        // S10: per-stage CPU wall-time of the last completed frame.
+        // Game and render run concurrently in steady state so these
+        // can overlap — pure CPU body time, not main-thread wait time.
+        f32 GameStageMs;
+        f32 RenderStageMs;
     };
 
     // ── Job Context — Fiber Local Storage (carried per-fiber, accessed via GetCurrentJobContext, stored in Win32 FLS) ──
@@ -190,4 +196,10 @@ namespace Luth::JobSystem
     // GetCurrentStage on the main thread (no JobContext) returns Stage::Main.
     Stage GetCurrentStage();
     void  SetCurrentStage(Stage stage);
+
+    // S10: record CPU wall-time of a stage's outer fn body. Called by
+    // App's stage entry fns after their work completes. The most recent
+    // value is exposed via Stats.GameStageMs / RenderStageMs and read by
+    // ProfilerPanel for the per-stage frame-budget bars.
+    void RecordStageTime(Stage stage, f32 ms);
 }
