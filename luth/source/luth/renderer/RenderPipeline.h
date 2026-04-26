@@ -131,7 +131,7 @@ namespace Luth
         // all visible views share one submission per frame. Caches the
         // active RenderView + ViewResources on the pipeline for passes to
         // read without a per-pass parameter.
-        void Execute(entt::registry& registry, const RenderView& view, void* primaryCmd);
+        void Execute(const RenderView& view, void* primaryCmd);
 
         // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
         // when the camera hasn't moved — the LDR output still holds the last
@@ -214,12 +214,12 @@ namespace Luth
         // execute lambdas) and returns a handle to its primary output so
         // callers can chain the graph. All pass files live under
         // renderer/passes/ and used to be RenderingSystem methods.
-        RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle);
+        RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
         RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg, entt::registry& registry,
+        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
+        GeometryOutput AddGeometryPass(RG::RenderGraph& rg,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                         RG::BufferHandle indirectBufferHandle,
                                         RG::ResourceHandle sceneDepth,
@@ -227,7 +227,7 @@ namespace Luth
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
-        SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry);
+        SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg);
         RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);

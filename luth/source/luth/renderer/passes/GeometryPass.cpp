@@ -24,7 +24,7 @@ namespace Luth
     using namespace Component;
 
     GeometryOutput RenderPipeline::AddGeometryPass(
-        RG::RenderGraph& rg, entt::registry& registry,
+        RG::RenderGraph& rg,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle,
         RG::ResourceHandle sceneDepth,
@@ -103,7 +103,7 @@ namespace Luth
                 output.depth    = data.depthTex;
                 output.entityID = data.entityIDTex;
             },
-            [this, &registry](GeometryPassData& data, RG::RenderPassContext& ctx)
+            [this](GeometryPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 

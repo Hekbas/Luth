@@ -155,7 +155,7 @@ namespace Luth
     private:
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO
         // uploads) and record the subgraph into primaryCmd.
-        void RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd);
+        void RecordView(const RenderView& view, void* primaryCmd);
 
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;

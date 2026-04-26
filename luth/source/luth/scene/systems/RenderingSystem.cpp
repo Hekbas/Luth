@@ -95,7 +95,8 @@ namespace Luth
     void RenderingSystem::Update(Scene* scene)
     {
         LH_PROFILE_FUNCTION();
-        auto& registry = scene->Registry();
+        (void)scene; // Render stage no longer touches the registry directly;
+                     // RenderSnapshot carries everything the passes need.
 
         m_FrameAllocator->Reset();
 
@@ -180,10 +181,10 @@ namespace Luth
         void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
 
         for (const RenderView& v : m_QueuedViews)
-            RecordView(v, registry, primaryCmd);
+            RecordView(v, primaryCmd);
         m_QueuedViews.clear();
 
-        RecordView(sceneView, registry, primaryCmd);
+        RecordView(sceneView, primaryCmd);
 
         Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
     }
@@ -192,7 +193,7 @@ namespace Luth
     // Per-view record
     // =========================================================================
 
-    void RenderingSystem::RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd)
+    void RenderingSystem::RecordView(const RenderView& view, void* primaryCmd)
     {
         LH_PROFILE_FUNCTION();
 
@@ -213,7 +214,7 @@ namespace Luth
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
-        m_Pipeline->Execute(registry, view, primaryCmd);
+        m_Pipeline->Execute(view, primaryCmd);
     }
 
     // =========================================================================

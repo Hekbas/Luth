@@ -35,7 +35,7 @@ namespace Luth
         }
     }
 
-    SelectionMaskOutput RenderPipeline::AddSelectionMaskPass(RG::RenderGraph& rg, entt::registry& registry)
+    SelectionMaskOutput RenderPipeline::AddSelectionMaskPass(RG::RenderGraph& rg)
     {
         struct SelectionMaskPassData {
             RG::ResourceHandle maskTex;
@@ -84,7 +84,7 @@ namespace Luth
                 output.mask  = data.maskTex;
                 output.depth = data.depthTex;
             },
-            [this, &registry](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
+            [this](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
             {
                 m_System.m_FrameDebugger.BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
                     { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });

@@ -27,7 +27,7 @@ namespace Luth
     // opaque depth written here wins). Reuses indirect region 0 (the camera
     // frustum cull region), same as GeometryPass's opaque draws.
     RG::ResourceHandle RenderPipeline::AddDepthPrepass(
-        RG::RenderGraph& rg, entt::registry& registry,
+        RG::RenderGraph& rg,
         RG::BufferHandle indirectBufferHandle)
     {
         struct DepthPrepassData {
@@ -61,7 +61,7 @@ namespace Luth
 
                 depthHandle = data.depthTex;
             },
-            [this, &registry](DepthPrepassData& data, RG::RenderPassContext& ctx)
+            [this](DepthPrepassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 

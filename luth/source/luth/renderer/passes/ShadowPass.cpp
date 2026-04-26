@@ -26,7 +26,7 @@ namespace Luth
     // =========================================================================
 
     RG::ResourceHandle RenderPipeline::AddShadowPass(
-        RG::RenderGraph& rg, entt::registry& registry, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex)
+        RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex)
     {
         struct ShadowPassData {
             RG::ResourceHandle shadowTex;
@@ -71,7 +71,7 @@ namespace Luth
 
                 shadowHandle = data.shadowTex;
             },
-            [this, &registry, passName, resName](ShadowPassData& data, RG::RenderPassContext& ctx)
+            [this, passName, resName](ShadowPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
