@@ -514,8 +514,21 @@ namespace Luth::RG
         std::vector<PassExecState> passStates(m_Passes.size());
 
         // ───────────────────────────────────────────────────────────────────
-        // Phase 1: parallel secondary cmd buffer recording
+        // Phase 1: secondary cmd buffer recording
         // ───────────────────────────────────────────────────────────────────
+        // Default mode is parallel — all RGPassRecord jobs against one
+        // counter, single WaitForCounter at end (1 yield/frame).
+        //
+        // SetSerialize(true) falls back to per-pass dispatch+wait
+        // (S7-shape, ~22 yields/frame) when pass lambdas touch shared
+        // mutable state. RenderPipeline sets it for every view when
+        // FrameDebugger is in CaptureRequested state — every pass lambda
+        // pushes into shared `capturedFrame.passes` / `drawCalls` vectors
+        // and parallel dispatch corrupts them. ArchiveSink alone is not
+        // sufficient: the sink is bound only to the primary view, but
+        // FrameDebugger state is checked unconditionally from every
+        // view's pass lambda.
+        const bool serializeDispatch = m_SerializeDispatch;
         JobSystem::Counter recordCounter;
 
         for (size_t i = 0; i < m_Passes.size(); ++i)
@@ -574,16 +587,27 @@ namespace Luth::RG
                 pass.execute(ctx);
             };
 
-            JobSystem::Execute([](JobSystem::JobArgs args) {
-                RenderPassJob* j = (RenderPassJob*)args.data;
-                RenderPassJob::Execute(j);
-            }, &state.job, &recordCounter, "RGPassRecord");
+            if (serializeDispatch)
+            {
+                JobSystem::Counter perPassCounter;
+                JobSystem::Execute([](JobSystem::JobArgs args) {
+                    RenderPassJob* j = (RenderPassJob*)args.data;
+                    RenderPassJob::Execute(j);
+                }, &state.job, &perPassCounter, "RGPassRecord");
+                JobSystem::WaitForCounter(&perPassCounter);
+            }
+            else
+            {
+                JobSystem::Execute([](JobSystem::JobArgs args) {
+                    RenderPassJob* j = (RenderPassJob*)args.data;
+                    RenderPassJob::Execute(j);
+                }, &state.job, &recordCounter, "RGPassRecord");
+            }
         }
 
-        // Single yield: render fiber blocks here once per frame regardless of
-        // pass count. WaitForCounter's release/acquire pair gives phase 2 the
-        // updated state.job.CommandBuffer values written by the worker fibers.
-        JobSystem::WaitForCounter(&recordCounter);
+        // Single yield for parallel mode; serial mode already waited per pass.
+        if (!serializeDispatch)
+            JobSystem::WaitForCounter(&recordCounter);
 
         // ───────────────────────────────────────────────────────────────────
         // Phase 2: serial primary cmd buffer emission (pass order)
