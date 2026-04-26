@@ -225,6 +225,17 @@ namespace Luth
         // Guard against unsigned underflow from negative float→u32 casts at startup
         if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
+            // FrameTargets::Resize replaces every scene texture's shared_ptr;
+            // the old VkImageViews go through the deferred-delete queue but
+            // any in-flight cmd buffer still binds them. Release the cached
+            // ViewResources entry too — its descriptor sets reference the
+            // about-to-be-destroyed views, and EnsureViewResources's
+            // size-keyed cache otherwise misses pure-content swaps. Drain
+            // the GPU so the destroy-pool path runs on a quiescent device.
+            // Resize is rare (panel layout change), so the stall is fine.
+            Renderer::WaitForGPU();
+            m_Pipeline->ReleaseViewResources(m_SceneTargets);
+
             m_SceneTargets.Resize(width, height);
             m_Pipeline->OnResize(width, height);
         }

@@ -21,6 +21,16 @@ namespace Luth
         , m_Viewport(std::make_unique<ViewportRenderer>())
     {
         m_Viewport->SetOnResize([this](u32 w, u32 h) {
+            // Mirror RenderingSystem::Resize's contract for the editor's
+            // game panel: drain the GPU and release the cached ViewResources
+            // entry before swapping the FrameTargets textures. Without the
+            // Release, EnsureViewResources's size-keyed cache can leave
+            // descriptor sets pointing at views the deletion queue is about
+            // to destroy (project A → B → A → load-scene path produced an
+            // exact reproducer for this).
+            Renderer::WaitForGPU();
+            m_RenderingSystem->GetPipeline().ReleaseViewResources(m_Targets);
+
             if (!m_TargetsAllocated) {
                 m_Targets.Allocate(w, h);
                 m_TargetsAllocated = true;

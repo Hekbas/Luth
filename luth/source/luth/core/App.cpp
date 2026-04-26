@@ -410,6 +410,13 @@ namespace Luth
         // If switching away from an existing project, clean up first
         if (m_ProjectLoaded)
         {
+            // Drain GPU before tearing down asset/scene state so pending cmd
+            // buffers can't reference textures / descriptor views about to be
+            // destroyed by Scene::Clear / AssetDatabase::UnloadProject. Cheap
+            // (rare event) and prevents the descriptor-cascade we hit on
+            // project-A → project-B → project-A → load-scene.
+            Renderer::WaitForGPU();
+
             if (auto* h = EditorHooks::Get()) h->SaveSettings();
             PipelineCache::SaveToProject();
             if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
