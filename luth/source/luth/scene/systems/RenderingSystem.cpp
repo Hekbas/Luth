@@ -151,7 +151,9 @@ namespace Luth
         // RenderSnapshot was captured at end of game stage (App::Run), where
         // material registration + MaterialSystem::Update also ran. Render
         // stage just consumes — no registry walks, no slot mutations.
-        const RenderSnapshot& snapshot = Renderer::GetFrameData()->Current().Snapshot;
+        // RenderFrame() targets Current() during sync warm-up (frames 0/1) and
+        // Previous() during steady state (frame ≥2, runs concurrent with Game N).
+        const RenderSnapshot& snapshot = Renderer::GetFrameData()->RenderFrame().Snapshot;
         m_ActiveSnapshot = &snapshot;  // Passes read tags etc. via this pointer.
 
         // Build GPU object buffer (after materials are registered)
@@ -200,7 +202,7 @@ namespace Luth
         // Cascade fit is camera-dependent so this refits per view
         // (~1 ms GPU with game panel open; frustum-union fit is backlog).
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-        lighting->UpdateFor(Renderer::GetFrameData()->Current().Snapshot, view.camera);
+        lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera);
 
         // Must precede the per-view UBO writes below — they read
         // m_CurrentViewResources, which PrepareForTargets sets.

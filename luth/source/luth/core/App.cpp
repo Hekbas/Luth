@@ -267,25 +267,56 @@ namespace Luth
                 || (playState == PlayState::Paused && stepThisFrame)
                 || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
 
-            // ── Step 5: Game Stage (worker fiber, sync wait — S7 wiring) ──
-            // S8 will fire RenderStage of frame N-1 *before* this wait so the
-            // two stages overlap; for now they run sequentially via fibers,
-            // which validates the wiring without exposing concurrency hazards.
+            // ── Step 5: Stage Dispatch — pipelined Game(N) | Render(N-1) ──
+            // Steady (N >= 2): Render of Previous() dispatched *before* the
+            // GameReady wait, so Game(N) and Render(N-1) run concurrently on
+            // separate worker fibers. This is the parallelism that v2.8.4
+            // delivers; comment block above is now accurate.
+            //
+            // Sync warm-up (N < 2): pipeline is cold — no Previous() yet at
+            // N=0, and we want the first visible frame to show fresh data
+            // rather than 1-frame-stale Previous. So Render targets Current()
+            // and waits inline. Steady kicks in from N=2 onward.
+            //
+            // Spec D5 nominally has frame 0 *skip render entirely*; we keep
+            // it as a sync render instead because skipping submit at iter 0
+            // breaks Vulkan timeline + imageAvailable-semaphore math, which
+            // would require backend-side init tweaks beyond App.cpp's scope
+            // for this sub-task. End state (steady from N=2) is identical.
+            const bool isSteady = (frameIndex >= 2);
+
             JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
+
+            FrameContext* renderFrame = nullptr;
+            if (isSteady)
+            {
+                renderFrame = &m_FrameData.Previous();
+                m_FrameData.SetRenderFrameIndex(frameIndex - 1);
+                JobSystem::Execute(RenderStageFn, this, &renderFrame->RenderReady, "RenderStage");
+            }
+
             JobSystem::WaitForCounter(&currentFrame.GameReady);
 
-            // ── Step 6: Render Stage (worker fiber, sync wait — S7 wiring) ──
-            JobSystem::Execute(RenderStageFn, this, &currentFrame.RenderReady, "RenderStage");
-            JobSystem::WaitForCounter(&currentFrame.RenderReady);
+            if (isSteady)
+            {
+                JobSystem::WaitForCounter(&renderFrame->RenderReady);
+            }
+            else
+            {
+                renderFrame = &currentFrame;
+                m_FrameData.SetRenderFrameIndex(frameIndex);
+                JobSystem::Execute(RenderStageFn, this, &renderFrame->RenderReady, "RenderStage");
+                JobSystem::WaitForCounter(&renderFrame->RenderReady);
+            }
 
-            // ── Step 7: Mouse picking + Frame end (main thread) ──
+            // ── Step 6: Mouse picking + Frame end (main thread) ──
             // PickingSystem reads back the EntityID texture written by the
             // render stage, so it must follow RenderReady. EndFrame is a
             // no-op today (Submit + Present happens inside the render stage).
             SystemRegistry::Update<PickingSystem>();
             Renderer::EndFrame();
 
-            // ── Step 8: Advance Frame ──
+            // ── Step 7: Advance Frame ──
             m_FrameData.Advance();
             JobSystem::ResetFrameStats();
         }
