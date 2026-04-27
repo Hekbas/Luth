@@ -84,19 +84,21 @@ Instead of dedicated OS threads per task ("Render Thread", "Audio Thread"), Luth
 * **Synchronization:** **SpinLocks** (test-and-set + `_mm_pause()`) and **Atomic Counters** keep critical sections short, never blocks the OS.
 
 ### 2. Pipelined Frame Execution
-Three stages run in parallel. At any frame `T`, the engine is processing three frames at once:
+Three stages overlap. At any frame `T`, the engine is processing three frames at once:
 
 ```
 time ──►   frame N          frame N-1        frame N-2
           ┌────────┐      ┌───────────┐     ┌─────────┐
    CPU →  │  Game  │  →   │  Render   │  →  │   GPU   │
           │  logic │      │ recording │     │ execute │
-          └────────┘      └───────────┘     └─────────┘                                     
+          └────────┘      └───────────┘     └─────────┘
 ```
 
-1. **Game (N):** Physics, AI, transform updates.
-2. **Render (N-1):** Read last frame's results, record Vulkan command buffers in parallel.
-3. **GPU (N-2):** Execute the commands submitted previously.
+1. **Game (N):** Transform / animation updates, then captures a `RenderSnapshot` POD into the frame's `LogicMemory` arena — the immutable handoff to the next stage.
+2. **Render (N-1):** Reads frame N-1's snapshot, builds the render graph, dispatches per-pass secondary cmd buffer recording in parallel, submits.
+3. **GPU (N-2):** Executes the commands submitted previously.
+
+Game and render run concurrently on worker fibers from frame 2 onward (frames 0/1 are a sync warm-up against the current frame). The frame boundary is the snapshot, not shared mutable state — Game writes to one `FrameContext` slot, Render reads from another. Stage-isolated subsystems that retain mutexes (`MaterialSystem`, `BoneMatrixBuffer`) `assert` they're only mutated from the game stage.
 
 ### 3. Memory Strategy
 `new` / `delete` are forbidden in the hot path. Two allocators handle everything that churns:

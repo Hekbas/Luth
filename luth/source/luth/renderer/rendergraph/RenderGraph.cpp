@@ -462,18 +462,32 @@ namespace Luth::RG
     }
 
     // ===================================================================================
-    // Execute — Serial pass loop, parallel inner recording
+    // Execute — Two-phase: parallel secondary recording, serial primary emission
     // ===================================================================================
     //
-    // For each non-culled pass:
-    //   1. Batch all pre-barriers into a single vkCmdPipelineBarrier2
-    //   2. Build RenderPassInfo (Dynamic Rendering)
-    //   3. Dispatch recording as RenderPassJob (records into secondary cmd buffer)
-    //   4. WaitForCounter (may inline-execute per V5)
-    //   5. BeginRendering + ExecuteCommands + EndRendering on primary cmd
+    // Phase 1: dispatch one RenderPassJob per graphics pass against a single
+    //          counter; render fiber yields once per frame regardless of pass
+    //          count. SetSerialize(true) falls back to per-pass dispatch+wait
+    //          when pass lambdas touch shared state (FrameDebugger capture).
+    // Phase 2: emit primary cmd buffer in pass order — batched barriers,
+    //          compute exec inline / graphics BeginRendering + ExecuteCommands
+    //          + EndRendering. Barrier order and pass-order semantics preserved.
     //
-    // This ensures barriers are correct (serial ordering) while recording
-    // is parallelized (worker threads record secondary buffers).
+    // Compute passes bypass phase 1 (would serialize on primary anyway).
+
+    namespace {
+        struct PassExecState
+        {
+            // Phase-1 attachments info has to outlive the WaitForCounter so
+            // phase 2 can read it; can't be stack-local to the build loop.
+            static constexpr u32 k_MaxColorAtt = 8;
+            AttachmentInfo colorAttachmentsBuf[k_MaxColorAtt];
+            u32 colorAttachmentCount = 0;
+            AttachmentInfo depthInfo{};
+            bool hasDepth = false;
+            RenderPassJob job{}; // Graphics only; CommandBuffer set by phase 1.
+        };
+    }
 
     void RenderGraph::Execute(VkCommandBuffer primaryCmd, Luth::GPUTimerPool* timers)
     {
@@ -482,6 +496,93 @@ namespace Luth::RG
 
         if (timers) timers->ResetForFrame(primaryCmd);
 
+        // Indexed by m_Passes index; slots for culled / compute passes stay
+        // default-constructed and unused.
+        std::vector<PassExecState> passStates(m_Passes.size());
+
+        // ── Phase 1: secondary cmd buffer recording ──
+        const bool serializeDispatch = m_SerializeDispatch;
+        JobSystem::Counter recordCounter;
+
+        for (size_t i = 0; i < m_Passes.size(); ++i)
+        {
+            auto& pass = m_Passes[i];
+            if (pass.culled || pass.isCompute) continue;
+
+            PassExecState& state = passStates[i];
+
+            LH_CORE_ASSERT(pass.colorAttachments.size() <= PassExecState::k_MaxColorAtt,
+                "Too many color attachments!");
+            for (const auto& att : pass.colorAttachments)
+            {
+                ResourceNode& res = m_Resources[att.handle.index - 1];
+                AttachmentInfo& info = state.colorAttachmentsBuf[state.colorAttachmentCount++];
+                info = {};
+                info.ImageView  = res.view;
+                info.Format     = GetVkFormat(res.desc.format);
+                info.LoadOp     = att.loadOp;
+                info.StoreOp    = att.storeOp;
+                info.ClearValue = att.clearValue;
+                info.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+
+            if (pass.hasDepth)
+            {
+                ResourceNode& res = m_Resources[pass.depthAttachment.handle.index - 1];
+                state.depthInfo.ImageView  = res.view;
+                state.depthInfo.Format     = GetVkFormat(res.desc.format);
+                state.depthInfo.LoadOp     = pass.depthAttachment.loadOp;
+                state.depthInfo.StoreOp    = pass.depthAttachment.storeOp;
+                state.depthInfo.ClearValue = pass.depthAttachment.clearValue;
+                state.depthInfo.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                state.hasDepth = true;
+            }
+
+            state.job.ColorAttachments = { state.colorAttachmentsBuf, state.colorAttachmentCount };
+            if (state.hasDepth)
+            {
+                state.job.DepthAttachment = state.depthInfo;
+                state.job.HasDepth = true;
+            }
+
+            state.job.RecordFunction = [this, &pass](VkCommandBuffer cmd)
+            {
+                RenderPassContext ctx;
+                ctx.commandBuffer = cmd;
+                ctx.GetResource = [this](ResourceHandle h) -> void*
+                {
+                    return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
+                };
+                ctx.GetBuffer = [this](BufferHandle h) -> void*
+                {
+                    return (h.index > 0 && h.index <= m_Buffers.size()) ? &m_Buffers[h.index - 1] : nullptr;
+                };
+                pass.execute(ctx);
+            };
+
+            if (serializeDispatch)
+            {
+                JobSystem::Counter perPassCounter;
+                JobSystem::Execute([](JobSystem::JobArgs args) {
+                    RenderPassJob* j = (RenderPassJob*)args.data;
+                    RenderPassJob::Execute(j);
+                }, &state.job, &perPassCounter, "RGPassRecord");
+                JobSystem::WaitForCounter(&perPassCounter);
+            }
+            else
+            {
+                JobSystem::Execute([](JobSystem::JobArgs args) {
+                    RenderPassJob* j = (RenderPassJob*)args.data;
+                    RenderPassJob::Execute(j);
+                }, &state.job, &recordCounter, "RGPassRecord");
+            }
+        }
+
+        // Single yield for parallel mode; serial mode already waited per pass.
+        if (!serializeDispatch)
+            JobSystem::WaitForCounter(&recordCounter);
+
+        // ── Phase 2: primary cmd buffer emission (pass order) ──
         u32 timerPassIdx = 0;
 
         for (size_t i = 0; i < m_Passes.size(); ++i)
@@ -491,7 +592,7 @@ namespace Luth::RG
 
             LH_PROFILE_SCOPE_DYNAMIC(pass.name);
 
-            // ── Step 1: Batched Barriers (image + buffer, combined into one call) ──
+            // Batched pre-barriers (image + buffer combined into one call)
             static constexpr u32 k_MaxBarriers = 16;
             LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many image barriers per pass!");
             LH_CORE_ASSERT(pass.bufferPreBarriers.size() <= k_MaxBarriers, "Too many buffer barriers per pass!");
@@ -548,7 +649,7 @@ namespace Luth::RG
                 vkCmdPipelineBarrier2(primaryCmd, &dep);
             }
 
-            // ── Compute pass: execute directly on primary cmd (no secondary, no BeginRendering) ──
+            // Compute pass: inline on primary (bypasses phase 1)
             if (pass.isCompute)
             {
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, true);
@@ -567,87 +668,22 @@ namespace Luth::RG
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
-                // Archive hook (compute pass)
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
 
                 timerPassIdx++;
                 continue;
             }
 
-            // ── Graphics pass: secondary cmd buffer via RenderPassJob ──
-
-            // ── Step 2: Build RenderPassInfo ──
-            static constexpr u32 k_MaxColorAtt = 8;
-            AttachmentInfo colorAttachmentsBuf[k_MaxColorAtt];
-            u32 colorAttachmentCount = 0;
-            LH_CORE_ASSERT(pass.colorAttachments.size() <= k_MaxColorAtt, "Too many color attachments!");
-            for (const auto& att : pass.colorAttachments)
-            {
-                ResourceNode& res = m_Resources[att.handle.index - 1];
-                AttachmentInfo& info = colorAttachmentsBuf[colorAttachmentCount++];
-                info = {};
-                info.ImageView = res.view;
-                info.Format    = GetVkFormat(res.desc.format);
-                info.LoadOp    = att.loadOp;
-                info.StoreOp   = att.storeOp;
-                info.ClearValue = att.clearValue;
-                info.Layout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            }
-            std::span<AttachmentInfo> colorAttachments(colorAttachmentsBuf, colorAttachmentCount);
-
-            AttachmentInfo depthInfo{};
-            if (pass.hasDepth)
-            {
-                ResourceNode& res = m_Resources[pass.depthAttachment.handle.index - 1];
-                depthInfo.ImageView = res.view;
-                depthInfo.Format    = GetVkFormat(res.desc.format);
-                depthInfo.LoadOp    = pass.depthAttachment.loadOp;
-                depthInfo.StoreOp   = pass.depthAttachment.storeOp;
-                depthInfo.ClearValue = pass.depthAttachment.clearValue;
-                depthInfo.Layout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            }
-
-            // ── Step 3: Dispatch RenderPassJob ──
-            RenderPassJob job{};
-            job.ColorAttachments = { colorAttachments.data(), colorAttachments.size() };
-            if (pass.hasDepth)
-            {
-                job.DepthAttachment = depthInfo;
-                job.HasDepth = true;
-            }
-
-            job.RecordFunction = [this, &pass](VkCommandBuffer cmd)
-            {
-                RenderPassContext ctx;
-                ctx.commandBuffer = cmd;
-                ctx.GetResource = [this](ResourceHandle h) -> void*
-                {
-                    return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
-                };
-                ctx.GetBuffer = [this](BufferHandle h) -> void*
-                {
-                    return (h.index > 0 && h.index <= m_Buffers.size()) ? &m_Buffers[h.index - 1] : nullptr;
-                };
-                pass.execute(ctx);
-            };
-
-            JobSystem::Counter jobCounter;
-            JobSystem::Execute([](JobSystem::JobArgs args) {
-                RenderPassJob* j = (RenderPassJob*)args.data;
-                RenderPassJob::Execute(j);
-            }, &job, &jobCounter, "RGPassRecord");
-
-            JobSystem::WaitForCounter(&jobCounter);
-
-            // ── Step 4: Execute secondary into primary ──
-            if (job.CommandBuffer != VK_NULL_HANDLE)
+            // Graphics pass: execute the pre-recorded secondary into the primary
+            PassExecState& state = passStates[i];
+            if (state.job.CommandBuffer != VK_NULL_HANDLE)
             {
                 RenderPassInfo rpInfo{};
-                rpInfo.ColorAttachments = { colorAttachments.data(), colorAttachments.size() };
-                if (pass.hasDepth) rpInfo.DepthAttachment = &depthInfo;
+                rpInfo.ColorAttachments = { state.colorAttachmentsBuf, state.colorAttachmentCount };
+                if (state.hasDepth) rpInfo.DepthAttachment = &state.depthInfo;
                 rpInfo.Flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
 
-                if (!colorAttachments.empty())
+                if (state.colorAttachmentCount > 0)
                 {
                     ResourceHandle h = pass.colorAttachments[0].handle;
                     rpInfo.RenderArea = { {0, 0}, { m_Resources[h.index - 1].desc.width, m_Resources[h.index - 1].desc.height } };
@@ -661,12 +697,11 @@ namespace Luth::RG
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, true);
 
                 DynamicRendering::BeginRendering(primaryCmd, rpInfo);
-                vkCmdExecuteCommands(primaryCmd, 1, &job.CommandBuffer);
+                vkCmdExecuteCommands(primaryCmd, 1, &state.job.CommandBuffer);
                 DynamicRendering::EndRendering(primaryCmd);
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
-                // Archive hook (graphics pass)
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
             }
 

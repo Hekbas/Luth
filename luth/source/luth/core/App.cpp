@@ -6,6 +6,7 @@
 #include "luth/events/Event.h"
 #include "luth/events/AppEvent.h"
 #include "luth/core/ProjectFile.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/core/Version.h"
 #include "luth/core/EditorHooks.h"
 #include "luth/resources/FileSystem.h"
@@ -23,6 +24,7 @@
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/scene/systems/AnimationSystem.h"
+#include "luth/core/time/Timer.h"
 
 namespace Luth
 {
@@ -143,21 +145,19 @@ namespace Luth
     App::~App() {}
 
     // ===============================================================================
-    // Pipelined Engine Loop (V2: Main Thread Isolated)
+    // Pipelined Engine Loop — Game(N) | Render(N-1) | GPU(N-2)
     // ===============================================================================
-    // Structure (target):
-    //   1. glfwPollEvents()         — OS message pump (main-thread-only)
-    //   2. TryReclaimGPU(N-2)       — Non-blocking GPU completion check
-    //   3. KickGame(Frame[N])       — Dispatch game logic to workers
-    //   4. WaitForCounter(GameReady) — Main thread busy-spins (V2 isolated)
-    //   5. KickRender(Frame[N-1])   — Dispatch render recording to workers
-    //   6. WaitForCounter(RenderReady) — Wait for recording
-    //   7. Submit(Frame[N-1])       — Send command buffers to GPU
-    //   8. Present()                — Swapchain present (main-thread-only)
+    // Main thread is isolated (V2): pumps OS events, drives editor ImGui,
+    // dispatches the two stage fibers, and busy-spins on their counters
+    // (no work-stealing into main).
     //
-    // Phase 2 Implementation: Frame data flow is correct. Full job parallelism
-    // between Game(N) and Render(N-1) is wired structurally but runs sequentially
-    // within each frame until Phase 3 (Render Graph) enables proper parallel recording.
+    // Frames 0/1 run synchronously (game then render against Current()) to
+    // seed the pipeline. From frame 2 onward, Render of Previous() is
+    // dispatched before the GameReady wait, so Game(N) and Render(N-1)
+    // overlap on separate worker fibers. The frame boundary is the
+    // RenderSnapshot captured at end of game stage; render reads it from
+    // a different FrameContext slot, so the two stages never race on
+    // the same data.
 
     void App::Run()
     {
@@ -191,6 +191,7 @@ namespace Luth
             if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             {
                 FrameContext& gpuFrame = m_FrameData.GPU();
+                (void)gpuFrame;
             }
 
             // ── Step 3: Begin Vulkan Frame ──
@@ -201,7 +202,7 @@ namespace Luth
             currentFrame.Params.TotalTime = Time::GetTime();
             currentFrame.Params.FrameNumber = frameIndex;
 
-            // ── Step 4: Game Logic + Editor ──
+            // ── Step 4: Editor + Asset Update (must precede stage dispatch) ──
             if (auto* h = EditorHooks::Get()) h->BeginFrame();
             OnUpdate();
 
@@ -259,32 +260,93 @@ namespace Luth
 
             // Game systems tick only in Playing, Paused+Step, or Editing when
             // the preview toggle is on. Standalone runtime (no editor) always
-            // ticks them.
-            bool runGameSystems = !haveEditor;
-            if (haveEditor)
+            // ticks them. Read by GameStageFn through m_RunGameSystems.
+            m_RunGameSystems = !haveEditor
+                || (playState == PlayState::Playing)
+                || (playState == PlayState::Paused && stepThisFrame)
+                || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
+
+            // ── Step 5: Stage Dispatch — pipelined Game(N) | Render(N-1) ──
+            // Frames 0/1 sync-render Current() to seed the pipeline; from
+            // frame 2 on, Render(N-1) is dispatched before the GameReady
+            // wait so it overlaps with Game(N) on separate worker fibers.
+            const bool isSteady = (frameIndex >= 2);
+
+            JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
+
+            FrameContext* renderFrame = nullptr;
+            if (isSteady)
             {
-                runGameSystems = (playState == PlayState::Playing)
-                              || (playState == PlayState::Paused && stepThisFrame)
-                              || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
+                renderFrame = &m_FrameData.Previous();
+                m_FrameData.SetRenderFrameIndex(frameIndex - 1);
+                JobSystem::Execute(RenderStageFn, this, &renderFrame->RenderReady, "RenderStage");
             }
 
-            // Scene systems (RenderingSystem must present the swapchain)
-            SystemRegistry::Update<TransformSystem>();
-            if (runGameSystems)
-                SystemRegistry::Update<AnimationSystem>();
-            SystemRegistry::Update<RenderingSystem>();
-            SystemRegistry::Update<PickingSystem>();
+            JobSystem::WaitForCounter(&currentFrame.GameReady);
 
-            // ── Step 5: End Frame (Submit + Present) ──
+            if (isSteady)
+            {
+                JobSystem::WaitForCounter(&renderFrame->RenderReady);
+            }
+            else
+            {
+                renderFrame = &currentFrame;
+                m_FrameData.SetRenderFrameIndex(frameIndex);
+                JobSystem::Execute(RenderStageFn, this, &renderFrame->RenderReady, "RenderStage");
+                JobSystem::WaitForCounter(&renderFrame->RenderReady);
+            }
+
+            // ── Step 6: Mouse picking + Frame end (main thread) ──
+            // PickingSystem reads back the EntityID texture written by the
+            // render stage, so it must follow RenderReady. EndFrame is a
+            // no-op today (Submit + Present happens inside the render stage).
+            SystemRegistry::Update<PickingSystem>();
             Renderer::EndFrame();
 
-            // ── Step 6: Advance Frame ──
+            // ── Step 7: Advance Frame ──
             m_FrameData.Advance();
             JobSystem::ResetFrameStats();
         }
 
         OnShutdown();
         Close();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Stage entry points
+    // ────────────────────────────────────────────────────────────────────
+
+    void App::GameStageFn(JobSystem::JobArgs args)
+    {
+        // Stage tag propagates to sub-jobs dispatched from this fiber so
+        // stage-isolated subsystems (MaterialSystem, BoneMatrixBuffer) can
+        // assert their callers are on the right stage.
+        JobSystem::SetCurrentStage(JobSystem::Stage::Game);
+        Timer stageTimer;
+
+        auto* app = static_cast<App*>(args.data);
+
+        SystemRegistry::Update<TransformSystem>();
+        if (app->m_RunGameSystems)
+            SystemRegistry::Update<AnimationSystem>();
+
+        // CaptureSnapshot must run after all ECS mutations for the frame —
+        // it freezes the state Render(N-1) will read next iteration.
+        FrameContext& cf = Renderer::GetFrameData()->Current();
+        CaptureSnapshot(*app->m_Scene, cf.LogicMemory, cf.Snapshot);
+
+        JobSystem::RecordStageTime(JobSystem::Stage::Game, stageTimer.ElapsedMillis());
+    }
+
+    void App::RenderStageFn(JobSystem::JobArgs args)
+    {
+        JobSystem::SetCurrentStage(JobSystem::Stage::Render);
+        Timer stageTimer;
+
+        (void)args;
+        SystemRegistry::Update<RenderingSystem>();
+
+        JobSystem::RecordStageTime(JobSystem::Stage::Render, stageTimer.ElapsedMillis());
     }
 
     // ================================================================
@@ -339,6 +401,10 @@ namespace Luth
         // If switching away from an existing project, clean up first
         if (m_ProjectLoaded)
         {
+            // Drain GPU before tearing down asset / scene state — pending
+            // cmd buffers must not reference resources about to be destroyed.
+            Renderer::WaitForGPU();
+
             if (auto* h = EditorHooks::Get()) h->SaveSettings();
             PipelineCache::SaveToProject();
             if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())

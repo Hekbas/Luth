@@ -96,7 +96,8 @@ namespace Luth::JobSystem
             f.WaitTarget = 0;
 
             #ifdef _WIN32
-            f.Handle = CreateFiberEx(64 * 1024, stackSize, 0, (LPFIBER_START_ROUTINE)entry, args);
+            // FIBER_FLAG_FLOAT_SWITCH: preserve x87/MMX/XMM state across fiber switches.
+            f.Handle = CreateFiberEx(64 * 1024, stackSize, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)entry, args);
             if (!f.Handle)
             {
                 LH_CORE_CRITICAL("Failed to create fiber! Error: {0}", GetLastError());
@@ -150,13 +151,9 @@ namespace Luth::JobSystem
             f.WaitTarget = 0;
             #ifdef _WIN32
             if (IsThreadAFiber())
-            {
-                 f.Handle = GetCurrentFiber();
-            }
+                f.Handle = GetCurrentFiber();
             else
-            {
-                f.Handle = ::ConvertThreadToFiber(args);
-            }
+                f.Handle = ::ConvertThreadToFiberEx(args, FIBER_FLAG_FLOAT_SWITCH);
             #endif
             return f;
         }

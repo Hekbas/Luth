@@ -7,10 +7,11 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 
+#include <atomic>
+#include <cstdio>
+#include <emmintrin.h> // _mm_pause
 #include <thread>
 #include <vector>
-#include <atomic>
-#include <emmintrin.h> // _mm_pause
 
 #ifdef _WIN32
 #include <windows.h>   // Fibers, FLS, WaitOnAddress
@@ -28,6 +29,10 @@ namespace Luth::JobSystem
     static constexpr u32 LOCAL_DEQUE_SIZE   = 1024;
     static constexpr u32 MAX_INLINE_DEPTH   = 4;     // V5: depth-limited inline execution
 
+    // Stable pointer-identity names for TRACY_FIBERS instrumentation.
+    static char s_FiberNames[MAX_FIBERS][16];
+    static char s_SchedulerNames[MAX_WORKER_THREADS][16];
+
     // ── Internal Job Struct ──
 
     struct Job
@@ -37,7 +42,8 @@ namespace Luth::JobSystem
         Counter* CounterPtr = nullptr;
         u32 JobIndex = 0;
         u32 GroupIndex = 0;
-        const char* Name = "Job"; // Tracy zone label — set at dispatch, used in FiberEntryPoint
+        const char* Name = "Job"; // Tracy zone label
+        Stage StageTag = Stage::Main;
     };
 
     // ── Fiber Local Storage (FLS) — replaces thread_local ──
@@ -48,6 +54,9 @@ namespace Luth::JobSystem
     {
         FlsSetValue(s_FlsIndex, ctx);
     }
+
+    // Forward-declare; body needs s_Data which is defined below.
+    static const char* GetMyTracyName();
 
     // ── Per-Worker Data (indexed by thread ID, not per-fiber) ──
 
@@ -103,9 +112,25 @@ namespace Luth::JobSystem
         std::atomic<u32> FrameStealAttempts = 0;
         std::atomic<u32> FrameStealSuccesses = 0;
         std::atomic<u32> FrameFiberYields = 0;
+
+        // Sticky (not reset per frame) so ProfilerPanel still shows the
+        // last value on iterations where a stage was gated off.
+        std::atomic<f32> LastGameStageMs = 0.0f;
+        std::atomic<f32> LastRenderStageMs = 0.0f;
     };
 
     static SchedulerData s_Data;
+
+    static const char* GetMyTracyName()
+    {
+        JobContext* ctx = (JobContext*)FlsGetValue(s_FlsIndex);
+        if (!ctx) return "Unknown";
+        // Pool-fiber contexts live in FiberContexts[]; worker schedulers in WorkerData::Context.
+        JobContext* poolBase = &s_Data.FiberContexts[0];
+        if (ctx >= poolBase && ctx < poolBase + MAX_FIBERS)
+            return s_FiberNames[ctx - poolBase];
+        return s_SchedulerNames[ctx->ThreadIndex];
+    }
 
     // Priority: Running(3) > Stealing(2) > Idle(1) > Sleeping(0)
     static u8 WorkerStatePriority(WorkerState s)
@@ -259,9 +284,14 @@ namespace Luth::JobSystem
         ctx->FiberID = (u32)(self - s_Data.FiberPool);
         ctx->IsRecording = false;
         ctx->InlineDepth = 0;
+        ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
         SetCurrentContext(ctx);
 
-        // Execute the job
+        // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.
+        self->PinnedThreadIndex = t_WorkerIndex;
+
+        LH_PROFILE_FIBER_ENTER(s_FiberNames[ctx->FiberID]);
+
         if (jobPtr && jobPtr->Function)
         {
             LH_PROFILE_SCOPE_DYNAMIC_CSTR(jobPtr->Name);
@@ -269,17 +299,14 @@ namespace Luth::JobSystem
             JobArgs jArgs{ jobPtr->JobIndex, jobPtr->GroupIndex, jobPtr->Data };
             jobPtr->Function(jArgs);
 
-            // Decrement counter
             if (jobPtr->CounterPtr)
                 DecrementCounter(jobPtr->CounterPtr);
 
             s_Data.FrameJobsExecuted.fetch_add(1, std::memory_order_relaxed);
         }
 
-        // Mark finished
         self->IsFinished = true;
-
-        // Return to scheduler fiber
+        LH_PROFILE_FIBER_LEAVE;
         Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
     }
 
@@ -303,34 +330,45 @@ namespace Luth::JobSystem
         worker.Context.ThreadIndex = workerIndex;
         SetCurrentContext(&worker.Context);
 
+        LH_PROFILE_FIBER_ENTER(s_SchedulerNames[workerIndex]);
+
         while (s_Data.Running.load(std::memory_order_relaxed))
         {
-            // Priority 1: resume ready fibers
+            // Priority 1: resume ready fibers pinned to this worker.
+            // Yielded fibers may carry per-thread state (Tracy zones, etc.)
+            // that must end on the OS thread it began on. Sub-jobs never yield,
+            // so work-stealing still distributes them freely.
             Fiber* readyFiber = nullptr;
             {
                 SpinLockGuard lock(s_Data.ReadyFibersLock);
-                if (s_Data.ReadyFiberCount > 0)
+                for (u32 i = s_Data.ReadyFiberCount; i-- > 0; )
                 {
-                    readyFiber = s_Data.ReadyFibers[--s_Data.ReadyFiberCount];
+                    Fiber* candidate = s_Data.ReadyFibers[i];
+                    if (!candidate->IsPinned() || candidate->PinnedThreadIndex == workerIndex)
+                    {
+                        readyFiber = candidate;
+                        s_Data.ReadyFibers[i] = s_Data.ReadyFibers[--s_Data.ReadyFiberCount];
+                        break;
+                    }
                 }
             }
 
             if (readyFiber)
             {
                 SetWorkerState(workerIndex, WorkerState::Running);
-                // Swap FLS to the resumed fiber's context
                 JobContext* fiberCtx = GetFiberContext(readyFiber);
-                fiberCtx->ThreadIndex = workerIndex; // Update thread index (may have migrated)
+                fiberCtx->ThreadIndex = workerIndex;
                 SetCurrentContext(fiberCtx);
 
                 worker.CurrentFiber = readyFiber;
-                Fiber::SwitchTo(*readyFiber);
-                worker.CurrentFiber = &worker.SchedulerFiber;
 
-                // Restore scheduler context
+                LH_PROFILE_FIBER_LEAVE;
+                Fiber::SwitchTo(*readyFiber);
+                LH_PROFILE_FIBER_ENTER(s_SchedulerNames[workerIndex]);
+
+                worker.CurrentFiber = &worker.SchedulerFiber;
                 SetCurrentContext(&worker.Context);
 
-                // Cleanup if finished
                 if (readyFiber->IsFinished)
                     FreeFiber(readyFiber);
 
@@ -399,10 +437,12 @@ namespace Luth::JobSystem
                 SetCurrentContext(fiberCtx);
 
                 worker.CurrentFiber = fiber;
-                Fiber::SwitchTo(*fiber);
-                worker.CurrentFiber = &worker.SchedulerFiber;
 
-                // Restore scheduler context
+                LH_PROFILE_FIBER_LEAVE;
+                Fiber::SwitchTo(*fiber);
+                LH_PROFILE_FIBER_ENTER(s_SchedulerNames[workerIndex]);
+
+                worker.CurrentFiber = &worker.SchedulerFiber;
                 SetCurrentContext(&worker.Context);
 
                 if (fiber->IsFinished)
@@ -440,6 +480,8 @@ namespace Luth::JobSystem
             _mm_pause();
 #endif
         }
+
+        LH_PROFILE_FIBER_LEAVE;
     }
 
     // ── API Implementation ──
@@ -460,6 +502,12 @@ namespace Luth::JobSystem
         s_Data.ThreadCount = numThreads + 1; // +1 for main thread (index 0)
         s_Data.Running = true;
 
+        // Tracy fiber names — must be ready before any FiberEnter.
+        for (u32 i = 0; i < MAX_FIBERS; ++i)
+            std::snprintf(s_FiberNames[i], sizeof(s_FiberNames[i]), "Fiber_%u", i);
+        for (u32 i = 0; i < MAX_WORKER_THREADS; ++i)
+            std::snprintf(s_SchedulerNames[i], sizeof(s_SchedulerNames[i]), "Sched_%u", i);
+
         // Initialize Fiber Pool
         s_Data.FreeFiberCount = MAX_FIBERS;
         for (u32 i = 0; i < MAX_FIBERS; ++i)
@@ -477,6 +525,8 @@ namespace Luth::JobSystem
         s_Data.Workers[0].Context.ThreadIndex = 0;
         SetCurrentContext(&s_Data.Workers[0].Context);
 
+        LH_PROFILE_FIBER_ENTER(s_SchedulerNames[0]);
+
         // Spawn Worker Threads (index 1..N)
         for (u32 i = 1; i < s_Data.ThreadCount; ++i)
         {
@@ -489,6 +539,8 @@ namespace Luth::JobSystem
     void Shutdown()
     {
         s_Data.Running = false;
+
+        LH_PROFILE_FIBER_LEAVE;
 
         // Wake all sleeping workers
 #ifdef _WIN32
@@ -534,6 +586,11 @@ namespace Luth::JobSystem
     {
         if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
+        // Capture parent's stage for child inheritance. Main thread has no
+        // JobContext, so its dispatches default to Stage::Main.
+        JobContext* parentCtx = GetCurrentJobContext();
+        Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
+
         Job job;
         job.Function = function;
         job.Data = data;
@@ -541,6 +598,7 @@ namespace Luth::JobSystem
         job.JobIndex = 0;
         job.GroupIndex = 0;
         job.Name = name;
+        job.StageTag = parentStage;
 
         if (priority == Priority::Normal && !t_IsMainThread)
         {
@@ -563,6 +621,9 @@ namespace Luth::JobSystem
         u32 groupCount = (jobCount + groupSize - 1) / groupSize;
         if (counter) counter->Value.fetch_add(groupCount << 1);
 
+        JobContext* parentCtx = GetCurrentJobContext();
+        Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
+
         for (u32 i = 0; i < groupCount; ++i)
         {
             Job job;
@@ -572,6 +633,7 @@ namespace Luth::JobSystem
             job.JobIndex = i * groupSize;
             job.GroupIndex = i;
             job.Name = name;
+            job.StageTag = parentStage;
 
             if (priority == Priority::Normal && !t_IsMainThread)
             {
@@ -632,6 +694,11 @@ namespace Luth::JobSystem
                 if (found)
                 {
                     ctx->InlineDepth++;
+                    // Run inline job under its own stage tag so its
+                    // assertions fire correctly and SetCurrentStage calls
+                    // inside don't leak into the calling fiber.
+                    Stage savedStage = ctx->CurrentStage;
+                    ctx->CurrentStage = inlineJob.StageTag;
                     {
                         JobArgs jArgs{ inlineJob.JobIndex, inlineJob.GroupIndex, inlineJob.Data };
                         inlineJob.Function(jArgs);
@@ -639,6 +706,7 @@ namespace Luth::JobSystem
                         if (inlineJob.CounterPtr)
                             DecrementCounter(inlineJob.CounterPtr);
                     }
+                    ctx->CurrentStage = savedStage;
                     ctx->InlineDepth--;
                     continue; // Re-check our counter
                 }
@@ -675,10 +743,9 @@ namespace Luth::JobSystem
             currentFiber->WaitCounter = counter;
             currentFiber->WaitTarget = targetValue;
 
-            // Switch back to scheduler
+            LH_PROFILE_FIBER_LEAVE;
             Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
-
-            // Resumed! Counter has reached target.
+            LH_PROFILE_FIBER_ENTER(GetMyTracyName());
             return;
         }
     }
@@ -704,7 +771,9 @@ namespace Luth::JobSystem
             s_Data.ReadyFibers[s_Data.ReadyFiberCount++] = currentFiber;
         }
 
+        LH_PROFILE_FIBER_LEAVE;
         Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+        LH_PROFILE_FIBER_ENTER(GetMyTracyName());
     }
 
     bool IsBusy(const Counter* counter)
@@ -732,6 +801,9 @@ namespace Luth::JobSystem
         stats.FiberYields     = s_Data.FrameFiberYields.load(std::memory_order_relaxed);
         stats.ReadyFiberCount = s_Data.ReadyFiberCount;
 
+        stats.GameStageMs   = s_Data.LastGameStageMs.load(std::memory_order_relaxed);
+        stats.RenderStageMs = s_Data.LastRenderStageMs.load(std::memory_order_relaxed);
+
         return stats;
     }
 
@@ -749,5 +821,29 @@ namespace Luth::JobSystem
     void SetGlobalCommandPool(CommandAllocatorPool* pool)
     {
         s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
+    }
+
+    // ── S9: Stage tag accessors ──
+
+    Stage GetCurrentStage()
+    {
+        JobContext* ctx = GetCurrentJobContext();
+        return ctx ? ctx->CurrentStage : Stage::Main;
+    }
+
+    void SetCurrentStage(Stage stage)
+    {
+        JobContext* ctx = GetCurrentJobContext();
+        if (ctx) ctx->CurrentStage = stage;
+    }
+
+    void RecordStageTime(Stage stage, f32 ms)
+    {
+        switch (stage)
+        {
+            case Stage::Game:   s_Data.LastGameStageMs.store(ms, std::memory_order_relaxed);   break;
+            case Stage::Render: s_Data.LastRenderStageMs.store(ms, std::memory_order_relaxed); break;
+            default: break;
+        }
     }
 }

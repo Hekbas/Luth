@@ -9,18 +9,19 @@
 namespace Luth
 {
     struct DrawList;
+    struct RenderSnapshot;
 
-    // Walks the ECS once per frame and partitions WorldTransform + MeshRenderer
-    // entities into a DrawList by Material::RenderMode. The builder is stateless;
-    // the caller owns the DrawList instance so vectors can be reused across frames.
+    // Partitions the per-frame RenderSnapshot's mesh rows into a DrawList by
+    // Material::RenderMode. The builder is stateless; the caller owns the DrawList
+    // instance so vectors can be reused across frames.
     //
     // Invariant: BuildGPUObjectBuffer must run first. DrawListBuilder skips any
-    // entity absent from entityToSSBOIndex so dc.gpuObjectIndex / dc.entityIndex
-    // always match the live GPU indirect buffer.
+    // snapshot row whose entity is absent from entityToSSBOIndex so
+    // dc.gpuObjectIndex / dc.entityIndex always match the live GPU indirect buffer.
     class DrawListBuilder
     {
     public:
-        void Build(entt::registry& registry,
+        void Build(const RenderSnapshot& snapshot,
                    const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
                    const std::unordered_map<entt::entity, u32>& entityToSSBOIndex,
                    DrawList& out);

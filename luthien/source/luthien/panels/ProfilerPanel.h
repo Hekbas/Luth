@@ -34,6 +34,9 @@ namespace Luth
         GPUMemoryStats m_GPUStats{};
         float m_GPUFrameTimeMs = 0.0f;
 
+        float m_GameStageMs   = 0.0f;
+        float m_RenderStageMs = 0.0f;
+
         int   m_TargetFPS = 60;
         float m_FrameBudgetMs = 16.67f;
 

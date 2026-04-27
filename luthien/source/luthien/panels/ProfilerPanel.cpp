@@ -83,6 +83,8 @@ namespace Luth
                 m_WorkerThreadCount = stats.ThreadCount;
                 m_CachedJobsExecuted = stats.JobsExecuted;
                 m_CachedStealSuccesses = stats.StealSuccesses;
+                m_GameStageMs   = stats.GameStageMs;
+                m_RenderStageMs = stats.RenderStageMs;
 
                 for (u32 i = 0; i < stats.ThreadCount && i < JobSystem::MAX_WORKER_THREADS; ++i)
                     m_WorkerStateHistory[i][m_WorkerHistoryHead] = stats.PerThreadState[i];
@@ -214,6 +216,28 @@ namespace Luth
 
                     ImGui::Dummy(ImVec2(availWidth, barHeight + 2));
                 }
+
+                // Per-stage bars. Game and Render run concurrently in
+                // steady state, so their sum can exceed the CPU bar.
+                auto drawStageBar = [&](const char* label, float ms, ImU32 color)
+                {
+                    ImVec2 cursor = ImGui::GetCursorScreenPos();
+                    float ratio = ms / m_FrameBudgetMs;
+                    float barWidth = std::min(ratio, 1.5f) / 1.5f * availWidth;
+
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + availWidth, cursor.y + barHeight), IM_COL32(40, 40, 40, 255), 2.0f);
+                    drawList->AddRectFilled(cursor, ImVec2(cursor.x + barWidth, cursor.y + barHeight), color, 2.0f);
+                    if (m_TargetFPS > 0) {
+                        float budgetX = cursor.x + (1.0f / 1.5f) * availWidth;
+                        drawList->AddLine(ImVec2(budgetX, cursor.y), ImVec2(budgetX, cursor.y + barHeight), IM_COL32(255, 255, 255, 180), 1.0f);
+                    }
+                    char buf[40];
+                    snprintf(buf, sizeof(buf), "%s: %.1f ms", label, ms);
+                    drawList->AddText(ImVec2(cursor.x + 4, cursor.y + 2), IM_COL32(255, 255, 255, 255), buf);
+                    ImGui::Dummy(ImVec2(availWidth, barHeight + 2));
+                };
+                drawStageBar("Game",   m_GameStageMs,   IM_COL32(180, 140, 60, 255));
+                drawStageBar("Render", m_RenderStageMs, IM_COL32(140, 80, 180, 255));
 
                 // GPU bar
                 {

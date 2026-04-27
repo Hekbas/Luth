@@ -21,6 +21,12 @@ namespace Luth
         , m_Viewport(std::make_unique<ViewportRenderer>())
     {
         m_Viewport->SetOnResize([this](u32 w, u32 h) {
+            // Drain GPU + drop ViewResources before swapping FrameTargets;
+            // the size-keyed cache otherwise leaves descriptors pointing at
+            // views the deletion queue is about to destroy.
+            Renderer::WaitForGPU();
+            m_RenderingSystem->GetPipeline().ReleaseViewResources(m_Targets);
+
             if (!m_TargetsAllocated) {
                 m_Targets.Allocate(w, h);
                 m_TargetsAllocated = true;

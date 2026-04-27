@@ -3,6 +3,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/JobSystem.h"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -57,6 +58,10 @@ namespace Luth
 
     u32 BoneMatrixBuffer::AllocateBlock()
     {
+        // Free-list mutation must run on the game stage so the buffer slot
+        // a render-stage draw references (via snapshot.boneOffset) is stable.
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::AllocateBlock must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         if (m_FreeBlocks.empty())
@@ -73,6 +78,8 @@ namespace Luth
 
     void BoneMatrixBuffer::FreeBlock(u32 baseIndex)
     {
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::FreeBlock must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         u32 blockIndex = baseIndex / BONES_PER_ENTITY;
@@ -83,6 +90,8 @@ namespace Luth
 
     void BoneMatrixBuffer::UploadBones(u32 baseIndex, const Mat4* matrices, u32 count)
     {
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "BoneMatrixBuffer::UploadBones must run on the game stage");
         if (!m_MappedData) return;
         if (baseIndex + count > TOTAL_MATRICES) return;
 

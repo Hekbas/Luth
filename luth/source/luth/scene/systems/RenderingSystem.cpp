@@ -2,21 +2,16 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
-#include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/material/Material.h"
-#include "luth/renderer/resources/Model.h"
-#include "luth/resources/AssetManager.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Scene.h"
-#include "luth/scene/Components.h"
 #include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
-    using namespace Component;
 
     // =========================================================================
     // Construction / Destruction
@@ -100,7 +95,7 @@ namespace Luth
     void RenderingSystem::Update(Scene* scene)
     {
         LH_PROFILE_FUNCTION();
-        auto& registry = scene->Registry();
+        (void)scene; // Render path reads the snapshot, not the registry.
 
         m_FrameAllocator->Reset();
 
@@ -153,38 +148,17 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
 
-        // Camera-independent per-frame prep. These outputs are shared across
-        // every view rendered this frame (scene + game panels).
-        //
-        // Register materials and hold assets for all visible entities
-        auto matView = registry.view<WorldTransform, MeshRenderer>();
-        for (auto [entity, wt, mr] : matView.each())
-        {
-            if (mr.ModelUUID.IsValid())
-            {
-                auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
-                if (model)
-                    scene->HoldAsset(mr.ModelUUID, model);
-            }
-            if (!mr.MaterialUUID.IsValid()) continue;
-            auto material = AssetManager::GetAsset<Material>(mr.MaterialUUID);
-            if (material)
-            {
-                scene->HoldAsset(mr.MaterialUUID, material);
-                m_Pipeline->EnsureMaterialRegistered(material);
-            }
-        }
-
-        // Upload dirty materials
-        MaterialSystem::Update(VK_NULL_HANDLE);
+        // Snapshot is captured at end of game stage; render stage only reads.
+        const RenderSnapshot& snapshot = Renderer::GetFrameData()->RenderFrame().Snapshot;
+        m_ActiveSnapshot = &snapshot;
 
         // Build GPU object buffer (after materials are registered)
-        m_Pipeline->BuildGPUObjectBuffer(registry);
+        m_Pipeline->BuildGPUObjectBuffer(snapshot);
 
-        // Partition entities into opaque/cutout/transparent draw buckets.
+        // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
         // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
         // reference the freshly populated indirect buffer.
-        m_DrawListBuilder.Build(registry, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
+        m_DrawListBuilder.Build(snapshot, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
         // Primary view — always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;
@@ -202,10 +176,10 @@ namespace Luth
         void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
 
         for (const RenderView& v : m_QueuedViews)
-            RecordView(v, registry, primaryCmd);
+            RecordView(v, primaryCmd);
         m_QueuedViews.clear();
 
-        RecordView(sceneView, registry, primaryCmd);
+        RecordView(sceneView, primaryCmd);
 
         Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
     }
@@ -214,7 +188,7 @@ namespace Luth
     // Per-view record
     // =========================================================================
 
-    void RenderingSystem::RecordView(const RenderView& view, entt::registry& registry, void* primaryCmd)
+    void RenderingSystem::RecordView(const RenderView& view, void* primaryCmd)
     {
         LH_PROFILE_FUNCTION();
 
@@ -224,7 +198,7 @@ namespace Luth
         // Cascade fit is camera-dependent so this refits per view
         // (~1 ms GPU with game panel open; frustum-union fit is backlog).
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-        lighting->UpdateFor(registry, view.camera);
+        lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera);
 
         // Must precede the per-view UBO writes below — they read
         // m_CurrentViewResources, which PrepareForTargets sets.
@@ -235,7 +209,7 @@ namespace Luth
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
-        m_Pipeline->Execute(registry, view, primaryCmd);
+        m_Pipeline->Execute(view, primaryCmd);
     }
 
     // =========================================================================
@@ -247,6 +221,11 @@ namespace Luth
         // Guard against unsigned underflow from negative float→u32 casts at startup
         if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
+            // Drain GPU + drop ViewResources before swapping textures —
+            // see GamePanel::SetOnResize for the same hazard description.
+            Renderer::WaitForGPU();
+            m_Pipeline->ReleaseViewResources(m_SceneTargets);
+
             m_SceneTargets.Resize(width, height);
             m_Pipeline->OnResize(width, height);
         }

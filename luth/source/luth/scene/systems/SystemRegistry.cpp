@@ -10,6 +10,7 @@
 namespace Luth
 {
     std::vector<std::unique_ptr<ISystem>> SystemRegistry::s_Systems;
+    std::vector<std::pair<size_t, ISystem*>> SystemRegistry::s_Slots;
     Scene* SystemRegistry::s_Scene = nullptr;
 
     void SystemRegistry::Init() {
@@ -23,14 +24,15 @@ namespace Luth
     }
 
     void SystemRegistry::Shutdown() {
+        s_Slots.clear();
         s_Systems.clear();
         s_Scene = nullptr;
     }
 
     void SystemRegistry::Update() {
         if (!s_Scene) return;
-        for (auto& system : s_Systems) {
-            system->Update(s_Scene);
+        for (size_t i = 0; i < s_Systems.size(); ++i) {
+            s_Systems[i]->Update(s_Scene);
         }
     }
 }

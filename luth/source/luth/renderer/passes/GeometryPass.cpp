@@ -2,6 +2,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/core/diagnostics/Profiler.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
@@ -23,7 +24,7 @@ namespace Luth
     using namespace Component;
 
     GeometryOutput RenderPipeline::AddGeometryPass(
-        RG::RenderGraph& rg, entt::registry& registry,
+        RG::RenderGraph& rg,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
         RG::BufferHandle indirectBufferHandle,
         RG::ResourceHandle sceneDepth,
@@ -102,7 +103,7 @@ namespace Luth
                 output.depth    = data.depthTex;
                 output.entityID = data.entityIDTex;
             },
-            [this, &registry](GeometryPassData& data, RG::RenderPassContext& ctx)
+            [this](GeometryPassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
@@ -201,8 +202,10 @@ namespace Luth
                         if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
-                            if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
-                                entName = registry.get<Component::Tag>(dc.entity).Value;
+                            const auto& tags = m_System.GetActiveSnapshot().tagsByEntity;
+                            u32 idx = entt::to_entity(dc.entity);
+                            if (idx < tags.size() && tags[idx])
+                                entName = tags[idx];
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;

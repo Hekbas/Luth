@@ -2,12 +2,12 @@
 
 #include "luth/renderer/lighting/LightTypes.h"
 
-#include <entt/entt.hpp>
-
 namespace Luth
 {
-    // Walks the ECS once per frame to populate LightUniforms (one directional +
-    // up to 64 point lights). The first Component::DirectionalLight also
+    struct RenderSnapshot;
+
+    // Translates the per-frame RenderSnapshot's light rows into LightUniforms
+    // (one directional + up to 64 point lights). The directional row also
     // contributes shadow config via DirectionalLightShadowParams.
     //
     // Shadow params are "sticky": if no directional light is present this frame
@@ -16,7 +16,7 @@ namespace Luth
     class LightGatherer
     {
     public:
-        void Gather(entt::registry& registry,
+        void Gather(const RenderSnapshot& snapshot,
                     LightUniforms& outLights,
                     DirectionalLightShadowParams& outShadow) const;
     };

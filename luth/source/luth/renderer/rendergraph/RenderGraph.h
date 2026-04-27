@@ -235,12 +235,19 @@ namespace Luth::RG
         // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
         void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }
 
+        // When set, Execute uses per-pass dispatch+wait instead of the
+        // default parallel two-phase. Caller sets this when pass lambdas
+        // touch shared mutable state that isn't thread-safe — primary
+        // case is FrameDebugger capture (passes push into shared vectors).
+        void SetSerialize(bool enable) { m_SerializeDispatch = enable; }
+
     private:
         Memory::LinearAllocator& m_Allocator;
         std::vector<PassNode>   m_Passes;
         std::vector<ResourceNode> m_Resources;
         std::vector<BufferNode>   m_Buffers;
         IArchiveSink*           m_ArchiveSink = nullptr;
+        bool                    m_SerializeDispatch = false;
 
         void AllocatePhysicalResources();
         void CleanupPhysicalResources();

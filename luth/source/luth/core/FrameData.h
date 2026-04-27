@@ -1,9 +1,10 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/jobs/AtomicCounter.h"
 #include "luth/jobs/SpinLock.h"
-#include "luth/memory/LinearAllocator.h" 
+#include "luth/memory/LinearAllocator.h"
 #include <vector>
 #include <array>
 #include <vulkan/vulkan.h>
@@ -62,8 +63,13 @@ namespace Luth
         bool UsingOverflow = false;
 
         // Secondary command buffers collected from parallel recording
-        std::vector<VkCommandBuffer> CommandBuffers; 
+        std::vector<VkCommandBuffer> CommandBuffers;
         SpinLock CommandBufferLock; // Replaces std::mutex (V1 compliant)
+
+        // ---- Render Snapshot ----
+        // Captured at end of game stage (Game N), read by render stage of frame N+1 (Render N-1
+        // from N+1's perspective). Spans into LogicMemory; reset alongside it. See RenderSnapshot.h.
+        RenderSnapshot Snapshot;
 
         void AddCommandBuffer(VkCommandBuffer cmd)
         {
@@ -83,14 +89,22 @@ namespace Luth
             Params = {};
             GameReady.Value = 0;
             GameReady.WaitingListHead = nullptr;
+            // Defense-in-depth: a stuck Lock would deadlock WaitForCounter
+            // forever on this counter; Reset is the only safe clear point.
+            GameReady.Lock.clear(std::memory_order_release);
             RenderReady.Value = 0;
             RenderReady.WaitingListHead = nullptr;
+            RenderReady.Lock.clear(std::memory_order_release);
             GpuFinished = false;
             UsingOverflow = false;
 
+            // Snapshot spans point into LogicMemory; clear them BEFORE resetting the allocator
+            // so we never carry dangling pointers across frames.
+            Snapshot.Clear();
+
             LogicMemory.Reset();
             RenderMemory.Reset();
-            
+
             {
                 SpinLockGuard lock(CommandBufferLock);
                 CommandBuffers.clear();
@@ -107,6 +121,7 @@ namespace Luth
         void Init()
         {
             m_FrameIndex = 0;
+            m_RenderFrameIndex = 0;
             for (auto& f : m_Frames) f.Reset();
         }
 
@@ -115,11 +130,18 @@ namespace Luth
         // Current frame (Game N writes here)
         FrameContext& Current()  { return m_Frames[m_FrameIndex % MAX_FRAMES_IN_FLIGHT]; }
 
-        // Previous frame (Render N-1 reads here)
+        // Previous frame (Render N-1 reads here in steady state)
         FrameContext& Previous() { return m_Frames[(m_FrameIndex - 1) % MAX_FRAMES_IN_FLIGHT]; }
 
         // Two frames ago (GPU N-2, check for completion)
         FrameContext& GPU()      { return m_Frames[(m_FrameIndex - 2) % MAX_FRAMES_IN_FLIGHT]; }
+
+        // Slot the render stage targets this iteration — set by App::Run
+        // before dispatching RenderStageFn. Decoupled from m_FrameIndex so
+        // game and render can write/read different slots concurrently.
+        FrameContext& RenderFrame() { return m_Frames[m_RenderFrameIndex % MAX_FRAMES_IN_FLIGHT]; }
+        void SetRenderFrameIndex(u64 index) { m_RenderFrameIndex = index; }
+        u64 GetRenderFrameIndex() const { return m_RenderFrameIndex; }
 
         // Access by absolute index
         FrameContext& GetFrame(u64 index) { return m_Frames[index % MAX_FRAMES_IN_FLIGHT]; }
@@ -131,5 +153,6 @@ namespace Luth
     private:
         std::array<FrameContext, MAX_FRAMES_IN_FLIGHT> m_Frames;
         u64 m_FrameIndex = 0;
+        u64 m_RenderFrameIndex = 0;
     };
 }

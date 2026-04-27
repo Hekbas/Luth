@@ -2,6 +2,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/core/diagnostics/Profiler.h"
+#include "luth/core/RenderSnapshot.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/renderer/Renderer.h"
@@ -26,7 +27,7 @@ namespace Luth
     // opaque depth written here wins). Reuses indirect region 0 (the camera
     // frustum cull region), same as GeometryPass's opaque draws.
     RG::ResourceHandle RenderPipeline::AddDepthPrepass(
-        RG::RenderGraph& rg, entt::registry& registry,
+        RG::RenderGraph& rg,
         RG::BufferHandle indirectBufferHandle)
     {
         struct DepthPrepassData {
@@ -60,7 +61,7 @@ namespace Luth
 
                 depthHandle = data.depthTex;
             },
-            [this, &registry](DepthPrepassData& data, RG::RenderPassContext& ctx)
+            [this](DepthPrepassData& data, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
@@ -137,8 +138,10 @@ namespace Luth
                     if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
                     {
                         std::string entName = "Entity";
-                        if (dc.entity != entt::null && registry.valid(dc.entity) && registry.any_of<Component::Tag>(dc.entity))
-                            entName = registry.get<Component::Tag>(dc.entity).Value;
+                        const auto& tags = m_System.GetActiveSnapshot().tagsByEntity;
+                        u32 idx = entt::to_entity(dc.entity);
+                        if (idx < tags.size() && tags[idx])
+                            entName = tags[idx];
                         m_System.m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
                             dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                             entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,

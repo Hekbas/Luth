@@ -20,6 +20,11 @@ namespace Luth
         // and mirror the existing clamp (skip when targets aren't initialised yet).
         if (!m_SceneColor || width == 0 || height == 0 || width > 16384 || height > 16384)
             return;
+        // No-op when size is unchanged — Allocate replaces every texture's
+        // shared_ptr unconditionally, which would silently invalidate the
+        // size-keyed ViewResources cache.
+        if (m_SceneColor->GetWidth() == width && m_SceneColor->GetHeight() == height)
+            return;
         Allocate(width, height);
     }
 }

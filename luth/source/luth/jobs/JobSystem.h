@@ -47,6 +47,19 @@ namespace Luth::JobSystem
         Sleeping
     };
 
+    // ── Stage Tag ──
+    // Frame-pipeline stage owning the current fiber. Sub-jobs inherit
+    // from their dispatching parent. Stage-isolated subsystems assert
+    // on it to catch cross-stage mutations that would race under
+    // concurrent dispatch.
+
+    enum class Stage : u8
+    {
+        Main,
+        Game,
+        Render
+    };
+
     // ── Runtime Stats ──
 
     static constexpr u32 MAX_WORKER_THREADS = 64;
@@ -66,6 +79,11 @@ namespace Luth::JobSystem
         u32 StealSuccesses;
         u32 FiberYields;
         u32 ReadyFiberCount;
+
+        // Per-stage CPU body time of the last completed frame. Game and
+        // render run concurrently in steady state so these can overlap.
+        f32 GameStageMs;
+        f32 RenderStageMs;
     };
 
     // ── Job Context — Fiber Local Storage (carried per-fiber, accessed via GetCurrentJobContext, stored in Win32 FLS) ──
@@ -87,6 +105,8 @@ namespace Luth::JobSystem
 
         // V5: inline execution depth tracking
         u32 InlineDepth = 0;
+
+        Stage CurrentStage = Stage::Main;
 
         // Metadata
         u32 ThreadIndex = 0;
@@ -157,4 +177,12 @@ namespace Luth::JobSystem
 
     // Set the global command pool for the current frame (used by Renderer at frame boundary)
     void SetGlobalCommandPool(CommandAllocatorPool* pool);
+
+    // Stage tag accessors. GetCurrentStage on the main thread (no
+    // JobContext) returns Stage::Main.
+    Stage GetCurrentStage();
+    void  SetCurrentStage(Stage stage);
+
+    // Records the outer stage body's wall time for ProfilerPanel.
+    void RecordStageTime(Stage stage, f32 ms);
 }

@@ -3,6 +3,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/JobSystem.h"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -49,6 +50,10 @@ namespace Luth
 
     u32 MaterialSystem::RegisterMaterial(std::shared_ptr<Material> material)
     {
+        // Slot mutation must run on the game stage; concurrent Render(N-1)
+        // reads the slot map without locking.
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "MaterialSystem::RegisterMaterial must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         if (m_FreeIndices.empty())
@@ -68,6 +73,8 @@ namespace Luth
 
     void MaterialSystem::UnregisterMaterial(u32 index)
     {
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "MaterialSystem::UnregisterMaterial must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         if (index >= MAX_MATERIALS) return;
@@ -84,7 +91,9 @@ namespace Luth
         // However, we need to ensure synchronization if the GPU is reading it.
         // For now, we assume coherent memory or flush.
         // VMA_MEMORY_USAGE_CPU_TO_GPU usually gives HOST_VISIBLE | HOST_COHERENT.
-        
+
+        assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
+            "MaterialSystem::Update must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
 
         for (u32 i = 0; i < MAX_MATERIALS; ++i)

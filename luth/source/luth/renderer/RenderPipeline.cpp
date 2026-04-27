@@ -304,7 +304,7 @@ namespace Luth
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 
-    void RenderPipeline::Execute(entt::registry& registry, const RenderView& view, void* primaryCmd)
+    void RenderPipeline::Execute(const RenderView& view, void* primaryCmd)
     {
         auto& s = m_System;
         m_CurrentView          = &view;
@@ -353,11 +353,11 @@ namespace Luth
 
         RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            shadowHandles[i] = AddShadowPass(rg, registry, hIndirectBuf, i);
+            shadowHandles[i] = AddShadowPass(rg, hIndirectBuf, i);
 
         // Z-prepass produces SceneDepth before forward shading. The render
         // graph can schedule it in parallel with the shadow cascades.
-        RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, registry, hIndirectBuf);
+        RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, hIndirectBuf);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -368,9 +368,9 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = AddGeometryPass(rg, registry, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        auto geoOutput                 = AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
-                                         ? AddSelectionMaskPass(rg, registry)
+                                         ? AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
@@ -446,6 +446,11 @@ namespace Luth
             m_System.m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
+
+        // FrameDebugger writes from every view's pass lambdas — serialize
+        // every view's RG, not just the one carrying the sink.
+        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+            rg.SetSerialize(true);
 
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 

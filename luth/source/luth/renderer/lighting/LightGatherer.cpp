@@ -1,40 +1,33 @@
 #include "luthpch.h"
 #include "luth/renderer/lighting/LightGatherer.h"
-#include "luth/scene/Components.h"
+#include "luth/core/RenderSnapshot.h"
 
 
 namespace Luth
 {
-    void LightGatherer::Gather(entt::registry& registry,
+    void LightGatherer::Gather(const RenderSnapshot& snapshot,
                                LightUniforms& outLights,
                                DirectionalLightShadowParams& outShadow) const
     {
         outLights = {};
 
-        // First-wins: only the first directional light contributes.
-        bool foundDir = false;
-        auto dirView = registry.view<Component::WorldTransform, Component::DirectionalLight>();
-        for (auto [entity, wt, dl] : dirView.each())
+        if (snapshot.directionalLight.present)
         {
-            if (foundDir) break;
+            const auto& dl = snapshot.directionalLight;
+            outLights.dirLight.direction = dl.direction;
+            outLights.dirLight.color     = dl.color;
+            outLights.dirLight.intensity = dl.intensity;
 
-            // Forward vector = -Z column of the world matrix
-            outLights.dirLight.direction = Math::Normalize(-Vec3(wt.Matrix[2]));
-            outLights.dirLight.color     = dl.Color;
-            outLights.dirLight.intensity = dl.Intensity;
-
-            outShadow.castShadows           = dl.CastShadows;
-            outShadow.shadowBias            = Vec4(dl.ShadowBias[0], dl.ShadowBias[1], dl.ShadowBias[2], dl.ShadowBias[3]);
-            outShadow.shadowNormalBias      = Vec4(dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3]);
-            outShadow.splitLambda           = Math::Clamp(dl.SplitLambda, 0.0f, 1.0f);
-            outShadow.shadowDistance        = dl.ShadowDistance;
-            outShadow.stabilizeCascades     = dl.StabilizeCascades;
-            outShadow.cascadeBlendWidth     = Math::Clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
-            outShadow.debugVisualizeCascades = dl.DebugVisualizeCascades;
-            foundDir = true;
+            outShadow.castShadows           = dl.castShadows;
+            outShadow.shadowBias            = dl.shadowBias;
+            outShadow.shadowNormalBias      = dl.shadowNormalBias;
+            outShadow.splitLambda           = dl.splitLambda;
+            outShadow.shadowDistance        = dl.shadowDistance;
+            outShadow.stabilizeCascades     = dl.stabilizeCascades;
+            outShadow.cascadeBlendWidth     = dl.cascadeBlendWidth;
+            outShadow.debugVisualizeCascades = dl.debugVisualizeCascades;
         }
-
-        if (!foundDir)
+        else
         {
             outLights.dirLight.direction = Math::Normalize(Vec3(1.0f, 1.0f, 0.5f));
             outLights.dirLight.color     = Vec3(1.0f);
@@ -42,17 +35,15 @@ namespace Luth
             // Shadow params: leave outShadow untouched so last-known config persists.
         }
 
-        int count = 0;
-        auto pointView = registry.view<Component::WorldTransform, Component::PointLight>();
-        for (auto [entity, wt, pl] : pointView.each())
+        const u32 count = static_cast<u32>(snapshot.pointLights.size());
+        for (u32 i = 0; i < count; ++i)
         {
-            if (count >= 64) break;
-            outLights.pointLights[count].position  = Vec3(wt.Matrix[3]);
-            outLights.pointLights[count].color     = pl.Color;
-            outLights.pointLights[count].intensity = pl.Intensity;
-            outLights.pointLights[count].range     = pl.Range;
-            ++count;
+            const auto& pl = snapshot.pointLights[i];
+            outLights.pointLights[i].position  = pl.position;
+            outLights.pointLights[i].color     = pl.color;
+            outLights.pointLights[i].intensity = pl.intensity;
+            outLights.pointLights[i].range     = pl.range;
         }
-        outLights.numPointLights = count;
+        outLights.numPointLights = static_cast<i32>(count);
     }
 }
