@@ -3,7 +3,7 @@
 #include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
 #include "luth/scene/Components.h"
 
-#if defined(DEBUG)
+#if defined(LUTH_BUILD_DEBUG)
 namespace Luth::ComponentDrawers
 {
     using namespace Component;

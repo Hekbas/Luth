@@ -15,6 +15,7 @@
 #include <random>
 #include <regex>
 
+#include "luth/core/BuildConfig.h"
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/diagnostics/Log.h"
