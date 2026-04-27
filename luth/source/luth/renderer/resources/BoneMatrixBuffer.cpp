@@ -58,10 +58,8 @@ namespace Luth
 
     u32 BoneMatrixBuffer::AllocateBlock()
     {
-        // S9 stage isolation: the bone-block free list is mutated only on the
-        // game stage so the GPU buffer slot a render-stage draw references
-        // (via the snapshot's pre-resolved boneOffset) doesn't shift under it.
-        // Mutex is retained (D6) — the assert documents+enforces the contract.
+        // Free-list mutation must run on the game stage so the buffer slot
+        // a render-stage draw references (via snapshot.boneOffset) is stable.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "BoneMatrixBuffer::AllocateBlock must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);
@@ -92,8 +90,6 @@ namespace Luth
 
     void BoneMatrixBuffer::UploadBones(u32 baseIndex, const Mat4* matrices, u32 count)
     {
-        // Called from EvaluateAnimJob (sub-job of AnimationSystem::Update);
-        // its StageTag inherits Game from the game-stage parent fiber.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "BoneMatrixBuffer::UploadBones must run on the game stage");
         if (!m_MappedData) return;

@@ -42,10 +42,7 @@ namespace Luth::JobSystem
         Counter* CounterPtr = nullptr;
         u32 JobIndex = 0;
         u32 GroupIndex = 0;
-        const char* Name = "Job"; // Tracy zone label — set at dispatch, used in FiberEntryPoint
-        // S9: stage tag inherited from the dispatching fiber. Captured by
-        // Execute/Dispatch from GetCurrentJobContext() at the dispatch site;
-        // applied to the fiber's JobContext by FiberEntryPoint at start.
+        const char* Name = "Job"; // Tracy zone label
         Stage StageTag = Stage::Main;
     };
 
@@ -116,10 +113,8 @@ namespace Luth::JobSystem
         std::atomic<u32> FrameStealSuccesses = 0;
         std::atomic<u32> FrameFiberYields = 0;
 
-        // S10: per-stage CPU body time of the LAST completed frame.
-        // Sticky (not reset per frame) so ProfilerPanel always shows the
-        // most recent value even on iterations where a stage didn't run
-        // (e.g. game systems gated off in editor pause mode).
+        // Sticky (not reset per frame) so ProfilerPanel still shows the
+        // last value on iterations where a stage was gated off.
         std::atomic<f32> LastGameStageMs = 0.0f;
         std::atomic<f32> LastRenderStageMs = 0.0f;
     };
@@ -289,9 +284,6 @@ namespace Luth::JobSystem
         ctx->FiberID = (u32)(self - s_Data.FiberPool);
         ctx->IsRecording = false;
         ctx->InlineDepth = 0;
-        // S9: inherit stage from the dispatching parent fiber (or Main if
-        // dispatched from main thread). GameStageFn / RenderStageFn override
-        // via SetCurrentStage as their first action.
         ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
         SetCurrentContext(ctx);
 
@@ -594,9 +586,8 @@ namespace Luth::JobSystem
     {
         if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
-        // S9: capture parent stage for inheritance. Main-thread dispatches
-        // (no JobContext via FLS) tag jobs as Main; the stage entry fns then
-        // call SetCurrentStage at fiber entry to override to Game/Render.
+        // Capture parent's stage for child inheritance. Main thread has no
+        // JobContext, so its dispatches default to Stage::Main.
         JobContext* parentCtx = GetCurrentJobContext();
         Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
 
@@ -630,7 +621,6 @@ namespace Luth::JobSystem
         u32 groupCount = (jobCount + groupSize - 1) / groupSize;
         if (counter) counter->Value.fetch_add(groupCount << 1);
 
-        // S9: capture parent stage once for the whole batch.
         JobContext* parentCtx = GetCurrentJobContext();
         Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
 
@@ -704,12 +694,9 @@ namespace Luth::JobSystem
                 if (found)
                 {
                     ctx->InlineDepth++;
-                    // S9: run inline job under its own stage tag, then restore.
-                    // Without save/restore, an inline job dispatched from main
-                    // (StageTag::Main) running on a Game fiber would (a) bypass
-                    // its own stage assertions and (b) corrupt the parent's
-                    // stage if it called SetCurrentStage internally. Cheap;
-                    // single load+store on a hot path.
+                    // Run inline job under its own stage tag so its
+                    // assertions fire correctly and SetCurrentStage calls
+                    // inside don't leak into the calling fiber.
                     Stage savedStage = ctx->CurrentStage;
                     ctx->CurrentStage = inlineJob.StageTag;
                     {
@@ -850,7 +837,6 @@ namespace Luth::JobSystem
         if (ctx) ctx->CurrentStage = stage;
     }
 
-    // S10: stage timings for ProfilerPanel.
     void RecordStageTime(Stage stage, f32 ms)
     {
         switch (stage)

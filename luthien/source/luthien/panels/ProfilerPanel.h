@@ -34,7 +34,6 @@ namespace Luth
         GPUMemoryStats m_GPUStats{};
         float m_GPUFrameTimeMs = 0.0f;
 
-        // S10: per-stage CPU body times (sampled from JobSystem each frame).
         float m_GameStageMs   = 0.0f;
         float m_RenderStageMs = 0.0f;
 

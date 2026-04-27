@@ -465,40 +465,27 @@ namespace Luth::RG
     // Execute — Two-phase: parallel secondary recording, serial primary emission
     // ===================================================================================
     //
-    // Phase 1: dispatch one RenderPassJob per non-culled graphics pass (each job
-    //          allocates its own CommandAllocator from the global pool and records
-    //          into a secondary cmd buffer). Single counter for ALL jobs → one
-    //          WaitForCounter at end of phase, so the render fiber yields ONCE
-    //          per frame instead of ~22 (one per pass under the prior pattern).
-    //          The reduction is the v2.8.4 mitigation for the pinning-pin /
-    //          WakeByAddressSingle wake-targeting interaction that compounded
-    //          over time and produced the ShadowPass.C3 hang under sustained
-    //          animated-scene load.
+    // Phase 1: dispatch one RenderPassJob per graphics pass against a single
+    //          counter; render fiber yields once per frame regardless of pass
+    //          count. SetSerialize(true) falls back to per-pass dispatch+wait
+    //          when pass lambdas touch shared state (FrameDebugger capture).
+    // Phase 2: emit primary cmd buffer in pass order — batched barriers,
+    //          compute exec inline / graphics BeginRendering + ExecuteCommands
+    //          + EndRendering. Barrier order and pass-order semantics preserved.
     //
-    // Phase 2: walk the passes in order on the PRIMARY command buffer:
-    //          batched barriers → compute exec inline / graphics
-    //          BeginRendering+ExecuteCommands(secondary)+EndRendering. Barrier
-    //          ordering and pass-order semantics are preserved exactly.
-    //
-    // Compute passes execute inline on the primary in phase 2; their `pass.execute`
-    // is fast (no recording-thread benefit) and they would have to serialize on
-    // the primary anyway, so they bypass phase 1 entirely.
+    // Compute passes bypass phase 1 (would serialize on primary anyway).
 
     namespace {
         struct PassExecState
         {
-            // Persistent storage for attachments info — phase 1 builds these,
-            // phase 2 reads them when emitting BeginRendering on the primary.
-            // Stack-local arrays in the prior single-loop design wouldn't survive
-            // across the WaitForCounter boundary in the new layout.
+            // Phase-1 attachments info has to outlive the WaitForCounter so
+            // phase 2 can read it; can't be stack-local to the build loop.
             static constexpr u32 k_MaxColorAtt = 8;
             AttachmentInfo colorAttachmentsBuf[k_MaxColorAtt];
             u32 colorAttachmentCount = 0;
             AttachmentInfo depthInfo{};
             bool hasDepth = false;
-            // Graphics passes only — populated in phase 1, CommandBuffer field
-            // written by the dispatched RenderPassJob, read in phase 2.
-            RenderPassJob job{};
+            RenderPassJob job{}; // Graphics only; CommandBuffer set by phase 1.
         };
     }
 
@@ -509,25 +496,11 @@ namespace Luth::RG
 
         if (timers) timers->ResetForFrame(primaryCmd);
 
-        // Per-pass execution state. Indexed by m_Passes index; slots for
-        // culled / compute passes stay default-constructed and unused.
+        // Indexed by m_Passes index; slots for culled / compute passes stay
+        // default-constructed and unused.
         std::vector<PassExecState> passStates(m_Passes.size());
 
-        // ───────────────────────────────────────────────────────────────────
-        // Phase 1: secondary cmd buffer recording
-        // ───────────────────────────────────────────────────────────────────
-        // Default mode is parallel — all RGPassRecord jobs against one
-        // counter, single WaitForCounter at end (1 yield/frame).
-        //
-        // SetSerialize(true) falls back to per-pass dispatch+wait
-        // (S7-shape, ~22 yields/frame) when pass lambdas touch shared
-        // mutable state. RenderPipeline sets it for every view when
-        // FrameDebugger is in CaptureRequested state — every pass lambda
-        // pushes into shared `capturedFrame.passes` / `drawCalls` vectors
-        // and parallel dispatch corrupts them. ArchiveSink alone is not
-        // sufficient: the sink is bound only to the primary view, but
-        // FrameDebugger state is checked unconditionally from every
-        // view's pass lambda.
+        // ── Phase 1: secondary cmd buffer recording ──
         const bool serializeDispatch = m_SerializeDispatch;
         JobSystem::Counter recordCounter;
 
@@ -609,9 +582,7 @@ namespace Luth::RG
         if (!serializeDispatch)
             JobSystem::WaitForCounter(&recordCounter);
 
-        // ───────────────────────────────────────────────────────────────────
-        // Phase 2: serial primary cmd buffer emission (pass order)
-        // ───────────────────────────────────────────────────────────────────
+        // ── Phase 2: primary cmd buffer emission (pass order) ──
         u32 timerPassIdx = 0;
 
         for (size_t i = 0; i < m_Passes.size(); ++i)

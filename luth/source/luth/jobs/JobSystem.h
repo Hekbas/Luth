@@ -47,21 +47,11 @@ namespace Luth::JobSystem
         Sleeping
     };
 
-    // ── Stage Tag (per-fiber, propagated to child jobs) ──
-    // Tags the frame-pipeline stage owning the current fiber. Used by
-    // stage-isolated subsystems (MaterialSystem, BoneMatrixBuffer) to
-    // assert they're only touched from the stage that owns their state —
-    // avoids re-introducing locks while still catching cross-stage
-    // mutations that would race in S8's concurrent dispatch.
-    //
-    // Set by App::GameStageFn / App::RenderStageFn at fiber entry.
-    // Sub-jobs dispatched from a stage fiber inherit its stage (captured
-    // by Execute/Dispatch at the dispatch site, applied by
-    // FiberEntryPoint when the sub-fiber starts).
-    //
-    // Main thread has no JobContext (FLS unset) → GetCurrentStage()
-    // falls back to Main, which is the correct semantic for editor /
-    // dispatch / OS-pump code paths.
+    // ── Stage Tag ──
+    // Frame-pipeline stage owning the current fiber. Sub-jobs inherit
+    // from their dispatching parent. Stage-isolated subsystems assert
+    // on it to catch cross-stage mutations that would race under
+    // concurrent dispatch.
 
     enum class Stage : u8
     {
@@ -90,9 +80,8 @@ namespace Luth::JobSystem
         u32 FiberYields;
         u32 ReadyFiberCount;
 
-        // S10: per-stage CPU wall-time of the last completed frame.
-        // Game and render run concurrently in steady state so these
-        // can overlap — pure CPU body time, not main-thread wait time.
+        // Per-stage CPU body time of the last completed frame. Game and
+        // render run concurrently in steady state so these can overlap.
         f32 GameStageMs;
         f32 RenderStageMs;
     };
@@ -117,8 +106,6 @@ namespace Luth::JobSystem
         // V5: inline execution depth tracking
         u32 InlineDepth = 0;
 
-        // S9: pipeline stage tag (Main / Game / Render). Set at fiber entry
-        // from the spawning Execute/Dispatch's captured stage. See Stage enum.
         Stage CurrentStage = Stage::Main;
 
         // Metadata
@@ -191,15 +178,11 @@ namespace Luth::JobSystem
     // Set the global command pool for the current frame (used by Renderer at frame boundary)
     void SetGlobalCommandPool(CommandAllocatorPool* pool);
 
-    // S9: pipeline-stage tag accessors. Set at the entry of the outer
-    // game/render stage fn; sub-jobs inherit via Execute/Dispatch capture.
-    // GetCurrentStage on the main thread (no JobContext) returns Stage::Main.
+    // Stage tag accessors. GetCurrentStage on the main thread (no
+    // JobContext) returns Stage::Main.
     Stage GetCurrentStage();
     void  SetCurrentStage(Stage stage);
 
-    // S10: record CPU wall-time of a stage's outer fn body. Called by
-    // App's stage entry fns after their work completes. The most recent
-    // value is exposed via Stats.GameStageMs / RenderStageMs and read by
-    // ProfilerPanel for the per-stage frame-budget bars.
+    // Records the outer stage body's wall time for ProfilerPanel.
     void RecordStageTime(Stage stage, f32 ms);
 }

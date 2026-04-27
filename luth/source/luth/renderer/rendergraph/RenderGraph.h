@@ -235,16 +235,10 @@ namespace Luth::RG
         // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
         void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }
 
-        // Serial dispatch — when set, Execute uses per-pass dispatch+wait
-        // (S7-shape, ~22 yields/frame) instead of the default two-phase
-        // parallel dispatch. The caller sets this when pass execute lambdas
-        // touch shared mutable state that isn't internally thread-safe (the
-        // primary case is FrameDebugger capture: every pass pushes into
-        // shared `capturedFrame.passes` / `drawCalls` vectors that race
-        // under parallel dispatch). Independent of `m_ArchiveSink`: the
-        // sink is bound only to the primary view, but FrameDebugger state
-        // is checked from every view's pass lambda — so non-primary views
-        // need serialization too even though they don't carry the sink.
+        // When set, Execute uses per-pass dispatch+wait instead of the
+        // default parallel two-phase. Caller sets this when pass lambdas
+        // touch shared mutable state that isn't thread-safe — primary
+        // case is FrameDebugger capture (passes push into shared vectors).
         void SetSerialize(bool enable) { m_SerializeDispatch = enable; }
 
     private:

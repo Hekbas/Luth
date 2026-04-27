@@ -217,11 +217,8 @@ namespace Luth
                     ImGui::Dummy(ImVec2(availWidth, barHeight + 2));
                 }
 
-                // S10: per-stage CPU bars (Game / Render). In steady-state
-                // pipelining these run concurrently on worker fibers, so
-                // their sum can exceed the main-thread CPU bar above. Bars
-                // share the CPU bar's frame-budget scale so over-budget is
-                // visually obvious.
+                // Per-stage bars. Game and Render run concurrently in
+                // steady state, so their sum can exceed the CPU bar.
                 auto drawStageBar = [&](const char* label, float ms, ImU32 color)
                 {
                     ImVec2 cursor = ImGui::GetCursorScreenPos();

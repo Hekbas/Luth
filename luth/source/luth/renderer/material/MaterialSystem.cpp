@@ -50,10 +50,8 @@ namespace Luth
 
     u32 MaterialSystem::RegisterMaterial(std::shared_ptr<Material> material)
     {
-        // S9 stage isolation: material slot mutation must happen on the game
-        // stage so concurrent Render(N-1) reads a stable slot map. The mutex
-        // is retained (D6) for now, but the assert documents+enforces the
-        // contract — a render-stage call here would race against the slot map.
+        // Slot mutation must run on the game stage; concurrent Render(N-1)
+        // reads the slot map without locking.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::RegisterMaterial must run on the game stage");
         std::lock_guard<std::mutex> lock(m_Lock);

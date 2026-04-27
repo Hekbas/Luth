@@ -269,21 +269,9 @@ namespace Luth
                 || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
 
             // ── Step 5: Stage Dispatch — pipelined Game(N) | Render(N-1) ──
-            // Steady (N >= 2): Render of Previous() dispatched *before* the
-            // GameReady wait, so Game(N) and Render(N-1) run concurrently on
-            // separate worker fibers. This is the parallelism that v2.8.4
-            // delivers; comment block above is now accurate.
-            //
-            // Sync warm-up (N < 2): pipeline is cold — no Previous() yet at
-            // N=0, and we want the first visible frame to show fresh data
-            // rather than 1-frame-stale Previous. So Render targets Current()
-            // and waits inline. Steady kicks in from N=2 onward.
-            //
-            // Spec D5 nominally has frame 0 *skip render entirely*; we keep
-            // it as a sync render instead because skipping submit at iter 0
-            // breaks Vulkan timeline + imageAvailable-semaphore math, which
-            // would require backend-side init tweaks beyond App.cpp's scope
-            // for this sub-task. End state (steady from N=2) is identical.
+            // Frames 0/1 sync-render Current() to seed the pipeline; from
+            // frame 2 on, Render(N-1) is dispatched before the GameReady
+            // wait so it overlaps with Game(N) on separate worker fibers.
             const bool isSteady = (frameIndex >= 2);
 
             JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
@@ -332,12 +320,10 @@ namespace Luth
 
     void App::GameStageFn(JobSystem::JobArgs args)
     {
-        // S9: tag fiber + sub-jobs as Game stage. Stage-isolated subsystems
-        // (MaterialSystem, BoneMatrixBuffer) assert this; AnimationSystem's
-        // EvaluateAnimJob and CaptureSnapshot's MaterialSystem::Update inherit.
+        // Stage tag propagates to sub-jobs dispatched from this fiber so
+        // stage-isolated subsystems (MaterialSystem, BoneMatrixBuffer) can
+        // assert their callers are on the right stage.
         JobSystem::SetCurrentStage(JobSystem::Stage::Game);
-
-        // S10: time the stage body for ProfilerPanel readout.
         Timer stageTimer;
 
         auto* app = static_cast<App*>(args.data);
@@ -346,7 +332,8 @@ namespace Luth
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();
 
-        // End-of-game-stage capture: ECS is coherent, snapshot is fresh.
+        // CaptureSnapshot must run after all ECS mutations for the frame —
+        // it freezes the state Render(N-1) will read next iteration.
         FrameContext& cf = Renderer::GetFrameData()->Current();
         CaptureSnapshot(*app->m_Scene, cf.LogicMemory, cf.Snapshot);
 
@@ -355,12 +342,7 @@ namespace Luth
 
     void App::RenderStageFn(JobSystem::JobArgs args)
     {
-        // S9: tag fiber + sub-jobs as Render stage. Per-pass RGPassRecord
-        // sub-jobs inherit, so any cross-stage mutation from inside a pass
-        // execute lambda trips the assert at the call site.
         JobSystem::SetCurrentStage(JobSystem::Stage::Render);
-
-        // S10: time the stage body for ProfilerPanel readout.
         Timer stageTimer;
 
         (void)args;
@@ -421,11 +403,8 @@ namespace Luth
         // If switching away from an existing project, clean up first
         if (m_ProjectLoaded)
         {
-            // Drain GPU before tearing down asset/scene state so pending cmd
-            // buffers can't reference textures / descriptor views about to be
-            // destroyed by Scene::Clear / AssetDatabase::UnloadProject. Cheap
-            // (rare event) and prevents the descriptor-cascade we hit on
-            // project-A → project-B → project-A → load-scene.
+            // Drain GPU before tearing down asset / scene state — pending
+            // cmd buffers must not reference resources about to be destroyed.
             Renderer::WaitForGPU();
 
             if (auto* h = EditorHooks::Get()) h->SaveSettings();

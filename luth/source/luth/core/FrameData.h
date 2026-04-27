@@ -89,10 +89,8 @@ namespace Luth
             Params = {};
             GameReady.Value = 0;
             GameReady.WaitingListHead = nullptr;
-            // Defense-in-depth: in normal operation Lock is always released
-            // before any fiber returns, but if a future regression or debugger
-            // detach left it set, every WaitForCounter on this counter would
-            // spin forever. Cheap to clear; clears any phantom state.
+            // Defense-in-depth: a stuck Lock would deadlock WaitForCounter
+            // forever on this counter; Reset is the only safe clear point.
             GameReady.Lock.clear(std::memory_order_release);
             RenderReady.Value = 0;
             RenderReady.WaitingListHead = nullptr;
@@ -138,12 +136,9 @@ namespace Luth
         // Two frames ago (GPU N-2, check for completion)
         FrameContext& GPU()      { return m_Frames[(m_FrameIndex - 2) % MAX_FRAMES_IN_FLIGHT]; }
 
-        // Frame the render stage targets this iteration. Set by App::Run before
-        // dispatching RenderStageFn: equals m_FrameIndex during sync warm-up
-        // (frames 0/1, renders Current) and m_FrameIndex-1 during steady state
-        // (frame ≥2, renders Previous concurrent with Game(N)). Decoupling from
-        // Current() lets the render stage and game stage target different slots
-        // without racing on the same FrameContext.
+        // Slot the render stage targets this iteration — set by App::Run
+        // before dispatching RenderStageFn. Decoupled from m_FrameIndex so
+        // game and render can write/read different slots concurrently.
         FrameContext& RenderFrame() { return m_Frames[m_RenderFrameIndex % MAX_FRAMES_IN_FLIGHT]; }
         void SetRenderFrameIndex(u64 index) { m_RenderFrameIndex = index; }
         u64 GetRenderFrameIndex() const { return m_RenderFrameIndex; }

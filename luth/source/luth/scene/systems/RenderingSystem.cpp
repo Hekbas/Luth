@@ -95,8 +95,7 @@ namespace Luth
     void RenderingSystem::Update(Scene* scene)
     {
         LH_PROFILE_FUNCTION();
-        (void)scene; // Render stage no longer touches the registry directly;
-                     // RenderSnapshot carries everything the passes need.
+        (void)scene; // Render path reads the snapshot, not the registry.
 
         m_FrameAllocator->Reset();
 
@@ -149,13 +148,9 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return;
 
-        // RenderSnapshot was captured at end of game stage (App::Run), where
-        // material registration + MaterialSystem::Update also ran. Render
-        // stage just consumes — no registry walks, no slot mutations.
-        // RenderFrame() targets Current() during sync warm-up (frames 0/1) and
-        // Previous() during steady state (frame ≥2, runs concurrent with Game N).
+        // Snapshot is captured at end of game stage; render stage only reads.
         const RenderSnapshot& snapshot = Renderer::GetFrameData()->RenderFrame().Snapshot;
-        m_ActiveSnapshot = &snapshot;  // Passes read tags etc. via this pointer.
+        m_ActiveSnapshot = &snapshot;
 
         // Build GPU object buffer (after materials are registered)
         m_Pipeline->BuildGPUObjectBuffer(snapshot);
@@ -226,14 +221,8 @@ namespace Luth
         // Guard against unsigned underflow from negative float→u32 casts at startup
         if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            // FrameTargets::Resize replaces every scene texture's shared_ptr;
-            // the old VkImageViews go through the deferred-delete queue but
-            // any in-flight cmd buffer still binds them. Release the cached
-            // ViewResources entry too — its descriptor sets reference the
-            // about-to-be-destroyed views, and EnsureViewResources's
-            // size-keyed cache otherwise misses pure-content swaps. Drain
-            // the GPU so the destroy-pool path runs on a quiescent device.
-            // Resize is rare (panel layout change), so the stall is fine.
+            // Drain GPU + drop ViewResources before swapping textures —
+            // see GamePanel::SetOnResize for the same hazard description.
             Renderer::WaitForGPU();
             m_Pipeline->ReleaseViewResources(m_SceneTargets);
 

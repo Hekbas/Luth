@@ -447,11 +447,8 @@ namespace Luth
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        // FrameDebugger capture serializes RG dispatch on EVERY view, not
-        // just the primary one (which carries the ArchiveSink): each pass
-        // execute lambda calls m_System.m_FrameDebugger.BeginCapturePass
-        // unconditionally, so even non-primary views (game panel) race on
-        // the shared capturedFrame vectors under parallel dispatch.
+        // FrameDebugger writes from every view's pass lambdas — serialize
+        // every view's RG, not just the one carrying the sink.
         if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
             rg.SetSerialize(true);
 
