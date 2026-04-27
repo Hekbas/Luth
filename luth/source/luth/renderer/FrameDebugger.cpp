@@ -334,6 +334,41 @@ namespace Luth
     void FrameDebugger::FinalizeCapture(const Mat4& viewProj)
     {
         capturedFrame.captureViewProj = viewProj;
+
+        // Phase 1 records all graphics-pass secondaries (calling BeginCapturePass
+        // during recording) before Phase 2 emits the primary; compute passes bypass
+        // Phase 1 and run inline in Phase 2, so their pushes arrive after every
+        // graphics pass. Result: capturedFrame.passes is in graphics-first-then-
+        // compute order rather than graph order. Sort by graphPassIndex so the
+        // Frozen tree mirrors the Live view's registration order, then remap the
+        // back-references in drawCalls through the inverse permutation.
+        const u32 passCount = (u32)capturedFrame.passes.size();
+        if (passCount > 1)
+        {
+            std::vector<u32> perm(passCount);
+            for (u32 i = 0; i < passCount; ++i) perm[i] = i;
+            std::stable_sort(perm.begin(), perm.end(),
+                [this](u32 a, u32 b) {
+                    return capturedFrame.passes[a].graphPassIndex
+                         < capturedFrame.passes[b].graphPassIndex;
+                });
+
+            std::vector<RG::CapturedPass> sorted;
+            sorted.reserve(passCount);
+            for (u32 oldIdx : perm)
+                sorted.push_back(std::move(capturedFrame.passes[oldIdx]));
+            capturedFrame.passes = std::move(sorted);
+
+            // Inverse permutation: oldIdx → newIdx for drawCall.passIndex remap.
+            std::vector<u32> inv(passCount);
+            for (u32 newIdx = 0; newIdx < passCount; ++newIdx)
+                inv[perm[newIdx]] = newIdx;
+
+            for (auto& dc : capturedFrame.drawCalls)
+                if (dc.passIndex < passCount)
+                    dc.passIndex = inv[dc.passIndex];
+        }
+
         // Build the hierarchical event tree from the just-finished capture.
         // Pure CPU work; safe to run after ExecuteGraph returned and all the
         // per-pass / per-draw metadata has been appended to capturedFrame.
