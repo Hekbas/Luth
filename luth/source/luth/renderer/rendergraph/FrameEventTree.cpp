@@ -53,7 +53,9 @@ namespace Luth::RG
             node.label              = pass.name;
             node.passIndex          = passIdx;
             node.gpuTimeMs          = pass.gpuTimeMs;
-            node.archivedImageIndex = PickPrimaryArchive(frame, passIdx);
+            // passArchives is keyed by graph pass index (sparse) — passIdx here
+            // is the dense passes[] index, so route through pass.graphPassIndex.
+            node.archivedImageIndex = PickPrimaryArchive(frame, pass.graphPassIndex);
 
             node.children.reserve(pass.drawCallCount);
             for (u32 di = 0; di < pass.drawCallCount; ++di)

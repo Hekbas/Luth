@@ -214,7 +214,8 @@ namespace Luth
 
     // ---- Capture metadata helpers (unchanged) ----
 
-    void FrameDebugger::BeginCapturePass(const std::string& name, const std::string& activeTarget,
+    void FrameDebugger::BeginCapturePass(u32 graphPassIndex,
+                                         const std::string& name, const std::string& activeTarget,
                                          bool isDepth, const RG::CapturedPipelineState& ps)
     {
         if (state != DebuggerState::CaptureRequested) return;
@@ -223,6 +224,7 @@ namespace Luth
         cp.name               = name;
         cp.firstDrawIndex     = (u32)capturedFrame.drawCalls.size();
         cp.drawCallCount      = 0;
+        cp.graphPassIndex     = graphPassIndex;
         cp.pipelineState      = ps;
         cp.activeRenderTarget = activeTarget;
         cp.isDepthTarget      = isDepth;

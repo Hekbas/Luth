@@ -75,7 +75,7 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(passName, resName, true,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, passName, resName, true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }

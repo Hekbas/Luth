@@ -850,13 +850,16 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // List the archives this pass produced (color/depth/etc.)
-            if ((u32)m_SelPassIndex < capture.passArchives.size() &&
-                !capture.passArchives[m_SelPassIndex].empty() &&
+            // List the archives this pass produced (color/depth/etc.).
+            // passArchives is keyed by graph pass index (sparse); m_SelPassIndex
+            // is the dense passes[] index, so route through pass.graphPassIndex.
+            const u32 archiveKey = pass.graphPassIndex;
+            if (archiveKey < capture.passArchives.size() &&
+                !capture.passArchives[archiveKey].empty() &&
                 UI::BeginCollapsingHeader("Pass Outputs"))
             {
                 ImGui::Indent(4.0f);
-                for (u32 ai : capture.passArchives[m_SelPassIndex])
+                for (u32 ai : capture.passArchives[archiveKey])
                 {
                     if (ai >= capture.archivedImages.size()) continue;
                     const auto& a = capture.archivedImages[ai];

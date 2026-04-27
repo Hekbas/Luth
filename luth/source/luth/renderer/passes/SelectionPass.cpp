@@ -86,7 +86,7 @@ namespace Luth
             },
             [this](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("SelectionMaskPass", "SelectionMask", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "SelectionMaskPass", "SelectionMask", false,
                     { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
                 if (!m_SelectionMaskPipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }

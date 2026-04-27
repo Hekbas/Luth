@@ -43,7 +43,7 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("SkyboxPass", "SceneColor", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
                 if (!m_SkyboxPipeline || !m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }

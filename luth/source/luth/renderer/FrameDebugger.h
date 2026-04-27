@@ -46,8 +46,12 @@ namespace Luth
         VkDevice     archiveDevice    = VK_NULL_HANDLE;
         VmaAllocator archiveAllocator = nullptr;
 
-        // Capture helpers (called during normal recording when CaptureRequested)
-        void BeginCapturePass(const std::string& name, const std::string& activeTarget,
+        // Capture helpers (called during normal recording when CaptureRequested).
+        // graphPassIndex is RenderPassContext::passIndex — needed so the Frozen
+        // panel can key passArchives lookups by graph index instead of dense
+        // push order. Pass call sites grab it from ctx.passIndex.
+        void BeginCapturePass(u32 graphPassIndex,
+                              const std::string& name, const std::string& activeTarget,
                               bool isDepth, const RG::CapturedPipelineState& ps);
         void EndCapturePass();
         void CaptureDrawCall(const std::string& passName, const std::string& meshName,

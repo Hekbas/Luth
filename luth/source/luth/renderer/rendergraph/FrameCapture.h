@@ -72,6 +72,12 @@ namespace Luth::RG
         u32 drawCallCount   = 0;
         float gpuTimeMs     = -1.0f;
 
+        // Graph index of this pass in the source RenderGraph. Used to look
+        // up CapturedFrame::passArchives, which is keyed by graph index
+        // (sparse — empty slots for culled passes / passes without tracked
+        // RT writes), while CapturedFrame::passes is dense (push-order).
+        u32 graphPassIndex = 0;
+
         CapturedPipelineState pipelineState;
 
         // Active render target tracking for rescue blit

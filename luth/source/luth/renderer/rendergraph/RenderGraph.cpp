@@ -545,10 +545,11 @@ namespace Luth::RG
                 state.job.HasDepth = true;
             }
 
-            state.job.RecordFunction = [this, &pass](VkCommandBuffer cmd)
+            state.job.RecordFunction = [this, &pass, i](VkCommandBuffer cmd)
             {
                 RenderPassContext ctx;
                 ctx.commandBuffer = cmd;
+                ctx.passIndex     = (u32)i;
                 ctx.GetResource = [this](ResourceHandle h) -> void*
                 {
                     return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
@@ -656,6 +657,7 @@ namespace Luth::RG
 
                 RenderPassContext ctx;
                 ctx.commandBuffer = primaryCmd;
+                ctx.passIndex     = (u32)i;
                 ctx.GetResource = [this](ResourceHandle h) -> void*
                 {
                     return (h.index > 0 && h.index <= m_Resources.size()) ? &m_Resources[h.index - 1] : nullptr;
