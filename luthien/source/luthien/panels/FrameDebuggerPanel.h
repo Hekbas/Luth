@@ -14,6 +14,29 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
+        // Unity-style viewport pass preview. ScenePanel / GamePanel query the
+        // panel each frame to decide whether to render the live LDR or the
+        // currently-selected pass's archived RT in their viewport.
+        enum class OverlayMode : u8 { Off, Scene, Game, Both };
+
+        struct OverlaySource
+        {
+            VkImageView view    = VK_NULL_HANDLE;
+            VkSampler   sampler = VK_NULL_HANDLE;
+            u32         width   = 0;
+            u32         height  = 0;
+        };
+
+        bool ShouldOverlayInScene() const { return m_OverlayMode == OverlayMode::Scene || m_OverlayMode == OverlayMode::Both; }
+        bool ShouldOverlayInGame()  const { return m_OverlayMode == OverlayMode::Game  || m_OverlayMode == OverlayMode::Both; }
+
+        // Resolves the currently-selected pass's primary archive into a view +
+        // sampler suitable for ImGui::Image. Returns a null view when no valid
+        // non-depth color archive is selected (depth archives are rendered via
+        // the panel's own DrawArchivePreview path; viewport overlay falls back
+        // to live rendering for those).
+        OverlaySource GetOverlaySource() const;
+
     private:
         // Live mode — pass-level view over the current graph snapshot.
         void DrawLiveView(const RG::RenderGraphSnapshot& snapshot);
@@ -56,5 +79,7 @@ namespace Luth
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
         u32 m_TreeNodeCounter = 0;
+
+        OverlayMode m_OverlayMode = OverlayMode::Off;
     };
 }

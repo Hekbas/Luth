@@ -3,6 +3,7 @@
 
 #include "luthien/EditorSettings.h"
 #include "luthien/widgets/Icons.h"
+#include "luthien/panels/FrameDebuggerPanel.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -115,8 +116,19 @@ namespace Luth
                 gameView.emitImGuiPass        = false;
                 m_RenderingSystem->QueueView(gameView);
 
-                const auto& ldr = m_Targets.GetLDROutput();
-                m_Viewport->DrawSceneTexture(ldr ? ldr : m_Targets.GetSceneColor());
+                // Frame Debugger viewport overlay (Unity-style): when Frozen
+                // and the panel is set to overlay in the Game viewport, render
+                // the selected pass's archived RT instead of the live LDR.
+                FrameDebuggerPanel::OverlaySource fdOverlay{};
+                if (auto* fd = Editor::GetPanel<FrameDebuggerPanel>(); fd && fd->ShouldOverlayInGame())
+                    fdOverlay = fd->GetOverlaySource();
+
+                if (fdOverlay.view != VK_NULL_HANDLE) {
+                    m_Viewport->DrawSceneTextureRaw(fdOverlay.view, fdOverlay.sampler);
+                } else {
+                    const auto& ldr = m_Targets.GetLDROutput();
+                    m_Viewport->DrawSceneTexture(ldr ? ldr : m_Targets.GetSceneColor());
+                }
             } else {
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
                 const char* msg = scene

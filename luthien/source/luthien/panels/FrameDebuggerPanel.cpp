@@ -99,6 +99,33 @@ namespace Luth
         m_RS = SystemRegistry::GetSystem<RenderingSystem>();
     }
 
+    // ---- Public overlay accessor (Unity-style viewport preview) ----
+
+    FrameDebuggerPanel::OverlaySource FrameDebuggerPanel::GetOverlaySource() const
+    {
+        OverlaySource src{};
+        if (!m_RS || m_OverlayMode == OverlayMode::Off) return src;
+        if (m_RS->GetDebuggerState() != DebuggerState::Frozen) return src;
+
+        const auto& capture = m_RS->GetCapturedFrame();
+        if (!capture.valid) return src;
+        if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size()) return src;
+
+        const auto& archive = capture.archivedImages[m_SelArchiveIdx];
+        // MVP — only non-depth color archives. Depth/cascade archives stay in
+        // the panel's own thumbnail (DrawArchivePreview routes them through
+        // BlitArchivedDepthToPreview); viewport overlay can fall back to live
+        // rendering for those.
+        if (archive.isDepth) return src;
+        if (archive.view == VK_NULL_HANDLE) return src;
+
+        src.view    = archive.view;
+        src.sampler = m_RS->GetDebugSampler();
+        src.width   = archive.width;
+        src.height  = archive.height;
+        return src;
+    }
+
     // ---- Main Render ----
 
     void FrameDebuggerPanel::OnRender()
@@ -564,6 +591,28 @@ namespace Luth
                  capture.drawCalls.size(),
                  capture.totalGpuTimeMs);
         ImGui::TextDisabled("%s", status);
+
+        // ----- Overlay row -----
+        // Unity-style: while Frozen, the chosen viewport renders the selected
+        // pass's archived RT instead of the live frame. ScenePanel/GamePanel
+        // call back via Editor::GetPanel<FrameDebuggerPanel>() each frame.
+        ImGui::TextDisabled("Overlay in viewport:");
+        ImGui::SameLine();
+        const char* modeLabels[] = { "Off", "Scene", "Game", "Both" };
+        int modeIdx = (int)m_OverlayMode;
+        ImGui::SetNextItemWidth(120.0f);
+        if (ImGui::Combo("##OverlayMode", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels)))
+            m_OverlayMode = (OverlayMode)modeIdx;
+
+        if (m_OverlayMode != OverlayMode::Off)
+        {
+            ImGui::SameLine();
+            const auto src = GetOverlaySource();
+            if (src.view == VK_NULL_HANDLE)
+                ImGui::TextDisabled("(select a non-depth pass)");
+            else
+                ImGui::TextDisabled("(showing %ux%u)", src.width, src.height);
+        }
     }
 
     void FrameDebuggerPanel::SelectEventNode(const RG::EventNode& node)

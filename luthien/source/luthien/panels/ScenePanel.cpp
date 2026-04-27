@@ -10,6 +10,7 @@
 #include "luthien/viewport/ViewportRenderer.h"
 #include "luthien/viewport/GizmoController.h"
 #include "luthien/viewport/ViewportOverlays.h"
+#include "luthien/panels/FrameDebuggerPanel.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
@@ -296,7 +297,21 @@ namespace Luth
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
             m_Viewport->BeginViewport();
-            m_Viewport->DrawSceneTexture(m_RenderingSystem);
+
+            // Frame Debugger viewport overlay (Unity-style): when Frozen and
+            // the panel is set to overlay in the Scene viewport, render the
+            // selected pass's archived RT instead of the live LDR.
+            const FrameDebuggerPanel::OverlaySource fdOverlay =
+                [] {
+                    auto* fd = Editor::GetPanel<FrameDebuggerPanel>();
+                    if (fd && fd->ShouldOverlayInScene()) return fd->GetOverlaySource();
+                    return FrameDebuggerPanel::OverlaySource{};
+                }();
+
+            if (fdOverlay.view != VK_NULL_HANDLE)
+                m_Viewport->DrawSceneTextureRaw(fdOverlay.view, fdOverlay.sampler);
+            else
+                m_Viewport->DrawSceneTexture(m_RenderingSystem);
 
             // Handle gizmos
             m_Gizmo->DrawManipulator(
