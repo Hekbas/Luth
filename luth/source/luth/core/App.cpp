@@ -145,21 +145,19 @@ namespace Luth
     App::~App() {}
 
     // ===============================================================================
-    // Pipelined Engine Loop (V2: Main Thread Isolated)
+    // Pipelined Engine Loop — Game(N) | Render(N-1) | GPU(N-2)
     // ===============================================================================
-    // Structure (target):
-    //   1. glfwPollEvents()         — OS message pump (main-thread-only)
-    //   2. TryReclaimGPU(N-2)       — Non-blocking GPU completion check
-    //   3. KickGame(Frame[N])       — Dispatch game logic to workers
-    //   4. WaitForCounter(GameReady) — Main thread busy-spins (V2 isolated)
-    //   5. KickRender(Frame[N-1])   — Dispatch render recording to workers
-    //   6. WaitForCounter(RenderReady) — Wait for recording
-    //   7. Submit(Frame[N-1])       — Send command buffers to GPU
-    //   8. Present()                — Swapchain present (main-thread-only)
+    // Main thread is isolated (V2): pumps OS events, drives editor ImGui,
+    // dispatches the two stage fibers, and busy-spins on their counters
+    // (no work-stealing into main).
     //
-    // Phase 2 Implementation: Frame data flow is correct. Full job parallelism
-    // between Game(N) and Render(N-1) is wired structurally but runs sequentially
-    // within each frame until Phase 3 (Render Graph) enables proper parallel recording.
+    // Frames 0/1 run synchronously (game then render against Current()) to
+    // seed the pipeline. From frame 2 onward, Render of Previous() is
+    // dispatched before the GameReady wait, so Game(N) and Render(N-1)
+    // overlap on separate worker fibers. The frame boundary is the
+    // RenderSnapshot captured at end of game stage; render reads it from
+    // a different FrameContext slot, so the two stages never race on
+    // the same data.
 
     void App::Run()
     {
