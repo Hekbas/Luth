@@ -25,6 +25,21 @@ namespace Luth
         }
     }
 
+    // Walks the event tree depth-first, returning the Pass or Cascade node
+    // whose dense passes-vector index matches `passIdx`, else nullptr. Used
+    // by the capture-mode pass-scrub slider so SelectEventNode can pick up
+    // the same archive/layer that EventTree already resolved at finalize.
+    static const RG::EventNode* FindEventNodeByPassIndex(const RG::EventNode& node, u32 passIdx)
+    {
+        if ((node.kind == RG::EventNodeKind::Pass || node.kind == RG::EventNodeKind::Cascade) &&
+            node.passIndex == passIdx)
+            return &node;
+        for (const auto& child : node.children)
+            if (const RG::EventNode* found = FindEventNodeByPassIndex(child, passIdx))
+                return found;
+        return nullptr;
+    }
+
     static bool IsDepthFormat(RG::TextureFormat fmt)
     {
         return fmt == RG::TextureFormat::D32_Float || fmt == RG::TextureFormat::D24_Unorm_S8_Uint;
@@ -466,17 +481,87 @@ namespace Luth
             m_SelArchiveIdx   = -1;
             m_SelArchiveLayer = -1;
             m_RS->ExitCapture();
+            ImGui::PopStyleColor();
+            return;
         }
         ImGui::PopStyleColor();
 
         ImGui::SameLine();
 
+        const int passCount = (int)capture.passes.size();
+        if (passCount > 0)
+        {
+            // Auto-select pass 0 the first frame the panel renders a fresh
+            // capture (or whenever the user has cleared the selection by
+            // clicking a Group node). Keeps the slider + Output preview live
+            // without requiring a tree click.
+            if (m_SelPassIndex < 0 || m_SelPassIndex >= passCount)
+            {
+                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, 0))
+                    SelectEventNode(*n);
+            }
+
+            int sliderValue = m_SelPassIndex;
+            if (sliderValue < 0)             sliderValue = 0;
+            if (sliderValue >= passCount)    sliderValue = passCount - 1;
+
+            // Slider format: "<PassName> (<index>)" — runtime-built since the
+            // label changes per slider position. Escape % via %% so the
+            // pass-name is treated as a literal in the printf format.
+            char fmt[160];
+            snprintf(fmt, sizeof(fmt), "%s (%%d)", capture.passes[sliderValue].name.c_str());
+
+            const float arrowsWidth = 60.0f;
+            const float statsWidth  = 200.0f;
+            const float spacing     = ImGui::GetStyle().ItemSpacing.x;
+            float sliderWidth = ImGui::GetContentRegionAvail().x - arrowsWidth - statsWidth - spacing * 3;
+            if (sliderWidth < 100.0f) sliderWidth = 100.0f;
+
+            ImGui::SetNextItemWidth(sliderWidth);
+            int newValue = sliderValue;
+            if (ImGui::SliderInt("##PassScrub", &newValue, 0, passCount - 1, fmt))
+            {
+                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)newValue))
+                    SelectEventNode(*n);
+            }
+
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##PrevPass", ImGuiDir_Left) && sliderValue > 0)
+            {
+                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue - 1)))
+                    SelectEventNode(*n);
+            }
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##NextPass", ImGuiDir_Right) && sliderValue < passCount - 1)
+            {
+                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue + 1)))
+                    SelectEventNode(*n);
+            }
+
+            // [ / ] keyboard scrub. Gated on the panel's window focus so the
+            // shortcut doesn't fire while the user is typing into another
+            // panel's text field.
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket, /*repeat*/true) && sliderValue > 0)
+                {
+                    if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue - 1)))
+                        SelectEventNode(*n);
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket, /*repeat*/true) && sliderValue < passCount - 1)
+                {
+                    if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue + 1)))
+                        SelectEventNode(*n);
+                }
+            }
+        }
+
+        ImGui::SameLine();
         char status[160];
         snprintf(status, sizeof(status),
-                 "%zu passes | %zu draws | %zu archives | %.2f ms",
+                 "%zu passes | %zu draws | %.2f ms",
                  capture.passes.size(),
                  capture.drawCalls.size(),
-                 capture.archivedImages.size(),
                  capture.totalGpuTimeMs);
         ImGui::TextDisabled("%s", status);
     }
