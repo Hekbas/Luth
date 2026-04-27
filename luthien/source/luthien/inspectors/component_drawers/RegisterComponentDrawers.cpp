@@ -8,7 +8,7 @@ namespace Luth::ComponentDrawers
 {
     void RegisterComponentDrawers()
     {
-    #if defined(DEBUG)
+    #if defined(LUTH_BUILD_DEBUG)
         RegisterID();
         RegisterParent();
         RegisterChildren();

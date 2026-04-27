@@ -13,7 +13,7 @@ int main(int argc, char** argv)
     if (!app) {
         LH_CORE_CRITICAL("Failed to create app. Exiting.");
 
-        #ifdef _DEBUG
+        #if defined(LUTH_BUILD_DEBUG)
             std::cerr << "Press Enter to exit...";
             std::cin.ignore();
         #endif

@@ -15,7 +15,6 @@ project "Luth"
    {
       "GLFW_INCLUDE_NONE",
       "FMT_HEADER_ONLY=1",
-      "LUTH_SPIRV_CROSS_ENABLED=1",
       "SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS"
    }
 
@@ -67,17 +66,17 @@ project "Luth"
    }
 
    filter "configurations:Debug"
-      defines { "DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
+      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "RELEASE", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
+      defines { "LUTH_BUILD_RELEASE", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
       runtime "Release"
       optimize "on"
 
    filter "configurations:Dist"
-      defines { "DIST" }
+      defines { "LUTH_BUILD_DIST" }
       runtime "Release"
       optimize "on"
       

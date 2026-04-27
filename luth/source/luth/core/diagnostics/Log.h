@@ -1,7 +1,7 @@
 #pragma once
 
 // spdlog active level
-#if defined(_DEBUG) || defined(DEBUG)
+#if defined(LUTH_BUILD_DEBUG)
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #else
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
