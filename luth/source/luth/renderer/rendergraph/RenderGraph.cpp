@@ -247,7 +247,10 @@ namespace Luth::RG
                 if (buf.external) { pass.culled = false; break; }
             }
 
-            // If alive, un-cull passes that produce what this pass reads (images)
+            // If alive, un-cull passes that produce what this pass reads.
+            // Track `found` per producer search so an already-alive intervening
+            // pass doesn't short-circuit before we locate the actual writer of
+            // this resource.
             if (!pass.culled)
             {
                 for (const auto& readHandle : pass.reads)
@@ -255,33 +258,36 @@ namespace Luth::RG
                     for (size_t j = i - 1; j > 0; --j)
                     {
                         auto& producer = m_Passes[j - 1];
+                        bool found = false;
                         for (const auto& writeHandle : producer.writes)
                         {
                             if (writeHandle.index == readHandle.index)
                             {
                                 producer.culled = false;
+                                found = true;
                                 break;
                             }
                         }
-                        if (!producer.culled) break;
+                        if (found) break;
                     }
                 }
 
-                // Un-cull passes that produce what this pass reads (buffers)
                 for (const auto& readHandle : pass.bufferReads)
                 {
                     for (size_t j = i - 1; j > 0; --j)
                     {
                         auto& producer = m_Passes[j - 1];
+                        bool found = false;
                         for (const auto& writeHandle : producer.bufferWrites)
                         {
                             if (writeHandle.index == readHandle.index)
                             {
                                 producer.culled = false;
+                                found = true;
                                 break;
                             }
                         }
-                        if (!producer.culled) break;
+                        if (found) break;
                     }
                 }
             }
