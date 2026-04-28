@@ -10,6 +10,7 @@
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
+#include "luth/renderer/resources/AnimationClip.h"
 
 namespace Luth::ComponentDrawers
 {
@@ -52,16 +53,22 @@ namespace Luth::ComponentDrawers
                     return;
                 }
 
-                const auto& clips = model->GetAnimationClips();
-                int clipCount = (int)clips.size();
+                const auto& clipUUIDs = model->GetAnimationClipUUIDs();
+                int clipCount = (int)clipUUIDs.size();
                 if (clipCount == 0) {
                     ImGui::TextDisabled("No animation clips");
                     return;
                 }
 
+                // Storage owns the strings; pointers feed ImGui::Combo. <not loaded>
+                // shows briefly while clips are still streaming in via LoadAsync.
+                std::vector<std::string> clipNamesStorage(clipCount);
                 std::vector<const char*> clipNames(clipCount);
-                for (int i = 0; i < clipCount; i++)
-                    clipNames[i] = clips[i].Name.c_str();
+                for (int i = 0; i < clipCount; i++) {
+                    auto cl = AssetManager::GetAsset<AnimationClip>(clipUUIDs[i]);
+                    clipNamesStorage[i] = cl ? cl->Name : std::string("<not loaded>");
+                    clipNames[i] = clipNamesStorage[i].c_str();
+                }
 
                 animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
 
@@ -78,7 +85,10 @@ namespace Luth::ComponentDrawers
                         }
                     }
 
-                    const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+                    std::shared_ptr<AnimationClip> clipPtr;
+                    if ((u32)animation.AnimationIndex < clipUUIDs.size())
+                        clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[animation.AnimationIndex]);
+                    const AnimationClip* clip = clipPtr.get();
                     if (clip) {
                         f32 duration = clip->GetDurationSeconds();
 
@@ -100,7 +110,10 @@ namespace Luth::ComponentDrawers
                     UI::EndProperties();
                 }
 
-                const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+                std::shared_ptr<AnimationClip> clipPtr;
+                if ((u32)animation.AnimationIndex < clipUUIDs.size())
+                    clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[animation.AnimationIndex]);
+                const AnimationClip* clip = clipPtr.get();
                 if (!clip) return;
 
                 ImGui::Dummy({ 0, 4 });

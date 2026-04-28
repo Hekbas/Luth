@@ -192,7 +192,7 @@ namespace Luth
         if (!out.is_open()) return false;
 
         AssetHeader header;
-        header.Version = 2; // V2: supports skeleton/animation data
+        header.Version = 3; // V3: clips referenced by UUID (was inline AnimationClips in V2)
         header.Type = AssetType::Model;
         out.write((const char*)&header, sizeof(AssetHeader));
 
@@ -201,7 +201,7 @@ namespace Luth
         modelHeader.MaterialCount = (u32)data.Materials.size();
         modelHeader.IsSkinned = data.IsSkinned ? 1 : 0;
         modelHeader.BoneCount = data.SkeletonData.BoneCount();
-        modelHeader.AnimationCount = (u32)data.AnimationClips.size();
+        modelHeader.AnimationCount = (u32)data.AnimationClipUUIDs.size();
         out.write((const char*)&modelHeader, sizeof(ModelHeader));
 
         // Write Materials
@@ -230,14 +230,15 @@ namespace Luth
             out.write((const char*)mesh.Indices.data(), mesh.Indices.size() * sizeof(u32));
         }
 
-        // Write Skeleton (V2)
+        // Write Skeleton
         if (modelHeader.BoneCount > 0) {
             WriteSkeleton(out, data.SkeletonData);
         }
 
-        // Write Animation Clips (V2)
+        // V3: clip UUIDs (was inline clip data in V2)
         if (modelHeader.AnimationCount > 0) {
-            WriteAnimationClips(out, data.AnimationClips);
+            out.write((const char*)data.AnimationClipUUIDs.data(),
+                modelHeader.AnimationCount * sizeof(UUID));
         }
 
         return true;
@@ -252,98 +253,58 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Model) return false;
 
-        bool isV2 = (header.Version >= 2);
+        // V3 schema: clips by UUID. V1/V2 artifacts are rejected so they get
+        // re-imported under the new schema on first load (mirrors the Shader
+        // V1->V2 reject pattern below).
+        if (header.Version != 3) return false;
 
-        if (isV2) {
-            // V2 format with full ModelHeader
-            ModelHeader modelHeader;
-            in.read((char*)&modelHeader, sizeof(ModelHeader));
+        ModelHeader modelHeader;
+        in.read((char*)&modelHeader, sizeof(ModelHeader));
 
-            outData.IsSkinned = (modelHeader.IsSkinned != 0);
+        outData.IsSkinned = (modelHeader.IsSkinned != 0);
 
-            // Read Materials
-            outData.Materials.resize(modelHeader.MaterialCount);
-            in.read((char*)outData.Materials.data(), modelHeader.MaterialCount * sizeof(UUID));
+        // Read Materials
+        outData.Materials.resize(modelHeader.MaterialCount);
+        in.read((char*)outData.Materials.data(), modelHeader.MaterialCount * sizeof(UUID));
 
-            // Read Meshes
-            outData.Meshes.resize(modelHeader.MeshCount);
-            for (u32 i = 0; i < modelHeader.MeshCount; i++)
-            {
-                auto& mesh = outData.Meshes[i];
-                mesh.Name = ReadString(in);
+        // Read Meshes
+        outData.Meshes.resize(modelHeader.MeshCount);
+        for (u32 i = 0; i < modelHeader.MeshCount; i++)
+        {
+            auto& mesh = outData.Meshes[i];
+            mesh.Name = ReadString(in);
 
-                MeshHeader meshHeader;
-                in.read((char*)&meshHeader, sizeof(MeshHeader));
-                mesh.MaterialIndex = meshHeader.MaterialIndex;
-                mesh.IsSkinned = (meshHeader.IsSkinned != 0);
+            MeshHeader meshHeader;
+            in.read((char*)&meshHeader, sizeof(MeshHeader));
+            mesh.MaterialIndex = meshHeader.MaterialIndex;
+            mesh.IsSkinned = (meshHeader.IsSkinned != 0);
 
-                if (mesh.IsSkinned) {
-                    mesh.SkinnedVertices.resize(meshHeader.VertexCount);
-                    in.read((char*)mesh.SkinnedVertices.data(), meshHeader.VertexCount * sizeof(SkinnedVertex));
-                    for (const auto& v : mesh.SkinnedVertices)
-                        mesh.BindPoseAABB.Expand(v.Position);
-                } else {
-                    mesh.Vertices.resize(meshHeader.VertexCount);
-                    in.read((char*)mesh.Vertices.data(), meshHeader.VertexCount * sizeof(Vertex));
-                    for (const auto& v : mesh.Vertices)
-                        mesh.BindPoseAABB.Expand(v.Position);
-                }
-
-                mesh.Indices.resize(meshHeader.IndexCount);
-                in.read((char*)mesh.Indices.data(), meshHeader.IndexCount * sizeof(u32));
-            }
-
-            // Read Skeleton
-            if (modelHeader.BoneCount > 0) {
-                ReadSkeleton(in, outData.SkeletonData, modelHeader.BoneCount);
-            }
-
-            // Read Animation Clips
-            if (modelHeader.AnimationCount > 0) {
-                ReadAnimationClips(in, outData.AnimationClips, modelHeader.AnimationCount);
-            }
-        }
-        else {
-            // V1 backward compatibility: old format with smaller ModelHeader
-            // V1 ModelHeader only had MeshCount + MaterialCount (8 bytes)
-            // We already read the full new ModelHeader, so we need to re-read
-            in.seekg(sizeof(AssetHeader), std::ios::beg);
-
-            u32 meshCount, materialCount;
-            in.read((char*)&meshCount, sizeof(u32));
-            in.read((char*)&materialCount, sizeof(u32));
-
-            outData.IsSkinned = false;
-
-            outData.Materials.resize(materialCount);
-            in.read((char*)outData.Materials.data(), materialCount * sizeof(UUID));
-
-            outData.Meshes.resize(meshCount);
-            for (u32 i = 0; i < meshCount; i++)
-            {
-                auto& mesh = outData.Meshes[i];
-                mesh.IsSkinned = false;
-
-                u32 nameLen;
-                in.read((char*)&nameLen, sizeof(u32));
-                mesh.Name.resize(nameLen);
-                in.read(mesh.Name.data(), nameLen);
-
-                // V1 MeshHeader only had VertexCount + IndexCount + MaterialIndex (12 bytes)
-                u32 vertexCount, indexCount, materialIndex;
-                in.read((char*)&vertexCount, sizeof(u32));
-                in.read((char*)&indexCount, sizeof(u32));
-                in.read((char*)&materialIndex, sizeof(u32));
-                mesh.MaterialIndex = materialIndex;
-
-                mesh.Vertices.resize(vertexCount);
-                in.read((char*)mesh.Vertices.data(), vertexCount * sizeof(Vertex));
+            if (mesh.IsSkinned) {
+                mesh.SkinnedVertices.resize(meshHeader.VertexCount);
+                in.read((char*)mesh.SkinnedVertices.data(), meshHeader.VertexCount * sizeof(SkinnedVertex));
+                for (const auto& v : mesh.SkinnedVertices)
+                    mesh.BindPoseAABB.Expand(v.Position);
+            } else {
+                mesh.Vertices.resize(meshHeader.VertexCount);
+                in.read((char*)mesh.Vertices.data(), meshHeader.VertexCount * sizeof(Vertex));
                 for (const auto& v : mesh.Vertices)
                     mesh.BindPoseAABB.Expand(v.Position);
-
-                mesh.Indices.resize(indexCount);
-                in.read((char*)mesh.Indices.data(), indexCount * sizeof(u32));
             }
+
+            mesh.Indices.resize(meshHeader.IndexCount);
+            in.read((char*)mesh.Indices.data(), meshHeader.IndexCount * sizeof(u32));
+        }
+
+        // Read Skeleton
+        if (modelHeader.BoneCount > 0) {
+            ReadSkeleton(in, outData.SkeletonData, modelHeader.BoneCount);
+        }
+
+        // V3: read clip UUIDs
+        if (modelHeader.AnimationCount > 0) {
+            outData.AnimationClipUUIDs.resize(modelHeader.AnimationCount);
+            in.read((char*)outData.AnimationClipUUIDs.data(),
+                modelHeader.AnimationCount * sizeof(UUID));
         }
 
         return true;

@@ -89,7 +89,7 @@ namespace Luth
 
         static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials);
         static std::shared_ptr<Model> Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials,
-            const Skeleton& skeleton, const std::vector<AnimationClip>& clips, bool isSkinned);
+            const Skeleton& skeleton, const std::vector<UUID>& clipUUIDs, bool isSkinned);
         
         std::vector<MeshData>& GetMeshesData() { return m_MeshesData; }
         const std::vector<std::shared_ptr<Mesh>>& GetMeshes() const { return m_Meshes; }
@@ -107,14 +107,12 @@ namespace Luth
         bool IsSkinned() const { return m_IsSkinned; }
         void SetIsSkinned(bool value) { m_IsSkinned = value; }
 
-        // Skeleton & Animation
+        // Skeleton & Animation. Clips are first-class assets — lookup via
+        // AssetManager::GetAsset<AnimationClip>(uuid) using indices into the UUID list.
         const Skeleton& GetSkeleton() const { return m_Skeleton; }
         Skeleton& GetSkeleton() { return m_Skeleton; }
-        const std::vector<AnimationClip>& GetAnimationClips() const { return m_AnimationClips; }
-        std::vector<AnimationClip>& GetAnimationClips() { return m_AnimationClips; }
-        const AnimationClip* GetAnimationClip(u32 index) const {
-            return (index < m_AnimationClips.size()) ? &m_AnimationClips[index] : nullptr;
-        }
+        const std::vector<UUID>& GetAnimationClipUUIDs() const { return m_AnimationClipUUIDs; }
+        std::vector<UUID>& GetAnimationClipUUIDs() { return m_AnimationClipUUIDs; }
 
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
@@ -136,6 +134,6 @@ namespace Luth
         bool m_IsSkinned = false;
 
         Skeleton m_Skeleton;
-        std::vector<AnimationClip> m_AnimationClips;
+        std::vector<UUID> m_AnimationClipUUIDs;
     };
 }

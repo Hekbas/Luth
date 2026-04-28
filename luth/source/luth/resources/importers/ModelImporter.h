@@ -30,6 +30,11 @@ namespace Luth
         };
         MeshTransformMode SkinMeshTransform = MeshTransformMode::Auto;
 
+        // When true, each animation clip from the source becomes its own .anim
+        // sibling asset (UUID-addressable, shareable across rigs). Disable to
+        // skip clip extraction entirely.
+        bool ExtractClipsAsSeparateAssets = true;
+
         static ModelImportSettings FromJson(const nlohmann::json& j);
         nlohmann::json ToJson() const;
     };
@@ -39,7 +44,7 @@ namespace Luth
         std::vector<MeshData> Meshes;
         std::vector<UUID> Materials;
         Skeleton SkeletonData;
-        std::vector<AnimationClip> AnimationClips;
+        std::vector<UUID> AnimationClipUUIDs;
         bool IsSkinned = false;
     };
 

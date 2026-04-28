@@ -7,6 +7,7 @@
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
+#include "luth/renderer/resources/AnimationClip.h"
 
 namespace Luth::ComponentDrawers
 {
@@ -49,16 +50,20 @@ namespace Luth::ComponentDrawers
                     return;
                 }
 
-                const auto& clips = model->GetAnimationClips();
-                int clipCount = (int)clips.size();
+                const auto& clipUUIDs = model->GetAnimationClipUUIDs();
+                int clipCount = (int)clipUUIDs.size();
                 if (clipCount == 0) {
                     ImGui::TextDisabled("No animation clips");
                     return;
                 }
 
+                std::vector<std::string> clipNamesStorage(clipCount);
                 std::vector<const char*> clipNames(clipCount);
-                for (int i = 0; i < clipCount; i++)
-                    clipNames[i] = clips[i].Name.c_str();
+                for (int i = 0; i < clipCount; i++) {
+                    auto cl = AssetManager::GetAsset<AnimationClip>(clipUUIDs[i]);
+                    clipNamesStorage[i] = cl ? cl->Name : std::string("<not loaded>");
+                    clipNames[i] = clipNamesStorage[i].c_str();
+                }
 
                 Scene* scene = entity.GetScene();
                 entt::entity ent = (entt::entity)entity;

@@ -223,7 +223,7 @@ namespace Luth
         else if (type == AssetType::Model) {
             auto* d = static_cast<ModelAssetData*>(data);
             if (d->IsSkinned)
-                return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClips, true);
+                return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClipUUIDs, true);
             else
                 return Model::Create(d->Meshes, d->Materials);
         }
@@ -319,6 +319,18 @@ namespace Luth
                     {
                         if (map.Uuid.IsValid())
                             LoadAsync(map.Uuid);
+                    }
+                }
+
+                // Model-specific: trigger async load for the model's animation clips
+                // so AnimationSystem can sample them on the next frame.
+                if (upload.Type == AssetType::Model && newAsset)
+                {
+                    auto* model = static_cast<Model*>(newAsset.get());
+                    for (const auto& clipUUID : model->GetAnimationClipUUIDs())
+                    {
+                        if (clipUUID.IsValid())
+                            LoadAsync(clipUUID);
                     }
                 }
             }

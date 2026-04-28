@@ -7,6 +7,7 @@
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/TextureResolver.h"
 #include "luth/resources/importers/ImportReport.h"
+#include "luth/resources/importers/AnimationClipImporter.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Skeleton.h"
 #include "luth/renderer/resources/AnimationClip.h"
@@ -33,26 +34,28 @@ namespace Luth
     ModelImportSettings ModelImportSettings::FromJson(const nlohmann::json& j)
     {
         ModelImportSettings s;
-        s.ImportNormals       = j.value("import_normals", true);
-        s.ImportTangents      = j.value("import_tangents", false);
-        s.OptimizeMesh        = j.value("optimize_mesh", true);
-        s.ScaleFactor         = j.value("scale_factor", 1.0f);
-        s.UpAxis              = j.value("up_axis", -1);
-        s.BakeAxisConversion  = j.value("bake_axis_conversion", true);
-        s.SkinMeshTransform   = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
+        s.ImportNormals                = j.value("import_normals", true);
+        s.ImportTangents               = j.value("import_tangents", false);
+        s.OptimizeMesh                 = j.value("optimize_mesh", true);
+        s.ScaleFactor                  = j.value("scale_factor", 1.0f);
+        s.UpAxis                       = j.value("up_axis", -1);
+        s.BakeAxisConversion           = j.value("bake_axis_conversion", true);
+        s.SkinMeshTransform            = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
+        s.ExtractClipsAsSeparateAssets = j.value("extract_clips_as_separate_assets", true);
         return s;
     }
 
     nlohmann::json ModelImportSettings::ToJson() const
     {
         return {
-            { "import_normals",       ImportNormals },
-            { "import_tangents",      ImportTangents },
-            { "optimize_mesh",        OptimizeMesh },
-            { "scale_factor",         ScaleFactor },
-            { "up_axis",              UpAxis },
-            { "bake_axis_conversion", BakeAxisConversion },
-            { "skin_mesh_transform",  static_cast<int>(SkinMeshTransform) }
+            { "import_normals",                  ImportNormals },
+            { "import_tangents",                 ImportTangents },
+            { "optimize_mesh",                   OptimizeMesh },
+            { "scale_factor",                    ScaleFactor },
+            { "up_axis",                         UpAxis },
+            { "bake_axis_conversion",            BakeAxisConversion },
+            { "skin_mesh_transform",             static_cast<int>(SkinMeshTransform) },
+            { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets }
         };
     }
 
@@ -845,7 +848,55 @@ namespace Luth
 
             ExtractSkeleton(scene, modelData.SkeletonData, axisCorrection, meshSpaceCorrection);
             RecomputeInverseBindPoses(modelData.SkeletonData);
-            ExtractAnimationClips(scene, modelData.SkeletonData, modelData.AnimationClips);
+
+            std::vector<AnimationClip> extractedClips;
+            ExtractAnimationClips(scene, modelData.SkeletonData, extractedClips);
+
+            if (settings.ExtractClipsAsSeparateAssets && !extractedClips.empty())
+            {
+                fs::path animDir = source.parent_path() / (source.stem().string() + "_Animations");
+                if (!fs::exists(animDir))
+                    fs::create_directories(animDir);
+
+                std::unordered_set<std::string> usedNames;
+                modelData.AnimationClipUUIDs.reserve(extractedClips.size());
+
+                for (const auto& clip : extractedClips)
+                {
+                    // Sanitize for filesystem (mirrors ProcessMaterial naming)
+                    std::string clipName = clip.Name.empty() ? "Animation" : clip.Name;
+                    std::replace(clipName.begin(), clipName.end(), ':', '_');
+                    std::replace(clipName.begin(), clipName.end(), '/', '_');
+                    std::replace(clipName.begin(), clipName.end(), '\\', '_');
+
+                    // Uniquify within this import — duplicate clip names from a single FBX are rare
+                    // but uniqueness is required for stable .anim file paths.
+                    std::string finalName = clipName;
+                    int counter = 1;
+                    while (usedNames.count(finalName)) {
+                        finalName = clipName + "_" + std::to_string(counter++);
+                    }
+                    usedNames.insert(finalName);
+
+                    fs::path clipPath = animDir / (finalName + ".anim");
+
+                    AnimationAssetData animData;
+                    animData.Clip = clip;
+                    if (!AssetSerializer::SerializeAnimation(clipPath, animData)) {
+                        LH_CORE_WARN("ModelImporter: Failed to write clip '{}'", clipPath.string());
+                        continue;
+                    }
+
+                    // Get-or-create UUID; keep existing one across re-imports so scene
+                    // references remain stable when only the FBX changed.
+                    UUID clipUUID = AssetDatabase::GetUUID(clipPath);
+                    if (!clipUUID.IsValid())
+                        clipUUID = MetaFile::Create(clipPath, AssetType::Animation);
+                    AssetDatabase::RegisterAsset(clipPath, clipUUID, AssetType::Animation);
+
+                    modelData.AnimationClipUUIDs.push_back(clipUUID);
+                }
+            }
         }
 
         // 4. Process Geometry
