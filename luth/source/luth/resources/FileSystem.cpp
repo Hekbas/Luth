@@ -193,6 +193,7 @@ namespace Luth
             { ".comp",    AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             { ".luth",    AssetType::Scene    },
+            { ".anim",    AssetType::Animation },
         };
 
         std::string ext = path.extension().string();
@@ -224,8 +225,9 @@ namespace Luth
             { AssetType::Texture,  { "Texture",  "textures",  ".png",  Vec4(0.8f, 0.6f, 0.2f, 1.0f) } },
             { AssetType::Material, { "Material", "materials", ".mat",  Vec4(0.2f, 0.9f, 0.4f, 1.0f) } },
             { AssetType::Shader,   { "Shader",   "shaders",   ".glsl", Vec4(0.9f, 0.3f, 0.3f, 1.0f) } },
-            { AssetType::Font,     { "Font",     "fonts",     ".ttf",  Vec4(0.5f, 0.5f, 0.5f, 1.0f) } },
-            { AssetType::Scene,    { "Scene",    "scenes",    ".luth", Vec4(0.6f, 0.4f, 0.9f, 1.0f) } },
+            { AssetType::Font,      { "Font",      "fonts",      ".ttf",  Vec4(0.5f, 0.5f, 0.5f, 1.0f) } },
+            { AssetType::Scene,     { "Scene",     "scenes",     ".luth", Vec4(0.6f, 0.4f, 0.9f, 1.0f) } },
+            { AssetType::Animation, { "Animation", "animations", ".anim", Vec4(0.3f, 0.8f, 0.7f, 1.0f) } },
         };
         return typeInfo;
     }
