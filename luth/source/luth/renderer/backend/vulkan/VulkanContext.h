@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/FrameData.h"
+#include "luth/jobs/SpinLock.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
@@ -92,9 +93,12 @@ namespace Luth
         };
         // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h. Resource dtors
         // (VKTexture/VKBuffer/etc.) push from any thread that holds the last
-        // shared_ptr — guard the deque with m_DeletionMutex.
+        // shared_ptr. SpinLock matches the engine's fiber model — std::mutex
+        // would block the underlying OS thread the fiber is running on.
+        // Critical section is push_back / swap, both well under SpinLock's
+        // <100-cycle contract; deletor execution happens outside the lock.
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
-        std::mutex m_DeletionMutex;
+        SpinLock m_DeletionLock;
         u32 m_CurrentFrameIndex = 0;
     };
 }

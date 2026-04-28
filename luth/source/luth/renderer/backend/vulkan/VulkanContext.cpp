@@ -442,9 +442,10 @@ namespace Luth
     void VulkanContext::PushDeletion(std::function<void()>&& function)
     {
         // Resource dtors run on whatever thread released the last shared_ptr —
-        // worker fibers included. Mutex protects against concurrent push and
-        // against the main thread's flush.
-        std::lock_guard<std::mutex> lock(m_DeletionMutex);
+        // worker fibers included. SpinLock matches the engine's fiber model;
+        // critical section is a single push_back and stays well within the
+        // <100-cycle SpinLock contract.
+        SpinLockGuard lock(m_DeletionLock);
         m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(std::move(function));
     }
 
@@ -454,7 +455,7 @@ namespace Luth
         // calls PushDeletion (e.g., when releasing nested resources).
         std::deque<std::function<void()>> drained;
         {
-            std::lock_guard<std::mutex> lock(m_DeletionMutex);
+            SpinLockGuard lock(m_DeletionLock);
             drained.swap(m_DeletionQueues[m_CurrentFrameIndex].deletors);
         }
         for (auto& func : drained) func();
@@ -466,7 +467,7 @@ namespace Luth
         {
             std::deque<std::function<void()>> drained;
             {
-                std::lock_guard<std::mutex> lock(m_DeletionMutex);
+                SpinLockGuard lock(m_DeletionLock);
                 drained.swap(m_DeletionQueues[i].deletors);
             }
             for (auto& func : drained) func();
