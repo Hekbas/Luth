@@ -56,6 +56,7 @@
 | v2.8.4 | `pipeline-phase-3` | Game(N) and Render(N-1) actually run concurrently on worker fibers. `RenderSnapshot` POD frozen at end of game stage; render reads it, never the registry. Two-phase RG dispatch (1 yield/frame). Stage-isolation asserts on retained-mutex subsystems. Four latent JobSystem bugs fixed along the way (deque race, FP fiber state, registry RTTI scan, fiber pinning) | 2026-04-26 |
 | v2.8.5 | `build-config-foundation` | `luth/core/BuildConfig.h` centralizes build-config detection: `LUTH_BUILD_DEBUG/RELEASE/DIST` (premake-set) + derived `LUTH_ENABLE_VALIDATION` / `LUTH_SPIRV_CROSS_ENABLED`. Engine no longer tests `_DEBUG`/`NDEBUG`/bare `DEBUG`. Fixes Vulkan validation leak in Release. First effort under tag-only release policy | 2026-04-27 |
 | v2.8.6 | `frame-debugger-polish` | Unity-style draw-scrub slider + tree-click snap; viewport pass overlay (Scene/Game-coupled to capture source); depth archives in viewport via tonemapped preview; archive image reuse + 10 Hz throttle eliminating editor freezes under continuous camera movement; per-draw replay dispatch refactor (Shadow/Depth/Selection bodies deferred to #100); pass-archive index keying fix + graph-order pass sort + stable EventTree IDs along the way | 2026-04-28 |
+| v2.8.7 | `vulkan-correctness` | Tier-1 Vulkan hardening: deletion-queue SpinLock (V1), RG WAW barrier emission, transitive producer revival fix, swapchain OUT_OF_DATE handling + deferred Present rebuild (V2), device Features2 capability validation, sync2 frame submit + RG-driven present transition (postBarriers). 11 commits; smoke test surfaced a 240 ms SUBOPTIMAL stall + std::mutex-vs-SpinLock; arch audit fixed timeline monotonicity + render-fiber `vkDeviceWaitIdle` | 2026-04-28 |
 
 ---
 
@@ -65,14 +66,19 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.7 | S | — |
-| 2 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
-| 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
-| 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
-| 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling` |
-| 6 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
-| 7 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
-| 8 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.8 | S | — |
+| 2 | `persistent-buffer-ring` | NEW | v2.8.9 | S–M | `vulkan-correctness` |
+| 3 | `shader-reload-async` | NEW | v2.8.10 | S | `vulkan-correctness` |
+| 4 | `vulkan-polish` | NEW | v2.8.11 | M | `vulkan-correctness` |
+| 5 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
+| 6 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
+| 7 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
+| 8 | `async-compute-queue` | NEW | v2.9.2 | L | `vulkan-correctness` |
+| 9 | `rg-aliasing` (optional) | NEW | v2.9.3 | M | — |
+| 10 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 11 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
+| 12 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
+| 13 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
