@@ -375,9 +375,7 @@ namespace Luth::RG
                 }
             }
 
-            // Image write barriers — emit on state change OR write-after-write
-            // even when state matches (two consecutive ColorAttachment writes
-            // need an execution barrier between them).
+            // WAW: consecutive same-state writes still need an exec barrier (Vulkan ordering rule).
             for (size_t i = 0; i < pass.writes.size(); ++i)
             {
                 ResourceHandle handle = pass.writes[i];
@@ -426,8 +424,7 @@ namespace Luth::RG
             }
         }
 
-        // External resources with a declared finalState (e.g., swapchain →
-        // Present) get a postBarrier on whichever pass last wrote them.
+        // External finalState (e.g., swapchain → Present) — postBarrier on the last writer.
         for (size_t i = 0; i < m_Resources.size(); ++i)
         {
             ResourceNode& res = m_Resources[i];
@@ -699,9 +696,7 @@ namespace Luth::RG
                 vkCmdPipelineBarrier2(primaryCmd, &dep);
             }
 
-            // Lambda: emit any postBarriers attached to this pass *after* the
-            // pass body has executed and the archive sink has had a chance to
-            // copy attachments. Used for swapchain → Present transitions.
+            // After pass body + archive sink (sink reads attachments before transition).
             auto emitPostBarriers = [&]()
             {
                 if (pass.postBarriers.empty()) return;

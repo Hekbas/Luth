@@ -195,8 +195,7 @@ namespace Luth
             }
 
             // ── Step 3: Begin Vulkan Frame ──
-            // Skip the frame if the swapchain rebuilt (window resize / DPI
-            // change). The next iteration retries with a fresh chain.
+            // Skip on swapchain rebuild (resize / DPI change); same frameIndex retries (Advance is at end of loop).
             if (!Renderer::BeginFrame(frameIndex))
             {
                 std::this_thread::yield();

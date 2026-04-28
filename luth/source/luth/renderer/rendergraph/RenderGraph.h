@@ -115,7 +115,7 @@ namespace Luth::RG
 
             std::vector<Barrier>       preBarriers;        // Image barriers (before pass body)
             std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
-            std::vector<Barrier>       postBarriers;       // Image transitions emitted *after* the pass body — used for external resources whose finalState is set (e.g., swapchain → Present).
+            std::vector<Barrier>       postBarriers;       // After pass body — drives external finalState transitions (e.g., swapchain → Present)
 
             // Compile output
             bool culled = false;
@@ -130,9 +130,7 @@ namespace Luth::RG
 
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
-            // Optional final state for external resources — SolveBarriers
-            // appends a postBarrier on the last writer pass to transition the
-            // image to this state (e.g., swapchain → Present after ImGui).
+            // External-only: forces a postBarrier on the last writer (e.g., swapchain → Present after ImGui).
             ResourceState finalState = ResourceState::Undefined;
 
             // Physical resource (filled by AllocatePhysicalResources)
@@ -151,9 +149,7 @@ namespace Luth::RG
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
 
-            // Pass index of the last write — drives write-after-write barrier
-            // emission in SolveBarriers when two consecutive writes share state
-            // (Vulkan still requires an execution barrier between them).
+            // Drives WAW barrier emission — consecutive same-state writes still need an exec barrier.
             u32 lastWriter = UINT32_MAX;
         };
 
@@ -232,9 +228,7 @@ namespace Luth::RG
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
                                        u32 baseArrayLayer, u32 layerCount);
-        // Variant that asks the graph to transition the resource to finalState
-        // after its last write — used for swapchain images so the present
-        // barrier is RG-driven instead of hardcoded by the backend.
+        // RG appends a postBarrier on the last writer to transition to finalState (e.g., swapchain → Present).
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view,
                                        ResourceState initialState, ResourceState finalState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);

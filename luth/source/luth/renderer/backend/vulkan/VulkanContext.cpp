@@ -132,8 +132,7 @@ namespace Luth
         }
     }
 
-    // Returns true if `device` exposes VK_KHR_swapchain and at least one queue
-    // family with VK_QUEUE_GRAPHICS_BIT — minimum baseline for the renderer.
+    // Renderer baseline: VK_KHR_swapchain + a graphics queue family.
     static bool DeviceMeetsBaseline(VkPhysicalDevice device)
     {
         u32 extCount = 0;
@@ -167,9 +166,7 @@ namespace Luth
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
 
-        // Prefer a discrete GPU that meets the baseline; fall back to the
-        // first eligible device of any type. Surface-presentation support is
-        // verified later (post surface creation) in VulkanSwapchain.
+        // Prefer discrete; fall back to first eligible. Surface-presentation support is checked in VulkanSwapchain.
         VkPhysicalDevice fallback = VK_NULL_HANDLE;
         for (const auto& device : devices)
         {
@@ -219,8 +216,7 @@ namespace Luth
 
         if (m_GraphicsFamily == -1) LH_CORE_CRITICAL("Failed to find Graphics Queue Family!");
 
-        // Verify the device actually supports the 1.1/1.2/1.3 features the
-        // renderer relies on before we ask vkCreateDevice to enable them.
+        // Verify required 1.1/1.2/1.3 features before enabling them in vkCreateDevice.
         VkPhysicalDeviceVulkan11Features avail11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
         VkPhysicalDeviceVulkan12Features avail12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         VkPhysicalDeviceVulkan13Features avail13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
@@ -441,18 +437,13 @@ namespace Luth
 
     void VulkanContext::PushDeletion(std::function<void()>&& function)
     {
-        // Resource dtors run on whatever thread released the last shared_ptr —
-        // worker fibers included. SpinLock matches the engine's fiber model;
-        // critical section is a single push_back and stays well within the
-        // <100-cycle SpinLock contract.
         SpinLockGuard lock(m_DeletionLock);
         m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(std::move(function));
     }
 
     void VulkanContext::FlushDeletionQueue()
     {
-        // Drain under lock, run outside — avoids deadlock if a deletor itself
-        // calls PushDeletion (e.g., when releasing nested resources).
+        // Drain under lock, run outside — a deletor may push (nested resource release).
         std::deque<std::function<void()>> drained;
         {
             SpinLockGuard lock(m_DeletionLock);

@@ -24,9 +24,7 @@ namespace Luth
     {
         CreateSurface();
 
-        // If launched minimized or at a (0,0) extent (e.g., before the OS has
-        // committed window state), block until the window has a paintable
-        // size — Vulkan rejects swapchain creation with zero-sized extents.
+        // Block on (0,0) extent (launched-minimized) — Vulkan rejects zero-sized swapchains.
         int w = 0, h = 0;
         while (w == 0 || h == 0)
         {
@@ -66,9 +64,7 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create window surface!");
         }
 
-        // Verify the graphics queue family actually supports presentation on
-        // this surface — the assumption holds on every desktop GPU but the
-        // spec doesn't guarantee it, so check before any later code relies on it.
+        // Surface presentation support is not spec-guaranteed (true on desktop GPUs in practice).
         auto& ctx = VulkanContext::Get();
         VkBool32 presentSupport = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(ctx.GetPhysicalDevice(), ctx.GetGraphicsFamily(), m_Surface, &presentSupport);
@@ -189,16 +185,14 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        // Drain any deferred rebuild request (set by Present on OUT_OF_DATE,
-        // skipped there to keep vkDeviceWaitIdle off the render fiber). Acquire
-        // is called from the main thread (V2-isolated), so blocking is fine.
+        // Consume Present's deferred rebuild — Acquire runs on main thread (V2), blocking on Recreate is correct here.
         if (m_NeedsRebuild)
         {
             int w = 0, h = 0;
             glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
             if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
             m_NeedsRebuild = false;
-            return UINT32_MAX; // Skip this frame; semaphore wasn't signaled.
+            return UINT32_MAX;
         }
 
         uint32_t imageIndex = 0;
@@ -206,8 +200,6 @@ namespace Luth
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            // Window resized / display changed since last frame. Rebuild and
-            // skip this frame — the next acquire will hit a fresh chain.
             int w = 0, h = 0;
             glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
             if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
@@ -239,13 +231,8 @@ namespace Luth
 
         VkResult result = VulkanContext::Get().Present(presentInfo);
 
-        // Rebuild only on OUT_OF_DATE — SUBOPTIMAL is benign (cosmetic
-        // scaling). Defer the rebuild to the next AcquireNextImage instead
-        // of running vkDeviceWaitIdle here: Present is called from the
-        // render fiber, and a long blocking call would stall the entire
-        // worker thread (fiber-system.md: zero OS-thread blocking on hot
-        // path). The next Acquire runs on the main thread, where blocking
-        // is V2-correct.
+        // Defer rebuild — Present runs on the render fiber; vkDeviceWaitIdle would stall the worker (V2).
+        // Acquire (main thread) consumes the flag. SUBOPTIMAL is benign (cosmetic scaling).
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
             m_NeedsRebuild = true;

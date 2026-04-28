@@ -24,9 +24,7 @@ namespace Luth
         // Frame management — Renderer uses FrameData owned by App
         static void SetFrameData(FrameData* frameData);
 
-        // New Frame Logic — false return means "skip this frame" (e.g., the
-        // swapchain was rebuilt because the window resized). Caller yields
-        // and retries on the next iteration.
+        // false = skip this frame (caller yields + retries).
         static bool BeginFrame(u64 frameIndex);
         static void EndFrame();
         

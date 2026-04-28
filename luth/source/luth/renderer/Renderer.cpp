@@ -78,9 +78,7 @@ namespace Luth
 
     void Renderer::EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex)
     {
-        // Present transition is now RG-driven (ImGuiPass imports the backbuffer
-        // with finalState = Present, SolveBarriers appends a postBarrier on the
-        // pass that wrote it). Just close the command buffer and submit.
+        // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present.
         VkCommandBuffer primaryCmd = (VkCommandBuffer)cmd;
         vkEndCommandBuffer(primaryCmd);
         s_Backend->SubmitFrame(frameIndex, primaryCmd);

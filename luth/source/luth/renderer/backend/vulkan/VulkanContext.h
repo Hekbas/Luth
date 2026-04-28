@@ -86,17 +86,8 @@ namespace Luth
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         void* m_WindowHandle = nullptr; // Raw GLFW window handle
 
-        // Resource Deletion Queue
-        struct DeletionQueue
-        {
-            std::deque<std::function<void()>> deletors;
-        };
-        // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h. Resource dtors
-        // (VKTexture/VKBuffer/etc.) push from any thread that holds the last
-        // shared_ptr. SpinLock matches the engine's fiber model — std::mutex
-        // would block the underlying OS thread the fiber is running on.
-        // Critical section is push_back / swap, both well under SpinLock's
-        // <100-cycle contract; deletor execution happens outside the lock.
+        // Per-frame ring; resource dtors push from any thread (V1 SpinLock — push/swap stays under <100 cycles).
+        struct DeletionQueue { std::deque<std::function<void()>> deletors; };
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
         SpinLock m_DeletionLock;
         u32 m_CurrentFrameIndex = 0;

@@ -42,10 +42,7 @@ namespace Luth
                 desc.height = vkRenderer->GetSwapchain().GetExtent().height;
                 desc.format = RG::TextureFormat::BGRA8_Unorm;
 
-                // RG-driven present transition: declare finalState = Present
-                // so SolveBarriers appends a postBarrier on this pass to
-                // transition the backbuffer out of COLOR_ATTACHMENT_OPTIMAL
-                // before vkQueuePresentKHR.
+                // finalState=Present → RG appends the present-barrier on this pass.
                 data.backbuffer = rg.ImportResource(desc,
                     (void*)swapchainImage, (void*)swapchainView,
                     RG::ResourceState::Undefined, RG::ResourceState::Present);

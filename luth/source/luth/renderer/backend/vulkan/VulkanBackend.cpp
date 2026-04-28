@@ -75,16 +75,8 @@ namespace Luth
         u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex]);
         m_AcquiredImageIndex = imageIndex;
 
-        if (imageIndex == UINT32_MAX)
-        {
-            // Frame skipped — App.cpp `continue`s before m_FrameData.Advance(),
-            // so the same frameIndex retries next iteration and SubmitFrame
-            // eventually signals frameIndex+1 normally. The wait-chain stays
-            // consistent without a host-side signal (and a host-signal here
-            // would collide with the eventual submit-signal at the same value,
-            // which violates timeline monotonicity).
-            return false;
-        }
+        // Same frameIndex retries next iteration (App skips before Advance), so SubmitFrame still signals frameIndex+1.
+        if (imageIndex == UINT32_MAX) return false;
         return true;
     }
 
@@ -96,24 +88,20 @@ namespace Luth
 
     void VulkanBackend::SubmitFrame(u64 frameIndex, void* commandBuffer)
     {
-        // Defensive: AcquireImage may have skipped the frame.
         if (m_AcquiredImageIndex == UINT32_MAX) return;
 
         VkCommandBuffer cmd = (VkCommandBuffer)commandBuffer;
 
-        // Wait on the imageAvailable semaphore used for this frame's acquire.
         VkSemaphoreSubmitInfo waitSem{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
         waitSem.semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
-        waitSem.value     = 0; // binary
+        waitSem.value     = 0;
         waitSem.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-        // Signal renderFinished (binary, per-swapchain-image — safe because
-        // acquiring image N means presentation released its semaphore) and
-        // the per-frame timeline value.
+        // renderFinished is per-image (safe: acquiring image N means presentation released its sem); timeline tracks frame.
         VkSemaphoreSubmitInfo signalSems[2]{};
         signalSems[0].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalSems[0].semaphore = m_RenderFinishedSemaphores[m_AcquiredImageIndex];
-        signalSems[0].value     = 0; // binary
+        signalSems[0].value     = 0;
         signalSems[0].stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
 
         signalSems[1].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -137,7 +125,6 @@ namespace Luth
             LH_CORE_ERROR("Failed to submit frame!");
         }
 
-        // Present waits on this image's renderFinished semaphore.
         m_Swapchain->Present(m_RenderFinishedSemaphores[m_AcquiredImageIndex]);
     }
 
