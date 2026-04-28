@@ -95,15 +95,9 @@ Roadmap restructure (Effort scale, terse summaries), four new arch sub-docs (mem
 
 ## Epic: `animation-quick-pass` — v2.8.8
 
-> **UX polish + decouple animation clips from character.**
+> **Status: Shipped v2.8.8** — see [`history/v2.x/animation-quick-pass.md`](history/v2.x/animation-quick-pass.md).
 
-Two narrow goals:
-1. Preview-toggle UX (clearer indicator when `previewAnimationInEditor` is on; surface in transport bar).
-2. Allow multiple entities to share one rig and swap clips per-instance — current model embeds clip into character.
-
-Mechanical, scoped change. Foundation for `animation-controller-v2` but not a state machine. State machine + blend trees stay in the v2 epic.
-
-**Effort:** S
+Decoupled animation clips from `Model`: clips became first-class UUID-addressable assets, `ModelImporter` emits one `.anim` per clip, runtime + scene + inspector switched to UUID handles. Preview-toggle UX (originally listed) was deferred to a future polish item.
 
 ---
 
