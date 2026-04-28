@@ -863,11 +863,16 @@ namespace Luth
 
                 for (const auto& clip : extractedClips)
                 {
-                    // Sanitize for filesystem (mirrors ProcessMaterial naming)
                     std::string clipName = clip.Name.empty() ? "Animation" : clip.Name;
-                    std::replace(clipName.begin(), clipName.end(), ':', '_');
-                    std::replace(clipName.begin(), clipName.end(), '/', '_');
+                    std::replace(clipName.begin(), clipName.end(), ':',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '/',  '_');
                     std::replace(clipName.begin(), clipName.end(), '\\', '_');
+                    std::replace(clipName.begin(), clipName.end(), '|',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '?',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '*',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '<',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '>',  '_');
+                    std::replace(clipName.begin(), clipName.end(), '"',  '_');
 
                     // Uniquify within this import — duplicate clip names from a single FBX are rare
                     // but uniqueness is required for stable .anim file paths.
