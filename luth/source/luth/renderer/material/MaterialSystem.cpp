@@ -84,13 +84,14 @@ namespace Luth
         m_FreeIndices.push_back(index);
     }
 
-    void MaterialSystem::Update(VkCommandBuffer cmd)
+    void MaterialSystem::Update(VkCommandBuffer cmd, u32 gameSlot)
     {
-        // Iterate slots and upload dirty ones
-        // Since the buffer is persistently mapped, we can just memcpy.
-        // However, we need to ensure synchronization if the GPU is reading it.
-        // For now, we assume coherent memory or flush.
-        // VMA_MEMORY_USAGE_CPU_TO_GPU usually gives HOST_VISIBLE | HOST_COHERENT.
+        // Iterate slots and upload dirty ones. Persistently mapped buffer +
+        // assumed HOST_COHERENT memory means we can just memcpy. gameSlot is
+        // plumbed through but not yet consumed — it lights up once the
+        // material SSBO is triple-buffered (sub-task C).
+        (void)cmd;
+        (void)gameSlot;
 
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::Update must run on the game stage");

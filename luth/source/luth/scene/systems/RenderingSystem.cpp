@@ -172,7 +172,7 @@ namespace Luth
         m_ActiveSnapshot = &snapshot;
 
         // Build GPU object buffer (after materials are registered)
-        m_Pipeline->BuildGPUObjectBuffer(snapshot);
+        m_Pipeline->BuildGPUObjectBuffer(snapshot, Renderer::GetFrameData()->RenderSlot());
 
         // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
         // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex

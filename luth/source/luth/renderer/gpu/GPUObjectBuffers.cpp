@@ -170,8 +170,12 @@ namespace Luth
         return slot;
     }
 
-    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
+    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot, u32 renderSlot)
     {
+        // renderSlot is plumbed through but not yet consumed — it lights up
+        // when ObjectSSBO + IndirectBuffer are triple-buffered (sub-task B).
+        (void)renderSlot;
+
         auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
         auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
         u32   count        = 0;

@@ -165,7 +165,10 @@ namespace Luth
         void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
-        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
+        // renderSlot selects the active ring slice of the persistent ObjectSSBO +
+        // IndirectBuffer (GPU frame N-1's consumer). Sourced from
+        // FrameData::RenderSlot() at the call site in RenderingSystem.
+        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot, u32 renderSlot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::

@@ -4,6 +4,7 @@
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/memory/LinearAllocator.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/Model.h"
@@ -191,7 +192,7 @@ namespace Luth
                     pipeline.EnsureMaterialRegistered(material);
                 }
             }
-            MaterialSystem::Update(VK_NULL_HANDLE);
+            MaterialSystem::Update(VK_NULL_HANDLE, Renderer::GetFrameData()->GameSlot());
         }
     }
 }

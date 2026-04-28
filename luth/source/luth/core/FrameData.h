@@ -143,6 +143,15 @@ namespace Luth
         void SetRenderFrameIndex(u64 index) { m_RenderFrameIndex = index; }
         u64 GetRenderFrameIndex() const { return m_RenderFrameIndex; }
 
+        // Active ring slot for each pipeline stage. Persistent CPU-mapped
+        // SSBOs use these to pick the slice the stage's eventual GPU
+        // consumer will read — game-stage writers fill slot N (consumed by
+        // GPU frame N), render-stage writers fill slot N-1 (consumed by
+        // GPU frame N-1). With MAX_FRAMES_IN_FLIGHT=3 the two slots always
+        // differ in steady state.
+        u32 GameSlot()   const { return static_cast<u32>(m_FrameIndex       % MAX_FRAMES_IN_FLIGHT); }
+        u32 RenderSlot() const { return static_cast<u32>(m_RenderFrameIndex % MAX_FRAMES_IN_FLIGHT); }
+
         // Access by absolute index
         FrameContext& GetFrame(u64 index) { return m_Frames[index % MAX_FRAMES_IN_FLIGHT]; }
 

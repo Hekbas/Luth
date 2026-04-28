@@ -28,8 +28,11 @@ namespace Luth
         // Unregisters a material (frees the slot).
         static void UnregisterMaterial(u32 index);
 
-        // Uploads dirty materials to the GPU. Called once per frame.
-        static void Update(VkCommandBuffer cmd);
+        // Uploads dirty materials to the GPU. Called once per frame from
+        // the game stage. gameSlot selects the active ring slice of the
+        // persistent material SSBO (GPU frame N's consumer); sourced from
+        // FrameData::GameSlot() at the call site.
+        static void Update(VkCommandBuffer cmd, u32 gameSlot);
 
         static VkDescriptorSet GetDescriptorSet(); // Returns the set containing the Material Buffer
         static VkDescriptorSetLayout GetDescriptorSetLayout();
