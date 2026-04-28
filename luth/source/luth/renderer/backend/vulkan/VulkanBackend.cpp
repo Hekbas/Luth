@@ -77,10 +77,12 @@ namespace Luth
 
         if (imageIndex == UINT32_MAX)
         {
-            // Frame skipped — host-signal the timeline to keep the per-frame
-            // wait chain monotonic, otherwise frame N+MAX_FRAMES_IN_FLIGHT
-            // would block forever waiting for this skipped frame's signal.
-            m_FrameTimeline.Signal(frameIndex + 1);
+            // Frame skipped — App.cpp `continue`s before m_FrameData.Advance(),
+            // so the same frameIndex retries next iteration and SubmitFrame
+            // eventually signals frameIndex+1 normally. The wait-chain stays
+            // consistent without a host-side signal (and a host-signal here
+            // would collide with the eventual submit-signal at the same value,
+            // which violates timeline monotonicity).
             return false;
         }
         return true;
