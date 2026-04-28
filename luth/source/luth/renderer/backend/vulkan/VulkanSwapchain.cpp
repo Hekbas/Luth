@@ -227,15 +227,18 @@ namespace Luth
 
         VkResult result = VulkanContext::Get().Present(presentInfo);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+        // Rebuild only on OUT_OF_DATE. SUBOPTIMAL is benign — the present
+        // succeeded and the image is on screen; the only "issue" is cosmetic
+        // (e.g., DWM fractional scaling reports a 1px extent mismatch).
+        // Rebuilding on SUBOPTIMAL stalls every frame on vkDeviceWaitIdle
+        // inside Recreate, which collapses framerate.
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            // Rebuild now so the next acquire sees a current chain. Returning
-            // the original result lets the caller log / instrument if needed.
             int w = 0, h = 0;
             glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
             if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
         }
-        else if (result != VK_SUCCESS)
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         {
             LH_CORE_ERROR("Failed to present swapchain image (VkResult={})", (int)result);
         }
