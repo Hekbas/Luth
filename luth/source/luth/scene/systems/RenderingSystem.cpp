@@ -116,15 +116,16 @@ namespace Luth
         {
             if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-            // Auto-recapture-on-camera-move only makes sense for Scene
-            // captures: the comparison camera (m_CameraParams = editor) is
-            // the same camera that produced the capture's viewProj. For
-            // Game captures, the captured viewProj came from the game
-            // camera (which lives on GamePanel), so comparing it against
-            // the editor camera here would *always* report "moved" and
-            // loop the state machine between Frozen and CaptureRequested
-            // every frame. Game captures stay Frozen until the user hits
-            // Disable + Enable to retake.
+            // Auto-recapture-on-camera-move only meaningful for Scene captures:
+            // the comparison camera (m_CameraParams = editor) is the same one
+            // that produced the capture's viewProj. For Game captures the
+            // captured viewProj came from the game camera (lives on GamePanel),
+            // so comparing it here would *always* report "moved" and loop the
+            // state machine every frame. Game captures stay Frozen until the
+            // user explicitly disables. (The resource churn that previously
+            // made the Scene auto-recapture path expensive — and froze the
+            // editor under continuous camera movement — was eliminated by
+            // archive-image reuse in FrameDebugger::OnPassExecuted.)
             bool cameraMoved = false;
             if (m_FrameDebugger.capturedSource == CaptureSource::Scene)
             {
@@ -142,19 +143,14 @@ namespace Luth
             if (!cameraMoved)
             {
                 // Static — minimal graph: just blit ImGui to the swapchain.
-                // The scene LDR retains its last captured image (SHADER_READ
-                // from the capture's outline pass).
-                //
-                // Drop queued views — we can't render them in Frozen, and
-                // letting the queue grow unbounded spikes the frame when the
-                // debugger exits (all views flush at once).
+                // Drop queued views — letting the queue grow unbounded spikes
+                // the frame when the debugger exits (all views flush at once).
                 m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
             }
 
-            // Camera moved — re-trigger capture and fall through. BeginCapture
-            // (called below before ExecuteGraph) destroys the prior archives.
+            // Camera moved — re-trigger capture and fall through.
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
         }
 

@@ -9,6 +9,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -52,6 +53,14 @@ namespace Luth
         // Phase 14B — Archive sink configuration. Names match RG::TextureDesc::name.
         // Set by RegisterTrackedRT before each capture.
         std::unordered_set<std::string> trackedRTs;
+
+        // Per-(pass, RT) → index into capturedFrame.archivedImages. Survives
+        // across captures; cleared only by DestroyArchives (full reset).
+        // OnPassExecuted reuses the existing slot when key + dims/format
+        // match, falling back to fresh allocation only on first sight or
+        // on viewport resize. Eliminates the per-frame VMA + descriptor
+        // churn that froze the editor during continuous recapture (#92).
+        std::unordered_map<std::string, u32> m_ArchiveSlotMap;
 
         // Cached device/allocator for archive ownership. Populated by BeginCapture.
         VkDevice     archiveDevice    = VK_NULL_HANDLE;
