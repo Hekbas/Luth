@@ -23,11 +23,17 @@ namespace Luth
     void VulkanSwapchain::Init()
     {
         CreateSurface();
-        
-        // Get initial size
-        int w, h;
-        glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
-        CreateSwapchain(w, h);
+
+        // If launched minimized or at a (0,0) extent (e.g., before the OS has
+        // committed window state), block until the window has a paintable
+        // size — Vulkan rejects swapchain creation with zero-sized extents.
+        int w = 0, h = 0;
+        while (w == 0 || h == 0)
+        {
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w == 0 || h == 0) glfwWaitEvents();
+        }
+        CreateSwapchain((u32)w, (u32)h);
         CreateImageViews();
     }
 
@@ -174,20 +180,29 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        uint32_t imageIndex;
+        uint32_t imageIndex = 0;
         VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) return UINT32_MAX;
-        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            LH_CORE_ERROR("Failed to acquire swap chain image!");
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            // Window resized / display changed since last frame. Rebuild and
+            // skip this frame — the next acquire will hit a fresh chain.
+            int w = 0, h = 0;
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
             return UINT32_MAX;
         }
-        
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        {
+            LH_CORE_ERROR("Failed to acquire swap chain image (VkResult={})", (int)result);
+            return UINT32_MAX;
+        }
+
         m_CurrentFrameIndex = imageIndex;
         return imageIndex;
     }
 
-    void VulkanSwapchain::Present(VkSemaphore waitSemaphore)
+    VkResult VulkanSwapchain::Present(VkSemaphore waitSemaphore)
     {
         LH_PROFILE_FUNCTION();
 
@@ -195,7 +210,7 @@ namespace Luth
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = &waitSemaphore;
-        
+
         VkSwapchainKHR swapChains[] = { m_Swapchain };
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
@@ -203,10 +218,19 @@ namespace Luth
 
         VkResult result = VulkanContext::Get().Present(presentInfo);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            // Recreate logic handled by RendererAPI
-        } else if (result != VK_SUCCESS) {
-            LH_CORE_ERROR("Failed to present swapchain image!");
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+        {
+            // Rebuild now so the next acquire sees a current chain. Returning
+            // the original result lets the caller log / instrument if needed.
+            int w = 0, h = 0;
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
         }
+        else if (result != VK_SUCCESS)
+        {
+            LH_CORE_ERROR("Failed to present swapchain image (VkResult={})", (int)result);
+        }
+
+        return result;
     }
 }

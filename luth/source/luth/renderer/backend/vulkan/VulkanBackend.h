@@ -17,7 +17,7 @@ namespace Luth
         virtual void Init(void* windowHandle) override;
         virtual void Shutdown() override;
 
-        virtual u32 AcquireImage(u64 frameIndex) override;
+        virtual bool AcquireImage(u64 frameIndex) override;
         virtual void SubmitFrame(u64 frameIndex, void* commandBuffer) override;
         virtual void* GetFrameCommandBuffer(u64 frameIndex) override;
         virtual void OnResize(u32 width, u32 height) override;

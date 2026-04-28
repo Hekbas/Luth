@@ -41,7 +41,7 @@ namespace Luth
         VulkanContext::Shutdown();
     }
 
-    u32 VulkanBackend::AcquireImage(u64 frameIndex)
+    bool VulkanBackend::AcquireImage(u64 frameIndex)
     {
         m_CurrentFrameIndex = frameIndex % MAX_FRAMES_IN_FLIGHT;
 
@@ -74,7 +74,16 @@ namespace Luth
 
         u32 imageIndex = m_Swapchain->AcquireNextImage(m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex]);
         m_AcquiredImageIndex = imageIndex;
-        return imageIndex;
+
+        if (imageIndex == UINT32_MAX)
+        {
+            // Frame skipped — host-signal the timeline to keep the per-frame
+            // wait chain monotonic, otherwise frame N+MAX_FRAMES_IN_FLIGHT
+            // would block forever waiting for this skipped frame's signal.
+            m_FrameTimeline.Signal(frameIndex + 1);
+            return false;
+        }
+        return true;
     }
 
     void* VulkanBackend::GetFrameCommandBuffer(u64 frameIndex)
@@ -85,6 +94,9 @@ namespace Luth
 
     void VulkanBackend::SubmitFrame(u64 frameIndex, void* commandBuffer)
     {
+        // Defensive: AcquireImage may have skipped the frame.
+        if (m_AcquiredImageIndex == UINT32_MAX) return;
+
         VkCommandBuffer cmd = (VkCommandBuffer)commandBuffer;
 
         VkSubmitInfo submitInfo{};

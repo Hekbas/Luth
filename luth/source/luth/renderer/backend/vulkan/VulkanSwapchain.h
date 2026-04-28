@@ -16,11 +16,15 @@ namespace Luth
         void Recreate(u32 width, u32 height);
         void Cleanup();
 
-        // Returns index of the image to render to
+        // Returns the swapchain image index, or UINT32_MAX on failure.
+        // Self-rebuilds the swapchain on VK_ERROR_OUT_OF_DATE_KHR before
+        // returning the sentinel — caller skips the frame and retries next.
         u32 AcquireNextImage(VkSemaphore signalSemaphore);
-        
-        // Presents the image
-        void Present(VkSemaphore waitSemaphore);
+
+        // Presents the image. Returns the underlying VkResult so the caller
+        // can react to OUT_OF_DATE / SUBOPTIMAL. Internally triggers a rebuild
+        // on out-of-date / suboptimal so the next acquire sees a fresh chain.
+        VkResult Present(VkSemaphore waitSemaphore);
 
         VkFormat GetImageFormat() const { return m_ImageFormat; }
         VkExtent2D GetExtent() const { return m_Extent; }

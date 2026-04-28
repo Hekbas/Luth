@@ -47,9 +47,9 @@ namespace Luth
         s_FrameData = frameData;
     }
 
-    void Renderer::BeginFrame(u64 frameIndex)
+    bool Renderer::BeginFrame(u64 frameIndex)
     {
-        s_Backend->AcquireImage(frameIndex);
+        return s_Backend->AcquireImage(frameIndex);
     }
 
     void Renderer::EndFrame()

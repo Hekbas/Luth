@@ -24,8 +24,10 @@ namespace Luth
         // Frame management — Renderer uses FrameData owned by App
         static void SetFrameData(FrameData* frameData);
 
-        // New Frame Logic
-        static void BeginFrame(u64 frameIndex);
+        // New Frame Logic — false return means "skip this frame" (e.g., the
+        // swapchain was rebuilt because the window resized). Caller yields
+        // and retries on the next iteration.
+        static bool BeginFrame(u64 frameIndex);
         static void EndFrame();
         
         // Single-graph convenience: Begin + Record + End in one call.
