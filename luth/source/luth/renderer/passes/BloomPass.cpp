@@ -57,7 +57,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("BloomExtract", "BloomA", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomExtract", "BloomA", false,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -105,7 +105,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("BloomBlurH", "BloomB", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomBlurH", "BloomB", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -154,7 +154,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("BloomBlurV", "BloomAFinal", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomBlurV", "BloomAFinal", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;

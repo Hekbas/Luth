@@ -53,7 +53,9 @@ namespace Luth::RG
             node.label              = pass.name;
             node.passIndex          = passIdx;
             node.gpuTimeMs          = pass.gpuTimeMs;
-            node.archivedImageIndex = PickPrimaryArchive(frame, passIdx);
+            // passArchives is keyed by graph pass index (sparse) — passIdx here
+            // is the dense passes[] index, so route through pass.graphPassIndex.
+            node.archivedImageIndex = PickPrimaryArchive(frame, pass.graphPassIndex);
 
             node.children.reserve(pass.drawCallCount);
             for (u32 di = 0; di < pass.drawCallCount; ++di)
@@ -73,6 +75,29 @@ namespace Luth::RG
                 node.children.push_back(std::move(dn));
             }
             return node;
+        }
+
+        // Post-order walk: each node's lastDrawIndex = max draw index in its
+        // subtree (UINT32_MAX if no Draw descendants). Drives Unity-style
+        // tree-click snap on the panel's draw scrub slider.
+        u32 PopulateLastDrawIndex(EventNode& node)
+        {
+            if (node.kind == EventNodeKind::Draw)
+            {
+                node.lastDrawIndex = node.drawIndex;
+                return node.drawIndex;
+            }
+
+            u32 maxDraw = UINT32_MAX;
+            for (auto& child : node.children)
+            {
+                u32 childLast = PopulateLastDrawIndex(child);
+                if (childLast != UINT32_MAX &&
+                    (maxDraw == UINT32_MAX || childLast > maxDraw))
+                    maxDraw = childLast;
+            }
+            node.lastDrawIndex = maxDraw;
+            return maxDraw;
         }
 
         // Map "ShadowPass.C0" / "ShadowPass.C12" / etc. to its trailing integer.
@@ -145,6 +170,7 @@ namespace Luth::RG
             root.children.push_back(std::move(passNode));
         }
 
+        PopulateLastDrawIndex(root);
         return root;
     }
 }

@@ -35,6 +35,12 @@ namespace Luth
         void DrawSceneTexture(RenderingSystem* renderingSystem);
         void DrawSceneTexture(const std::shared_ptr<Texture>& texture);
 
+        // Raw-handle overload — used by FrameDebugger viewport overlay to bind
+        // an archived RT (VkImageView owned by FrameDebugger, not a Texture
+        // wrapper) directly into ImGui. Caches the descriptor by view-pointer
+        // identity; recapture invalidates because new views replace old ones.
+        void DrawSceneTextureRaw(VkImageView view, VkSampler sampler);
+
         // Applied from the panel's resize callback so viewport state stays in sync
         // with the authoritative size used by RenderingSystem + EditorCamera.
         void SetSize(u32 width, u32 height);
@@ -60,5 +66,10 @@ namespace Luth
         // Per-instance to avoid leaking across editor teardown.
         VkDescriptorSet          m_SceneDS = VK_NULL_HANDLE;
         std::shared_ptr<Texture> m_LastSceneTex = nullptr;
+
+        // Separate cache for the raw-view overlay path so toggling the
+        // overlay on/off doesn't churn the live-scene descriptor.
+        VkDescriptorSet          m_RawDS         = VK_NULL_HANDLE;
+        VkImageView              m_RawViewCached = VK_NULL_HANDLE;
     };
 }

@@ -53,7 +53,7 @@ namespace Luth
             },
             [this](ImGuiPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("ImGuiPass", "Backbuffer", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "ImGuiPass", "Backbuffer", false,
                     { "imgui", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
                 ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.commandBuffer);
                 m_System.m_FrameDebugger.EndCapturePass();

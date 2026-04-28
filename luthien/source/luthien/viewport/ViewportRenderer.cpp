@@ -16,6 +16,10 @@ namespace Luth
             ImGui_ImplVulkan_RemoveTexture(m_SceneDS);
             m_SceneDS = VK_NULL_HANDLE;
         }
+        if (m_RawDS) {
+            ImGui_ImplVulkan_RemoveTexture(m_RawDS);
+            m_RawDS = VK_NULL_HANDLE;
+        }
         m_LastSceneTex.reset();
     }
 
@@ -94,6 +98,36 @@ namespace Luth
         }
 
         // Interaction states (sampled after Image to make IsWindowHovered reflect the viewport area)
+        m_IsFocused = ImGui::IsWindowFocused();
+        m_IsHovered = ImGui::IsWindowHovered();
+    }
+
+    void ViewportRenderer::DrawSceneTextureRaw(VkImageView view, VkSampler sampler)
+    {
+        if (view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE)
+        {
+            ImGui::Text("No Scene Output");
+            m_IsFocused = ImGui::IsWindowFocused();
+            m_IsHovered = ImGui::IsWindowHovered();
+            return;
+        }
+
+        if (view != m_RawViewCached)
+        {
+            if (m_RawDS)
+            {
+                VkDescriptorSet oldSet = m_RawDS;
+                VulkanContext::Get().PushDeletion([oldSet]() {
+                    ImGui_ImplVulkan_RemoveTexture(oldSet);
+                });
+            }
+            m_RawDS = ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            m_RawViewCached = view;
+        }
+
+        if (m_RawDS != VK_NULL_HANDLE)
+            ImGui::Image((ImTextureID)m_RawDS, ToImVec2(m_Size), { 0, 0 }, { 1, 1 });
+
         m_IsFocused = ImGui::IsWindowFocused();
         m_IsHovered = ImGui::IsWindowHovered();
     }

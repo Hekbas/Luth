@@ -210,11 +210,51 @@ namespace Luth
 
             dst.currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
+
+        // Queue an ArchivedImage's GPU resources for deferred destruction.
+        // Defers by MAX_FRAMES_IN_FLIGHT so any in-flight ImGui frame still
+        // sampling these views via cached descriptors completes first.
+        // Mutates the input: nulls handles so the caller's vector slot stays
+        // benign (handles=NULL → re-touching it during shutdown is a no-op).
+        void PushArchiveDeletion(VkDevice device, RG::ArchivedImage& a)
+        {
+            VkImage         img        = a.image;
+            VkImageView     view       = a.view;
+            VmaAllocation   alloc      = a.alloc;
+            VkDescriptorSet imguiDesc  = a.imguiDescSet;
+            std::vector<VkImageView> layerViews = std::move(a.layerViews);
+
+            VulkanContext::Get().PushDeletion(
+                [device, img, view, alloc, imguiDesc,
+                 layerViews = std::move(layerViews)]() mutable
+                {
+                    if (imguiDesc != VK_NULL_HANDLE)
+                        ImGui_ImplVulkan_RemoveTexture(imguiDesc);
+                    for (VkImageView lv : layerViews)
+                        if (lv != VK_NULL_HANDLE)
+                            vkDestroyImageView(device, lv, nullptr);
+                    if (view != VK_NULL_HANDLE)
+                        vkDestroyImageView(device, view, nullptr);
+                    if (img != VK_NULL_HANDLE && alloc != nullptr)
+                    {
+                        // Route through VulkanAllocator so MemoryTracker sees
+                        // the free — bypassing it leaves the editor's GPU
+                        // memory counter rising on every Enable/Disable.
+                        VulkanAllocator::FreeImage(img, alloc);
+                    }
+                });
+
+            a.image        = VK_NULL_HANDLE;
+            a.view         = VK_NULL_HANDLE;
+            a.alloc        = nullptr;
+            a.imguiDescSet = VK_NULL_HANDLE;
+        }
     } // anonymous namespace
 
     // ---- Capture metadata helpers (unchanged) ----
 
-    void FrameDebugger::BeginCapturePass(const std::string& name, const std::string& activeTarget,
+    void FrameDebugger::BeginCapturePass(u32 graphPassIndex,
+                                         const std::string& name, const std::string& activeTarget,
                                          bool isDepth, const RG::CapturedPipelineState& ps)
     {
         if (state != DebuggerState::CaptureRequested) return;
@@ -223,6 +263,7 @@ namespace Luth
         cp.name               = name;
         cp.firstDrawIndex     = (u32)capturedFrame.drawCalls.size();
         cp.drawCallCount      = 0;
+        cp.graphPassIndex     = graphPassIndex;
         cp.pipelineState      = ps;
         cp.activeRenderTarget = activeTarget;
         cp.isDepthTarget      = isDepth;
@@ -314,13 +355,16 @@ namespace Luth
 
     void FrameDebugger::BeginCapture(VkDevice device, VmaAllocator allocator)
     {
-        // Drop any prior archives BEFORE clearing the metadata vector — Destroy
-        // walks archivedImages and frees each VkImage/View/VMA allocation.
-        // Doing it the other way around would leak GPU memory on re-capture.
         archiveDevice    = device;
         archiveAllocator = allocator;
-        DestroyArchives();
-        capturedFrame.Clear();
+
+        // Reuse path: keep capturedFrame.archivedImages and m_ArchiveSlotMap
+        // alive across captures. OnPassExecuted will rewrite contents into
+        // existing VkImages instead of allocating fresh ones, so the panel's
+        // view-pointer-keyed descriptor caches stay valid frame-to-frame.
+        // Full cleanup happens via ExitCapture → DestroyArchives.
+        capturedFrame.passArchives.clear();
+        capturedFrame.Clear();   // metadata-only reset; preserves archivedImages
         trackedRTs.clear();
     }
 
@@ -332,6 +376,39 @@ namespace Luth
     void FrameDebugger::FinalizeCapture(const Mat4& viewProj)
     {
         capturedFrame.captureViewProj = viewProj;
+
+        // Phase 1 records graphics secondaries (graphics lambdas push into
+        // capturedFrame.passes here) before Phase 2 runs compute lambdas
+        // inline — so passes arrive in graphics-first-then-compute order
+        // rather than graph order. Sort by graphPassIndex; remap drawCall
+        // back-references through the inverse permutation.
+        const u32 passCount = (u32)capturedFrame.passes.size();
+        if (passCount > 1)
+        {
+            std::vector<u32> perm(passCount);
+            for (u32 i = 0; i < passCount; ++i) perm[i] = i;
+            std::stable_sort(perm.begin(), perm.end(),
+                [this](u32 a, u32 b) {
+                    return capturedFrame.passes[a].graphPassIndex
+                         < capturedFrame.passes[b].graphPassIndex;
+                });
+
+            std::vector<RG::CapturedPass> sorted;
+            sorted.reserve(passCount);
+            for (u32 oldIdx : perm)
+                sorted.push_back(std::move(capturedFrame.passes[oldIdx]));
+            capturedFrame.passes = std::move(sorted);
+
+            // Inverse permutation: oldIdx → newIdx for drawCall.passIndex remap.
+            std::vector<u32> inv(passCount);
+            for (u32 newIdx = 0; newIdx < passCount; ++newIdx)
+                inv[perm[newIdx]] = newIdx;
+
+            for (auto& dc : capturedFrame.drawCalls)
+                if (dc.passIndex < passCount)
+                    dc.passIndex = inv[dc.passIndex];
+        }
+
         // Build the hierarchical event tree from the just-finished capture.
         // Pure CPU work; safe to run after ExecuteGraph returned and all the
         // per-pass / per-draw metadata has been appended to capturedFrame.
@@ -353,57 +430,24 @@ namespace Luth
             return;
         }
 
+        (void)allocator;  // VulkanAllocator::FreeImage uses the singleton allocator;
+                          // we keep `allocator` only to gate the early-return above.
+
         // Defer the actual GPU resource destruction by MAX_FRAMES_IN_FLIGHT so
         // that any in-flight ImGui frame still sampling these views via cached
-        // descriptor sets completes before the views/images are freed. The
-        // panel's own cached ImGui descriptors are dropped via PushDeletion on
-        // the same frame index, so by the time these run their VkDescriptorSet
-        // is no longer referenced.
+        // descriptor sets completes before the views/images are freed.
         for (auto& a : capturedFrame.archivedImages)
-        {
-            VkImage         img        = a.image;
-            VkImageView     view       = a.view;
-            VmaAllocation   alloc      = a.alloc;
-            VkDescriptorSet imguiDesc  = a.imguiDescSet;
-            std::vector<VkImageView> layerViews = std::move(a.layerViews);
-
-            (void)allocator;  // VulkanAllocator::FreeImage uses the singleton allocator;
-                              // we keep `allocator` only to gate the early-return above.
-            VulkanContext::Get().PushDeletion(
-                [device, img, view, alloc, imguiDesc,
-                 layerViews = std::move(layerViews)]() mutable
-                {
-                    if (imguiDesc != VK_NULL_HANDLE)
-                        ImGui_ImplVulkan_RemoveTexture(imguiDesc);
-                    for (VkImageView lv : layerViews)
-                        if (lv != VK_NULL_HANDLE)
-                            vkDestroyImageView(device, lv, nullptr);
-                    if (view != VK_NULL_HANDLE)
-                        vkDestroyImageView(device, view, nullptr);
-                    if (img != VK_NULL_HANDLE && alloc != nullptr)
-                    {
-                        // Route through VulkanAllocator so MemoryTracker
-                        // sees the free — bypassing it (calling vmaDestroyImage
-                        // directly) frees the VMA block but leaves the editor's
-                        // GPU memory counter rising on every Enable/Disable.
-                        VulkanAllocator::FreeImage(img, alloc);
-                    }
-                });
-
-            // Null out the local handles so the next iteration / move-from is
-            // benign (defence in depth — the vector is cleared right after).
-            a.image        = VK_NULL_HANDLE;
-            a.view         = VK_NULL_HANDLE;
-            a.alloc        = nullptr;
-            a.imguiDescSet = VK_NULL_HANDLE;
-        }
+            PushArchiveDeletion(device, a);
 
         capturedFrame.archivedImages.clear();
         capturedFrame.passArchives.clear();
+        m_ArchiveSlotMap.clear();
     }
 
     // IArchiveSink — called by RenderGraph::Execute after each non-culled pass.
-    // For each tracked write, allocate a fresh ArchivedImage and emit a copy.
+    // Find-or-allocate via m_ArchiveSlotMap: reuse the existing ArchivedImage
+    // when (passName, rtName) hits with matching dims/format, allocate fresh
+    // only on first sight or viewport resize.
     void FrameDebugger::OnPassExecuted(u32 passIdx, RG::RenderGraph& graph, VkCommandBuffer cmd)
     {
         if (state != DebuggerState::CaptureRequested) return;
@@ -426,7 +470,42 @@ namespace Luth
             if (res.image == VK_NULL_HANDLE) continue;
             if (trackedRTs.find(res.desc.name) == trackedRTs.end()) continue;
 
-            u32 archiveIdx = AllocateArchiveImage(archiveDevice, archiveAllocator, res, capturedFrame);
+            // Slot key: (pass name, RT name). Both stable across captures,
+            // unlike pass index which shifts with culling.
+            const std::string slotKey = pass.name + "/" + res.desc.name;
+            u32 archiveIdx = UINT32_MAX;
+
+            auto it = m_ArchiveSlotMap.find(slotKey);
+            if (it != m_ArchiveSlotMap.end() && it->second < capturedFrame.archivedImages.size())
+            {
+                auto& existing = capturedFrame.archivedImages[it->second];
+                const VkFormat fmt = ToVkFormat(res.desc.format);
+                if (existing.image  != VK_NULL_HANDLE &&
+                    existing.width  == res.desc.width  &&
+                    existing.height == res.desc.height &&
+                    existing.format == fmt &&
+                    existing.layers == res.layerCount)
+                {
+                    archiveIdx = it->second;
+                }
+                else
+                {
+                    // Stale — viewport resize / format change. Free the old
+                    // backing and let the allocator hand us a fresh slot at
+                    // the end of archivedImages. The vector grows by one
+                    // null'd slot per resize event; bounded and rare, so we
+                    // don't bother compacting here.
+                    PushArchiveDeletion(archiveDevice, existing);
+                    m_ArchiveSlotMap.erase(it);
+                }
+            }
+
+            if (archiveIdx == UINT32_MAX)
+            {
+                archiveIdx = AllocateArchiveImage(archiveDevice, archiveAllocator, res, capturedFrame);
+                m_ArchiveSlotMap[slotKey] = archiveIdx;
+            }
+
             EmitArchiveCopy(cmd, res, pass.writeStates[i], capturedFrame.archivedImages[archiveIdx]);
             capturedFrame.passArchives[passIdx].push_back(archiveIdx);
         }

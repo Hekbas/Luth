@@ -140,6 +140,14 @@ namespace Luth
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
         VkSampler GetDebugSampler() const { return m_FrameDebugger.sampler; }
 
+        // Capture source — Scene (editor camera) or Game (hierarchy camera).
+        // Mutating only changes the *next* capture; Frozen overlays use
+        // capturedSource so a mid-capture toggle doesn't redirect the overlay
+        // to a viewport whose camera never produced these archives.
+        void          SetCaptureSource(CaptureSource s) { m_FrameDebugger.requestedSource = s; }
+        CaptureSource GetCaptureSource() const          { return m_FrameDebugger.requestedSource; }
+        CaptureSource GetCapturedSource() const         { return m_FrameDebugger.capturedSource; }
+
         // Frame-debugger preview forwarders (implementations on RenderPipeline).
         void        ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
         VkImageView GetPerDrawPreviewView() const;

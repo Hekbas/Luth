@@ -47,7 +47,7 @@ namespace Luth
 
                 if (debugger)
                 {
-                    debugger->BeginCapturePass(name, "", false,
+                    debugger->BeginCapturePass(ctx.passIndex, name, "", false,
                         { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
                 }
 

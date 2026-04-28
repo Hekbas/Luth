@@ -57,7 +57,7 @@ namespace Luth
             },
             [this](PostProcessPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("PostProcess", "LDROutput", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "PostProcess", "LDROutput", false,
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;

@@ -65,7 +65,7 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass("DepthPrepass", "SceneDepth", true,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "DepthPrepass", "SceneDepth", true,
                     { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
                 if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }

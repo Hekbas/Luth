@@ -116,33 +116,52 @@ namespace Luth
         {
             if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-            // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
-            // comparison matches what the GPU actually saw at capture time.
-            Mat4 currentProj = m_CameraParams.projection;
-            currentProj[1][1] *= -1.0f;
-            Mat4 currentViewProj = currentProj * m_CameraParams.view;
+            // Auto-recapture-on-camera-move only meaningful for Scene captures
+            // — the comparison camera (m_CameraParams = editor) matches the
+            // source. For Game captures the captureViewProj came from the
+            // game camera, so this comparison would always report "moved"
+            // and loop the state machine every frame. Game captures stay
+            // Frozen until the user explicitly disables.
+            bool cameraMoved = false;
+            if (m_FrameDebugger.capturedSource == CaptureSource::Scene)
+            {
+                // Mirror the Vulkan Y-flip from UpdateGlobalUniforms so the
+                // comparison matches the GPU's view at capture time.
+                Mat4 currentProj = m_CameraParams.projection;
+                currentProj[1][1] *= -1.0f;
+                Mat4 currentViewProj = currentProj * m_CameraParams.view;
 
-            const bool cameraMoved = std::memcmp(&currentViewProj,
-                                                  &m_FrameDebugger.capturedFrame.captureViewProj,
-                                                  sizeof(Mat4)) != 0;
+                cameraMoved = std::memcmp(&currentViewProj,
+                                          &m_FrameDebugger.capturedFrame.captureViewProj,
+                                          sizeof(Mat4)) != 0;
+
+                // Throttle to ~10 Hz at 60 fps. Per-recapture GPU work
+                // (~10 vkCmdCopyImage + barriers, mostly cascade depth)
+                // saturates mid-tier GPUs at frame rate; 6× less keeps
+                // the editor smooth without visibly stale overlays.
+                static constexpr u64 k_AutoRecaptureMinIntervalFrames = 6;
+                if (cameraMoved)
+                {
+                    const u64 currentFrame = Renderer::GetFrameData()->GetFrameIndex();
+                    if (currentFrame - m_FrameDebugger.lastRecaptureFrameIndex
+                        < k_AutoRecaptureMinIntervalFrames)
+                        cameraMoved = false;
+                }
+            }
 
             if (!cameraMoved)
             {
-                // Static — minimal graph: just blit ImGui to the swapchain.
-                // The scene LDR retains its last captured image (SHADER_READ
-                // from the capture's outline pass).
-                //
-                // Drop queued views — we can't render them in Frozen, and
-                // letting the queue grow unbounded spikes the frame when the
-                // debugger exits (all views flush at once).
+                // Static or throttled — minimal graph: just blit ImGui to the
+                // swapchain. Drop queued views — letting the queue grow
+                // unbounded spikes the frame when the debugger exits.
                 m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
             }
 
-            // Camera moved — re-trigger capture and fall through. BeginCapture
-            // (called below before ExecuteGraph) destroys the prior archives.
+            // Camera moved — re-trigger capture and fall through.
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
+            m_FrameDebugger.lastRecaptureFrameIndex = Renderer::GetFrameData()->GetFrameIndex();
         }
 
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
@@ -168,6 +187,11 @@ namespace Luth
         sceneView.drawGrid             = m_GridVisible;
         sceneView.drawSelectionOutline = true;
         sceneView.emitImGuiPass        = true;
+        // Capture-source gate: only the scene view installs the archive sink
+        // when the user has chosen Scene as the source. Game capture lives on
+        // GamePanel's queued view.
+        sceneView.captureRequested     = (m_FrameDebugger.state == DebuggerState::CaptureRequested
+                                          && m_FrameDebugger.requestedSource == CaptureSource::Scene);
 
         // One primary cmd buffer for the whole frame. Queued views record
         // first (their LDRs are sampled by the scene view's ImGui pass),

@@ -63,6 +63,10 @@ namespace Luth::RG
     {
     public:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        // Graph index of the executing pass. FrameDebugger keys its sparse
+        // passArchives against this; lambdas pass it to BeginCapturePass so
+        // CapturedPass.graphPassIndex aligns with the archive sink's writes.
+        u32 passIndex = 0;
         std::function<void*(ResourceHandle)> GetResource;
         std::function<void*(BufferHandle)> GetBuffer;
     };

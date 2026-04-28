@@ -108,7 +108,7 @@ namespace Luth
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
                 VkPolygonMode polyMode = (m_System.m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-                m_System.m_FrameDebugger.BeginCapturePass("GeometryPass", "SceneColor", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;

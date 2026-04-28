@@ -14,6 +14,28 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
+        // Unity-style viewport pass preview. ScenePanel / GamePanel query
+        // each frame; the overlay target is coupled to FrameDebugger's
+        // capturedSource (stamped at capture time so a mid-Frozen source
+        // toggle doesn't redirect the live overlay).
+        struct OverlaySource
+        {
+            VkImageView view    = VK_NULL_HANDLE;
+            VkSampler   sampler = VK_NULL_HANDLE;
+            u32         width   = 0;
+            u32         height  = 0;
+        };
+
+        bool ShouldOverlayInScene() const;
+        bool ShouldOverlayInGame()  const;
+
+        // Resolves the current selection into a view+sampler for ImGui::Image.
+        // Draw selections trigger per-draw replay (preview takes precedence
+        // when valid); color archives return their view directly; depth
+        // archives route through BlitArchivedDepthToPreview for tonemapping.
+        // Non-const because depth-blit + replay mutate FrameDebuggerContext.
+        OverlaySource GetOverlaySource();
+
     private:
         // Live mode — pass-level view over the current graph snapshot.
         void DrawLiveView(const RG::RenderGraphSnapshot& snapshot);
@@ -55,6 +77,5 @@ namespace Luth
         VkImageView      m_DepthPreviewViewCached   = VK_NULL_HANDLE;
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
-        u32 m_TreeNodeCounter = 0;
     };
 }

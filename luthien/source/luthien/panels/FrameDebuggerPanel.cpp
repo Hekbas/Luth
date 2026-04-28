@@ -25,6 +25,32 @@ namespace Luth
         }
     }
 
+    // Walks the event tree depth-first, returning the Draw node whose
+    // drawIndex matches `drawIdx`, else nullptr. Used by the draw-scrub
+    // slider so SelectEventNode picks up the same archive/layer the tree
+    // already resolved at finalize.
+    static const RG::EventNode* FindDrawEventNode(const RG::EventNode& node, u32 drawIdx)
+    {
+        if (node.kind == RG::EventNodeKind::Draw && node.drawIndex == drawIdx)
+            return &node;
+        for (const auto& child : node.children)
+            if (const RG::EventNode* found = FindDrawEventNode(child, drawIdx))
+                return found;
+        return nullptr;
+    }
+
+    // Capture-source dropdown shared between live + capture control bars.
+    // Placed right of Enable / Disable, before any slider, so its position
+    // stays stable across the live↔capture transition.
+    static void DrawCaptureSourceCombo(RenderingSystem* rs)
+    {
+        static const char* k_Labels[] = { "Scene", "Game" };
+        int srcIdx = (int)rs->GetCaptureSource();
+        ImGui::SetNextItemWidth(80.0f);
+        if (ImGui::Combo("##CaptureSource", &srcIdx, k_Labels, IM_ARRAYSIZE(k_Labels)))
+            rs->SetCaptureSource((CaptureSource)srcIdx);
+    }
+
     static bool IsDepthFormat(RG::TextureFormat fmt)
     {
         return fmt == RG::TextureFormat::D32_Float || fmt == RG::TextureFormat::D24_Unorm_S8_Uint;
@@ -82,6 +108,111 @@ namespace Luth
     void FrameDebuggerPanel::OnInit()
     {
         m_RS = SystemRegistry::GetSystem<RenderingSystem>();
+    }
+
+    // ---- Public overlay accessors (Unity-style viewport preview) ----
+
+    bool FrameDebuggerPanel::ShouldOverlayInScene() const
+    {
+        return m_RS
+            && m_RS->GetDebuggerState() == DebuggerState::Frozen
+            && m_RS->GetCapturedSource() == CaptureSource::Scene;
+    }
+
+    bool FrameDebuggerPanel::ShouldOverlayInGame() const
+    {
+        return m_RS
+            && m_RS->GetDebuggerState() == DebuggerState::Frozen
+            && m_RS->GetCapturedSource() == CaptureSource::Game;
+    }
+
+    FrameDebuggerPanel::OverlaySource FrameDebuggerPanel::GetOverlaySource()
+    {
+        OverlaySource src{};
+        if (!m_RS) return src;
+        if (m_RS->GetDebuggerState() != DebuggerState::Frozen) return src;
+
+        const auto& capture = m_RS->GetCapturedFrame();
+        if (!capture.valid) return src;
+
+        // Per-draw replay path takes precedence for Draw selections so the
+        // viewport overlay tracks the slider scrub (Unity behaviour). Replay
+        // dispatch is internal; supported passes update the preview key and
+        // we route the per-draw preview to the viewport. Unsupported passes
+        // (compute, single-draw, ImGui) leave the key untouched and we fall
+        // through to the pass-archive path below.
+        if (m_SelKind == RG::EventNodeKind::Draw && m_SelPassIndex >= 0
+            && m_SelPassIndex < (int)capture.passes.size() && m_SelDrawIndex >= 0)
+        {
+            const auto& pass = capture.passes[m_SelPassIndex];
+            if ((u32)m_SelDrawIndex >= pass.firstDrawIndex
+                && (u32)m_SelDrawIndex < pass.firstDrawIndex + pass.drawCallCount)
+            {
+                const u32 perDrawPassIdx  = (u32)m_SelPassIndex;
+                const u32 perDrawLocalIdx = (u32)m_SelDrawIndex - pass.firstDrawIndex;
+                m_RS->ReplayPassUpToDraw(perDrawPassIdx, perDrawLocalIdx);
+
+                const u64 expectedKey  = ((u64)perDrawPassIdx << 32) | (u64)perDrawLocalIdx;
+                const bool replayValid = (m_RS->GetPerDrawPreviewKey() == expectedKey);
+                if (replayValid)
+                {
+                    VkImageView previewView = m_RS->GetPerDrawPreviewView();
+                    const u32   pw          = m_RS->GetPerDrawPreviewWidth();
+                    const u32   ph          = m_RS->GetPerDrawPreviewHeight();
+                    if (previewView != VK_NULL_HANDLE && pw > 0 && ph > 0)
+                    {
+                        src.view    = previewView;
+                        src.sampler = m_RS->GetDebugSampler();
+                        src.width   = pw;
+                        src.height  = ph;
+                        return src;
+                    }
+                }
+            }
+        }
+
+        if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size()) return src;
+
+        const auto& archive = capture.archivedImages[m_SelArchiveIdx];
+
+        if (archive.isDepth)
+        {
+            // Depth archives go through BlitArchivedDepthToPreview which
+            // tonemaps the depth into an RGBA8 preview texture. Cascade
+            // slices use the matching cascade's view-Z far split so each
+            // slice gets a sensible contrast range; non-cascade depth uses
+            // a generic 0.1..200 m window (matches the panel thumbnail).
+            float nearZ = 0.1f;
+            float farZ  = 200.0f;
+            if (m_SelArchiveLayer >= 0 && m_SelArchiveLayer < 4)
+            {
+                farZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer];
+                if (m_SelArchiveLayer > 0)
+                    nearZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer - 1];
+                if (farZ <= nearZ) farZ = nearZ + 1.0f;
+            }
+
+            m_RS->BlitArchivedDepthToPreview((u32)m_SelArchiveIdx, m_SelArchiveLayer, nearZ, farZ);
+
+            VkImageView depthPreview = m_RS->GetDepthPreviewView();
+            const u32   dpW          = m_RS->GetDepthPreviewWidth();
+            const u32   dpH          = m_RS->GetDepthPreviewHeight();
+            if (depthPreview == VK_NULL_HANDLE || dpW == 0 || dpH == 0) return src;
+
+            src.view    = depthPreview;
+            src.sampler = m_RS->GetDebugSampler();
+            src.width   = dpW;
+            src.height  = dpH;
+            return src;
+        }
+
+        if (archive.view == VK_NULL_HANDLE) return src;
+
+        src.view    = archive.view;
+        src.sampler = m_RS->GetDebugSampler();
+        src.width   = archive.width;
+        src.height  = archive.height;
+        return src;
     }
 
     // ---- Main Render ----
@@ -182,6 +313,8 @@ namespace Luth
         if (ImGui::Button("Enable"))
             m_RS->RequestCapture();
 
+        ImGui::SameLine();
+        DrawCaptureSourceCombo(m_RS);
         ImGui::SameLine();
 
         // Event slider
@@ -425,7 +558,6 @@ namespace Luth
                           ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
         // Walk the root's children directly — the root itself is the implicit
         // "Frame" container and isn't drawn (matches Unity's tree shape).
-        m_TreeNodeCounter = 0;
         for (const auto& child : capture.rootEvent.children)
             DrawEventNode(capture, child, 0);
         ImGui::EndChild();
@@ -466,17 +598,101 @@ namespace Luth
             m_SelArchiveIdx   = -1;
             m_SelArchiveLayer = -1;
             m_RS->ExitCapture();
+            ImGui::PopStyleColor();
+            return;
         }
         ImGui::PopStyleColor();
 
         ImGui::SameLine();
+        // Capture source — same control + position as in the live bar so it
+        // doesn't visually jump on the live↔capture transition. Mutating
+        // here only affects the *next* capture; the active overlay is keyed
+        // off capturedSource (snapshotted at finalize).
+        DrawCaptureSourceCombo(m_RS);
+        ImGui::SameLine();
 
+        const int drawCount = (int)capture.drawCalls.size();
+        if (drawCount > 0)
+        {
+            // Auto-select draw 0 the first frame the panel renders a fresh
+            // capture (or whenever the user has cleared the selection by
+            // clicking a Draw-less Group). Keeps the slider + viewport
+            // overlay live without requiring a tree click.
+            if (m_SelDrawIndex < 0 || m_SelDrawIndex >= drawCount)
+            {
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, 0))
+                    SelectEventNode(*n);
+            }
+
+            int sliderValue = m_SelDrawIndex;
+            if (sliderValue < 0)            sliderValue = 0;
+            if (sliderValue >= drawCount)   sliderValue = drawCount - 1;
+
+            // Slider format: "<PassName>: <MeshName> (<idx>)" — runtime-built
+            // per position. snprintf with `%%d` produces `%d` in the format
+            // string, which ImGui::SliderInt then expands with the int value.
+            char fmt[224];
+            if ((u32)sliderValue < capture.drawCalls.size())
+            {
+                const auto& dc = capture.drawCalls[sliderValue];
+                snprintf(fmt, sizeof(fmt), "%s: %s (%%d)",
+                         dc.passName.c_str(), dc.meshName.c_str());
+            }
+            else
+            {
+                snprintf(fmt, sizeof(fmt), "(invalid) (%%d)");
+            }
+
+            const float arrowsWidth = 60.0f;
+            const float statsWidth  = 200.0f;
+            const float spacing     = ImGui::GetStyle().ItemSpacing.x;
+            float sliderWidth = ImGui::GetContentRegionAvail().x - arrowsWidth - statsWidth - spacing * 3;
+            if (sliderWidth < 100.0f) sliderWidth = 100.0f;
+
+            ImGui::SetNextItemWidth(sliderWidth);
+            int newValue = sliderValue;
+            if (ImGui::SliderInt("##DrawScrub", &newValue, 0, drawCount - 1, fmt))
+            {
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)newValue))
+                    SelectEventNode(*n);
+            }
+
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##PrevDraw", ImGuiDir_Left) && sliderValue > 0)
+            {
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue - 1)))
+                    SelectEventNode(*n);
+            }
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##NextDraw", ImGuiDir_Right) && sliderValue < drawCount - 1)
+            {
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue + 1)))
+                    SelectEventNode(*n);
+            }
+
+            // [ / ] keyboard scrub. Gated on panel-window focus so the
+            // shortcut doesn't fire while the user types in another panel.
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket, /*repeat*/true) && sliderValue > 0)
+                {
+                    if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue - 1)))
+                        SelectEventNode(*n);
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket, /*repeat*/true) && sliderValue < drawCount - 1)
+                {
+                    if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue + 1)))
+                        SelectEventNode(*n);
+                }
+            }
+        }
+
+        ImGui::SameLine();
         char status[160];
         snprintf(status, sizeof(status),
-                 "%zu passes | %zu draws | %zu archives | %.2f ms",
+                 "%zu passes | %zu draws | %.2f ms",
                  capture.passes.size(),
                  capture.drawCalls.size(),
-                 capture.archivedImages.size(),
                  capture.totalGpuTimeMs);
         ImGui::TextDisabled("%s", status);
     }
@@ -485,9 +701,18 @@ namespace Luth
     {
         m_SelKind         = node.kind;
         m_SelPassIndex    = (node.passIndex == UINT32_MAX) ? -1 : (int)node.passIndex;
-        m_SelDrawIndex    = (node.drawIndex == UINT32_MAX) ? -1 : (int)node.drawIndex;
         m_SelArchiveIdx   = node.archivedImageIndex;
         m_SelArchiveLayer = node.archiveLayer;
+
+        // Unity-style scrub semantics: clicking a Draw node lands on it
+        // exactly; clicking a Group/Pass/Cascade snaps the slider to the
+        // last leaf draw under that node (precomputed in BuildEventTree).
+        // Draw-less subtrees (e.g. an empty Group) leave the slider where
+        // it was so the user doesn't lose their scrub position.
+        if (node.kind == RG::EventNodeKind::Draw)
+            m_SelDrawIndex = (int)node.drawIndex;
+        else if (node.lastDrawIndex != UINT32_MAX)
+            m_SelDrawIndex = (int)node.lastDrawIndex;
     }
 
     void FrameDebuggerPanel::DrawEventNode(const RG::CapturedFrame& capture,
@@ -537,10 +762,29 @@ namespace Luth
             snprintf(label, sizeof(label), "%s", node.label.c_str());
         }
 
-        // Unique ID per visited tree node — counter resets per OnRender, so each
-        // frame's traversal yields a stable mapping (ImGui uses these as hashes).
-        u32 uniqueId = ++m_TreeNodeCounter;
-        bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)uniqueId, flags, "%s", label);
+        // Stable per-node ID for ImGui's open/closed state map. A counter
+        // would collide across re-renders if the tree structure shifted (e.g.
+        // a Group appears/disappears between captures); ImGui then carries
+        // open-state across to the wrong node, producing the cross-talk
+        // surfaced in B verification. Key on node identity instead.
+        // Top 4 bits = kind tag, low 60 bits = payload.
+        u64 stableId = 0;
+        switch (node.kind)
+        {
+            case RG::EventNodeKind::Group:
+                stableId = ((u64)1 << 60) | (std::hash<std::string>{}(node.label) & 0x0FFFFFFFFFFFFFFFull);
+                break;
+            case RG::EventNodeKind::Pass:
+                stableId = ((u64)2 << 60) | node.passIndex;
+                break;
+            case RG::EventNodeKind::Cascade:
+                stableId = ((u64)3 << 60) | node.passIndex;
+                break;
+            case RG::EventNodeKind::Draw:
+                stableId = ((u64)4 << 60) | node.drawIndex;
+                break;
+        }
+        bool nodeOpen = ImGui::TreeNodeEx((void*)(uintptr_t)stableId, flags, "%s", label);
 
         // CRITICAL: capture click status BEFORE any subsequent ImGui call —
         // ImGui::IsItemClicked refers to the most recently submitted item, and
@@ -621,9 +865,13 @@ namespace Luth
         if (m_SelKind == RG::EventNodeKind::Draw && m_SelPassIndex >= 0 &&
             m_SelPassIndex < (int)capture.passes.size() && m_SelDrawIndex >= 0)
         {
+            // Attempt per-draw replay for any pass; ReplayPassUpToDraw
+            // dispatches by pass.name internally and no-ops for unsupported
+            // pass types. Validity is gated below by comparing the post-
+            // replay preview key against what we requested — supported
+            // passes update the key, unsupported ones leave it untouched.
             const auto& pass = capture.passes[m_SelPassIndex];
-            if (pass.name == "GeometryPass" &&
-                (u32)m_SelDrawIndex >= pass.firstDrawIndex &&
+            if ((u32)m_SelDrawIndex >= pass.firstDrawIndex &&
                 (u32)m_SelDrawIndex <  pass.firstDrawIndex + pass.drawCallCount)
             {
                 tryPerDrawReplay = true;
@@ -642,7 +890,14 @@ namespace Luth
             u32         previewW    = m_RS->GetPerDrawPreviewWidth();
             u32         previewH    = m_RS->GetPerDrawPreviewHeight();
 
-            if (previewView != VK_NULL_HANDLE && previewW > 0 && previewH > 0)
+            // Replay is "valid" iff its key matches what we requested.
+            // Unsupported pass types leave the key unchanged, in which case
+            // `previewView` reflects an unrelated prior replay — fall through
+            // to the pass-archive path so the user sees a coherent image.
+            const u64 expectedKey  = ((u64)perDrawPassIdx << 32) | (u64)perDrawLocalIdx;
+            const bool replayValid = (m_RS->GetPerDrawPreviewKey() == expectedKey);
+
+            if (replayValid && previewView != VK_NULL_HANDLE && previewW > 0 && previewH > 0)
             {
                 ImGui::Text("Per-draw replay  (%ux%u, draw %u of %u)",
                             previewW, previewH,
@@ -850,13 +1105,16 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // List the archives this pass produced (color/depth/etc.)
-            if ((u32)m_SelPassIndex < capture.passArchives.size() &&
-                !capture.passArchives[m_SelPassIndex].empty() &&
+            // List the archives this pass produced (color/depth/etc.).
+            // passArchives is keyed by graph pass index (sparse); m_SelPassIndex
+            // is the dense passes[] index, so route through pass.graphPassIndex.
+            const u32 archiveKey = pass.graphPassIndex;
+            if (archiveKey < capture.passArchives.size() &&
+                !capture.passArchives[archiveKey].empty() &&
                 UI::BeginCollapsingHeader("Pass Outputs"))
             {
                 ImGui::Indent(4.0f);
-                for (u32 ai : capture.passArchives[m_SelPassIndex])
+                for (u32 ai : capture.passArchives[archiveKey])
                 {
                     if (ai >= capture.archivedImages.size()) continue;
                     const auto& a = capture.archivedImages[ai];

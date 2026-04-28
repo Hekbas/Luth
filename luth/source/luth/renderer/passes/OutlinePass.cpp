@@ -51,7 +51,7 @@ namespace Luth
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass("OutlinePass", "LDROutput", false,
+                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "OutlinePass", "LDROutput", false,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
