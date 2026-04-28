@@ -22,23 +22,13 @@ namespace Luth::ComponentDrawers
         opts.OnAdd = [](Entity e) {
             auto& a = e.GetComponent<Animation>();
 
-            // Resolve Animation::ClipUUID back to an index in the model's clip list
-            // for the controller's index-based BlendLayer (UUIDs land in commit E).
-            i32 idx = 0;
-            if (auto model = AssetManager::GetAsset<Model>(a.ModelUUID)) {
-                const auto& uuids = model->GetAnimationClipUUIDs();
-                for (i32 i = 0; i < (i32)uuids.size(); i++) {
-                    if (uuids[i] == a.ClipUUID) { idx = i; break; }
-                }
-            }
-
             AnimationController initCtrl;
             BlendLayer baseLayer;
-            baseLayer.ClipIndex = idx;
+            baseLayer.ClipUUID = a.ClipUUID;  // inherit current clip from Animation
             baseLayer.Speed = a.Speed;
             baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
             initCtrl.Layers.push_back(baseLayer);
-            initCtrl.CurrentClipIndex = idx;
+            initCtrl.CurrentClipUUID = a.ClipUUID;
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
                 "Add AnimationController", e.GetScene(), (entt::entity)e, initCtrl));
         };
@@ -79,12 +69,15 @@ namespace Luth::ComponentDrawers
                 Scene* scene = entity.GetScene();
                 entt::entity ent = (entt::entity)entity;
 
-                int currentClip = ctrl.CurrentClipIndex;
-                currentClip = std::clamp(currentClip, 0, clipCount - 1);
+                // Map CurrentClipUUID back to a combo index for display.
+                int currentClip = 0;
+                for (int i = 0; i < clipCount; i++) {
+                    if (clipUUIDs[i] == ctrl.CurrentClipUUID) { currentClip = i; break; }
+                }
                 if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
-                    auto oldClip = ctrl.CurrentClipIndex;
-                    ctrl.Play(currentClip);
-                    EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipIndex, oldClip, ctrl.CurrentClipIndex);
+                    UUID oldUUID = ctrl.CurrentClipUUID;
+                    ctrl.Play(clipUUIDs[currentClip]);
+                    EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipUUID, oldUUID, ctrl.CurrentClipUUID);
                 }
 
                 {
@@ -104,7 +97,7 @@ namespace Luth::ComponentDrawers
 
                 if (ctrl.Layers.empty()) {
                     ctrl.Layers.resize(1);
-                    ctrl.Layers[0].ClipIndex = ctrl.CurrentClipIndex;
+                    ctrl.Layers[0].ClipUUID = ctrl.CurrentClipUUID;
                 }
 
                 for (u32 layerIdx = 0; layerIdx < (u32)ctrl.Layers.size(); layerIdx++) {
@@ -113,15 +106,18 @@ namespace Luth::ComponentDrawers
 
                     ImGui::PushID((int)layerIdx);
                     if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                        int layerClip = std::clamp(layer.ClipIndex, 0, clipCount - 1);
-                        int oldClipIdx = layer.ClipIndex;
+                        int layerClip = 0;
+                        for (int i = 0; i < clipCount; i++) {
+                            if (clipUUIDs[i] == layer.ClipUUID) { layerClip = i; break; }
+                        }
+                        UUID oldClipUUID = layer.ClipUUID;
                         if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
-                            layer.ClipIndex = layerClip;
+                            layer.ClipUUID = clipUUIDs[layerClip];
                             layer.CurrentTime = 0.0f;
-                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, i32>>(
+                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
                                 "Change Layer Clip", scene, ent,
-                                &AnimationController::Layers, layerIdx, &BlendLayer::ClipIndex,
-                                oldClipIdx, layerClip));
+                                &AnimationController::Layers, layerIdx, &BlendLayer::ClipUUID,
+                                oldClipUUID, layer.ClipUUID));
                         }
 
                         if (layerIdx > 0) {
@@ -226,7 +222,7 @@ namespace Luth::ComponentDrawers
 
                 if (ImGui::Button("+ Add Layer##Ctrl")) {
                     BlendLayer newLayer;
-                    newLayer.ClipIndex = 0;
+                    if (!clipUUIDs.empty()) newLayer.ClipUUID = clipUUIDs[0];
                     CommandHistory::Execute(std::make_unique<VectorInsertCommand<AnimationController, BlendLayer>>(
                         "Add Layer", scene, ent,
                         &AnimationController::Layers, ctrl.Layers.size(), newLayer));

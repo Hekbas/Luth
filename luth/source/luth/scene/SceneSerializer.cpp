@@ -95,17 +95,17 @@ namespace Luth
         if (entity.HasComponent<AnimationController>()) {
             auto& ctrl = entity.GetComponent<AnimationController>();
             json cj;
-            cj["currentClipIndex"]          = ctrl.CurrentClipIndex;
+            cj["currentClipUUID"]           = ctrl.CurrentClipUUID.ToString();
             cj["applyRootMotion"]           = ctrl.ApplyRootMotion;
             cj["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
 
             json layersJson = json::array();
             for (const auto& layer : ctrl.Layers) {
                 json lj;
-                lj["clipIndex"] = layer.ClipIndex;
-                lj["speed"]     = layer.Speed;
-                lj["weight"]    = layer.Weight;
-                lj["loop"]      = layer.Loop;
+                lj["clipUUID"] = layer.ClipUUID.ToString();
+                lj["speed"]    = layer.Speed;
+                lj["weight"]   = layer.Weight;
+                lj["loop"]     = layer.Loop;
                 if (!layer.BoneMask.empty()) {
                     json maskJson = json::array();
                     for (u32 i = 0; i < (u32)layer.BoneMask.size(); i++)
@@ -340,17 +340,43 @@ namespace Luth
             if (ej.contains("animationController")) {
                 const auto& cj = ej["animationController"];
                 auto& ctrl = entity.AddComponent<AnimationController>();
-                ctrl.CurrentClipIndex          = cj.value("currentClipIndex", 0);
+
+                // Lazy migration helper: legacy `clipIndex` resolved against the
+                // companion Animation's model. Cached after first call so a single
+                // controller with N layers triggers at most one LoadImmediate.
+                UUID modelUUID;
+                if (entity.HasComponent<Animation>())
+                    modelUUID = entity.GetComponent<Animation>().ModelUUID;
+                std::shared_ptr<Model> migrationModel;
+                auto resolveLegacy = [&](i32 idx) -> UUID {
+                    if (idx < 0 || !modelUUID.IsValid()) return UUID();
+                    if (!migrationModel) {
+                        auto loaded = AssetManager::LoadImmediate(modelUUID);
+                        migrationModel = std::dynamic_pointer_cast<Model>(loaded);
+                    }
+                    if (!migrationModel) return UUID();
+                    const auto& uuids = migrationModel->GetAnimationClipUUIDs();
+                    return ((u32)idx < uuids.size()) ? uuids[idx] : UUID();
+                };
+
+                if (cj.contains("currentClipUUID"))
+                    ctrl.CurrentClipUUID = UUID::FromString(cj.value("currentClipUUID", ""));
+                else if (cj.contains("currentClipIndex"))
+                    ctrl.CurrentClipUUID = resolveLegacy(cj.value("currentClipIndex", -1));
+
                 ctrl.ApplyRootMotion           = cj.value("applyRootMotion", false);
                 ctrl.DefaultTransitionDuration = cj.value("defaultTransitionDuration", 0.2f);
 
                 if (cj.contains("layers")) {
                     for (const auto& lj : cj["layers"]) {
                         BlendLayer layer;
-                        layer.ClipIndex = lj.value("clipIndex", -1);
-                        layer.Speed     = lj.value("speed", 1.0f);
-                        layer.Weight    = lj.value("weight", 1.0f);
-                        layer.Loop      = lj.value("loop", true);
+                        if (lj.contains("clipUUID"))
+                            layer.ClipUUID = UUID::FromString(lj.value("clipUUID", ""));
+                        else if (lj.contains("clipIndex"))
+                            layer.ClipUUID = resolveLegacy(lj.value("clipIndex", -1));
+                        layer.Speed  = lj.value("speed", 1.0f);
+                        layer.Weight = lj.value("weight", 1.0f);
+                        layer.Loop   = lj.value("loop", true);
                         if (lj.contains("boneMask")) {
                             // Sparse mask: array of bone indices that are enabled
                             // We'll reconstruct the full vector once skeleton is available.
