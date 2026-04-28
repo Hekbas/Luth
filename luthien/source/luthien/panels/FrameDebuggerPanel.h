@@ -82,6 +82,5 @@ namespace Luth
         VkImageView      m_DepthPreviewViewCached   = VK_NULL_HANDLE;
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
-        u32 m_TreeNodeCounter = 0;
     };
 }

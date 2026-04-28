@@ -495,7 +495,6 @@ namespace Luth
                           ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
         // Walk the root's children directly — the root itself is the implicit
         // "Frame" container and isn't drawn (matches Unity's tree shape).
-        m_TreeNodeCounter = 0;
         for (const auto& child : capture.rootEvent.children)
             DrawEventNode(capture, child, 0);
         ImGui::EndChild();
@@ -683,10 +682,29 @@ namespace Luth
             snprintf(label, sizeof(label), "%s", node.label.c_str());
         }
 
-        // Unique ID per visited tree node — counter resets per OnRender, so each
-        // frame's traversal yields a stable mapping (ImGui uses these as hashes).
-        u32 uniqueId = ++m_TreeNodeCounter;
-        bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)uniqueId, flags, "%s", label);
+        // Stable per-node ID for ImGui's open/closed state map. A counter
+        // would collide across re-renders if the tree structure shifted (e.g.
+        // a Group appears/disappears between captures); ImGui then carries
+        // open-state across to the wrong node, producing the cross-talk
+        // surfaced in B verification. Key on node identity instead.
+        // Top 4 bits = kind tag, low 60 bits = payload.
+        u64 stableId = 0;
+        switch (node.kind)
+        {
+            case RG::EventNodeKind::Group:
+                stableId = ((u64)1 << 60) | (std::hash<std::string>{}(node.label) & 0x0FFFFFFFFFFFFFFFull);
+                break;
+            case RG::EventNodeKind::Pass:
+                stableId = ((u64)2 << 60) | node.passIndex;
+                break;
+            case RG::EventNodeKind::Cascade:
+                stableId = ((u64)3 << 60) | node.passIndex;
+                break;
+            case RG::EventNodeKind::Draw:
+                stableId = ((u64)4 << 60) | node.drawIndex;
+                break;
+        }
+        bool nodeOpen = ImGui::TreeNodeEx((void*)(uintptr_t)stableId, flags, "%s", label);
 
         // CRITICAL: capture click status BEFORE any subsequent ImGui call —
         // ImGui::IsItemClicked refers to the most recently submitted item, and
