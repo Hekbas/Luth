@@ -104,7 +104,8 @@ namespace Luth
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
 
-            const AnimationClip* clip = model->GetAnimationClip(anim.AnimationIndex);
+            auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
+            const AnimationClip* clip = clipPtr.get();
             if (!clip) continue;
 
             f32 duration = clip->GetDurationSeconds();
@@ -120,7 +121,16 @@ namespace Luth
             {
                 if (anim.CurrentTime >= duration)
                 {
-                    anim.AnimationIndex = (anim.AnimationIndex + 1) % model->GetAnimationClips().size();
+                    // Cycle to the next clip in the model's list. With UUID storage we no
+                    // longer carry an index — find the current UUID and advance.
+                    const auto& clipUUIDs = model->GetAnimationClipUUIDs();
+                    if (!clipUUIDs.empty()) {
+                        u32 cur = 0;
+                        for (u32 i = 0; i < (u32)clipUUIDs.size(); i++) {
+                            if (clipUUIDs[i] == anim.ClipUUID) { cur = i; break; }
+                        }
+                        anim.ClipUUID = clipUUIDs[(cur + 1) % clipUUIDs.size()];
+                    }
                     anim.CurrentTime = 0.0f;
                 }
             }
@@ -148,12 +158,11 @@ namespace Luth
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
 
-            const auto& clips = model->GetAnimationClips();
-
             // Helper to advance a layer's time
             auto advanceLayerTime = [&](BlendLayer& layer) {
-                if (layer.ClipIndex < 0 || (u32)layer.ClipIndex >= clips.size()) return;
-                f32 dur = clips[layer.ClipIndex].GetDurationSeconds();
+                auto cl = AssetManager::GetAsset<AnimationClip>(layer.ClipUUID);
+                if (!cl) return;
+                f32 dur = cl->GetDurationSeconds();
                 layer.CurrentTime += dt * layer.Speed;
                 if (layer.Loop)
                 {
@@ -178,9 +187,9 @@ namespace Luth
                 t.Elapsed += dt;
 
                 // Advance from-clip time
-                if (t.FromClip >= 0 && (u32)t.FromClip < clips.size())
+                if (auto cl = AssetManager::GetAsset<AnimationClip>(t.FromClipUUID))
                 {
-                    f32 fromDur = clips[t.FromClip].GetDurationSeconds();
+                    f32 fromDur = cl->GetDurationSeconds();
                     t.FromTime += dt * t.FromSpeed;
                     if (t.FromLoop && fromDur > 0.0f)
                         t.FromTime = std::fmod(t.FromTime, fromDur);
@@ -200,7 +209,10 @@ namespace Luth
             anim.PreviousTime = anim.CurrentTime;
             if (!ctrl.Layers.empty())
                 anim.CurrentTime = ctrl.Layers[0].CurrentTime;
-            anim.AnimationIndex = ctrl.CurrentClipIndex;
+
+            // Mirror controller's selection onto Animation so the single-clip
+            // path / inspector show the live clip.
+            anim.ClipUUID = ctrl.CurrentClipUUID;
         }
 
         // Dispatch evaluation jobs (one entity per job)
@@ -221,7 +233,8 @@ namespace Luth
 
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
-            const AnimationClip* clip = model->GetAnimationClip(anim.AnimationIndex);
+            auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
+            const AnimationClip* clip = clipPtr.get();
             if (!clip || clip->Events.empty()) continue;
 
             f32 tps = (clip->TicksPerSecond > 0.0f) ? clip->TicksPerSecond : 25.0f;
@@ -349,7 +362,8 @@ namespace Luth
 
         // --- Single-clip path (unchanged from 7C) ---
         u32 boneCount = skeleton.BoneCount();
-        const AnimationClip* clip = model->GetAnimationClip(anim.AnimationIndex);
+        auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
+        const AnimationClip* clip = clipPtr.get();
 
         std::vector<Mat4> localTransforms(boneCount, Mat4(1.0f));
 
@@ -540,7 +554,6 @@ namespace Luth
     {
         auto& ctrl = registry.get<AnimationController>(entity);
         u32 boneCount = skeleton.BoneCount();
-        const auto& clips = model->GetAnimationClips();
 
         if (ctrl.Layers.empty())
         {
@@ -563,8 +576,8 @@ namespace Luth
 
             std::vector<BonePose> fromPoses, toPoses;
 
-            if (t.FromClip >= 0 && (u32)t.FromClip < clips.size())
-                SampleClipSQT(clips[t.FromClip], skeleton, t.FromTime, fromPoses);
+            if (auto cl = AssetManager::GetAsset<AnimationClip>(t.FromClipUUID))
+                SampleClipSQT(*cl, skeleton, t.FromTime, fromPoses);
             else
             {
                 fromPoses.resize(boneCount);
@@ -573,8 +586,8 @@ namespace Luth
                         fromPoses[i].Position, fromPoses[i].Rotation, fromPoses[i].Scale);
             }
 
-            if (ctrl.Layers[0].ClipIndex >= 0 && (u32)ctrl.Layers[0].ClipIndex < clips.size())
-                SampleClipSQT(clips[ctrl.Layers[0].ClipIndex], skeleton, ctrl.Layers[0].CurrentTime, toPoses);
+            if (auto cl = AssetManager::GetAsset<AnimationClip>(ctrl.Layers[0].ClipUUID))
+                SampleClipSQT(*cl, skeleton, ctrl.Layers[0].CurrentTime, toPoses);
             else
                 toPoses = fromPoses;
 
@@ -583,8 +596,8 @@ namespace Luth
         else
         {
             // No transition — sample base layer directly
-            if (ctrl.Layers[0].ClipIndex >= 0 && (u32)ctrl.Layers[0].ClipIndex < clips.size())
-                SampleClipSQT(clips[ctrl.Layers[0].ClipIndex], skeleton, ctrl.Layers[0].CurrentTime, basePoses);
+            if (auto cl = AssetManager::GetAsset<AnimationClip>(ctrl.Layers[0].ClipUUID))
+                SampleClipSQT(*cl, skeleton, ctrl.Layers[0].CurrentTime, basePoses);
             else
             {
                 basePoses.resize(boneCount);
@@ -598,21 +611,22 @@ namespace Luth
         for (u32 layerIdx = 1; layerIdx < (u32)ctrl.Layers.size(); layerIdx++)
         {
             const auto& layer = ctrl.Layers[layerIdx];
-            if (layer.Weight <= 0.0f || layer.ClipIndex < 0 || (u32)layer.ClipIndex >= clips.size())
-                continue;
+            if (layer.Weight <= 0.0f) continue;
+            auto cl = AssetManager::GetAsset<AnimationClip>(layer.ClipUUID);
+            if (!cl) continue;
 
             std::vector<BonePose> layerPoses;
-            SampleClipSQT(clips[layer.ClipIndex], skeleton, layer.CurrentTime, layerPoses);
+            SampleClipSQT(*cl, skeleton, layer.CurrentTime, layerPoses);
             BlendPoses(basePoses, layerPoses, layer.Weight, basePoses, layer.BoneMask);
         }
 
         // --- Step 3: Root motion ---
         if (ctrl.ApplyRootMotion && boneCount > 0)
         {
-            i32 baseClipIdx = ctrl.Layers[0].ClipIndex;
-            if (baseClipIdx >= 0 && (u32)baseClipIdx < clips.size() && clips[baseClipIdx].HasRootMotion)
+            auto baseClipPtr = AssetManager::GetAsset<AnimationClip>(ctrl.Layers[0].ClipUUID);
+            if (baseClipPtr && baseClipPtr->HasRootMotion)
             {
-                const AnimationClip& baseClip = clips[baseClipIdx];
+                const AnimationClip& baseClip = *baseClipPtr;
                 f32 tps = (baseClip.TicksPerSecond > 0.0f) ? baseClip.TicksPerSecond : 25.0f;
 
                 // Find root bone's position track

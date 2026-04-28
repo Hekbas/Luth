@@ -6,8 +6,10 @@
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
 #include "luth/resources/importers/ShaderImporter.h"
+#include "luth/resources/importers/AnimationClipImporter.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/resources/Model.h"
+#include "luth/renderer/resources/AnimationClip.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/shader/Shader.h"
 #include "luth/core/time/Time.h"
@@ -30,6 +32,7 @@ namespace Luth
         s_Importers[AssetType::Model] = std::make_unique<ModelImporter>();
         s_Importers[AssetType::Material] = std::make_unique<MaterialImporter>();
         s_Importers[AssetType::Shader] = std::make_unique<ShaderImporter>();
+        s_Importers[AssetType::Animation] = std::make_unique<AnimationClipImporter>();
     }
 
     void AssetManager::Shutdown()
@@ -204,6 +207,10 @@ namespace Luth
             auto d = std::make_unique<ShaderAssetData>();
             if (AssetSerializer::DeserializeShader(artifactPath, *d)) return d;
         }
+        else if (type == AssetType::Animation) {
+            auto d = std::make_unique<AnimationAssetData>();
+            if (AssetSerializer::DeserializeAnimation(artifactPath, *d)) return d;
+        }
         return nullptr;
     }
 
@@ -216,7 +223,7 @@ namespace Luth
         else if (type == AssetType::Model) {
             auto* d = static_cast<ModelAssetData*>(data);
             if (d->IsSkinned)
-                return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClips, true);
+                return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClipUUIDs, true);
             else
                 return Model::Create(d->Meshes, d->Materials);
         }
@@ -229,6 +236,10 @@ namespace Luth
         else if (type == AssetType::Shader) {
             auto* d = static_cast<ShaderAssetData*>(data);
             return Shader::Create(d->Stage, d->SpirV, sourcePath);
+        }
+        else if (type == AssetType::Animation) {
+            auto* d = static_cast<AnimationAssetData*>(data);
+            return std::make_shared<AnimationClip>(d->Clip);
         }
         return nullptr;
     }
@@ -308,6 +319,18 @@ namespace Luth
                     {
                         if (map.Uuid.IsValid())
                             LoadAsync(map.Uuid);
+                    }
+                }
+
+                // Model-specific: trigger async load for the model's animation clips
+                // so AnimationSystem can sample them on the next frame.
+                if (upload.Type == AssetType::Model && newAsset)
+                {
+                    auto* model = static_cast<Model*>(newAsset.get());
+                    for (const auto& clipUUID : model->GetAnimationClipUUIDs())
+                    {
+                        if (clipUUID.IsValid())
+                            LoadAsync(clipUUID);
                     }
                 }
             }

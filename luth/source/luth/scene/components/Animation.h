@@ -18,7 +18,7 @@ namespace Luth::Component
         Animation() = default;
         Animation(UUID uuid) : ModelUUID(uuid) {}
         UUID ModelUUID;
-        i32 AnimationIndex = 0;
+        UUID ClipUUID;  // First-class clip handle. Independent of the model's clip ordering.
 
         // Playback state
         f32 CurrentTime = 0.0f;   // seconds

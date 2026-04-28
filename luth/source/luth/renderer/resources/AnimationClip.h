@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/resources/Asset.h"
 
 #include <string>
 #include <vector>
@@ -29,13 +30,20 @@ namespace Luth
         std::string Name;       // e.g. "FootstepL", "AttackHit"
     };
 
-    struct AnimationClip {
+    // First-class UUID-addressable asset. Inheriting Asset adds a vtable +
+    // Handle/Flags/LastAccessedTime; size growth is irrelevant to the
+    // existing field-by-field serializer.
+    class AnimationClip : public Asset
+    {
+    public:
         std::string Name;
         f32 Duration        = 0.0f;  // In ticks
         f32 TicksPerSecond  = 0.0f;
         std::vector<BoneTrack> Tracks;
         std::vector<AnimationEvent> Events;
         bool HasRootMotion = false;
+
+        AssetType GetType() const override { return AssetType::Animation; }
 
         f32 GetDurationSeconds() const
         {

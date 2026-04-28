@@ -184,7 +184,7 @@ namespace Luth
             if (UI::BeginCollapsingHeader("Animations")) {
                 ImGui::Text("Total Animations: %d", info.AnimationCount);
 
-                const auto& clips = model.GetAnimationClips();
+                const auto& clipUUIDs = model.GetAnimationClipUUIDs();
 
                 if (ImGui::BeginTable("AnimationsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn("Name");
@@ -202,15 +202,18 @@ namespace Luth
                         ImGui::TableNextColumn();
                         ImGui::Text("%.2f", anim.Duration);
                         ImGui::TableNextColumn();
-                        if (i < clips.size())
-                            ImGui::Text("%.2f", clips[i].GetDurationSeconds());
+                        std::shared_ptr<AnimationClip> clipPtr;
+                        if (i < clipUUIDs.size())
+                            clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[i]);
+                        if (clipPtr)
+                            ImGui::Text("%.2f", clipPtr->GetDurationSeconds());
                         else
                             ImGui::Text("-");
                         ImGui::TableNextColumn();
                         ImGui::Text("%.2f", anim.TicksPerSecond);
                         ImGui::TableNextColumn();
-                        if (i < clips.size())
-                            ImGui::Text("%d", (int)clips[i].Events.size());
+                        if (clipPtr)
+                            ImGui::Text("%d", (int)clipPtr->Events.size());
                         else
                             ImGui::Text("-");
                     }

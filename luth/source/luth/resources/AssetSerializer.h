@@ -79,5 +79,8 @@ namespace Luth
 
         static bool SerializeShader(const fs::path& path, const ShaderAssetData& data);
         static bool DeserializeShader(const fs::path& path, ShaderAssetData& outData);
+
+        static bool SerializeAnimation(const fs::path& path, const struct AnimationAssetData& data);
+        static bool DeserializeAnimation(const fs::path& path, struct AnimationAssetData& outData);
     };
 }

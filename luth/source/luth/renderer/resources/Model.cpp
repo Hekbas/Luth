@@ -3,6 +3,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/resources/AssetManager.h"
 
 namespace Luth
 {
@@ -16,13 +17,13 @@ namespace Luth
     }
 
     std::shared_ptr<Model> Model::Create(const std::vector<MeshData>& meshData, const std::vector<UUID>& materials,
-        const Skeleton& skeleton, const std::vector<AnimationClip>& clips, bool isSkinned)
+        const Skeleton& skeleton, const std::vector<UUID>& clipUUIDs, bool isSkinned)
     {
         auto model = std::make_shared<Model>();
         model->m_MeshesData = meshData;
         model->m_Materials = materials;
         model->m_Skeleton = skeleton;
-        model->m_AnimationClips = clips;
+        model->m_AnimationClipUUIDs = clipUUIDs;
         model->m_IsSkinned = isSkinned;
         model->ProcessMeshData();
         return model;
@@ -97,7 +98,7 @@ namespace Luth
 
         // Populate skeleton info
         info.BoneCount = m_Skeleton.BoneCount();
-        info.AnimationCount = static_cast<u32>(m_AnimationClips.size());
+        info.AnimationCount = static_cast<u32>(m_AnimationClipUUIDs.size());
 
         for (const auto& bone : m_Skeleton.Bones) {
             BoneNodeInfo bni;
@@ -107,11 +108,19 @@ namespace Luth
             info.BoneHierarchy.push_back(bni);
         }
 
-        for (const auto& clip : m_AnimationClips) {
+        // Best-effort clip metadata. Cached on first GetModelInfo() call (during
+        // ProcessMeshData), so async-loaded clips show as "<not loaded>" until
+        // CacheModelInfo() runs again.
+        for (const auto& uuid : m_AnimationClipUUIDs) {
             AnimationInfo ai;
-            ai.Name = clip.Name;
-            ai.Duration = static_cast<double>(clip.Duration);
-            ai.TicksPerSecond = static_cast<double>(clip.TicksPerSecond);
+            if (auto clip = AssetManager::GetAsset<AnimationClip>(uuid)) {
+                ai.Name = clip->Name;
+                ai.Duration = static_cast<double>(clip->Duration);
+                ai.TicksPerSecond = static_cast<double>(clip->TicksPerSecond);
+            }
+            else {
+                ai.Name = "<not loaded>";
+            }
             info.Animations.push_back(ai);
         }
 

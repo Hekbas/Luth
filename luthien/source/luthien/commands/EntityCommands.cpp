@@ -75,28 +75,28 @@ namespace Luth
             if (entity.HasComponent<Animation>()) {
                 auto& a = entity.GetComponent<Animation>();
                 json aj;
-                aj["modelUUID"]      = a.ModelUUID.ToString();
-                aj["animationIndex"] = a.AnimationIndex;
-                aj["speed"]          = a.Speed;
-                aj["loopMode"]       = static_cast<int>(a.LoopMode);
-                aj["playing"]        = a.Playing;
-                j["animation"]       = aj;
+                aj["modelUUID"] = a.ModelUUID.ToString();
+                aj["clipUUID"]  = a.ClipUUID.ToString();
+                aj["speed"]     = a.Speed;
+                aj["loopMode"]  = static_cast<int>(a.LoopMode);
+                aj["playing"]   = a.Playing;
+                j["animation"]  = aj;
             }
 
             if (entity.HasComponent<AnimationController>()) {
                 auto& ctrl = entity.GetComponent<AnimationController>();
                 json cj;
-                cj["currentClipIndex"]          = ctrl.CurrentClipIndex;
+                cj["currentClipUUID"]           = ctrl.CurrentClipUUID.ToString();
                 cj["applyRootMotion"]           = ctrl.ApplyRootMotion;
                 cj["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
 
                 json layersJson = json::array();
                 for (const auto& layer : ctrl.Layers) {
                     json lj;
-                    lj["clipIndex"] = layer.ClipIndex;
-                    lj["speed"]     = layer.Speed;
-                    lj["weight"]    = layer.Weight;
-                    lj["loop"]      = layer.Loop;
+                    lj["clipUUID"] = layer.ClipUUID.ToString();
+                    lj["speed"]    = layer.Speed;
+                    lj["weight"]   = layer.Weight;
+                    lj["loop"]     = layer.Loop;
                     if (!layer.BoneMask.empty()) {
                         json maskJson = json::array();
                         for (u32 i = 0; i < (u32)layer.BoneMask.size(); i++)
@@ -226,9 +226,9 @@ namespace Luth
                 if (ej.contains("animation")) {
                     const auto& aj = ej["animation"];
                     auto& a = entity.AddComponent<Animation>();
-                    a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
-                    a.AnimationIndex = aj.value("animationIndex", 0);
-                    a.Speed          = aj.value("speed", 1.0f);
+                    a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
+                    a.ClipUUID  = UUID::FromString(aj.value("clipUUID", ""));
+                    a.Speed     = aj.value("speed", 1.0f);
                     if (aj.contains("loopMode"))
                         a.LoopMode = static_cast<AnimationLoopMode>(aj.value("loopMode", 1));
                     else
@@ -240,17 +240,17 @@ namespace Luth
                 if (ej.contains("animationController")) {
                     const auto& cj = ej["animationController"];
                     auto& ctrl = entity.AddComponent<AnimationController>();
-                    ctrl.CurrentClipIndex          = cj.value("currentClipIndex", 0);
+                    ctrl.CurrentClipUUID           = UUID::FromString(cj.value("currentClipUUID", ""));
                     ctrl.ApplyRootMotion           = cj.value("applyRootMotion", false);
                     ctrl.DefaultTransitionDuration = cj.value("defaultTransitionDuration", 0.2f);
 
                     if (cj.contains("layers")) {
                         for (const auto& lj : cj["layers"]) {
                             BlendLayer layer;
-                            layer.ClipIndex = lj.value("clipIndex", -1);
-                            layer.Speed     = lj.value("speed", 1.0f);
-                            layer.Weight    = lj.value("weight", 1.0f);
-                            layer.Loop      = lj.value("loop", true);
+                            layer.ClipUUID = UUID::FromString(lj.value("clipUUID", ""));
+                            layer.Speed    = lj.value("speed", 1.0f);
+                            layer.Weight   = lj.value("weight", 1.0f);
+                            layer.Loop     = lj.value("loop", true);
                             if (lj.contains("boneMask")) {
                                 const auto& maskJson = lj["boneMask"];
                                 if (!maskJson.empty()) {

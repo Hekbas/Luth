@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/UUID.h"
 #include "luth/core/types/LuthMath.h"
 
 #include <optional>
@@ -14,7 +15,7 @@ namespace Luth::Component
     };
 
     struct BlendLayer {
-        i32  ClipIndex   = -1;
+        UUID ClipUUID;            // First-class clip handle (rig-agnostic)
         f32  CurrentTime = 0.0f;  // seconds
         f32  Speed       = 1.0f;
         f32  Weight      = 1.0f;
@@ -23,8 +24,8 @@ namespace Luth::Component
     };
 
     struct AnimationTransition {
-        i32  FromClip  = -1;
-        i32  ToClip    = -1;
+        UUID FromClipUUID;
+        UUID ToClipUUID;
         f32  Duration  = 0.2f;
         f32  Elapsed   = 0.0f;
         f32  FromTime  = 0.0f;   // "from" clip playback time (keeps advancing)
@@ -35,38 +36,38 @@ namespace Luth::Component
     struct AnimationController {
         std::vector<BlendLayer> Layers;  // [0] = base layer
         std::optional<AnimationTransition> ActiveTransition;
-        i32  CurrentClipIndex = 0;
+        UUID CurrentClipUUID;
         bool ApplyRootMotion  = false;
         f32  DefaultTransitionDuration = 0.2f;
 
         // Runtime (not serialized) — written by job, read by main thread
         Vec3 RootMotionDelta = Vec3(0.0f);
 
-        void Play(i32 clipIndex, f32 transitionDuration = -1.0f)
+        void Play(UUID clipUUID, f32 transitionDuration = -1.0f)
         {
-            if (clipIndex == CurrentClipIndex) return;
+            if (clipUUID == CurrentClipUUID) return;
             if (Layers.empty()) Layers.resize(1);
 
             AnimationTransition t;
-            t.FromClip  = CurrentClipIndex;
-            t.ToClip    = clipIndex;
-            t.Duration  = (transitionDuration >= 0.0f) ? transitionDuration : DefaultTransitionDuration;
-            t.Elapsed   = 0.0f;
-            t.FromTime  = Layers[0].CurrentTime;
-            t.FromSpeed = Layers[0].Speed;
-            t.FromLoop  = Layers[0].Loop;
+            t.FromClipUUID = CurrentClipUUID;
+            t.ToClipUUID   = clipUUID;
+            t.Duration     = (transitionDuration >= 0.0f) ? transitionDuration : DefaultTransitionDuration;
+            t.Elapsed      = 0.0f;
+            t.FromTime     = Layers[0].CurrentTime;
+            t.FromSpeed    = Layers[0].Speed;
+            t.FromLoop     = Layers[0].Loop;
             ActiveTransition = t;
 
-            CurrentClipIndex = clipIndex;
-            Layers[0].ClipIndex = clipIndex;
+            CurrentClipUUID = clipUUID;
+            Layers[0].ClipUUID = clipUUID;
             Layers[0].CurrentTime = 0.0f;
         }
 
-        void SetLayerClip(u32 layer, i32 clip, f32 weight = 1.0f)
+        void SetLayerClip(u32 layer, UUID clip, f32 weight = 1.0f)
         {
             if (layer >= (u32)Layers.size())
                 Layers.resize(layer + 1);
-            Layers[layer].ClipIndex = clip;
+            Layers[layer].ClipUUID = clip;
             Layers[layer].Weight = weight;
         }
 

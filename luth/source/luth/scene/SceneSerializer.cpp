@@ -3,6 +3,8 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/Components.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/resources/Model.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -82,28 +84,28 @@ namespace Luth
         if (entity.HasComponent<Animation>()) {
             auto& a = entity.GetComponent<Animation>();
             json aj;
-            aj["modelUUID"]      = a.ModelUUID.ToString();
-            aj["animationIndex"] = a.AnimationIndex;
-            aj["speed"]          = a.Speed;
-            aj["loopMode"]       = static_cast<int>(a.LoopMode);
-            aj["playing"]        = a.Playing;
-            j["animation"]       = aj;
+            aj["modelUUID"] = a.ModelUUID.ToString();
+            aj["clipUUID"]  = a.ClipUUID.ToString();
+            aj["speed"]     = a.Speed;
+            aj["loopMode"]  = static_cast<int>(a.LoopMode);
+            aj["playing"]   = a.Playing;
+            j["animation"]  = aj;
         }
 
         if (entity.HasComponent<AnimationController>()) {
             auto& ctrl = entity.GetComponent<AnimationController>();
             json cj;
-            cj["currentClipIndex"]          = ctrl.CurrentClipIndex;
+            cj["currentClipUUID"]           = ctrl.CurrentClipUUID.ToString();
             cj["applyRootMotion"]           = ctrl.ApplyRootMotion;
             cj["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
 
             json layersJson = json::array();
             for (const auto& layer : ctrl.Layers) {
                 json lj;
-                lj["clipIndex"] = layer.ClipIndex;
-                lj["speed"]     = layer.Speed;
-                lj["weight"]    = layer.Weight;
-                lj["loop"]      = layer.Loop;
+                lj["clipUUID"] = layer.ClipUUID.ToString();
+                lj["speed"]    = layer.Speed;
+                lj["weight"]   = layer.Weight;
+                lj["loop"]     = layer.Loop;
                 if (!layer.BoneMask.empty()) {
                     json maskJson = json::array();
                     for (u32 i = 0; i < (u32)layer.BoneMask.size(); i++)
@@ -305,31 +307,76 @@ namespace Luth
             if (ej.contains("animation")) {
                 const auto& aj = ej["animation"];
                 auto& a = entity.AddComponent<Animation>();
-                a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
-                a.AnimationIndex = aj.value("animationIndex", 0);
-                a.Speed          = aj.value("speed", 1.0f);
+                a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
+
+                // Migrate from legacy `animationIndex`. LoadImmediate is blocking but
+                // only runs once per scene load and only when scenes pre-date this epic.
+                if (aj.contains("clipUUID")) {
+                    a.ClipUUID = UUID::FromString(aj.value("clipUUID", ""));
+                }
+                else if (aj.contains("animationIndex") && a.ModelUUID.IsValid()) {
+                    auto loaded = AssetManager::LoadImmediate(a.ModelUUID);
+                    auto modelPtr = std::dynamic_pointer_cast<Model>(loaded);
+                    if (modelPtr) {
+                        i32 idx = aj.value("animationIndex", 0);
+                        const auto& uuids = modelPtr->GetAnimationClipUUIDs();
+                        if (idx >= 0 && (u32)idx < uuids.size()) {
+                            a.ClipUUID = uuids[idx];
+                            LH_CORE_INFO("SceneSerializer: migrated Animation index {} -> {} for {}",
+                                idx, a.ClipUUID.ToString(), a.ModelUUID.ToString());
+                        }
+                    }
+                }
+
+                a.Speed = aj.value("speed", 1.0f);
                 if (aj.contains("loopMode"))
                     a.LoopMode = static_cast<AnimationLoopMode>(aj.value("loopMode", 1));
                 else
                     a.LoopMode = aj.value("loop", true) ? AnimationLoopMode::One : AnimationLoopMode::Off;
-                a.Playing        = aj.value("playing", false);
+                a.Playing = aj.value("playing", false);
             }
 
             // AnimationController
             if (ej.contains("animationController")) {
                 const auto& cj = ej["animationController"];
                 auto& ctrl = entity.AddComponent<AnimationController>();
-                ctrl.CurrentClipIndex          = cj.value("currentClipIndex", 0);
+
+                // Lazy migration helper: legacy `clipIndex` resolved against the
+                // companion Animation's model. Cached after first call so a single
+                // controller with N layers triggers at most one LoadImmediate.
+                UUID modelUUID;
+                if (entity.HasComponent<Animation>())
+                    modelUUID = entity.GetComponent<Animation>().ModelUUID;
+                std::shared_ptr<Model> migrationModel;
+                auto resolveLegacy = [&](i32 idx) -> UUID {
+                    if (idx < 0 || !modelUUID.IsValid()) return UUID();
+                    if (!migrationModel) {
+                        auto loaded = AssetManager::LoadImmediate(modelUUID);
+                        migrationModel = std::dynamic_pointer_cast<Model>(loaded);
+                    }
+                    if (!migrationModel) return UUID();
+                    const auto& uuids = migrationModel->GetAnimationClipUUIDs();
+                    return ((u32)idx < uuids.size()) ? uuids[idx] : UUID();
+                };
+
+                if (cj.contains("currentClipUUID"))
+                    ctrl.CurrentClipUUID = UUID::FromString(cj.value("currentClipUUID", ""));
+                else if (cj.contains("currentClipIndex"))
+                    ctrl.CurrentClipUUID = resolveLegacy(cj.value("currentClipIndex", -1));
+
                 ctrl.ApplyRootMotion           = cj.value("applyRootMotion", false);
                 ctrl.DefaultTransitionDuration = cj.value("defaultTransitionDuration", 0.2f);
 
                 if (cj.contains("layers")) {
                     for (const auto& lj : cj["layers"]) {
                         BlendLayer layer;
-                        layer.ClipIndex = lj.value("clipIndex", -1);
-                        layer.Speed     = lj.value("speed", 1.0f);
-                        layer.Weight    = lj.value("weight", 1.0f);
-                        layer.Loop      = lj.value("loop", true);
+                        if (lj.contains("clipUUID"))
+                            layer.ClipUUID = UUID::FromString(lj.value("clipUUID", ""));
+                        else if (lj.contains("clipIndex"))
+                            layer.ClipUUID = resolveLegacy(lj.value("clipIndex", -1));
+                        layer.Speed  = lj.value("speed", 1.0f);
+                        layer.Weight = lj.value("weight", 1.0f);
+                        layer.Loop   = lj.value("loop", true);
                         if (lj.contains("boneMask")) {
                             // Sparse mask: array of bone indices that are enabled
                             // We'll reconstruct the full vector once skeleton is available.

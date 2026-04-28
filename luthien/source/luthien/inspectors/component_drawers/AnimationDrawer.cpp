@@ -10,6 +10,7 @@
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
+#include "luth/renderer/resources/AnimationClip.h"
 
 namespace Luth::ComponentDrawers
 {
@@ -52,33 +53,28 @@ namespace Luth::ComponentDrawers
                     return;
                 }
 
-                const auto& clips = model->GetAnimationClips();
-                int clipCount = (int)clips.size();
-                if (clipCount == 0) {
-                    ImGui::TextDisabled("No animation clips");
-                    return;
+                // Auto-pick the first clip when the component was just added so
+                // playback starts on something visible instead of bind pose.
+                const auto& clipUUIDs = model->GetAnimationClipUUIDs();
+                if (!animation.ClipUUID.IsValid() && !clipUUIDs.empty()) {
+                    animation.ClipUUID = clipUUIDs[0];
                 }
-
-                std::vector<const char*> clipNames(clipCount);
-                for (int i = 0; i < clipCount; i++)
-                    clipNames[i] = clips[i].Name.c_str();
-
-                animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
 
                 if (UI::BeginProperties("AnimProps")) {
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
                     {
-                        auto oldClip = animation.AnimationIndex;
-                        if (UI::PropertyCombo("Clip", animation.AnimationIndex, clipNames.data(), clipCount)) {
+                        UUID oldUUID = animation.ClipUUID;
+                        if (UI::PropertyAsset("Clip", animation.ClipUUID, AssetType::Animation)) {
                             animation.CurrentTime = 0.0f;
-                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, i32>>(
-                                "Change Clip", scene, ent, &Animation::AnimationIndex, oldClip, animation.AnimationIndex));
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, UUID>>(
+                                "Change Clip", scene, ent, &Animation::ClipUUID, oldUUID, animation.ClipUUID));
                         }
                     }
 
-                    const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+                    auto clipPtr = AssetManager::GetAsset<AnimationClip>(animation.ClipUUID);
+                    const AnimationClip* clip = clipPtr.get();
                     if (clip) {
                         f32 duration = clip->GetDurationSeconds();
 
@@ -100,7 +96,8 @@ namespace Luth::ComponentDrawers
                     UI::EndProperties();
                 }
 
-                const AnimationClip* clip = model->GetAnimationClip((u32)animation.AnimationIndex);
+                auto clipPtr = AssetManager::GetAsset<AnimationClip>(animation.ClipUUID);
+                const AnimationClip* clip = clipPtr.get();
                 if (!clip) return;
 
                 ImGui::Dummy({ 0, 4 });
