@@ -76,17 +76,6 @@ Roadmap restructure (Effort scale, terse summaries), four new arch sub-docs (mem
 
 ---
 
-## Epic: `frame-debugger-polish` — v2.8.3
-
-> **Quality fixes for the frame debugger after game-panel landed.**
-
-Targeted polish only — not a feature add. Likely items: scroll position regression on capture switch, scene/game view selector when both panels are open, panel updates on slider scrub, capture wake-up edge cases.
-
-**Dependencies:** None (uses existing `GPUTimerPool`, archive sink)
-**Effort:** S
-
----
-
 ## Epic: `animation-quick-pass` — v2.8.4
 
 > **UX polish + decouple animation clips from character.**

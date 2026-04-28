@@ -55,6 +55,7 @@
 | v2.8.3 | `tracy-on-demand` | Hotfix: define `TRACY_ON_DEMAND` so Tracy macros no-op when no profiler client is connected. Fixes 10 MB/s launcher leak + 0.2 MB/s in-game leak (#30); uncovered after v2.8.2 wired global `new`/`delete` to Tracy | 2026-04-25 |
 | v2.8.4 | `pipeline-phase-3` | Game(N) and Render(N-1) actually run concurrently on worker fibers. `RenderSnapshot` POD frozen at end of game stage; render reads it, never the registry. Two-phase RG dispatch (1 yield/frame). Stage-isolation asserts on retained-mutex subsystems. Four latent JobSystem bugs fixed along the way (deque race, FP fiber state, registry RTTI scan, fiber pinning) | 2026-04-26 |
 | v2.8.5 | `build-config-foundation` | `luth/core/BuildConfig.h` centralizes build-config detection: `LUTH_BUILD_DEBUG/RELEASE/DIST` (premake-set) + derived `LUTH_ENABLE_VALIDATION` / `LUTH_SPIRV_CROSS_ENABLED`. Engine no longer tests `_DEBUG`/`NDEBUG`/bare `DEBUG`. Fixes Vulkan validation leak in Release. First effort under tag-only release policy | 2026-04-27 |
+| v2.8.6 | `frame-debugger-polish` | Unity-style draw-scrub slider + tree-click snap; viewport pass overlay (Scene/Game-coupled to capture source); depth archives in viewport via tonemapped preview; archive image reuse + 10 Hz throttle eliminating editor freezes under continuous camera movement; per-draw replay dispatch refactor (Shadow/Depth/Selection bodies deferred to #100); pass-archive index keying fix + graph-order pass sort + stable EventTree IDs along the way | 2026-04-28 |
 
 ---
 
@@ -64,8 +65,8 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `frame-debugger-polish` | [#92](https://github.com/Hekbas/Luth/issues/92) | v2.8.6 | S | — |
-| 2 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.7 | S | — |
+| 1 | `animation-quick-pass` | [#93](https://github.com/Hekbas/Luth/issues/93) | v2.8.7 | S | — |
+| 2 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
 | 3 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
 | 4 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
 | 5 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling` |
