@@ -19,7 +19,8 @@ namespace Luth
         VkDescriptorSet                 descSet,
         const std::array<Vec4, 6>& frustumPlanes,
         u32                             objectCount,
-        u32                             destOffset = 0,           // command index offset into indirect buffer
+        u32                             destOffset = 0,           // command index offset (active slice's region within indirect buffer)
+        u32                             srcOffset  = 0,           // object index offset (active slice base in object SSBO)
         const char*                     passName   = "FrustumCull",
         FrameDebugger*                  debugger   = nullptr);
 }

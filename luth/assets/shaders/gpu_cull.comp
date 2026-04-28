@@ -34,7 +34,8 @@ layout(set = 0, binding = 1, std430) buffer IndirectBuffer {
 layout(push_constant) uniform PushConstants {
     vec4 frustumPlanes[6]; // 96B
     uint objectCount;      // 4B
-    uint destOffset;       // 4B — command index offset (per-cascade region)
+    uint destOffset;       // 4B — command index offset (per-region within active ring slice)
+    uint srcOffset;        // 4B — object index offset (active ring slice base)
 } pc;
 
 void main()
@@ -42,7 +43,7 @@ void main()
     uint idx = gl_GlobalInvocationID.x;
     if (idx >= pc.objectCount) return;
 
-    GPUObjectData obj = objects[idx];
+    GPUObjectData obj = objects[pc.srcOffset + idx];
 
     // Transform bounding sphere center to world space
     vec3  center   = (obj.model * vec4(obj.boundingSphere.xyz, 1.0)).xyz;

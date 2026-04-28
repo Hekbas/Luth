@@ -473,10 +473,14 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Use the captured indirect buffer (camera region, byte-stable
-                    // in Frozen state). gpuObjectIndex is also the firstInstance
-                    // base — same as live GeometryPass.
-                    VkDeviceSize indirectOffset = dc.gpuObjectIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    // Replay reads from the live indirect buffer (cull just ran for
+                    // this frame). Camera region within the active ring slice is
+                    // (sliceRegions + 0) * stride; gpuObjectIndex is the in-region
+                    // command offset — mirrors the live GeometryPass formula with
+                    // viewBaseRegion=0 (replay is scene-view only).
+                    const u32 sliceRegions = rp.m_CurrentRenderSlot * RenderPipeline::k_IndirectRegionCount;
+                    const u32 cmdIndex     = sliceRegions * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, rp.m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 

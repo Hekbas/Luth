@@ -253,6 +253,11 @@ namespace Luth
         // Passes read these instead of taking the view as a parameter.
         const RenderView*  m_CurrentView          = nullptr;
         ViewResources*     m_CurrentViewResources = nullptr;
+        // Active ring slice for the persistent ObjectSSBO + IndirectBuffer.
+        // Cached at Execute() entry from FrameData::RenderSlot(); read by the
+        // 3 indirect-draw callsites (DepthPrepass / GeometryPass / ShadowPass)
+        // to add the slice base to their cmdIndex.
+        u32                m_CurrentRenderSlot    = 0;
 
         // Per-view resource cache. Entries are owned here; panels call
         // ReleaseViewResources on destruction.
