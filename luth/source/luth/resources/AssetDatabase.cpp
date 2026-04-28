@@ -567,6 +567,12 @@ namespace Luth
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);
 
+                    // Drop the in-memory asset so the next GetAsset/LoadAsync
+                    // picks up the freshly-cooked artifact. Anything still
+                    // holding a shared_ptr keeps the old data alive until
+                    // it lets go (no use-after-free).
+                    AssetManager::Evict(uuid);
+
                     s_DirtyAssets.push_back(uuid);
                     LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
                     anyChange = true;
