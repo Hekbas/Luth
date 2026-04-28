@@ -449,12 +449,34 @@ namespace Luth
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        // FrameDebugger writes from every view's pass lambdas — serialize
-        // every view's RG, not just the one carrying the sink.
-        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // SetSerialize: only the actually-capturing view needs serial Phase-1
+        // dispatch (its lambdas push into shared FrameDebugger metadata
+        // vectors, which would race under parallel record). Non-capturing
+        // views' lambdas would also push — but those pushes are wasted (the
+        // capturing view's BeginCapture clears them) AND the SetSerialize
+        // they triggered cost ~30 nested fiber dispatches per recapture
+        // frame, which produced a JobSystem deadlock under continuous
+        // camera movement. Suppress those pushes via a temporary state
+        // mask below; SetSerialize then only needs to gate the capturing
+        // view.
+        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
             rg.SetSerialize(true);
 
+        // Non-capturing views in capture mode: temporarily mask the
+        // FrameDebugger state so their lambdas' BeginCapturePass /
+        // CaptureXX early-return on state != CaptureRequested. No pushes,
+        // no race, no need for SetSerialize — they record in parallel
+        // exactly as in non-capture frames.
+        const DebuggerState savedDbgState = m_System.m_FrameDebugger.state;
+        const bool suppressDebuggerMetadata = !view.captureRequested
+                                              && savedDbgState == DebuggerState::CaptureRequested;
+        if (suppressDebuggerMetadata)
+            m_System.m_FrameDebugger.state = DebuggerState::Inactive;
+
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
+
+        if (suppressDebuggerMetadata)
+            m_System.m_FrameDebugger.state = savedDbgState;
 
         // Non-primary views: transition LDR → SHADER_READ so the scene
         // view's ImGui pass can sample it. (The scene view's RG already
