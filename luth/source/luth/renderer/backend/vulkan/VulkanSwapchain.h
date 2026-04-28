@@ -43,13 +43,19 @@ namespace Luth
         void* m_WindowHandle;
         VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
         VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
-        
+
         VkFormat m_ImageFormat;
         VkExtent2D m_Extent;
-        
+
         std::vector<VkImage> m_Images;
         std::vector<VkImageView> m_ImageViews;
 
         u32 m_CurrentFrameIndex = 0; // Index of the image currently being rendered to
+
+        // Set by Present on OUT_OF_DATE; consumed at the top of the NEXT
+        // AcquireNextImage so the rebuild (which calls vkDeviceWaitIdle and
+        // would otherwise block the render fiber's worker thread) runs on
+        // the main thread instead.
+        bool m_NeedsRebuild = false;
     };
 }

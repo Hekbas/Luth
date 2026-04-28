@@ -189,6 +189,18 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
+        // Drain any deferred rebuild request (set by Present on OUT_OF_DATE,
+        // skipped there to keep vkDeviceWaitIdle off the render fiber). Acquire
+        // is called from the main thread (V2-isolated), so blocking is fine.
+        if (m_NeedsRebuild)
+        {
+            int w = 0, h = 0;
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
+            m_NeedsRebuild = false;
+            return UINT32_MAX; // Skip this frame; semaphore wasn't signaled.
+        }
+
         uint32_t imageIndex = 0;
         VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
 
@@ -227,16 +239,16 @@ namespace Luth
 
         VkResult result = VulkanContext::Get().Present(presentInfo);
 
-        // Rebuild only on OUT_OF_DATE. SUBOPTIMAL is benign — the present
-        // succeeded and the image is on screen; the only "issue" is cosmetic
-        // (e.g., DWM fractional scaling reports a 1px extent mismatch).
-        // Rebuilding on SUBOPTIMAL stalls every frame on vkDeviceWaitIdle
-        // inside Recreate, which collapses framerate.
+        // Rebuild only on OUT_OF_DATE — SUBOPTIMAL is benign (cosmetic
+        // scaling). Defer the rebuild to the next AcquireNextImage instead
+        // of running vkDeviceWaitIdle here: Present is called from the
+        // render fiber, and a long blocking call would stall the entire
+        // worker thread (fiber-system.md: zero OS-thread blocking on hot
+        // path). The next Acquire runs on the main thread, where blocking
+        // is V2-correct.
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            int w = 0, h = 0;
-            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
-            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
+            m_NeedsRebuild = true;
         }
         else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         {
