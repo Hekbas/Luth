@@ -103,18 +103,9 @@ Decoupled animation clips from `Model`: clips became first-class UUID-addressabl
 
 ## Epic: `persistent-buffer-ring` — v2.8.9
 
-> **Triple-buffer the persistent CPU-mapped SSBOs so frame N writes never overlap frame N-1's GPU reads.**
+> **Status: Shipped v2.8.9** — see [`history/v2.x/persistent-buffer-ring.md`](history/v2.x/persistent-buffer-ring.md).
 
-`m_ObjectSSBO` and `m_IndirectBuffer` (and the material SSBO) are allocated once with VMA `CPU_TO_GPU` and persistently mapped. The frame-fence in AcquireImage waits for `frame - MAX_FRAMES_IN_FLIGHT + 1`, which leaves frames N-1 and N-2 potentially in-flight when frame N writes — the buffers can be overwritten while the GPU is still reading them.
-
-| Area | Detail |
-|------|--------|
-| Ring buffers | Stride × `MAX_FRAMES_IN_FLIGHT` slices, frame-indexed write region; descriptor binds the active slice each frame (or use dynamic offsets) |
-| VMA modernization | `VMA_MEMORY_USAGE_AUTO` + `HOST_ACCESS_SEQUENTIAL_WRITE_BIT`; query memory-type flags and call `vmaFlushAllocation` if the chosen type lacks `HOST_COHERENT` |
-| Cull/draw indexing | Cull compute push-constants pick up the active slice's region offset; indirect draw bind point follows |
-
-**Dependencies:** `vulkan-correctness` ✅
-**Effort:** S–M
+Triple-buffered the three persistent CPU-mapped SSBOs (ObjectSSBO Set 5, IndirectBuffer, Material SSBO Set 2) with single-buffer slice math. Cull compute gained a `srcOffset` push-constant; Material dirty-frame countdown propagates a single mutation across slices. VMA modernized off deprecated `CPU_TO_GPU` flag to `AUTO + HOST_ACCESS_SEQUENTIAL_WRITE_BIT + MAPPED_BIT` with per-slice `vmaFlushAllocation` (no-op on coherent memory).
 
 ---
 

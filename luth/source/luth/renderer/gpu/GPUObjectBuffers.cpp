@@ -42,14 +42,16 @@ namespace Luth
 
     void RenderPipeline::InitGPUObjectBuffers()
     {
+        // Persistent CPU-mapped sequential-write buffers for ring upload. VMA owns
+        // the map (MAPPED_BIT) so vmaDestroyBuffer auto-unmaps; FlushSlice at the
+        // end of each writer covers non-coherent memory types.
         auto allocBuffer = [](u64 size, VkBufferUsageFlags usage,
                                VkBuffer& buf, VmaAllocation& alloc, void*& mapped)
         {
             VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             info.size  = size;
             info.usage = usage;
-            alloc  = VulkanAllocator::AllocateBuffer(info, VMA_MEMORY_USAGE_CPU_TO_GPU, buf);
-            mapped = VulkanAllocator::Map(alloc);
+            alloc = VulkanAllocator::AllocateMappedSequentialBuffer(info, buf, &mapped);
         };
 
         // Both buffers are sliced MAX_FRAMES_IN_FLIGHT times. The active slice
@@ -261,6 +263,17 @@ namespace Luth
         }
 
         m_GPUObjectCount = count;
+
+        // Flush both slices written above. No-op on HOST_COHERENT memory.
+        const VkDeviceSize objSliceBytes = sizeof(GPUObjectData) * RenderPipeline::k_MaxGPUObjects;
+        VulkanAllocator::FlushSlice(m_ObjectSSBOAlloc,
+            static_cast<VkDeviceSize>(objectSliceBase) * sizeof(GPUObjectData), objSliceBytes);
+
+        const VkDeviceSize indSliceBytes = sizeof(VkDrawIndexedIndirectCommand)
+            * RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride;
+        VulkanAllocator::FlushSlice(m_IndirectBufferAlloc,
+            static_cast<VkDeviceSize>(indirectRegionBase) * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
+            indSliceBytes);
     }
 
     void RenderPipeline::UploadLightUBO(const LightUniforms& lights)

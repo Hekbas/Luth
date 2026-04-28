@@ -258,12 +258,11 @@ namespace Luth
         if (m_LightDescPool)   vkDestroyDescriptorPool(device, m_LightDescPool, nullptr);
         if (m_GlobalSetLayout) vkDestroyDescriptorSetLayout(device, m_GlobalSetLayout, nullptr);
 
+        // Persistent maps owned by VMA (MAPPED_BIT) — vmaDestroyBuffer auto-unmaps.
         if (m_ObjectSSBO) {
-            VulkanAllocator::Unmap(m_ObjectSSBOAlloc);
             VulkanAllocator::FreeBuffer(m_ObjectSSBO, m_ObjectSSBOAlloc);
         }
         if (m_IndirectBuffer) {
-            VulkanAllocator::Unmap(m_IndirectBufferAlloc);
             VulkanAllocator::FreeBuffer(m_IndirectBuffer, m_IndirectBufferAlloc);
         }
         if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);

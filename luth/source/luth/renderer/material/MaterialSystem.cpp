@@ -45,7 +45,7 @@ namespace Luth
         vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
         vkDestroyDescriptorSetLayout(device, m_DescriptorSetLayout, nullptr);
 
-        VulkanAllocator::Unmap(m_Allocation);
+        // Persistent map is owned by VMA (MAPPED_BIT) — vmaDestroyBuffer unmaps.
         VulkanAllocator::FreeBuffer(m_Buffer, m_Allocation);
     }
 
@@ -128,6 +128,11 @@ namespace Luth
                 m_Slots[i].dirtyFramesRemaining--;
             }
         }
+
+        // Flush this frame's slice. No-op on HOST_COHERENT memory; required when
+        // the chosen memory type lacks coherence (e.g. discrete GPU + ReBAR).
+        const VkDeviceSize sliceBytes = static_cast<VkDeviceSize>(MAX_MATERIALS) * MATERIAL_SIZE;
+        VulkanAllocator::FlushSlice(m_Allocation, sliceBaseBytes, sliceBytes);
     }
 
     VkDescriptorSet MaterialSystem::GetDescriptorSet()
@@ -149,9 +154,7 @@ namespace Luth
         bufferInfo.size  = static_cast<VkDeviceSize>(MAX_MATERIALS) * MATERIAL_SIZE * MAX_FRAMES_IN_FLIGHT;
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
-        // CPU_TO_GPU for frequent updates via mapping (modernized in sub-task D).
-        m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, m_Buffer);
-        m_MappedData = VulkanAllocator::Map(m_Allocation);
+        m_Allocation = VulkanAllocator::AllocateMappedSequentialBuffer(bufferInfo, m_Buffer, &m_MappedData);
     }
 
     void MaterialSystem::CreateDescriptors()

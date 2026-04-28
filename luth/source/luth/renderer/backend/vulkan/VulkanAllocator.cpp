@@ -58,6 +58,35 @@ namespace Luth
         return allocation;
     }
 
+    VmaAllocation VulkanAllocator::AllocateMappedSequentialBuffer(
+        const VkBufferCreateInfo& bufferInfo,
+        VkBuffer& outBuffer,
+        void** outMappedData)
+    {
+        VmaAllocationCreateInfo allocInfo = {};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+                        | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VmaAllocation allocation;
+        VmaAllocationInfo allocInfoOut{};
+        vmaCreateBuffer(s_Data->allocator, &bufferInfo, &allocInfo, &outBuffer, &allocation, &allocInfoOut);
+
+        Memory::MemoryTracker::RecordAlloc(Memory::Category::GPU, allocInfoOut.size);
+
+        if (outMappedData)
+            *outMappedData = allocInfoOut.pMappedData;
+
+        return allocation;
+    }
+
+    void VulkanAllocator::FlushSlice(VmaAllocation allocation, VkDeviceSize offset, VkDeviceSize size)
+    {
+        // No-op on HOST_COHERENT memory types (VMA inspects the alloc's memory
+        // properties internally), so callers don't need a coherence cache.
+        vmaFlushAllocation(s_Data->allocator, allocation, offset, size);
+    }
+
     VmaAllocation VulkanAllocator::AllocateImage(const VkImageCreateInfo& imageInfo, VmaMemoryUsage usage, VkImage& outImage)
     {
         VmaAllocationCreateInfo allocInfo = {};
