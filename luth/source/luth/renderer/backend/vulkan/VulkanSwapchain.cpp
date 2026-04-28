@@ -65,6 +65,15 @@ namespace Luth
         if (glfwCreateWindowSurface(VulkanContext::Get().GetInstance(), (GLFWwindow*)m_WindowHandle, nullptr, &m_Surface) != VK_SUCCESS) {
             LH_CORE_CRITICAL("Failed to create window surface!");
         }
+
+        // Verify the graphics queue family actually supports presentation on
+        // this surface — the assumption holds on every desktop GPU but the
+        // spec doesn't guarantee it, so check before any later code relies on it.
+        auto& ctx = VulkanContext::Get();
+        VkBool32 presentSupport = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(ctx.GetPhysicalDevice(), ctx.GetGraphicsFamily(), m_Surface, &presentSupport);
+        if (!presentSupport)
+            LH_CORE_CRITICAL("Graphics queue family does not support presentation on this surface");
     }
 
     void VulkanSwapchain::CreateSwapchain(u32 width, u32 height)
