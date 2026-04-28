@@ -128,9 +128,11 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Camera region (offset 0) within this view's range.
+                    // Camera region (offset 0) within this view's range, shifted
+                    // by the active ring slice (cached at Execute() entry).
                     const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
-                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    const u32 sliceRegions   = m_CurrentRenderSlot * RenderPipeline::k_IndirectRegionCount;
+                    const u32 cmdIndex = (sliceRegions + viewBaseRegion) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                     VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));

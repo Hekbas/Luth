@@ -191,9 +191,11 @@ namespace Luth
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                         // GPU cull sets instanceCount=0 for culled objects.
-                        // gl_BaseInstance = dc.gpuObjectIndex → shader reads objects[gl_BaseInstance].
+                        // gl_BaseInstance = (sliceBase + dc.gpuObjectIndex) → shader reads
+                        // objects[gl_BaseInstance], naturally hitting the active slice.
                         const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
-                        const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        const u32 sliceRegions   = m_CurrentRenderSlot * RenderPipeline::k_IndirectRegionCount;
+                        const u32 cmdIndex = (sliceRegions + viewBaseRegion) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                         VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));

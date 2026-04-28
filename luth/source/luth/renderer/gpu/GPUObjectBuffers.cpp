@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/RenderSnapshot.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
@@ -41,24 +42,34 @@ namespace Luth
 
     void RenderPipeline::InitGPUObjectBuffers()
     {
+        // Persistent CPU-mapped sequential-write buffers for ring upload. VMA owns
+        // the map (MAPPED_BIT) so vmaDestroyBuffer auto-unmaps; FlushSlice at the
+        // end of each writer covers non-coherent memory types.
         auto allocBuffer = [](u64 size, VkBufferUsageFlags usage,
                                VkBuffer& buf, VmaAllocation& alloc, void*& mapped)
         {
             VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             info.size  = size;
             info.usage = usage;
-            alloc  = VulkanAllocator::AllocateBuffer(info, VMA_MEMORY_USAGE_CPU_TO_GPU, buf);
-            mapped = VulkanAllocator::Map(alloc);
+            alloc = VulkanAllocator::AllocateMappedSequentialBuffer(info, buf, &mapped);
         };
 
+        // Both buffers are sliced MAX_FRAMES_IN_FLIGHT times. The active slice
+        // (renderSlot) is selected per frame in BuildGPUObjectBuffer + the cull
+        // dispatch + the indirect-draw callsites. Single VkBuffer keeps the Set 5
+        // descriptor write static (VK_WHOLE_SIZE) and avoids per-frame descriptor
+        // rebinds. AcquireImage's frame fence only waits for frame N-3, so frames
+        // N-1 and N-2 may still be reading their slices when frame N writes.
         allocBuffer(
-            RenderPipeline::k_MaxGPUObjects * sizeof(GPUObjectData),
+            RenderPipeline::k_MaxGPUObjects * sizeof(GPUObjectData) * MAX_FRAMES_IN_FLIGHT,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             m_ObjectSSBO, m_ObjectSSBOAlloc, m_ObjectSSBOMapped);
 
-        // Indirect buffer holds 5 regions (camera + 4 cascades), each with RenderPipeline::k_IndirectRegionStride commands.
+        // Indirect buffer per slice holds k_IndirectRegionCount regions
+        // (k_MaxViews × (camera + k_ShadowCascadeCount)), each with
+        // k_IndirectRegionStride commands. Total size = stride × regions × slices.
         allocBuffer(
-            RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
+            RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand) * MAX_FRAMES_IN_FLIGHT,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             m_IndirectBuffer, m_IndirectBufferAlloc, m_IndirectBufferMapped);
 
@@ -139,11 +150,12 @@ namespace Luth
         writes[1].pBufferInfo     = &indInfo;
         vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 
-        // Push constant range: 6 frustum planes (96B) + objectCount (4B) + destOffset (4B) = 104B
+        // Push constant range: 6 frustum planes (96B) + objectCount + destOffset + srcOffset = 108B.
+        // srcOffset added for ring buffering — selects the active object-SSBO slice.
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         pcRange.offset     = 0;
-        pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 2;
+        pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 3;
 
         auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
         auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
@@ -170,11 +182,17 @@ namespace Luth
         return slot;
     }
 
-    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
+    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot, u32 renderSlot)
     {
         auto* objectData   = static_cast<GPUObjectData*>(m_ObjectSSBOMapped);
         auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectBufferMapped);
         u32   count        = 0;
+
+        // Slice bases for this frame's writable region. The shader reads
+        // objects[gl_BaseInstance], so baking the slice base into firstInstance
+        // shifts the read for free — no shader changes.
+        const u32 objectSliceBase    = renderSlot * RenderPipeline::k_MaxGPUObjects;
+        const u32 indirectRegionBase = renderSlot * RenderPipeline::k_IndirectRegionCount;
 
         // Rebuild entity lookup table here (consumed by GeometryPass + mouse picking)
         // index 0 = null sentinel; valid entities start at index 1
@@ -194,20 +212,24 @@ namespace Luth
             auto mesh = model->GetMesh(meshSnap.meshIndex);
             if (!mesh) continue;
 
-            GPUObjectData& obj = objectData[count];
+            GPUObjectData& obj = objectData[objectSliceBase + count];
             obj.model = meshSnap.worldMatrix;
 
             // Bounding sphere from BindPoseAABB (local space)
             const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
             obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
 
-            // Material slot
+            // Material slot — baked with the active ring slice's base so the
+            // fragment shader's materials[obj.materialIndex] naturally reads from
+            // the slice GPU(N-1) consumes. Slice base uses renderSlot (the object
+            // writer's slot) because the GPU consumer for this object's frame
+            // (frame N-1) reads the matching material slice (also (N-1)%3).
             u32 matSlot = 0;
             if (meshSnap.materialUUID.IsValid()) {
                 auto it = m_MaterialSlotMap.find(meshSnap.materialUUID);
                 if (it != m_MaterialSlotMap.end()) matSlot = it->second;
             }
-            obj.materialIndex = matSlot;
+            obj.materialIndex = renderSlot * MaterialSystem::MAX_MATERIALS + matSlot;
             obj.shadeMode     = static_cast<u32>(m_System.m_ShadeMode);
             // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
             obj.entityID      = (u32)m_EntityLookup.size();  // assigned before push_back
@@ -224,21 +246,34 @@ namespace Luth
             obj._pad         = 0;
 
             // Indirect command — instanceCount=1; per-region GPU cull zeros it if culled.
-            // firstInstance = SSBO index (gl_BaseInstance in shader → objects[gl_BaseInstance]).
-            // Duplicate into all RenderPipeline::k_IndirectRegionCount regions (camera + 4 cascades) so each
-            // region has its own independently-cullable command for this object.
+            // firstInstance = absolute SSBO index (slice base + count): gl_BaseInstance
+            // in shader → objects[gl_BaseInstance] naturally indexes the active slice.
+            // Duplicate into all RenderPipeline::k_IndirectRegionCount regions of THIS slice
+            // (camera + 4 cascades × all views) so each region has its own
+            // independently-cullable command for this object.
             VkDrawIndexedIndirectCommand baseCmd{};
             baseCmd.indexCount    = obj.indexCount;
             baseCmd.instanceCount = 1;
             baseCmd.firstIndex    = 0;
             baseCmd.vertexOffset  = 0;
-            baseCmd.firstInstance = count;
+            baseCmd.firstInstance = objectSliceBase + count;
             for (u32 r = 0; r < RenderPipeline::k_IndirectRegionCount; ++r)
-                indirectCmds[r * RenderPipeline::k_IndirectRegionStride + count] = baseCmd;
+                indirectCmds[(indirectRegionBase + r) * RenderPipeline::k_IndirectRegionStride + count] = baseCmd;
             count++;
         }
 
         m_GPUObjectCount = count;
+
+        // Flush both slices written above. No-op on HOST_COHERENT memory.
+        const VkDeviceSize objSliceBytes = sizeof(GPUObjectData) * RenderPipeline::k_MaxGPUObjects;
+        VulkanAllocator::FlushSlice(m_ObjectSSBOAlloc,
+            static_cast<VkDeviceSize>(objectSliceBase) * sizeof(GPUObjectData), objSliceBytes);
+
+        const VkDeviceSize indSliceBytes = sizeof(VkDrawIndexedIndirectCommand)
+            * RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride;
+        VulkanAllocator::FlushSlice(m_IndirectBufferAlloc,
+            static_cast<VkDeviceSize>(indirectRegionBase) * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand),
+            indSliceBytes);
     }
 
     void RenderPipeline::UploadLightUBO(const LightUniforms& lights)

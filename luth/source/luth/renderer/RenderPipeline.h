@@ -165,7 +165,10 @@ namespace Luth
         void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
-        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
+        // renderSlot selects the active ring slice of the persistent ObjectSSBO +
+        // IndirectBuffer (GPU frame N-1's consumer). Sourced from
+        // FrameData::RenderSlot() at the call site in RenderingSystem.
+        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot, u32 renderSlot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
@@ -250,6 +253,11 @@ namespace Luth
         // Passes read these instead of taking the view as a parameter.
         const RenderView*  m_CurrentView          = nullptr;
         ViewResources*     m_CurrentViewResources = nullptr;
+        // Active ring slice for the persistent ObjectSSBO + IndirectBuffer.
+        // Cached at Execute() entry from FrameData::RenderSlot(); read by the
+        // 3 indirect-draw callsites (DepthPrepass / GeometryPass / ShadowPass)
+        // to add the slice base to their cmdIndex.
+        u32                m_CurrentRenderSlot    = 0;
 
         // Per-view resource cache. Entries are owned here; panels call
         // ReleaseViewResources on destruction.

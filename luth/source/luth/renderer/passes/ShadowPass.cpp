@@ -150,10 +150,12 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                        // Per-view region layout: [camera | C0 | C1 | C2 | C3].
-                        // View N starts at region (N * k_IndirectRegionsPerView).
+                        // Per-view region layout per ring slice: [camera | C0 | C1 | C2 | C3].
+                        // View N starts at region (N * k_IndirectRegionsPerView), then shifted
+                        // by the active slice's region base.
                         const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
-                        const u32 cmdIndex = (viewBaseRegion + data.cascadeIndex + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        const u32 sliceRegions   = m_CurrentRenderSlot * RenderPipeline::k_IndirectRegionCount;
+                        const u32 cmdIndex = (sliceRegions + viewBaseRegion + data.cascadeIndex + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                         VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));

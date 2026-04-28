@@ -58,6 +58,7 @@
 | v2.8.6 | `frame-debugger-polish` | Unity-style draw-scrub slider + tree-click snap; viewport pass overlay (Scene/Game-coupled to capture source); depth archives in viewport via tonemapped preview; archive image reuse + 10 Hz throttle eliminating editor freezes under continuous camera movement; per-draw replay dispatch refactor (Shadow/Depth/Selection bodies deferred to #100); pass-archive index keying fix + graph-order pass sort + stable EventTree IDs along the way | 2026-04-28 |
 | v2.8.7 | `vulkan-correctness` | Tier-1 Vulkan hardening: deletion-queue SpinLock (V1), RG WAW barrier emission, transitive producer revival fix, swapchain OUT_OF_DATE handling + deferred Present rebuild (V2), device Features2 capability validation, sync2 frame submit + RG-driven present transition (postBarriers). 11 commits; smoke test surfaced a 240 ms SUBOPTIMAL stall + std::mutex-vs-SpinLock; arch audit fixed timeline monotonicity + render-fiber `vkDeviceWaitIdle` | 2026-04-28 |
 | v2.8.8 | `animation-quick-pass` | `AnimationClip` becomes a first-class UUID-addressable asset. `ModelImporter` writes one `.anim` per clip into `<stem>_Animations/` (mirrors materials/textures); `AnimationClipImporter` cooks them. `Animation::ClipUUID` and `BlendLayer::ClipUUID` replace integer indices; scene loader migrates legacy `animationIndex` via blocking model load. Drawers swap `ImGui::Combo` for `UI::PropertyAsset` drag-drop. AssetDatabase Modified now evicts the in-memory copy so `.anim` hot-reload takes effect live. Foundation for `animation-controller-v2` — bone-name retargeting still v2.11 scope | 2026-04-28 |
+| v2.8.9 | `persistent-buffer-ring` | Triple-buffered the three persistent CPU-mapped SSBOs (ObjectSSBO Set 5, IndirectBuffer, Material SSBO Set 2) so frame N writes never overlap frame N-1's GPU reads. Single VkBuffer per resource sized 3×, slice base baked into `firstInstance` / cull `destOffset` / `obj.materialIndex` — zero shader changes, descriptors stay `VK_WHOLE_SIZE`. Cull compute gains a `srcOffset` push-constant for the active object slice (push range 104B→108B). Material dirty-frame countdown propagates a single mutation to all slices over MAX_FRAMES_IN_FLIGHT iterations. VMA modernized off deprecated `CPU_TO_GPU` to `AUTO + HOST_ACCESS_SEQUENTIAL_WRITE_BIT + MAPPED_BIT` with `vmaFlushAllocation` per slice. Tag-only | 2026-04-28 |
 
 ---
 
@@ -67,18 +68,17 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `persistent-buffer-ring` | NEW | v2.8.9 | S–M | `vulkan-correctness` |
-| 2 | `shader-reload-async` | NEW | v2.8.10 | S | `vulkan-correctness` |
-| 3 | `vulkan-polish` | NEW | v2.8.11 | M | `vulkan-correctness` |
-| 4 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
-| 5 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
-| 6 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
-| 7 | `async-compute-queue` | NEW | v2.9.2 | L | `vulkan-correctness` |
-| 8 | `rg-aliasing` (optional) | NEW | v2.9.3 | M | — |
-| 9 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling`, `async-compute-queue` |
-| 10 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
-| 11 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
-| 12 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `shader-reload-async` | NEW | v2.8.10 | S | `vulkan-correctness` |
+| 2 | `vulkan-polish` | NEW | v2.8.11 | M | `vulkan-correctness` |
+| 3 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
+| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
+| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
+| 6 | `async-compute-queue` | NEW | v2.9.2 | L | `vulkan-correctness` |
+| 7 | `rg-aliasing` (optional) | NEW | v2.9.3 | M | — |
+| 8 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 9 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
+| 10 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
+| 11 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
