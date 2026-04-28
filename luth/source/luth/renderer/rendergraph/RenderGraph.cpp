@@ -322,6 +322,7 @@ namespace Luth::RG
         {
             res.currentState = res.initialState;
             if (res.isTransient) res.currentState = ResourceState::Undefined;
+            res.lastWriter = UINT32_MAX;
         }
 
         // Reset buffer resource states
@@ -329,10 +330,12 @@ namespace Luth::RG
         {
             buf.currentState = buf.initialState;
             if (buf.isTransient) buf.currentState = ResourceState::Undefined;
+            buf.lastWriter = UINT32_MAX;
         }
 
-        for (auto& pass : m_Passes)
+        for (size_t passIdx = 0; passIdx < m_Passes.size(); ++passIdx)
         {
+            auto& pass = m_Passes[passIdx];
             if (pass.culled) continue;
 
             // Image read barriers
@@ -349,18 +352,23 @@ namespace Luth::RG
                 }
             }
 
-            // Image write barriers
+            // Image write barriers — emit on state change OR write-after-write
+            // even when state matches (two consecutive ColorAttachment writes
+            // need an execution barrier between them).
             for (size_t i = 0; i < pass.writes.size(); ++i)
             {
                 ResourceHandle handle = pass.writes[i];
                 ResourceState targetState = pass.writeStates[i];
                 ResourceNode& res = m_Resources[handle.index - 1];
 
-                if (res.currentState != targetState)
+                bool needBarrier = (res.currentState != targetState)
+                                || (res.lastWriter != UINT32_MAX && res.lastWriter != (u32)passIdx);
+                if (needBarrier)
                 {
                     pass.preBarriers.push_back({ handle, res.currentState, targetState });
                     res.currentState = targetState;
                 }
+                res.lastWriter = (u32)passIdx;
             }
 
             // Buffer read barriers
@@ -377,18 +385,21 @@ namespace Luth::RG
                 }
             }
 
-            // Buffer write barriers
+            // Buffer write barriers — same WAW policy as images.
             for (size_t i = 0; i < pass.bufferWrites.size(); ++i)
             {
                 BufferHandle handle = pass.bufferWrites[i];
                 ResourceState targetState = pass.bufferWriteStates[i];
                 BufferNode& buf = m_Buffers[handle.index - 1];
 
-                if (buf.currentState != targetState)
+                bool needBarrier = (buf.currentState != targetState)
+                                || (buf.lastWriter != UINT32_MAX && buf.lastWriter != (u32)passIdx);
+                if (needBarrier)
                 {
                     pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
                     buf.currentState = targetState;
                 }
+                buf.lastWriter = (u32)passIdx;
             }
         }
     }

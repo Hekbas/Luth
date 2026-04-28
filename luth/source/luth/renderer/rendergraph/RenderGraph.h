@@ -145,6 +145,11 @@ namespace Luth::RG
             // Lifetime tracking (for future aliasing)
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
+
+            // Pass index of the last write — drives write-after-write barrier
+            // emission in SolveBarriers when two consecutive writes share state
+            // (Vulkan still requires an execution barrier between them).
+            u32 lastWriter = UINT32_MAX;
         };
 
         struct BufferNode
@@ -164,6 +169,9 @@ namespace Luth::RG
             // Lifetime tracking
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
+
+            // See ResourceNode::lastWriter.
+            u32 lastWriter = UINT32_MAX;
         };
 
     public:
