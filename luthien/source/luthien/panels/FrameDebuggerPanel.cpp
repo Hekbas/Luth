@@ -25,17 +25,16 @@ namespace Luth
         }
     }
 
-    // Walks the event tree depth-first, returning the Pass or Cascade node
-    // whose dense passes-vector index matches `passIdx`, else nullptr. Used
-    // by the capture-mode pass-scrub slider so SelectEventNode can pick up
-    // the same archive/layer that EventTree already resolved at finalize.
-    static const RG::EventNode* FindEventNodeByPassIndex(const RG::EventNode& node, u32 passIdx)
+    // Walks the event tree depth-first, returning the Draw node whose
+    // drawIndex matches `drawIdx`, else nullptr. Used by the draw-scrub
+    // slider so SelectEventNode picks up the same archive/layer the tree
+    // already resolved at finalize.
+    static const RG::EventNode* FindDrawEventNode(const RG::EventNode& node, u32 drawIdx)
     {
-        if ((node.kind == RG::EventNodeKind::Pass || node.kind == RG::EventNodeKind::Cascade) &&
-            node.passIndex == passIdx)
+        if (node.kind == RG::EventNodeKind::Draw && node.drawIndex == drawIdx)
             return &node;
         for (const auto& child : node.children)
-            if (const RG::EventNode* found = FindEventNodeByPassIndex(child, passIdx))
+            if (const RG::EventNode* found = FindDrawEventNode(child, drawIdx))
                 return found;
         return nullptr;
     }
@@ -575,28 +574,37 @@ namespace Luth
         DrawCaptureSourceCombo(m_RS);
         ImGui::SameLine();
 
-        const int passCount = (int)capture.passes.size();
-        if (passCount > 0)
+        const int drawCount = (int)capture.drawCalls.size();
+        if (drawCount > 0)
         {
-            // Auto-select pass 0 the first frame the panel renders a fresh
+            // Auto-select draw 0 the first frame the panel renders a fresh
             // capture (or whenever the user has cleared the selection by
-            // clicking a Group node). Keeps the slider + Output preview live
-            // without requiring a tree click.
-            if (m_SelPassIndex < 0 || m_SelPassIndex >= passCount)
+            // clicking a Draw-less Group). Keeps the slider + viewport
+            // overlay live without requiring a tree click.
+            if (m_SelDrawIndex < 0 || m_SelDrawIndex >= drawCount)
             {
-                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, 0))
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, 0))
                     SelectEventNode(*n);
             }
 
-            int sliderValue = m_SelPassIndex;
-            if (sliderValue < 0)             sliderValue = 0;
-            if (sliderValue >= passCount)    sliderValue = passCount - 1;
+            int sliderValue = m_SelDrawIndex;
+            if (sliderValue < 0)            sliderValue = 0;
+            if (sliderValue >= drawCount)   sliderValue = drawCount - 1;
 
-            // Slider format: "<PassName> (<index>)" — runtime-built since the
-            // label changes per slider position. Escape % via %% so the
-            // pass-name is treated as a literal in the printf format.
-            char fmt[160];
-            snprintf(fmt, sizeof(fmt), "%s (%%d)", capture.passes[sliderValue].name.c_str());
+            // Slider format: "<PassName>: <MeshName> (<idx>)" — runtime-built
+            // per position. snprintf with `%%d` produces `%d` in the format
+            // string, which ImGui::SliderInt then expands with the int value.
+            char fmt[224];
+            if ((u32)sliderValue < capture.drawCalls.size())
+            {
+                const auto& dc = capture.drawCalls[sliderValue];
+                snprintf(fmt, sizeof(fmt), "%s: %s (%%d)",
+                         dc.passName.c_str(), dc.meshName.c_str());
+            }
+            else
+            {
+                snprintf(fmt, sizeof(fmt), "(invalid) (%%d)");
+            }
 
             const float arrowsWidth = 60.0f;
             const float statsWidth  = 200.0f;
@@ -606,38 +614,37 @@ namespace Luth
 
             ImGui::SetNextItemWidth(sliderWidth);
             int newValue = sliderValue;
-            if (ImGui::SliderInt("##PassScrub", &newValue, 0, passCount - 1, fmt))
+            if (ImGui::SliderInt("##DrawScrub", &newValue, 0, drawCount - 1, fmt))
             {
-                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)newValue))
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)newValue))
                     SelectEventNode(*n);
             }
 
             ImGui::SameLine();
-            if (ImGui::ArrowButton("##PrevPass", ImGuiDir_Left) && sliderValue > 0)
+            if (ImGui::ArrowButton("##PrevDraw", ImGuiDir_Left) && sliderValue > 0)
             {
-                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue - 1)))
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue - 1)))
                     SelectEventNode(*n);
             }
             ImGui::SameLine();
-            if (ImGui::ArrowButton("##NextPass", ImGuiDir_Right) && sliderValue < passCount - 1)
+            if (ImGui::ArrowButton("##NextDraw", ImGuiDir_Right) && sliderValue < drawCount - 1)
             {
-                if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue + 1)))
+                if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue + 1)))
                     SelectEventNode(*n);
             }
 
-            // [ / ] keyboard scrub. Gated on the panel's window focus so the
-            // shortcut doesn't fire while the user is typing into another
-            // panel's text field.
+            // [ / ] keyboard scrub. Gated on panel-window focus so the
+            // shortcut doesn't fire while the user types in another panel.
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             {
                 if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket, /*repeat*/true) && sliderValue > 0)
                 {
-                    if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue - 1)))
+                    if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue - 1)))
                         SelectEventNode(*n);
                 }
-                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket, /*repeat*/true) && sliderValue < passCount - 1)
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket, /*repeat*/true) && sliderValue < drawCount - 1)
                 {
-                    if (const RG::EventNode* n = FindEventNodeByPassIndex(capture.rootEvent, (u32)(sliderValue + 1)))
+                    if (const RG::EventNode* n = FindDrawEventNode(capture.rootEvent, (u32)(sliderValue + 1)))
                         SelectEventNode(*n);
                 }
             }
@@ -657,9 +664,18 @@ namespace Luth
     {
         m_SelKind         = node.kind;
         m_SelPassIndex    = (node.passIndex == UINT32_MAX) ? -1 : (int)node.passIndex;
-        m_SelDrawIndex    = (node.drawIndex == UINT32_MAX) ? -1 : (int)node.drawIndex;
         m_SelArchiveIdx   = node.archivedImageIndex;
         m_SelArchiveLayer = node.archiveLayer;
+
+        // Unity-style scrub semantics: clicking a Draw node lands on it
+        // exactly; clicking a Group/Pass/Cascade snaps the slider to the
+        // last leaf draw under that node (precomputed in BuildEventTree).
+        // Draw-less subtrees (e.g. an empty Group) leave the slider where
+        // it was so the user doesn't lose their scrub position.
+        if (node.kind == RG::EventNodeKind::Draw)
+            m_SelDrawIndex = (int)node.drawIndex;
+        else if (node.lastDrawIndex != UINT32_MAX)
+            m_SelDrawIndex = (int)node.lastDrawIndex;
     }
 
     void FrameDebuggerPanel::DrawEventNode(const RG::CapturedFrame& capture,

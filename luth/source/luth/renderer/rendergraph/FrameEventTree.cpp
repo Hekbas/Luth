@@ -77,6 +77,29 @@ namespace Luth::RG
             return node;
         }
 
+        // Post-order walk: each node's lastDrawIndex = max draw index in its
+        // subtree (UINT32_MAX if no Draw descendants). Drives Unity-style
+        // tree-click snap on the panel's draw scrub slider.
+        u32 PopulateLastDrawIndex(EventNode& node)
+        {
+            if (node.kind == EventNodeKind::Draw)
+            {
+                node.lastDrawIndex = node.drawIndex;
+                return node.drawIndex;
+            }
+
+            u32 maxDraw = UINT32_MAX;
+            for (auto& child : node.children)
+            {
+                u32 childLast = PopulateLastDrawIndex(child);
+                if (childLast != UINT32_MAX &&
+                    (maxDraw == UINT32_MAX || childLast > maxDraw))
+                    maxDraw = childLast;
+            }
+            node.lastDrawIndex = maxDraw;
+            return maxDraw;
+        }
+
         // Map "ShadowPass.C0" / "ShadowPass.C12" / etc. to its trailing integer.
         // Returns -1 if the trailing characters are not a non-negative integer.
         int CascadeIndexFromName(const std::string& name)
@@ -147,6 +170,7 @@ namespace Luth::RG
             root.children.push_back(std::move(passNode));
         }
 
+        PopulateLastDrawIndex(root);
         return root;
     }
 }

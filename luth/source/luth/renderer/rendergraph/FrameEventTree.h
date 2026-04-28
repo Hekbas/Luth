@@ -32,6 +32,12 @@ namespace Luth::RG
         int  archiveLayer       = -1;           // -1 = whole image, else 2D-array slice (Cascade kind)
         float gpuTimeMs         = -1.0f;
 
+        // Last leaf draw index reachable in this subtree (Unity-style scrub
+        // semantics — clicking a Group/Pass/Cascade snaps the draw slider to
+        // this value). UINT32_MAX = no Draw descendants. For Draw nodes this
+        // equals drawIndex.
+        u32  lastDrawIndex      = UINT32_MAX;
+
         std::vector<EventNode> children;
     };
 
