@@ -104,9 +104,7 @@ namespace Luth
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
 
-            const auto& clipUUIDs = model->GetAnimationClipUUIDs();
-            if (anim.AnimationIndex < 0 || (u32)anim.AnimationIndex >= clipUUIDs.size()) continue;
-            auto clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[anim.AnimationIndex]);
+            auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
             const AnimationClip* clip = clipPtr.get();
             if (!clip) continue;
 
@@ -123,7 +121,16 @@ namespace Luth
             {
                 if (anim.CurrentTime >= duration)
                 {
-                    anim.AnimationIndex = (anim.AnimationIndex + 1) % (i32)clipUUIDs.size();
+                    // Cycle to the next clip in the model's list. With UUID storage we no
+                    // longer carry an index — find the current UUID and advance.
+                    const auto& clipUUIDs = model->GetAnimationClipUUIDs();
+                    if (!clipUUIDs.empty()) {
+                        u32 cur = 0;
+                        for (u32 i = 0; i < (u32)clipUUIDs.size(); i++) {
+                            if (clipUUIDs[i] == anim.ClipUUID) { cur = i; break; }
+                        }
+                        anim.ClipUUID = clipUUIDs[(cur + 1) % clipUUIDs.size()];
+                    }
                     anim.CurrentTime = 0.0f;
                 }
             }
@@ -211,7 +218,14 @@ namespace Luth
             anim.PreviousTime = anim.CurrentTime;
             if (!ctrl.Layers.empty())
                 anim.CurrentTime = ctrl.Layers[0].CurrentTime;
-            anim.AnimationIndex = ctrl.CurrentClipIndex;
+
+            // Mirror controller's selection onto the Animation component so the
+            // single-clip path / inspector show the live clip. Controller still
+            // uses indices in commit D — translates to UUID here. Commit E
+            // switches the controller to UUIDs and this becomes a direct copy.
+            const auto& ctrlClipUUIDs = model->GetAnimationClipUUIDs();
+            if (ctrl.CurrentClipIndex >= 0 && (u32)ctrl.CurrentClipIndex < ctrlClipUUIDs.size())
+                anim.ClipUUID = ctrlClipUUIDs[ctrl.CurrentClipIndex];
         }
 
         // Dispatch evaluation jobs (one entity per job)
@@ -232,9 +246,7 @@ namespace Luth
 
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
-            const auto& clipUUIDs = model->GetAnimationClipUUIDs();
-            if (anim.AnimationIndex < 0 || (u32)anim.AnimationIndex >= clipUUIDs.size()) continue;
-            auto clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[anim.AnimationIndex]);
+            auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
             const AnimationClip* clip = clipPtr.get();
             if (!clip || clip->Events.empty()) continue;
 
@@ -363,10 +375,7 @@ namespace Luth
 
         // --- Single-clip path (unchanged from 7C) ---
         u32 boneCount = skeleton.BoneCount();
-        const auto& clipUUIDs = model->GetAnimationClipUUIDs();
-        std::shared_ptr<AnimationClip> clipPtr;
-        if (anim.AnimationIndex >= 0 && (u32)anim.AnimationIndex < clipUUIDs.size())
-            clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[anim.AnimationIndex]);
+        auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
         const AnimationClip* clip = clipPtr.get();
 
         std::vector<Mat4> localTransforms(boneCount, Mat4(1.0f));

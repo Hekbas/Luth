@@ -75,12 +75,12 @@ namespace Luth
             if (entity.HasComponent<Animation>()) {
                 auto& a = entity.GetComponent<Animation>();
                 json aj;
-                aj["modelUUID"]      = a.ModelUUID.ToString();
-                aj["animationIndex"] = a.AnimationIndex;
-                aj["speed"]          = a.Speed;
-                aj["loopMode"]       = static_cast<int>(a.LoopMode);
-                aj["playing"]        = a.Playing;
-                j["animation"]       = aj;
+                aj["modelUUID"] = a.ModelUUID.ToString();
+                aj["clipUUID"]  = a.ClipUUID.ToString();
+                aj["speed"]     = a.Speed;
+                aj["loopMode"]  = static_cast<int>(a.LoopMode);
+                aj["playing"]   = a.Playing;
+                j["animation"]  = aj;
             }
 
             if (entity.HasComponent<AnimationController>()) {
@@ -226,9 +226,9 @@ namespace Luth
                 if (ej.contains("animation")) {
                     const auto& aj = ej["animation"];
                     auto& a = entity.AddComponent<Animation>();
-                    a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
-                    a.AnimationIndex = aj.value("animationIndex", 0);
-                    a.Speed          = aj.value("speed", 1.0f);
+                    a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
+                    a.ClipUUID  = UUID::FromString(aj.value("clipUUID", ""));
+                    a.Speed     = aj.value("speed", 1.0f);
                     if (aj.contains("loopMode"))
                         a.LoopMode = static_cast<AnimationLoopMode>(aj.value("loopMode", 1));
                     else

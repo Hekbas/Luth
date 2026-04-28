@@ -21,13 +21,24 @@ namespace Luth::ComponentDrawers
         };
         opts.OnAdd = [](Entity e) {
             auto& a = e.GetComponent<Animation>();
+
+            // Resolve Animation::ClipUUID back to an index in the model's clip list
+            // for the controller's index-based BlendLayer (UUIDs land in commit E).
+            i32 idx = 0;
+            if (auto model = AssetManager::GetAsset<Model>(a.ModelUUID)) {
+                const auto& uuids = model->GetAnimationClipUUIDs();
+                for (i32 i = 0; i < (i32)uuids.size(); i++) {
+                    if (uuids[i] == a.ClipUUID) { idx = i; break; }
+                }
+            }
+
             AnimationController initCtrl;
             BlendLayer baseLayer;
-            baseLayer.ClipIndex = a.AnimationIndex;
+            baseLayer.ClipIndex = idx;
             baseLayer.Speed = a.Speed;
             baseLayer.Loop = (a.LoopMode != AnimationLoopMode::Off);
             initCtrl.Layers.push_back(baseLayer);
-            initCtrl.CurrentClipIndex = a.AnimationIndex;
+            initCtrl.CurrentClipIndex = idx;
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
                 "Add AnimationController", e.GetScene(), (entt::entity)e, initCtrl));
         };

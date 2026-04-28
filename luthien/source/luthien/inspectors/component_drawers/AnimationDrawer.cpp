@@ -70,24 +70,31 @@ namespace Luth::ComponentDrawers
                     clipNames[i] = clipNamesStorage[i].c_str();
                 }
 
-                animation.AnimationIndex = std::clamp(animation.AnimationIndex, 0, clipCount - 1);
+                // Map current ClipUUID to a combo index. Default to 0 when the UUID
+                // is unset or stale (e.g. clip removed) so the combo stays usable.
+                int currentIndex = 0;
+                for (int i = 0; i < clipCount; i++) {
+                    if (clipUUIDs[i] == animation.ClipUUID) { currentIndex = i; break; }
+                }
+                if (!animation.ClipUUID.IsValid()) {
+                    animation.ClipUUID = clipUUIDs[0];  // auto-pick first clip on add
+                }
 
                 if (UI::BeginProperties("AnimProps")) {
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
                     {
-                        auto oldClip = animation.AnimationIndex;
-                        if (UI::PropertyCombo("Clip", animation.AnimationIndex, clipNames.data(), clipCount)) {
+                        UUID oldUUID = animation.ClipUUID;
+                        if (UI::PropertyCombo("Clip", currentIndex, clipNames.data(), clipCount)) {
+                            animation.ClipUUID = clipUUIDs[currentIndex];
                             animation.CurrentTime = 0.0f;
-                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, i32>>(
-                                "Change Clip", scene, ent, &Animation::AnimationIndex, oldClip, animation.AnimationIndex));
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, UUID>>(
+                                "Change Clip", scene, ent, &Animation::ClipUUID, oldUUID, animation.ClipUUID));
                         }
                     }
 
-                    std::shared_ptr<AnimationClip> clipPtr;
-                    if ((u32)animation.AnimationIndex < clipUUIDs.size())
-                        clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[animation.AnimationIndex]);
+                    auto clipPtr = AssetManager::GetAsset<AnimationClip>(animation.ClipUUID);
                     const AnimationClip* clip = clipPtr.get();
                     if (clip) {
                         f32 duration = clip->GetDurationSeconds();
@@ -110,9 +117,7 @@ namespace Luth::ComponentDrawers
                     UI::EndProperties();
                 }
 
-                std::shared_ptr<AnimationClip> clipPtr;
-                if ((u32)animation.AnimationIndex < clipUUIDs.size())
-                    clipPtr = AssetManager::GetAsset<AnimationClip>(clipUUIDs[animation.AnimationIndex]);
+                auto clipPtr = AssetManager::GetAsset<AnimationClip>(animation.ClipUUID);
                 const AnimationClip* clip = clipPtr.get();
                 if (!clip) return;
 

@@ -3,6 +3,8 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/Components.h"
+#include "luth/resources/AssetManager.h"
+#include "luth/renderer/resources/Model.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -82,12 +84,12 @@ namespace Luth
         if (entity.HasComponent<Animation>()) {
             auto& a = entity.GetComponent<Animation>();
             json aj;
-            aj["modelUUID"]      = a.ModelUUID.ToString();
-            aj["animationIndex"] = a.AnimationIndex;
-            aj["speed"]          = a.Speed;
-            aj["loopMode"]       = static_cast<int>(a.LoopMode);
-            aj["playing"]        = a.Playing;
-            j["animation"]       = aj;
+            aj["modelUUID"] = a.ModelUUID.ToString();
+            aj["clipUUID"]  = a.ClipUUID.ToString();
+            aj["speed"]     = a.Speed;
+            aj["loopMode"]  = static_cast<int>(a.LoopMode);
+            aj["playing"]   = a.Playing;
+            j["animation"]  = aj;
         }
 
         if (entity.HasComponent<AnimationController>()) {
@@ -305,14 +307,33 @@ namespace Luth
             if (ej.contains("animation")) {
                 const auto& aj = ej["animation"];
                 auto& a = entity.AddComponent<Animation>();
-                a.ModelUUID      = UUID::FromString(aj.value("modelUUID", ""));
-                a.AnimationIndex = aj.value("animationIndex", 0);
-                a.Speed          = aj.value("speed", 1.0f);
+                a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
+
+                // Migrate from legacy `animationIndex`. LoadImmediate is blocking but
+                // only runs once per scene load and only when scenes pre-date this epic.
+                if (aj.contains("clipUUID")) {
+                    a.ClipUUID = UUID::FromString(aj.value("clipUUID", ""));
+                }
+                else if (aj.contains("animationIndex") && a.ModelUUID.IsValid()) {
+                    auto loaded = AssetManager::LoadImmediate(a.ModelUUID);
+                    auto modelPtr = std::dynamic_pointer_cast<Model>(loaded);
+                    if (modelPtr) {
+                        i32 idx = aj.value("animationIndex", 0);
+                        const auto& uuids = modelPtr->GetAnimationClipUUIDs();
+                        if (idx >= 0 && (u32)idx < uuids.size()) {
+                            a.ClipUUID = uuids[idx];
+                            LH_CORE_INFO("SceneSerializer: migrated Animation index {} -> {} for {}",
+                                idx, a.ClipUUID.ToString(), a.ModelUUID.ToString());
+                        }
+                    }
+                }
+
+                a.Speed = aj.value("speed", 1.0f);
                 if (aj.contains("loopMode"))
                     a.LoopMode = static_cast<AnimationLoopMode>(aj.value("loopMode", 1));
                 else
                     a.LoopMode = aj.value("loop", true) ? AnimationLoopMode::One : AnimationLoopMode::Off;
-                a.Playing        = aj.value("playing", false);
+                a.Playing = aj.value("playing", false);
             }
 
             // AnimationController
