@@ -16,11 +16,11 @@ namespace Luth
         void Recreate(u32 width, u32 height);
         void Cleanup();
 
-        // Returns index of the image to render to
+        // Returns the image index, or UINT32_MAX to skip this frame (rebuild self-handled).
         u32 AcquireNextImage(VkSemaphore signalSemaphore);
-        
-        // Presents the image
-        void Present(VkSemaphore waitSemaphore);
+
+        // Returns the present VkResult so the caller can log; OUT_OF_DATE flags a deferred rebuild for next Acquire.
+        VkResult Present(VkSemaphore waitSemaphore);
 
         VkFormat GetImageFormat() const { return m_ImageFormat; }
         VkExtent2D GetExtent() const { return m_Extent; }
@@ -39,13 +39,16 @@ namespace Luth
         void* m_WindowHandle;
         VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
         VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
-        
+
         VkFormat m_ImageFormat;
         VkExtent2D m_Extent;
-        
+
         std::vector<VkImage> m_Images;
         std::vector<VkImageView> m_ImageViews;
 
         u32 m_CurrentFrameIndex = 0; // Index of the image currently being rendered to
+
+        // Set by Present (render fiber); consumed by Acquire (main thread, V2).
+        bool m_NeedsRebuild = false;
     };
 }

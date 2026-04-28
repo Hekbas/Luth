@@ -113,8 +113,9 @@ namespace Luth::RG
             PassAttachment depthAttachment;
             bool hasDepth = false;
 
-            std::vector<Barrier>       preBarriers;        // Image barriers
+            std::vector<Barrier>       preBarriers;        // Image barriers (before pass body)
             std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
+            std::vector<Barrier>       postBarriers;       // After pass body — drives external finalState transitions (e.g., swapchain → Present)
 
             // Compile output
             bool culled = false;
@@ -129,6 +130,8 @@ namespace Luth::RG
 
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
+            // External-only: forces a postBarrier on the last writer (e.g., swapchain → Present after ImGui).
+            ResourceState finalState = ResourceState::Undefined;
 
             // Physical resource (filled by AllocatePhysicalResources)
             VkImage image = VK_NULL_HANDLE;
@@ -145,6 +148,9 @@ namespace Luth::RG
             // Lifetime tracking (for future aliasing)
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
+
+            // Drives WAW barrier emission — consecutive same-state writes still need an exec barrier.
+            u32 lastWriter = UINT32_MAX;
         };
 
         struct BufferNode
@@ -164,6 +170,9 @@ namespace Luth::RG
             // Lifetime tracking
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
+
+            // See ResourceNode::lastWriter.
+            u32 lastWriter = UINT32_MAX;
         };
 
     public:
@@ -219,6 +228,9 @@ namespace Luth::RG
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
                                        u32 baseArrayLayer, u32 layerCount);
+        // RG appends a postBarrier on the last writer to transition to finalState (e.g., swapchain → Present).
+        ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view,
+                                       ResourceState initialState, ResourceState finalState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);

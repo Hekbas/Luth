@@ -128,6 +128,23 @@ namespace Luth::RG
         return { index, 0 };
     }
 
+    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* image, void* view,
+                                                ResourceState initialState, ResourceState finalState)
+    {
+        u32 index = (u32)m_Resources.size() + 1;
+        ResourceNode node{};
+        node.desc = desc;
+        node.isTransient = false;
+        node.initialState = initialState;
+        node.currentState = initialState;
+        node.finalState = finalState;
+        node.image = (VkImage)image;
+        node.view = (VkImageView)view;
+        node.external = true;
+        m_Resources.push_back(node);
+        return { index, 0 };
+    }
+
     void RenderGraph::RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state)
     {
         m_Passes[passIndex].reads.push_back(handle);
@@ -247,7 +264,10 @@ namespace Luth::RG
                 if (buf.external) { pass.culled = false; break; }
             }
 
-            // If alive, un-cull passes that produce what this pass reads (images)
+            // If alive, un-cull passes that produce what this pass reads.
+            // Track `found` per producer search so an already-alive intervening
+            // pass doesn't short-circuit before we locate the actual writer of
+            // this resource.
             if (!pass.culled)
             {
                 for (const auto& readHandle : pass.reads)
@@ -255,33 +275,36 @@ namespace Luth::RG
                     for (size_t j = i - 1; j > 0; --j)
                     {
                         auto& producer = m_Passes[j - 1];
+                        bool found = false;
                         for (const auto& writeHandle : producer.writes)
                         {
                             if (writeHandle.index == readHandle.index)
                             {
                                 producer.culled = false;
+                                found = true;
                                 break;
                             }
                         }
-                        if (!producer.culled) break;
+                        if (found) break;
                     }
                 }
 
-                // Un-cull passes that produce what this pass reads (buffers)
                 for (const auto& readHandle : pass.bufferReads)
                 {
                     for (size_t j = i - 1; j > 0; --j)
                     {
                         auto& producer = m_Passes[j - 1];
+                        bool found = false;
                         for (const auto& writeHandle : producer.bufferWrites)
                         {
                             if (writeHandle.index == readHandle.index)
                             {
                                 producer.culled = false;
+                                found = true;
                                 break;
                             }
                         }
-                        if (!producer.culled) break;
+                        if (found) break;
                     }
                 }
             }
@@ -322,6 +345,7 @@ namespace Luth::RG
         {
             res.currentState = res.initialState;
             if (res.isTransient) res.currentState = ResourceState::Undefined;
+            res.lastWriter = UINT32_MAX;
         }
 
         // Reset buffer resource states
@@ -329,10 +353,12 @@ namespace Luth::RG
         {
             buf.currentState = buf.initialState;
             if (buf.isTransient) buf.currentState = ResourceState::Undefined;
+            buf.lastWriter = UINT32_MAX;
         }
 
-        for (auto& pass : m_Passes)
+        for (size_t passIdx = 0; passIdx < m_Passes.size(); ++passIdx)
         {
+            auto& pass = m_Passes[passIdx];
             if (pass.culled) continue;
 
             // Image read barriers
@@ -349,18 +375,21 @@ namespace Luth::RG
                 }
             }
 
-            // Image write barriers
+            // WAW: consecutive same-state writes still need an exec barrier (Vulkan ordering rule).
             for (size_t i = 0; i < pass.writes.size(); ++i)
             {
                 ResourceHandle handle = pass.writes[i];
                 ResourceState targetState = pass.writeStates[i];
                 ResourceNode& res = m_Resources[handle.index - 1];
 
-                if (res.currentState != targetState)
+                bool needBarrier = (res.currentState != targetState)
+                                || (res.lastWriter != UINT32_MAX && res.lastWriter != (u32)passIdx);
+                if (needBarrier)
                 {
                     pass.preBarriers.push_back({ handle, res.currentState, targetState });
                     res.currentState = targetState;
                 }
+                res.lastWriter = (u32)passIdx;
             }
 
             // Buffer read barriers
@@ -377,19 +406,36 @@ namespace Luth::RG
                 }
             }
 
-            // Buffer write barriers
+            // Buffer write barriers — same WAW policy as images.
             for (size_t i = 0; i < pass.bufferWrites.size(); ++i)
             {
                 BufferHandle handle = pass.bufferWrites[i];
                 ResourceState targetState = pass.bufferWriteStates[i];
                 BufferNode& buf = m_Buffers[handle.index - 1];
 
-                if (buf.currentState != targetState)
+                bool needBarrier = (buf.currentState != targetState)
+                                || (buf.lastWriter != UINT32_MAX && buf.lastWriter != (u32)passIdx);
+                if (needBarrier)
                 {
                     pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
                     buf.currentState = targetState;
                 }
+                buf.lastWriter = (u32)passIdx;
             }
+        }
+
+        // External finalState (e.g., swapchain → Present) — postBarrier on the last writer.
+        for (size_t i = 0; i < m_Resources.size(); ++i)
+        {
+            ResourceNode& res = m_Resources[i];
+            if (!res.external) continue;
+            if (res.finalState == ResourceState::Undefined) continue;
+            if (res.lastWriter == UINT32_MAX) continue;
+            if (res.currentState == res.finalState) continue;
+
+            ResourceHandle h{ (u32)i + 1, res.version };
+            m_Passes[res.lastWriter].postBarriers.push_back({ h, res.currentState, res.finalState });
+            res.currentState = res.finalState;
         }
     }
 
@@ -650,6 +696,39 @@ namespace Luth::RG
                 vkCmdPipelineBarrier2(primaryCmd, &dep);
             }
 
+            // After pass body + archive sink (sink reads attachments before transition).
+            auto emitPostBarriers = [&]()
+            {
+                if (pass.postBarriers.empty()) return;
+
+                static constexpr u32 k_MaxPostBarriers = 16;
+                LH_CORE_ASSERT(pass.postBarriers.size() <= k_MaxPostBarriers, "Too many post-barriers per pass!");
+                VkImageMemoryBarrier2 imgBarriers[k_MaxPostBarriers];
+                u32 imgBarrierCount = 0;
+
+                for (const auto& b : pass.postBarriers)
+                {
+                    ResourceNode& res = m_Resources[b.resource.index - 1];
+                    auto [srcStage, srcAccess] = GetStateInfo(b.before);
+                    auto [dstStage, dstAccess] = GetStateInfo(b.after);
+
+                    VkImageMemoryBarrier2& vkBarrier = imgBarriers[imgBarrierCount++];
+                    vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+                    vkBarrier.srcStageMask    = srcStage;
+                    vkBarrier.srcAccessMask   = srcAccess;
+                    vkBarrier.dstStageMask    = dstStage;
+                    vkBarrier.dstAccessMask   = dstAccess;
+                    vkBarrier.oldLayout       = GetLayout(b.before);
+                    vkBarrier.newLayout       = GetLayout(b.after);
+                    vkBarrier.image           = res.image;
+                    vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, res.baseArrayLayer, res.layerCount };
+                }
+                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dep.imageMemoryBarrierCount = imgBarrierCount;
+                dep.pImageMemoryBarriers    = imgBarriers;
+                vkCmdPipelineBarrier2(primaryCmd, &dep);
+            };
+
             // Compute pass: inline on primary (bypasses phase 1)
             if (pass.isCompute)
             {
@@ -671,6 +750,8 @@ namespace Luth::RG
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+
+                emitPostBarriers();
 
                 timerPassIdx++;
                 continue;
@@ -705,6 +786,8 @@ namespace Luth::RG
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+
+                emitPostBarriers();
             }
 
             timerPassIdx++;

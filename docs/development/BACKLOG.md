@@ -35,16 +35,27 @@ What exists today — directly shapes sequencing for remaining work.
 graph TD
     consol["engine-consolidation"]
     fdp["frame-debugger-polish"]
+    vc["vulkan-correctness"]
     aqp["animation-quick-pass"]
+    pbr["persistent-buffer-ring"]
+    sra["shader-reload-async"]
+    vp["vulkan-polish"]
     jolt["jolt-physics"]
     jiggle["jiggle-bones"]
+    acq["async-compute-queue"]
+    rga["rg-aliasing"]
     forward["forward-plus"]
     fxaa["fxaa-taa"]
     av2["animation-controller-v2"]
     particles["gpu-particles"]
     future["future"]
 
+    vc --> pbr
+    vc --> sra
+    vc --> vp
+    vc --> acq
     aqp --> av2
+    acq --> forward
     forward --> particles
     jolt --> jiggle
     fxaa --> future
@@ -52,9 +63,15 @@ graph TD
 
     style consol fill:#2563eb,color:#fff
     style fdp fill:#2563eb,color:#fff
+    style vc fill:#2563eb,color:#fff
     style aqp fill:#2563eb,color:#fff
+    style pbr fill:#2563eb,color:#fff
+    style sra fill:#2563eb,color:#fff
+    style vp fill:#2563eb,color:#fff
     style jolt fill:#7c3aed,color:#fff
     style jiggle fill:#7c3aed,color:#fff
+    style acq fill:#7c3aed,color:#fff
+    style rga fill:#7c3aed,color:#fff
     style forward fill:#7c3aed,color:#fff
     style fxaa fill:#7c3aed,color:#fff
     style av2 fill:#7c3aed,color:#fff
@@ -76,7 +93,7 @@ Roadmap restructure (Effort scale, terse summaries), four new arch sub-docs (mem
 
 ---
 
-## Epic: `animation-quick-pass` — v2.8.4
+## Epic: `animation-quick-pass` — v2.8.8
 
 > **UX polish + decouple animation clips from character.**
 
@@ -87,6 +104,59 @@ Two narrow goals:
 Mechanical, scoped change. Foundation for `animation-controller-v2` but not a state machine. State machine + blend trees stay in the v2 epic.
 
 **Effort:** S
+
+---
+
+## Epic: `persistent-buffer-ring` — v2.8.9
+
+> **Triple-buffer the persistent CPU-mapped SSBOs so frame N writes never overlap frame N-1's GPU reads.**
+
+`m_ObjectSSBO` and `m_IndirectBuffer` (and the material SSBO) are allocated once with VMA `CPU_TO_GPU` and persistently mapped. The frame-fence in AcquireImage waits for `frame - MAX_FRAMES_IN_FLIGHT + 1`, which leaves frames N-1 and N-2 potentially in-flight when frame N writes — the buffers can be overwritten while the GPU is still reading them.
+
+| Area | Detail |
+|------|--------|
+| Ring buffers | Stride × `MAX_FRAMES_IN_FLIGHT` slices, frame-indexed write region; descriptor binds the active slice each frame (or use dynamic offsets) |
+| VMA modernization | `VMA_MEMORY_USAGE_AUTO` + `HOST_ACCESS_SEQUENTIAL_WRITE_BIT`; query memory-type flags and call `vmaFlushAllocation` if the chosen type lacks `HOST_COHERENT` |
+| Cull/draw indexing | Cull compute push-constants pick up the active slice's region offset; indirect draw bind point follows |
+
+**Dependencies:** `vulkan-correctness` ✅
+**Effort:** S–M
+
+---
+
+## Epic: `shader-reload-async` — v2.8.10
+
+> **Drop the per-save `vkDeviceWaitIdle`. Defer old-pipeline destroy through the (V1 SpinLock-safe) deletion queue.**
+
+ShaderWatcher's reload callback currently runs `vkDeviceWaitIdle` on every `.vert`/`.frag`/`.comp` save and rebuilds every pipeline that consumes the SPV. The poll runs at the top of every view's `Execute` (twice per frame when both Scene and Game viewports are open). Frame-pacing penalty is real even when nothing changed.
+
+| Area | Detail |
+|------|--------|
+| Poll site | Move `m_ShaderWatcher.Poll()` from `RenderPipeline::Execute` to a once-per-frame call site (`RenderingSystem::Update` prologue) |
+| Deferred destroy | Reload stashes old `VkPipeline` + `VkShaderModule` on `VulkanContext::PushDeletion` (now thread-safe under SpinLock); builds new ones; swaps atomically — no `vkDeviceWaitIdle` needed |
+| DescriptorAllocator | Wire `Reset()` per-frame OR delete the class — currently has no callers and accumulates unbounded |
+
+**Dependencies:** `vulkan-correctness` ✅
+**Effort:** S
+
+---
+
+## Epic: `vulkan-polish` — v2.8.11
+
+> **Tier-2/3 cleanup: transient cache hygiene, async asset uploads, sampler/usage corrections.**
+
+Last of the foundation-stabilization renderer efforts before `jolt-physics`. None of these are correctness bugs; collectively they tighten the cost model for forward+ and gpu-particles.
+
+| Area | Detail |
+|------|--------|
+| `RenderResourceCache` | Hash key by `(w, h, format, usage)` (currently linear scan, ignores usage flags); trim stale-frame threshold from 10 000 to ~30; usage-aware allocation so future transient compute targets fit |
+| Async asset uploads | Wire `UploadContext` for runtime asset loads in `VKTexture` / `VKBuffer` ctors. Drop `ImmediateSubmit` to startup-only — runtime texture loads no longer block the calling thread |
+| Bindless cleanup | Free-list to `vector<u32>` (LIFO); sentinel for "not registered" → `UINT32_MAX` (currently collides with the null-texture's slot 0) |
+| Validation chain | Pass `VkDebugUtilsMessengerCreateInfoEXT` via `VkInstanceCreateInfo.pNext` so vkCreateInstance / vkDestroyInstance failures get reported |
+| Hardcoded magic | Outline width/alpha and grid colors+fade pushed through `EditorSettings` instead of baked in shader push-constants |
+
+**Dependencies:** `vulkan-correctness` ✅
+**Effort:** M
 
 ---
 
@@ -143,6 +213,40 @@ Runs after animation sampling, before bone matrix SSBO upload. Per-bone Verlet i
 
 ---
 
+## Epic: `async-compute-queue` — v2.9.2
+
+> **Run cull + GTAO on a dedicated compute queue so they overlap shadow rasterization on the graphics queue.**
+
+Today every compute pass (5× cull, 3× GTAO) serializes on the single graphics queue. With a dedicated compute family + cross-queue timeline-semaphore sync, the cull dispatches and GTAO chain run alongside shadow-cascade rasterization for free. Prereq for `forward-plus` because clustered lighting adds two more compute passes (cluster-build, light-assign) that benefit from the same overlap.
+
+| Area | Detail |
+|------|--------|
+| Queue discovery | Walk queue families post-instance; pick the first compute-only family (no graphics bit) for compute, optionally a transfer-only family for `UploadContext`. Fall back to the graphics queue if neither exists |
+| Per-queue command pools | `CommandAllocatorPool` extended with queue-family parameter; one pool per (frame, queue family). V3 affinity preserved per queue |
+| Cross-queue sync | Timeline semaphores signaled by compute submit, waited on by graphics submit (and vice versa for GTAO → geometry). Existing `m_FrameTimeline` stays per-frame; compute work uses a separate timeline value scheme |
+| RG node queue selection | `PassNode::queue` enum (Graphics/Compute/Transfer); barrier-solver emits ownership-transfer barriers on cross-queue dependencies |
+| Backend submit | `VulkanBackend::SubmitFrame` becomes per-queue submit; main-thread queue mutex contention rises slightly but is bounded |
+
+Plan-mode this one before touching code — queue ownership transfers and timeline-semaphore design have several reasonable shapes.
+
+**Dependencies:** `vulkan-correctness` ✅
+**Effort:** L
+
+---
+
+## Epic: `rg-aliasing` (optional) — v2.9.3
+
+> **Use the lifetime data the RG already computes to alias transient memory.**
+
+`ResourceNode::firstPass`/`lastPass` are populated in `ComputeLifetimes` but never consumed for memory aliasing. Two transient resources with disjoint lifetimes can share VkImage/VmaAllocation; on a dense post-fx chain (bloom mip pyramid + GTAO half-res + selection mask) peak transient VRAM drops 30–50%.
+
+Optional — defer if `forward-plus` doesn't push transient memory pressure on the target hardware. The `RenderResourceCache` rework in `vulkan-polish` already trims the steady-state churn; aliasing is the next step beyond that.
+
+**Dependencies:** —
+**Effort:** M
+
+---
+
 ## Epic: `forward-plus` — Clustered Lighting
 
 > **Remove the 64 point light ceiling.** Thousands of lights with minimal overhead.
@@ -164,7 +268,7 @@ Replace fixed `LightUBO` with GPU-driven light assignment via clustered shading.
 | **PBR shader** | Read cluster ID from fragment position; iterate cluster's light list |
 | **Point light cap** | Raise from 64 to unlimited (practical: thousands) |
 
-**Dependencies:** `compute-gpu-culling` ✅
+**Dependencies:** `compute-gpu-culling` ✅, `async-compute-queue`
 **Effort:** L
 
 ---

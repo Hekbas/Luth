@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/FrameData.h"
+#include "luth/jobs/SpinLock.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <functional>
@@ -43,6 +44,7 @@ namespace Luth
 
         // Thread-safe queue submission
         bool Submit(const VkSubmitInfo& submitInfo, VkFence fence);
+        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);
         VkResult Present(const VkPresentInfoKHR& presentInfo);
 
         // Safe Resource Deletion
@@ -84,13 +86,10 @@ namespace Luth
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         void* m_WindowHandle = nullptr; // Raw GLFW window handle
 
-        // Resource Deletion Queue
-        struct DeletionQueue
-        {
-            std::deque<std::function<void()>> deletors;
-        };
-        // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h
+        // Per-frame ring; resource dtors push from any thread (V1 SpinLock — push/swap stays under <100 cycles).
+        struct DeletionQueue { std::deque<std::function<void()>> deletors; };
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
+        SpinLock m_DeletionLock;
         u32 m_CurrentFrameIndex = 0;
     };
 }

@@ -43,13 +43,7 @@ namespace Luth
     {
         if (!s_Instance) return;
 
-        // Flush all deletion queues
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            for (auto& func : s_Instance->m_DeletionQueues[i].deletors) {
-                func();
-            }
-            s_Instance->m_DeletionQueues[i].deletors.clear();
-        }
+        s_Instance->FlushAllDeletionQueues();
 
         s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
@@ -138,6 +132,31 @@ namespace Luth
         }
     }
 
+    // Renderer baseline: VK_KHR_swapchain + a graphics queue family.
+    static bool DeviceMeetsBaseline(VkPhysicalDevice device)
+    {
+        u32 extCount = 0;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> extensions(extCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, extensions.data());
+
+        bool hasSwapchain = false;
+        for (const auto& ext : extensions)
+        {
+            if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) { hasSwapchain = true; break; }
+        }
+        if (!hasSwapchain) return false;
+
+        u32 famCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &famCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(famCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &famCount, families.data());
+        for (const auto& f : families)
+            if (f.queueFlags & VK_QUEUE_GRAPHICS_BIT) return true;
+
+        return false;
+    }
+
     void VulkanContext::PickPhysicalDevice()
     {
         uint32_t deviceCount = 0;
@@ -147,26 +166,35 @@ namespace Luth
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
 
-        // Simple selection: Pick the first discrete GPU, fallback to first available
-        for (const auto& device : devices) {
+        // Prefer discrete; fall back to first eligible. Surface-presentation support is checked in VulkanSwapchain.
+        VkPhysicalDevice fallback = VK_NULL_HANDLE;
+        for (const auto& device : devices)
+        {
+            if (!DeviceMeetsBaseline(device)) continue;
+
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(device, &props);
-            
-            if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            {
                 m_PhysicalDevice = device;
                 m_PhysicalDeviceProperties = props;
                 LH_CORE_INFO("Vulkan GPU: {0}", props.deviceName);
-                break;
+                return;
             }
+            if (fallback == VK_NULL_HANDLE) fallback = device;
         }
 
-        if (m_PhysicalDevice == VK_NULL_HANDLE) {
-            m_PhysicalDevice = devices[0];
+        if (fallback != VK_NULL_HANDLE)
+        {
+            m_PhysicalDevice = fallback;
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
             m_PhysicalDeviceProperties = props;
-            LH_CORE_WARN("Vulkan GPU (Integrated): {0}", props.deviceName);
+            LH_CORE_WARN("Vulkan GPU (non-discrete): {0}", props.deviceName);
+            return;
         }
+
+        LH_CORE_CRITICAL("No Vulkan device meets baseline (VK_KHR_swapchain + graphics queue)");
     }
 
     void VulkanContext::CreateLogicalDevice()
@@ -187,6 +215,41 @@ namespace Luth
         }
 
         if (m_GraphicsFamily == -1) LH_CORE_CRITICAL("Failed to find Graphics Queue Family!");
+
+        // Verify required 1.1/1.2/1.3 features before enabling them in vkCreateDevice.
+        VkPhysicalDeviceVulkan11Features avail11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+        VkPhysicalDeviceVulkan12Features avail12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        VkPhysicalDeviceVulkan13Features avail13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        avail12.pNext = &avail11;
+        avail13.pNext = &avail12;
+        VkPhysicalDeviceFeatures2 avail2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        avail2.pNext = &avail13;
+        vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &avail2);
+
+        const bool ok = avail11.shaderDrawParameters
+                     && avail12.descriptorBindingPartiallyBound
+                     && avail12.descriptorBindingSampledImageUpdateAfterBind
+                     && avail12.runtimeDescriptorArray
+                     && avail12.shaderSampledImageArrayNonUniformIndexing
+                     && avail12.timelineSemaphore
+                     && avail13.dynamicRendering
+                     && avail13.synchronization2;
+        if (!ok)
+        {
+            LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 features missing on selected device — "
+                "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
+                "descriptorBindingSampledImageUpdateAfterBind={} runtimeDescriptorArray={} "
+                "shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
+                "dynamicRendering={} synchronization2={}",
+                (bool)avail11.shaderDrawParameters,
+                (bool)avail12.descriptorBindingPartiallyBound,
+                (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
+                (bool)avail12.runtimeDescriptorArray,
+                (bool)avail12.shaderSampledImageArrayNonUniformIndexing,
+                (bool)avail12.timelineSemaphore,
+                (bool)avail13.dynamicRendering,
+                (bool)avail13.synchronization2);
+        }
 
         float queuePriority = 1.0f;
         VkDeviceQueueCreateInfo queueCreateInfo{};
@@ -355,6 +418,17 @@ namespace Luth
         return true;
     }
 
+    bool VulkanContext::Submit2(const VkSubmitInfo2& submitInfo, VkFence fence)
+    {
+        std::lock_guard<std::mutex> lock(m_QueueMutex);
+        if (vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        {
+            LH_CORE_ERROR("VulkanContext: Queue Submit2 Failed!");
+            return false;
+        }
+        return true;
+    }
+
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
@@ -363,26 +437,31 @@ namespace Luth
 
     void VulkanContext::PushDeletion(std::function<void()>&& function)
     {
-        m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(function);
+        SpinLockGuard lock(m_DeletionLock);
+        m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(std::move(function));
     }
 
     void VulkanContext::FlushDeletionQueue()
     {
-        auto& queue = m_DeletionQueues[m_CurrentFrameIndex];
-        for (auto& func : queue.deletors) {
-            func();
+        // Drain under lock, run outside — a deletor may push (nested resource release).
+        std::deque<std::function<void()>> drained;
+        {
+            SpinLockGuard lock(m_DeletionLock);
+            drained.swap(m_DeletionQueues[m_CurrentFrameIndex].deletors);
         }
-        // Swap with empty deque to actually free memory (clear() keeps capacity in deque)
-        std::deque<std::function<void()>>{}.swap(queue.deletors);
+        for (auto& func : drained) func();
     }
 
     void VulkanContext::FlushAllDeletionQueues()
     {
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            for (auto& func : m_DeletionQueues[i].deletors) {
-                func();
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            std::deque<std::function<void()>> drained;
+            {
+                SpinLockGuard lock(m_DeletionLock);
+                drained.swap(m_DeletionQueues[i].deletors);
             }
-            m_DeletionQueues[i].deletors.clear();
+            for (auto& func : drained) func();
         }
     }
 }

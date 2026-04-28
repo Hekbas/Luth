@@ -23,11 +23,15 @@ namespace Luth
     void VulkanSwapchain::Init()
     {
         CreateSurface();
-        
-        // Get initial size
-        int w, h;
-        glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
-        CreateSwapchain(w, h);
+
+        // Block on (0,0) extent (launched-minimized) — Vulkan rejects zero-sized swapchains.
+        int w = 0, h = 0;
+        while (w == 0 || h == 0)
+        {
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w == 0 || h == 0) glfwWaitEvents();
+        }
+        CreateSwapchain((u32)w, (u32)h);
         CreateImageViews();
     }
 
@@ -59,6 +63,13 @@ namespace Luth
         if (glfwCreateWindowSurface(VulkanContext::Get().GetInstance(), (GLFWwindow*)m_WindowHandle, nullptr, &m_Surface) != VK_SUCCESS) {
             LH_CORE_CRITICAL("Failed to create window surface!");
         }
+
+        // Surface presentation support is not spec-guaranteed (true on desktop GPUs in practice).
+        auto& ctx = VulkanContext::Get();
+        VkBool32 presentSupport = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(ctx.GetPhysicalDevice(), ctx.GetGraphicsFamily(), m_Surface, &presentSupport);
+        if (!presentSupport)
+            LH_CORE_CRITICAL("Graphics queue family does not support presentation on this surface");
     }
 
     void VulkanSwapchain::CreateSwapchain(u32 width, u32 height)
@@ -174,20 +185,37 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        uint32_t imageIndex;
-        VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
-
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) return UINT32_MAX;
-        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            LH_CORE_ERROR("Failed to acquire swap chain image!");
+        // Consume Present's deferred rebuild — Acquire runs on main thread (V2), blocking on Recreate is correct here.
+        if (m_NeedsRebuild)
+        {
+            int w = 0, h = 0;
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
+            m_NeedsRebuild = false;
             return UINT32_MAX;
         }
-        
+
+        uint32_t imageIndex = 0;
+        VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            int w = 0, h = 0;
+            glfwGetWindowSize((GLFWwindow*)m_WindowHandle, &w, &h);
+            if (w > 0 && h > 0) Recreate((u32)w, (u32)h);
+            return UINT32_MAX;
+        }
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        {
+            LH_CORE_ERROR("Failed to acquire swap chain image (VkResult={})", (int)result);
+            return UINT32_MAX;
+        }
+
         m_CurrentFrameIndex = imageIndex;
         return imageIndex;
     }
 
-    void VulkanSwapchain::Present(VkSemaphore waitSemaphore)
+    VkResult VulkanSwapchain::Present(VkSemaphore waitSemaphore)
     {
         LH_PROFILE_FUNCTION();
 
@@ -195,7 +223,7 @@ namespace Luth
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = &waitSemaphore;
-        
+
         VkSwapchainKHR swapChains[] = { m_Swapchain };
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
@@ -203,10 +231,17 @@ namespace Luth
 
         VkResult result = VulkanContext::Get().Present(presentInfo);
 
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            // Recreate logic handled by RendererAPI
-        } else if (result != VK_SUCCESS) {
-            LH_CORE_ERROR("Failed to present swapchain image!");
+        // Defer rebuild — Present runs on the render fiber; vkDeviceWaitIdle would stall the worker (V2).
+        // Acquire (main thread) consumes the flag. SUBOPTIMAL is benign (cosmetic scaling).
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            m_NeedsRebuild = true;
         }
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        {
+            LH_CORE_ERROR("Failed to present swapchain image (VkResult={})", (int)result);
+        }
+
+        return result;
     }
 }

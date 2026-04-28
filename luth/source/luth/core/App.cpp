@@ -195,7 +195,12 @@ namespace Luth
             }
 
             // ── Step 3: Begin Vulkan Frame ──
-            Renderer::BeginFrame(frameIndex);
+            // Skip on swapchain rebuild (resize / DPI change); same frameIndex retries (Advance is at end of loop).
+            if (!Renderer::BeginFrame(frameIndex))
+            {
+                std::this_thread::yield();
+                continue;
+            }
 
             currentFrame.Reset();
             currentFrame.Params.DeltaTime = Time::DeltaTime();
