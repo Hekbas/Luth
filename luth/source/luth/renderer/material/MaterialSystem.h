@@ -37,14 +37,21 @@ namespace Luth
         static VkDescriptorSet GetDescriptorSet(); // Returns the set containing the Material Buffer
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
-    private:
+        // Public so writers (BuildGPUObjectBuffer) can encode the active ring
+        // slice into obj.materialIndex: gameSlot * MAX_MATERIALS + matSlot.
         static constexpr u32 MAX_MATERIALS = 16384;
+
+    private:
         static constexpr u32 MATERIAL_SIZE = sizeof(GPUMaterialData);
 
         struct MaterialSlot
         {
             std::shared_ptr<Material> material;
-            bool dirty = false;
+            // Countdown of remaining ring slices to upload after a change is detected.
+            // Initialized to MAX_FRAMES_IN_FLIGHT on register / change-detected; the
+            // game-stage Update() writes the active gameSlot slice and decrements,
+            // so a single mutation propagates to all slices over consecutive frames.
+            u8 dirtyFramesRemaining = 0;
         };
 
         static void CreateBuffer();

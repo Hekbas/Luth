@@ -2,6 +2,7 @@
 #include "MaterialSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
 
@@ -66,7 +67,7 @@ namespace Luth
         m_FreeIndices.pop_front();
 
         m_Slots[index].material = material;
-        m_Slots[index].dirty = true;
+        m_Slots[index].dirtyFramesRemaining = MAX_FRAMES_IN_FLIGHT;
 
         return index;
     }
@@ -80,43 +81,51 @@ namespace Luth
         if (index >= MAX_MATERIALS) return;
 
         m_Slots[index].material = nullptr;
-        m_Slots[index].dirty = false;
+        m_Slots[index].dirtyFramesRemaining = 0;
         m_FreeIndices.push_back(index);
     }
 
     void MaterialSystem::Update(VkCommandBuffer cmd, u32 gameSlot)
     {
-        // Iterate slots and upload dirty ones. Persistently mapped buffer +
-        // assumed HOST_COHERENT memory means we can just memcpy. gameSlot is
-        // plumbed through but not yet consumed — it lights up once the
-        // material SSBO is triple-buffered (sub-task C).
+        // Iterate slots and upload dirty ones to this frame's slice.
+        // Persistently mapped buffer + assumed HOST_COHERENT memory means we
+        // can just memcpy; non-coherent flush wired in sub-task D.
         (void)cmd;
-        (void)gameSlot;
 
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::Update must run on the game stage");
+        assert(gameSlot < MAX_FRAMES_IN_FLIGHT && "gameSlot out of range");
         std::lock_guard<std::mutex> lock(m_Lock);
+
+        const size_t sliceBaseBytes = static_cast<size_t>(gameSlot) * MAX_MATERIALS * MATERIAL_SIZE;
 
         for (u32 i = 0; i < MAX_MATERIALS; ++i)
         {
             if (!m_Slots[i].material) continue;
 
-            // Always refresh GPU data to pick up newly-loaded texture bindless indices
+            // Always refresh GPU data to pick up newly-loaded texture bindless indices.
             GPUMaterialData oldData = m_Slots[i].material->GetGPUData();
             m_Slots[i].material->UpdateGPUData();
             const GPUMaterialData& newData = m_Slots[i].material->GetGPUData();
 
-            bool needsUpload = m_Slots[i].dirty
-                || m_Slots[i].material->IsGpuDirty()
+            // A fresh change re-arms the countdown so the new data propagates to
+            // all MAX_FRAMES_IN_FLIGHT slices over consecutive iterations. Clear
+            // IsGpuDirty here (not after the last write) so a sticky flag doesn't
+            // re-arm the countdown forever.
+            const bool changed = m_Slots[i].material->IsGpuDirty()
                 || memcmp(&oldData, &newData, MATERIAL_SIZE) != 0;
 
-            if (needsUpload)
+            if (changed)
             {
-                u8* dst = (u8*)m_MappedData + (i * MATERIAL_SIZE);
-                memcpy(dst, &newData, MATERIAL_SIZE);
-
-                m_Slots[i].dirty = false;
+                m_Slots[i].dirtyFramesRemaining = MAX_FRAMES_IN_FLIGHT;
                 m_Slots[i].material->ClearGpuDirty();
+            }
+
+            if (m_Slots[i].dirtyFramesRemaining > 0)
+            {
+                u8* dst = (u8*)m_MappedData + sliceBaseBytes + (i * MATERIAL_SIZE);
+                memcpy(dst, &newData, MATERIAL_SIZE);
+                m_Slots[i].dirtyFramesRemaining--;
             }
         }
     }
@@ -134,10 +143,13 @@ namespace Luth
     void MaterialSystem::CreateBuffer()
     {
         VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-        bufferInfo.size = MAX_MATERIALS * MATERIAL_SIZE;
+        // MAX_FRAMES_IN_FLIGHT slices — frame N writes its slice without aliasing
+        // GPU N-1 / N-2 reads. obj.materialIndex (baked in BuildGPUObjectBuffer)
+        // already encodes the slice base, so the descriptor stays VK_WHOLE_SIZE.
+        bufferInfo.size  = static_cast<VkDeviceSize>(MAX_MATERIALS) * MATERIAL_SIZE * MAX_FRAMES_IN_FLIGHT;
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
-        // CPU_TO_GPU for frequent updates via mapping
+        // CPU_TO_GPU for frequent updates via mapping (modernized in sub-task D).
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, m_Buffer);
         m_MappedData = VulkanAllocator::Map(m_Allocation);
     }

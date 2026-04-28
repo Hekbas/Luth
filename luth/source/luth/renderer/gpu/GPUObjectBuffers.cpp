@@ -217,13 +217,17 @@ namespace Luth
             const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
             obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
 
-            // Material slot
+            // Material slot — baked with the active ring slice's base so the
+            // fragment shader's materials[obj.materialIndex] naturally reads from
+            // the slice GPU(N-1) consumes. Slice base uses renderSlot (the object
+            // writer's slot) because the GPU consumer for this object's frame
+            // (frame N-1) reads the matching material slice (also (N-1)%3).
             u32 matSlot = 0;
             if (meshSnap.materialUUID.IsValid()) {
                 auto it = m_MaterialSlotMap.find(meshSnap.materialUUID);
                 if (it != m_MaterialSlotMap.end()) matSlot = it->second;
             }
-            obj.materialIndex = matSlot;
+            obj.materialIndex = renderSlot * MaterialSystem::MAX_MATERIALS + matSlot;
             obj.shadeMode     = static_cast<u32>(m_System.m_ShadeMode);
             // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
             obj.entityID      = (u32)m_EntityLookup.size();  // assigned before push_back
