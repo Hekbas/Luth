@@ -138,13 +138,29 @@ namespace Luth
                 cameraMoved = std::memcmp(&currentViewProj,
                                           &m_FrameDebugger.capturedFrame.captureViewProj,
                                           sizeof(Mat4)) != 0;
+
+                // Throttle auto-recapture to ~10 Hz at 60 fps. Archive image
+                // reuse (FrameDebugger::OnPassExecuted) eliminated allocation
+                // churn, but each recapture still issues ~10 vkCmdCopyImage
+                // + ~40 barriers — saturating mid-tier GPUs at 60 Hz under
+                // continuous camera movement (the bandwidth, not the CPU
+                // side, is the bottleneck). Stepping at 10 Hz drops GPU work
+                // 6× and stays smooth-feeling.
+                static constexpr u64 k_AutoRecaptureMinIntervalFrames = 6;
+                if (cameraMoved)
+                {
+                    const u64 currentFrame = Renderer::GetFrameData()->GetFrameIndex();
+                    if (currentFrame - m_FrameDebugger.lastRecaptureFrameIndex
+                        < k_AutoRecaptureMinIntervalFrames)
+                        cameraMoved = false;
+                }
             }
 
             if (!cameraMoved)
             {
-                // Static — minimal graph: just blit ImGui to the swapchain.
-                // Drop queued views — letting the queue grow unbounded spikes
-                // the frame when the debugger exits (all views flush at once).
+                // Static or throttled — minimal graph: just blit ImGui to the
+                // swapchain. Drop queued views — letting the queue grow
+                // unbounded spikes the frame when the debugger exits.
                 m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
@@ -152,6 +168,7 @@ namespace Luth
 
             // Camera moved — re-trigger capture and fall through.
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
+            m_FrameDebugger.lastRecaptureFrameIndex = Renderer::GetFrameData()->GetFrameIndex();
         }
 
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)

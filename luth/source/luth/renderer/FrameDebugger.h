@@ -36,6 +36,14 @@ namespace Luth
         CaptureSource requestedSource = CaptureSource::Scene;
         CaptureSource capturedSource  = CaptureSource::Scene;
 
+        // Frame index of the most recent auto-recapture trigger. Used by the
+        // Frozen-state cameraMoved path in RenderingSystem to throttle
+        // auto-refresh to ~10 Hz at 60 fps. Archive reuse eliminated the
+        // allocation cost; throttling caps the remaining per-frame GPU
+        // copy work (~10 vkCmdCopyImage + barriers per recapture, mostly
+        // shadow cascades) from saturating mid-tier GPUs under WASD/orbit.
+        u64 lastRecaptureFrameIndex = 0;
+
         // Phase 14C — drawLimit / replayDrawCounter / captured*Draws removed.
         // Live re-replay is gone; per-draw stepping (Phase 14E) reads frozen UBOs/
         // SSBOs/indirect and re-records the owning pass via ImmediateSubmit.
