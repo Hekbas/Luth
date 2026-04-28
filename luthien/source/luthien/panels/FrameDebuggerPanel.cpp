@@ -134,6 +134,43 @@ namespace Luth
 
         const auto& capture = m_RS->GetCapturedFrame();
         if (!capture.valid) return src;
+
+        // Per-draw replay path takes precedence for Draw selections so the
+        // viewport overlay tracks the slider scrub (Unity behaviour). Replay
+        // dispatch is internal; supported passes update the preview key and
+        // we route the per-draw preview to the viewport. Unsupported passes
+        // (compute, single-draw, ImGui) leave the key untouched and we fall
+        // through to the pass-archive path below.
+        if (m_SelKind == RG::EventNodeKind::Draw && m_SelPassIndex >= 0
+            && m_SelPassIndex < (int)capture.passes.size() && m_SelDrawIndex >= 0)
+        {
+            const auto& pass = capture.passes[m_SelPassIndex];
+            if ((u32)m_SelDrawIndex >= pass.firstDrawIndex
+                && (u32)m_SelDrawIndex < pass.firstDrawIndex + pass.drawCallCount)
+            {
+                const u32 perDrawPassIdx  = (u32)m_SelPassIndex;
+                const u32 perDrawLocalIdx = (u32)m_SelDrawIndex - pass.firstDrawIndex;
+                m_RS->ReplayPassUpToDraw(perDrawPassIdx, perDrawLocalIdx);
+
+                const u64 expectedKey  = ((u64)perDrawPassIdx << 32) | (u64)perDrawLocalIdx;
+                const bool replayValid = (m_RS->GetPerDrawPreviewKey() == expectedKey);
+                if (replayValid)
+                {
+                    VkImageView previewView = m_RS->GetPerDrawPreviewView();
+                    const u32   pw          = m_RS->GetPerDrawPreviewWidth();
+                    const u32   ph          = m_RS->GetPerDrawPreviewHeight();
+                    if (previewView != VK_NULL_HANDLE && pw > 0 && ph > 0)
+                    {
+                        src.view    = previewView;
+                        src.sampler = m_RS->GetDebugSampler();
+                        src.width   = pw;
+                        src.height  = ph;
+                        return src;
+                    }
+                }
+            }
+        }
+
         if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size()) return src;
 
         const auto& archive = capture.archivedImages[m_SelArchiveIdx];
@@ -828,9 +865,13 @@ namespace Luth
         if (m_SelKind == RG::EventNodeKind::Draw && m_SelPassIndex >= 0 &&
             m_SelPassIndex < (int)capture.passes.size() && m_SelDrawIndex >= 0)
         {
+            // Attempt per-draw replay for any pass; ReplayPassUpToDraw
+            // dispatches by pass.name internally and no-ops for unsupported
+            // pass types. Validity is gated below by comparing the post-
+            // replay preview key against what we requested — supported
+            // passes update the key, unsupported ones leave it untouched.
             const auto& pass = capture.passes[m_SelPassIndex];
-            if (pass.name == "GeometryPass" &&
-                (u32)m_SelDrawIndex >= pass.firstDrawIndex &&
+            if ((u32)m_SelDrawIndex >= pass.firstDrawIndex &&
                 (u32)m_SelDrawIndex <  pass.firstDrawIndex + pass.drawCallCount)
             {
                 tryPerDrawReplay = true;
@@ -849,7 +890,14 @@ namespace Luth
             u32         previewW    = m_RS->GetPerDrawPreviewWidth();
             u32         previewH    = m_RS->GetPerDrawPreviewHeight();
 
-            if (previewView != VK_NULL_HANDLE && previewW > 0 && previewH > 0)
+            // Replay is "valid" iff its key matches what we requested.
+            // Unsupported pass types leave the key unchanged, in which case
+            // `previewView` reflects an unrelated prior replay — fall through
+            // to the pass-archive path so the user sees a coherent image.
+            const u64 expectedKey  = ((u64)perDrawPassIdx << 32) | (u64)perDrawLocalIdx;
+            const bool replayValid = (m_RS->GetPerDrawPreviewKey() == expectedKey);
+
+            if (replayValid && previewView != VK_NULL_HANDLE && previewW > 0 && previewH > 0)
             {
                 ImGui::Text("Per-draw replay  (%ux%u, draw %u of %u)",
                             previewW, previewH,

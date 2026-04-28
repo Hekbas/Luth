@@ -247,6 +247,27 @@ namespace Luth
         m_PerDrawPreviewKey    = UINT64_MAX;
     }
 
+    namespace
+    {
+        // Trailing integer of "ShadowPass.C0" / "ShadowPass.C12" etc.
+        // Returns -1 if the pass name doesn't match the cascade prefix.
+        int CascadeIndexFromPassName(const std::string& name)
+        {
+            constexpr const char* k_Prefix = "ShadowPass.C";
+            const size_t prefixLen = std::char_traits<char>::length(k_Prefix);
+            if (name.size() <= prefixLen) return -1;
+            if (name.compare(0, prefixLen, k_Prefix) != 0) return -1;
+            int v = 0;
+            for (size_t i = prefixLen; i < name.size(); ++i)
+            {
+                char c = name[i];
+                if (c < '0' || c > '9') return -1;
+                v = v * 10 + (c - '0');
+            }
+            return v;
+        }
+    }
+
     void FrameDebuggerContext::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
     {
         auto& sys = m_Pipeline.m_System;
@@ -257,9 +278,30 @@ namespace Luth
 
         const auto& pass = sys.m_FrameDebugger.capturedFrame.passes[passIdx];
 
-        // v1 — only GeometryPass per-draw replay is wired. Other passes leave
-        // the cache key unchanged so the panel falls back to pass-output archive.
-        if (pass.name != "GeometryPass") return;
+        // Dispatch by pass type. Unsupported pass names leave
+        // m_PerDrawPreviewKey untouched so the caller (panel / viewport
+        // overlay) detects the mismatch and falls back to the pass archive.
+        if (pass.name == "GeometryPass")
+        {
+            ReplayGeometry(passIdx, localDrawIdx);
+        }
+        else if (const int cascadeIdx = CascadeIndexFromPassName(pass.name); cascadeIdx >= 0)
+        {
+            ReplayShadow(passIdx, localDrawIdx, cascadeIdx);
+        }
+        else if (pass.name == "DepthPrepass")
+        {
+            ReplayDepthPrepass(passIdx, localDrawIdx);
+        }
+        else if (pass.name == "SelectionMaskPass")
+        {
+            ReplaySelectionMask(passIdx, localDrawIdx);
+        }
+    }
+
+    void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
+    {
+        auto& sys = m_Pipeline.m_System;
         if (!sys.m_SceneTargets.GetSceneColor() || !sys.m_SceneTargets.GetSceneDepth() || !sys.m_SceneTargets.GetEntityIDBuffer()) return;
 
         // Cache hit — same selection as last replay, nothing to do.
@@ -529,6 +571,27 @@ namespace Luth
         });
 
         m_PerDrawPreviewKey = key;
+    }
+
+    void FrameDebuggerContext::ReplayShadow(u32 passIdx, u32 localDrawIdx, int cascadeIdx)
+    {
+        // TODO(I2-Shadow): replay shadow draws[0..localDrawIdx] into the
+        // cascade slice's depth target, then tonemap into m_PerDrawPreviewImage.
+        (void)passIdx; (void)localDrawIdx; (void)cascadeIdx;
+    }
+
+    void FrameDebuggerContext::ReplayDepthPrepass(u32 passIdx, u32 localDrawIdx)
+    {
+        // TODO(I2-DepthPrepass): replay depth-only draws[0..localDrawIdx] into
+        // SceneDepth, then tonemap into m_PerDrawPreviewImage.
+        (void)passIdx; (void)localDrawIdx;
+    }
+
+    void FrameDebuggerContext::ReplaySelectionMask(u32 passIdx, u32 localDrawIdx)
+    {
+        // TODO(I2-SelectionMask): replay selection draws[0..localDrawIdx] into
+        // the selection mask buffer, then copy into m_PerDrawPreviewImage.
+        (void)passIdx; (void)localDrawIdx;
     }
 
     void FrameDebuggerContext::EnsureDepthPreviewTexture(u32 width, u32 height)

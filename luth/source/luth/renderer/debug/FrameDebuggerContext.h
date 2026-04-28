@@ -39,9 +39,13 @@ namespace Luth
         // the HDR SceneColor (or depth ShadowMap) would never reach ImGui.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
 
-        // Phase 14E — per-draw replay-then-copy. Re-executes GeometryPass up to
-        // draw `localDrawIdx` (inclusive) into SceneColor, then copies the
-        // result into the per-draw preview texture for ImGui sampling.
+        // Phase 14E — per-draw replay-then-copy. Re-executes the captured
+        // pass up to draw `localDrawIdx` (inclusive) into a per-draw preview
+        // texture for ImGui sampling. Dispatches by pass name to per-pass
+        // replay helpers (Geometry, Shadow, DepthPrepass, SelectionMask).
+        // Unsupported passes leave m_PerDrawPreviewKey at its prior value; a
+        // caller checking GetPerDrawPreviewKey() against the requested key
+        // detects mismatch and falls back to the pass archive.
         void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
 
         // Phase 14F — blit a cascade slice (or full depth archive) through the
@@ -63,6 +67,15 @@ namespace Luth
         void DestroyPerDrawPreviewTexture();
         void EnsureDepthPreviewTexture(u32 width, u32 height);
         void DestroyDepthPreviewTexture();
+
+        // Per-pass replay helpers. Each renders draws[0..localDrawIdx] into a
+        // pass-appropriate target then blits/copies into m_PerDrawPreviewImage
+        // and updates m_PerDrawPreviewKey on success. Unsupported pass names
+        // leave the preview untouched; the caller falls back to pass-archive.
+        void ReplayGeometry      (u32 passIdx, u32 localDrawIdx);
+        void ReplayShadow        (u32 passIdx, u32 localDrawIdx, int cascadeIdx);
+        void ReplayDepthPrepass  (u32 passIdx, u32 localDrawIdx);
+        void ReplaySelectionMask (u32 passIdx, u32 localDrawIdx);
 
         RenderPipeline& m_Pipeline;
 
