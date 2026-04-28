@@ -127,7 +127,7 @@ namespace Luth
             && m_RS->GetCapturedSource() == CaptureSource::Game;
     }
 
-    FrameDebuggerPanel::OverlaySource FrameDebuggerPanel::GetOverlaySource() const
+    FrameDebuggerPanel::OverlaySource FrameDebuggerPanel::GetOverlaySource()
     {
         OverlaySource src{};
         if (!m_RS) return src;
@@ -138,11 +138,38 @@ namespace Luth
         if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size()) return src;
 
         const auto& archive = capture.archivedImages[m_SelArchiveIdx];
-        // MVP — only non-depth color archives. Depth/cascade archives stay in
-        // the panel's own thumbnail (DrawArchivePreview routes them through
-        // BlitArchivedDepthToPreview); viewport overlay can fall back to live
-        // rendering for those.
-        if (archive.isDepth) return src;
+
+        if (archive.isDepth)
+        {
+            // Depth archives go through BlitArchivedDepthToPreview which
+            // tonemaps the depth into an RGBA8 preview texture. Cascade
+            // slices use the matching cascade's view-Z far split so each
+            // slice gets a sensible contrast range; non-cascade depth uses
+            // a generic 0.1..200 m window (matches the panel thumbnail).
+            float nearZ = 0.1f;
+            float farZ  = 200.0f;
+            if (m_SelArchiveLayer >= 0 && m_SelArchiveLayer < 4)
+            {
+                farZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer];
+                if (m_SelArchiveLayer > 0)
+                    nearZ = capture.cascadeSplitsViewZ[m_SelArchiveLayer - 1];
+                if (farZ <= nearZ) farZ = nearZ + 1.0f;
+            }
+
+            m_RS->BlitArchivedDepthToPreview((u32)m_SelArchiveIdx, m_SelArchiveLayer, nearZ, farZ);
+
+            VkImageView depthPreview = m_RS->GetDepthPreviewView();
+            const u32   dpW          = m_RS->GetDepthPreviewWidth();
+            const u32   dpH          = m_RS->GetDepthPreviewHeight();
+            if (depthPreview == VK_NULL_HANDLE || dpW == 0 || dpH == 0) return src;
+
+            src.view    = depthPreview;
+            src.sampler = m_RS->GetDebugSampler();
+            src.width   = dpW;
+            src.height  = dpH;
+            return src;
+        }
+
         if (archive.view == VK_NULL_HANDLE) return src;
 
         src.view    = archive.view;

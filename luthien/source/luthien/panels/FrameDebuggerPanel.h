@@ -35,11 +35,12 @@ namespace Luth
         bool ShouldOverlayInGame()  const;
 
         // Resolves the currently-selected pass's primary archive into a view +
-        // sampler suitable for ImGui::Image. Returns a null view when no valid
-        // non-depth color archive is selected (depth archives are rendered via
-        // the panel's own DrawArchivePreview path; viewport overlay falls back
-        // to live rendering for those).
-        OverlaySource GetOverlaySource() const;
+        // sampler suitable for ImGui::Image. Color archives return their view
+        // directly; depth archives route through BlitArchivedDepthToPreview
+        // for tonemapping (cascade slices use the matching cascade's view-Z
+        // range; non-cascade depth uses 0.1..200 m). Non-const because the
+        // depth-blit path mutates the FrameDebuggerContext's preview cache.
+        OverlaySource GetOverlaySource();
 
     private:
         // Live mode — pass-level view over the current graph snapshot.
