@@ -18,11 +18,22 @@ namespace Luth
 {
     enum class DebuggerState : u8 { Inactive, CaptureRequested, Frozen };
 
+    // Which view the user has chosen to capture next (and to overlay during
+    // Frozen). The corresponding viewport's RG installs the archive sink.
+    enum class CaptureSource : u8 { Scene, Game };
+
     struct FrameDebugger : public RG::IArchiveSink
     {
         // Capture state machine
         DebuggerState     state = DebuggerState::Inactive;
         RG::CapturedFrame capturedFrame;
+
+        // User's pending source selection (drives the next capture).
+        // capturedSource records what was actually captured (set when state
+        // transitions to Frozen) so the viewport overlay survives the user
+        // toggling requestedSource between captures.
+        CaptureSource requestedSource = CaptureSource::Scene;
+        CaptureSource capturedSource  = CaptureSource::Scene;
 
         // Phase 14C — drawLimit / replayDrawCounter / captured*Draws removed.
         // Live re-replay is gone; per-draw stepping (Phase 14E) reads frozen UBOs/

@@ -411,9 +411,11 @@ namespace Luth
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
 
         // Wire the archive sink for this capture. The sink copies each
-        // tracked RT after the pass that writes it. Gate on emitImGuiPass
-        // so extra views don't double-register tracked RTs.
-        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // tracked RT after the pass that writes it. Gate on the per-view
+        // captureRequested flag (set by the view's owner — RenderingSystem
+        // for the scene view, GamePanel for the game view) so the chosen
+        // capture source's RG installs the sink, not the editor's by default.
+        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -476,8 +478,8 @@ namespace Luth
                 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
 
-        // Finalize capture (primary view only — matches the sink gate above).
-        if (view.emitImGuiPass && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        // Finalize capture (only the source view — matches the sink gate above).
+        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the
@@ -514,7 +516,10 @@ namespace Luth
                 m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
 
             m_System.m_FrameDebugger.capturedFrame.valid = true;
-            m_System.m_FrameDebugger.state               = DebuggerState::Frozen;
+            // Snapshot which source produced this capture so viewport overlays
+            // survive the user toggling requestedSource between captures.
+            m_System.m_FrameDebugger.capturedSource = m_System.m_FrameDebugger.requestedSource;
+            m_System.m_FrameDebugger.state          = DebuggerState::Frozen;
         }
     }
 

@@ -40,6 +40,18 @@ namespace Luth
         return nullptr;
     }
 
+    // Capture-source dropdown shared between live + capture control bars.
+    // Placed right of Enable / Disable, before any slider, so its position
+    // stays stable across the live↔capture transition.
+    static void DrawCaptureSourceCombo(RenderingSystem* rs)
+    {
+        static const char* k_Labels[] = { "Scene", "Game" };
+        int srcIdx = (int)rs->GetCaptureSource();
+        ImGui::SetNextItemWidth(80.0f);
+        if (ImGui::Combo("##CaptureSource", &srcIdx, k_Labels, IM_ARRAYSIZE(k_Labels)))
+            rs->SetCaptureSource((CaptureSource)srcIdx);
+    }
+
     static bool IsDepthFormat(RG::TextureFormat fmt)
     {
         return fmt == RG::TextureFormat::D32_Float || fmt == RG::TextureFormat::D24_Unorm_S8_Uint;
@@ -99,12 +111,26 @@ namespace Luth
         m_RS = SystemRegistry::GetSystem<RenderingSystem>();
     }
 
-    // ---- Public overlay accessor (Unity-style viewport preview) ----
+    // ---- Public overlay accessors (Unity-style viewport preview) ----
+
+    bool FrameDebuggerPanel::ShouldOverlayInScene() const
+    {
+        return m_RS
+            && m_RS->GetDebuggerState() == DebuggerState::Frozen
+            && m_RS->GetCapturedSource() == CaptureSource::Scene;
+    }
+
+    bool FrameDebuggerPanel::ShouldOverlayInGame() const
+    {
+        return m_RS
+            && m_RS->GetDebuggerState() == DebuggerState::Frozen
+            && m_RS->GetCapturedSource() == CaptureSource::Game;
+    }
 
     FrameDebuggerPanel::OverlaySource FrameDebuggerPanel::GetOverlaySource() const
     {
         OverlaySource src{};
-        if (!m_RS || m_OverlayMode == OverlayMode::Off) return src;
+        if (!m_RS) return src;
         if (m_RS->GetDebuggerState() != DebuggerState::Frozen) return src;
 
         const auto& capture = m_RS->GetCapturedFrame();
@@ -224,6 +250,8 @@ namespace Luth
         if (ImGui::Button("Enable"))
             m_RS->RequestCapture();
 
+        ImGui::SameLine();
+        DrawCaptureSourceCombo(m_RS);
         ImGui::SameLine();
 
         // Event slider
@@ -514,6 +542,12 @@ namespace Luth
         ImGui::PopStyleColor();
 
         ImGui::SameLine();
+        // Capture source — same control + position as in the live bar so it
+        // doesn't visually jump on the live↔capture transition. Mutating
+        // here only affects the *next* capture; the active overlay is keyed
+        // off capturedSource (snapshotted at finalize).
+        DrawCaptureSourceCombo(m_RS);
+        ImGui::SameLine();
 
         const int passCount = (int)capture.passes.size();
         if (passCount > 0)
@@ -591,28 +625,6 @@ namespace Luth
                  capture.drawCalls.size(),
                  capture.totalGpuTimeMs);
         ImGui::TextDisabled("%s", status);
-
-        // ----- Overlay row -----
-        // Unity-style: while Frozen, the chosen viewport renders the selected
-        // pass's archived RT instead of the live frame. ScenePanel/GamePanel
-        // call back via Editor::GetPanel<FrameDebuggerPanel>() each frame.
-        ImGui::TextDisabled("Overlay in viewport:");
-        ImGui::SameLine();
-        const char* modeLabels[] = { "Off", "Scene", "Game", "Both" };
-        int modeIdx = (int)m_OverlayMode;
-        ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::Combo("##OverlayMode", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels)))
-            m_OverlayMode = (OverlayMode)modeIdx;
-
-        if (m_OverlayMode != OverlayMode::Off)
-        {
-            ImGui::SameLine();
-            const auto src = GetOverlaySource();
-            if (src.view == VK_NULL_HANDLE)
-                ImGui::TextDisabled("(select a non-depth pass)");
-            else
-                ImGui::TextDisabled("(showing %ux%u)", src.width, src.height);
-        }
     }
 
     void FrameDebuggerPanel::SelectEventNode(const RG::EventNode& node)

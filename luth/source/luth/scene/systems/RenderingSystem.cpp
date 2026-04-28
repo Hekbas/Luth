@@ -116,15 +116,28 @@ namespace Luth
         {
             if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-            // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
-            // comparison matches what the GPU actually saw at capture time.
-            Mat4 currentProj = m_CameraParams.projection;
-            currentProj[1][1] *= -1.0f;
-            Mat4 currentViewProj = currentProj * m_CameraParams.view;
+            // Auto-recapture-on-camera-move only makes sense for Scene
+            // captures: the comparison camera (m_CameraParams = editor) is
+            // the same camera that produced the capture's viewProj. For
+            // Game captures, the captured viewProj came from the game
+            // camera (which lives on GamePanel), so comparing it against
+            // the editor camera here would *always* report "moved" and
+            // loop the state machine between Frozen and CaptureRequested
+            // every frame. Game captures stay Frozen until the user hits
+            // Disable + Enable to retake.
+            bool cameraMoved = false;
+            if (m_FrameDebugger.capturedSource == CaptureSource::Scene)
+            {
+                // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
+                // comparison matches what the GPU actually saw at capture time.
+                Mat4 currentProj = m_CameraParams.projection;
+                currentProj[1][1] *= -1.0f;
+                Mat4 currentViewProj = currentProj * m_CameraParams.view;
 
-            const bool cameraMoved = std::memcmp(&currentViewProj,
-                                                  &m_FrameDebugger.capturedFrame.captureViewProj,
-                                                  sizeof(Mat4)) != 0;
+                cameraMoved = std::memcmp(&currentViewProj,
+                                          &m_FrameDebugger.capturedFrame.captureViewProj,
+                                          sizeof(Mat4)) != 0;
+            }
 
             if (!cameraMoved)
             {
@@ -168,6 +181,11 @@ namespace Luth
         sceneView.drawGrid             = m_GridVisible;
         sceneView.drawSelectionOutline = true;
         sceneView.emitImGuiPass        = true;
+        // Capture-source gate: only the scene view installs the archive sink
+        // when the user has chosen Scene as the source. Game capture lives on
+        // GamePanel's queued view.
+        sceneView.captureRequested     = (m_FrameDebugger.state == DebuggerState::CaptureRequested
+                                          && m_FrameDebugger.requestedSource == CaptureSource::Scene);
 
         // One primary cmd buffer for the whole frame. Queued views record
         // first (their LDRs are sampled by the scene view's ImGui pass),

@@ -49,6 +49,11 @@ namespace Luth
         bool          drawGrid             = true;
         bool          drawSelectionOutline = true;
         bool          emitImGuiPass        = true;
+        // Set by the view's owner when the user has requested a Frame Debugger
+        // capture and selected this view (Scene or Game) as the source. Drives
+        // the BeginCapture / archive-sink wiring in RenderPipeline::Execute.
+        // Decoupled from emitImGuiPass so capture can target the game view.
+        bool          captureRequested     = false;
     };
 
     // GPU resources bound to a specific FrameTargets. Keyed by targets

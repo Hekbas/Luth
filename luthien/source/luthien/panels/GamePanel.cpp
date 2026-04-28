@@ -114,6 +114,10 @@ namespace Luth
                 gameView.drawGrid             = false;
                 gameView.drawSelectionOutline = false;
                 gameView.emitImGuiPass        = false;
+                // Frame Debugger capture source: route the sink to this view's
+                // RG when the user selected Game. Single-view capture model.
+                gameView.captureRequested     = (m_RenderingSystem->GetDebuggerState() == DebuggerState::CaptureRequested
+                                                 && m_RenderingSystem->GetCaptureSource() == CaptureSource::Game);
                 m_RenderingSystem->QueueView(gameView);
 
                 // Frame Debugger viewport overlay (Unity-style): when Frozen

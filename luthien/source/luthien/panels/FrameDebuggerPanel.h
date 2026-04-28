@@ -16,9 +16,13 @@ namespace Luth
 
         // Unity-style viewport pass preview. ScenePanel / GamePanel query the
         // panel each frame to decide whether to render the live LDR or the
-        // currently-selected pass's archived RT in their viewport.
-        enum class OverlayMode : u8 { Off, Scene, Game, Both };
-
+        // currently-selected pass's archived RT in their viewport. The overlay
+        // target is coupled to the capture source (set in the panel's control
+        // bar): if the user captured Scene, the Scene viewport gets the
+        // overlay; if Game, the Game viewport. Decided by FrameDebugger's
+        // capturedSource (snapshotted at capture time) so toggling the source
+        // mid-Frozen doesn't redirect the overlay to a viewport whose camera
+        // never produced these archives.
         struct OverlaySource
         {
             VkImageView view    = VK_NULL_HANDLE;
@@ -27,8 +31,8 @@ namespace Luth
             u32         height  = 0;
         };
 
-        bool ShouldOverlayInScene() const { return m_OverlayMode == OverlayMode::Scene || m_OverlayMode == OverlayMode::Both; }
-        bool ShouldOverlayInGame()  const { return m_OverlayMode == OverlayMode::Game  || m_OverlayMode == OverlayMode::Both; }
+        bool ShouldOverlayInScene() const;
+        bool ShouldOverlayInGame()  const;
 
         // Resolves the currently-selected pass's primary archive into a view +
         // sampler suitable for ImGui::Image. Returns a null view when no valid
@@ -79,7 +83,5 @@ namespace Luth
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
         u32 m_TreeNodeCounter = 0;
-
-        OverlayMode m_OverlayMode = OverlayMode::Off;
     };
 }
