@@ -43,13 +43,7 @@ namespace Luth
     {
         if (!s_Instance) return;
 
-        // Flush all deletion queues
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            for (auto& func : s_Instance->m_DeletionQueues[i].deletors) {
-                func();
-            }
-            s_Instance->m_DeletionQueues[i].deletors.clear();
-        }
+        s_Instance->FlushAllDeletionQueues();
 
         s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
@@ -363,26 +357,35 @@ namespace Luth
 
     void VulkanContext::PushDeletion(std::function<void()>&& function)
     {
-        m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(function);
+        // Resource dtors run on whatever thread released the last shared_ptr —
+        // worker fibers included. Mutex protects against concurrent push and
+        // against the main thread's flush.
+        std::lock_guard<std::mutex> lock(m_DeletionMutex);
+        m_DeletionQueues[m_CurrentFrameIndex].deletors.push_back(std::move(function));
     }
 
     void VulkanContext::FlushDeletionQueue()
     {
-        auto& queue = m_DeletionQueues[m_CurrentFrameIndex];
-        for (auto& func : queue.deletors) {
-            func();
+        // Drain under lock, run outside — avoids deadlock if a deletor itself
+        // calls PushDeletion (e.g., when releasing nested resources).
+        std::deque<std::function<void()>> drained;
+        {
+            std::lock_guard<std::mutex> lock(m_DeletionMutex);
+            drained.swap(m_DeletionQueues[m_CurrentFrameIndex].deletors);
         }
-        // Swap with empty deque to actually free memory (clear() keeps capacity in deque)
-        std::deque<std::function<void()>>{}.swap(queue.deletors);
+        for (auto& func : drained) func();
     }
 
     void VulkanContext::FlushAllDeletionQueues()
     {
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            for (auto& func : m_DeletionQueues[i].deletors) {
-                func();
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            std::deque<std::function<void()>> drained;
+            {
+                std::lock_guard<std::mutex> lock(m_DeletionMutex);
+                drained.swap(m_DeletionQueues[i].deletors);
             }
-            m_DeletionQueues[i].deletors.clear();
+            for (auto& func : drained) func();
         }
     }
 }

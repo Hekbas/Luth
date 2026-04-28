@@ -89,8 +89,11 @@ namespace Luth
         {
             std::deque<std::function<void()>> deletors;
         };
-        // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h
+        // Uses global MAX_FRAMES_IN_FLIGHT from FrameData.h. Resource dtors
+        // (VKTexture/VKBuffer/etc.) push from any thread that holds the last
+        // shared_ptr — guard the deque with m_DeletionMutex.
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
+        std::mutex m_DeletionMutex;
         u32 m_CurrentFrameIndex = 0;
     };
 }
