@@ -422,6 +422,17 @@ namespace Luth
         return true;
     }
 
+    bool VulkanContext::Submit2(const VkSubmitInfo2& submitInfo, VkFence fence)
+    {
+        std::lock_guard<std::mutex> lock(m_QueueMutex);
+        if (vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        {
+            LH_CORE_ERROR("VulkanContext: Queue Submit2 Failed!");
+            return false;
+        }
+        return true;
+    }
+
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);

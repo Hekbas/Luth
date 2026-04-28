@@ -43,6 +43,7 @@ namespace Luth
 
         // Thread-safe queue submission
         bool Submit(const VkSubmitInfo& submitInfo, VkFence fence);
+        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);
         VkResult Present(const VkPresentInfoKHR& presentInfo);
 
         // Safe Resource Deletion

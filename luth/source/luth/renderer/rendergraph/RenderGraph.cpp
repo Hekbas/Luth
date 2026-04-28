@@ -128,6 +128,23 @@ namespace Luth::RG
         return { index, 0 };
     }
 
+    ResourceHandle RenderGraph::ImportResource(const TextureDesc& desc, void* image, void* view,
+                                                ResourceState initialState, ResourceState finalState)
+    {
+        u32 index = (u32)m_Resources.size() + 1;
+        ResourceNode node{};
+        node.desc = desc;
+        node.isTransient = false;
+        node.initialState = initialState;
+        node.currentState = initialState;
+        node.finalState = finalState;
+        node.image = (VkImage)image;
+        node.view = (VkImageView)view;
+        node.external = true;
+        m_Resources.push_back(node);
+        return { index, 0 };
+    }
+
     void RenderGraph::RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state)
     {
         m_Passes[passIndex].reads.push_back(handle);
@@ -408,6 +425,21 @@ namespace Luth::RG
                 buf.lastWriter = (u32)passIdx;
             }
         }
+
+        // External resources with a declared finalState (e.g., swapchain →
+        // Present) get a postBarrier on whichever pass last wrote them.
+        for (size_t i = 0; i < m_Resources.size(); ++i)
+        {
+            ResourceNode& res = m_Resources[i];
+            if (!res.external) continue;
+            if (res.finalState == ResourceState::Undefined) continue;
+            if (res.lastWriter == UINT32_MAX) continue;
+            if (res.currentState == res.finalState) continue;
+
+            ResourceHandle h{ (u32)i + 1, res.version };
+            m_Passes[res.lastWriter].postBarriers.push_back({ h, res.currentState, res.finalState });
+            res.currentState = res.finalState;
+        }
     }
 
     // ===================================================================================
@@ -667,6 +699,41 @@ namespace Luth::RG
                 vkCmdPipelineBarrier2(primaryCmd, &dep);
             }
 
+            // Lambda: emit any postBarriers attached to this pass *after* the
+            // pass body has executed and the archive sink has had a chance to
+            // copy attachments. Used for swapchain → Present transitions.
+            auto emitPostBarriers = [&]()
+            {
+                if (pass.postBarriers.empty()) return;
+
+                static constexpr u32 k_MaxPostBarriers = 16;
+                LH_CORE_ASSERT(pass.postBarriers.size() <= k_MaxPostBarriers, "Too many post-barriers per pass!");
+                VkImageMemoryBarrier2 imgBarriers[k_MaxPostBarriers];
+                u32 imgBarrierCount = 0;
+
+                for (const auto& b : pass.postBarriers)
+                {
+                    ResourceNode& res = m_Resources[b.resource.index - 1];
+                    auto [srcStage, srcAccess] = GetStateInfo(b.before);
+                    auto [dstStage, dstAccess] = GetStateInfo(b.after);
+
+                    VkImageMemoryBarrier2& vkBarrier = imgBarriers[imgBarrierCount++];
+                    vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+                    vkBarrier.srcStageMask    = srcStage;
+                    vkBarrier.srcAccessMask   = srcAccess;
+                    vkBarrier.dstStageMask    = dstStage;
+                    vkBarrier.dstAccessMask   = dstAccess;
+                    vkBarrier.oldLayout       = GetLayout(b.before);
+                    vkBarrier.newLayout       = GetLayout(b.after);
+                    vkBarrier.image           = res.image;
+                    vkBarrier.subresourceRange = { GetAspect(res.desc.format), 0, 1, res.baseArrayLayer, res.layerCount };
+                }
+                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dep.imageMemoryBarrierCount = imgBarrierCount;
+                dep.pImageMemoryBarriers    = imgBarriers;
+                vkCmdPipelineBarrier2(primaryCmd, &dep);
+            };
+
             // Compute pass: inline on primary (bypasses phase 1)
             if (pass.isCompute)
             {
@@ -688,6 +755,8 @@ namespace Luth::RG
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+
+                emitPostBarriers();
 
                 timerPassIdx++;
                 continue;
@@ -722,6 +791,8 @@ namespace Luth::RG
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+
+                emitPostBarriers();
             }
 
             timerPassIdx++;

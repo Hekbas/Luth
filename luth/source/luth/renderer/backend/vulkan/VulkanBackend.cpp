@@ -99,44 +99,43 @@ namespace Luth
 
         VkCommandBuffer cmd = (VkCommandBuffer)commandBuffer;
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        // Wait on the imageAvailable semaphore used for this frame's acquire.
+        VkSemaphoreSubmitInfo waitSem{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        waitSem.semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
+        waitSem.value     = 0; // binary
+        waitSem.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-        // Wait on the imageAvailable semaphore used for this frame's acquire
-        VkSemaphore waitSemaphores[] = { m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex] };
-        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
+        // Signal renderFinished (binary, per-swapchain-image — safe because
+        // acquiring image N means presentation released its semaphore) and
+        // the per-frame timeline value.
+        VkSemaphoreSubmitInfo signalSems[2]{};
+        signalSems[0].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signalSems[0].semaphore = m_RenderFinishedSemaphores[m_AcquiredImageIndex];
+        signalSems[0].value     = 0; // binary
+        signalSems[0].stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
 
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
+        signalSems[1].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signalSems[1].semaphore = m_FrameTimeline.GetHandle();
+        signalSems[1].value     = frameIndex + 1;
+        signalSems[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-        // Signal renderFinished for this swapchain image + timeline semaphore
-        // renderFinished is per-swapchain-image: safe because acquiring image N
-        // means presentation released the semaphore previously associated with N.
-        u64 signalValue = frameIndex + 1;
-        VkSemaphore allSignalSemaphores[2] = {
-            m_RenderFinishedSemaphores[m_AcquiredImageIndex],
-            m_FrameTimeline.GetHandle()
-        };
-        u64 allSignalValues[2] = { 0, signalValue }; // 0 is ignored for binary semaphores
+        VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        cmdInfo.commandBuffer = cmd;
 
-        VkTimelineSemaphoreSubmitInfo timelineInfo{};
-        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.signalSemaphoreValueCount = 2;
-        timelineInfo.pSignalSemaphoreValues = allSignalValues;
+        VkSubmitInfo2 submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.waitSemaphoreInfoCount   = 1;
+        submitInfo.pWaitSemaphoreInfos      = &waitSem;
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &cmdInfo;
+        submitInfo.signalSemaphoreInfoCount = 2;
+        submitInfo.pSignalSemaphoreInfos    = signalSems;
 
-        submitInfo.signalSemaphoreCount = 2;
-        submitInfo.pSignalSemaphores = allSignalSemaphores;
-        submitInfo.pNext = &timelineInfo;
-
-        if (!VulkanContext::Get().Submit(submitInfo, VK_NULL_HANDLE))
+        if (!VulkanContext::Get().Submit2(submitInfo, VK_NULL_HANDLE))
         {
             LH_CORE_ERROR("Failed to submit frame!");
         }
 
-        // Present waits on this image's renderFinished semaphore
+        // Present waits on this image's renderFinished semaphore.
         m_Swapchain->Present(m_RenderFinishedSemaphores[m_AcquiredImageIndex]);
     }
 

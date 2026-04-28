@@ -113,8 +113,9 @@ namespace Luth::RG
             PassAttachment depthAttachment;
             bool hasDepth = false;
 
-            std::vector<Barrier>       preBarriers;        // Image barriers
+            std::vector<Barrier>       preBarriers;        // Image barriers (before pass body)
             std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
+            std::vector<Barrier>       postBarriers;       // Image transitions emitted *after* the pass body — used for external resources whose finalState is set (e.g., swapchain → Present).
 
             // Compile output
             bool culled = false;
@@ -129,6 +130,10 @@ namespace Luth::RG
 
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
+            // Optional final state for external resources — SolveBarriers
+            // appends a postBarrier on the last writer pass to transition the
+            // image to this state (e.g., swapchain → Present after ImGui).
+            ResourceState finalState = ResourceState::Undefined;
 
             // Physical resource (filled by AllocatePhysicalResources)
             VkImage image = VK_NULL_HANDLE;
@@ -227,6 +232,11 @@ namespace Luth::RG
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
                                        u32 baseArrayLayer, u32 layerCount);
+        // Variant that asks the graph to transition the resource to finalState
+        // after its last write — used for swapchain images so the present
+        // barrier is RG-driven instead of hardcoded by the backend.
+        ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view,
+                                       ResourceState initialState, ResourceState finalState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
