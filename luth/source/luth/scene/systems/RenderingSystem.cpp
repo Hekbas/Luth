@@ -116,21 +116,17 @@ namespace Luth
         {
             if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-            // Auto-recapture-on-camera-move only meaningful for Scene captures:
-            // the comparison camera (m_CameraParams = editor) is the same one
-            // that produced the capture's viewProj. For Game captures the
-            // captured viewProj came from the game camera (lives on GamePanel),
-            // so comparing it here would *always* report "moved" and loop the
-            // state machine every frame. Game captures stay Frozen until the
-            // user explicitly disables. (The resource churn that previously
-            // made the Scene auto-recapture path expensive — and froze the
-            // editor under continuous camera movement — was eliminated by
-            // archive-image reuse in FrameDebugger::OnPassExecuted.)
+            // Auto-recapture-on-camera-move only meaningful for Scene captures
+            // — the comparison camera (m_CameraParams = editor) matches the
+            // source. For Game captures the captureViewProj came from the
+            // game camera, so this comparison would always report "moved"
+            // and loop the state machine every frame. Game captures stay
+            // Frozen until the user explicitly disables.
             bool cameraMoved = false;
             if (m_FrameDebugger.capturedSource == CaptureSource::Scene)
             {
-                // Mirror the Vulkan Y-flip applied in UpdateGlobalUniforms so the
-                // comparison matches what the GPU actually saw at capture time.
+                // Mirror the Vulkan Y-flip from UpdateGlobalUniforms so the
+                // comparison matches the GPU's view at capture time.
                 Mat4 currentProj = m_CameraParams.projection;
                 currentProj[1][1] *= -1.0f;
                 Mat4 currentViewProj = currentProj * m_CameraParams.view;
@@ -139,13 +135,10 @@ namespace Luth
                                           &m_FrameDebugger.capturedFrame.captureViewProj,
                                           sizeof(Mat4)) != 0;
 
-                // Throttle auto-recapture to ~10 Hz at 60 fps. Archive image
-                // reuse (FrameDebugger::OnPassExecuted) eliminated allocation
-                // churn, but each recapture still issues ~10 vkCmdCopyImage
-                // + ~40 barriers — saturating mid-tier GPUs at 60 Hz under
-                // continuous camera movement (the bandwidth, not the CPU
-                // side, is the bottleneck). Stepping at 10 Hz drops GPU work
-                // 6× and stays smooth-feeling.
+                // Throttle to ~10 Hz at 60 fps. Per-recapture GPU work
+                // (~10 vkCmdCopyImage + barriers, mostly cascade depth)
+                // saturates mid-tier GPUs at frame rate; 6× less keeps
+                // the editor smooth without visibly stale overlays.
                 static constexpr u64 k_AutoRecaptureMinIntervalFrames = 6;
                 if (cameraMoved)
                 {

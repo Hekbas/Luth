@@ -377,13 +377,11 @@ namespace Luth
     {
         capturedFrame.captureViewProj = viewProj;
 
-        // Phase 1 records all graphics-pass secondaries (calling BeginCapturePass
-        // during recording) before Phase 2 emits the primary; compute passes bypass
-        // Phase 1 and run inline in Phase 2, so their pushes arrive after every
-        // graphics pass. Result: capturedFrame.passes is in graphics-first-then-
-        // compute order rather than graph order. Sort by graphPassIndex so the
-        // Frozen tree mirrors the Live view's registration order, then remap the
-        // back-references in drawCalls through the inverse permutation.
+        // Phase 1 records graphics secondaries (graphics lambdas push into
+        // capturedFrame.passes here) before Phase 2 runs compute lambdas
+        // inline — so passes arrive in graphics-first-then-compute order
+        // rather than graph order. Sort by graphPassIndex; remap drawCall
+        // back-references through the inverse permutation.
         const u32 passCount = (u32)capturedFrame.passes.size();
         if (passCount > 1)
         {
@@ -447,12 +445,9 @@ namespace Luth
     }
 
     // IArchiveSink — called by RenderGraph::Execute after each non-culled pass.
-    // Find-or-allocate: reuse the existing ArchivedImage for this (pass, RT)
-    // pair when one exists with matching dims/format; otherwise allocate fresh.
-    // Reuse keeps view-pointer-keyed descriptor caches in panels / viewport
-    // overlays stable across captures, which is what makes auto-recapture-on-
-    // camera-move affordable at 60 Hz (otherwise descriptor + VMA churn
-    // freezes the editor — see #92).
+    // Find-or-allocate via m_ArchiveSlotMap: reuse the existing ArchivedImage
+    // when (passName, rtName) hits with matching dims/format, allocate fresh
+    // only on first sight or viewport resize.
     void FrameDebugger::OnPassExecuted(u32 passIdx, RG::RenderGraph& graph, VkCommandBuffer cmd)
     {
         if (state != DebuggerState::CaptureRequested) return;

@@ -449,24 +449,16 @@ namespace Luth
             rg.SetArchiveSink(&m_System.m_FrameDebugger);
         }
 
-        // SetSerialize: only the actually-capturing view needs serial Phase-1
-        // dispatch (its lambdas push into shared FrameDebugger metadata
-        // vectors, which would race under parallel record). Non-capturing
-        // views' lambdas would also push — but those pushes are wasted (the
-        // capturing view's BeginCapture clears them) AND the SetSerialize
-        // they triggered cost ~30 nested fiber dispatches per recapture
-        // frame, which produced a JobSystem deadlock under continuous
-        // camera movement. Suppress those pushes via a temporary state
-        // mask below; SetSerialize then only needs to gate the capturing
-        // view.
+        // Only the capturing view needs serial Phase-1 dispatch — its
+        // lambdas push into shared FrameDebugger metadata vectors. Non-
+        // capturing views' pushes are suppressed below, so they record
+        // in parallel exactly as in non-capture frames.
         if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
             rg.SetSerialize(true);
 
-        // Non-capturing views in capture mode: temporarily mask the
-        // FrameDebugger state so their lambdas' BeginCapturePass /
-        // CaptureXX early-return on state != CaptureRequested. No pushes,
-        // no race, no need for SetSerialize — they record in parallel
-        // exactly as in non-capture frames.
+        // Mask state to Inactive around non-capturing views' RG execute so
+        // their lambdas' BeginCapturePass / CaptureXX early-return — no
+        // pushes, no race, no need for SetSerialize.
         const DebuggerState savedDbgState = m_System.m_FrameDebugger.state;
         const bool suppressDebuggerMetadata = !view.captureRequested
                                               && savedDbgState == DebuggerState::CaptureRequested;

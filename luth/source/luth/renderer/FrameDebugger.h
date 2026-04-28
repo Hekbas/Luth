@@ -36,12 +36,9 @@ namespace Luth
         CaptureSource requestedSource = CaptureSource::Scene;
         CaptureSource capturedSource  = CaptureSource::Scene;
 
-        // Frame index of the most recent auto-recapture trigger. Used by the
-        // Frozen-state cameraMoved path in RenderingSystem to throttle
-        // auto-refresh to ~10 Hz at 60 fps. Archive reuse eliminated the
-        // allocation cost; throttling caps the remaining per-frame GPU
-        // copy work (~10 vkCmdCopyImage + barriers per recapture, mostly
-        // shadow cascades) from saturating mid-tier GPUs under WASD/orbit.
+        // Frame index stamp for the Frozen-state cameraMoved throttle in
+        // RenderingSystem (caps auto-refresh at ~10 Hz so the per-recapture
+        // GPU copy bandwidth doesn't saturate mid-tier GPUs).
         u64 lastRecaptureFrameIndex = 0;
 
         // Phase 14C — drawLimit / replayDrawCounter / captured*Draws removed.
@@ -62,12 +59,11 @@ namespace Luth
         // Set by RegisterTrackedRT before each capture.
         std::unordered_set<std::string> trackedRTs;
 
-        // Per-(pass, RT) → index into capturedFrame.archivedImages. Survives
-        // across captures; cleared only by DestroyArchives (full reset).
-        // OnPassExecuted reuses the existing slot when key + dims/format
-        // match, falling back to fresh allocation only on first sight or
-        // on viewport resize. Eliminates the per-frame VMA + descriptor
-        // churn that froze the editor during continuous recapture (#92).
+        // (passName + "/" + rtName) → index into capturedFrame.archivedImages.
+        // Survives across captures so OnPassExecuted reuses the same VkImage
+        // / VkImageView (key + dims/format match) instead of reallocating —
+        // panel and viewport descriptor caches keyed by view-pointer stay
+        // valid frame-to-frame. Cleared only by DestroyArchives.
         std::unordered_map<std::string, u32> m_ArchiveSlotMap;
 
         // Cached device/allocator for archive ownership. Populated by BeginCapture.

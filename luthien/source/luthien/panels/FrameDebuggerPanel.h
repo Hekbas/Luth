@@ -14,15 +14,10 @@ namespace Luth
         void OnInit() override;
         void OnRender() override;
 
-        // Unity-style viewport pass preview. ScenePanel / GamePanel query the
-        // panel each frame to decide whether to render the live LDR or the
-        // currently-selected pass's archived RT in their viewport. The overlay
-        // target is coupled to the capture source (set in the panel's control
-        // bar): if the user captured Scene, the Scene viewport gets the
-        // overlay; if Game, the Game viewport. Decided by FrameDebugger's
-        // capturedSource (snapshotted at capture time) so toggling the source
-        // mid-Frozen doesn't redirect the overlay to a viewport whose camera
-        // never produced these archives.
+        // Unity-style viewport pass preview. ScenePanel / GamePanel query
+        // each frame; the overlay target is coupled to FrameDebugger's
+        // capturedSource (stamped at capture time so a mid-Frozen source
+        // toggle doesn't redirect the live overlay).
         struct OverlaySource
         {
             VkImageView view    = VK_NULL_HANDLE;
@@ -34,12 +29,11 @@ namespace Luth
         bool ShouldOverlayInScene() const;
         bool ShouldOverlayInGame()  const;
 
-        // Resolves the currently-selected pass's primary archive into a view +
-        // sampler suitable for ImGui::Image. Color archives return their view
-        // directly; depth archives route through BlitArchivedDepthToPreview
-        // for tonemapping (cascade slices use the matching cascade's view-Z
-        // range; non-cascade depth uses 0.1..200 m). Non-const because the
-        // depth-blit path mutates the FrameDebuggerContext's preview cache.
+        // Resolves the current selection into a view+sampler for ImGui::Image.
+        // Draw selections trigger per-draw replay (preview takes precedence
+        // when valid); color archives return their view directly; depth
+        // archives route through BlitArchivedDepthToPreview for tonemapping.
+        // Non-const because depth-blit + replay mutate FrameDebuggerContext.
         OverlaySource GetOverlaySource();
 
     private:
