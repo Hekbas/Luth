@@ -47,6 +47,7 @@ namespace Luth::UI
             case AssetType::Texture: icon = ICON_FA_IMAGE; break;
             case AssetType::Material: icon = ICON_FA_CIRCLE_HALF_STROKE; break;
             case AssetType::Shader: icon = ICON_FA_FILE_CODE; break;
+            case AssetType::Animation: icon = ICON_FA_PERSON_RUNNING; break;
             default: break;
         }
 

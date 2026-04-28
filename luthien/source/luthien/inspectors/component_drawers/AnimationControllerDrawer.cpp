@@ -52,32 +52,22 @@ namespace Luth::ComponentDrawers
                 }
 
                 const auto& clipUUIDs = model->GetAnimationClipUUIDs();
-                int clipCount = (int)clipUUIDs.size();
-                if (clipCount == 0) {
+                if (clipUUIDs.empty()) {
                     ImGui::TextDisabled("No animation clips");
                     return;
-                }
-
-                std::vector<std::string> clipNamesStorage(clipCount);
-                std::vector<const char*> clipNames(clipCount);
-                for (int i = 0; i < clipCount; i++) {
-                    auto cl = AssetManager::GetAsset<AnimationClip>(clipUUIDs[i]);
-                    clipNamesStorage[i] = cl ? cl->Name : std::string("<not loaded>");
-                    clipNames[i] = clipNamesStorage[i].c_str();
                 }
 
                 Scene* scene = entity.GetScene();
                 entt::entity ent = (entt::entity)entity;
 
-                // Map CurrentClipUUID back to a combo index for display.
-                int currentClip = 0;
-                for (int i = 0; i < clipCount; i++) {
-                    if (clipUUIDs[i] == ctrl.CurrentClipUUID) { currentClip = i; break; }
-                }
-                if (ImGui::Combo("Current Clip##Ctrl", &currentClip, clipNames.data(), clipCount)) {
+                {
                     UUID oldUUID = ctrl.CurrentClipUUID;
-                    ctrl.Play(clipUUIDs[currentClip]);
-                    EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipUUID, oldUUID, ctrl.CurrentClipUUID);
+                    UUID picked = ctrl.CurrentClipUUID;
+                    if (UI::PropertyAsset("Current Clip##Ctrl", picked, AssetType::Animation)) {
+                        // Route through Play() so transitions/crossfade fire correctly.
+                        ctrl.Play(picked);
+                        EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipUUID, oldUUID, ctrl.CurrentClipUUID);
+                    }
                 }
 
                 {
@@ -106,13 +96,8 @@ namespace Luth::ComponentDrawers
 
                     ImGui::PushID((int)layerIdx);
                     if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                        int layerClip = 0;
-                        for (int i = 0; i < clipCount; i++) {
-                            if (clipUUIDs[i] == layer.ClipUUID) { layerClip = i; break; }
-                        }
                         UUID oldClipUUID = layer.ClipUUID;
-                        if (ImGui::Combo("Clip##Layer", &layerClip, clipNames.data(), clipCount)) {
-                            layer.ClipUUID = clipUUIDs[layerClip];
+                        if (UI::PropertyAsset("Clip##Layer", layer.ClipUUID, AssetType::Animation)) {
                             layer.CurrentTime = 0.0f;
                             CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
                                 "Change Layer Clip", scene, ent,

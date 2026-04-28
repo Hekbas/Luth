@@ -53,31 +53,11 @@ namespace Luth::ComponentDrawers
                     return;
                 }
 
+                // Auto-pick the first clip when the component was just added so
+                // playback starts on something visible instead of bind pose.
                 const auto& clipUUIDs = model->GetAnimationClipUUIDs();
-                int clipCount = (int)clipUUIDs.size();
-                if (clipCount == 0) {
-                    ImGui::TextDisabled("No animation clips");
-                    return;
-                }
-
-                // Storage owns the strings; pointers feed ImGui::Combo. <not loaded>
-                // shows briefly while clips are still streaming in via LoadAsync.
-                std::vector<std::string> clipNamesStorage(clipCount);
-                std::vector<const char*> clipNames(clipCount);
-                for (int i = 0; i < clipCount; i++) {
-                    auto cl = AssetManager::GetAsset<AnimationClip>(clipUUIDs[i]);
-                    clipNamesStorage[i] = cl ? cl->Name : std::string("<not loaded>");
-                    clipNames[i] = clipNamesStorage[i].c_str();
-                }
-
-                // Map current ClipUUID to a combo index. Default to 0 when the UUID
-                // is unset or stale (e.g. clip removed) so the combo stays usable.
-                int currentIndex = 0;
-                for (int i = 0; i < clipCount; i++) {
-                    if (clipUUIDs[i] == animation.ClipUUID) { currentIndex = i; break; }
-                }
-                if (!animation.ClipUUID.IsValid()) {
-                    animation.ClipUUID = clipUUIDs[0];  // auto-pick first clip on add
+                if (!animation.ClipUUID.IsValid() && !clipUUIDs.empty()) {
+                    animation.ClipUUID = clipUUIDs[0];
                 }
 
                 if (UI::BeginProperties("AnimProps")) {
@@ -86,8 +66,7 @@ namespace Luth::ComponentDrawers
 
                     {
                         UUID oldUUID = animation.ClipUUID;
-                        if (UI::PropertyCombo("Clip", currentIndex, clipNames.data(), clipCount)) {
-                            animation.ClipUUID = clipUUIDs[currentIndex];
+                        if (UI::PropertyAsset("Clip", animation.ClipUUID, AssetType::Animation)) {
                             animation.CurrentTime = 0.0f;
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, UUID>>(
                                 "Change Clip", scene, ent, &Animation::ClipUUID, oldUUID, animation.ClipUUID));
