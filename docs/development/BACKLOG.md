@@ -38,6 +38,8 @@ graph TD
     vc["vulkan-correctness"]
     aqp["animation-quick-pass"]
     pbr["persistent-buffer-ring"]
+    gth["gpu-tagged-heap"]
+    sas["slot-alloc-spinlock"]
     sra["shader-reload-async"]
     vp["vulkan-polish"]
     jolt["jolt-physics"]
@@ -51,6 +53,8 @@ graph TD
     future["future"]
 
     vc --> pbr
+    pbr --> gth
+    gth --> sas
     vc --> sra
     vc --> vp
     vc --> acq
@@ -66,6 +70,8 @@ graph TD
     style vc fill:#2563eb,color:#fff
     style aqp fill:#2563eb,color:#fff
     style pbr fill:#2563eb,color:#fff
+    style gth fill:#2563eb,color:#fff
+    style sas fill:#2563eb,color:#fff
     style sra fill:#2563eb,color:#fff
     style vp fill:#2563eb,color:#fff
     style jolt fill:#7c3aed,color:#fff
@@ -109,7 +115,23 @@ Triple-buffered the three persistent CPU-mapped SSBOs (ObjectSSBO Set 5, Indirec
 
 ---
 
-## Epic: `shader-reload-async` — v2.8.10
+## Epic: `gpu-tagged-heap` — v2.8.10
+
+> **Status: Shipped v2.8.10** — see [`history/v2.x/gpu-tagged-heap.md`](history/v2.x/gpu-tagged-heap.md).
+
+Built `Memory::GPUTaggedPageAllocator` (sibling to CPU `TaggedPageAllocator`): 2 MB pages from 64 MB host-visible mapped backings, tag-based bulk-free wired to GPU N-2 timeline completion in `AcquireImage`. Material / Object / Indirect / `BoneMatrixBuffer` all migrated; v2.8.9's slot-encoded ring buffers and the `gpu_cull.comp` `srcOffset` push-constant dissolved (push range 108B → 104B). Sets 2/4/5 + cull descriptor rebind per-stage (UPDATE_AFTER_BIND). CPU `TaggedPageAllocator` V6 wiring also completed — pre-`gpu-tagged-heap` `FreeTag` had zero callsites and `JobContext::Allocator` was unassigned.
+
+---
+
+## Epic: `slot-alloc-spinlock` — v2.8.11
+
+> **Status: Shipped v2.8.11** — see [`history/v2.x/slot-alloc-spinlock.md`](history/v2.x/slot-alloc-spinlock.md).
+
+Closed the v2.8.4 D6 carry-over: `MaterialSystem::m_Lock` and `BoneMatrixBuffer::m_Lock` converted from `std::mutex` to `Luth::SpinLock`. Per-frame upload moved off the lock in `gpu-tagged-heap` (v2.8.10), shrinking critical sections to slot-alloc paths only — fits V1. Doc sweep added GPU heap to `arch/memory.md`, updated descriptor-set rebind cadence in `arch/rendering-pipeline.md`, and noted both halves of the Onion/Garlic split operational in `arch/fiber-system.md`.
+
+---
+
+## Epic: `shader-reload-async` — v2.8.12
 
 > **Drop the per-save `vkDeviceWaitIdle`. Defer old-pipeline destroy through the (V1 SpinLock-safe) deletion queue.**
 
@@ -126,7 +148,7 @@ ShaderWatcher's reload callback currently runs `vkDeviceWaitIdle` on every `.ver
 
 ---
 
-## Epic: `vulkan-polish` — v2.8.11
+## Epic: `vulkan-polish` — v2.8.13
 
 > **Tier-2/3 cleanup: transient cache hygiene, async asset uploads, sampler/usage corrections.**
 

@@ -9,7 +9,7 @@
 1. **No OS blocking on worker threads.** Fibers yield to the scheduler; OS threads always stay busy.
 2. **No `thread_local`.** Fiber Local Storage (FLS) carried in `JobContext`.
 3. **No `std::mutex` in the hot path.** Spin-locks (< 100 cycles) or lock-free structures only.
-4. **No `new`/`delete` in gameplay/render.** Use `LinearAllocator` (frame) or `TaggedPageAllocator` (tagged lifetime).
+4. **No `new`/`delete` in gameplay/render.** Use `LinearAllocator` (frame) or `TaggedPageAllocator` / `GPUTaggedPageAllocator` (tagged lifetime — Onion/Garlic split).
 5. **No `VkRenderPass`/`VkFramebuffer`.** Dynamic Rendering only (`vkCmdBeginRendering`).
 6. **No `vkWaitForFences`.** Timeline Semaphores polled by `VulkanWaitJob`.
 7. **Pipelined execution.** Game(N) | Render(N-1) | GPU(N-2). Realized in v2.8.4 ([history](history/v2.x/pipeline-phase-3.md)) — game + render dispatch concurrently on worker fibers, handoff via `RenderSnapshot` captured at end of game stage.
@@ -38,7 +38,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │
  ├── [Core]
  │    ├── JobSystem .............. N:M Fiber Scheduler (FLS, Chase-Lev, MPMC)
- │    ├── Memory ................. TaggedPageAllocator + LinearAllocator
+ │    ├── Memory ................. TaggedPageAllocator (CPU) + GPUTaggedPageAllocator (GPU) + LinearAllocator
  │    ├── IOThread ............... Dedicated OS thread for disk I/O
  │    ├── App .................... Two-phase init: Engine boot → Project load
  │    ├── EntryPoint, Version, FrameData, UUID, ProjectFile, EditorHooks .. top-level lifecycle (core/ root)

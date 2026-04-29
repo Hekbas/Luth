@@ -5,13 +5,13 @@
 | Set | Content | Updated |
 |-----|---------|---------|
 | 0 | GlobalUniforms + shadow cascade array + IBL irradiance + IBL prefiltered env + BRDF LUT + GTAO settings UBO (6 bindings) | Per frame |
-| 1 | Bindless textures (16384 slots) | On texture load |
-| 2 | Material SSBO (16384 entries) | Per frame if dirty |
+| 1 | Bindless textures (16384 slots) | On texture load (UPDATE_AFTER_BIND, partially-bound) |
+| 2 | Material SSBO (16384 entries) | Per game stage — rebound to fresh `GPUTaggedPageAllocator` region (UPDATE_AFTER_BIND) |
 | 3 | Light UBO (dir + point lights) + shadow map sampler | Per frame |
-| 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per frame (animated entities only) |
-| 5 | `GPUObjectData` SSBO (4096 entries) — per-draw transforms/IDs for indirect dispatch | Per frame |
+| 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per game stage — rebound to fresh tagged-heap region (UPDATE_AFTER_BIND) |
+| 5 | `GPUObjectData` SSBO — per-draw transforms/IDs for indirect dispatch | Per render stage — rebound to fresh tagged-heap region (UPDATE_AFTER_BIND) |
 
-> Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0).
+> Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0). Sets 2/4/5 moved to per-stage rebind in `gpu-tagged-heap` (v2.8.10) — backing storage allocated each frame from `GPUTaggedPageAllocator`, descriptors rewritten via `vkUpdateDescriptorSets` (UPDATE_AFTER_BIND_BIT). The cull descriptor (binding into Set 5 + Indirect Buffer for compute) follows the same pattern.
 
 ## Current RenderGraph Pass Order
 

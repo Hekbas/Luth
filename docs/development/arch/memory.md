@@ -11,14 +11,19 @@ Engine hot paths must not call `new`/`delete` directly. Allocations are categori
 | Allocator | Owner | Lifetime | Use case |
 |-----------|-------|----------|----------|
 | `LinearAllocator` | per-frame, per-thread | bump until `Reset()` | Frame-temp data inside a single fiber's stack of work (DrawList scratch, transform propagation buffers) |
-| `TaggedPageAllocator` | global pool | until `FreeTag(tag)` | Frame-tagged data spanning fibers (e.g. all "Frame N" allocations released when GPU finishes N-2) |
+| `TaggedPageAllocator` | global pool (CPU heap) | until `FreeTag(tag)` | Frame-tagged data spanning fibers (e.g. all "Frame N" allocations released when GPU finishes N-2) |
+| `GPUTaggedPageAllocator` | global pool (GPU heap) | until `FreeTag(tag)` | GPU half of the Onion/Garlic split — per-frame SSBO regions (Material, Object, Indirect, Bones) released when GPU finishes N-2 |
 | VMA (`VulkanContext`) | global | until VMA shutdown | GPU-resident buffers / images (out of CPU tracker scope; tracked under `Category::GPU` only at allocation moment) |
 
 **`LinearAllocator`** ([luth/source/luth/memory/LinearAllocator.h](../../../luth/source/luth/memory/LinearAllocator.h)) — page-based bump pointer. First page allocated at construction with the requested size. On overflow, allocates a new default-sized page (or `max(default, size+align)` if the request exceeds default). `Reset()` rewinds to first page without freeing pages — pages stay live for reuse next frame.
 
-**`TaggedPageAllocator`** ([luth/source/luth/memory/TaggedPageAllocator.h](../../../luth/source/luth/memory/TaggedPageAllocator.h)) — 2 MB pages from `VirtualAlloc` (Windows), pooled in `m_FreePages`. Per-thread `ThreadCache` holds the active page + current tag, eliminating contention on the hot allocate path. `FreeTag(tag)` linearly scans `m_UsedPages` and returns matching pages to the free pool. Pages-per-tag is small (~10–20 per frame at typical use), so linear scan is fine.
+**`TaggedPageAllocator`** ([luth/source/luth/memory/TaggedPageAllocator.h](../../../luth/source/luth/memory/TaggedPageAllocator.h)) — 2 MB pages from `VirtualAlloc` (Windows), pooled in `m_FreePages`. Per-fiber `ThreadCache` (lives on `JobContext`, not `thread_local`) holds the active page + current tag, eliminating contention on the hot allocate path. `FreeTag(tag)` linearly scans `m_UsedPages` and returns matching pages to the free pool. Pages-per-tag is small (~10–20 per frame at typical use), so linear scan is fine. Hot-path lock is `Luth::SpinLock` (V1).
 
-**Hazard V6** (GPU stall ↔ allocator reset deadlock — see [arch/fiber-system.md](fiber-system.md)) is the reason an *overflow tier* exists for `TaggedPageAllocator`: when the GPU stalls on Frame N-2, Frame N's tag still gets pages, and the overflow pool absorbs the pressure until N-2 completes.
+**`GPUTaggedPageAllocator`** ([luth/source/luth/memory/GPUTaggedPageAllocator.h](../../../luth/source/luth/memory/GPUTaggedPageAllocator.h)) — sibling to the CPU heap. 2 MB pages carved from 64 MB host-visible mapped `VkBuffer` backings (allocated via `VulkanAllocator::AllocateMappedSequentialBuffer`). Per-fiber `GPUThreadCache` on `JobContext`. Allocations exceeding `PAGE_SIZE` route through `AllocateLargeTagged` — a dedicated `VkBuffer` tagged like a page, freed via `VulkanContext::PushDeletion` on `FreeTag`. Backing pool grows on V6 pressure (`GrowBackingPoolLocked`). `MemoryTracker` records under `Category::GPU` once per backing buffer (delegated to `VulkanAllocator`); the heap itself records only its own page metadata to avoid double-counting.
+
+**V6 driver wiring.** Both halves of the Onion/Garlic split are driven from a single site — `VulkanBackend::AcquireImage`, immediately after the existing `m_FrameTimeline.Wait(frameIndex - MAX_FRAMES_IN_FLIGHT + 1)`. `FreeTag(N-2)` is called on each heap with the just-completed frame index, returning their pages to the pool. Pre-`gpu-tagged-heap` (v2.8.10) the CPU heap shipped without this driver — `FreeTag` had zero callsites and `JobContext::Allocator` was unassigned across the entire fiber pool — so the CPU heap was effectively dead code. The same epic that built the GPU heap also operationalized the CPU one.
+
+**Hazard V6** (GPU stall ↔ allocator reset deadlock — see [arch/fiber-system.md](fiber-system.md)) — both heaps absorb pressure by growing their pool: `TaggedPageAllocator` calls `VirtualAlloc` for a fresh page, `GPUTaggedPageAllocator` calls `GrowBackingPoolLocked` for a fresh 64 MB backing. Frame N gets pages even when GPU stalls on N-2.
 
 ---
 
@@ -38,7 +43,7 @@ Engine hot paths must not call `new`/`delete` directly. Allocations are categori
 | `Editor` | ImGui, panels, editor-only |
 | `FrameLinear` | `LinearAllocator` page allocations |
 | `FrameTagged` | `TaggedPageAllocator` `VirtualAlloc` pages |
-| `GPU` | VMA allocations (GPU-resident) |
+| `GPU` | VMA allocations (GPU-resident) — includes `GPUTaggedPageAllocator` backing buffers |
 
 ### API
 
