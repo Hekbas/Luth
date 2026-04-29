@@ -305,11 +305,6 @@ namespace Luth
         m_CurrentView          = &view;
         m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
 
-        // Drain pending shader reloads (queued by FileWatcher on bg thread)
-        // before the next graph is assembled so pipelines rebuilt via the
-        // ShaderLibrary::Reload callback are ready for this frame.
-        m_ShaderWatcher.Poll();
-
         RG::RenderGraph rg(*m_System.m_FrameAllocator);
 
         // Import this frame's tagged-heap regions for RG barrier tracking. Buffers can

@@ -99,6 +99,11 @@ namespace Luth
 
         m_FrameAllocator->Reset();
 
+        // Drain pending shader reloads once per frame (FileWatcher detections from
+        // its bg thread). Pre-shader-reload-async this lived inside RenderPipeline::Execute
+        // and ran twice per frame when both Scene + Game viewports were open.
+        m_Pipeline->GetShaderWatcher().Poll();
+
         // --- Frame Debugger: Frozen state ---
         // Phase 14C — strict snapshot model with auto-recapture on camera move.
         //
