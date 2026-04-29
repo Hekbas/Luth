@@ -12,26 +12,6 @@ typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Luth
 {
-    // Manages a pool of descriptors, growing as needed
-    class DescriptorAllocator
-    {
-    public:
-        void Init(VkDevice device);
-        void Shutdown();
-
-        bool Allocate(VkDescriptorSetLayout layout, VkDescriptorSet& outSet);
-        void Reset(); // Resets all pools (called at start of frame)
-
-    private:
-        VkDescriptorPool CreatePool(u32 count, VkDescriptorPoolCreateFlags flags);
-        VkDescriptorPool GetPool();
-
-        VkDevice m_Device = VK_NULL_HANDLE;
-        VkDescriptorPool m_CurrentPool = VK_NULL_HANDLE;
-        std::vector<VkDescriptorPool> m_UsedPools;
-        std::vector<VkDescriptorPool> m_FreePools;
-    };
-
     // Caches descriptor set layouts to avoid duplicate creation
     class DescriptorLayoutCache
     {
