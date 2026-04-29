@@ -1,5 +1,7 @@
 #pragma once
 
+#include "luth/core/types/LuthMath.h"
+
 #include <string>
 #include <filesystem>
 
@@ -37,6 +39,21 @@ namespace Luth
         bool  showCameraGizmos     = true;
         bool  showAABBGizmos       = false;
         bool  showGrid             = true;
+
+        // Selection outline (default mirrors EditorColors::SelectionOutline so existing scenes
+        // look unchanged before the user edits the values).
+        Vec4  outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };
+        float outlineWidth          = 1.5f;
+        float outlineOccludedAlpha  = 0.65f;
+
+        // Editor grid (defaults mirror the literals previously baked into GridPass.cpp).
+        Vec4  gridAxisXColor    = { 0.80f, 0.10f, 0.15f, 1.00f };
+        Vec4  gridAxisZColor    = { 0.10f, 0.25f, 0.80f, 1.00f };
+        Vec4  gridColor         = { 0.41f, 0.41f, 0.41f, 0.50f };
+        float gridMajorScale    = 1.0f;
+        float gridFadeStart     = 20.0f;
+        float gridFadeEnd       = 200.0f;
+        float gridLineThickness = 1.0f;
 
         // Play mode
         bool  previewAnimationInEditor = true;   // Animations tick in Editing state

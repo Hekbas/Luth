@@ -8,6 +8,22 @@ namespace Luth
 {
     using json = nlohmann::json;
 
+    namespace
+    {
+        // Vec4 ↔ JSON array. Skips assignment on malformed entries so a corrupt
+        // file leaves struct defaults intact.
+        void LoadVec4(const json& j, const char* key, Vec4& out)
+        {
+            if (j.contains(key) && j[key].is_array() && j[key].size() == 4)
+                out = Vec4(j[key][0].get<float>(), j[key][1].get<float>(),
+                           j[key][2].get<float>(), j[key][3].get<float>());
+        }
+        json ToJson(const Vec4& v)
+        {
+            return json::array({ v.r, v.g, v.b, v.a });
+        }
+    }
+
     EditorSettings EditorSettings::Load(const std::filesystem::path& path)
     {
         EditorSettings settings;
@@ -44,6 +60,19 @@ namespace Luth
             settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
             settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
+
+            LoadVec4(j, "outlineColor", settings.outlineColor);
+            settings.outlineWidth         = j.value("outlineWidth", settings.outlineWidth);
+            settings.outlineOccludedAlpha = j.value("outlineOccludedAlpha", settings.outlineOccludedAlpha);
+
+            LoadVec4(j, "gridAxisXColor", settings.gridAxisXColor);
+            LoadVec4(j, "gridAxisZColor", settings.gridAxisZColor);
+            LoadVec4(j, "gridColor",      settings.gridColor);
+            settings.gridMajorScale    = j.value("gridMajorScale", settings.gridMajorScale);
+            settings.gridFadeStart     = j.value("gridFadeStart", settings.gridFadeStart);
+            settings.gridFadeEnd       = j.value("gridFadeEnd", settings.gridFadeEnd);
+            settings.gridLineThickness = j.value("gridLineThickness", settings.gridLineThickness);
+
             settings.previewAnimationInEditor = j.value("previewAnimationInEditor", settings.previewAnimationInEditor);
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
@@ -83,6 +112,19 @@ namespace Luth
             j["showCameraGizmos"]    = settings.showCameraGizmos;
             j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["showGrid"]            = settings.showGrid;
+
+            j["outlineColor"]         = ToJson(settings.outlineColor);
+            j["outlineWidth"]         = settings.outlineWidth;
+            j["outlineOccludedAlpha"] = settings.outlineOccludedAlpha;
+
+            j["gridAxisXColor"]    = ToJson(settings.gridAxisXColor);
+            j["gridAxisZColor"]    = ToJson(settings.gridAxisZColor);
+            j["gridColor"]         = ToJson(settings.gridColor);
+            j["gridMajorScale"]    = settings.gridMajorScale;
+            j["gridFadeStart"]     = settings.gridFadeStart;
+            j["gridFadeEnd"]       = settings.gridFadeEnd;
+            j["gridLineThickness"] = settings.gridLineThickness;
+
             j["previewAnimationInEditor"] = settings.previewAnimationInEditor;
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 

@@ -66,6 +66,8 @@ namespace Luth
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
                 // Must match GridPushConstants in grid.frag (16 floats / 64 bytes).
+                // All values flow from EditorSettings → EditorViewportState → CameraParams.
+                const auto& cp = m_System.m_CameraParams;
                 struct GridPushConstants {
                     float axisXColor[4];
                     float axisZColor[4];
@@ -76,14 +78,13 @@ namespace Luth
                     float lineThickness;
                 } gpc{};
 
-                // Axis colors mirror EditorColors::AxisX/AxisZ (engine cannot depend on the editor lib).
-                gpc.axisXColor[0] = 0.80f; gpc.axisXColor[1] = 0.10f; gpc.axisXColor[2] = 0.15f; gpc.axisXColor[3] = 1.00f;
-                gpc.axisZColor[0] = 0.10f; gpc.axisZColor[1] = 0.25f; gpc.axisZColor[2] = 0.80f; gpc.axisZColor[3] = 1.00f;
-                gpc.gridColor[0]  = 0.41f; gpc.gridColor[1]  = 0.41f; gpc.gridColor[2]  = 0.41f; gpc.gridColor[3]  = 0.50f;
-                gpc.majorScale    = 1.0f;
-                gpc.fadeStart     = 20.0f;
-                gpc.fadeEnd       = 200.0f;
-                gpc.lineThickness = 1.00f;
+                gpc.axisXColor[0] = cp.gridAxisXColor.r; gpc.axisXColor[1] = cp.gridAxisXColor.g; gpc.axisXColor[2] = cp.gridAxisXColor.b; gpc.axisXColor[3] = cp.gridAxisXColor.a;
+                gpc.axisZColor[0] = cp.gridAxisZColor.r; gpc.axisZColor[1] = cp.gridAxisZColor.g; gpc.axisZColor[2] = cp.gridAxisZColor.b; gpc.axisZColor[3] = cp.gridAxisZColor.a;
+                gpc.gridColor[0]  = cp.gridColor.r;      gpc.gridColor[1]  = cp.gridColor.g;      gpc.gridColor[2]  = cp.gridColor.b;      gpc.gridColor[3]  = cp.gridColor.a;
+                gpc.majorScale    = cp.gridMajorScale;
+                gpc.fadeStart     = cp.gridFadeStart;
+                gpc.fadeEnd       = cp.gridFadeEnd;
+                gpc.lineThickness = cp.gridLineThickness;
 
                 vkCmdPushConstants(cmd, m_GridPipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(gpc), &gpc);

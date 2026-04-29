@@ -39,6 +39,20 @@ namespace Luth
         float     skyboxIntensity  = 1.0f;
         std::vector<Entity> selectedEntities;
 
+        // Selection-outline + editor-grid params. Defaults match the literals used
+        // before vulkan-polish so a runtime build (no editor) still renders sanely.
+        Vec4 outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };
+        float outlineWidth          = 1.5f;
+        float outlineOccludedAlpha  = 0.65f;
+
+        Vec4 gridAxisXColor    = { 0.80f, 0.10f, 0.15f, 1.00f };
+        Vec4 gridAxisZColor    = { 0.10f, 0.25f, 0.80f, 1.00f };
+        Vec4 gridColor         = { 0.41f, 0.41f, 0.41f, 0.50f };
+        float gridMajorScale    = 1.0f;
+        float gridFadeStart     = 20.0f;
+        float gridFadeEnd       = 200.0f;
+        float gridLineThickness = 1.0f;
+
         // When true, AnimationSystem still ticks while PlayState::Editing so
         // characters animate in the scene view. Flip off for strict
         // "game systems only run during Play" behavior.

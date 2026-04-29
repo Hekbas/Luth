@@ -261,6 +261,18 @@ namespace Luth
                     cp.iblIntensity     = viewState.iblIntensity;
                     cp.skyboxIntensity  = viewState.skyboxIntensity;
                     cp.selectedEntities = std::move(viewState.selectedEntities);
+
+                    cp.outlineColor          = viewState.outlineColor;
+                    cp.outlineWidth          = viewState.outlineWidth;
+                    cp.outlineOccludedAlpha  = viewState.outlineOccludedAlpha;
+
+                    cp.gridAxisXColor    = viewState.gridAxisXColor;
+                    cp.gridAxisZColor    = viewState.gridAxisZColor;
+                    cp.gridColor         = viewState.gridColor;
+                    cp.gridMajorScale    = viewState.gridMajorScale;
+                    cp.gridFadeStart     = viewState.gridFadeStart;
+                    cp.gridFadeEnd       = viewState.gridFadeEnd;
+                    cp.gridLineThickness = viewState.gridLineThickness;
                 }
                 rs->SetCameraParams(cp);
             }
