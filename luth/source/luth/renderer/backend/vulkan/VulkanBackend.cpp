@@ -4,6 +4,8 @@
 #include "PipelineCache.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
+#include "luth/memory/TaggedPageAllocator.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 namespace Luth
 {
@@ -22,11 +24,17 @@ namespace Luth
             m_CommandAllocatorPools[i] = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetGraphicsFamily());
             m_CommandAllocatorPools[i]->Init();
         }
+
+        // GPU half of the Onion/Garlic split — depends on VulkanContext + VulkanAllocator being live.
+        Memory::GPUTaggedPageAllocator::Get().Init();
     }
 
     void VulkanBackend::Shutdown()
     {
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
+        // Heap pages are device-mapped — shut them down while the device is still alive.
+        Memory::GPUTaggedPageAllocator::Get().Shutdown();
 
         DestroySyncObjects();
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -54,6 +62,13 @@ namespace Luth
         {
             u64 waitValue = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
             m_FrameTimeline.Wait(waitValue);
+
+            // V6 driver: GPU has retired frame N-2; reclaim its tagged pages on
+            // both halves of the Onion/Garlic split.
+            // See arch/fiber-system.md V6 + arch/memory.md.
+            const u32 finishedTag = static_cast<u32>(waitValue);
+            Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(finishedTag);
         }
 
         // Flush deletions AFTER we know the GPU is done with this frame's resources

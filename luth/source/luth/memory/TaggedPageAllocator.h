@@ -1,9 +1,8 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/jobs/SpinLock.h"
 #include <vector>
-#include <mutex>
-#include <atomic>
 
 namespace Luth::Memory
 {
@@ -21,10 +20,10 @@ namespace Luth::Memory
             void* Base = nullptr;
             u64 Used = 0;
             u32 Tag = 0;
-            Page* Next = nullptr; // Linked list for free/used lists
+            Page* Next = nullptr;
         };
 
-        // Per-thread cache to avoid global lock contention
+        // Per-fiber cache (lives on JobContext, not TLS — see arch/fiber-system.md).
         struct ThreadCache
         {
             Page* ActivePage = nullptr;
@@ -34,35 +33,26 @@ namespace Luth::Memory
         TaggedPageAllocator();
         ~TaggedPageAllocator();
 
+        // Singleton — App owns lifecycle (paired with MemoryTracker).
+        static TaggedPageAllocator& Get();
+
         void Init();
         void Shutdown();
 
-        // Allocate memory from the current thread's active page.
-        // If the page is full, it requests a new one from the global pool.
+        // Allocate from cache.ActivePage; claims a new page on overflow. Hot path holds no lock.
         void* Allocate(ThreadCache& cache, u64 size, u64 alignment = 8);
 
-        // Free all pages associated with a specific tag.
-        // This is typically called when the GPU finishes a frame.
+        // Bulk-release all pages tagged `tag`. Driven from VulkanBackend::AcquireImage
+        // after the GPU N-2 timeline wait completes (V6 — see arch/fiber-system.md).
         void FreeTag(u32 tag);
-
-        // Helper to get the global instance (if singleton pattern is desired, though usually passed via JobContext)
-        // static TaggedPageAllocator& Get(); 
 
     private:
         Page* AllocatePage(u32 tag);
         void ReturnPage(Page* page);
 
-        std::mutex m_Lock;
-        std::vector<Page*> m_FreePages; // Pool of available pages
-        std::vector<Page*> m_UsedPages; // Pages currently in use (tracked for shutdown/debug)
-        
-        // We need a way to track pages by tag efficiently.
-        // A simple vector of pages might be slow to search.
-        // But FreeTag is relatively infrequent (once per frame per buffered frame).
-        // Optimization: Linked list of pages per tag? Or just iterate m_UsedPages?
-        // Given we have ~3 frames in flight and maybe 10-20 pages per frame, iteration is fine.
-        // Actually, we can store pages in a "Tag Bucket" if needed.
-        // For now, linear scan of m_UsedPages is O(N) where N is total active pages.
-        // N is small (e.g., 100MB used = 50 pages). Scan is fast.
+        // Held only on page-claim and FreeTag — < 100 cycles, V1-compliant.
+        Luth::SpinLock m_Lock;
+        std::vector<Page*> m_FreePages;
+        std::vector<Page*> m_UsedPages; // ~10-20 pages per frame; linear scan in FreeTag is fine
     };
 }

@@ -13,6 +13,7 @@
 #include "luth/renderer/pipeline/PipelineManager.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderWatcher.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
 #include <filesystem>
@@ -165,10 +166,11 @@ namespace Luth
         void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
-        // renderSlot selects the active ring slice of the persistent ObjectSSBO +
-        // IndirectBuffer (GPU frame N-1's consumer). Sourced from
-        // FrameData::RenderSlot() at the call site in RenderingSystem.
-        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot, u32 renderSlot);
+        // Allocates this frame's Object + Indirect regions from GPUTaggedPageAllocator,
+        // populates them from snapshot, and rewrites Set 5 + cull descriptors. Tagged
+        // with the absolute render-frame index so FreeTag(N-2) reclaims them once the
+        // GPU has retired the consuming frame.
+        void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
@@ -253,11 +255,6 @@ namespace Luth
         // Passes read these instead of taking the view as a parameter.
         const RenderView*  m_CurrentView          = nullptr;
         ViewResources*     m_CurrentViewResources = nullptr;
-        // Active ring slice for the persistent ObjectSSBO + IndirectBuffer.
-        // Cached at Execute() entry from FrameData::RenderSlot(); read by the
-        // 3 indirect-draw callsites (DepthPrepass / GeometryPass / ShadowPass)
-        // to add the slice base to their cmdIndex.
-        u32                m_CurrentRenderSlot    = 0;
 
         // Per-view resource cache. Entries are owned here; panels call
         // ReleaseViewResources on destruction.
@@ -326,14 +323,13 @@ namespace Luth
         // ---- Material SSBO slot tracking (MaterialUUID -> SSBO index) ----
         std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
 
-        // ---- GPU Object + Indirect Buffers (persistent, CPU_TO_GPU) ----
-        VkBuffer      m_ObjectSSBO         = VK_NULL_HANDLE;
-        VmaAllocation m_ObjectSSBOAlloc    = nullptr;
-        void*         m_ObjectSSBOMapped   = nullptr;
-        VkBuffer      m_IndirectBuffer        = VK_NULL_HANDLE;
-        VmaAllocation m_IndirectBufferAlloc   = nullptr;
-        void*         m_IndirectBufferMapped  = nullptr;
-        u32           m_GPUObjectCount        = 0;
+        // ---- GPU Object + Indirect regions (per-frame, allocated from tagged heap) ----
+        // Both regions are allocated each render-stage in BuildGPUObjectBuffer;
+        // FreeTag(N-2) returns their pages once the GPU has retired the consuming frame.
+        // m_GPUObjectCount carries forward into Execute (cull dispatch + indirect draw).
+        Memory::GPUSubRegion m_ObjectRegion{};
+        Memory::GPUSubRegion m_IndirectRegion{};
+        u32                  m_GPUObjectCount = 0;
 
         // ---- Set 5 — GPUObjectData SSBO descriptor (graphics pipeline) ----
         VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
@@ -346,6 +342,7 @@ namespace Luth
 
         // ---- Cull compute pipeline + descriptor ----
         std::unique_ptr<VKComputePipeline> m_CullPipeline;
+        VkDescriptorPool                   m_CullDescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
         VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
 

@@ -128,13 +128,13 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Camera region (offset 0) within this view's range, shifted
-                    // by the active ring slice (cached at Execute() entry).
+                    // Camera region (offset 0) within this view's range. Region indexing
+                    // is 0-based within m_IndirectRegion; the heap-region's byte offset
+                    // is added below to land in the live frame's allocator-returned region.
                     const u32 viewBaseRegion = m_CurrentView->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
-                    const u32 sliceRegions   = m_CurrentRenderSlot * RenderPipeline::k_IndirectRegionCount;
-                    const u32 cmdIndex = (sliceRegions + viewBaseRegion) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
-                    VkDeviceSize indirectOffset = cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, m_IndirectBuffer, indirectOffset, 1,
+                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    VkDeviceSize indirectOffset = m_IndirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)

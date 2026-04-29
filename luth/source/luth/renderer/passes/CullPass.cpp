@@ -16,8 +16,7 @@ namespace Luth
     {
         Vec4 frustumPlanes[6]; // 96B
         u32  objectCount;      // 4B
-        u32  destOffset;       // 4B — index offset into commands[] (active slice's region)
-        u32  srcOffset;        // 4B — index offset into objects[] (active slice base)
+        u32  destOffset;       // 4B — index offset into commands[] (per-view-cascade region)
     };
 
     void AddCullComputePass(
@@ -29,7 +28,6 @@ namespace Luth
         const std::array<Vec4, 6>& frustumPlanes,
         u32                             objectCount,
         u32                             destOffset,
-        u32                             srcOffset,
         const char*                     passName,
         FrameDebugger*                  debugger)
     {
@@ -43,7 +41,7 @@ namespace Luth
                 data.objectBuffer   = builder.ReadBuffer(objectBuffer);
                 data.indirectBuffer = builder.WriteBuffer(indirectBuffer);
             },
-            [pipeline, descSet, frustumPlanes, objectCount, destOffset, srcOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
+            [pipeline, descSet, frustumPlanes, objectCount, destOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
@@ -62,7 +60,6 @@ namespace Luth
                     pc.frustumPlanes[i] = frustumPlanes[i];
                 pc.objectCount = objectCount;
                 pc.destOffset  = destOffset;
-                pc.srcOffset   = srcOffset;
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullPushConstants), &pc);
 

@@ -18,17 +18,23 @@ namespace Luth::Memory
         Shutdown();
     }
 
+    TaggedPageAllocator& TaggedPageAllocator::Get()
+    {
+        // Function-local static — initialized on first call, destroyed at static-shutdown.
+        // App pairs Init/Shutdown with MemoryTracker so RecordAlloc/Free observers stay in scope.
+        static TaggedPageAllocator s_Instance;
+        return s_Instance;
+    }
+
     void TaggedPageAllocator::Init()
     {
-        // Pre-allocate some pages?
-        // For now, lazy allocation is fine.
+        // Lazy page allocation; nothing to do at init.
     }
 
     void TaggedPageAllocator::Shutdown()
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
-        // Free all pages
         for (Page* page : m_FreePages)
         {
             MemoryTracker::RecordFree(Category::FrameTagged, PAGE_SIZE);
@@ -97,33 +103,30 @@ namespace Luth::Memory
 
     void TaggedPageAllocator::FreeTag(u32 tag)
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
-        // Move pages with matching tag from Used to Free
-        // We iterate and remove.
-        
-        auto it = m_UsedPages.begin();
-        while (it != m_UsedPages.end())
+        // Linear scan — pages-per-tag is small (~10-20). Index-based loop because
+        // pop_back invalidates iterators under MSVC's _ITERATOR_DEBUG_LEVEL=2.
+        for (size_t i = 0; i < m_UsedPages.size(); )
         {
-            Page* page = *it;
+            Page* page = m_UsedPages[i];
             if (page->Tag == tag)
             {
                 ReturnPage(page);
-                // Swap with last for O(1) removal
-                *it = m_UsedPages.back();
+                m_UsedPages[i] = m_UsedPages.back();
                 m_UsedPages.pop_back();
-                // Don't increment iterator, check the swapped element
+                // don't increment i; check the swapped element
             }
             else
             {
-                ++it;
+                ++i;
             }
         }
     }
 
     TaggedPageAllocator::Page* TaggedPageAllocator::AllocatePage(u32 tag)
     {
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         Page* page = nullptr;
 
