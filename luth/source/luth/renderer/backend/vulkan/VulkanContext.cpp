@@ -13,14 +13,29 @@ namespace Luth
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) 
+        void* pUserData)
     {
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
             LH_CORE_ERROR("Validation Layer: {0}", pCallbackData->pMessage);
         else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
             LH_CORE_WARN("Validation Layer: {0}", pCallbackData->pMessage);
-        
+
         return VK_FALSE;
+    }
+
+    // Shared by SetupDebugMessenger (persistent messenger) and CreateInstance (pNext-chained
+    // temporary that captures vkCreateInstance / vkDestroyInstance failures — see VK_EXT_debug_utils).
+    static void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& ci)
+    {
+        ci = {};
+        ci.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        ci.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        ci.pfnUserCallback = DebugCallback;
     }
 
     void VulkanContext::Init(void* windowHandle)
@@ -99,10 +114,17 @@ namespace Luth
         createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         createInfo.ppEnabledExtensionNames = extensions.data();
 
-        // Layers
+        // Layers + pNext-chained debug messenger
+        // The chained messenger is consumed by vkCreateInstance and is not retained — its lifetime
+        // extends only until the call returns, which is exactly when we need it to catch instance
+        // create/destroy failures (the persistent messenger from SetupDebugMessenger covers steady state).
+        VkDebugUtilsMessengerCreateInfoEXT debugCI{};
         if (m_EnableValidationLayers) {
             createInfo.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size());
             createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+
+            PopulateDebugMessengerCreateInfo(debugCI);
+            createInfo.pNext = &debugCI;
         } else {
             createInfo.enabledLayerCount = 0;
         }
@@ -117,14 +139,7 @@ namespace Luth
         if (!m_EnableValidationLayers) return;
 
         VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | 
-                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | 
-                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | 
-                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | 
-                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        createInfo.pfnUserCallback = DebugCallback;
+        PopulateDebugMessengerCreateInfo(createInfo);
 
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");
         if (func) {
