@@ -258,13 +258,8 @@ namespace Luth
         if (m_LightDescPool)   vkDestroyDescriptorPool(device, m_LightDescPool, nullptr);
         if (m_GlobalSetLayout) vkDestroyDescriptorSetLayout(device, m_GlobalSetLayout, nullptr);
 
-        // Persistent maps owned by VMA (MAPPED_BIT) — vmaDestroyBuffer auto-unmaps.
-        if (m_ObjectSSBO) {
-            VulkanAllocator::FreeBuffer(m_ObjectSSBO, m_ObjectSSBOAlloc);
-        }
-        if (m_IndirectBuffer) {
-            VulkanAllocator::FreeBuffer(m_IndirectBuffer, m_IndirectBufferAlloc);
-        }
+        // Object + Indirect storage owned by GPUTaggedPageAllocator; freed by FreeTag(N-2)
+        // each frame and finally drained at GPU heap Shutdown.
         if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
         if (m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
         if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
@@ -308,10 +303,6 @@ namespace Luth
         auto& s = m_System;
         m_CurrentView          = &view;
         m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
-        // Cache the ring slice every pass below targets. RenderSlot is set by
-        // App::Run before dispatching the render stage; in steady state it's
-        // (frameIndex - 1) % MAX_FRAMES_IN_FLIGHT.
-        m_CurrentRenderSlot    = Renderer::GetFrameData()->RenderSlot();
 
         // Drain pending shader reloads (queued by FileWatcher on bg thread)
         // before the next graph is assembled so pipelines rebuilt via the
@@ -320,43 +311,33 @@ namespace Luth
 
         RG::RenderGraph rg(*m_System.m_FrameAllocator);
 
-        // Import persistent buffers into the render graph for barrier tracking.
-        // Both buffers are MAX_FRAMES_IN_FLIGHT-sliced — one slice per in-flight
-        // frame, indexed by m_CurrentRenderSlot at the cull dispatch + draw sites.
-        RG::BufferDesc objDesc {
-            "ObjectSSBO",
-            RenderPipeline::k_MaxGPUObjects * sizeof(GPUObjectData) * MAX_FRAMES_IN_FLIGHT,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-        };
-        RG::BufferDesc indDesc {
-            "IndirectBuffer",
-            RenderPipeline::k_IndirectRegionCount * RenderPipeline::k_IndirectRegionStride * sizeof(VkDrawIndexedIndirectCommand) * MAX_FRAMES_IN_FLIGHT,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-        };
-        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectSSBO,    RG::ResourceState::Undefined);
-        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectBuffer, RG::ResourceState::Undefined);
+        // Import this frame's tagged-heap regions for RG barrier tracking. Buffers can
+        // change identity each frame (heap allocator may reuse pages or grow backings).
+        RG::BufferDesc objDesc { "ObjectSSBO",     m_ObjectRegion.size,   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        RG::BufferDesc indDesc { "IndirectBuffer", m_IndirectRegion.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT };
+        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectRegion.buffer,   RG::ResourceState::Undefined);
+        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectRegion.buffer, RG::ResourceState::Undefined);
 
         // Frustum cull — 5 dispatches per view (camera + 4 cascades).
-        // Each view owns a disjoint range within this frame's indirect slice; the
-        // shader's srcOffset shifts the read into the active object-SSBO slice.
+        // Each view owns a disjoint range within the indirect region; the cull shader
+        // now reads objects[idx] (0-based) since the descriptor binding starts at
+        // m_ObjectRegion's base.
         {
-            const u32 baseRegion   = view.viewIndex * k_IndirectRegionsPerView;
-            const u32 sliceRegions = m_CurrentRenderSlot * k_IndirectRegionCount;
-            const u32 srcOffset    = m_CurrentRenderSlot * k_MaxGPUObjects;
+            const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
             AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                 m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
-                (sliceRegions + baseRegion) * k_IndirectRegionStride, srcOffset,
+                baseRegion * k_IndirectRegionStride,
                 "FrustumCull.Cam", &m_System.m_FrameDebugger);
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
                 Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
-                const u32 destOffset = (sliceRegions + baseRegion + 1 + i) * k_IndirectRegionStride;
+                const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                     m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
-                    destOffset, srcOffset, name.c_str(), &m_System.m_FrameDebugger);
+                    destOffset, name.c_str(), &m_System.m_FrameDebugger);
             }
         }
 
