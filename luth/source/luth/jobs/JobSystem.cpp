@@ -287,6 +287,7 @@ namespace Luth::JobSystem
         ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
         ctx->Allocator = &Memory::TaggedPageAllocator::Get();
         ctx->CpuCache = {};
+        ctx->GpuCache = {};
         SetCurrentContext(ctx);
 
         // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.

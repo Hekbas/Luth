@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/jobs/AtomicCounter.h"
 #include "luth/memory/TaggedPageAllocator.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 #include <functional>
 #include <cassert>
 
@@ -92,8 +93,10 @@ namespace Luth::JobSystem
     {
         // Memory — Allocator points at the global TaggedPageAllocator instance;
         // CpuCache is the per-fiber active page + tag (V6 hot path holds no lock).
+        // GpuCache is the per-fiber tagged-heap cache (GPU-side Onion/Garlic split).
         Memory::TaggedPageAllocator* Allocator = nullptr;
         Memory::TaggedPageAllocator::ThreadCache CpuCache{};
+        Memory::GPUThreadCache GpuCache{};
 
         // Frame Data
         const FrameParams* Params = nullptr; // Read-only params for the current frame
