@@ -139,24 +139,13 @@ Dropped the per-save `vkDeviceWaitIdle` from both reload sites (RenderPipeline c
 
 ---
 
----
-
 ## Epic: `vulkan-polish` — v2.8.13
 
-> **Tier-2/3 cleanup: transient cache hygiene, async asset uploads, sampler/usage corrections.**
+> **Status: Shipped v2.8.13** — see [`history/v2.x/vulkan-polish.md`](history/v2.x/vulkan-polish.md).
 
-Last of the foundation-stabilization renderer efforts before `jolt-physics`. None of these are correctness bugs; collectively they tighten the cost model for forward+ and gpu-particles.
+Tier-2/3 cleanup before `jolt-physics`. Validation messenger pNext-chained for instance create/destroy coverage; `BindlessDescriptorSet` free-list switched to `vector<u32>` LIFO with `INVALID_BINDLESS_SLOT` sentinel disambiguating "not registered" from the reserved null-texture slot 0 (the original BACKLOG "collides with slot 0" framing was stale — slot 0 was already explicitly reserved); `RenderResourceCache` keyed on `unordered_multimap<u64, …>` with `(w, h, format, usage)` and stale threshold trimmed 10000→30; runtime buffer uploads routed through `UploadContext::UploadBuffer` (texture half deferred — see follow-up); outline + grid push-constant literals routed through `EditorSettings` via `EditorViewportState`/`CameraParams`; vestigial `DescriptorAllocator` removed (IBLPrecompute owns a local pool now).
 
-| Area | Detail |
-|------|--------|
-| `RenderResourceCache` | Hash key by `(w, h, format, usage)` (currently linear scan, ignores usage flags); trim stale-frame threshold from 10 000 to ~30; usage-aware allocation so future transient compute targets fit |
-| Async asset uploads | Wire `UploadContext` for runtime asset loads in `VKTexture` / `VKBuffer` ctors. Drop `ImmediateSubmit` to startup-only — runtime texture loads no longer block the calling thread |
-| Bindless cleanup | Free-list to `vector<u32>` (LIFO); sentinel for "not registered" → `UINT32_MAX` (currently collides with the null-texture's slot 0) |
-| Validation chain | Pass `VkDebugUtilsMessengerCreateInfoEXT` via `VkInstanceCreateInfo.pNext` so vkCreateInstance / vkDestroyInstance failures get reported |
-| Hardcoded magic | Outline width/alpha and grid colors+fade pushed through `EditorSettings` instead of baked in shader push-constants |
-
-**Dependencies:** `vulkan-correctness` ✅
-**Effort:** M
+**Follow-up:** `texture-async-uploads` — extend `UploadContext` with mip-chain async submit + deferred-bind pump composing with `AssetManager::s_UploadQueue`. Phase-1 inventory must map that pump's ownership rules.
 
 ---
 
