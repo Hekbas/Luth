@@ -192,7 +192,7 @@ namespace Luth
                     pipeline.EnsureMaterialRegistered(material);
                 }
             }
-            MaterialSystem::Update(VK_NULL_HANDLE, Renderer::GetFrameData()->GameSlot());
+            MaterialSystem::Update(VK_NULL_HANDLE);
         }
     }
 }
