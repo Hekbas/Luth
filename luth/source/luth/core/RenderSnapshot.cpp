@@ -7,6 +7,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/material/MaterialSystem.h"
+#include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/scene/Components.h"
@@ -193,6 +194,7 @@ namespace Luth
                 }
             }
             MaterialSystem::Update(VK_NULL_HANDLE);
+            BoneMatrixBuffer::Update();
         }
     }
 }

@@ -6,17 +6,15 @@
 #include <deque>
 #include <mutex>
 
-// Forward declare VMA types
-typedef struct VmaAllocation_T* VmaAllocation;
-
 namespace Luth
 {
     // ===================================================================================
     // Bone Matrix Buffer (Global Bone SSBO for GPU Skinning)
     // ===================================================================================
-    // Manages a persistently-mapped SSBO containing bone matrices for all skinned entities.
-    // Bones are referenced by base offset in the vertex shader push constants.
-    // Follows the MaterialSystem pattern: static singleton, slot-based allocation.
+    // Slot-based block allocator (per-entity stable offsets baked into obj.boneOffset).
+    // Bone data accumulates into a CPU staging buffer during the game stage; Update()
+    // copies the staging into a fresh per-frame GPU region (GPUTaggedPageAllocator) and
+    // rebinds Set 4. Follows the same per-frame upload pattern as MaterialSystem.
 
     class BoneMatrixBuffer
     {
@@ -24,14 +22,19 @@ namespace Luth
         static void Init();
         static void Shutdown();
 
-        // Allocates a block of MAX_BONES matrices. Returns the base index into the SSBO.
+        // Allocates a block of MAX_BONES matrices. Returns the base matrix index.
         static u32 AllocateBlock();
 
         // Frees a previously allocated block.
         static void FreeBlock(u32 baseIndex);
 
-        // Uploads bone matrices for an entity. baseIndex from AllocateBlock().
+        // Stages bone matrices for an entity. baseIndex from AllocateBlock().
+        // Multiple game-stage fibers may call concurrently — disjoint ranges per entity.
         static void UploadBones(u32 baseIndex, const Mat4* matrices, u32 count);
+
+        // Allocates this frame's GPU region, copies CPU staging in, flushes, and
+        // rewrites Set 4 descriptor. Called once per game stage from RenderSnapshot.
+        static void Update();
 
         static VkDescriptorSet GetDescriptorSet();
         static VkDescriptorSetLayout GetDescriptorSetLayout();
@@ -43,12 +46,11 @@ namespace Luth
         static constexpr u32 MATRIX_SIZE = sizeof(Mat4);   // 64 bytes
         static constexpr u32 BUFFER_SIZE = TOTAL_MATRICES * MATRIX_SIZE; // 2 MB
 
-        static void CreateBuffer();
         static void CreateDescriptors();
 
-        static VkBuffer m_Buffer;
-        static VmaAllocation m_Allocation;
-        static void* m_MappedData;
+        // CPU staging — game-stage writers fill this; Update() copies it to GPU.
+        // Initialized to identity at Init so unallocated blocks render bind pose.
+        static byte* m_CpuScratch;
 
         static VkDescriptorPool m_DescriptorPool;
         static VkDescriptorSetLayout m_DescriptorSetLayout;
