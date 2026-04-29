@@ -13,30 +13,12 @@ namespace Luth
     void Material::UpdateGPUData()
     {
         // 1. Update Texture Indices
-        // We iterate through our map types and query the texture for its bindless index.
-        
+        //    Slot 0 is the reserved null (1x1 white) texture; BindlessOrNull coerces the
+        //    "not registered" sentinel returned by VKTexture::GetBindlessIndex() back to 0
+        //    so the SSBO never carries an out-of-range value.
         auto GetIndex = [&](MapType type) -> u32 {
             auto tex = GetTextureByType(type);
-            if (tex)
-            {
-                return tex->GetBindlessIndex();
-            }
-            return 0; // Null texture (index 0 is usually null or invalid, but our BindlessSet handles 0?)
-            // Actually, BindlessDescriptorSet returns 0 on error, but valid indices start at 0?
-            // No, we initialized free indices 0..MAX.
-            // If 0 is a valid index, we need a way to represent "None".
-            // Usually we reserve index 0 for the null texture.
-            // But our BindlessDescriptorSet implementation doesn't reserve 0 explicitly, it just uses a deque.
-            // However, VKTexture initializes m_BindlessIndex to 0.
-            // If 0 is a valid texture, this is ambiguous.
-            // TODO: Reserve index 0 for global null texture in BindlessDescriptorSet.
-            // For now, let's assume 0 means "No Texture" and the shader handles it or samples the null texture at index 0?
-            // Wait, if we return 0, the shader samples texture at index 0.
-            // If index 0 is a valid texture (e.g. Albedo), we are fine.
-            // If index 0 is "None", we need to ensure index 0 IS the null texture.
-            // Let's assume for now that if GetTextureByType returns null, we pass 0.
-            // And we hope index 0 is valid (it is, it's the first allocated texture).
-            // Ideally, we should have a specific "White Texture" at a known index.
+            return tex ? BindlessOrNull(tex->GetBindlessIndex()) : 0u;
         };
         
         m_GPUData.diffuseIndex = GetIndex(MapType::Diffuse);

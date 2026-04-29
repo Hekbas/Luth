@@ -145,18 +145,16 @@ namespace Luth
 
         vkAllocateDescriptorSets(m_Device, &allocInfo, &m_DescriptorSet);
 
-        // 4. Initialize Free Indices
-        for (u32 i = 0; i < MAX_BINDLESS_RESOURCES; i++)
+        // 4. Initialize free list. Slot 0 is reserved for the null texture and never enters
+        //    the pool. Push descending so pop_back yields ascending allocation order (1, 2, 3 ...)
+        //    — matches the previous deque/pop_front behavior, easier to read in RenderDoc.
+        m_FreeIndices.reserve(MAX_BINDLESS_RESOURCES - 1);
+        for (u32 i = MAX_BINDLESS_RESOURCES - 1; i > NULL_TEXTURE_SLOT; --i)
             m_FreeIndices.push_back(i);
 
-        // 5. Create Null Texture (1x1 White)
+        // 5. Create Null Texture (1x1 White) and bind to the reserved slot 0
         CreateNullTexture();
-
-        // 6. Reserve index 0 for null/fallback texture
         {
-            u32 reservedIndex = m_FreeIndices.front(); // Will be 0
-            m_FreeIndices.pop_front();
-
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             imageInfo.imageView   = m_NullImageView;
@@ -166,7 +164,7 @@ namespace Luth
             write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write.dstSet          = m_DescriptorSet;
             write.dstBinding      = 0;
-            write.dstArrayElement = reservedIndex;
+            write.dstArrayElement = NULL_TEXTURE_SLOT;
             write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo      = &imageInfo;
@@ -255,11 +253,11 @@ namespace Luth
 
         if (m_FreeIndices.empty()) {
             LH_CORE_ERROR("Bindless descriptor set full!");
-            return 0;
+            return INVALID_BINDLESS_SLOT;
         }
 
-        u32 index = m_FreeIndices.front();
-        m_FreeIndices.pop_front();
+        u32 index = m_FreeIndices.back();
+        m_FreeIndices.pop_back();
 
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -282,6 +280,11 @@ namespace Luth
 
     void BindlessDescriptorSet::UnbindTexture(u32 index)
     {
+        // Skip the sentinel and the reserved null slot — neither belongs back in the pool.
+        // (The sentinel never owned a descriptor; freeing slot 0 would orphan the null texture.)
+        if (index == INVALID_BINDLESS_SLOT || index == NULL_TEXTURE_SLOT)
+            return;
+
         std::lock_guard<std::mutex> lock(m_Lock);
 
         // Replace with null texture to be safe
