@@ -4,6 +4,7 @@
 #include "PipelineCache.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
+#include "luth/memory/TaggedPageAllocator.h"
 
 namespace Luth
 {
@@ -54,6 +55,11 @@ namespace Luth
         {
             u64 waitValue = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
             m_FrameTimeline.Wait(waitValue);
+
+            // V6 driver: GPU has retired frame N-2; reclaim its tagged pages.
+            // See arch/fiber-system.md V6 + arch/memory.md TaggedPageAllocator.
+            const u32 finishedTag = static_cast<u32>(waitValue);
+            Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
         }
 
         // Flush deletions AFTER we know the GPU is done with this frame's resources

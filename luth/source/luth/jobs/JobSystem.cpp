@@ -285,6 +285,8 @@ namespace Luth::JobSystem
         ctx->IsRecording = false;
         ctx->InlineDepth = 0;
         ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
+        ctx->Allocator = &Memory::TaggedPageAllocator::Get();
+        ctx->CpuCache = {};
         SetCurrentContext(ctx);
 
         // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.
@@ -515,6 +517,15 @@ namespace Luth::JobSystem
 
         // Initialize Workers (index 0 is reserved for main thread)
         s_Data.Workers.resize(s_Data.ThreadCount);
+
+        // Pre-wire the global TaggedPageAllocator pointer onto every scheduler context
+        // and every fiber-pool context. The pointer is stable for engine lifetime
+        // (function-local singleton); FiberEntryPoint resets CpuCache per-job.
+        Memory::TaggedPageAllocator& tpa = Memory::TaggedPageAllocator::Get();
+        for (u32 i = 0; i < s_Data.ThreadCount; ++i)
+            s_Data.Workers[i].Context.Allocator = &tpa;
+        for (u32 i = 0; i < MAX_FIBERS; ++i)
+            s_Data.FiberContexts[i].Allocator = &tpa;
 
         // Main thread setup (index 0)
         t_WorkerIndex = 0;

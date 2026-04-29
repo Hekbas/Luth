@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/jobs/AtomicCounter.h"
+#include "luth/memory/TaggedPageAllocator.h"
 #include <functional>
 #include <cassert>
 
@@ -11,7 +12,6 @@ namespace Luth
 {
     struct FrameParams;
     class CommandAllocatorPool;
-    namespace Memory { class TaggedPageAllocator; }
 }
 
 namespace Luth::JobSystem
@@ -90,8 +90,10 @@ namespace Luth::JobSystem
 
     struct JobContext
     {
-        // Memory
+        // Memory — Allocator points at the global TaggedPageAllocator instance;
+        // CpuCache is the per-fiber active page + tag (V6 hot path holds no lock).
         Memory::TaggedPageAllocator* Allocator = nullptr;
+        Memory::TaggedPageAllocator::ThreadCache CpuCache{};
 
         // Frame Data
         const FrameParams* Params = nullptr; // Read-only params for the current frame

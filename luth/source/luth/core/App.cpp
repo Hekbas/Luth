@@ -23,6 +23,7 @@
 #include "luth/renderer/backend/vulkan/PipelineCache.h"
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
+#include "luth/memory/TaggedPageAllocator.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/core/time/Timer.h"
 
@@ -61,6 +62,7 @@ namespace Luth
     {
         // 1. Core systems
         Memory::MemoryTracker::Init();
+        Memory::TaggedPageAllocator::Get().Init();
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
@@ -385,6 +387,7 @@ namespace Luth
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
+        Memory::TaggedPageAllocator::Get().Shutdown();
         Memory::MemoryTracker::Shutdown();
     }
 
