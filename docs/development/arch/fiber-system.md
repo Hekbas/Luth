@@ -12,7 +12,7 @@ Zero OS-thread blocking in gameplay/render hot path.
 | V3 | **VkCommandBuffer Thread Violation** — Implicit `WaitForCounter` migrates fiber to different OS thread, violating `VkCommandPool` affinity | RAII `RecordingScope` sets `IsRecording` in FLS. `Fiber::Yield()` asserts `IsRecording == false`. Hard crash in debug |
 | V4 | **`WaitOnAddress` Lost Wakeup** — Worker calls `WaitOnAddress` after producer inserts work + wakes | Compare-and-wait pattern with generation counter. All queue insertions pair with `WakeByAddressSingle`. ABA-safe validation loop |
 | V5 | **Sub-Job Context Switch Thrashing** — Forcing `SwitchToFiber` for trivial sub-jobs | Depth-limited inline execution. `InlineDepth` counter in `JobContext`, inline up to depth 4, then mandatory fiber switch |
-| V6 | **GPU Stall ↔ Allocator Reset Deadlock** — GPU stalls on N-2, allocator for Frame N can't be reset | Overflow allocator tier. Frame N uses overflow `TaggedPageAllocator` pool; reclaimed when N-2 completes |
+| V6 | **GPU Stall ↔ Allocator Reset Deadlock** — GPU stalls on N-2, allocator for Frame N can't be reset | Overflow allocator tier. Frame N uses overflow page from CPU `TaggedPageAllocator` and/or GPU `GPUTaggedPageAllocator` (Onion/Garlic both halves wired post-`gpu-tagged-heap`); reclaimed when N-2 completes via `VulkanBackend::AcquireImage` `FreeTag(N-2)` |
 
 ## Key Design Decisions
 

@@ -60,6 +60,7 @@
 | v2.8.8 | `animation-quick-pass` | `AnimationClip` becomes a first-class UUID-addressable asset. `ModelImporter` writes one `.anim` per clip into `<stem>_Animations/` (mirrors materials/textures); `AnimationClipImporter` cooks them. `Animation::ClipUUID` and `BlendLayer::ClipUUID` replace integer indices; scene loader migrates legacy `animationIndex` via blocking model load. Drawers swap `ImGui::Combo` for `UI::PropertyAsset` drag-drop. AssetDatabase Modified now evicts the in-memory copy so `.anim` hot-reload takes effect live. Foundation for `animation-controller-v2` — bone-name retargeting still v2.11 scope | 2026-04-28 |
 | v2.8.9 | `persistent-buffer-ring` | Triple-buffered the three persistent CPU-mapped SSBOs (ObjectSSBO Set 5, IndirectBuffer, Material SSBO Set 2) so frame N writes never overlap frame N-1's GPU reads. Single VkBuffer per resource sized 3×, slice base baked into `firstInstance` / cull `destOffset` / `obj.materialIndex` — zero shader changes, descriptors stay `VK_WHOLE_SIZE`. Cull compute gains a `srcOffset` push-constant for the active object slice (push range 104B→108B). Material dirty-frame countdown propagates a single mutation to all slices over MAX_FRAMES_IN_FLIGHT iterations. VMA modernized off deprecated `CPU_TO_GPU` to `AUTO + HOST_ACCESS_SEQUENTIAL_WRITE_BIT + MAPPED_BIT` with `vmaFlushAllocation` per slice. Tag-only | 2026-04-28 |
 | v2.8.10 | `gpu-tagged-heap` | GPU half of the Naughty Dog Onion/Garlic split: `Memory::GPUTaggedPageAllocator` (sibling to CPU `TaggedPageAllocator`) vends 2 MB pages from 64 MB host-mapped backings, tag-based bulk-free wired to GPU-N-2 timeline completion in `AcquireImage`. Material / Object / Indirect / `BoneMatrixBuffer` all flow through it; v2.8.9's slot-encoded ring buffers and the `gpu_cull.comp` `srcOffset` push-constant dissolve (push range 108B→104B). Sets 2/4/5 + cull descriptor rebind per-frame to allocator-returned regions (UPDATE_AFTER_BIND). CPU `TaggedPageAllocator` V6 wiring also completed — `FreeTag` had zero callsites and `JobContext::Allocator` was unassigned. ProfilerPanel surfaces tagged-heap stats. Tag-only | 2026-04-29 |
+| v2.8.11 | `slot-alloc-spinlock` | Closed the v2.8.4 D6 carry-over: `MaterialSystem::m_Lock` and `BoneMatrixBuffer::m_Lock` `std::mutex` → `Luth::SpinLock`. With per-frame upload moved off the lock in `gpu-tagged-heap`, critical sections shrink to slot-alloc paths only. Doc sweep folded in (`arch/memory.md` adds GPU heap; `arch/rendering-pipeline.md` updates Set 2/4/5 rebind cadence; `arch/fiber-system.md` notes both halves of Onion/Garlic operational). Tag-only | 2026-04-29 |
 
 ---
 
@@ -69,8 +70,8 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `shader-reload-async` | NEW | v2.8.11 | S | `vulkan-correctness` |
-| 2 | `vulkan-polish` | NEW | v2.8.12 | M | `vulkan-correctness` |
+| 1 | `shader-reload-async` | NEW | v2.8.12 | S | `vulkan-correctness` |
+| 2 | `vulkan-polish` | NEW | v2.8.13 | M | `vulkan-correctness` |
 | 3 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
 | 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
 | 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
