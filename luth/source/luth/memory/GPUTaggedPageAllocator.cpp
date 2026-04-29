@@ -187,11 +187,12 @@ namespace Luth::Memory
     {
         SpinLockGuard lock(m_Lock);
 
-        // Linear scan — small N (~10-20 pages per frame). Swap-with-back for O(1) removal.
-        auto it = m_UsedPages.begin();
-        while (it != m_UsedPages.end())
+        // Linear scan — small N (~10-20 pages per frame). Index-based loop because
+        // pop_back invalidates iterators under MSVC's _ITERATOR_DEBUG_LEVEL=2; the
+        // cached end() trips the iterator-compatibility check on the next compare.
+        for (size_t i = 0; i < m_UsedPages.size(); )
         {
-            GPUPage* page = *it;
+            GPUPage* page = m_UsedPages[i];
             if (page->tag == tag)
             {
                 if (page->isLargeOneShot)
@@ -205,12 +206,13 @@ namespace Luth::Memory
                     page->tag  = 0;
                     m_FreePages.push_back(page);
                 }
-                *it = m_UsedPages.back();
+                m_UsedPages[i] = m_UsedPages.back();
                 m_UsedPages.pop_back();
+                // don't increment i; check the swapped element
             }
             else
             {
-                ++it;
+                ++i;
             }
         }
     }

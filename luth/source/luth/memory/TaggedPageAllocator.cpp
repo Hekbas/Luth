@@ -105,20 +105,21 @@ namespace Luth::Memory
     {
         SpinLockGuard lock(m_Lock);
 
-        // Linear scan — pages-per-tag is small (~10-20). Swap-with-back for O(1) removal.
-        auto it = m_UsedPages.begin();
-        while (it != m_UsedPages.end())
+        // Linear scan — pages-per-tag is small (~10-20). Index-based loop because
+        // pop_back invalidates iterators under MSVC's _ITERATOR_DEBUG_LEVEL=2.
+        for (size_t i = 0; i < m_UsedPages.size(); )
         {
-            Page* page = *it;
+            Page* page = m_UsedPages[i];
             if (page->Tag == tag)
             {
                 ReturnPage(page);
-                *it = m_UsedPages.back();
+                m_UsedPages[i] = m_UsedPages.back();
                 m_UsedPages.pop_back();
+                // don't increment i; check the swapped element
             }
             else
             {
-                ++it;
+                ++i;
             }
         }
     }
