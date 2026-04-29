@@ -33,9 +33,8 @@ namespace Luth
         static VkDescriptorSet GetDescriptorSet();
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
-        static constexpr u32 MAX_MATERIALS = 16384;
-
     private:
+        static constexpr u32 MAX_MATERIALS = 16384;
         static constexpr u32 MATERIAL_SIZE = sizeof(GPUMaterialData);
 
         struct MaterialSlot
