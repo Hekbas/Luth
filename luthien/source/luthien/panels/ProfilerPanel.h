@@ -2,6 +2,7 @@
 
 #include "luthien/Editor.h"
 #include "luth/memory/MemoryTracker.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/jobs/JobSystem.h"
 #include <vector>
@@ -32,6 +33,7 @@ namespace Luth
         std::vector<float> m_MemoryHistory;
 
         GPUMemoryStats m_GPUStats{};
+        Memory::GPUTaggedPageAllocator::Stats m_GpuHeapStats{};
         float m_GPUFrameTimeMs = 0.0f;
 
         float m_GameStageMs   = 0.0f;

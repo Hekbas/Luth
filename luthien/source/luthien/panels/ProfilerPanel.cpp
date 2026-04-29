@@ -117,6 +117,7 @@ namespace Luth
                 m_MemoryHistory.back() = (float)m_MemSnapshot.TotalCurrent / (1024.0f * 1024.0f);
 
                 m_GPUStats = VulkanAllocator::GetStats();
+                m_GpuHeapStats = Memory::GPUTaggedPageAllocator::Get().GetStats();
 
                 if (m_TrimFeedbackTimer > 0.0f)
                     m_TrimFeedbackTimer -= 0.1f;
@@ -627,6 +628,21 @@ namespace Luth
                 if (totalMB > 0.0f)
                     ColoredProgressBar(usedMB / totalMB, ImVec2(-1, 0), nullptr);
 
+                UI::EndCollapsingHeader();
+            }
+
+            // ── GPU Tagged Heap (Onion/Garlic — GPU half) ──
+            if (UI::BeginCollapsingHeader("GPU Tagged Heap"))
+            {
+                const f32 inFlightMB = (f32)m_GpuHeapStats.BytesInFlight / (1024.0f * 1024.0f);
+                if (UI::BeginInfoTable("GpuHeap")) {
+                    UI::InfoRow("Backing buffers", "%u (x 64 MB)", m_GpuHeapStats.BackingBuffers);
+                    UI::InfoRow("Active pages",    "%u", m_GpuHeapStats.ActivePages);
+                    UI::InfoRow("Free pages",      "%u", m_GpuHeapStats.FreePages);
+                    UI::InfoRow("Large one-shots", "%u", m_GpuHeapStats.LargeOneShots);
+                    UI::InfoRow("In flight",       "%.2f MB", inFlightMB);
+                    UI::EndInfoTable();
+                }
                 UI::EndCollapsingHeader();
             }
         }
