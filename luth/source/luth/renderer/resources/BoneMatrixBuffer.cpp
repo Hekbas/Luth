@@ -17,7 +17,7 @@ namespace Luth
     VkDescriptorSet BoneMatrixBuffer::m_DescriptorSet = VK_NULL_HANDLE;
 
     std::deque<u32> BoneMatrixBuffer::m_FreeBlocks;
-    std::mutex BoneMatrixBuffer::m_Lock;
+    Luth::SpinLock BoneMatrixBuffer::m_Lock;
 
     void BoneMatrixBuffer::Init()
     {
@@ -61,7 +61,7 @@ namespace Luth
         // a render-stage draw references (via snapshot.boneOffset) is stable.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "BoneMatrixBuffer::AllocateBlock must run on the game stage");
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         if (m_FreeBlocks.empty())
         {
@@ -78,7 +78,7 @@ namespace Luth
     {
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "BoneMatrixBuffer::FreeBlock must run on the game stage");
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         u32 blockIndex = baseIndex / BONES_PER_ENTITY;
         if (blockIndex >= MAX_SKINNED_ENTITIES) return;

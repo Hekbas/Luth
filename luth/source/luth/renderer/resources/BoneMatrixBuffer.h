@@ -1,10 +1,10 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/jobs/SpinLock.h"
 #include "luth/renderer/resources/Skeleton.h"
 #include <vulkan/vulkan.h>
 #include <deque>
-#include <mutex>
 
 namespace Luth
 {
@@ -57,6 +57,8 @@ namespace Luth
         static VkDescriptorSet m_DescriptorSet;
 
         static std::deque<u32> m_FreeBlocks; // Block indices (0..MAX_SKINNED_ENTITIES-1)
-        static std::mutex m_Lock;
+        // V1: SpinLock — protects only AllocateBlock/FreeBlock (O(1) deque ops).
+        // UploadBones / Update don't take this lock (CPU staging is shared, writes are disjoint).
+        static Luth::SpinLock m_Lock;
     };
 }
