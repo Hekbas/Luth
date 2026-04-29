@@ -133,18 +133,11 @@ Closed the v2.8.4 D6 carry-over: `MaterialSystem::m_Lock` and `BoneMatrixBuffer:
 
 ## Epic: `shader-reload-async` — v2.8.12
 
-> **Drop the per-save `vkDeviceWaitIdle`. Defer old-pipeline destroy through the (V1 SpinLock-safe) deletion queue.**
+> **Status: Shipped v2.8.12** — see [`history/v2.x/shader-reload-async.md`](history/v2.x/shader-reload-async.md).
 
-ShaderWatcher's reload callback currently runs `vkDeviceWaitIdle` on every `.vert`/`.frag`/`.comp` save and rebuilds every pipeline that consumes the SPV. The poll runs at the top of every view's `Execute` (twice per frame when both Scene and Game viewports are open). Frame-pacing penalty is real even when nothing changed.
+Dropped the per-save `vkDeviceWaitIdle` from both reload sites (RenderPipeline callback + `VulkanShader::Reload`). Deferred old `VKPipeline`/`VKComputePipeline` destruction through `VulkanContext::PushDeletion` (V1 SpinLock-safe per v2.8.7); drained MAX_FRAMES_IN_FLIGHT frames later in `AcquireImage`. `PipelineManager` gained `DeferredClear()` / `DeferredInvalidateShader()` for cached PBR variants. Moved `m_ShaderWatcher.Poll()` from per-`Execute` (per-view) to once-per-frame in `RenderingSystem::Update`. **DescriptorAllocator concern resolved as stale**: `IBLPrecompute` uses it (4 sites, init-only), so the original "no callers, accumulates unbounded" note is no longer accurate.
 
-| Area | Detail |
-|------|--------|
-| Poll site | Move `m_ShaderWatcher.Poll()` from `RenderPipeline::Execute` to a once-per-frame call site (`RenderingSystem::Update` prologue) |
-| Deferred destroy | Reload stashes old `VkPipeline` + `VkShaderModule` on `VulkanContext::PushDeletion` (now thread-safe under SpinLock); builds new ones; swaps atomically — no `vkDeviceWaitIdle` needed |
-| DescriptorAllocator | Wire `Reset()` per-frame OR delete the class — currently has no callers and accumulates unbounded |
-
-**Dependencies:** `vulkan-correctness` ✅
-**Effort:** S
+---
 
 ---
 
