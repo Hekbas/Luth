@@ -1,5 +1,7 @@
 #include "luthpch.h"
 #include "PipelineManager.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/core/diagnostics/Log.h"
 
 namespace Luth
 {
@@ -44,6 +46,37 @@ namespace Luth
 
     void PipelineManager::Clear()
     {
+        m_Pipelines.clear();
+    }
+
+    void PipelineManager::DeferredInvalidateShader(const UUID& shaderUUID)
+    {
+        size_t count = 0;
+        for (auto it = m_Pipelines.begin(); it != m_Pipelines.end(); )
+        {
+            if (it->first.shaderUUID == shaderUUID)
+            {
+                if (auto* raw = it->second.release(); raw)
+                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+                it = m_Pipelines.erase(it);
+                ++count;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+        if (count > 0)
+            LH_CORE_INFO("Deferred-invalidated {} pipeline(s) for shader {}", count, shaderUUID.ToString());
+    }
+
+    void PipelineManager::DeferredClear()
+    {
+        for (auto& [key, ptr] : m_Pipelines)
+        {
+            if (auto* raw = ptr.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        }
         m_Pipelines.clear();
     }
 }

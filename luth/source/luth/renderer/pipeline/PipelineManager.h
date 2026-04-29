@@ -50,6 +50,13 @@ namespace Luth
         void InvalidateShader(const UUID& shaderUUID);
         void Clear();
 
+        // Deferred variants — release each cached pipeline into VulkanContext's
+        // per-frame deletion queue instead of destroying synchronously. Used by
+        // the shader-reload path so old pipelines outlive their last in-flight
+        // command buffer (drained MAX_FRAMES_IN_FLIGHT frames later in AcquireImage).
+        void DeferredInvalidateShader(const UUID& shaderUUID);
+        void DeferredClear();
+
     private:
         std::unordered_map<PipelineKey, std::unique_ptr<VKPipeline>, PipelineKeyHash> m_Pipelines;
         std::vector<VkDescriptorSetLayout> m_Layouts;

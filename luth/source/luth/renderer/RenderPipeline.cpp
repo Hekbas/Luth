@@ -115,8 +115,10 @@ namespace Luth
         // has already recompiled and re-reflected the single-stage shader.
         // Library keys are the shader filename (e.g. "pbr.vert", "gtao_main.comp").
         ShaderLibrary::SetReloadCallback([this](const std::string& name) {
-            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-
+            // No vkDeviceWaitIdle: old pipelines are deferred-destroyed via
+            // VulkanContext::PushDeletion, which drains MAX_FRAMES_IN_FLIGHT
+            // frames later in AcquireImage -- by then the GPU has retired any
+            // command buffer that bound them. Keeps shader save under steady frame pacing.
             auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get(name));
             if (!vk || !vk->IsValid())
             {
@@ -124,6 +126,18 @@ namespace Luth
                 return;
             }
             const auto& spv = vk->GetSpirV();
+
+            // Defer-destroy helpers — release the unique_ptr and push a delete lambda
+            // to the per-frame deletion queue. std::function requires CopyConstructible
+            // captures, so we capture a raw pointer.
+            auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
+                if (auto* raw = p.release(); raw)
+                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            };
+            auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
+                if (auto* raw = p.release(); raw)
+                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            };
 
             // Pull fresh SPIR-V into the cached blob used by pipeline builders.
             if      (name == "pbr.vert")                   m_PBRVertSpv                  = spv;
@@ -159,29 +173,32 @@ namespace Luth
             const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
             if (isPBR) {
                 UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
-                m_GeoPipelineManager.InvalidateShader(pbrKey);
-                m_GeoSkinnedPipelineManager.InvalidateShader(pbrKey);
+                m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
+                m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
             } else {
-                m_GeoPipelineManager.Clear();
-                m_GeoSkinnedPipelineManager.Clear();
+                m_GeoPipelineManager.DeferredClear();
+                m_GeoSkinnedPipelineManager.DeferredClear();
             }
-            m_ShadowPipeline.reset();
-            m_ShadowSkinnedPipeline.reset();
-            m_DepthPrepassPipeline.reset();
-            m_DepthPrepassSkinnedPipeline.reset();
-            m_SkyboxPipeline.reset();
-            m_BloomExtractPipeline.reset();
-            m_BloomBlurPipeline.reset();
-            m_PostProcessPipeline.reset();
-            m_OutlinePipeline.reset();
-            m_GridPipeline.reset();
-            m_SelectionMaskPipeline.reset();
-            m_SelectionMaskSkinnedPipeline.reset();
+            deferGfx(m_ShadowPipeline);
+            deferGfx(m_ShadowSkinnedPipeline);
+            deferGfx(m_DepthPrepassPipeline);
+            deferGfx(m_DepthPrepassSkinnedPipeline);
+            deferGfx(m_SkyboxPipeline);
+            deferGfx(m_BloomExtractPipeline);
+            deferGfx(m_BloomBlurPipeline);
+            deferGfx(m_PostProcessPipeline);
+            deferGfx(m_OutlinePipeline);
+            deferGfx(m_GridPipeline);
+            deferGfx(m_SelectionMaskPipeline);
+            deferGfx(m_SelectionMaskSkinnedPipeline);
             CreatePipelines();
 
             // Rebuild the matching compute pipeline (descriptor layouts untouched).
+            // Defer the old pipeline's destroy so any in-flight cmd buffer that bound
+            // it survives until AcquireImage drains the deletion queue.
             if (name == "gpu_cull.comp" && m_CullDescLayout)
             {
+                deferComp(m_CullPipeline);
                 VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
                 m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
                     std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
@@ -189,6 +206,7 @@ namespace Luth
             }
             else if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
             {
+                deferComp(m_GTAOPrefilterPipeline);
                 VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
                 m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(m_GTAOPrefilterSpv,
                     std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
@@ -196,6 +214,7 @@ namespace Luth
             }
             else if (name == "gtao_main.comp" && m_GTAOMainDescLayout)
             {
+                deferComp(m_GTAOMainPipeline);
                 VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float) * 4 + sizeof(u32) * 4 };
                 m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(m_GTAOMainSpv,
                     std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
@@ -203,6 +222,7 @@ namespace Luth
             }
             else if (name == "gtao_denoise.comp" && m_GTAODenoiseDescLayout)
             {
+                deferComp(m_GTAODenoisePipeline);
                 m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(m_GTAODenoiseSpv,
                     std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
                     std::vector<VkPushConstantRange>{});
