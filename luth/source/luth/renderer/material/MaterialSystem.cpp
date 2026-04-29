@@ -15,7 +15,7 @@ namespace Luth
 
     std::vector<MaterialSystem::MaterialSlot> MaterialSystem::m_Slots;
     std::deque<u32> MaterialSystem::m_FreeIndices;
-    std::mutex MaterialSystem::m_Lock;
+    Luth::SpinLock MaterialSystem::m_Lock;
 
     void MaterialSystem::Init()
     {
@@ -45,7 +45,7 @@ namespace Luth
         // reads the slot map without locking.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::RegisterMaterial must run on the game stage");
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         if (m_FreeIndices.empty())
         {
@@ -63,7 +63,7 @@ namespace Luth
     {
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::UnregisterMaterial must run on the game stage");
-        std::lock_guard<std::mutex> lock(m_Lock);
+        SpinLockGuard lock(m_Lock);
 
         if (index >= MAX_MATERIALS) return;
 
@@ -88,13 +88,12 @@ namespace Luth
         Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, regionBytes, 16);
         if (!region.buffer) return;
 
-        // Lock spans slot iteration: RegisterMaterial / UnregisterMaterial may run on
-        // other game-stage fibers between Update calls (gizmo edits, asset hot-reload).
-        // memcpy stays inside the lock — the optimization to copy-out is a follow-up
-        // (post gpu-tagged-heap; lock scope shrinks naturally once the per-frame
-        // dirtyFramesRemaining state machine is gone — already done here).
+        // Lock spans slot iteration (~25us at MAX_MATERIALS=16384). Borderline for V1
+        // strictly, but contention is zero today: Register/Unregister also assert game
+        // stage and serialize through RenderSnapshot::Capture. Future parallel-register
+        // would justify shrinking to slot-alloc-only via an atomic free list.
         {
-            std::lock_guard<std::mutex> lock(m_Lock);
+            SpinLockGuard lock(m_Lock);
             for (u32 i = 0; i < MAX_MATERIALS; ++i)
             {
                 if (!m_Slots[i].material) continue;

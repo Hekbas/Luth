@@ -1,11 +1,11 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/jobs/SpinLock.h"
 #include "luth/renderer/material/Material.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <deque>
-#include <mutex>
 #include <memory>
 
 namespace Luth
@@ -50,6 +50,9 @@ namespace Luth
 
         static std::vector<MaterialSlot> m_Slots;
         static std::deque<u32> m_FreeIndices;
-        static std::mutex m_Lock;
+        // V1: SpinLock — std::mutex retired post-gpu-tagged-heap when per-frame
+        // upload moved off the lock. Update still holds for ~25us iterating slots,
+        // safe today because game-stage callers serialize via RenderSnapshot::Capture.
+        static Luth::SpinLock m_Lock;
     };
 }
