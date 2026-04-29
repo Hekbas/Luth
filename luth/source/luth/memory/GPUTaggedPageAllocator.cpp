@@ -66,6 +66,12 @@ namespace Luth::Memory
         const u64 align = std::max(alignment, m_MinAlignment);
 
         // Hot path — bump within active page (no lock; cache is per-fiber).
+        // Tag-mismatch invalidates the cached page: a fiber reused across frames may
+        // see ActivePage tagged with a prior frame; bumping into it would defeat
+        // FreeTag (the page would never reach matching-tag bulk-release for either frame).
+        if (cache.ActivePage && cache.ActivePage->tag != cache.CurrentTag)
+            cache.ActivePage = nullptr;
+
         if (cache.ActivePage)
         {
             const u64 cur     = cache.ActivePage->baseOffset + cache.ActivePage->used;
