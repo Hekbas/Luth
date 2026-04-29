@@ -262,6 +262,7 @@ namespace Luth
         // each frame and finally drained at GPU heap Shutdown.
         if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
         if (m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
+        if (m_CullDescPool)         vkDestroyDescriptorPool(device, m_CullDescPool, nullptr);
         if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
         m_CullPipeline.reset();
 

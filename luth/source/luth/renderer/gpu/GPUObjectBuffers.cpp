@@ -106,7 +106,23 @@ namespace Luth
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_CullDescLayout);
 
-        VulkanContext::Get().GetDescriptorAllocator().Allocate(m_CullDescLayout, m_CullDescSet);
+        // Dedicated pool: shared DescriptorAllocator's pool isn't UPDATE_AFTER_BIND-capable.
+        VkDescriptorPoolSize cullPoolSize{};
+        cullPoolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        cullPoolSize.descriptorCount = 2;
+
+        VkDescriptorPoolCreateInfo cullPoolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        cullPoolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        cullPoolInfo.maxSets       = 1;
+        cullPoolInfo.poolSizeCount = 1;
+        cullPoolInfo.pPoolSizes    = &cullPoolSize;
+        vkCreateDescriptorPool(device, &cullPoolInfo, nullptr, &m_CullDescPool);
+
+        VkDescriptorSetAllocateInfo cullAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        cullAllocInfo.descriptorPool     = m_CullDescPool;
+        cullAllocInfo.descriptorSetCount = 1;
+        cullAllocInfo.pSetLayouts        = &m_CullDescLayout;
+        vkAllocateDescriptorSets(device, &cullAllocInfo, &m_CullDescSet);
 
         // Push-constant range: 6 frustum planes (96B) + objectCount + destOffset = 104B.
         // srcOffset deleted under gpu-tagged-heap (cull reads objects[idx], 0-based).

@@ -342,6 +342,7 @@ namespace Luth
 
         // ---- Cull compute pipeline + descriptor ----
         std::unique_ptr<VKComputePipeline> m_CullPipeline;
+        VkDescriptorPool                   m_CullDescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
         VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
 
