@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/UploadContext.h"
 #include "luth/core/diagnostics/Log.h"
 
 #include <GLFW/glfw3.h>
@@ -51,6 +52,9 @@ namespace Luth
         s_Instance->InitAllocator();
         s_Instance->m_BindlessSet.Init(s_Instance->m_Device);
         s_Instance->m_ResourceCache.Init();
+        // Init last — needs the device, graphics queue, and VMA allocator. Consumed
+        // immediately by VKVertexBuffer/VKIndexBuffer ctors during RenderingSystem startup.
+        UploadContext::Init();
     }
 
     void VulkanContext::Shutdown()
@@ -59,6 +63,9 @@ namespace Luth
 
         s_Instance->FlushAllDeletionQueues();
 
+        // Shutdown order: UploadContext first — drains its timeline + frees the staging
+        // VkBuffer while VMA + the device are still alive.
+        UploadContext::Shutdown();
         s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
         VulkanAllocator::Shutdown();
