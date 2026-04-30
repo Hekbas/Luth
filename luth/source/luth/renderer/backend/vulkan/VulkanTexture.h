@@ -73,5 +73,12 @@ namespace Luth
         VkImageView m_ImageView = VK_NULL_HANDLE;
         VkSampler m_Sampler = VK_NULL_HANDLE;
         u32 m_BindlessIndex = BindlessDescriptorSet::INVALID_BINDLESS_SLOT;
+
+        // Async-upload bookkeeping. m_DidAsyncUpload is set when CreateImage routed pixel
+        // data through UploadContext::UploadImageMipped (color, non-depth, data != nullptr).
+        // S3 still synchronously waits on the fence; S5 removes the wait and uses the fence
+        // to gate deferred-bindless registration via UploadContext's pending-bind pump.
+        u64 m_LastUploadFence = 0;
+        bool m_DidAsyncUpload = false;
     };
 }
