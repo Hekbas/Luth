@@ -67,6 +67,34 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Selection Outline
+            if (UI::BeginCollapsingHeader("Selection Outline")) {
+                auto& settings = Editor::GetSettings();
+                if (UI::BeginProperties("OutlineProps")) {
+                    UI::PropertyColor("Color", settings.outlineColor);
+                    UI::Property("Width",          settings.outlineWidth,         0.05f, 0.0f, 8.0f);
+                    UI::Property("Occluded Alpha", settings.outlineOccludedAlpha, 0.01f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // Editor Grid
+            if (UI::BeginCollapsingHeader("Editor Grid")) {
+                auto& settings = Editor::GetSettings();
+                if (UI::BeginProperties("GridProps")) {
+                    UI::PropertyColor("Axis X Color", settings.gridAxisXColor);
+                    UI::PropertyColor("Axis Z Color", settings.gridAxisZColor);
+                    UI::PropertyColor("Grid Color",   settings.gridColor);
+                    UI::Property("Major Scale",    settings.gridMajorScale,    0.05f, 0.1f,  100.0f);
+                    UI::Property("Fade Start",     settings.gridFadeStart,     1.0f,  0.0f,  10000.0f);
+                    UI::Property("Fade End",       settings.gridFadeEnd,       1.0f,  0.0f,  10000.0f);
+                    UI::Property("Line Thickness", settings.gridLineThickness, 0.05f, 0.1f,  4.0f);
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Ambient Occlusion (GTAO)
             if (UI::BeginCollapsingHeader("Ambient Occlusion (GTAO)", true)) {
                 auto& gtao = pp.gtao;

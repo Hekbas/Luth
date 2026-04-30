@@ -37,6 +37,35 @@ namespace Luth
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
+    // Local descriptor pool for the precompute compute passes (equirect→cubemap, irradiance,
+    // 5 prefilter mips, BRDF LUT). One-shot pool destroyed at the end of Precompute — replaces
+    // the global DescriptorAllocator for which IBL was the only consumer.
+    static VkDescriptorPool CreateIBLDescriptorPool(VkDevice device, u32 maxSets)
+    {
+        VkDescriptorPoolSize sizes[] = {
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxSets * 2 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          maxSets * 2 },
+        };
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolInfo.maxSets = maxSets;
+        poolInfo.poolSizeCount = (u32)std::size(sizes);
+        poolInfo.pPoolSizes = sizes;
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool);
+        return pool;
+    }
+
+    static VkDescriptorSet AllocateIBLSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout)
+    {
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool = pool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &layout;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        vkAllocateDescriptorSets(device, &allocInfo, &set);
+        return set;
+    }
+
 
     // =========================================================================
     // IBL::Precompute
@@ -50,12 +79,20 @@ namespace Luth
             VkDevice device = VulkanContext::Get().GetDevice();
 
             // ---- 1. Load HDR environment map ----
-            int hdrW, hdrH, hdrChannels;
-            stbi_set_flip_vertically_on_load(1);
-            float* hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
+            // Empty path is the deliberate "no project loaded yet" signal from RenderPipeline::Init —
+            // skip stbi_loadf and the warn, fall straight through to the dummy-cubemap path so the
+            // engine has valid (if empty) IBL state until Editor::OnProjectChanged calls ReloadSkybox.
+            int hdrW = 0, hdrH = 0, hdrChannels = 0;
+            float* hdrData = nullptr;
+            if (!hdrPath.empty())
+            {
+                stbi_set_flip_vertically_on_load(1);
+                hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
+            }
             if (!hdrData)
             {
-                LH_CORE_WARN("IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
+                if (!hdrPath.empty())
+                    LH_CORE_WARN("IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
                 result.irradianceMap  = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,
                     VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1);
                 result.prefilteredMap = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,
@@ -65,6 +102,12 @@ namespace Luth
             else
             {
                 LH_CORE_INFO("IBL: Loaded HDR environment {}x{} from '{}'", hdrW, hdrH, hdrPath.string());
+
+                // Local pool sized for the 8 sets used below: equirect (1), irradiance (1),
+                // prefilter mips (5), BRDF LUT (1). Destroyed at the end of this branch — all
+                // consuming dispatches run synchronously via ImmediateSubmit, so GPU work is
+                // complete by then.
+                VkDescriptorPool iblPool = CreateIBLDescriptorPool(device, 8);
 
                 // ---- 2. Upload HDR as 2D staging texture ----
                 auto hdrStaging = std::make_shared<VKTexture>((u32)hdrW, (u32)hdrH, TextureFormat::RGBA32F,
@@ -123,8 +166,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet;
-                    VulkanContext::Get().GetDescriptorAllocator().Allocate(descLayout, descSet);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
 
                     VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
                     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -267,8 +309,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet;
-                    VulkanContext::Get().GetDescriptorAllocator().Allocate(descLayout, descSet);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
 
                     VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
                     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -393,8 +434,7 @@ namespace Luth
 
                         VkImageView mipView = vkPf->CreateMipView(mip, true);
 
-                        VkDescriptorSet descSet;
-                        VulkanContext::Get().GetDescriptorAllocator().Allocate(descLayout, descSet);
+                        VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
 
                         VkDescriptorImageInfo envInfo{};
                         envInfo.sampler = envSampler;
@@ -461,8 +501,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet;
-                    VulkanContext::Get().GetDescriptorAllocator().Allocate(descLayout, descSet);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
 
                     auto vkLut = std::static_pointer_cast<VKTexture>(result.brdfLut);
 
@@ -506,6 +545,7 @@ namespace Luth
                 }
 
                 // envCubemap goes out of scope here — temp resource freed
+                vkDestroyDescriptorPool(device, iblPool, nullptr);
             }
 
             // ---- 8. IBL sampler ----

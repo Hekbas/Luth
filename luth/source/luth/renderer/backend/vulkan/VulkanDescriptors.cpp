@@ -8,91 +8,6 @@
 
 namespace Luth
 {
-    // ── Descriptor Allocator ──
-
-    void DescriptorAllocator::Init(VkDevice device)
-    {
-        m_Device = device;
-    }
-
-    void DescriptorAllocator::Shutdown()
-    {
-        for (auto p : m_FreePools) vkDestroyDescriptorPool(m_Device, p, nullptr);
-        for (auto p : m_UsedPools) vkDestroyDescriptorPool(m_Device, p, nullptr);
-    }
-
-    bool DescriptorAllocator::Allocate(VkDescriptorSetLayout layout, VkDescriptorSet& outSet)
-    {
-        if (m_CurrentPool == VK_NULL_HANDLE)
-        {
-            m_CurrentPool = GetPool();
-            m_UsedPools.push_back(m_CurrentPool);
-        }
-
-        VkDescriptorSetAllocateInfo allocInfo = {};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.pNext = nullptr;
-        allocInfo.descriptorPool = m_CurrentPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &layout;
-
-        VkResult result = vkAllocateDescriptorSets(m_Device, &allocInfo, &outSet);
-
-        // If full, get new pool and retry
-        if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL)
-        {
-            m_CurrentPool = GetPool();
-            m_UsedPools.push_back(m_CurrentPool);
-            allocInfo.descriptorPool = m_CurrentPool;
-            result = vkAllocateDescriptorSets(m_Device, &allocInfo, &outSet);
-        }
-
-        return result == VK_SUCCESS;
-    }
-
-    void DescriptorAllocator::Reset()
-    {
-        for (auto p : m_UsedPools)
-        {
-            vkResetDescriptorPool(m_Device, p, 0);
-            m_FreePools.push_back(p);
-        }
-        m_UsedPools.clear();
-        m_CurrentPool = VK_NULL_HANDLE;
-    }
-
-    VkDescriptorPool DescriptorAllocator::GetPool()
-    {
-        if (!m_FreePools.empty())
-        {
-            VkDescriptorPool pool = m_FreePools.back();
-            m_FreePools.pop_back();
-            return pool;
-        }
-        return CreatePool(1000, 0);
-    }
-
-    VkDescriptorPool DescriptorAllocator::CreatePool(u32 count, VkDescriptorPoolCreateFlags flags)
-    {
-        VkDescriptorPoolSize sizes[] = {
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, count },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count },
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, count },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, count }
-        };
-
-        VkDescriptorPoolCreateInfo poolInfo = {};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.flags = flags;
-        poolInfo.maxSets = count;
-        poolInfo.poolSizeCount = (u32)std::size(sizes);
-        poolInfo.pPoolSizes = sizes;
-
-        VkDescriptorPool pool;
-        vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &pool);
-        return pool;
-    }
-
     // ── Bindless Descriptor Set ──
 
     void BindlessDescriptorSet::Init(VkDevice device)
@@ -145,18 +60,16 @@ namespace Luth
 
         vkAllocateDescriptorSets(m_Device, &allocInfo, &m_DescriptorSet);
 
-        // 4. Initialize Free Indices
-        for (u32 i = 0; i < MAX_BINDLESS_RESOURCES; i++)
+        // 4. Initialize free list. Slot 0 is reserved for the null texture and never enters
+        //    the pool. Push descending so pop_back yields ascending allocation order (1, 2, 3 ...)
+        //    — matches the previous deque/pop_front behavior, easier to read in RenderDoc.
+        m_FreeIndices.reserve(MAX_BINDLESS_RESOURCES - 1);
+        for (u32 i = MAX_BINDLESS_RESOURCES - 1; i > NULL_TEXTURE_SLOT; --i)
             m_FreeIndices.push_back(i);
 
-        // 5. Create Null Texture (1x1 White)
+        // 5. Create Null Texture (1x1 White) and bind to the reserved slot 0
         CreateNullTexture();
-
-        // 6. Reserve index 0 for null/fallback texture
         {
-            u32 reservedIndex = m_FreeIndices.front(); // Will be 0
-            m_FreeIndices.pop_front();
-
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             imageInfo.imageView   = m_NullImageView;
@@ -166,7 +79,7 @@ namespace Luth
             write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write.dstSet          = m_DescriptorSet;
             write.dstBinding      = 0;
-            write.dstArrayElement = reservedIndex;
+            write.dstArrayElement = NULL_TEXTURE_SLOT;
             write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.descriptorCount = 1;
             write.pImageInfo      = &imageInfo;
@@ -255,11 +168,11 @@ namespace Luth
 
         if (m_FreeIndices.empty()) {
             LH_CORE_ERROR("Bindless descriptor set full!");
-            return 0;
+            return INVALID_BINDLESS_SLOT;
         }
 
-        u32 index = m_FreeIndices.front();
-        m_FreeIndices.pop_front();
+        u32 index = m_FreeIndices.back();
+        m_FreeIndices.pop_back();
 
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -282,6 +195,11 @@ namespace Luth
 
     void BindlessDescriptorSet::UnbindTexture(u32 index)
     {
+        // Skip the sentinel and the reserved null slot — neither belongs back in the pool.
+        // (The sentinel never owned a descriptor; freeing slot 0 would orphan the null texture.)
+        if (index == INVALID_BINDLESS_SLOT || index == NULL_TEXTURE_SLOT)
+            return;
+
         std::lock_guard<std::mutex> lock(m_Lock);
 
         // Replace with null texture to be safe

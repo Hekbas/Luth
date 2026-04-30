@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
 #include <vulkan/vulkan.h>
+#include <unordered_map>
 #include <vector>
 
 typedef struct VmaAllocation_T* VmaAllocation;
@@ -42,9 +43,14 @@ namespace Luth::RG
         void ReturnBuffer(PooledBuffer buffer);
 
     private:
-        std::vector<PooledResource> m_Pool;
-        std::vector<PooledBuffer>   m_BufferPool;
+        // Multi-bucket because the same (w, h, format, usage) tuple can have multiple
+        // inactive instances in flight (e.g. ping-pong RTs returned within one frame).
+        std::unordered_multimap<u64, PooledResource> m_Pool;
+        std::vector<PooledBuffer>                    m_BufferPool;
         u64 m_FrameIndex = 0;
-        static constexpr u64 k_StaleFrameThreshold = 10000;
+
+        // Frames; ~0.5s @ 60Hz. Was 10000 (~3 minutes — effectively "never evict"), which
+        // let viewport-resize churn accumulate stale entries in the cache.
+        static constexpr u64 k_StaleFrameThreshold = 30;
     };
 }

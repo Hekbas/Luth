@@ -123,9 +123,8 @@ namespace Luth
 
     VKTexture::~VKTexture()
     {
-        // Unbind from global set (only color textures are in bindless)
-        if (m_BindlessIndex != 0)
-            VulkanContext::Get().GetBindlessSet().UnbindTexture(m_BindlessIndex);
+        // UnbindTexture is sentinel-safe (early-returns on INVALID_BINDLESS_SLOT and slot 0).
+        VulkanContext::Get().GetBindlessSet().UnbindTexture(m_BindlessIndex);
 
         VulkanContext::Get().PushDeletion([img = m_Image, view = m_ImageView, samp = m_Sampler, alloc = m_Allocation]() {
             VkDevice device = VulkanContext::Get().GetDevice();
@@ -397,10 +396,10 @@ namespace Luth
 
         // Depth textures don't get a generic sampler registered in bindless.
         // Their sampling (e.g. shadow PCF) is set up externally with a dedicated VkSampler.
+        // m_BindlessIndex stays at INVALID_BINDLESS_SLOT (default).
         if (isDepth)
         {
             m_Sampler = VK_NULL_HANDLE;
-            m_BindlessIndex = 0;
             return;
         }
 
@@ -408,7 +407,6 @@ namespace Luth
         if (isCubemap)
         {
             m_Sampler = VK_NULL_HANDLE;
-            m_BindlessIndex = 0;
             return;
         }
 
@@ -427,7 +425,6 @@ namespace Luth
             intSamplerInfo.unnormalizedCoordinates = VK_FALSE;
             intSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
             vkCreateSampler(VulkanContext::Get().GetDevice(), &intSamplerInfo, nullptr, &m_Sampler);
-            m_BindlessIndex = 0;
             return;
         }
 
