@@ -60,7 +60,7 @@ Project Load (Phase 2, after user selects a project):
 | `LoadAsync(uuid)` | Worker → main | Preferred. Non-blocking, via JobSystem |
 | `LoadImmediate(uuid)` | Main | Editor-only. Blocking, for instant interaction |
 
-**Async flow:** LoadAsync → LoadJob on worker → deserialize artifact → push to UploadQueue → Update() on main thread creates GPU resource → cache in s_Assets
+**Async flow:** LoadAsync → LoadJob on worker → deserialize artifact → push to UploadQueue → Update() on main thread creates GPU resource → cache in s_Assets. For textures, `Update()` also drains `UploadContext::DrainPendingBinds()` every frame (post-`texture-async-uploads` v2.8.14) — completes the bindless registration for textures whose `VKTexture` ctor submitted an upload but whose fence has now retired. Decouples descriptor-write from upload-completion, eliminating the per-texture `vkWaitForFences` stall that previously dominated `AssetManager::Update`.
 
 **GC:** `Trim()` runs every 2 seconds. Evicts assets where `use_count == 1` and stale > 5 seconds. Scene holds shared_ptrs via `HoldAsset()` to prevent eviction of in-use assets.
 
