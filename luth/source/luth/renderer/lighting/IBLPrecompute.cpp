@@ -79,12 +79,20 @@ namespace Luth
             VkDevice device = VulkanContext::Get().GetDevice();
 
             // ---- 1. Load HDR environment map ----
-            int hdrW, hdrH, hdrChannels;
-            stbi_set_flip_vertically_on_load(1);
-            float* hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
+            // Empty path is the deliberate "no project loaded yet" signal from RenderPipeline::Init —
+            // skip stbi_loadf and the warn, fall straight through to the dummy-cubemap path so the
+            // engine has valid (if empty) IBL state until Editor::OnProjectChanged calls ReloadSkybox.
+            int hdrW = 0, hdrH = 0, hdrChannels = 0;
+            float* hdrData = nullptr;
+            if (!hdrPath.empty())
+            {
+                stbi_set_flip_vertically_on_load(1);
+                hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
+            }
             if (!hdrData)
             {
-                LH_CORE_WARN("IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
+                if (!hdrPath.empty())
+                    LH_CORE_WARN("IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
                 result.irradianceMap  = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,
                     VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1);
                 result.prefilteredMap = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,

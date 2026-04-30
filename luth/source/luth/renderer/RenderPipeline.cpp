@@ -104,7 +104,12 @@ namespace Luth
 
         BoneMatrixBuffer::Init();
         InitPostProcessResources();
-        InitIBLResources(FileSystem::ResolveAsset("textures/environment.hdr"));
+        // RenderingSystem ctor runs before any project is loaded; the engine ships no HDR.
+        // Pass an empty path so IBL::Precompute uses its silent dummy-cubemap fallback.
+        // Editor::OnProjectChanged re-runs ReloadSkybox once the project's asset paths are live.
+        InitIBLResources(FileSystem::HasProject()
+            ? FileSystem::ResolveAsset("textures/environment.hdr")
+            : fs::path{});
         CreatePipelines();
         InitGPUObjectBuffers();
         InitCullPipeline();
