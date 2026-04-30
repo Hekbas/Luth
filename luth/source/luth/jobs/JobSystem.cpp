@@ -16,6 +16,13 @@
 #ifdef _WIN32
 #include <windows.h>   // Fibers, FLS, WaitOnAddress
 #pragma comment(lib, "Synchronization.lib") // WaitOnAddress / WakeByAddress
+#else
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <climits>
+#define WINAPI
+#define FLS_OUT_OF_INDEXES 0xFFFFFFFF
 #endif
 
 // V<n> markers refer to JobSystem hazards — see docs/development/arch/version-glossary.md
@@ -48,12 +55,70 @@ namespace Luth::JobSystem
 
     // ── Fiber Local Storage (FLS) — replaces thread_local ──
 
+#ifdef _WIN32
     static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
+#else
+    static u32 s_FlsIndex = FLS_OUT_OF_INDEXES;
+    static thread_local JobContext* t_CurrentJobContext = nullptr;
+#endif
 
     static void SetCurrentContext(JobContext* ctx)
     {
+#ifdef _WIN32
         FlsSetValue(s_FlsIndex, ctx);
+#else
+        t_CurrentJobContext = ctx;
+#endif
     }
+
+#ifndef _WIN32
+    static void WaitOnAddress(volatile void* addr, void* cmp, size_t size, u32 timeoutMs)
+    {
+        uint32_t expected = *(uint32_t*)cmp;
+
+        struct timespec ts;
+        struct timespec* tsp = nullptr;
+
+        if (timeoutMs != UINT32_MAX)
+        {
+            ts.tv_sec = timeoutMs / 1000;
+            ts.tv_nsec = (timeoutMs % 1000) * 1000000;
+            tsp = &ts;
+        }
+
+        while (true)
+        {
+            int ret = syscall(SYS_futex,
+                            (uint32_t*)addr,
+                            FUTEX_WAIT_PRIVATE,
+                            expected,
+                            tsp,
+                            nullptr,
+                            0);
+
+            if (ret == 0)
+                return; // woken
+
+            if (errno == EAGAIN)
+                return; // value changed before sleeping
+
+            if (errno == EINTR)
+                continue; // retry
+
+            return; // other errors → treat as wake
+        }
+    }
+
+    static void WakeByAddressSingle(void* addr)
+    {
+        syscall(SYS_futex, (uint32_t*)addr, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
+    }
+
+    static void WakeByAddressAll(void* addr)
+    {
+        syscall(SYS_futex, (uint32_t*)addr, FUTEX_WAKE_PRIVATE, INT_MAX, NULL, NULL, 0);
+    }
+#endif
 
     // Forward-declare; body needs s_Data which is defined below.
     static const char* GetMyTracyName();
@@ -123,7 +188,11 @@ namespace Luth::JobSystem
 
     static const char* GetMyTracyName()
     {
+#ifdef _WIN32
         JobContext* ctx = (JobContext*)FlsGetValue(s_FlsIndex);
+#else
+        JobContext* ctx = t_CurrentJobContext;
+#endif
         if (!ctx) return "Unknown";
         // Pool-fiber contexts live in FiberContexts[]; worker schedulers in WorkerData::Context.
         JobContext* poolBase = &s_Data.FiberContexts[0];
@@ -256,9 +325,7 @@ namespace Luth::JobSystem
                 // V4: Wake a sleeping worker
                 s_Data.HighQueue.GetGeneration(); // Touch to trigger wake
                 u32 gen = s_Data.HighQueue.GetGeneration();
-#ifdef _WIN32
                 WakeByAddressSingle(s_Data.HighQueue.GetGenerationPtr());
-#endif
 
                 waitingFiber = next;
             }
@@ -285,9 +352,6 @@ namespace Luth::JobSystem
         ctx->IsRecording = false;
         ctx->InlineDepth = 0;
         ctx->CurrentStage = jobPtr ? jobPtr->StageTag : Stage::Main;
-        ctx->Allocator = &Memory::TaggedPageAllocator::Get();
-        ctx->CpuCache = {};
-        ctx->GpuCache = {};
         SetCurrentContext(ctx);
 
         // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.
@@ -455,7 +519,6 @@ namespace Luth::JobSystem
             }
 
             // Priority 5: idle — wait for work (V4)
-#ifdef _WIN32
             {
                 // V4: Compare-and-wait pattern to prevent lost wakeups
                 u32 gen = s_Data.HighQueue.GetGeneration();
@@ -479,9 +542,6 @@ namespace Luth::JobSystem
                     1 // 1ms timeout to check for shutdown
                 );
             }
-#else
-            _mm_pause();
-#endif
         }
 
         LH_PROFILE_FIBER_LEAVE;
@@ -491,6 +551,7 @@ namespace Luth::JobSystem
 
     void Init(u32 numThreads)
     {
+#ifdef _WIN32
         // Allocate FLS index
         s_FlsIndex = FlsAlloc(nullptr);
         if (s_FlsIndex == FLS_OUT_OF_INDEXES)
@@ -498,6 +559,9 @@ namespace Luth::JobSystem
             LH_CORE_CRITICAL("Failed to allocate FLS index!");
             return;
         }
+#else
+        s_FlsIndex = 1; // Dummy value to indicate initialized
+#endif
 
         if (numThreads == 0) numThreads = std::thread::hardware_concurrency() - 1;
         if (numThreads < 1) numThreads = 1;
@@ -518,15 +582,6 @@ namespace Luth::JobSystem
 
         // Initialize Workers (index 0 is reserved for main thread)
         s_Data.Workers.resize(s_Data.ThreadCount);
-
-        // Pre-wire the global TaggedPageAllocator pointer onto every scheduler context
-        // and every fiber-pool context. The pointer is stable for engine lifetime
-        // (function-local singleton); FiberEntryPoint resets CpuCache per-job.
-        Memory::TaggedPageAllocator& tpa = Memory::TaggedPageAllocator::Get();
-        for (u32 i = 0; i < s_Data.ThreadCount; ++i)
-            s_Data.Workers[i].Context.Allocator = &tpa;
-        for (u32 i = 0; i < MAX_FIBERS; ++i)
-            s_Data.FiberContexts[i].Allocator = &tpa;
 
         // Main thread setup (index 0)
         t_WorkerIndex = 0;
@@ -555,9 +610,7 @@ namespace Luth::JobSystem
         LH_PROFILE_FIBER_LEAVE;
 
         // Wake all sleeping workers
-#ifdef _WIN32
         WakeByAddressAll(s_Data.HighQueue.GetGenerationPtr());
-#endif
 
         for (u32 i = 1; i < s_Data.ThreadCount; ++i)
         {
@@ -570,11 +623,15 @@ namespace Luth::JobSystem
             Fiber::Destroy(s_Data.FiberPool[i]);
 
         // Free FLS
+#ifdef _WIN32
         if (s_FlsIndex != FLS_OUT_OF_INDEXES)
         {
             FlsFree(s_FlsIndex);
             s_FlsIndex = FLS_OUT_OF_INDEXES;
         }
+#else
+        s_FlsIndex = FLS_OUT_OF_INDEXES;
+#endif
 
         s_Data.Workers.clear();
         LH_CORE_INFO("JobSystem shut down.");
@@ -827,7 +884,12 @@ namespace Luth::JobSystem
     JobContext* GetCurrentJobContext()
     {
         if (s_FlsIndex == FLS_OUT_OF_INDEXES) return nullptr;
+
+#ifdef _WIN32
         return (JobContext*)FlsGetValue(s_FlsIndex);
+#else
+        return t_CurrentJobContext;
+#endif
     }
 
     void SetGlobalCommandPool(CommandAllocatorPool* pool)

@@ -18,7 +18,10 @@ project "spirv-cross"
 
    includedirs { "source/spirv-cross" }
 
-   buildoptions { "/utf-8" }
+   filter "toolset:msc*"
+      buildoptions { "/utf-8" }
+   filter {}
+   
    defines { "SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS" }
 
    filter "configurations:Debug"

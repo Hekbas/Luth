@@ -1,4 +1,4 @@
-project "Luthien"
+project "LuthienLib"
    kind "StaticLib"
    language "C++"
    cppdialect "C++20"
@@ -9,7 +9,9 @@ project "Luthien"
    pchheader "lepch.h"
    pchsource "source/lepch.cpp"
 
-   buildoptions { "/utf-8" }
+   filter "toolset:msc*"
+      buildoptions { "/utf-8" }
+   filter {}
 
    defines
    {
@@ -47,7 +49,11 @@ project "Luthien"
 
    local vulkanSDK = os.getenv("VULKAN_SDK")
    if vulkanSDK then
-      libdirs { vulkanSDK .. "/Lib" }
+      libdirs 
+      { 
+         vulkanSDK .. "/Lib",
+         vulkanSDK .. "/lib" 
+      }
    end
 
    links

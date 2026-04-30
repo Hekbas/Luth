@@ -4,7 +4,9 @@ workspace "Luth"
    architecture "x86_64"
    startproject "Runtime"
 
-   buildoptions { "/utf-8" }
+   filter "toolset:msc*"
+      buildoptions { "/utf-8" }
+   filter {}
 
    configurations
    {

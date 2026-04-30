@@ -4,9 +4,17 @@
 #include "luth/core/diagnostics/Log.h"
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <ucontext.h>
+#include <sys/mman.h>
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <unistd.h>
 #endif
 
 namespace Luth::JobSystem
@@ -14,6 +22,53 @@ namespace Luth::JobSystem
     // Forward declare — implemented in JobSystem.cpp via FLS
     struct JobContext;
     JobContext* GetCurrentJobContext();
+
+#ifndef _WIN32
+    struct LinuxFiberData 
+    {
+        ucontext_t context{};
+        void* stack = nullptr;
+        u32 stackSize = 0;
+        void(*entry)(void*) = nullptr;
+        void* args = nullptr;
+    };
+
+    inline thread_local LinuxFiberData* t_CurrentFiberData = nullptr;
+
+    extern "C" void FiberTrampoline(uint32_t low, uint32_t high) 
+    {
+        uintptr_t ptr = ((uintptr_t)low) | (((uintptr_t)high) << 32);
+        LinuxFiberData* ctx = (LinuxFiberData*)ptr;
+        ctx->entry(ctx->args);
+        std::abort(); // Fibers should never return; if they do, something went wrong.
+    }
+
+    static void* AllocateStack(u32 size)
+    {
+        const size_t pageSize = sysconf(_SC_PAGESIZE);
+        size = (size + pageSize - 1) & ~(pageSize - 1);
+
+        void* mem = mmap(nullptr, size + pageSize,
+                        PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (mem == MAP_FAILED)
+            return nullptr;
+
+        mprotect(mem, pageSize, PROT_NONE);
+        return static_cast<char*>(mem) + pageSize;
+    }
+
+    static void FreeStack(void* stack, u32 size)
+    {
+        if (!stack) return;
+
+        const size_t pageSize = sysconf(_SC_PAGESIZE);
+        void* base = static_cast<char*>(stack) - pageSize;
+
+        munmap(base, size + pageSize);
+    }
+#endif
 
     struct Fiber
     {
@@ -102,6 +157,31 @@ namespace Luth::JobSystem
             {
                 LH_CORE_CRITICAL("Failed to create fiber! Error: {0}", GetLastError());
             }
+            #else
+            auto* data = new LinuxFiberData{};
+            data->entry = entry;
+            data->args = args;
+            data->stackSize = stackSize;
+
+            data->stack = AllocateStack(stackSize);
+            if (!data->stack)
+            {
+                LH_CORE_CRITICAL("Failed to allocate fiber stack! Error: {0}",strerror(errno));
+                delete data;
+                return f;
+            }
+
+            getcontext(&data->context);
+            data->context.uc_stack.ss_sp = data->stack;
+            data->context.uc_stack.ss_size = stackSize;
+            data->context.uc_link = nullptr;
+
+            uintptr_t ptr = reinterpret_cast<uintptr_t>(data);
+            uint32_t low = (uint32_t)(ptr & 0xFFFFFFFF);
+            uint32_t high = (uint32_t)(ptr >> 32);
+            makecontext(&data->context, (void(*)())FiberTrampoline, 2, low, high);
+
+            f.Handle = data;
             #endif
 
             return f;
@@ -111,6 +191,14 @@ namespace Luth::JobSystem
         {
             #ifdef _WIN32
             if (f.Handle) DeleteFiber(f.Handle);
+            #else
+            if (f.Handle)
+            {
+                auto* data = static_cast<LinuxFiberData*>(f.Handle);
+                if (data->stack && data->stackSize > 0)
+                    FreeStack(data->stack, data->stackSize);
+                delete data;
+            }
             #endif
             f.Handle = nullptr;
         }
@@ -136,6 +224,12 @@ namespace Luth::JobSystem
 
             #ifdef _WIN32
             SwitchToFiber(f.Handle);
+            #else
+            auto* fromData = t_CurrentFiberData;
+            auto* toData = static_cast<LinuxFiberData*>(f.Handle);
+            assert(toData && "Attempting to switch to an uninitialized fiber!");
+            t_CurrentFiberData = toData;
+            swapcontext(&fromData->context, &toData->context);
             #endif
         }
 
@@ -154,6 +248,22 @@ namespace Luth::JobSystem
                 f.Handle = GetCurrentFiber();
             else
                 f.Handle = ::ConvertThreadToFiberEx(args, FIBER_FLAG_FLOAT_SWITCH);
+            #else
+            static thread_local LinuxFiberData t_ThreadData;
+            static thread_local bool t_ThreadDataInitialized = false;
+            if (!t_ThreadDataInitialized)
+            {
+                getcontext(&t_ThreadData.context);
+                t_ThreadData.stack = nullptr;
+                t_ThreadData.stackSize = 0;
+                t_ThreadData.entry = nullptr;
+                t_ThreadData.args = args;
+
+                t_CurrentFiberData = &t_ThreadData;
+                t_ThreadDataInitialized = true;
+            }
+
+            f.Handle = &t_ThreadData;
             #endif
             return f;
         }

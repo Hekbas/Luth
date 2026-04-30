@@ -64,6 +64,42 @@ project "glfw"
 			"_GLFW_WIN32",
 			"_CRT_SECURE_NO_WARNINGS"
 		}
+	filter "system:linux"
+		-- TODO: Support Wayland
+		files
+		{
+			"source/glfw/src/posix_module.c",
+			"source/glfw/src/posix_time.h",
+			"source/glfw/src/posix_time.c",
+			"source/glfw/src/posix_thread.h",
+			"source/glfw/src/posix_thread.c",
+			"source/glfw/src/posix_poll.h",
+			"source/glfw/src/posix_poll.c",
+
+			"source/glfw/src/linux_joystick.c",
+			"source/glfw/src/linux_joystick.h",
+
+			"source/glfw/src/x11_init.c",
+			"source/glfw/src/x11_monitor.c",
+			"source/glfw/src/x11_window.c",
+			"source/glfw/src/xkb_unicode.c",
+			"source/glfw/src/glx_context.c",
+			
+			--"source/glfw/src/osmesa_context.c"
+		}
+
+		defines 
+		{ 
+			"_GLFW_X11"
+		}
+
+		links
+		{
+			"X11",
+			"GL",
+			"dl",
+			"pthread",
+		}
 
 	filter "configurations:Debug"
 		runtime "Debug"

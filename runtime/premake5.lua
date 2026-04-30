@@ -7,7 +7,9 @@ project "Runtime"
    targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
 
-   buildoptions { "/utf-8" }
+   filter "toolset:msc*"
+      buildoptions { "/utf-8" }
+   filter {}
 
    defines
    {
@@ -50,18 +52,31 @@ project "Runtime"
       LibraryDir["vulkan"]
    }
 
-   postbuildcommands
-   {
-      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
-   }
-
    links
    {
+      "LuthienLib",
       "Luth",
-      "Luthien",
-      "vulkan-1",
+
+      "assimp",
+      "glfw",
+      "glm",
+      "imgui",
+      "ImGuizmo",
+      "Tracy",
+      "spirv-cross",
+
+      --"vulkan-1",
       "shaderc_shared"
    }
+
+   filter "system:windows"
+      links { "vulkan-1" }
+      postbuildcommands { "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}" }
+   filter "system:linux"
+      links { "vulkan", "dl", "pthread" }
+      local vulkanSDK = os.getenv("VULKAN_SDK")
+      postbuildcommands { "{COPY} " .. vulkanSDK .. "/lib" .. "/libshaderc_shared.so %{cfg.targetdir}" }
+   filter {}
 
    filter "configurations:Debug"
       defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_FIBERS", "TRACY_ON_DEMAND" }

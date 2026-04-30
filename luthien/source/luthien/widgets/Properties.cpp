@@ -46,7 +46,12 @@ namespace Luth::UI
 
         char buffer[256];
         memset(buffer, 0, sizeof(buffer));
+#ifdef _WIN32
         strncpy_s(buffer, value.c_str(), sizeof(buffer));
+#else
+        strncpy(buffer, value.c_str(), sizeof(buffer));
+        buffer[sizeof(buffer) - 1] = '\0';
+#endif
 
         std::string id = "##" + std::string(label);
         if (ImGui::InputText(id.c_str(), buffer, sizeof(buffer)))

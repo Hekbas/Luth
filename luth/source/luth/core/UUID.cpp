@@ -7,7 +7,11 @@
 
 namespace Luth
 {
-    static std::random_device s_RandomDevice;
+    static std::random_device& GetRandomDevice()
+    {
+        static std::random_device s_RandomDevice;
+        return s_RandomDevice;
+    }
     static std::uniform_int_distribution<uint64_t> s_UniformDistribution;
 
     // Per-thread RNG pool indexed by JobContext::ThreadIndex (fiber-safe).
@@ -24,14 +28,14 @@ namespace Luth
         s_Engines.resize(128);
         for (auto& engine : s_Engines)
         {
-            engine.seed(s_RandomDevice());
+            engine.seed(GetRandomDevice()());
         }
         s_EnginesInitialized = true;
     }
 
     static void GenerateFallback(uint64_t* data)
     {
-        static std::mt19937_64 s_FallbackEngine(s_RandomDevice());
+        static std::mt19937_64 s_FallbackEngine(GetRandomDevice()());
         static std::mutex s_FallbackLock;
         std::lock_guard<std::mutex> lock(s_FallbackLock);
         data[0] = s_UniformDistribution(s_FallbackEngine);

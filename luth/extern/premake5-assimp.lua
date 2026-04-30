@@ -133,6 +133,10 @@ project "assimp"
 
 	filter "system:windows"
 		systemversion "latest"
+	
+	filter "system:linux"
+		buildoptions { "-Wno-error=implicit-function-declaration" }
+	filter {}
 
 	filter  "configurations:Debug"
 		runtime "Debug"

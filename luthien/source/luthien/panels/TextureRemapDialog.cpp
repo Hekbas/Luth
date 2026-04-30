@@ -123,7 +123,12 @@ namespace Luth
                 auto picked = FileDialog::OpenFile("All Files\0*.*\0");
                 if (picked) {
                     fs::path dir = picked->parent_path();
+#ifdef _WIN32
                     strncpy_s(s_SearchDir, sizeof(s_SearchDir), dir.string().c_str(), _TRUNCATE);
+#else
+                    strncpy(s_SearchDir, dir.string().c_str(), sizeof(s_SearchDir));
+                    s_SearchDir[sizeof(s_SearchDir) - 1] = '\0';
+#endif
                 }
             }
 

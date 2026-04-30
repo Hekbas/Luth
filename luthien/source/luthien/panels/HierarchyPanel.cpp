@@ -599,7 +599,12 @@ namespace Luth
         // Copy current name to buffer
         std::string name = entity.GetName();
         memset(m_RenameBuffer, 0, sizeof(m_RenameBuffer));
+#ifdef _WIN32
         strncpy_s(m_RenameBuffer, name.c_str(), sizeof(m_RenameBuffer) - 1);
+#else
+        strncpy(m_RenameBuffer, name.c_str(), sizeof(m_RenameBuffer) - 1);
+        m_RenameBuffer[sizeof(m_RenameBuffer) - 2] = '\0';
+#endif
     }
 
     void HierarchyPanel::DeleteSelectedEntity()

@@ -526,7 +526,12 @@ namespace Luth
     {
         if (ImGui::MenuItem("Rename")) {
             m_RenamingNode = node;
+#ifdef _WIN32
             strncpy_s(m_RenameBuffer, node->Name.c_str(), sizeof(m_RenameBuffer));
+#else
+            strncpy(m_RenameBuffer, node->Name.c_str(), sizeof(m_RenameBuffer));
+            m_RenameBuffer[sizeof(m_RenameBuffer) - 1] = '\0';
+#endif
         }
         if (ImGui::MenuItem("Delete")) {
             DeleteItem(node);

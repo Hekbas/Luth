@@ -1,6 +1,6 @@
 #include "lepch.h"
 #include "luthien/Editor.h"
-#include "luth/platform/WinWindow.h"
+#include "luth/platform/Window.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"

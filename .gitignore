@@ -16,6 +16,10 @@ bin-int/
 **.vcxproj.user
 **.csproj
 
+# Make
+Makefile
+*.make
+
 # JetBrains Rider
 .idea
 *.DotSettings.user

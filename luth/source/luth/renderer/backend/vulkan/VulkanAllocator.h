@@ -6,7 +6,9 @@
 // Forward declarations to keep header clean
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
-enum VmaMemoryUsage;
+//Allowed in MSVC not in GCC/Clang, so we should maybe use /permissive-
+//enum VmaMemoryUsage;
+#include "vma/vk_mem_alloc.h"
 
 namespace Luth
 {

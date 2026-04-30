@@ -1,5 +1,5 @@
 #include <Luth.h>
-#include <Luth/core/EntryPoint.h>
+#include <luth/core/EntryPoint.h>
 #include "luthien/Bootstrap.h"
 
 #include <imgui.h>

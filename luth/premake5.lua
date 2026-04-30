@@ -9,7 +9,11 @@ project "Luth"
    pchheader "luthpch.h"
    pchsource "source/luthpch.cpp"
 
-   buildoptions { "/utf-8" }
+   filter "toolset:msc*"
+      buildoptions { "/utf-8" }
+   filter "system:linux"
+      defines { "STBI_NO_SIMD" }
+   filter {}
 
    defines
    {
@@ -23,6 +27,12 @@ project "Luth"
       "source/**.h",
       "source/**.cpp",
    }
+
+   filter "system:windows"
+      removefiles { "source/luth/platform/LinWindow.cpp" }
+   filter "system:linux"
+      removefiles { "source/luth/platform/WinWindow.cpp" }
+   filter {}
    
    includedirs
    {
@@ -47,7 +57,11 @@ project "Luth"
 
    local vulkanSDK = os.getenv("VULKAN_SDK")
    if vulkanSDK then
-      libdirs { vulkanSDK .. "/Lib" }
+      libdirs 
+      { 
+         vulkanSDK .. "/Lib",
+         vulkanSDK .. "/lib" 
+      }
    end
 
    links
@@ -58,12 +72,18 @@ project "Luth"
       "imgui",
       "ImGuizmo",
       "Tracy",
-      "vulkan-1",
+      --"vulkan-1",
       "shaderc_shared",
       "spirv-cross",
-      "ws2_32",
-      "dbghelp"
+      --"ws2_32",
+      --"dbghelp"
    }
+
+   filter "system:windows"
+      links { "vulkan-1", "ws2_32", "dbghelp" }
+   filter "system:linux"
+      links { "vulkan" }
+   filter {}
 
    filter "configurations:Debug"
       defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
