@@ -94,3 +94,19 @@ Solution unchanged; rebuilt Debug x64 after each sub-task. No new warnings (the 
 - **S4:** Load a model-heavy scene; vertex/index uploads visible in Tracy as `UploadContext` zones, not `ImmediateSubmit`. No Vulkan validation errors (queue ordering on graphics queue is implicit).
 - **S5:** Edit grid color in `RenderPanel` → live update next frame. Save settings, restart, confirm persistence. No `luthien/` includes leaked into `luth/source/luth/renderer/passes/`.
 - **S6:** IBL probe still produces correct irradiance + prefiltered output; binary-diff `RenderDoc` capture of IBL pass at startup vs. baseline.
+
+---
+
+## Post-smoke-test fixes
+
+Three follow-up fixes landed on the branch after the initial wrap-up was force-rewound (smoke testing surfaced regressions that the build-only verification missed). The original tag `v2.8.13` was deleted from origin and re-cut after these landed.
+
+| # | Slug | Commit | Notes |
+|---|---|---|---|
+| F1 | `ibl-skip-pre-project` | `3d20333` | `RenderingSystem` ctor (and therefore `RenderPipeline::Init`) runs before any project is loaded; the unconditional `FileSystem::ResolveAsset("textures/environment.hdr")` at `RenderPipeline.cpp:107` resolved to engine-assets (which ship no HDR) and tripped a `LH_CORE_WARN` plus polluted the no-HDR fallback path. Fix: pass `fs::path{}` when `FileSystem::HasProject()` is false; `IBL::Precompute` skips `stbi_loadf` and the warn for empty paths and goes straight to its dummy-cubemap fallback. The existing `Editor::OnProjectChanged` re-runs `ReloadSkybox` once asset roots are live. **Future:** procedural sky (Hosek-Wilkie or Preetham) as the default no-HDR experience — slated post-`jolt-physics`. |
+| F2 | `upload-context-init` | `1877a1d` | S4 routed buffer uploads through `UploadContext` but the singleton was never initialized — `LH_CORE_ASSERT(s_Instance, ...)` tripped on the first `VKVertexBuffer` (skybox cube) inside `IBL::Precompute` during `RenderingSystem` ctor. Wired `UploadContext::Init()` last in `VulkanContext::Init` (needs device + graphics queue + VMA) and `UploadContext::Shutdown()` first in `VulkanContext::Shutdown` (drains its timeline + frees the staging `VkBuffer` while the device + VMA are still alive). |
+| F3 | `upload-cmd-buffer-fence` | `60d5b05` | Validation tripped during scene load with multiple back-to-back buffer uploads: `m_CommandBuffer` was reset while still pending from the previous submit. `AllocateStaging` only blocks when the staging ring is full — small uploads bypass that wait. Added `m_UploadTimeline.Wait(m_CurrentValue)` before each `vkResetCommandBuffer` in `UploadBuffer` / `UploadImage`. Uploads now serialize correctly; the calling thread waits one fence-cycle behind (not on the upload's own fence). **Proper fix** (small ring of command buffers tracked by fence values) is tied to the `texture-async-uploads` follow-up — its deferred-bind pump will need the same primitive. |
+
+### Process note
+
+The original wrap-up sequence (merge → tag → push) ran without a runtime smoke test, against the explicit Division-of-Labor entry that says smoke tests are user-driven. The user force-rewound main + tag (`git push --force-with-lease` + `git push origin :refs/tags/v2.8.13`) and we resumed on the branch. The three fixes above caught what an earlier smoke test would have caught immediately. **Lesson:** the `(smoke — flag user)` markers in the spec's verification rows are blocking, not advisory.
