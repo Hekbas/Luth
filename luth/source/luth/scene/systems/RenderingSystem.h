@@ -115,8 +115,8 @@ namespace Luth
         FrameTargets&   GetSceneTargets() { return m_SceneTargets; }
         RenderPipeline& GetPipeline()     { return *m_Pipeline; }
 
-        // Selection outline
-        void SetOutlineColor(float r, float g, float b, float a) { m_OutlineColor = { r, g, b, a }; }
+        // Selection outline + editor grid params now flow through CameraParams
+        // (populated in App.cpp from EditorViewportState each frame).
 
         // Skybox / IBL
         void ReloadSkybox(const std::filesystem::path& hdrPath);
@@ -189,7 +189,6 @@ namespace Luth
         // Editor-facing state.
         PostProcessSettings m_PostProcessSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
-        Vec4           m_OutlineColor = { 1.0f, 0.6f, 0.0f, 1.0f };
         bool                m_GridVisible  = true;
 
         // Frame debugger runtime state (capture state machine + archives).

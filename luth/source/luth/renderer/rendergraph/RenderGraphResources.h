@@ -58,6 +58,9 @@ namespace Luth::RG
         u32 width = 0;
         u32 height = 0;
         TextureFormat format = TextureFormat::RGBA8_Unorm;
+        // 0 means "infer from format" (color-attachment / depth-stencil + sampled + transfer).
+        // Pass an explicit set for compute-storage transients or other non-default uses.
+        VkImageUsageFlags usage = 0;
     };
 
     struct BufferDesc

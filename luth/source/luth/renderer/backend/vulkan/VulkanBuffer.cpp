@@ -1,7 +1,8 @@
 #include "luthpch.h"
 #include "VulkanBuffer.h"
 #include "VulkanContext.h"
-#include "VulkanAllocator.h" // Added include
+#include "VulkanAllocator.h"
+#include "UploadContext.h"
 
 // We need VMA enums here
 #include <vma/vk_mem_alloc.h>
@@ -45,31 +46,12 @@ namespace Luth
 
     void VKVertexBuffer::SetData(const void* data, uint32_t size)
     {
-        // 1. Create Staging Buffer
-        VkBufferCreateInfo stagingInfo = {};
-        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stagingInfo.size = size;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        
-        VkBuffer stagingBuffer;
-        VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(stagingInfo, VMA_MEMORY_USAGE_CPU_ONLY, stagingBuffer);
-
-        // 2. Copy data to staging
-        void* mappedData = VulkanAllocator::Map(stagingAlloc);
-        memcpy(mappedData, data, size);
-        VulkanAllocator::Unmap(stagingAlloc);
-
-        // 3. Copy from staging to GPU buffer
-        VulkanContext::Get().ImmediateSubmit([=](VkCommandBuffer cmd) {
-            VkBufferCopy copyRegion{};
-            copyRegion.srcOffset = 0;
-            copyRegion.dstOffset = 0;
-            copyRegion.size = size;
-            vkCmdCopyBuffer(cmd, stagingBuffer, m_Buffer, 1, &copyRegion);
-        });
-
-        // 4. Cleanup
-        VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
+        // Async transfer through UploadContext's persistent staging ring + transfer-queue
+        // submit. Caller does not wait on the fence — submissions on the same queue serialize,
+        // so any draw that consumes m_Buffer (always submitted later in the frame) implicitly
+        // observes the upload. Today UploadContext runs on the graphics queue; the fence-based
+        // sync stays correct when async-compute-queue (v2.9.2) splits to a transfer family.
+        UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
     }
 
     // ========================================================================
@@ -89,26 +71,8 @@ namespace Luth
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
 
-        // Upload Data
-        VkBufferCreateInfo stagingInfo = {};
-        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stagingInfo.size = size;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-        VkBuffer stagingBuffer;
-        VmaAllocation stagingAlloc = VulkanAllocator::AllocateBuffer(stagingInfo, VMA_MEMORY_USAGE_CPU_ONLY, stagingBuffer);
-
-        void* mappedData = VulkanAllocator::Map(stagingAlloc);
-        memcpy(mappedData, indices, size);
-        VulkanAllocator::Unmap(stagingAlloc);
-
-        VulkanContext::Get().ImmediateSubmit([=](VkCommandBuffer cmd) {
-            VkBufferCopy copyRegion{};
-            copyRegion.size = size;
-            vkCmdCopyBuffer(cmd, stagingBuffer, m_Buffer, 1, &copyRegion);
-        });
-
-        VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
+        // Async upload — see VKVertexBuffer::SetData for the queue-ordering rationale.
+        UploadContext::Get().UploadBuffer(indices, size, m_Buffer, 0);
     }
 
     VKIndexBuffer::~VKIndexBuffer()

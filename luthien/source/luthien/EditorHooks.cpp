@@ -54,10 +54,24 @@ namespace
                 out.nearZ      = cam.GetNearClip();
                 out.farZ       = cam.GetFarClip();
             }
-            out.iblIntensity     = Editor::GetSettings().iblIntensity;
-            out.skyboxIntensity  = Editor::GetSettings().skyboxIntensity;
+            const auto& s = Editor::GetSettings();
+            out.iblIntensity     = s.iblIntensity;
+            out.skyboxIntensity  = s.skyboxIntensity;
             out.selectedEntities = EditorSelection::GetSelectedEntities();
-            out.previewAnimationInEditor = Editor::GetSettings().previewAnimationInEditor;
+
+            out.outlineColor          = s.outlineColor;
+            out.outlineWidth          = s.outlineWidth;
+            out.outlineOccludedAlpha  = s.outlineOccludedAlpha;
+
+            out.gridAxisXColor    = s.gridAxisXColor;
+            out.gridAxisZColor    = s.gridAxisZColor;
+            out.gridColor         = s.gridColor;
+            out.gridMajorScale    = s.gridMajorScale;
+            out.gridFadeStart     = s.gridFadeStart;
+            out.gridFadeEnd       = s.gridFadeEnd;
+            out.gridLineThickness = s.gridLineThickness;
+
+            out.previewAnimationInEditor = s.previewAnimationInEditor;
         }
 
         // Play-mode state forwarded from PlayModeController

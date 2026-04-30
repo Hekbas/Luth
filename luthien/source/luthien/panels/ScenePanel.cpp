@@ -58,8 +58,8 @@ namespace Luth
 
         // Sync selection (primary = last-added for gizmos/camera)
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
-        auto& oc = EditorColors::SelectionOutline;
-        m_RenderingSystem->SetOutlineColor(oc.x, oc.y, oc.z, oc.w);
+        // Outline color now flows through EditorSettings → EditorViewportState → CameraParams
+        // (see luth/core/App.cpp). Visibility-only toggles still go through the direct setter.
         m_RenderingSystem->SetGridVisible(Editor::GetSettings().showGrid);
 
         ImGui::PushFont(Editor::GetFASolid());

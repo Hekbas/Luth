@@ -29,7 +29,6 @@ namespace Luth
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
-        DescriptorAllocator& GetDescriptorAllocator() { return m_DescriptorAllocator; }
         RG::RenderResourceCache& GetResourceCache() { return m_ResourceCache; } // Getter
 
         // Queue Access
@@ -80,7 +79,6 @@ namespace Luth
         std::mutex m_CommandPoolMutex;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         BindlessDescriptorSet m_BindlessSet;
-        DescriptorAllocator m_DescriptorAllocator;
         RG::RenderResourceCache m_ResourceCache; // Instance
 
         VmaAllocator m_Allocator = VK_NULL_HANDLE;

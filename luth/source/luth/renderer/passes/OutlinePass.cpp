@@ -68,7 +68,10 @@ namespace Luth
                 VkRect2D sc{}; sc.extent = { w, h };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                // Push constants: outlineWidth, texelSize, outlineColor, occludedAlpha
+                // Push constants: outlineWidth, texelSize, outlineColor, occludedAlpha.
+                // All editor-tunable values flow from EditorSettings → EditorViewportState
+                // → CameraParams (see App.cpp); engine reads its own struct only.
+                const auto& cp = m_System.m_CameraParams;
                 struct OutlinePushConstants {
                     float outlineWidth;
                     float texelSizeX;
@@ -80,14 +83,14 @@ namespace Luth
                     float occludedAlpha;
                 } pc;
 
-                pc.outlineWidth     = 1.5f;
+                pc.outlineWidth     = cp.outlineWidth;
                 pc.texelSizeX       = 1.0f / (float)w;
                 pc.texelSizeY       = 1.0f / (float)h;
-                pc.outlineColorR    = m_System.m_OutlineColor.r;
-                pc.outlineColorG    = m_System.m_OutlineColor.g;
-                pc.outlineColorB    = m_System.m_OutlineColor.b;
-                pc.outlineColorA    = m_System.m_OutlineColor.a;
-                pc.occludedAlpha    = 0.65f;
+                pc.outlineColorR    = cp.outlineColor.r;
+                pc.outlineColorG    = cp.outlineColor.g;
+                pc.outlineColorB    = cp.outlineColor.b;
+                pc.outlineColorA    = cp.outlineColor.a;
+                pc.occludedAlpha    = cp.outlineOccludedAlpha;
 
                 vkCmdPushConstants(cmd, m_OutlinePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);

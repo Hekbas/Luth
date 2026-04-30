@@ -171,11 +171,18 @@ namespace Luth
         u64 stagingOffset;
         
         u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
-        
+
         memcpy(stagingPtr, data, size);
 
+        // m_CommandBuffer is reused across every upload; the previous submit must complete
+        // before we reset/record. AllocateStaging only blocks when the ring buffer is full,
+        // which small back-to-back uploads bypass. A proper fix is a small ring of command
+        // buffers tracked by their fence values — tied to the texture-async-uploads follow-up.
+        if (m_CurrentValue > 0)
+            m_UploadTimeline.Wait(m_CurrentValue);
+
         vkResetCommandBuffer(m_CommandBuffer, 0);
-        
+
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -186,7 +193,7 @@ namespace Luth
         copyRegion.dstOffset = dstOffset;
         copyRegion.size = size;
         vkCmdCopyBuffer(m_CommandBuffer, stagingBuffer, dstBuffer, 1, &copyRegion);
-        
+
         vkEndCommandBuffer(m_CommandBuffer);
 
         // Submit
@@ -227,9 +234,14 @@ namespace Luth
         u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
         
         memcpy(stagingPtr, data, size);
-        
+
         // Adjust copy region buffer offset
         copyRegion.bufferOffset += stagingOffset;
+
+        // See UploadBuffer for the rationale — single-cmd-buffer reuse needs the previous
+        // submission to retire before the next reset/record.
+        if (m_CurrentValue > 0)
+            m_UploadTimeline.Wait(m_CurrentValue);
 
         vkResetCommandBuffer(m_CommandBuffer, 0);
         

@@ -2,6 +2,7 @@
 
 #include "luth/renderer/resources/Texture.h"
 #include "VulkanAllocator.h"
+#include "VulkanDescriptors.h" // for BindlessDescriptorSet::INVALID_BINDLESS_SLOT
 
 namespace Luth
 {
@@ -71,6 +72,6 @@ namespace Luth
         VmaAllocation m_Allocation = nullptr;
         VkImageView m_ImageView = VK_NULL_HANDLE;
         VkSampler m_Sampler = VK_NULL_HANDLE;
-        u32 m_BindlessIndex = 0;
+        u32 m_BindlessIndex = BindlessDescriptorSet::INVALID_BINDLESS_SLOT;
     };
 }
