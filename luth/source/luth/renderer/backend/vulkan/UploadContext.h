@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "TimelineSemaphore.h"
 #include <vulkan/vulkan.h>
+#include <array>
 #include <mutex>
 #include <functional>
 
@@ -46,19 +47,29 @@ namespace Luth
 
     private:
         void CreateResources();
-        
+
         // Allocates space in the ring buffer.
         // If full, it waits for the GPU to catch up.
         u64 AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset);
 
+        // Acquires the next cmd-buffer ring slot. Waits only if that slot's last fence hasn't retired.
+        // Caller must invoke RecordRingSlotFence(fenceValue) after submit. Both must be inside m_Lock.
+        VkCommandBuffer BeginRingSlot();
+        void RecordRingSlotFence(u64 fenceValue);
+
+        // Cmd-buffer ring — submission-driven (not frame-scoped). Independent of MAX_FRAMES_IN_FLIGHT.
+        // Sized to cover tight back-to-back uploads before staging-ring saturation forces a fence wait anyway.
+        static constexpr u32 RING_SIZE = 4;
+
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
-        VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
-        
+        std::array<VkCommandBuffer, RING_SIZE> m_CmdRing{};
+        std::array<u64, RING_SIZE> m_RingFenceValues{};
+        u32 m_SubmitIndex = 0; // Round-robin index; current slot = m_SubmitIndex % RING_SIZE
+
         // Synchronization
         TimelineSemaphore m_UploadTimeline;
-        u64 m_CurrentValue = 0; // Value signaled by the last submitted batch
-        u64 m_SubmittedValue = 0; // Value of the currently recording batch
+        u64 m_CurrentValue = 0; // Value signaled by the last submitted batch (Shutdown drains to here)
 
         // Staging Ring Buffer
         static constexpr u64 STAGING_SIZE = 64 * 1024 * 1024; // 64MB

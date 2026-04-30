@@ -58,13 +58,13 @@ namespace Luth
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         vkCreateCommandPool(device, &poolInfo, nullptr, &m_CommandPool);
 
-        // 3. Command Buffer
+        // 3. Command Buffer Ring (RING_SIZE buffers reused round-robin, gated by per-slot fence values)
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_CommandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-        vkAllocateCommandBuffers(device, &allocInfo, &m_CommandBuffer);
+        allocInfo.commandBufferCount = RING_SIZE;
+        vkAllocateCommandBuffers(device, &allocInfo, m_CmdRing.data());
 
         // 4. Timeline Semaphore
         m_UploadTimeline.Init(0);
@@ -76,6 +76,29 @@ namespace Luth
         
         m_StagingAllocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_ONLY, m_StagingBuffer);
         m_StagingMapped = VulkanAllocator::Map(m_StagingAllocation);
+    }
+
+    VkCommandBuffer UploadContext::BeginRingSlot()
+    {
+        const u32 slot = m_SubmitIndex % RING_SIZE;
+        const u64 oldFence = m_RingFenceValues[slot];
+
+        // Wait only if this slot's previous submission hasn't retired yet — back-to-back uploads
+        // that fall on different slots submit without serializing. With RING_SIZE=4, the staging
+        // ring (64 MB) typically saturates first, so fence waits are rare in practice.
+        if (oldFence > 0 && m_UploadTimeline.GetValue() < oldFence)
+            m_UploadTimeline.Wait(oldFence);
+
+        VkCommandBuffer cmd = m_CmdRing[slot];
+        vkResetCommandBuffer(cmd, 0);
+        return cmd;
+    }
+
+    void UploadContext::RecordRingSlotFence(u64 fenceValue)
+    {
+        const u32 slot = m_SubmitIndex % RING_SIZE;
+        m_RingFenceValues[slot] = fenceValue;
+        m_SubmitIndex++;
     }
 
     u64 UploadContext::AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset)
@@ -169,56 +192,47 @@ namespace Luth
         void* stagingPtr;
         VkBuffer stagingBuffer;
         u64 stagingOffset;
-        
+
         u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
 
         memcpy(stagingPtr, data, size);
 
-        // m_CommandBuffer is reused across every upload; the previous submit must complete
-        // before we reset/record. AllocateStaging only blocks when the ring buffer is full,
-        // which small back-to-back uploads bypass. A proper fix is a small ring of command
-        // buffers tracked by their fence values — tied to the texture-async-uploads follow-up.
-        if (m_CurrentValue > 0)
-            m_UploadTimeline.Wait(m_CurrentValue);
-
-        vkResetCommandBuffer(m_CommandBuffer, 0);
+        VkCommandBuffer cmd = BeginRingSlot();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        vkBeginCommandBuffer(cmd, &beginInfo);
 
         VkBufferCopy copyRegion{};
         copyRegion.srcOffset = stagingOffset;
         copyRegion.dstOffset = dstOffset;
         copyRegion.size = size;
-        vkCmdCopyBuffer(m_CommandBuffer, stagingBuffer, dstBuffer, 1, &copyRegion);
+        vkCmdCopyBuffer(cmd, stagingBuffer, dstBuffer, 1, &copyRegion);
 
-        vkEndCommandBuffer(m_CommandBuffer);
+        vkEndCommandBuffer(cmd);
 
-        // Submit
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_CommandBuffer;
-        
+        submitInfo.pCommandBuffers = &cmd;
+
         VkTimelineSemaphoreSubmitInfo timelineInfo{};
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         timelineInfo.signalSemaphoreValueCount = 1;
         timelineInfo.pSignalSemaphoreValues = &fenceValue;
-        
+
         VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
         submitInfo.pSignalSemaphores = &signalSemaphore;
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pNext = &timelineInfo;
 
         vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        
+
         m_CurrentValue = fenceValue;
-        
-        // Track block
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
-        
+        RecordRingSlotFence(fenceValue);
+
         return fenceValue;
     }
 
@@ -230,25 +244,20 @@ namespace Luth
         void* stagingPtr;
         VkBuffer stagingBuffer;
         u64 stagingOffset;
-        
+
         u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
-        
+
         memcpy(stagingPtr, data, size);
 
         // Adjust copy region buffer offset
         copyRegion.bufferOffset += stagingOffset;
 
-        // See UploadBuffer for the rationale — single-cmd-buffer reuse needs the previous
-        // submission to retire before the next reset/record.
-        if (m_CurrentValue > 0)
-            m_UploadTimeline.Wait(m_CurrentValue);
+        VkCommandBuffer cmd = BeginRingSlot();
 
-        vkResetCommandBuffer(m_CommandBuffer, 0);
-        
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        vkBeginCommandBuffer(cmd, &beginInfo);
 
         // Transition to Transfer Dst
         VkImageMemoryBarrier barrier{};
@@ -258,7 +267,7 @@ namespace Luth
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = dstImage;
-        
+
         // Manually copy subresource fields because VkImageSubresourceLayers != VkImageSubresourceRange
         barrier.subresourceRange.aspectMask = copyRegion.imageSubresource.aspectMask;
         barrier.subresourceRange.baseMipLevel = copyRegion.imageSubresource.mipLevel;
@@ -269,9 +278,9 @@ namespace Luth
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-        vkCmdCopyBufferToImage(m_CommandBuffer, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+        vkCmdCopyBufferToImage(cmd, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
         // Transition to Shader Read
         barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -279,32 +288,31 @@ namespace Luth
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-        vkEndCommandBuffer(m_CommandBuffer);
+        vkEndCommandBuffer(cmd);
 
-        // Submit
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_CommandBuffer;
-        
+        submitInfo.pCommandBuffers = &cmd;
+
         VkTimelineSemaphoreSubmitInfo timelineInfo{};
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         timelineInfo.signalSemaphoreValueCount = 1;
         timelineInfo.pSignalSemaphoreValues = &fenceValue;
-        
+
         VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
         submitInfo.pSignalSemaphores = &signalSemaphore;
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pNext = &timelineInfo;
 
         vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        
+
         m_CurrentValue = fenceValue;
-        
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
-        
+        RecordRingSlotFence(fenceValue);
+
         return fenceValue;
     }
 
@@ -322,17 +330,12 @@ namespace Luth
 
         memcpy(stagingPtr, data, size);
 
-        // F3 stopgap (per vulkan-polish history) — single cmd-buffer reuse needs the previous
-        // submission to retire before reset/record. Replaced by the cmd-buffer ring in S2.
-        if (m_CurrentValue > 0)
-            m_UploadTimeline.Wait(m_CurrentValue);
-
-        vkResetCommandBuffer(m_CommandBuffer, 0);
+        VkCommandBuffer cmd = BeginRingSlot();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        vkBeginCommandBuffer(cmd, &beginInfo);
 
         // Pre-barrier: all mips UNDEFINED → TRANSFER_DST. Mip 0 receives the staging copy;
         // mips 1..N-1 are transitioned individually back to TRANSFER_SRC during blit.
@@ -351,7 +354,7 @@ namespace Luth
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         // Mip 0 staging copy
@@ -363,7 +366,7 @@ namespace Luth
         region.imageSubresource.layerCount = arrayLayers;
         region.imageExtent = { width, height, 1 };
 
-        vkCmdCopyBufferToImage(m_CommandBuffer, stagingBuffer, dstImage,
+        vkCmdCopyBufferToImage(cmd, stagingBuffer, dstImage,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
         if (mipLevels > 1)
@@ -381,7 +384,7 @@ namespace Luth
                 barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
                 barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-                vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                     0, 0, nullptr, 0, nullptr, 1, &barrier);
 
                 VkImageBlit blit{};
@@ -402,7 +405,7 @@ namespace Luth
                 blit.dstSubresource.baseArrayLayer = 0;
                 blit.dstSubresource.layerCount = arrayLayers;
 
-                vkCmdBlitImage(m_CommandBuffer,
+                vkCmdBlitImage(cmd,
                     dstImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                     dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     1, &blit, VK_FILTER_LINEAR);
@@ -413,7 +416,7 @@ namespace Luth
                 barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
                 barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-                vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                     0, 0, nullptr, 0, nullptr, 1, &barrier);
 
                 mipWidth = nextWidth;
@@ -428,7 +431,7 @@ namespace Luth
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-            vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
         else
@@ -441,16 +444,16 @@ namespace Luth
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-            vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
 
-        vkEndCommandBuffer(m_CommandBuffer);
+        vkEndCommandBuffer(cmd);
 
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.pCommandBuffers = &cmd;
 
         VkTimelineSemaphoreSubmitInfo timelineInfo{};
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -465,8 +468,8 @@ namespace Luth
         vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
 
         m_CurrentValue = fenceValue;
-
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
+        RecordRingSlotFence(fenceValue);
 
         return fenceValue;
     }
