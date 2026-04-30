@@ -124,6 +124,11 @@ namespace Luth
 
     VKTexture::~VKTexture()
     {
+        // Cancel any in-flight deferred-bind for this texture. No-op if the pump already drained
+        // the entry (m_BindlessIndex is then a real slot and UnbindTexture handles it). Must run
+        // before image/view/sampler teardown so the pump cannot deref freed handles.
+        UploadContext::Get().CancelPendingBind(m_ImageView);
+
         // UnbindTexture is sentinel-safe (early-returns on INVALID_BINDLESS_SLOT and slot 0).
         VulkanContext::Get().GetBindlessSet().UnbindTexture(m_BindlessIndex);
 
@@ -208,10 +213,10 @@ namespace Luth
                 m_Width, m_Height, m_MipLevels, m_ArrayLayers);
             m_DidAsyncUpload = true;
 
-            // Synchronous wait keeps S3 functionally identical to the prior inline ImmediateSubmit:
-            // CreateViewAndSampler line 453 still calls BindTexture immediately after ctor returns.
-            // S5 drops this wait and gates BindTexture behind UploadContext's pending-bind pump.
-            UploadContext::Get().WaitForUpload(m_LastUploadFence);
+            // No synchronous wait: CreateViewAndSampler routes the bindless registration through
+            // UploadContext's pending-bind pump (drained from AssetManager::Update each frame).
+            // m_BindlessIndex stays at INVALID_BINDLESS_SLOT until the upload retires; Material::
+            // BindlessOrNull keeps shaders sampling the reserved white slot 0 in the meantime.
         }
         else
         {
@@ -334,8 +339,17 @@ namespace Luth
 
         vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_Sampler);
 
-        // Register with Bindless Set
-        m_BindlessIndex = VulkanContext::Get().GetBindlessSet().BindTexture(m_ImageView, m_Sampler);
+        // Register with Bindless Set. Async-uploaded textures defer registration until the upload
+        // fence retires (pump in AssetManager::Update). Sync paths (color RTs with data==nullptr)
+        // still register synchronously — there's no upload to wait on.
+        if (m_DidAsyncUpload)
+        {
+            UploadContext::Get().PushPendingBind(&m_BindlessIndex, m_ImageView, m_Sampler, m_LastUploadFence);
+        }
+        else
+        {
+            m_BindlessIndex = VulkanContext::Get().GetBindlessSet().BindTexture(m_ImageView, m_Sampler);
+        }
     }
 
     VkImageView VKTexture::CreateLayerView(u32 layer) const

@@ -12,6 +12,7 @@
 #include "luth/renderer/resources/AnimationClip.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/shader/Shader.h"
+#include "luth/renderer/backend/vulkan/UploadContext.h"
 #include "luth/core/time/Time.h"
 
 namespace Luth
@@ -299,6 +300,11 @@ namespace Luth
             Trim();
             s_GCTimer = 0.0f;
         }
+
+        // Drain pending-bind queue every frame, regardless of whether new assets finalized this
+        // tick — texture upload fences typically retire 1-2 frames after the ctor pushed the
+        // entry, and idle frames must still tick the pump.
+        UploadContext::Get().DrainPendingBinds();
 
         std::lock_guard<std::mutex> lock(s_UploadMutex);
         if (s_UploadQueue.empty()) return;
