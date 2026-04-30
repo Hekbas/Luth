@@ -74,8 +74,7 @@ project "Runtime"
       postbuildcommands { "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}" }
    filter "system:linux"
       links { "vulkan", "dl", "pthread" }
-      local vulkanSDK = os.getenv("VULKAN_SDK")
-      postbuildcommands { "{COPY} " .. vulkanSDK .. "/lib" .. "/libshaderc_shared.so %{cfg.targetdir}" }
+      postbuildcommands { "{COPY} " .. LibraryDir["vulkan"] .. "/libshaderc_shared.so %{cfg.targetdir}" }
    filter {}
 
    filter "configurations:Debug"
