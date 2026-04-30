@@ -84,9 +84,8 @@ namespace Luth
         const u32 slot = m_SubmitIndex % RING_SIZE;
         const u64 oldFence = m_RingFenceValues[slot];
 
-        // Wait only if this slot's previous submission hasn't retired yet — back-to-back uploads
-        // that fall on different slots submit without serializing. With RING_SIZE=4, the staging
-        // ring (64 MB) typically saturates first, so fence waits are rare in practice.
+        // Wait only if this slot's previous submission is still in flight — submits on different
+        // slots overlap on the GPU. The staging ring typically saturates first in practice.
         if (oldFence > 0 && m_UploadTimeline.GetValue() < oldFence)
             m_UploadTimeline.Wait(oldFence);
 

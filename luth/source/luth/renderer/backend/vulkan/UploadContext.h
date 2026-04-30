@@ -33,9 +33,8 @@ namespace Luth
         // Returns a fence value that signals when the upload is complete.
         u64 UploadImage(const void* data, u64 size, VkImage dstImage, VkBufferImageCopy copyRegion);
 
-        // Uploads mip-0 data to a color image and generates mips 1..N-1 via vkCmdBlitImage.
-        // `data` is mip-0 only; `size` is mip-0 size in bytes. Aspect is COLOR; final layout is SHADER_READ_ONLY across all mips.
-        // Caller must ensure `format` supports BLIT_SRC|BLIT_DST when mipLevels > 1 (graphics queue forever per VK_FORMAT_FEATURE_BLIT_DST_BIT).
+        // Generates mips 1..N-1 via vkCmdBlitImage; caller passes mip-0 only.
+        // BLIT_DST_BIT is a graphics-queue-only feature, so this stays on the graphics queue regardless of any future async-compute split.
         u64 UploadImageMipped(const void* data, u64 size, VkImage dstImage,
                               u32 width, u32 height, u32 mipLevels, u32 arrayLayers);
 
@@ -45,12 +44,9 @@ namespace Luth
         // Waits for a specific upload to finish (Blocking - Use sparingly!).
         void WaitForUpload(u64 fenceValue);
 
-        // Pending-bind pump — defers BindlessDescriptorSet::BindTexture until the texture's
-        // upload fence retires. Caller (VKTexture ctor) provides outIndex pointing into its
-        // m_BindlessIndex member; DrainPendingBinds writes the assigned slot once the fence
-        // is complete. The pointer must remain valid until DrainPendingBinds writes it OR
-        // CancelPendingBind removes the entry — VKTexture dtor must call CancelPendingBind
-        // before image teardown (view-handle match).
+        // Pending-bind pump — defers BindlessDescriptorSet::BindTexture until the upload fence retires.
+        // outIndex must remain valid until DrainPendingBinds writes it OR CancelPendingBind removes the entry;
+        // view is the cancel key (one-to-one with VKTexture, never reused across instances).
         void PushPendingBind(u32* outIndex, VkImageView view, VkSampler sampler, u64 fenceValue);
         void DrainPendingBinds();
         void CancelPendingBind(VkImageView view);
@@ -62,24 +58,22 @@ namespace Luth
         // If full, it waits for the GPU to catch up.
         u64 AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset);
 
-        // Acquires the next cmd-buffer ring slot. Waits only if that slot's last fence hasn't retired.
-        // Caller must invoke RecordRingSlotFence(fenceValue) after submit. Both must be inside m_Lock.
+        // BeginRingSlot/RecordRingSlotFence pair must be called together inside m_Lock around the submit.
         VkCommandBuffer BeginRingSlot();
         void RecordRingSlotFence(u64 fenceValue);
 
-        // Cmd-buffer ring — submission-driven (not frame-scoped). Independent of MAX_FRAMES_IN_FLIGHT.
-        // Sized to cover tight back-to-back uploads before staging-ring saturation forces a fence wait anyway.
+        // Submission-driven ring (not frame-scoped) — uploads aren't frame-bounded.
         static constexpr u32 RING_SIZE = 4;
 
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::array<VkCommandBuffer, RING_SIZE> m_CmdRing{};
         std::array<u64, RING_SIZE> m_RingFenceValues{};
-        u32 m_SubmitIndex = 0; // Round-robin index; current slot = m_SubmitIndex % RING_SIZE
+        u32 m_SubmitIndex = 0;
 
         // Synchronization
         TimelineSemaphore m_UploadTimeline;
-        u64 m_CurrentValue = 0; // Value signaled by the last submitted batch (Shutdown drains to here)
+        u64 m_CurrentValue = 0; // Latest signaled fence; Shutdown drains to here.
 
         // Staging Ring Buffer
         static constexpr u64 STAGING_SIZE = 64 * 1024 * 1024; // 64MB

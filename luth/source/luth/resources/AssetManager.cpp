@@ -301,9 +301,7 @@ namespace Luth
             s_GCTimer = 0.0f;
         }
 
-        // Drain pending-bind queue every frame, regardless of whether new assets finalized this
-        // tick — texture upload fences typically retire 1-2 frames after the ctor pushed the
-        // entry, and idle frames must still tick the pump.
+        // Idle frames must still tick — upload fences retire 1-2 frames after the ctor pushed.
         UploadContext::Get().DrainPendingBinds();
 
         std::lock_guard<std::mutex> lock(s_UploadMutex);
