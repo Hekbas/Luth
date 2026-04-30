@@ -308,6 +308,169 @@ namespace Luth
         return fenceValue;
     }
 
+    u64 UploadContext::UploadImageMipped(const void* data, u64 size, VkImage dstImage,
+                                         u32 width, u32 height, u32 mipLevels, u32 arrayLayers)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
+
+        void* stagingPtr;
+        VkBuffer stagingBuffer;
+        u64 stagingOffset;
+
+        u64 fenceValue = AllocateStaging(size, 4, &stagingPtr, stagingBuffer, stagingOffset);
+
+        memcpy(stagingPtr, data, size);
+
+        // F3 stopgap (per vulkan-polish history) — single cmd-buffer reuse needs the previous
+        // submission to retire before reset/record. Replaced by the cmd-buffer ring in S2.
+        if (m_CurrentValue > 0)
+            m_UploadTimeline.Wait(m_CurrentValue);
+
+        vkResetCommandBuffer(m_CommandBuffer, 0);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+
+        // Pre-barrier: all mips UNDEFINED → TRANSFER_DST. Mip 0 receives the staging copy;
+        // mips 1..N-1 are transitioned individually back to TRANSFER_SRC during blit.
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = dstImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = mipLevels;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = arrayLayers;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        // Mip 0 staging copy
+        VkBufferImageCopy region{};
+        region.bufferOffset = stagingOffset;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = arrayLayers;
+        region.imageExtent = { width, height, 1 };
+
+        vkCmdCopyBufferToImage(m_CommandBuffer, stagingBuffer, dstImage,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        if (mipLevels > 1)
+        {
+            i32 mipWidth = static_cast<i32>(width);
+            i32 mipHeight = static_cast<i32>(height);
+
+            for (u32 i = 1; i < mipLevels; i++)
+            {
+                // Transition mip i-1: TRANSFER_DST → TRANSFER_SRC (becomes blit source)
+                barrier.subresourceRange.baseMipLevel = i - 1;
+                barrier.subresourceRange.levelCount = 1;
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+                vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                VkImageBlit blit{};
+                blit.srcOffsets[0] = { 0, 0, 0 };
+                blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.mipLevel = i - 1;
+                blit.srcSubresource.baseArrayLayer = 0;
+                blit.srcSubresource.layerCount = arrayLayers;
+
+                i32 nextWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+                i32 nextHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+
+                blit.dstOffsets[0] = { 0, 0, 0 };
+                blit.dstOffsets[1] = { nextWidth, nextHeight, 1 };
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.mipLevel = i;
+                blit.dstSubresource.baseArrayLayer = 0;
+                blit.dstSubresource.layerCount = arrayLayers;
+
+                vkCmdBlitImage(m_CommandBuffer,
+                    dstImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &blit, VK_FILTER_LINEAR);
+
+                // Transition mip i-1: TRANSFER_SRC → SHADER_READ_ONLY (final, won't be touched again)
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                mipWidth = nextWidth;
+                mipHeight = nextHeight;
+            }
+
+            // Last mip stayed in TRANSFER_DST (never blitted from); transition to SHADER_READ_ONLY.
+            barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+        else
+        {
+            // Single-mip: transition the lone mip 0 to SHADER_READ_ONLY.
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(m_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+
+        vkEndCommandBuffer(m_CommandBuffer);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+
+        VkTimelineSemaphoreSubmitInfo timelineInfo{};
+        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineInfo.signalSemaphoreValueCount = 1;
+        timelineInfo.pSignalSemaphoreValues = &fenceValue;
+
+        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
+        submitInfo.pSignalSemaphores = &signalSemaphore;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pNext = &timelineInfo;
+
+        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+        m_CurrentValue = fenceValue;
+
+        m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
+
+        return fenceValue;
+    }
+
     bool UploadContext::IsComplete(u64 fenceValue)
     {
         return m_UploadTimeline.GetValue() >= fenceValue;

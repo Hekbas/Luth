@@ -32,6 +32,12 @@ namespace Luth
         // Returns a fence value that signals when the upload is complete.
         u64 UploadImage(const void* data, u64 size, VkImage dstImage, VkBufferImageCopy copyRegion);
 
+        // Uploads mip-0 data to a color image and generates mips 1..N-1 via vkCmdBlitImage.
+        // `data` is mip-0 only; `size` is mip-0 size in bytes. Aspect is COLOR; final layout is SHADER_READ_ONLY across all mips.
+        // Caller must ensure `format` supports BLIT_SRC|BLIT_DST when mipLevels > 1 (graphics queue forever per VK_FORMAT_FEATURE_BLIT_DST_BIT).
+        u64 UploadImageMipped(const void* data, u64 size, VkImage dstImage,
+                              u32 width, u32 height, u32 mipLevels, u32 arrayLayers);
+
         // Checks if a specific upload has finished.
         bool IsComplete(u64 fenceValue);
 
