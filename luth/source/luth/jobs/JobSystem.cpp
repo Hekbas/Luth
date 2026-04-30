@@ -58,6 +58,7 @@ namespace Luth::JobSystem
 #ifdef _WIN32
     static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
 #else
+    // TODO: Replace with an pthread implementation
     static u32 s_FlsIndex = FLS_OUT_OF_INDEXES;
     static thread_local JobContext* t_CurrentJobContext = nullptr;
 #endif
@@ -560,7 +561,7 @@ namespace Luth::JobSystem
             return;
         }
 #else
-        s_FlsIndex = 1; // Dummy value to indicate initialized
+        s_FlsIndex = 1;
 #endif
 
         if (numThreads == 0) numThreads = std::thread::hardware_concurrency() - 1;

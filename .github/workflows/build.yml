@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [feature-linux-support]
+    branches: [main]
   pull_request:
-    branches: [feature-linux-support]
+    branches: [main]
 
 jobs:
   build:
@@ -56,7 +56,6 @@ jobs:
       shell: bash
       run: |
         cd scripts/setup
-        chmod +x setup_linux.sh
         ./setup_linux.sh
 
     - name: Setup MSBuild
@@ -95,8 +94,7 @@ jobs:
       run: |
         CONFIG=$(echo "${{ matrix.config }}" | tr '[:upper:]' '[:lower:]')
         cd scripts/build
-        chmod +x build_linux.sh
-        ./build_linux.sh -j config=$CONFIG
+        ./build_linux.sh -j$(nproc) config=$CONFIG
 
     - name: Upload Release artifacts
       if: matrix.os == 'windows-latest' && matrix.config == 'Release'
