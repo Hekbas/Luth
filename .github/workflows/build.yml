@@ -2,17 +2,18 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [feature-linux-support]
   pull_request:
-    branches: [main]
+    branches: [feature-linux-support]
 
 jobs:
   build:
-    runs-on: windows-latest
-
     strategy:
       matrix:
+        os: [windows-latest, ubuntu-latest]
         config: [Debug, Release, Dist]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Checkout repository
@@ -26,24 +27,49 @@ jobs:
         path: luth/extern/source
         key: submodules-${{ hashFiles('.gitmodules') }}
 
-    - name: Run premake
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          libx11-dev \
+          libxcb1-dev \
+          libxrandr-dev \
+          libxi-dev \
+          libgl1-mesa-dev \
+          libvulkan-dev
+
+    - name: Run premake (Windows)
+      if: matrix.os == 'windows-latest'
       shell: cmd
       run: |
         cd scripts\setup
         setup_windows.bat
 
+    - name: Run premake (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      shell: bash
+      run: |
+        cd scripts/setup
+        chmod +x setup_linux.sh
+        ./setup_linux.sh
+
     - name: Setup MSBuild
+      if: matrix.os == 'windows-latest'
       uses: microsoft/setup-msbuild@v1
 
-    - name: Cache build intermediates
+    - name: Cache build intermediates (Windows)
+      if: matrix.os == 'windows-latest'
       uses: actions/cache@v4
       with:
         path: bin-int
-        key: build-int-${{ matrix.config }}-${{ hashFiles('**/*.h', '**/*.cpp', '**/*.lua') }}
+        key: build-int-windows-${{ matrix.config }}-${{ hashFiles('**/*.h', '**/*.cpp', '**/*.lua') }}
         restore-keys: |
-          build-int-${{ matrix.config }}-
+          build-int-windows-${{ matrix.config }}-
 
-    - name: Build ${{ matrix.config }} x64
+    - name: Build ${{ matrix.config }} (Windows)
+      if: matrix.os == 'windows-latest'
       run: >
         msbuild Luth.sln
         /p:Configuration=${{ matrix.config }}
@@ -51,8 +77,24 @@ jobs:
         /p:WindowsTargetPlatformVersion=10.0
         /m
 
+    - name: Cache build intermediates (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/cache@v4
+      with:
+        path: bin-int
+        key: build-int-linux-${{ matrix.config }}-${{ hashFiles('**/*.h', '**/*.cpp', '**/*.lua') }}
+        restore-keys: |
+          build-int-linux-${{ matrix.config }}-
+
+    - name: Build ${{ matrix.config }} (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cd scripts/build
+        chmod +x build_linux.sh
+        ./build_linux.sh -j config=${{ matrix.config }}
+
     - name: Upload Release artifacts
-      if: matrix.config == 'Release'
+      if: matrix.os == 'windows-latest' && matrix.config == 'Release'
       uses: actions/upload-artifact@v4
       with:
         name: luth-release-x64
