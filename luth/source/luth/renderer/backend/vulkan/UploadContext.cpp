@@ -2,6 +2,7 @@
 #include "UploadContext.h"
 #include "VulkanContext.h"
 #include "VulkanAllocator.h"
+#include "VulkanDescriptors.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 
@@ -477,6 +478,52 @@ namespace Luth
     bool UploadContext::IsComplete(u64 fenceValue)
     {
         return m_UploadTimeline.GetValue() >= fenceValue;
+    }
+
+    void UploadContext::PushPendingBind(u32* outIndex, VkImageView view, VkSampler sampler, u64 fenceValue)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        m_PendingBinds.push_back({ outIndex, view, sampler, fenceValue });
+    }
+
+    void UploadContext::DrainPendingBinds()
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
+
+        if (m_PendingBinds.empty()) return;
+
+        // Single GetValue call per drain — fence values are monotonic, completedValue captured
+        // once is a safe lower bound for the rest of this iteration.
+        const u64 completedValue = m_UploadTimeline.GetValue();
+        auto& bindless = VulkanContext::Get().GetBindlessSet();
+
+        // Reverse swap-and-pop: removing index i never invalidates indices < i.
+        for (i64 i = static_cast<i64>(m_PendingBinds.size()) - 1; i >= 0; --i)
+        {
+            if (m_PendingBinds[i].fenceValue > completedValue) continue;
+
+            const u32 slot = bindless.BindTexture(m_PendingBinds[i].view, m_PendingBinds[i].sampler);
+            *(m_PendingBinds[i].outIndex) = slot;
+
+            m_PendingBinds[i] = m_PendingBinds.back();
+            m_PendingBinds.pop_back();
+        }
+    }
+
+    void UploadContext::CancelPendingBind(VkImageView view)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+
+        // VKTexture pushes at most one entry per ctor; linear scan finds the first (only) match.
+        for (auto it = m_PendingBinds.begin(); it != m_PendingBinds.end(); ++it)
+        {
+            if (it->view == view)
+            {
+                m_PendingBinds.erase(it);
+                return;
+            }
+        }
     }
 
     void UploadContext::WaitForUpload(u64 fenceValue)

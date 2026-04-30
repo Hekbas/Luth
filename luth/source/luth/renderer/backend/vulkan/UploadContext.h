@@ -45,6 +45,16 @@ namespace Luth
         // Waits for a specific upload to finish (Blocking - Use sparingly!).
         void WaitForUpload(u64 fenceValue);
 
+        // Pending-bind pump — defers BindlessDescriptorSet::BindTexture until the texture's
+        // upload fence retires. Caller (VKTexture ctor) provides outIndex pointing into its
+        // m_BindlessIndex member; DrainPendingBinds writes the assigned slot once the fence
+        // is complete. The pointer must remain valid until DrainPendingBinds writes it OR
+        // CancelPendingBind removes the entry — VKTexture dtor must call CancelPendingBind
+        // before image teardown (view-handle match).
+        void PushPendingBind(u32* outIndex, VkImageView view, VkSampler sampler, u64 fenceValue);
+        void DrainPendingBinds();
+        void CancelPendingBind(VkImageView view);
+
     private:
         void CreateResources();
 
@@ -88,6 +98,15 @@ namespace Luth
             u64 fenceValue;
         };
         std::vector<StagingBlock> m_InFlightBlocks;
+
+        struct PendingBind
+        {
+            u32* outIndex;     // points into VKTexture::m_BindlessIndex
+            VkImageView view;  // unique per VKTexture; used as cancel key
+            VkSampler sampler;
+            u64 fenceValue;
+        };
+        std::vector<PendingBind> m_PendingBinds;
 
         std::mutex m_Lock;
     };
