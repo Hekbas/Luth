@@ -145,7 +145,13 @@ Dropped the per-save `vkDeviceWaitIdle` from both reload sites (RenderPipeline c
 
 Tier-2/3 cleanup before `jolt-physics`. Validation messenger pNext-chained for instance create/destroy coverage; `BindlessDescriptorSet` free-list switched to `vector<u32>` LIFO with `INVALID_BINDLESS_SLOT` sentinel disambiguating "not registered" from the reserved null-texture slot 0 (the original BACKLOG "collides with slot 0" framing was stale — slot 0 was already explicitly reserved); `RenderResourceCache` keyed on `unordered_multimap<u64, …>` with `(w, h, format, usage)` and stale threshold trimmed 10000→30; runtime buffer uploads routed through `UploadContext::UploadBuffer` (texture half deferred — see follow-up); outline + grid push-constant literals routed through `EditorSettings` via `EditorViewportState`/`CameraParams`; vestigial `DescriptorAllocator` removed (IBLPrecompute owns a local pool now).
 
-**Follow-up:** `texture-async-uploads` — extend `UploadContext` with mip-chain async submit + deferred-bind pump composing with `AssetManager::s_UploadQueue`. Phase-1 inventory must map that pump's ownership rules.
+---
+
+## Epic: `texture-async-uploads` — v2.8.14
+
+> **Status: Shipped v2.8.14** — see [`history/v2.x/texture-async-uploads.md`](history/v2.x/texture-async-uploads.md).
+
+Finishes the texture half of `vulkan-polish` S4 (deferred mid-epic). New `UploadContext::UploadImageMipped` records pre-barrier all mips → mip-0 staging copy → `vkCmdBlitImage` chain → final `SHADER_READ_ONLY` in one cmd-buffer; 4-slot cmd-buffer ring inside `UploadContext` removes the F3 pre-reset fence wait so submits overlap on the GPU. Deferred-bindless-registration pump composes with `AssetManager::s_UploadQueue` main-thread tick — `VKTexture` ctor pushes `{outIndex, view, sampler, fence}`, pump checks `IsComplete` per frame and calls `BindTexture` once ready; until then `INVALID_BINDLESS_SLOT` + `Material::BindlessOrNull` keeps materials sampling reserved slot 0 (white fallback). `~VKTexture` cancels pending entries by view-handle match. Tag-only.
 
 ---
 
@@ -232,6 +238,25 @@ Plan-mode this one before touching code — queue ownership transfers and timeli
 Optional — defer if `forward-plus` doesn't push transient memory pressure on the target hardware. The `RenderResourceCache` rework in `vulkan-polish` already trims the steady-state churn; aliasing is the next step beyond that.
 
 **Dependencies:** —
+**Effort:** M
+
+---
+
+## Epic: `procedural-sky` — v2.9.x
+
+> **Default no-HDR experience.** Hosek-Wilkie or Preetham analytical sky, not stub-cubemap fallback.
+
+Runtime-evaluated atmospheric scattering as the default skybox when no HDR environment is loaded. Replaces today's dummy-cubemap fallback (introduced as a side-effect of `vulkan-polish` F1 `ibl-skip-pre-project`). Drives IBL inputs (irradiance + prefiltered env) when no HDR present, regenerated on sun-direction or turbidity change. Compute-shader implementation — full-resolution cubemap regen on parameter change is fine, this runs once-per-edit, not per-frame.
+
+| Area | Detail |
+|------|--------|
+| Sky model | Hosek-Wilkie (preferred — better horizon) or Preetham (simpler, well-tested) |
+| Inputs | Sun direction (existing DirectionalLight), turbidity, ground albedo, exposure |
+| Output | RGBA16F cubemap → drives existing IBL precompute path |
+| Editor | RenderPanel block: sky-model toggle, sun-coupled-to-DirLight checkbox, turbidity/albedo sliders |
+| Fallback chain | HDR if loaded → procedural sky if no HDR → existing dummy-cubemap as last resort |
+
+**Dependencies:** `jolt-physics` (post-Jolt scheduling slot, not technical)
 **Effort:** M
 
 ---

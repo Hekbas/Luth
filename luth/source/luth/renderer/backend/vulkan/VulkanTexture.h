@@ -73,5 +73,10 @@ namespace Luth
         VkImageView m_ImageView = VK_NULL_HANDLE;
         VkSampler m_Sampler = VK_NULL_HANDLE;
         u32 m_BindlessIndex = BindlessDescriptorSet::INVALID_BINDLESS_SLOT;
+
+        // Set when CreateImage routed pixel data through UploadContext (color non-depth path);
+        // CreateViewAndSampler then defers bindless registration via the pending-bind pump.
+        u64 m_LastUploadFence = 0;
+        bool m_DidAsyncUpload = false;
     };
 }
