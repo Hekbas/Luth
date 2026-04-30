@@ -5,13 +5,13 @@
 | Set | Content | Updated |
 |-----|---------|---------|
 | 0 | GlobalUniforms + shadow cascade array + IBL irradiance + IBL prefiltered env + BRDF LUT + GTAO settings UBO (6 bindings) | Per frame |
-| 1 | Bindless textures (16384 slots) | On texture load (UPDATE_AFTER_BIND, partially-bound) |
+| 1 | Bindless textures (16384 slots) | On upload-fence retire (UPDATE_AFTER_BIND, partially-bound; deferred via `UploadContext` pump per `texture-async-uploads` v2.8.14) |
 | 2 | Material SSBO (16384 entries) | Per game stage — rebound to fresh `GPUTaggedPageAllocator` region (UPDATE_AFTER_BIND) |
 | 3 | Light UBO (dir + point lights) + shadow map sampler | Per frame |
 | 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per game stage — rebound to fresh tagged-heap region (UPDATE_AFTER_BIND) |
 | 5 | `GPUObjectData` SSBO — per-draw transforms/IDs for indirect dispatch | Per render stage — rebound to fresh tagged-heap region (UPDATE_AFTER_BIND) |
 
-> Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0). Sets 2/4/5 moved to per-stage rebind in `gpu-tagged-heap` (v2.8.10) — backing storage allocated each frame from `GPUTaggedPageAllocator`, descriptors rewritten via `vkUpdateDescriptorSets` (UPDATE_AFTER_BIND_BIT). The cull descriptor (binding into Set 5 + Indirect Buffer for compute) follows the same pattern.
+> Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0). Sets 2/4/5 moved to per-stage rebind in `gpu-tagged-heap` (v2.8.10) — backing storage allocated each frame from `GPUTaggedPageAllocator`, descriptors rewritten via `vkUpdateDescriptorSets` (UPDATE_AFTER_BIND_BIT). The cull descriptor (binding into Set 5 + Indirect Buffer for compute) follows the same pattern. Set 1 bindless registration moved from synchronous-in-VKTexture-ctor to a `UploadContext` pending-bind pump in `texture-async-uploads` (v2.8.14) — `VKTexture` ctor pushes `{outIndex, view, sampler, fence}`; pump drains in `AssetManager::Update` once `IsComplete(fence)` and writes the slot through `outIndex`. Until then `m_BindlessIndex == INVALID_BINDLESS_SLOT` and `Material::BindlessOrNull` keeps shaders on reserved white slot 0. `~VKTexture` cancels by view-handle.
 
 ## Current RenderGraph Pass Order
 
