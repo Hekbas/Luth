@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 if ! command -v make &> /dev/null; then
     echo "ERROR: make is not installed."
     exit 1

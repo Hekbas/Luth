@@ -27,16 +27,20 @@ jobs:
         path: luth/extern/source
         key: submodules-${{ hashFiles('.gitmodules') }}
 
+    - name: Setup script permissions
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        chmod +x extern/premake/linux/premake5
+        chmod +x scripts/setup/setup_linux.sh
+        chmod +x scripts/build/build_linux.sh
+
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
-          libx11-dev \
-          libxcb1-dev \
-          libxrandr-dev \
-          libxi-dev \
+          xorg-dev \
           libgl1-mesa-dev \
           libvulkan-dev
 
@@ -89,9 +93,10 @@ jobs:
     - name: Build ${{ matrix.config }} (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: |
+        CONFIG=$(echo "${{ matrix.config }}" | tr '[:upper:]' '[:lower:]')
         cd scripts/build
         chmod +x build_linux.sh
-        ./build_linux.sh -j config=${{ matrix.config }}
+        ./build_linux.sh -j config=$CONFIG
 
     - name: Upload Release artifacts
       if: matrix.os == 'windows-latest' && matrix.config == 'Release'
