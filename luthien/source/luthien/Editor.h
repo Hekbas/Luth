@@ -62,6 +62,7 @@ namespace Luth
 
     protected:
         friend class Editor;
+        friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
 
         bool m_Visible = true;
         bool m_Focused = false;
