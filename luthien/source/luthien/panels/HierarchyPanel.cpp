@@ -2,6 +2,7 @@
 #include "luthien/panels/HierarchyPanel.h"
 #include "luthien/EditorColors.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
@@ -27,7 +28,19 @@ namespace Luth
     {
     }
 
-    void HierarchyPanel::OnRender()
+    void HierarchyPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Worker fiber. No ImGui, no Vulkan recording (V3). Only safe ECS reads.
+        // For v2.9.0 the snapshot just carries change-detection versions so the
+        // panel can later short-circuit gather when nothing changed. The actual
+        // tree pre-walk lives in OnDraw inline against the live Scene — moving it
+        // here is a follow-on polish commit (see editor-foundation history).
+        auto* snap = builder.Add<HierarchySnapshot>();
+        if (m_Context) snap->hierarchyVersion = m_Context->GetHierarchyVersion();
+        snap->selectionVersion = EditorSelection::GetVersion();
+    }
+
+    void HierarchyPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
