@@ -1,5 +1,6 @@
 #include "lepch.h"
 #include "luthien/panels/RenderPanel.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/EditorSettings.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -24,7 +25,14 @@ namespace Luth
         }
     }
 
-    void RenderPanel::OnRender()
+    void RenderPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Settings UI mutates RenderingSystem post-process settings live; nothing
+        // meaningful to capture in gather.
+        builder.Add<RenderSettingsSnapshot>();
+    }
+
+    void RenderPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         if (!m_RS) return;
