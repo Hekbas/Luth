@@ -9,6 +9,8 @@
 
 namespace Luth
 {
+    struct ResourceListSnapshot { /* placeholder; PopulateData stays inline for v2.9.0 */ };
+
     class ResourcePanel : public Panel
     {
     public:
@@ -23,7 +25,9 @@ namespace Luth
         ResourcePanel();
 
         void OnInit() override;
-        void OnRender() override;
+        bool UsesNewLifecycle() const override { return true; }
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
     private:
         void DrawFilterControls();

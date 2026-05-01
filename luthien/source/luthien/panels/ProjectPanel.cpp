@@ -2,6 +2,7 @@
 #include "luthien/panels/ProjectPanel.h"
 #include "luthien/EditorColors.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/Editor.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -61,7 +62,17 @@ namespace Luth
             UpdateSearchResults();
     }
 
-    void ProjectPanel::OnRender()
+    void ProjectPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Real opportunity site for follow-on polish: BuildDirectoryTree (recursive
+        // filesystem walk on Refresh) + UpdateSearchResults (lowercase + substring on
+        // every keystroke) both run today inside OnDraw and dominated the pre-rework
+        // Tracy capture. v2.9.0 ships the structural migration; the actual work move
+        // is a separate epic (editor-project-async-index).
+        builder.Add<ProjectSnapshot>();
+    }
+
+    void ProjectPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());

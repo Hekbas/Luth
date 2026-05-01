@@ -23,13 +23,20 @@ namespace Luth
         bool IsOpen = false;
     };
 
+    // Placeholder snapshot — real opportunity: move BuildDirectoryTree + UpdateSearchResults
+    // into OnGather (both heavy CPU work spotted in pre-rework Tracy). v2.9.0 only does
+    // the structural lifecycle migration; a follow-on polish epic can shift that work.
+    struct ProjectSnapshot { /* placeholder; populated by future polish */ };
+
     class ProjectPanel : public Panel
     {
     public:
         ProjectPanel();
 
         void OnInit() override;
-        void OnRender() override;
+        bool UsesNewLifecycle() const override { return true; }
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
         void Refresh();
 
