@@ -14,6 +14,15 @@ namespace Luth
 {
     class Scene;
 
+    // v2.9.0 lifecycle migration. Scene panel is dominantly ImGui-driven (gizmo
+    // input, viewport image, drag-drop), so the snapshot is intentionally tiny —
+    // most work belongs in OnDraw. Future polish can capture EditorCamera matrices
+    // into the snapshot for the EditorViewportState handoff to live in gather.
+    struct SceneViewportSnapshot
+    {
+        u32 selectionVersion = 0;
+    };
+
     class ScenePanel : public Panel
     {
     public:
@@ -21,7 +30,9 @@ namespace Luth
         ~ScenePanel() override;
 
         void OnInit() override;
-        void OnRender() override;
+        bool UsesNewLifecycle() const override { return true; }
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
         void SetContext(const std::shared_ptr<Scene>& context) { m_Context = context; }
 
