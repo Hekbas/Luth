@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/memory/LinearAllocator.h"
 #include "luth/platform/Window.h"
 #include "luth/scene/Scene.h"
 #include "luthien/EditorSettings.h"
@@ -18,12 +19,67 @@ struct ImGuiContext;
 
 namespace Luth
 {
+    // Forward decls for the new Gather/Draw lifecycle. Defined in EditorSnapshot.h
+    // and events/EditorSignals.h (added in sub-tasks B and the editor-signal-bus epic
+    // respectively). Panel's hooks take these by reference; full definitions only
+    // needed in panel .cpp files that override OnGather/OnDraw/OnEvent.
+    class EditorSnapshot;
+    class EditorSnapshotBuilder;
+    struct EditorSignal;
+
+    // Editor panel base. Lifecycle changing in v2.9.0 (editor-foundation):
+    //   OnInit       — once after construction; subscribe to signals here.
+    //   OnGather     — worker fiber, no ImGui, no Vk; fills m_SnapshotFragment.
+    //   OnDraw       — main thread, the only place ImGui calls are legal; reads frozen snapshot.
+    //   OnEvent      — main thread between frames (EventBus drain); panel-state mutations.
+    //   OnShutdown   — editor teardown.
+    //   OnRender     — LEGACY; called by Editor::Render's bridge for panels where
+    //                  UsesNewLifecycle() returns false. Removed entirely in sub-task K
+    //                  once every panel migrates.
+    //
+    // Migration sentinel: panels override UsesNewLifecycle() to return true once they
+    // implement OnGather/OnDraw and stop relying on OnRender. The Editor frame loop
+    // dispatches accordingly.
     class Panel
     {
     public:
         virtual ~Panel() = default;
-        virtual void OnInit() = 0;
-        virtual void OnRender() = 0;
+
+        virtual void OnInit() {}
+        virtual bool UsesNewLifecycle() const { return false; }
+        virtual void OnGather(EditorSnapshotBuilder& /*builder*/) {}
+        virtual void OnDraw(const EditorSnapshot& /*snapshot*/) {}
+        virtual void OnEvent(const EditorSignal& /*signal*/) {}
+        virtual void OnShutdown() {}
+        virtual void OnRender() {}    // legacy bridge; removed in sub-task K
+
+        // Introspection — Editor populates these; panels read.
+        bool IsVisible() const { return m_Visible; }
+        bool IsFocused() const { return m_Focused; }
+        bool IsDocked()  const { return m_Docked;  }
+        int  GetWindowFlags() const { return m_WindowFlags; }
+        const char* GetWindowID() const { return m_WindowID; }   // must be string literal
+
+    protected:
+        friend class Editor;
+
+        bool m_Visible = true;
+        bool m_Focused = false;
+        bool m_Docked  = false;
+        int  m_WindowFlags = 0;
+        const char* m_WindowID = "Panel";
+
+        // Error-boundary state (Pillar 5, editor-console-errors epic v2.9.2).
+        bool m_Crashed = false;
+        u8   m_CrashStreak = 0;
+
+        // Per-panel scratch for OnGather. Reset by gather thunk before each call.
+        // Pages tracked under Memory::Category::FrameLinear (LinearAllocator's hardcoded
+        // category). Panel-lifetime allocations (the panel object, persistent caches)
+        // use LH_NEW(Memory::Category::Editor, ...) at their construction sites instead.
+        Memory::LinearAllocator m_GatherAlloc{ 64 * 1024 };
+        void* m_SnapshotFragment = nullptr;
+        std::type_index m_FragmentType{ typeid(void) };
     };
 
     class Editor
