@@ -73,16 +73,24 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.8.x | S–M | `frame-debugger-polish` |
-| 2 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.9.0 | XL | `play-mode` |
-| 3 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.9.1 | M | — |
-| 4 | `async-compute-queue` | NEW | v2.9.2 | L | `vulkan-correctness` |
-| 5 | `rg-aliasing` (optional) | NEW | v2.9.3 | M | — |
-| 6 | `procedural-sky` | NEW | v2.9.x | M | `jolt-physics` |
-| 7 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.10.0 | L | `compute-gpu-culling`, `async-compute-queue` |
-| 8 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.10.1 | M | — |
-| 9 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.11.0 | XL | `animation-quick-pass` |
-| 10 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.12.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `editor-foundation` | NEW | v2.9.0 | L | `editor-component-registry` |
+| 2 | `editor-signal-bus` | NEW | v2.9.1 | M | `editor-foundation` |
+| 3 | `editor-console-errors` | NEW | v2.9.2 | M | `editor-foundation` |
+| 4 | `editor-job-pump` | NEW | v2.9.3 | M | — |
+| 5 | `editor-autosave` | NEW | v2.9.4 | M | `editor-job-pump`, `editor-signal-bus` |
+| 6 | `editor-thumbnails` | NEW | v2.9.5 | S–M | `editor-job-pump`, `editor-signal-bus` |
+| 7 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
+| 8 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
+| 9 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
+| 10 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
+| 11 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
+| 12 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
+| 13 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
+| 14 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
+| 15 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 16 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
+| 17 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
+| 18 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
