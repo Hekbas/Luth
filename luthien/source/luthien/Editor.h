@@ -17,6 +17,11 @@
 
 struct ImGuiContext;
 
+namespace Luth::JobSystem
+{
+    struct JobArgs;   // luth/jobs/JobSystem.h — full def only needed in Editor.cpp
+}
+
 namespace Luth
 {
     // Forward decls for the new Gather/Draw lifecycle. Defined in EditorSnapshot.h
@@ -154,6 +159,11 @@ namespace Luth
         static void ProcessShortcuts();
         static void DrawMenuBar();
         static void UpdateWindowTitle();
+
+        // Gather thunk dispatched onto worker fibers. Resets the panel's scratch,
+        // calls OnGather, catches exceptions to bump m_CrashStreak. Pillar 5
+        // (editor-console-errors v2.9.2) extends with stack-trace dumping.
+        static void GatherJobThunk(JobSystem::JobArgs args);
         static inline Window* s_Window = nullptr;
         static inline ImGuiContext* s_Context = nullptr;
         static inline VkDescriptorPool s_ImGuiPool = VK_NULL_HANDLE;
