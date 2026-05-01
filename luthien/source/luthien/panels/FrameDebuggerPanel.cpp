@@ -1,5 +1,6 @@
 #include "lepch.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
+#include "luthien/EditorSnapshot.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luthien/widgets/Widgets.h"
 #include "luthien/widgets/Icons.h"
@@ -217,7 +218,14 @@ namespace Luth
 
     // ---- Main Render ----
 
-    void FrameDebuggerPanel::OnRender()
+    void FrameDebuggerPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Pass tree + archive previews + per-draw replay all need ImGui descriptor
+        // allocations on main thread; snapshot stays a placeholder for v2.9.0.
+        builder.Add<FrameDebuggerSnapshot>();
+    }
+
+    void FrameDebuggerPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         if (!m_RS) return;

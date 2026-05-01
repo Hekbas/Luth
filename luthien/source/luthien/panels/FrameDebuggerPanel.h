@@ -8,11 +8,20 @@
 
 namespace Luth
 {
+    // FrameDebugger pass tree, archive previews, and per-draw replay all run against
+    // descriptor sets allocated on the main thread (ImGui_ImplVulkan_AddTexture is not
+    // MT-safe). Snapshot is a placeholder for v2.9.0; the bulk of OnDraw remains inline
+    // because moving descriptor management requires the bind-queue pattern from
+    // editor-thumbnails (v2.9.5).
+    struct FrameDebuggerSnapshot { /* placeholder */ };
+
     class FrameDebuggerPanel : public Panel
     {
     public:
         void OnInit() override;
-        void OnRender() override;
+        bool UsesNewLifecycle() const override { return true; }
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
         // Unity-style viewport pass preview. ScenePanel / GamePanel query
         // each frame; the overlay target is coupled to FrameDebugger's
