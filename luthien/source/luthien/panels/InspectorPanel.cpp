@@ -44,7 +44,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string inspector = ICON_FA_CIRCLE_INFO + std::string("  Inspector");
 
-        if (ImGui::Begin(inspector.c_str()))
+        if (BeginWindow(inspector.c_str()))
         {
             // Clear lock if entity becomes invalid
             if (m_IsLocked && !m_LockedEntity.IsValid()) {

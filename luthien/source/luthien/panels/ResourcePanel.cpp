@@ -29,7 +29,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string resources = ICON_FA_DATABASE + std::string("  Resources");
 
-        if (ImGui::Begin(resources.c_str()))
+        if (BeginWindow(resources.c_str()))
         {
             // Filter controls
             DrawFilterControls();

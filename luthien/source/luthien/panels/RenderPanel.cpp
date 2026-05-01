@@ -39,7 +39,7 @@ namespace Luth
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string render = ICON_FA_FILM + std::string("  Render");
-        ImGui::Begin(render.c_str());
+        BeginWindow(render.c_str());
         
         // Tab selector
         if (ImGui::Button(ICON_FA_LAYER_GROUP, ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {

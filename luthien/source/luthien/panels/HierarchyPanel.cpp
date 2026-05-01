@@ -44,7 +44,7 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
-        if (ImGui::Begin(ICON_FA_LIST "  Hierarchy") && m_Context)
+        if (BeginWindow(ICON_FA_LIST "  Hierarchy") && m_Context)
         {
             // Sync primary selection from EditorSelection (may have changed via viewport)
             m_Selection = EditorSelection::GetSelectedEntity();

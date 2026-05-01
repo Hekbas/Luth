@@ -109,7 +109,7 @@ namespace Luth
     void HistoryPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        if (ImGui::Begin(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
+        if (BeginWindow(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
         {
             auto& undoStack = CommandHistory::GetUndoStack();
             auto& redoStack = CommandHistory::GetRedoStack();

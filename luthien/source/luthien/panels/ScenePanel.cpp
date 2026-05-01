@@ -76,7 +76,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
-        if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
+        if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
             // Toolbar â Left | Mid | Right
             {
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;

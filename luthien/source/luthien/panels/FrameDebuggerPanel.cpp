@@ -232,7 +232,7 @@ namespace Luth
 
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_DIAGRAM_PROJECT + std::string("  Frame Debugger");
-        ImGui::Begin(title.c_str());
+        BeginWindow(title.c_str());
         ImGui::PopFont();
 
         auto debuggerState = m_RS->GetDebuggerState();

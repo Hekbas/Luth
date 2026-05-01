@@ -97,7 +97,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_GAMEPAD + std::string("  Game");
 
-        if (ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar))
+        if (BeginWindow(title.c_str(), ImGuiWindowFlags_NoScrollbar))
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 

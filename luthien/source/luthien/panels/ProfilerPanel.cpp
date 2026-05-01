@@ -84,7 +84,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_CHART_LINE + std::string("  Profiler");
 
-        if (ImGui::Begin(title.c_str()))
+        if (BeginWindow(title.c_str()))
         {
             // 25002500 Per-frame sampling (worker states + job counters) 25002500
             {

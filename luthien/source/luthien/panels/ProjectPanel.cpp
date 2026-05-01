@@ -78,7 +78,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string project = ICON_FA_FOLDER + std::string("  Project");
 
-        if (ImGui::Begin(project.c_str()))
+        if (BeginWindow(project.c_str()))
         {
             if (!FileSystem::HasProject())
             {

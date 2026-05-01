@@ -65,6 +65,19 @@ namespace Luth
         int  GetWindowFlags() const { return m_WindowFlags; }
         const char* GetWindowID() const { return m_WindowID; }   // must be string literal
 
+        // Wraps ImGui::Begin and updates introspection. Panels call this from OnDraw
+        // instead of ImGui::Begin directly. Caller still pairs with ImGui::End.
+        // Visibility flows back into the gather-dispatch loop next frame: invisible
+        // panels skip OnGather, accepting one frame stale on visibility resume.
+        bool BeginWindow(const char* name, ImGuiWindowFlags flags = 0)
+        {
+            bool open = ImGui::Begin(name, nullptr, flags);
+            m_Visible = open;
+            m_Focused = open && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow);
+            m_Docked  = open && ImGui::IsWindowDocked();
+            return open;
+        }
+
     protected:
         friend class Editor;
         friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
