@@ -11,13 +11,27 @@
 
 namespace Luth
 {
+    // Per-frame snapshot fragment for InspectorPanel. v2.9.0 captures only the
+    // selection version + the locked-entity flag — sufficient for future
+    // skip-gather optimization. Component-drawer state (which is heavyweight,
+    // including the MaterialEditor's shader-combo enumeration noted in the
+    // pre-rework Tracy capture) stays inline in OnDraw for now; a future polish
+    // commit can move asset-DB lookups into gather.
+    struct InspectorSnapshot
+    {
+        u32  selectionVersion = 0;
+        bool locked = false;
+    };
+
     class InspectorPanel : public Panel
     {
     public:
         InspectorPanel();
 
         void OnInit() override;
-        void OnRender() override;
+        bool UsesNewLifecycle() const override { return true; }
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
         // Component drawers call this to hand off the active material UUID
         // to the trailing MaterialEditor panel drawn after DrawEntityComponents.
