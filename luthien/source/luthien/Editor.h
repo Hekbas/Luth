@@ -32,31 +32,22 @@ namespace Luth
     class EditorSnapshotBuilder;
     struct EditorSignal;
 
-    // Editor panel base. Lifecycle changing in v2.9.0 (editor-foundation):
+    // Editor panel base. Gather/Draw lifecycle (since v2.9.0 editor-foundation):
     //   OnInit       — once after construction; subscribe to signals here.
     //   OnGather     — worker fiber, no ImGui, no Vk; fills m_SnapshotFragment.
     //   OnDraw       — main thread, the only place ImGui calls are legal; reads frozen snapshot.
     //   OnEvent      — main thread between frames (EventBus drain); panel-state mutations.
     //   OnShutdown   — editor teardown.
-    //   OnRender     — LEGACY; called by Editor::Render's bridge for panels where
-    //                  UsesNewLifecycle() returns false. Removed entirely in sub-task K
-    //                  once every panel migrates.
-    //
-    // Migration sentinel: panels override UsesNewLifecycle() to return true once they
-    // implement OnGather/OnDraw and stop relying on OnRender. The Editor frame loop
-    // dispatches accordingly.
     class Panel
     {
     public:
         virtual ~Panel() = default;
 
         virtual void OnInit() {}
-        virtual bool UsesNewLifecycle() const { return false; }
         virtual void OnGather(EditorSnapshotBuilder& /*builder*/) {}
-        virtual void OnDraw(const EditorSnapshot& /*snapshot*/) {}
+        virtual void OnDraw(const EditorSnapshot& snapshot) = 0;
         virtual void OnEvent(const EditorSignal& /*signal*/) {}
         virtual void OnShutdown() {}
-        virtual void OnRender() {}    // legacy bridge; removed in sub-task K
 
         // Introspection — Editor populates these; panels read.
         bool IsVisible() const { return m_Visible; }

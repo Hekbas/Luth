@@ -323,18 +323,17 @@ namespace Luth
         if (!s_Context) return;
 
         // ── Gather phase ─────────────────────────────────────────────────────────
-        // Dispatch one gather job per visible panel that has migrated to the new
-        // lifecycle. Workers run concurrently while main is still on this thread;
-        // we busy-spin (V2-isolated) before assembling the snapshot. Panels still
-        // on the legacy OnRender path skip gather entirely — the bridge in the
-        // draw loop calls their OnRender unchanged.
+        // Dispatch one gather job per visible panel. Workers run concurrently while
+        // main is still on this thread; we busy-spin (V2-isolated) before assembling
+        // the snapshot. Visibility reflects last frame's ImGui state via
+        // Panel::BeginWindow — first frame after a panel becomes visible runs OnDraw
+        // against an empty snapshot fragment, then re-gathers next frame.
         JobSystem::Counter gatherCounter;
         const bool launcherOpen = ProjectLauncher::IsVisible();
         if (!launcherOpen)
         {
             for (auto& panel : s_Panels)
             {
-                if (!panel->UsesNewLifecycle()) continue;
                 if (!panel->IsVisible() || panel->m_Crashed) continue;
                 JobSystem::Execute(GatherJobThunk, panel.get(), &gatherCounter,
                                    "Editor.Gather", JobSystem::Priority::Low);
@@ -346,12 +345,8 @@ namespace Luth
         EditorSnapshot snapshot;
         for (auto& panel : s_Panels)
         {
-            if (panel->UsesNewLifecycle()
-                && panel->IsVisible()
-                && panel->m_SnapshotFragment)
-            {
+            if (panel->IsVisible() && panel->m_SnapshotFragment)
                 snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
-            }
         }
 
         // Create dockspace
@@ -410,16 +405,10 @@ namespace Luth
         }
         else
         {
-            // Bridge during migration: OnDraw for panels on the new lifecycle,
-            // legacy OnRender otherwise. Sub-task K removes this once every panel
-            // has migrated and the legacy hook is gone.
             for (auto& panel : s_Panels)
             {
                 if (panel->m_Crashed) continue;
-                if (panel->UsesNewLifecycle())
-                    panel->OnDraw(snapshot);
-                else
-                    panel->OnRender();
+                panel->OnDraw(snapshot);
             }
         }
 
