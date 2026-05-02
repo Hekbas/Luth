@@ -4,6 +4,7 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/events/Event.h"
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <queue>
@@ -24,6 +25,16 @@ namespace Luth
         COUNT
     };
 
+    // Opaque handle returned by Subscribe; pass to Unsubscribe to revoke. The handle
+    // carries the typeID so Unsubscribe is O(subscribers-of-T) instead of scanning
+    // every type's subscriber list. Default-constructed handle is invalid (no-op
+    // Unsubscribe), letting callers use it as a "not yet subscribed" sentinel.
+    struct SubscriptionHandle {
+        EventTypeID type{static_cast<EventTypeID>(-1)};
+        u64 id{0};
+        bool IsValid() const { return id != 0; }
+    };
+
     class EventBus
     {
     public:
@@ -35,10 +46,20 @@ namespace Luth
             GetBus(bus).Enqueue<T>(std::forward<Args>(args)...);
         }
 
-        // Subscribe to specific event type
+        // Subscribe to specific event type. Discard the return value if the
+        // subscription is process-lifetime (e.g., App.cpp's window/file-drop hooks).
+        // Capture the handle when the subscriber's lifetime is shorter than the bus
+        // (panels, plugins) — call Unsubscribe in their teardown to avoid dangling
+        // handler captures.
         template<typename T>
-        static void Subscribe(BusType bus, EventHandler handler) {
-            GetBus(bus).Subscribe<T>(std::move(handler));
+        static SubscriptionHandle Subscribe(BusType bus, EventHandler handler) {
+            return GetBus(bus).Subscribe<T>(std::move(handler));
+        }
+
+        // Revoke a subscription. Safe to call with an invalid (default-constructed)
+        // handle — no-op. Safe across buses; the handle's typeID + id resolve uniquely.
+        static void Unsubscribe(BusType bus, SubscriptionHandle handle) {
+            GetBus(bus).Unsubscribe(handle);
         }
 
         // Process all queued events
@@ -58,9 +79,21 @@ namespace Luth
             }
 
             template<typename T>
-            void Subscribe(EventHandler handler) {
+            SubscriptionHandle Subscribe(EventHandler handler) {
                 const auto typeID = GetEventTypeID<T>();
-                m_Subscribers[typeID].emplace_back(std::move(handler));
+                const u64 id = ++m_NextSubId;   // pre-increment so 0 stays "invalid"
+                m_Subscribers[typeID].push_back({ id, std::move(handler) });
+                return { typeID, id };
+            }
+
+            void Unsubscribe(SubscriptionHandle handle) {
+                if (!handle.IsValid()) return;
+                auto it = m_Subscribers.find(handle.type);
+                if (it == m_Subscribers.end()) return;
+                auto& vec = it->second;
+                vec.erase(std::remove_if(vec.begin(), vec.end(),
+                              [id = handle.id](const SubEntry& e) { return e.first == id; }),
+                          vec.end());
             }
 
             // Drain the queue and dispatch all events. Single-thread-only by design —
@@ -106,7 +139,8 @@ namespace Luth
             void DispatchEvent(Event& event, EventTypeID typeID) {
                 auto it = m_Subscribers.find(typeID);
                 if (it == m_Subscribers.end()) return;
-                for (auto& handler : it->second) {
+                for (auto& [id, handler] : it->second) {
+                    (void)id;
                     if (event.m_Handled) break;
                     try {
                         handler(event);
@@ -123,9 +157,12 @@ namespace Luth
                 return counter++;
             }
 
+            using SubEntry = std::pair<u64, EventHandler>;
+
             std::queue<std::pair<EventPtr, EventTypeID>> m_EventQueue;
-            std::unordered_map<EventTypeID, std::vector<EventHandler>> m_Subscribers;
+            std::unordered_map<EventTypeID, std::vector<SubEntry>> m_Subscribers;
             std::mutex m_QueueLock;
+            u64 m_NextSubId = 0;
         };
 
         static BusInstance& GetBus(BusType bus) {
