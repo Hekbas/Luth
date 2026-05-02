@@ -1,5 +1,7 @@
 #include "lepch.h"
 #include "luthien/Editor.h"
+#include "luthien/EditorSnapshot.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/platform/WinWindow.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/scene/systems/SystemRegistry.h"
@@ -285,12 +287,67 @@ namespace Luth
         }
     }
 
+    void Editor::GatherJobThunk(JobSystem::JobArgs args)
+    {
+        Panel* panel = static_cast<Panel*>(args.data);
+        LH_PROFILE_SCOPE_DYNAMIC_CSTR(panel->GetWindowID());
+
+        // Reset the panel's scratch first thing — Reset() rewinds the bump pointer
+        // without freeing pages, so the prior frame's m_SnapshotFragment is invalid
+        // from this line onward. Null it explicitly so a thrown OnGather doesn't
+        // leave a dangling pointer for the snapshot-assembly phase to read.
+        panel->m_GatherAlloc.Reset();
+        panel->m_SnapshotFragment = nullptr;
+        panel->m_FragmentType = std::type_index(typeid(void));
+
+        EditorSnapshotBuilder builder(*panel);
+        try
+        {
+            panel->OnGather(builder);
+        }
+        catch (const std::exception& e)
+        {
+            // Pillar 5 (editor-console-errors v2.9.2) extends with stack-trace dump
+            // to the console panel. For v2.9.0 we just log and bump the crash streak.
+            LH_CORE_ERROR("Panel '{}' threw in OnGather: {}", panel->GetWindowID(), e.what());
+            panel->m_SnapshotFragment = nullptr;
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+    }
+
     void Editor::Render()
     {
         LH_PROFILE_FUNCTION();
 
         // Skip rendering if context is null (Vulkan case)
         if (!s_Context) return;
+
+        // ── Gather phase ─────────────────────────────────────────────────────────
+        // Dispatch one gather job per visible panel. Workers run concurrently while
+        // main is still on this thread; we busy-spin (V2-isolated) before assembling
+        // the snapshot. Visibility reflects last frame's ImGui state via
+        // Panel::BeginWindow — first frame after a panel becomes visible runs OnDraw
+        // against an empty snapshot fragment, then re-gathers next frame.
+        JobSystem::Counter gatherCounter;
+        const bool launcherOpen = ProjectLauncher::IsVisible();
+        if (!launcherOpen)
+        {
+            for (auto& panel : s_Panels)
+            {
+                if (!panel->IsVisible() || panel->m_Crashed) continue;
+                JobSystem::Execute(GatherJobThunk, panel.get(), &gatherCounter,
+                                   "Editor.Gather", JobSystem::Priority::Low);
+            }
+            JobSystem::WaitForCounter(&gatherCounter);
+        }
+
+        // ── Snapshot assembly (single-threaded post-wait, no contention) ────────
+        EditorSnapshot snapshot;
+        for (auto& panel : s_Panels)
+        {
+            if (panel->IsVisible() && panel->m_SnapshotFragment)
+                snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
+        }
 
         // Create dockspace
         static bool dockspaceOpen = true;
@@ -348,9 +405,11 @@ namespace Luth
         }
         else
         {
-            // Render all panels
             for (auto& panel : s_Panels)
-                panel->OnRender();
+            {
+                if (panel->m_Crashed) continue;
+                panel->OnDraw(snapshot);
+            }
         }
 
         // Check if a model import completed with unresolved textures

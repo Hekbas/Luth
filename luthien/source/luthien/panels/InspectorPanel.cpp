@@ -1,5 +1,6 @@
 #include "lepch.h"
 #include "luthien/panels/InspectorPanel.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/inspectors/ComponentDrawerRegistry.h"
 #include "luthien/widgets/Widgets.h"
 #include "luthien/commands/Commands.h"
@@ -26,13 +27,24 @@ namespace Luth
 
     void InspectorPanel::OnInit() {}
 
-    void InspectorPanel::OnRender()
+    void InspectorPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // v2.9.0: structural migration — fragment carries change-detection state.
+        // Component-drawer property reads (and, importantly, MaterialEditor's shader-combo
+        // enumeration that dominated the pre-rework Tracy capture) remain inline in OnDraw.
+        // Moving the asset-DB lookups + property reads into gather is a future polish epic.
+        auto* snap = builder.Add<InspectorSnapshot>();
+        snap->selectionVersion = EditorSelection::GetVersion();
+        snap->locked = m_IsLocked;
+    }
+
+    void InspectorPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string inspector = ICON_FA_CIRCLE_INFO + std::string("  Inspector");
 
-        if (ImGui::Begin(inspector.c_str()))
+        if (BeginWindow(inspector.c_str()))
         {
             // Clear lock if entity becomes invalid
             if (m_IsLocked && !m_LockedEntity.IsValid()) {

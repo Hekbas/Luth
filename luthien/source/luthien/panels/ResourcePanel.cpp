@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/ResourcePanel.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/EditorSnapshot.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luthien/widgets/ImGuiUtils.h"
@@ -15,13 +16,20 @@ namespace Luth
 
     void ResourcePanel::OnInit() {}
 
-    void ResourcePanel::OnRender()
+    void ResourcePanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // PopulateData (asset DB enumeration + sort/filter) stays inline for v2.9.0;
+        // future polish can shift it here.
+        builder.Add<ResourceListSnapshot>();
+    }
+
+    void ResourcePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string resources = ICON_FA_DATABASE + std::string("  Resources");
 
-        if (ImGui::Begin(resources.c_str()))
+        if (BeginWindow(resources.c_str()))
         {
             // Filter controls
             DrawFilterControls();

@@ -2,6 +2,7 @@
 #include "luthien/panels/ScenePanel.h"
 #include "luthien/panels/RenderPanel.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luthien/EditorSettings.h"
@@ -51,7 +52,17 @@ namespace Luth
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
     }
 
-    void ScenePanel::OnRender()
+    void ScenePanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // v2.9.0 minimum-viable migration. Most viewport work is unavoidably ImGui-driven
+        // (ImGuizmo, ImGui::Image of the rendertarget, drag-drop). Camera matrices feed
+        // into RenderingSystem via EditorViewportState in App::Run line 239 — moving that
+        // capture here is a future polish target.
+        auto* snap = builder.Add<SceneViewportSnapshot>();
+        snap->selectionVersion = EditorSelection::GetVersion();
+    }
+
+    void ScenePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         m_Gizmo->ResetFrameState();
@@ -65,7 +76,7 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
-        if (ImGui::Begin(scene.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar)) {
+        if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
             // Toolbar â Left | Mid | Right
             {
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
