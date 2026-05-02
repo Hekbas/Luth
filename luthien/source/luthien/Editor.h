@@ -79,7 +79,7 @@ namespace Luth
         int  m_WindowFlags = 0;
         const char* m_WindowID = "Panel";
 
-        // Error-boundary state (Pillar 5, editor-console-errors epic v2.9.2).
+        // Error-boundary state — see Editor::DrawPanelGuarded.
         bool m_Crashed = false;
         u8   m_CrashStreak = 0;
 
@@ -165,9 +165,14 @@ namespace Luth
         static void UpdateWindowTitle();
 
         // Gather thunk dispatched onto worker fibers. Resets the panel's scratch,
-        // calls OnGather, catches exceptions to bump m_CrashStreak. Pillar 5
-        // (editor-console-errors v2.9.2) extends with stack-trace dumping.
+        // calls OnGather, catches exceptions, dumps a stack trace, and bumps
+        // m_CrashStreak. m_CrashStreak >= 3 → m_Crashed, panel goes dark until reset.
         static void GatherJobThunk(JobSystem::JobArgs args);
+
+        // Main-thread guard around panel->OnDraw. Mirrors GatherJobThunk's catch
+        // contract so a thrown OnDraw can't take the editor down.
+        static void DrawPanelGuarded(Panel* panel, const EditorSnapshot& snapshot);
+        static void DrawCrashedPlaceholder(Panel* panel);
         static inline Window* s_Window = nullptr;
         static inline ImGuiContext* s_Context = nullptr;
         static inline VkDescriptorPool s_ImGuiPool = VK_NULL_HANDLE;

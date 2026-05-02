@@ -18,16 +18,46 @@
 #include <spdlog/fmt/ostr.h>
 #pragma warning(pop)
 
+#include "luth/core/types/LuthTypes.h"
+
+#include <chrono>
 #include <memory>
+#include <string>
 #include <cassert>
 
 namespace Luth
 {
+    enum class LogLevel : u8 {
+        Trace, Debug, Info, Warn, Error, Critical, Off
+    };
+
+    struct LogEntry {
+        LogLevel level;
+        std::string message;
+        std::string logger;
+        std::chrono::system_clock::time_point timestamp;
+    };
+
+    // Editor-side observer of the engine log stream. OnLogEntry fires from any
+    // thread (workers / IO / main) — implementations must be re-entrant and MUST
+    // NOT call LH_CORE_* from OnLogEntry (base_sink is non-recursive, deadlock).
+    // ConsolePanel forwards via EventBus to drain on main.
+    class ILogSink {
+    public:
+        virtual ~ILogSink() = default;
+        virtual void OnLogEntry(const LogEntry& entry) = 0;
+    };
+
     class Log
     {
     public:
         static void Init();
         inline static std::shared_ptr<spdlog::logger>& GetLogger() { return s_Logger; }
+
+        // Register / unregister an ILogSink. Safe across threads. Safe to call
+        // before Init (sinks are retained; fan-out begins once spdlog is wired).
+        static void AddSink(ILogSink* sink);
+        static void RemoveSink(ILogSink* sink);
 
     private:
         static std::shared_ptr<spdlog::logger> s_Logger;

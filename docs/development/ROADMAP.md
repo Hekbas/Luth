@@ -64,6 +64,9 @@
 | v2.8.12 | `shader-reload-async` | Drops the per-save `vkDeviceWaitIdle` from the shader hot-reload path. Reload callback now builds new pipelines first, pushes old `VKPipeline`/`VKComputePipeline` to `VulkanContext::PushDeletion` (V1 SpinLock-safe per v2.8.7) — drained MAX_FRAMES_IN_FLIGHT frames later in `AcquireImage`. `VulkanShader::Reload` drops its own redundant `vkDeviceWaitIdle` (VkShaderModule is consumed at pipeline-create per spec; old pipelines hold no module reference). `PipelineManager` gains `DeferredClear()` / `DeferredInvalidateShader()` for the cached PBR variants. `m_ShaderWatcher.Poll()` moved from per-`Execute` to once-per-frame in `RenderingSystem::Update`. Net: shader save no longer drops a frame. Tag-only | 2026-04-29 |
 | v2.8.13 | `vulkan-polish` | Tier-2/3 cleanup before `jolt-physics`. Validation messenger pNext-chained for instance create/destroy coverage; `BindlessDescriptorSet` free-list switched to `vector<u32>` LIFO with `INVALID_BINDLESS_SLOT` sentinel disambiguating "not registered" from the reserved null-texture slot 0; `RenderResourceCache` keyed on `unordered_multimap<u64,…>` with `(w, h, format, usage)` and stale threshold 10000→30; runtime buffer uploads routed through `UploadContext::UploadBuffer` (texture half deferred to v2.8.14); outline + grid push-constant literals plumbed through `EditorSettings`/`EditorViewportState`/`CameraParams`; vestigial `DescriptorAllocator` removed (IBLPrecompute owns a local pool now). Tag-only | 2026-04-29 |
 | v2.8.14 | `texture-async-uploads` | Finishes the texture half of `vulkan-polish` S4. New `UploadContext::UploadImageMipped` records pre-barrier all mips → mip-0 staging copy → `vkCmdBlitImage` chain → final SHADER_READ_ONLY in one cmd-buffer; 4-slot cmd-buffer ring inside `UploadContext` removes the F3 pre-reset fence wait so submits overlap on the GPU. Deferred-bindless-registration pump composes with `AssetManager::s_UploadQueue` main-thread tick — `VKTexture` ctor pushes `{outIndex, view, sampler, fence}`, pump checks `IsComplete` per frame and calls `BindTexture` once ready; until then `INVALID_BINDLESS_SLOT` + `Material::BindlessOrNull` keeps materials sampling reserved slot 0 (white fallback). `~VKTexture` cancels pending entries by view-handle match. Inline `ImmediateSubmit` lambda (~100 LOC) in `VKTexture::CreateImage` data path retired; the 5 sync init/control-flow sites untouched. Tag-only | 2026-04-30 |
+| v2.9.0 | `editor-foundation` | First effort of the AAA editor rework. Replaces the bare `OnInit`/`OnRender` Panel contract with a Gather→Draw lifecycle: panel data collection runs in parallel on worker fibers via `JobSystem::Execute`; ImGui submission stays on main reading frozen, immutable per-panel snapshots. Per-panel `LinearAllocator(64*1024)` gather scratch; `TaggedPageAllocator` rejected during Phase 3 review for pages-held-in-fiber-cache leaks. 9 panels migrated through a `UsesNewLifecycle` bridge sentinel (sentinel + legacy `OnRender` stripped in K). Panel introspection (`m_Visible`/`m_Focused`/`m_Docked`) populated by new `Panel::BeginWindow` helper. Editor functionally identical to v2.8.14. Milestone Release | 2026-05-01 |
+| v2.9.1 | `editor-signal-bus` | Layers typed `EditorSignal` events on the existing `EventBus::BusType::MainThread` so panels react to selection / hierarchy / asset / project / play-state via subscriptions instead of polling. Replaces `Scene::GetHierarchyVersion` polling block in `Editor::Render` with `HierarchyChangedSignal` subscription. Bundles `EventBus` hardening (pre-effort audit verdict YELLOW): exception-safe dispatch; `SubscriptionHandle` + `Unsubscribe` for panel-lifetime safety; tracked allocations via `EventDeleter` + `MemoryTracker`; thread assertion on `ProcessEvents`. Five signals (Selection/Hierarchy/Asset/Project/PlayState), all UUID-based per the v2.7.0 command precedent. `EditorSelection` split header/cpp so signal includes don't leak through wide accessors. Tag-only | 2026-05-02 |
+| v2.9.2 | `editor-console-errors` | Bundles two pillars from the editor-aaa plan. New `Log::AddSink` / `ILogSink` interface with internal `ForwardingSink` (spdlog `base_sink`) fanning to registered sinks under `Luth::SpinLock`. New `ConsolePanel` implements `Panel` + `ILogSink`: sink callback (any thread) enqueues `LogEntrySignal` on main bus, handler appends to capped deque (1024); level filter + case-insensitive search + auto-scroll + `ImGuiListClipper`. Per-panel error boundary on `OnDraw` mirrors gather thunk's catch contract: `m_CrashStreak >= 3` flips `m_Crashed`, panel goes dark behind a placeholder window with manual `Reset`. Stack-trace dump (Win32 DbgHelp, `dbghelp.lib` already linked) on every catch. Tag-only | 2026-05-02 |
 
 ---
 
@@ -73,24 +76,21 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `editor-foundation` | NEW | v2.9.0 | L | `editor-component-registry` |
-| 2 | `editor-signal-bus` | NEW | v2.9.1 | M | `editor-foundation` |
-| 3 | `editor-console-errors` | NEW | v2.9.2 | M | `editor-foundation` |
-| 4 | `editor-job-pump` | NEW | v2.9.3 | M | — |
-| 5 | `editor-autosave` | NEW | v2.9.4 | M | `editor-job-pump`, `editor-signal-bus` |
-| 6 | `editor-thumbnails` | NEW | v2.9.5 | S–M | `editor-job-pump`, `editor-signal-bus` |
-| 7 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
-| 8 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
-| 9 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
-| 10 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
-| 11 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
-| 12 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
-| 13 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
-| 14 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
-| 15 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
-| 16 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
-| 17 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
-| 18 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `editor-job-pump` | NEW | v2.9.3 | M | — |
+| 2 | `editor-autosave` | NEW | v2.9.4 | M | `editor-job-pump`, `editor-signal-bus` |
+| 3 | `editor-thumbnails` | NEW | v2.9.5 | S–M | `editor-job-pump`, `editor-signal-bus` |
+| 4 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
+| 5 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
+| 6 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
+| 7 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
+| 8 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
+| 9 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
+| 10 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
+| 11 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
+| 12 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 13 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
+| 14 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
+| 15 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 

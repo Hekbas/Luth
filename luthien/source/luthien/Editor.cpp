@@ -33,11 +33,13 @@
 #include "luthien/panels/ProfilerPanel.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luthien/panels/HistoryPanel.h"
+#include "luthien/panels/ConsolePanel.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
+#include "luth/core/diagnostics/StackTrace.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/widgets/Icons.h"
 
@@ -188,6 +190,7 @@ namespace Luth
         AddPanel(new ProfilerPanel());
         AddPanel(new FrameDebuggerPanel());
         AddPanel(new HistoryPanel());
+        AddPanel(new ConsolePanel());
 
         ComponentDrawers::RegisterComponentDrawers();
 
@@ -227,6 +230,11 @@ namespace Luth
         SaveSettings();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        // Run OnShutdown before destroying — gives panels a chance to detach from
+        // engine subsystems (Log sinks, EventBus subscriptions) while the rest of
+        // the editor is still alive. Without this hop, a post-clear LH_CORE_* call
+        // would walk dangling sink pointers.
+        for (auto& panel : s_Panels) panel->OnShutdown();
         ComponentDrawerRegistry::Shutdown();
         s_PanelRegistry.clear();
         s_Panels.clear();
@@ -331,12 +339,62 @@ namespace Luth
         }
         catch (const std::exception& e)
         {
-            // Pillar 5 (editor-console-errors v2.9.2) extends with stack-trace dump
-            // to the console panel. For v2.9.0 we just log and bump the crash streak.
             LH_CORE_ERROR("Panel '{}' threw in OnGather: {}", panel->GetWindowID(), e.what());
+            StackTrace::LogStackTrace(1, 32);
             panel->m_SnapshotFragment = nullptr;
             if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
         }
+        catch (...)
+        {
+            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnGather", panel->GetWindowID());
+            StackTrace::LogStackTrace(1, 32);
+            panel->m_SnapshotFragment = nullptr;
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+    }
+
+    void Editor::DrawPanelGuarded(Panel* panel, const EditorSnapshot& snapshot)
+    {
+        try
+        {
+            panel->OnDraw(snapshot);
+        }
+        catch (const std::exception& e)
+        {
+            LH_CORE_ERROR("Panel '{}' threw in OnDraw: {}", panel->GetWindowID(), e.what());
+            StackTrace::LogStackTrace(1, 32);
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+        catch (...)
+        {
+            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnDraw", panel->GetWindowID());
+            StackTrace::LogStackTrace(1, 32);
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+    }
+
+    void Editor::DrawCrashedPlaceholder(Panel* panel)
+    {
+        // Reuse the panel's window ID so docking persists; an unresponsive panel
+        // becomes a clearly-marked stub that the user can revive after fixing.
+        if (panel->BeginWindow(panel->GetWindowID()))
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+            ImGui::PushFont(GetFASolid());
+            ImGui::TextUnformatted(ICON_FA_TRIANGLE_EXCLAMATION);
+            ImGui::PopFont();
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Panel crashed.");
+            ImGui::PopStyleColor();
+            ImGui::TextDisabled("See Console for the stack trace.");
+            ImGui::Spacing();
+            if (ImGui::Button("Reset"))
+            {
+                panel->m_Crashed     = false;
+                panel->m_CrashStreak = 0;
+            }
+        }
+        ImGui::End();
     }
 
     void Editor::Render()
@@ -425,8 +483,11 @@ namespace Luth
         {
             for (auto& panel : s_Panels)
             {
-                if (panel->m_Crashed) continue;
-                panel->OnDraw(snapshot);
+                if (panel->m_Crashed) {
+                    DrawCrashedPlaceholder(panel.get());
+                    continue;
+                }
+                DrawPanelGuarded(panel.get(), snapshot);
             }
         }
 
