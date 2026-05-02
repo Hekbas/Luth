@@ -1,13 +1,30 @@
 #include "lepch.h"
 #include "luthien/commands/EntityCommands.h"
+#include "luth/events/EventBus.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/events/EditorSignals.h"
 
 namespace Luth
 {
     using namespace Component;
     using json = nlohmann::json;
+
+    // Convenience: every Entity*Command::Execute / Undo publishes a typed
+    // HierarchyChangedSignal so panels can react via OnEvent instead of
+    // polling Scene::GetHierarchyVersion. UUID-based so handles stay valid
+    // across destroy-undo cycles.
+    namespace
+    {
+        using HOp = HierarchyChangedSignal::Op;
+
+        void PublishHierarchy(HOp op, UUID entity, UUID parent = UUID::Invalid())
+        {
+            EventBus::Enqueue<HierarchyChangedSignal>(BusType::MainThread,
+                                                      op, entity, parent);
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  CommandUtil — serialization helpers
@@ -447,6 +464,7 @@ namespace Luth
                     entity.SetParent(parent);
             }
             m_FirstExecution = false;
+            PublishHierarchy(HOp::Created, m_CreatedUUID);
         }
         else
         {
@@ -459,6 +477,7 @@ namespace Luth
         Entity entity = m_Scene->FindEntityByUUID(m_CreatedUUID);
         if (entity.IsValid())
             m_Scene->DestroyEntity(entity);
+        PublishHierarchy(HOp::Destroyed, m_CreatedUUID);
     }
 
     void EntityCreateCommand::Redo()
@@ -471,6 +490,7 @@ namespace Luth
             if (parent.IsValid())
                 entity.SetParent(parent);
         }
+        PublishHierarchy(HOp::Created, m_CreatedUUID);
     }
 
     Entity EntityCreateCommand::GetCreatedEntity() const
@@ -505,6 +525,7 @@ namespace Luth
 
         if (m_WasSelected)
             EditorSelection::ClearSelection();
+        PublishHierarchy(HOp::Destroyed, m_EntityUUID);
     }
 
     void EntityDestroyCommand::Undo()
@@ -521,6 +542,7 @@ namespace Luth
 
         if (m_WasSelected && restored.IsValid())
             EditorSelection::SelectEntity(restored);
+        PublishHierarchy(HOp::Created, m_EntityUUID);
     }
 
     void EntityDestroyCommand::Redo() { Execute(); }
@@ -543,6 +565,7 @@ namespace Luth
         Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
         if (!e.IsValid()) return;
         e.SetName(m_NewName);
+        PublishHierarchy(HOp::Renamed, m_EntityUUID);
     }
 
     void EntityRenameCommand::Undo()
@@ -550,6 +573,7 @@ namespace Luth
         Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
         if (!e.IsValid()) return;
         e.SetName(m_OldName);
+        PublishHierarchy(HOp::Renamed, m_EntityUUID);
     }
 
     void EntityRenameCommand::Redo() { Execute(); }
@@ -609,6 +633,7 @@ namespace Luth
             ? m_Scene->FindEntityByUUID(m_NewParentUUID)
             : Entity{};
         entity.SetParent(newParent);
+        PublishHierarchy(HOp::Reparented, m_EntityUUID, m_NewParentUUID);
     }
 
     void EntityReparentCommand::Undo()
@@ -623,6 +648,7 @@ namespace Luth
 
         if (m_OldSiblingIndex >= 0)
             CommandUtil::InsertAtSiblingIndex(*m_Scene, entity, oldParent, m_OldSiblingIndex);
+        PublishHierarchy(HOp::Reparented, m_EntityUUID, m_OldParentUUID);
     }
 
     void EntityReparentCommand::Redo() { Execute(); }
@@ -650,6 +676,7 @@ namespace Luth
         if (!entity.IsValid() || !target.IsValid()) return;
 
         m_Scene->ReorderEntity(entity, target, m_After);
+        PublishHierarchy(HOp::Reordered, m_EntityUUID);
     }
 
     void EntityReorderCommand::Undo()
@@ -666,6 +693,7 @@ namespace Luth
 
         if (m_OldSiblingIndex >= 0)
             CommandUtil::InsertAtSiblingIndex(*m_Scene, entity, oldParent, m_OldSiblingIndex);
+        PublishHierarchy(HOp::Reordered, m_EntityUUID);
     }
 
     void EntityReorderCommand::Redo() { Execute(); }
@@ -691,6 +719,7 @@ namespace Luth
             m_DuplicateUUID = duplicate.GetComponent<ID>().Value;
             m_DuplicateSnapshot = CommandUtil::SerializeEntitySubtree(duplicate);
             m_FirstExecution = false;
+            PublishHierarchy(HOp::Created, m_DuplicateUUID);
         }
         else
         {
@@ -703,6 +732,7 @@ namespace Luth
         Entity duplicate = m_Scene->FindEntityByUUID(m_DuplicateUUID);
         if (duplicate.IsValid())
             m_Scene->DestroyEntity(duplicate);
+        PublishHierarchy(HOp::Destroyed, m_DuplicateUUID);
     }
 
     void EntityDuplicateCommand::Redo()

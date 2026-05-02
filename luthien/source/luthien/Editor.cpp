@@ -1,6 +1,8 @@
 #include "lepch.h"
 #include "luthien/Editor.h"
 #include "luthien/EditorSnapshot.h"
+#include "luthien/events/EditorSignals.h"
+#include "luth/events/EventBus.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/platform/WinWindow.h"
 #include "luth/platform/FileDialog.h"
@@ -78,6 +80,19 @@ namespace Luth
         ProjectLauncher::Init();
         InitPanels();
         ApplyPersistence();
+
+        // Forward AssetDatabase file-watch flushes onto the EventBus as typed
+        // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
+        // can react via subscriptions instead of polling. The current AssetDatabase
+        // callback API only exposes the dirty-UUID list, not per-asset op — for
+        // v2.9.1 we publish Modified for everything; subscribers that need to
+        // distinguish import-vs-delete query AssetDatabase::Exists(uuid) themselves.
+        AssetDatabase::AddChangeCallback([]() {
+            for (const UUID& uuid : AssetDatabase::GetDirtyAssets()) {
+                EventBus::Enqueue<AssetChangedSignal>(BusType::MainThread,
+                    AssetChangedSignal::Op::Modified, uuid);
+            }
+        });
     }
 
     void Editor::InitImGui(Window* window)
@@ -939,6 +954,13 @@ namespace Luth
             if (fs::exists(skyboxAbsPath))
                 rs->ReloadSkybox(skyboxAbsPath);
         }
+
+        // Broadcast project switch to panels. Path stays empty when called from
+        // shutdown / unload (no project loaded yet); subscribers should treat
+        // empty path as "project unloaded" rather than "default project."
+        const std::string projPath = FileSystem::ProjectPath().string();
+        const std::string projName = FileSystem::ProjectPath().filename().string();
+        EventBus::Enqueue<ProjectChangedSignal>(BusType::MainThread, projPath, projName);
 
         LH_CORE_INFO("Editor: Project changed, panels refreshed");
     }
