@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/events/Event.h"
+#include "luth/memory/MemoryTracker.h"
 
 #include <algorithm>
 #include <exception>
@@ -15,7 +16,22 @@
 
 namespace Luth
 {
-    using EventPtr = std::unique_ptr<Event>;
+    // Polymorphic deleter that records the per-type free amount on the
+    // engine's MemoryTracker. Constructed at Enqueue time when the concrete
+    // type is still known (sizeof(T)), then captured into the unique_ptr so
+    // the dispatch loop can drop events by static type without losing the
+    // category-bucketed accounting.
+    struct EventDeleter {
+        Memory::Category category = Memory::Category::General;
+        size_t size = 0;
+        void operator()(Event* p) const noexcept {
+            if (!p) return;
+            Memory::MemoryTracker::RecordFree(category, size);
+            delete p;   // virtual ~Event() handles derived destruction
+        }
+    };
+
+    using EventPtr = std::unique_ptr<Event, EventDeleter>;
     using EventHandler = std::function<void(Event&)>;
     using EventTypeID = size_t;
 
@@ -71,11 +87,16 @@ namespace Luth
         public:
             template<typename T, typename... Args>
             void Enqueue(Args&&... args) {
+                // Allocate + track outside the lock — payload construction can be
+                // non-trivial and we don't want it serialised. Tracy's global new
+                // hook captures the raw allocation; MemoryTracker adds the
+                // category bucket so ProfilerPanel can budget event traffic.
+                T* raw = new T(std::forward<Args>(args)...);
+                Memory::MemoryTracker::RecordAlloc(Memory::Category::General, sizeof(T));
+                EventPtr ptr(raw, EventDeleter{ Memory::Category::General, sizeof(T) });
+
                 std::lock_guard<std::mutex> lock(m_QueueLock);
-                m_EventQueue.emplace(
-                    std::make_unique<T>(std::forward<Args>(args)...),
-                    GetEventTypeID<T>()
-                );
+                m_EventQueue.emplace(std::move(ptr), GetEventTypeID<T>());
             }
 
             template<typename T>
