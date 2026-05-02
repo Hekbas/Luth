@@ -93,6 +93,15 @@ namespace Luth
                     AssetChangedSignal::Op::Modified, uuid);
             }
         });
+
+        // Replace v2.8.x hierarchy-version polling with reactive dirty-marking.
+        // Every EntityCommand publishes HierarchyChangedSignal; this handler
+        // bumps the dirty flag exactly when user edits land. Scene LOAD does
+        // not fire signals (deserialization bypasses commands), so the dirty
+        // flag stays clean across scene open/close — no need for the prior
+        // s_LastHierarchyVersion stamp dance.
+        EventBus::Subscribe<HierarchyChangedSignal>(BusType::MainThread,
+            [](Event&) { Editor::MarkDirty(); });
     }
 
     void Editor::InitImGui(Window* window)
@@ -401,14 +410,8 @@ namespace Luth
         // Keyboard shortcuts
         ProcessShortcuts();
 
-        // Dirty detection via hierarchy version
-        if (s_ActiveScene) {
-            u32 currentVersion = s_ActiveScene->GetHierarchyVersion();
-            if (currentVersion != s_LastHierarchyVersion) {
-                s_LastHierarchyVersion = currentVersion;
-                s_IsDirty = true;
-            }
-        }
+        // Dirty bumps now arrive via HierarchyChangedSignal subscription
+        // installed in Init (sub-task F of v2.9.1 editor-signal-bus).
 
         // Update window title
         UpdateWindowTitle();
@@ -533,7 +536,6 @@ namespace Luth
     {
         s_ActiveScene = scene;
         CommandHistory::Clear();
-        s_LastHierarchyVersion = scene ? scene->GetHierarchyVersion() : 0;
 
         // Update Systems raw pointer so TransformSystem/RenderingSystem use the correct scene
         SystemRegistry::SetScene(scene.get());
@@ -568,7 +570,6 @@ namespace Luth
 
         s_ScenePath.clear();
         s_IsDirty = false;
-        s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
 
         LH_CORE_INFO("New scene created");
     }
@@ -588,7 +589,6 @@ namespace Luth
             CommandHistory::Clear();
             s_ScenePath = path;
             s_IsDirty = false;
-            s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
             s_Settings.lastSceneUUID = AssetDatabase::GetUUID(path).ToString();
 
             // Eagerly kick off loading for all assets referenced by the scene
@@ -648,7 +648,6 @@ namespace Luth
     void Editor::ResetDirtyState(bool dirty)
     {
         s_IsDirty = dirty;
-        s_LastHierarchyVersion = s_ActiveScene ? s_ActiveScene->GetHierarchyVersion() : 0;
     }
 
     // ── Settings & Layout ──

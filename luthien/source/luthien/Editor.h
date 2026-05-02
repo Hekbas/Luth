@@ -182,7 +182,6 @@ namespace Luth
         static inline std::shared_ptr<Scene> s_ActiveScene;
         static inline std::filesystem::path s_ScenePath;
         static inline bool s_IsDirty = false;
-        static inline u32 s_LastHierarchyVersion = 0;
 
         // Settings
         static inline EditorSettings s_Settings;
