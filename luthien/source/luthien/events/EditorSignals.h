@@ -15,6 +15,7 @@
 
 #include "luth/core/EditorHooks.h"   // PlayState
 #include "luth/core/UUID.h"
+#include "luth/core/diagnostics/Log.h"   // LogEntry, LogLevel
 #include "luth/events/Event.h"
 
 #include <string>
@@ -118,6 +119,26 @@ namespace Luth
     private:
         std::string m_Path;
         std::string m_Name;
+    };
+
+    // Engine log emission, fanned through Log::ILogSink → ConsolePanel sink callback
+    // → bus. Carries the LogEntry by value; ConsolePanel handler appends to its
+    // internal ring on main during ProcessEvents (race-free vs OnGather since drain
+    // precedes Render every frame).
+    class LogEntrySignal : public Event
+    {
+    public:
+        explicit LogEntrySignal(LogEntry entry) : m_Entry(std::move(entry)) {}
+
+        const LogEntry& GetEntry() const { return m_Entry; }
+
+        const char* GetName() const override { return "LogEntrySignal"; }
+        u32 GetCategoryFlags() const override { return EventCategory::None; }
+
+        static const char* GetStaticName() { return "LogEntrySignal"; }
+
+    private:
+        LogEntry m_Entry;
     };
 
     // Play-mode state transition. AnimationSystem-gated panels, dirty-flag
