@@ -17,6 +17,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/jobs/JobSystem.h"
+#include "luth/jobs/MainThreadPump.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
@@ -175,6 +176,7 @@ namespace Luth
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
+            MainThreadPump::Drain();
 
             // Check if user selected a project from launcher
             if (auto* h = EditorHooks::Get(); h && h->HasPendingProject())
