@@ -1,10 +1,13 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/core/diagnostics/Log.h"
 #include "luth/events/Event.h"
 
+#include <exception>
 #include <memory>
 #include <queue>
+#include <thread>
 #include <unordered_map>
 #include <functional>
 #include <mutex>
@@ -60,8 +63,22 @@ namespace Luth
                 m_Subscribers[typeID].emplace_back(std::move(handler));
             }
 
+            // Drain the queue and dispatch all events. Single-thread-only by design —
+            // first call captures the calling thread; subsequent calls assert match.
+            //
+            // Reentrancy: if a handler calls Enqueue<T> on the same bus, the new event
+            // goes into m_EventQueue, NOT the processingQueue local. It will fire on
+            // the NEXT ProcessEvents() call (i.e., next frame in the typical setup).
+            // This is intentional — synchronous re-dispatch would risk handler chains
+            // and unbounded recursion. Document at call sites that signal handlers
+            // wanting same-frame follow-on work should write to panel state instead.
             void ProcessEvents() {
-                // Swap queue to allow enqueuing while processing
+            #ifdef LUTH_BUILD_DEBUG
+                static const std::thread::id s_DispatchThread = std::this_thread::get_id();
+                LH_CORE_ASSERT(std::this_thread::get_id() == s_DispatchThread,
+                    "EventBus::ProcessEvents called from inconsistent thread");
+            #endif
+
                 std::queue<std::pair<EventPtr, EventTypeID>> processingQueue;
                 {
                     std::lock_guard<std::mutex> lock(m_QueueLock);
@@ -82,11 +99,21 @@ namespace Luth
             }
 
         private:
+            // A throwing handler must not abort the dispatch loop — surviving handlers
+            // and queued events would be silently lost otherwise. Catch, log, continue.
+            // m_Handled propagation is preserved across exceptions: a thrown handler
+            // is treated as not having consumed the event.
             void DispatchEvent(Event& event, EventTypeID typeID) {
-                if (auto it = m_Subscribers.find(typeID); it != m_Subscribers.end()) {
-                    for (auto& handler : it->second) {
-                        if (event.m_Handled) break;
+                auto it = m_Subscribers.find(typeID);
+                if (it == m_Subscribers.end()) return;
+                for (auto& handler : it->second) {
+                    if (event.m_Handled) break;
+                    try {
                         handler(event);
+                    } catch (const std::exception& e) {
+                        LH_CORE_ERROR("EventBus handler for type {} threw: {}", typeID, e.what());
+                    } catch (...) {
+                        LH_CORE_ERROR("EventBus handler for type {} threw a non-std exception", typeID);
                     }
                 }
             }
@@ -105,10 +132,5 @@ namespace Luth
             static std::array<BusInstance, (size_t)BusType::COUNT> buses;
             return buses[(size_t)bus];
         }
-
-        /*static EventTypeID GetEventTypeID() {
-            static EventTypeID m_NextTypeID = 0;
-            return m_NextTypeID++;
-        }*/
     };
 }
