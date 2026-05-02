@@ -78,11 +78,52 @@ namespace Luth
             }
             return false;
         }
+
+        // Unity-style level toggle: tinted icon button, click to toggle, tooltip
+        // names the level. ImGui has no native toggle, so we re-skin Button via
+        // the four state colours plus the text colour.
+        void LevelToggle(const char* id, const char* icon, const char* tooltip,
+                         const ImVec4& tint, bool& state)
+        {
+            constexpr float kBtnW = 28.0f;
+            constexpr float kBtnH = 22.0f;
+
+            const ImVec4 bgOff{ 0.16f, 0.16f, 0.16f, 1.0f };
+            const ImVec4 bgOn { tint.x * 0.30f, tint.y * 0.30f, tint.z * 0.30f, 1.0f };
+            const ImVec4 fgOn = tint;
+            const ImVec4 fgOff{ 0.45f, 0.45f, 0.45f, 1.0f };
+
+            ImGui::PushID(id);
+            ImGui::PushStyleColor(ImGuiCol_Button,        state ? bgOn : bgOff);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(state ? bgOn.x + 0.08f : 0.24f,
+                                                                state ? bgOn.y + 0.08f : 0.24f,
+                                                                state ? bgOn.z + 0.08f : 0.24f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(state ? bgOn.x + 0.15f : 0.30f,
+                                                                state ? bgOn.y + 0.15f : 0.30f,
+                                                                state ? bgOn.z + 0.15f : 0.30f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text,          state ? fgOn : fgOff);
+
+            ImGui::PushFont(Editor::GetFASolid());
+            if (ImGui::Button(icon, ImVec2(kBtnW, kBtnH))) state = !state;
+            ImGui::PopFont();
+            ImGui::PopStyleColor(4);
+            ImGui::PopID();
+
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
+        }
     }
 
     ConsolePanel::ConsolePanel()
     {
         m_WindowID = "Console";
+    }
+
+    ConsolePanel::~ConsolePanel()
+    {
+        // RAII backstop in case Editor::Shutdown didn't reach OnShutdown for us
+        // (e.g., crash mid-shutdown). RemoveSink + Unsubscribe are idempotent.
+        Log::RemoveSink(this);
+        EventBus::Unsubscribe(BusType::MainThread, m_LogSub);
     }
 
     void ConsolePanel::OnInit()
@@ -124,22 +165,29 @@ namespace Luth
             return;
         }
 
-        // ── Toolbar ──
+        // ── Toolbar row 1: Clear + Auto-scroll left, level toggles right ──
         if (ImGui::Button(ICON_FA_TRASH " Clear"))
             m_Entries.clear();
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &m_AutoScroll);
 
+        // Right-align level toggles. Cluster width = 6 buttons + 5 inter-spacings.
+        constexpr int kLevels = 6;
+        constexpr float kBtnW = 28.0f;
+        const float spacing  = ImGui::GetStyle().ItemSpacing.x;
+        const float clusterW = kLevels * kBtnW + (kLevels - 1) * spacing;
+        const float rightX   = ImGui::GetWindowContentRegionMax().x - clusterW;
         ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-        ImGui::TextColored(kColTrace,    ICON_FA_BUG); ImGui::SameLine(); ImGui::Checkbox("Trc", &m_ShowTrace);     ImGui::SameLine();
-        ImGui::TextColored(kColDebug,    ICON_FA_BUG); ImGui::SameLine(); ImGui::Checkbox("Dbg", &m_ShowDebug);     ImGui::SameLine();
-        ImGui::TextColored(kColInfo,     ICON_FA_CIRCLE_INFO);          ImGui::SameLine(); ImGui::Checkbox("Inf", &m_ShowInfo);  ImGui::SameLine();
-        ImGui::TextColored(kColWarn,     ICON_FA_TRIANGLE_EXCLAMATION); ImGui::SameLine(); ImGui::Checkbox("Wrn", &m_ShowWarn);  ImGui::SameLine();
-        ImGui::TextColored(kColError,    ICON_FA_CIRCLE_EXCLAMATION);   ImGui::SameLine(); ImGui::Checkbox("Err", &m_ShowError); ImGui::SameLine();
-        ImGui::TextColored(kColCritical, ICON_FA_CIRCLE_XMARK);         ImGui::SameLine(); ImGui::Checkbox("Crt", &m_ShowCritical);
+        if (ImGui::GetCursorPosX() < rightX) ImGui::SetCursorPosX(rightX);
 
+        LevelToggle("##trace",    ICON_FA_BUG,                    "Trace",    kColTrace,    m_ShowTrace);    ImGui::SameLine();
+        LevelToggle("##debug",    ICON_FA_BUG,                    "Debug",    kColDebug,    m_ShowDebug);    ImGui::SameLine();
+        LevelToggle("##info",     ICON_FA_CIRCLE_INFO,            "Info",     kColInfo,     m_ShowInfo);     ImGui::SameLine();
+        LevelToggle("##warn",     ICON_FA_TRIANGLE_EXCLAMATION,   "Warning",  kColWarn,     m_ShowWarn);     ImGui::SameLine();
+        LevelToggle("##error",    ICON_FA_CIRCLE_EXCLAMATION,     "Error",    kColError,    m_ShowError);    ImGui::SameLine();
+        LevelToggle("##critical", ICON_FA_CIRCLE_XMARK,           "Critical", kColCritical, m_ShowCritical);
+
+        // ── Toolbar row 2: search ──
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS "  Filter...",
                                  m_SearchBuf, sizeof(m_SearchBuf));
@@ -147,44 +195,42 @@ namespace Luth
         ImGui::Separator();
 
         // ── List ──
-        const ImVec2 listSize{ 0.0f, 0.0f };
-        if (ImGui::BeginChild("ConsoleList", listSize, false,
+        // No ImGuiListClipper: rows use TextWrapped (variable height) and per-frame
+        // filter-skips, both of which break the clipper's first-row height probe.
+        // ImGui still GPU-clips off-screen geometry; cost at cap=1024 is benign.
+        if (ImGui::BeginChild("ConsoleList", ImVec2(0, 0), false,
                               ImGuiWindowFlags_HorizontalScrollbar))
         {
-            ImGuiListClipper clipper;
-            clipper.Begin((int)m_Entries.size());
-            while (clipper.Step()) {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-                    const LogEntry& e = m_Entries[(size_t)i];
+            for (size_t i = 0; i < m_Entries.size(); ++i) {
+                const LogEntry& e = m_Entries[i];
 
-                    bool show = false;
-                    switch (e.level) {
-                        case LogLevel::Trace:    show = m_ShowTrace;    break;
-                        case LogLevel::Debug:    show = m_ShowDebug;    break;
-                        case LogLevel::Info:     show = m_ShowInfo;     break;
-                        case LogLevel::Warn:     show = m_ShowWarn;     break;
-                        case LogLevel::Error:    show = m_ShowError;    break;
-                        case LogLevel::Critical: show = m_ShowCritical; break;
-                        default:                 show = true;           break;
-                    }
-                    if (!show) continue;
-                    if (m_SearchBuf[0] && !ContainsCaseInsensitive(e.message, m_SearchBuf))
-                        continue;
-
-                    char ts[16];
-                    FormatTimestamp(e.timestamp, ts, sizeof(ts));
-
-                    const ImVec4& col = LevelColor(e.level);
-                    ImGui::PushStyleColor(ImGuiCol_Text, col);
-                    ImGui::TextDisabled("%s", ts);
-                    ImGui::SameLine();
-                    ImGui::PushFont(Editor::GetFASolid());
-                    ImGui::TextUnformatted(LevelIcon(e.level));
-                    ImGui::PopFont();
-                    ImGui::SameLine();
-                    ImGui::TextWrapped("%s", e.message.c_str());
-                    ImGui::PopStyleColor();
+                bool show = false;
+                switch (e.level) {
+                    case LogLevel::Trace:    show = m_ShowTrace;    break;
+                    case LogLevel::Debug:    show = m_ShowDebug;    break;
+                    case LogLevel::Info:     show = m_ShowInfo;     break;
+                    case LogLevel::Warn:     show = m_ShowWarn;     break;
+                    case LogLevel::Error:    show = m_ShowError;    break;
+                    case LogLevel::Critical: show = m_ShowCritical; break;
+                    default:                 show = true;           break;
                 }
+                if (!show) continue;
+                if (m_SearchBuf[0] && !ContainsCaseInsensitive(e.message, m_SearchBuf))
+                    continue;
+
+                char ts[16];
+                FormatTimestamp(e.timestamp, ts, sizeof(ts));
+
+                const ImVec4& col = LevelColor(e.level);
+                ImGui::PushStyleColor(ImGuiCol_Text, col);
+                ImGui::TextDisabled("%s", ts);
+                ImGui::SameLine();
+                ImGui::PushFont(Editor::GetFASolid());
+                ImGui::TextUnformatted(LevelIcon(e.level));
+                ImGui::PopFont();
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", e.message.c_str());
+                ImGui::PopStyleColor();
             }
 
             if (m_ScrollPending && m_AutoScroll) {

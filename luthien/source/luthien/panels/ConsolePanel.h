@@ -18,6 +18,7 @@ namespace Luth
     {
     public:
         ConsolePanel();
+        ~ConsolePanel() override;
 
         void OnInit() override;
         void OnGather(EditorSnapshotBuilder& builder) override;

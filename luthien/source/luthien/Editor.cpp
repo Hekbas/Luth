@@ -230,6 +230,11 @@ namespace Luth
         SaveSettings();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        // Run OnShutdown before destroying — gives panels a chance to detach from
+        // engine subsystems (Log sinks, EventBus subscriptions) while the rest of
+        // the editor is still alive. Without this hop, a post-clear LH_CORE_* call
+        // would walk dangling sink pointers.
+        for (auto& panel : s_Panels) panel->OnShutdown();
         ComponentDrawerRegistry::Shutdown();
         s_PanelRegistry.clear();
         s_Panels.clear();
