@@ -1053,6 +1053,11 @@ namespace Luth
                 rs->ReloadSkybox(skyboxAbsPath);
         }
 
+        // Re-hydrate thumbnail cache from the new project's <project>/.luth/thumbnails/.
+        // AssetDatabase has been fully reloaded by LoadProject by this point, so
+        // orphan-GC has the stable registry it needs.
+        UI::ThumbnailCache::ScanDiskCache();
+
         // Broadcast project switch to panels. Path stays empty when called from
         // shutdown / unload (no project loaded yet); subscribers should treat
         // empty path as "project unloaded" rather than "default project."

@@ -36,5 +36,10 @@ namespace Luth::UI
 
         // Drop everything. Used on project unload + size-change.
         static void Clear();
+
+        // Walk <project>/.luth/thumbnails/ — orphan PNGs (UUID not in DB) are
+        // deleted, the rest are async-loaded into the cache. Called from
+        // Editor::OnProjectChanged after Clear(). No-op when no project.
+        static void ScanDiskCache();
     };
 }

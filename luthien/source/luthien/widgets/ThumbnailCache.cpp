@@ -2,6 +2,7 @@
 #include "luthien/widgets/ThumbnailCache.h"
 #include "luthien/widgets/ThumbnailGenerator.h"
 
+#include "luth/core/diagnostics/Log.h"
 #include "luth/events/EventBus.h"
 #include "luth/jobs/SpinLock.h"
 #include "luth/renderer/Renderer.h"
@@ -9,13 +10,16 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
 
 #include "luthien/events/EditorSignals.h"
 
 #include <backends/imgui_impl_vulkan.h>
 
+#include <algorithm>
 #include <atomic>
+#include <filesystem>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -47,7 +51,21 @@ namespace Luth::UI
             u32             height = 0;
         };
 
-        constexpr u32 kMaxBakesInFlight = 8;
+        constexpr u32 kMaxBakesInFlight   = 8;
+        constexpr u32 kMaxDrainPerFrame   = 16;     // bounds per-frame upload pressure
+        constexpr u32 kMaxDiskEntries     = 500;    // settings-driven in commit G
+
+        namespace fs = std::filesystem;
+
+        fs::path ThumbnailDir()
+        {
+            return FileSystem::ProjectPath() / ".luth" / "thumbnails";
+        }
+
+        fs::path ThumbnailFilePath(UUID asset)
+        {
+            return ThumbnailDir() / (asset.ToString() + ".png");
+        }
 
         SpinLock                                   s_MapLock;
         std::unordered_map<UUID, Entry, UUIDHash>  s_Entries;
@@ -150,7 +168,17 @@ namespace Luth::UI
             return;
         }
 
-        for (auto& c : local) {
+        // Cap per-Drain work so a 500-asset cold-start can't drop the frame.
+        // Excess completions are pushed back for the next Drain.
+        const size_t toProcess = std::min<size_t>(local.size(), kMaxDrainPerFrame);
+        if (toProcess < local.size()) {
+            SpinLockGuard g(s_QueueLock);
+            for (size_t i = toProcess; i < local.size(); ++i)
+                s_TexCompletions.emplace_back(std::move(local[i]));
+        }
+
+        for (size_t idx = 0; idx < toProcess; ++idx) {
+            auto& c = local[idx];
             // Texture creation + descriptor allocation outside the map lock —
             // ImGui_ImplVulkan_AddTexture is microsecond-scale, well over V1's
             // <100-cycle budget for SpinLock-held work.
@@ -244,6 +272,77 @@ namespace Luth::UI
                 ImGui_ImplVulkan_RemoveTexture(pendingFree);
             });
         }
+
+        // Drop the persisted PNG too so the next Get re-bakes from source rather
+        // than re-loading a stale snapshot. Sync remove on main is fine — small
+        // file, no I/O queue contention.
+        if (FileSystem::HasProject()) {
+            std::error_code ec;
+            fs::remove(ThumbnailFilePath(asset), ec);
+        }
+    }
+
+    void ThumbnailCache::ScanDiskCache()
+    {
+        if (!FileSystem::HasProject()) return;
+
+        const fs::path dir = ThumbnailDir();
+        std::error_code ec;
+        if (!fs::exists(dir, ec)) return;
+
+        // Two-pass: collect entries, drop orphans / over-cap, then dispatch loads.
+        struct DiskEntry { fs::path path; UUID uuid; AssetType type; fs::file_time_type mtime; };
+        std::vector<DiskEntry> entries;
+        entries.reserve(64);
+
+        for (const auto& dirent : fs::directory_iterator(dir, ec)) {
+            if (!dirent.is_regular_file()) continue;
+            if (dirent.path().extension() != ".png") continue;
+
+            const std::string stem = dirent.path().stem().string();
+            UUID uuid = UUID::FromString(stem);
+            if (!uuid.IsValid()) {
+                fs::remove(dirent.path(), ec);
+                continue;
+            }
+            if (!AssetDatabase::Exists(uuid)) {
+                fs::remove(dirent.path(), ec);   // orphan — asset gone
+                continue;
+            }
+            const auto& meta = AssetDatabase::GetMetadata(uuid);
+            if (!IsSupportedType(meta.Type)) {
+                fs::remove(dirent.path(), ec);
+                continue;
+            }
+            entries.push_back({ dirent.path(), uuid, meta.Type, dirent.last_write_time() });
+        }
+
+        // GC over-cap by oldest mtime first. Settings-driven in commit G.
+        if (entries.size() > kMaxDiskEntries) {
+            std::sort(entries.begin(), entries.end(),
+                [](const DiskEntry& a, const DiskEntry& b) { return a.mtime < b.mtime; });
+            const size_t toDrop = entries.size() - kMaxDiskEntries;
+            for (size_t i = 0; i < toDrop; ++i)
+                fs::remove(entries[i].path, ec);
+            entries.erase(entries.begin(), entries.begin() + toDrop);
+        }
+
+        // Insert Pending sentinels + dispatch async loads. Disk loads bypass the
+        // bake throttle (cheap I/O + decode); Drain's per-frame cap paces uploads.
+        for (const auto& e : entries) {
+            {
+                SpinLockGuard g(s_MapLock);
+                if (s_Entries.find(e.uuid) != s_Entries.end()) continue;
+                Entry mapEntry;
+                mapEntry.type  = e.type;
+                mapEntry.state = BakeState::Pending;
+                s_Entries.emplace(e.uuid, std::move(mapEntry));
+            }
+            ThumbnailGenerator::DispatchLoadFromDisk(e.uuid, e.type);
+        }
+
+        if (!entries.empty())
+            LH_CORE_INFO("Thumbnail: queued {} entries from disk cache", entries.size());
     }
 
     void ThumbnailCache::Clear()

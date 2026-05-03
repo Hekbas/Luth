@@ -122,4 +122,34 @@ namespace Luth::UI
         JobSystem::Execute(BakeTextureJobThunk, ctx, nullptr,
                            "Thumbnail.Bake.Tex", JobSystem::Priority::Low);
     }
+
+    void ThumbnailGenerator::DispatchLoadFromDisk(UUID asset, AssetType /*type*/)
+    {
+        if (!asset.IsValid()) return;
+        if (!FileSystem::HasProject()) return;
+
+        const fs::path path = ThumbnailDiskPath(asset);
+        // IOThread::ReadFile dispatches its callback onto a worker fiber after
+        // the read completes — same execution context as a bake job, so the
+        // decode + push-completion path mirrors BakeTexture exactly.
+        IOThread::ReadFile(path.string(), [asset](std::vector<u8> bytes) {
+            if (bytes.empty()) {
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                return;
+            }
+            int w = 0, h = 0, c = 0;
+            stbi_uc* pixels = stbi_load_from_memory(
+                bytes.data(), static_cast<int>(bytes.size()), &w, &h, &c, 4);
+            if (!pixels) {
+                LH_CORE_WARN("Thumbnail: stbi_load_from_memory failed for {}", asset.ToString());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                return;
+            }
+            std::vector<u8> rgba(pixels, pixels + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(pixels);
+            ThumbnailCacheInternal::PushTextureCompletion(asset, std::move(rgba),
+                                                          static_cast<u32>(w),
+                                                          static_cast<u32>(h));
+        });
+    }
 }
