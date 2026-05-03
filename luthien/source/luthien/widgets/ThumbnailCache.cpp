@@ -186,8 +186,16 @@ namespace Luth::UI
                 // Texture creation + descriptor allocation outside the map lock —
                 // ImGui_ImplVulkan_AddTexture is microsecond-scale, well over V1's
                 // <100-cycle budget for SpinLock-held work.
+                // Mipmaps + trilinear so the slider's small sizes (16-32 px) don't
+                // shimmer when sampling the 128 px base level. ClampToEdge avoids
+                // edge-bleed at preview boundaries.
+                TextureSettings tsettings;
+                tsettings.GenerateMipmaps = true;
+                tsettings.WrapMode  = TextureWrapMode::ClampToEdge;
+                tsettings.MinFilter = TextureFilterMode::LinearMipmapLinear;
+                tsettings.MagFilter = TextureFilterMode::Linear;
                 std::shared_ptr<Texture> tex = Texture::Create(
-                    c.width, c.height, TextureFormat::RGBA8, c.pixels.data());
+                    c.width, c.height, TextureFormat::RGBA8, c.pixels.data(), tsettings);
                 if (!tex) { MarkFailed(c.asset); continue; }
 
                 auto vkTex = std::static_pointer_cast<VKTexture>(tex);
@@ -266,6 +274,16 @@ namespace Luth::UI
 
         if (needsBake) ThumbnailGenerator::Dispatch(asset, type);
         return 0;
+    }
+
+    ImVec2 ThumbnailCache::GetThumbnailSize(UUID asset)
+    {
+        if (!asset.IsValid()) return ImVec2(0, 0);
+        SpinLockGuard g(s_MapLock);
+        auto it = s_Entries.find(asset);
+        if (it == s_Entries.end() || !it->second.tex) return ImVec2(0, 0);
+        return ImVec2(static_cast<float>(it->second.tex->GetWidth()),
+                      static_cast<float>(it->second.tex->GetHeight()));
     }
 
     void ThumbnailCache::Invalidate(UUID asset)

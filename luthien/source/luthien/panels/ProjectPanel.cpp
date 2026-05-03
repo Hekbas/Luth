@@ -422,8 +422,26 @@ namespace Luth
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
             bool clicked;
             if (thumb != 0) {
-                clicked = ImGui::ImageButton("##thumb", thumb,
-                    { m_ThumbnailSize, m_ThumbnailSize }, { 0, 0 }, { 1, 1 });
+                // Aspect-fit centered in a square slot. BakeTexture preserves
+                // source aspect (max dim = thumbnail size); GetThumbnailSize
+                // returns those dims so we can pillarbox/letterbox the display
+                // back into the uniform grid slot.
+                ImVec2 dims = UI::ThumbnailCache::GetThumbnailSize(node->Handle);
+                float ar = (dims.y > 0.0f) ? (dims.x / dims.y) : 1.0f;
+                ImVec2 disp = (ar >= 1.0f)
+                    ? ImVec2(m_ThumbnailSize, m_ThumbnailSize / ar)
+                    : ImVec2(m_ThumbnailSize * ar, m_ThumbnailSize);
+                ImVec2 startPos = ImGui::GetCursorPos();
+                ImGui::SetCursorPos({
+                    startPos.x + (m_ThumbnailSize - disp.x) * 0.5f,
+                    startPos.y + (m_ThumbnailSize - disp.y) * 0.5f
+                });
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                clicked = ImGui::ImageButton("##thumb", thumb, disp, { 0, 0 }, { 1, 1 });
+                ImGui::PopStyleVar();
+                // Pin cursor to slot bottom so subsequent items (label) align
+                // uniformly across rows regardless of per-item aspect.
+                ImGui::SetCursorPos({ startPos.x, startPos.y + m_ThumbnailSize });
             } else {
                 clicked = ImGui::Button(icon, { m_ThumbnailSize, m_ThumbnailSize });
             }

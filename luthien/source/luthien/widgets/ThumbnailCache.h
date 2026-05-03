@@ -30,6 +30,12 @@ namespace Luth::UI
         // / unsupported AssetType: 0. Safe per-frame.
         static ImTextureID Get(UUID asset, AssetType type);
 
+        // Actual baked dimensions of the cached texture (for aspect-correct
+        // display in the consumer). {0, 0} if not Ready. Bake preserves source
+        // aspect with max dim = thumbnailSize, so width/height encode the
+        // source's aspect ratio directly.
+        static ImVec2 GetThumbnailSize(UUID asset);
+
         // Drop entry, fence-cleanup descriptor via VulkanContext::PushDeletion.
         // Main-thread only (called from AssetChangedSignal handler).
         static void Invalidate(UUID asset);

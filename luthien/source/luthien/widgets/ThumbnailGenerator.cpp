@@ -56,7 +56,13 @@ namespace Luth::UI
                 return;
             }
 
+            // invariant: stbi_set_flip_vertically_on_load is global mutable state.
+            // VulkanTexture(path) ctor and IBLPrecompute set it to 1 elsewhere; if
+            // they last-set the flag before our stbi_load, our pixels arrive
+            // vertically flipped. Force 0 to match TextureImporter's convention
+            // (top-left origin, native to Vulkan + ImGui).
             int srcW = 0, srcH = 0, srcC = 0;
+            stbi_set_flip_vertically_on_load(0);
             stbi_uc* src = stbi_load(srcPath.string().c_str(), &srcW, &srcH, &srcC, 4);
             if (!src) {
                 LH_CORE_WARN("Thumbnail: stbi_load failed for {}", srcPath.string());
@@ -64,12 +70,22 @@ namespace Luth::UI
                 return;
             }
 
-            const u32 dstW = targetSize;
-            const u32 dstH = targetSize;
+            // Aspect-preserving downscale: largest source dim = targetSize, the
+            // other scaled proportionally. Sources already smaller than targetSize
+            // pass through unchanged (no upscaling for thumbnails).
+            const u32 srcMax = static_cast<u32>(std::max(srcW, srcH));
+            u32 dstW, dstH;
+            if (srcMax <= targetSize) {
+                dstW = static_cast<u32>(srcW);
+                dstH = static_cast<u32>(srcH);
+            } else {
+                dstW = std::max<u32>(1, static_cast<u32>(static_cast<u64>(srcW) * targetSize / srcMax));
+                dstH = std::max<u32>(1, static_cast<u32>(static_cast<u64>(srcH) * targetSize / srcMax));
+            }
             std::vector<u8> resized(static_cast<size_t>(dstW) * dstH * 4);
             const int rc = stbir_resize_uint8(
                 src,             srcW, srcH, 0,
-                resized.data(),  dstW, dstH, 0,
+                resized.data(),  static_cast<int>(dstW), static_cast<int>(dstH), 0,
                 4);
             stbi_image_free(src);
             if (rc == 0) {
@@ -148,6 +164,9 @@ namespace Luth::UI
                     return;
                 }
                 int w = 0, h = 0, c = 0;
+                // Match BakeTexture: defend against VulkanTexture(path)/IBL
+                // having last-set the flip flag to 1.
+                stbi_set_flip_vertically_on_load(0);
                 stbi_uc* pixels = stbi_load_from_memory(
                     bytes.data(), static_cast<int>(bytes.size()), &w, &h, &c, 4);
                 if (!pixels) {
