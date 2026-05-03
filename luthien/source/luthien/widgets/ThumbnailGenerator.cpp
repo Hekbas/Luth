@@ -105,7 +105,16 @@ namespace Luth::UI
         void BakeTextureJobThunk(JobSystem::JobArgs args)
         {
             auto* ctx = static_cast<TextureBakeContext*>(args.data);
-            BakeTexture(ctx->asset, ctx->targetSize);
+            const UUID asset = ctx->asset;
+            try {
+                BakeTexture(ctx->asset, ctx->targetSize);
+            } catch (const std::exception& e) {
+                LH_CORE_ERROR("Thumbnail: bake threw for {}: {}", asset.ToString(), e.what());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            } catch (...) {
+                LH_CORE_ERROR("Thumbnail: bake threw non-std exception for {}", asset.ToString());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            }
             LH_DELETE(Memory::Category::Editor, ctx);
         }
     }
@@ -133,23 +142,31 @@ namespace Luth::UI
         // the read completes — same execution context as a bake job, so the
         // decode + push-completion path mirrors BakeTexture exactly.
         IOThread::ReadFile(path.string(), [asset](std::vector<u8> bytes) {
-            if (bytes.empty()) {
+            try {
+                if (bytes.empty()) {
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+                int w = 0, h = 0, c = 0;
+                stbi_uc* pixels = stbi_load_from_memory(
+                    bytes.data(), static_cast<int>(bytes.size()), &w, &h, &c, 4);
+                if (!pixels) {
+                    LH_CORE_WARN("Thumbnail: stbi_load_from_memory failed for {}", asset.ToString());
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+                std::vector<u8> rgba(pixels, pixels + static_cast<size_t>(w) * h * 4);
+                stbi_image_free(pixels);
+                ThumbnailCacheInternal::PushTextureCompletion(asset, std::move(rgba),
+                                                              static_cast<u32>(w),
+                                                              static_cast<u32>(h));
+            } catch (const std::exception& e) {
+                LH_CORE_ERROR("Thumbnail: disk-load threw for {}: {}", asset.ToString(), e.what());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
-                return;
-            }
-            int w = 0, h = 0, c = 0;
-            stbi_uc* pixels = stbi_load_from_memory(
-                bytes.data(), static_cast<int>(bytes.size()), &w, &h, &c, 4);
-            if (!pixels) {
-                LH_CORE_WARN("Thumbnail: stbi_load_from_memory failed for {}", asset.ToString());
+            } catch (...) {
+                LH_CORE_ERROR("Thumbnail: disk-load threw non-std exception for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
-                return;
             }
-            std::vector<u8> rgba(pixels, pixels + static_cast<size_t>(w) * h * 4);
-            stbi_image_free(pixels);
-            ThumbnailCacheInternal::PushTextureCompletion(asset, std::move(rgba),
-                                                          static_cast<u32>(w),
-                                                          static_cast<u32>(h));
         });
     }
 }

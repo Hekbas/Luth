@@ -18,7 +18,7 @@
 #include <backends/imgui_impl_vulkan.h>
 
 #include <algorithm>
-#include <atomic>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <unordered_map>
@@ -51,7 +51,6 @@ namespace Luth::UI
             u32             height = 0;
         };
 
-        constexpr u32 kMaxBakesInFlight   = 8;
         constexpr u32 kMaxDrainPerFrame   = 16;     // bounds per-frame upload pressure
         constexpr u32 kMaxDiskEntries     = 500;    // settings-driven in commit G
 
@@ -73,7 +72,6 @@ namespace Luth::UI
         SpinLock                                   s_QueueLock;
         std::vector<TextureCompletion>             s_TexCompletions;
 
-        std::atomic<u32>   s_BakesInFlight{ 0 };
         SubscriptionHandle s_AssetSub;
         bool               s_Initialized = false;
 
@@ -90,16 +88,18 @@ namespace Luth::UI
                 || t == AssetType::Material;
         }
 
-        // Saturating decrement: never underflows below 0. Defends against any
-        // increment/decrement imbalance — without this, a single missing
-        // increment wraps the throttle counter to UINT32_MAX and permanently
-        // refuses new bakes (the Bug A root cause that surfaced post-A-C).
-        void DecrementBakesInFlight()
+        // Mark Pending entry as Failed so future Gets see a terminal state and
+        // don't keep re-dispatching the same broken bake. invariant: callers
+        // must NOT hold s_MapLock — this acquires it.
+        void MarkFailed(UUID asset)
         {
-            u32 cur = s_BakesInFlight.load(std::memory_order_relaxed);
-            while (cur > 0
-                && !s_BakesInFlight.compare_exchange_weak(cur, cur - 1,
-                                                          std::memory_order_relaxed)) {}
+            SpinLockGuard g(s_MapLock);
+            auto it = s_Entries.find(asset);
+            if (it == s_Entries.end()) return;
+            if (it->second.state != BakeState::Ready) {
+                it->second.state = BakeState::Failed;
+                ++it->second.retryCount;
+            }
         }
     }
 
@@ -120,15 +120,7 @@ namespace Luth::UI
 
         void NotifyBakeFailed(UUID asset)
         {
-            {
-                SpinLockGuard g(s_MapLock);
-                auto it = s_Entries.find(asset);
-                if (it != s_Entries.end()) {
-                    it->second.state = BakeState::Failed;
-                    ++it->second.retryCount;
-                }
-            }
-            DecrementBakesInFlight();
+            MarkFailed(asset);
         }
     }
 
@@ -176,7 +168,6 @@ namespace Luth::UI
         if (!VulkanActive()) {
             // Backend gone mid-bake — drop completions silently; map mutation
             // would race teardown anyway.
-            for (size_t i = 0; i < local.size(); ++i) DecrementBakesInFlight();
             return;
         }
 
@@ -191,44 +182,58 @@ namespace Luth::UI
 
         for (size_t idx = 0; idx < toProcess; ++idx) {
             auto& c = local[idx];
-            // Texture creation + descriptor allocation outside the map lock —
-            // ImGui_ImplVulkan_AddTexture is microsecond-scale, well over V1's
-            // <100-cycle budget for SpinLock-held work.
-            std::shared_ptr<Texture> tex = Texture::Create(
-                c.width, c.height, TextureFormat::RGBA8, c.pixels.data());
-            if (!tex) {
-                DecrementBakesInFlight();
-                continue;
-            }
-            auto vkTex = std::static_pointer_cast<VKTexture>(tex);
-            VkDescriptorSet newSet = ImGui_ImplVulkan_AddTexture(
-                vkTex->GetSampler(),
-                vkTex->GetImageView(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            try {
+                // Texture creation + descriptor allocation outside the map lock —
+                // ImGui_ImplVulkan_AddTexture is microsecond-scale, well over V1's
+                // <100-cycle budget for SpinLock-held work.
+                std::shared_ptr<Texture> tex = Texture::Create(
+                    c.width, c.height, TextureFormat::RGBA8, c.pixels.data());
+                if (!tex) { MarkFailed(c.asset); continue; }
 
-            VkDescriptorSet oldSet = VK_NULL_HANDLE;
-            bool installed = false;
-            {
-                SpinLockGuard g(s_MapLock);
-                auto it = s_Entries.find(c.asset);
-                if (it != s_Entries.end()) {
-                    oldSet = it->second.imguiSet;
-                    it->second.imguiSet = newSet;
-                    it->second.tex      = tex;
-                    it->second.state    = BakeState::Ready;
-                    installed = true;
+                auto vkTex = std::static_pointer_cast<VKTexture>(tex);
+                VkDescriptorSet newSet = ImGui_ImplVulkan_AddTexture(
+                    vkTex->GetSampler(),
+                    vkTex->GetImageView(),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+                if (newSet == VK_NULL_HANDLE) {
+                    // ImGui descriptor pool exhausted (size=2000). Mark Failed so
+                    // we don't busy-loop dispatching against an exhausted pool;
+                    // a future polish epic will own a dedicated thumbnail pool.
+                    LH_CORE_WARN("Thumbnail: ImGui descriptor pool exhausted for {}", c.asset.ToString());
+                    MarkFailed(c.asset);
+                    continue;
                 }
-            }
 
-            auto& ctx = VulkanContext::Get();
-            if (!installed) {
-                // Entry was Invalidated mid-bake — drop the just-created descriptor
-                // and the backing texture (Ref releases on scope exit).
-                ctx.PushDeletion([newSet]() { ImGui_ImplVulkan_RemoveTexture(newSet); });
-            } else if (oldSet != VK_NULL_HANDLE) {
-                ctx.PushDeletion([oldSet]() { ImGui_ImplVulkan_RemoveTexture(oldSet); });
+                VkDescriptorSet oldSet = VK_NULL_HANDLE;
+                bool installed = false;
+                {
+                    SpinLockGuard g(s_MapLock);
+                    auto it = s_Entries.find(c.asset);
+                    if (it != s_Entries.end()) {
+                        oldSet = it->second.imguiSet;
+                        it->second.imguiSet = newSet;
+                        it->second.tex      = tex;
+                        it->second.state    = BakeState::Ready;
+                        installed = true;
+                    }
+                }
+
+                auto& ctx = VulkanContext::Get();
+                if (!installed) {
+                    // Entry was Invalidated mid-bake — drop the just-created descriptor
+                    // and the backing texture (Ref releases on scope exit).
+                    ctx.PushDeletion([newSet]() { ImGui_ImplVulkan_RemoveTexture(newSet); });
+                } else if (oldSet != VK_NULL_HANDLE) {
+                    ctx.PushDeletion([oldSet]() { ImGui_ImplVulkan_RemoveTexture(oldSet); });
+                }
+            } catch (const std::exception& e) {
+                LH_CORE_ERROR("Thumbnail: Drain threw for {}: {}", c.asset.ToString(), e.what());
+                MarkFailed(c.asset);
+            } catch (...) {
+                LH_CORE_ERROR("Thumbnail: Drain threw non-std exception for {}", c.asset.ToString());
+                MarkFailed(c.asset);
             }
-            DecrementBakesInFlight();
         }
     }
 
@@ -239,6 +244,10 @@ namespace Luth::UI
         if (!FileSystem::HasProject())    return 0;
         if (!IsSupportedType(type))       return 0;
 
+        // Pending sentinel acts as the de-dupe — back-to-back Gets for the same
+        // UUID see Pending and skip re-dispatch. Natural backpressure (IOThread
+        // serialization, kMaxDrainPerFrame upload cap) bounds concurrent work
+        // without a separate counter that could leak and stall the cache.
         bool needsBake = false;
         {
             SpinLockGuard g(s_MapLock);
@@ -246,12 +255,8 @@ namespace Luth::UI
             if (it != s_Entries.end()) {
                 if (it->second.state == BakeState::Ready)
                     return (ImTextureID)it->second.imguiSet;
-                return 0;
+                return 0;   // Pending / InFlight / Failed → icon fallback
             }
-            // Insert Pending sentinel atomically with the bake decision so
-            // back-to-back Get() calls in the same frame don't dispatch twice.
-            if (s_BakesInFlight.load(std::memory_order_relaxed) >= kMaxBakesInFlight)
-                return 0;
             Entry e;
             e.type  = type;
             e.state = BakeState::Pending;
@@ -259,10 +264,7 @@ namespace Luth::UI
             needsBake = true;
         }
 
-        if (needsBake) {
-            s_BakesInFlight.fetch_add(1, std::memory_order_relaxed);
-            ThumbnailGenerator::Dispatch(asset, type);
-        }
+        if (needsBake) ThumbnailGenerator::Dispatch(asset, type);
         return 0;
     }
 
@@ -339,10 +341,9 @@ namespace Luth::UI
             entries.erase(entries.begin(), entries.begin() + toDrop);
         }
 
-        // Insert Pending sentinels + dispatch async loads. Each dispatched load
-        // pre-increments s_BakesInFlight so the matching Drain decrement keeps
-        // the throttle counter balanced (without this it wraps to UINT32_MAX
-        // after the first scan and refuses every subsequent bake).
+        // Insert Pending sentinels + dispatch async loads. The Pending state
+        // acts as both de-dupe (Get sees it, skips re-dispatch) and as the
+        // implicit in-flight ledger.
         for (const auto& e : entries) {
             bool inserted = false;
             {
@@ -356,7 +357,6 @@ namespace Luth::UI
                 }
             }
             if (!inserted) continue;
-            s_BakesInFlight.fetch_add(1, std::memory_order_relaxed);
             ThumbnailGenerator::DispatchLoadFromDisk(e.uuid, e.type);
         }
 
