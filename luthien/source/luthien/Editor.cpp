@@ -38,6 +38,7 @@
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
 #include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
 #include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
@@ -109,6 +110,7 @@ namespace Luth
 
         EditorAutoSave::Init();
         UI::ThumbnailCache::Init();
+        UI::ThumbnailPreviewScene::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -234,6 +236,7 @@ namespace Luth
 
         SaveSettings();
 
+        UI::ThumbnailPreviewScene::Shutdown();
         UI::ThumbnailCache::Shutdown();
         EditorAutoSave::Shutdown();
 

@@ -6,9 +6,13 @@
 #include "luth/jobs/IOThread.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/memory/MemoryMacros.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/Image.h"
+
+#include "luthien/widgets/ThumbnailPreviewScene.h"
 
 #include <filesystem>
 #include <vector>
@@ -113,17 +117,71 @@ namespace Luth::UI
         }
     }
 
+    namespace
+    {
+        // Mesh bake runs synchronously on the main thread because LoadImmediate
+        // and ImmediateSubmit are both main-thread-only. ThumbnailCache caps
+        // GPU-bake dispatches at 1/frame so this can't dominate frame time.
+        void BakeMeshSync(UUID asset)
+        {
+            try {
+                auto modelBase = AssetManager::LoadImmediate(asset);
+                auto model = std::dynamic_pointer_cast<Model>(modelBase);
+                if (!model) {
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+                if (model->IsSkinned()) {
+                    // v1 limitation: SkinnedVertex stride (84 B) doesn't match the
+                    // bake pipeline's 52 B Vertex stride. Surface as Failed so Get
+                    // sees a terminal state and returns the icon fallback.
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+
+                Image::LoadResult8 baked = ThumbnailPreviewScene::BakeMesh(model);
+                if (!baked.valid) {
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+
+                if (FileSystem::HasProject()) {
+                    std::vector<u8> png = Image::EncodePngToMemory(
+                        baked.pixels.data(), baked.width, baked.height, 4);
+                    if (!png.empty()) {
+                        const fs::path outPath = ThumbnailDiskPath(asset);
+                        std::error_code ec;
+                        fs::create_directories(outPath.parent_path(), ec);
+                        if (!ec) IOThread::WriteFile(outPath.string(), std::move(png));
+                    }
+                }
+                ThumbnailCacheInternal::PushTextureCompletion(
+                    asset, std::move(baked.pixels), baked.width, baked.height);
+            } catch (const std::exception& e) {
+                LH_CORE_ERROR("Thumbnail: mesh bake threw for {}: {}", asset.ToString(), e.what());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            } catch (...) {
+                LH_CORE_ERROR("Thumbnail: mesh bake threw non-std exception for {}", asset.ToString());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            }
+        }
+    }
+
     void ThumbnailGenerator::Dispatch(UUID asset, AssetType type)
     {
         if (!asset.IsValid()) return;
-        if (type != AssetType::Texture) return;   // mesh/material in commits E/F
 
-        auto* ctx = LH_NEW(Memory::Category::Editor, TextureBakeContext);
-        ctx->asset = asset;
-        ctx->targetSize = 128;                    // settings-driven in commit G
-
-        JobSystem::Execute(BakeTextureJobThunk, ctx, nullptr,
-                           "Thumbnail.Bake.Tex", JobSystem::Priority::Low);
+        if (type == AssetType::Texture) {
+            auto* ctx = LH_NEW(Memory::Category::Editor, TextureBakeContext);
+            ctx->asset = asset;
+            ctx->targetSize = 128;                // settings-driven in commit G
+            JobSystem::Execute(BakeTextureJobThunk, ctx, nullptr,
+                               "Thumbnail.Bake.Tex", JobSystem::Priority::Low);
+        }
+        else if (type == AssetType::Model) {
+            BakeMeshSync(asset);
+        }
+        // Material handled in a follow-up commit (cascade invalidation also lands there).
     }
 
     void ThumbnailGenerator::DispatchLoadFromDisk(UUID asset, AssetType /*type*/)

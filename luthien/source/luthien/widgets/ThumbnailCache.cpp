@@ -51,9 +51,10 @@ namespace Luth::UI
             u32             height = 0;
         };
 
-        constexpr u32 kMaxDrainPerFrame    = 8;      // bounds per-frame upload pressure
-        constexpr u32 kMaxDispatchPerFrame = 5;      // Unreal-style FAssetThumbnailPool tick budget
-        constexpr u32 kMaxDiskEntries      = 500;    // settings-driven in commit G
+        constexpr u32 kMaxDrainPerFrame              = 8;    // bounds per-frame upload pressure
+        constexpr u32 kMaxTextureDispatchPerFrame    = 5;    // CPU bakes — run on workers, cheap
+        constexpr u32 kMaxBakeDispatchPerFrame       = 1;    // GPU bakes — block main, ~10–30 ms each
+        constexpr u32 kMaxDiskEntries                = 500;  // settings-driven in commit G
 
         // Deferred dispatch — Get / ScanDiskCache append; Drain pumps up to
         // kMaxDispatchPerFrame per frame. Spreads cold-start CPU work over
@@ -174,19 +175,28 @@ namespace Luth::UI
     void ThumbnailCache::Drain()
     {
         // Pump deferred-dispatch queue. FIFO — ProjectPanel iterates the grid
-        // top-to-bottom calling Get, so push order matches reading order;
-        // taking from the front yields top-down thumbnail population.
-        // (Trade-off: items pushed before a folder switch finish before the
-        // new folder's items start. Acceptable in v1; viewport-aware
-        // visibility prioritization is a future polish.)
+        // top-to-bottom, so push order matches reading order; taking from the
+        // front yields top-down thumbnail population. Per-type budgets keep
+        // mesh/material bakes (synchronous on main, ~10–30 ms each) from
+        // dominating frame time even when many are queued.
         {
             std::vector<DispatchRequest> batch;
             {
                 SpinLockGuard g(s_DispatchLock);
-                if (!s_PendingDispatches.empty()) {
-                    const size_t take = std::min<size_t>(s_PendingDispatches.size(), kMaxDispatchPerFrame);
-                    batch.assign(s_PendingDispatches.begin(), s_PendingDispatches.begin() + take);
-                    s_PendingDispatches.erase(s_PendingDispatches.begin(), s_PendingDispatches.begin() + take);
+                u32 textureLeft = kMaxTextureDispatchPerFrame;
+                u32 bakeLeft    = kMaxBakeDispatchPerFrame;
+                auto it = s_PendingDispatches.begin();
+                while (it != s_PendingDispatches.end() && (textureLeft > 0 || bakeLeft > 0)) {
+                    bool take = false;
+                    if (it->fromDisk && textureLeft > 0) {
+                        take = true; --textureLeft;
+                    } else if (it->type == AssetType::Texture && textureLeft > 0) {
+                        take = true; --textureLeft;
+                    } else if ((it->type == AssetType::Model || it->type == AssetType::Material) && bakeLeft > 0) {
+                        take = true; --bakeLeft;
+                    }
+                    if (take) { batch.push_back(*it); it = s_PendingDispatches.erase(it); }
+                    else      { ++it; }
                 }
             }
             for (auto& r : batch) {
