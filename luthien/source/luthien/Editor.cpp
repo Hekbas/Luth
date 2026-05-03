@@ -511,6 +511,9 @@ namespace Luth
         // Draw texture remap modal (no-op when closed)
         TextureRemapDialog::Draw();
 
+        // Crash-recovery prompt (no-op when nothing pending)
+        EditorAutoSave::DrawRecoveryModal();
+
         ImGui::End();
     }
 
@@ -621,8 +624,10 @@ namespace Luth
             if (sceneUUID.IsValid() && AssetDatabase::Exists(sceneUUID))
             {
                 const auto& meta = AssetDatabase::GetMetadata(sceneUUID);
-                if (!meta.Path.empty() && fs::exists(meta.Path))
+                if (!meta.Path.empty() && fs::exists(meta.Path)) {
                     OpenScene(meta.Path);
+                    EditorAutoSave::ScanForRecovery(s_ScenePath);
+                }
             }
             s_Settings.lastSceneUUID.clear(); // One-shot: don't re-trigger on subsequent SetActiveScene calls
         }

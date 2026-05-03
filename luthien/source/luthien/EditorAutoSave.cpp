@@ -10,6 +10,8 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/SceneSerializer.h"
 
+#include <imgui.h>
+
 #include "luthien/Editor.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/events/EditorSignals.h"
@@ -32,6 +34,12 @@ namespace Luth
         SubscriptionHandle  s_PlaySub;
         bool                s_WarnedUntitled    = false;
         bool                s_WarnedForeignPath = false;
+
+        bool        s_RecoveryPending = false;
+        bool        s_RecoveryModalOpened = false;
+        fs::path    s_RecoveryFile;
+        fs::path    s_RecoveryCanonicalPath;
+        std::chrono::system_clock::time_point s_RecoveryStamp;
 
         constexpr f32 kNoticeDurationSec = 5.0f;
 
@@ -231,5 +239,107 @@ namespace Luth
     bool EditorAutoSave::IsNoticeActive()
     {
         return !s_LastNotice.empty() && Time::GetTime() < s_NoticeExpiry;
+    }
+
+    void EditorAutoSave::ScanForRecovery(const fs::path& scenePath)
+    {
+        s_RecoveryPending = false;
+        s_RecoveryModalOpened = false;
+        if (scenePath.empty()) return;
+        if (!IsPathInsideProject(scenePath)) return;
+
+        std::error_code ec;
+        if (!fs::exists(scenePath, ec)) return;
+        const auto canonStamp = fs::last_write_time(scenePath, ec);
+        if (ec) return;
+
+        const fs::path dir = AutosavesDir();
+        if (!fs::exists(dir, ec)) return;
+
+        const std::string stem = scenePath.stem().string() + "-";
+
+        fs::path bestFile;
+        fs::file_time_type bestStamp{};
+        bool found = false;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file()) continue;
+            const auto name = entry.path().filename().string();
+            if (name.rfind(stem, 0) != 0) continue;
+            const auto stamp = entry.last_write_time();
+            if (!found || stamp > bestStamp) {
+                bestFile = entry.path();
+                bestStamp = stamp;
+                found = true;
+            }
+        }
+        if (!found) return;
+        if (bestStamp <= canonStamp) return;   // canonical is newer; autosave is stale
+
+        s_RecoveryPending = true;
+        s_RecoveryFile = bestFile;
+        s_RecoveryCanonicalPath = scenePath;
+
+        // file_time_type → system_clock::time_point conversion is implementation-
+        // defined; clock_cast lands cleanly on MSVC C++20.
+        s_RecoveryStamp = std::chrono::clock_cast<std::chrono::system_clock>(bestStamp);
+    }
+
+    void EditorAutoSave::DrawRecoveryModal()
+    {
+        if (!s_RecoveryPending) return;
+
+        constexpr const char* kModalID = "Recover from autosave?";
+        if (!s_RecoveryModalOpened) {
+            ImGui::OpenPopup(kModalID);
+            s_RecoveryModalOpened = true;
+        }
+
+        if (!ImGui::BeginPopupModal(kModalID, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+
+        std::time_t t = std::chrono::system_clock::to_time_t(s_RecoveryStamp);
+        std::tm tmv{};
+    #ifdef _WIN32
+        localtime_s(&tmv, &t);
+    #else
+        localtime_r(&t, &tmv);
+    #endif
+        char tsbuf[32];
+        std::strftime(tsbuf, sizeof(tsbuf), "%Y-%m-%d %H:%M:%S", &tmv);
+
+        ImGui::TextWrapped("A more recent autosave exists for '%s'.",
+                           s_RecoveryCanonicalPath.filename().string().c_str());
+        ImGui::Spacing();
+        ImGui::TextDisabled("Autosave: %s", tsbuf);
+        ImGui::TextDisabled("Path: %s", s_RecoveryFile.string().c_str());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        const ImVec2 btn{ 110, 0 };
+        if (ImGui::Button("Recover", btn)) {
+            auto scene = Editor::GetActiveScene();
+            if (scene && SceneSerializer::Load(*scene, s_RecoveryFile)) {
+                // The recovered content differs from the canonical file on disk;
+                // mark dirty so the title-bar * is honest until the user Saves.
+                Editor::MarkDirty();
+                LH_CORE_INFO("Recovered scene from '{}'", s_RecoveryFile.string());
+            }
+            s_RecoveryPending = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", btn)) {
+            std::error_code ec;
+            fs::remove(s_RecoveryFile, ec);
+            s_RecoveryPending = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", btn)) {
+            s_RecoveryPending = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }

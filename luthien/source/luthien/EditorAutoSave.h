@@ -2,6 +2,8 @@
 
 #include "luth/core/types/LuthTypes.h"
 
+#include <filesystem>
+
 namespace Luth
 {
     // Periodic side-channel scene backup. Autosaves go to
@@ -25,5 +27,11 @@ namespace Luth
         // " — Autosaved HH:MM" suffix.
         static const char* GetLastNotice();   // empty string when unexpired-or-absent
         static bool        IsNoticeActive();
+
+        // Crash-recovery. SetActiveScene's startup auto-load calls
+        // ScanForRecovery; Editor::Render unconditionally calls
+        // DrawRecoveryModal (no-op when nothing pending).
+        static void ScanForRecovery(const std::filesystem::path& scenePath);
+        static void DrawRecoveryModal();
     };
 }
