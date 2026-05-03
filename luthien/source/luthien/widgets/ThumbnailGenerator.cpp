@@ -131,14 +131,10 @@ namespace Luth::UI
                     ThumbnailCacheInternal::NotifyBakeFailed(asset);
                     return;
                 }
-                if (model->IsSkinned()) {
-                    // v1 limitation: SkinnedVertex stride (84 B) doesn't match the
-                    // bake pipeline's 52 B Vertex stride. Surface as Failed so Get
-                    // sees a terminal state and returns the icon fallback.
-                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
-                    return;
-                }
 
+                // ThumbnailPreviewScene picks the matching pipeline (static vs
+                // skinned) based on model->IsSkinned(); both paths render the
+                // bind-pose mesh through the same Lambert+ambient shader.
                 Image::LoadResult8 baked = ThumbnailPreviewScene::BakeMesh(model);
                 if (!baked.valid) {
                     ThumbnailCacheInternal::NotifyBakeFailed(asset);

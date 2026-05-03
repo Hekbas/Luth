@@ -26,9 +26,10 @@ namespace Luth::UI::ThumbnailPreviewScene
 {
     namespace
     {
-        constexpr u32 kSize         = 128;
-        constexpr u32 kStaging      = kSize * kSize * 4;   // RGBA8
-        constexpr u32 kVertexStride = sizeof(Vertex);      // 52 B; non-skinned only
+        constexpr u32 kSize                = 128;
+        constexpr u32 kStaging             = kSize * kSize * 4;       // RGBA8
+        constexpr u32 kStaticVertexStride  = sizeof(Vertex);          // 52 B
+        constexpr u32 kSkinnedVertexStride = sizeof(SkinnedVertex);   // 84 B
 
         struct PushConstants
         {
@@ -37,8 +38,12 @@ namespace Luth::UI::ThumbnailPreviewScene
         };
         static_assert(sizeof(PushConstants) == 128, "thumbnail PC must fit minMaxPushConstantsSize");
 
+        // Two pipelines share the same shaders (Position@0 + Normal@12 are at
+        // identical offsets in Vertex and SkinnedVertex); only the binding's
+        // stride differs. Skinned bakes render bind pose — bone data ignored.
         bool                        s_Initialized = false;
-        std::unique_ptr<VKPipeline> s_Pipeline;
+        std::unique_ptr<VKPipeline> s_PipelineStatic;
+        std::unique_ptr<VKPipeline> s_PipelineSkinned;
         std::shared_ptr<Texture>    s_ColorRT;
         std::shared_ptr<Texture>    s_DepthRT;
         VkBuffer                    s_Staging       = VK_NULL_HANDLE;
@@ -59,12 +64,10 @@ namespace Luth::UI::ThumbnailPreviewScene
             return !out.empty();
         }
 
-        bool CreatePipeline()
+        std::unique_ptr<VKPipeline> BuildPipeline(const std::vector<u32>& vert,
+                                                  const std::vector<u32>& frag,
+                                                  u32 stride)
         {
-            std::vector<u32> vert, frag;
-            if (!LoadShader("shaders/thumbnail_mesh.vert", vert)) return false;
-            if (!LoadShader("shaders/thumbnail_mesh.frag", frag)) return false;
-
             PipelineConfig cfg;
             cfg.colorFormats   = { VK_FORMAT_R8G8B8A8_UNORM };
             cfg.depthFormat    = VK_FORMAT_D32_SFLOAT;
@@ -79,10 +82,12 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             VkVertexInputBindingDescription bind{};
             bind.binding   = 0;
-            bind.stride    = kVertexStride;
+            bind.stride    = stride;
             bind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
             cfg.bindingDescriptions = { bind };
 
+            // Position@0 and Normal@12 are at identical offsets in Vertex and
+            // SkinnedVertex; only the per-vertex stride differs.
             VkVertexInputAttributeDescription pos{};
             pos.location = 0;
             pos.binding  = 0;
@@ -103,9 +108,19 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.size       = sizeof(PushConstants);
             cfg.pushConstantRanges = { pc };
 
-            s_Pipeline = std::make_unique<VKPipeline>(cfg, vert, frag,
-                                                     std::vector<VkDescriptorSetLayout>{});
-            return true;
+            return std::make_unique<VKPipeline>(cfg, vert, frag,
+                                                std::vector<VkDescriptorSetLayout>{});
+        }
+
+        bool CreatePipelines()
+        {
+            std::vector<u32> vert, frag;
+            if (!LoadShader("shaders/thumbnail_mesh.vert", vert)) return false;
+            if (!LoadShader("shaders/thumbnail_mesh.frag", frag)) return false;
+
+            s_PipelineStatic  = BuildPipeline(vert, frag, kStaticVertexStride);
+            s_PipelineSkinned = BuildPipeline(vert, frag, kSkinnedVertexStride);
+            return s_PipelineStatic && s_PipelineSkinned;
         }
 
         bool CreateTargets()
@@ -154,7 +169,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (s_Initialized) return true;
         if (!VulkanActive()) return false;
 
-        if (!CreatePipeline()) { Shutdown(); return false; }
+        if (!CreatePipelines()) { Shutdown(); return false; }
         if (!CreateTargets())  { Shutdown(); return false; }
         if (!CreateStaging())  { Shutdown(); return false; }
 
@@ -165,8 +180,9 @@ namespace Luth::UI::ThumbnailPreviewScene
     void Shutdown()
     {
         s_Initialized = false;
-        s_Pipeline.reset();   // ~VKPipeline destroys VkPipeline + layout
-        s_ColorRT.reset();    // ~VKTexture pushes image deletion to fenced queue
+        s_PipelineStatic.reset();   // ~VKPipeline destroys VkPipeline + layout
+        s_PipelineSkinned.reset();
+        s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
         if (s_StagingAlloc) {
             if (s_StagingMapped) VulkanAllocator::Unmap(s_StagingAlloc);
@@ -183,10 +199,6 @@ namespace Luth::UI::ThumbnailPreviewScene
     {
         Image::LoadResult8 out;
         if (!s_Initialized || !model) return out;
-
-        // v1 supports non-skinned only: skinned vertices have stride 84 B and
-        // the bake pipeline's binding stride is hardcoded at sizeof(Vertex) = 52.
-        if (model->IsSkinned()) return out;
 
         auto mesh = model->GetMesh(0);
         if (!mesh) return out;
@@ -275,8 +287,10 @@ namespace Luth::UI::ThumbnailPreviewScene
             sc.extent = { kSize, kSize };
             vkCmdSetScissor(cmd, 0, 1, &sc);
 
-            s_Pipeline->Bind(cmd);
-            vkCmdPushConstants(cmd, s_Pipeline->GetLayout(),
+            VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
+                                                       : s_PipelineStatic.get();
+            pipeline->Bind(cmd);
+            vkCmdPushConstants(cmd, pipeline->GetLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0, sizeof(pc), &pc);
 
