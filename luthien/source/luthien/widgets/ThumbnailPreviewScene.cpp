@@ -200,25 +200,38 @@ namespace Luth::UI::ThumbnailPreviewScene
         Image::LoadResult8 out;
         if (!s_Initialized || !model) return out;
 
-        auto mesh = model->GetMesh(0);
-        if (!mesh) return out;
-        auto vbBase = mesh->GetVertexBuffer();
-        auto ibBase = mesh->GetIndexBuffer();
-        if (!vbBase || !ibBase) return out;
-        auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(vbBase);
-        auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(ibBase);
-        if (!vkVB || !vkIB) return out;
+        // Collect every sub-mesh (FBX / GLTF assets routinely split a single
+        // model across body / hair / glass / wheels / etc.). Single bake pass
+        // binds pipeline + push constants once and switches VBO/IBO per draw.
+        struct DrawEntry { VkBuffer vb; VkBuffer ib; u32 indexCount; };
+        std::vector<DrawEntry> draws;
+        const auto& meshes = model->GetMeshes();
+        draws.reserve(meshes.size());
+        for (const auto& meshPtr : meshes) {
+            if (!meshPtr) continue;
+            auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(meshPtr->GetVertexBuffer());
+            auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(meshPtr->GetIndexBuffer());
+            if (!vkVB || !vkIB) continue;
+            VkBuffer vbBuf = vkVB->GetVulkanBuffer();
+            VkBuffer ibBuf = vkIB->GetVulkanBuffer();
+            u32      ic    = vkIB->GetCount();
+            if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || ic == 0) continue;
+            draws.push_back({ vbBuf, ibBuf, ic });
+        }
+        if (draws.empty()) return out;
 
-        const VkBuffer vbBuf      = vkVB->GetVulkanBuffer();
-        const VkBuffer ibBuf      = vkIB->GetVulkanBuffer();
-        const u32      indexCount = vkIB->GetCount();
-        if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || indexCount == 0) return out;
-
-        // Bind-pose AABB drives camera orbit fit. Fall back to a unit cube if
-        // the importer didn't compute one.
-        AABB aabb = model->GetMeshesData().empty()
-            ? AABB{ Vec3(-0.5f), Vec3(0.5f) }
-            : model->GetMeshesData()[0].BindPoseAABB;
+        // Combined bind-pose AABB drives camera orbit fit — model-wide, not
+        // first-mesh-only, so multi-mesh models frame correctly.
+        AABB aabb;
+        for (const auto& md : model->GetMeshesData()) {
+            if (!md.BindPoseAABB.IsValid()) continue;
+            if (!aabb.IsValid()) {
+                aabb = md.BindPoseAABB;
+            } else {
+                aabb.Expand(md.BindPoseAABB.Min);
+                aabb.Expand(md.BindPoseAABB.Max);
+            }
+        }
         if (!aabb.IsValid()) aabb = AABB{ Vec3(-0.5f), Vec3(0.5f) };
 
         const Vec3 center = aabb.Center();
@@ -295,9 +308,11 @@ namespace Luth::UI::ThumbnailPreviewScene
                 0, sizeof(pc), &pc);
 
             VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(cmd, 0, 1, &vbBuf, offsets);
-            vkCmdBindIndexBuffer(cmd, ibBuf, 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+            for (const auto& d : draws) {
+                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
+                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+            }
 
             vkCmdEndRendering(cmd);
 
