@@ -89,6 +89,18 @@ namespace Luth::UI
                 || t == AssetType::Model
                 || t == AssetType::Material;
         }
+
+        // Saturating decrement: never underflows below 0. Defends against any
+        // increment/decrement imbalance — without this, a single missing
+        // increment wraps the throttle counter to UINT32_MAX and permanently
+        // refuses new bakes (the Bug A root cause that surfaced post-A-C).
+        void DecrementBakesInFlight()
+        {
+            u32 cur = s_BakesInFlight.load(std::memory_order_relaxed);
+            while (cur > 0
+                && !s_BakesInFlight.compare_exchange_weak(cur, cur - 1,
+                                                          std::memory_order_relaxed)) {}
+        }
     }
 
     // Wire-internal — invoked from ThumbnailGenerator's worker fiber. Not part
@@ -108,15 +120,15 @@ namespace Luth::UI
 
         void NotifyBakeFailed(UUID asset)
         {
-            SpinLockGuard g(s_MapLock);
-            auto it = s_Entries.find(asset);
-            if (it == s_Entries.end()) {
-                s_BakesInFlight.fetch_sub(1, std::memory_order_relaxed);
-                return;
+            {
+                SpinLockGuard g(s_MapLock);
+                auto it = s_Entries.find(asset);
+                if (it != s_Entries.end()) {
+                    it->second.state = BakeState::Failed;
+                    ++it->second.retryCount;
+                }
             }
-            it->second.state = BakeState::Failed;
-            ++it->second.retryCount;
-            s_BakesInFlight.fetch_sub(1, std::memory_order_relaxed);
+            DecrementBakesInFlight();
         }
     }
 
@@ -164,7 +176,7 @@ namespace Luth::UI
         if (!VulkanActive()) {
             // Backend gone mid-bake — drop completions silently; map mutation
             // would race teardown anyway.
-            s_BakesInFlight.fetch_sub(static_cast<u32>(local.size()), std::memory_order_relaxed);
+            for (size_t i = 0; i < local.size(); ++i) DecrementBakesInFlight();
             return;
         }
 
@@ -185,7 +197,7 @@ namespace Luth::UI
             std::shared_ptr<Texture> tex = Texture::Create(
                 c.width, c.height, TextureFormat::RGBA8, c.pixels.data());
             if (!tex) {
-                s_BakesInFlight.fetch_sub(1, std::memory_order_relaxed);
+                DecrementBakesInFlight();
                 continue;
             }
             auto vkTex = std::static_pointer_cast<VKTexture>(tex);
@@ -216,7 +228,7 @@ namespace Luth::UI
             } else if (oldSet != VK_NULL_HANDLE) {
                 ctx.PushDeletion([oldSet]() { ImGui_ImplVulkan_RemoveTexture(oldSet); });
             }
-            s_BakesInFlight.fetch_sub(1, std::memory_order_relaxed);
+            DecrementBakesInFlight();
         }
     }
 
@@ -327,17 +339,24 @@ namespace Luth::UI
             entries.erase(entries.begin(), entries.begin() + toDrop);
         }
 
-        // Insert Pending sentinels + dispatch async loads. Disk loads bypass the
-        // bake throttle (cheap I/O + decode); Drain's per-frame cap paces uploads.
+        // Insert Pending sentinels + dispatch async loads. Each dispatched load
+        // pre-increments s_BakesInFlight so the matching Drain decrement keeps
+        // the throttle counter balanced (without this it wraps to UINT32_MAX
+        // after the first scan and refuses every subsequent bake).
         for (const auto& e : entries) {
+            bool inserted = false;
             {
                 SpinLockGuard g(s_MapLock);
-                if (s_Entries.find(e.uuid) != s_Entries.end()) continue;
-                Entry mapEntry;
-                mapEntry.type  = e.type;
-                mapEntry.state = BakeState::Pending;
-                s_Entries.emplace(e.uuid, std::move(mapEntry));
+                if (s_Entries.find(e.uuid) == s_Entries.end()) {
+                    Entry mapEntry;
+                    mapEntry.type  = e.type;
+                    mapEntry.state = BakeState::Pending;
+                    s_Entries.emplace(e.uuid, std::move(mapEntry));
+                    inserted = true;
+                }
             }
+            if (!inserted) continue;
+            s_BakesInFlight.fetch_add(1, std::memory_order_relaxed);
             ThumbnailGenerator::DispatchLoadFromDisk(e.uuid, e.type);
         }
 

@@ -248,6 +248,15 @@ namespace Luth
         s_Panels.clear();
         UI::ClearTextureCache();
 
+        // Drain any pending fenced deletions while ImGui Vulkan is still alive.
+        // PushDeletion lambdas (UI::GetTextureID stale-eviction, ThumbnailCache
+        // Invalidate/Drain) call ImGui_ImplVulkan_RemoveTexture; if they fire
+        // later from App::Close → Renderer::FlushDeletionQueues, the ImGui
+        // backend has already torn down → null-deref crash on the descriptor
+        // pool. invariant: must run before ImGui_ImplVulkan_Shutdown below.
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
+            VulkanContext::Get().FlushAllDeletionQueues();
+
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             // Clear GLFW callbacks that forward to ImGui BEFORE destroying
             // the backend. We installed these manually (install_callbacks=false),
