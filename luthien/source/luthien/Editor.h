@@ -131,6 +131,7 @@ namespace Luth
         // Scene management
         static void SetActiveScene(std::shared_ptr<Scene> scene);
         static std::shared_ptr<Scene> GetActiveScene() { return s_ActiveScene; }
+        static const std::filesystem::path& GetScenePath() { return s_ScenePath; }
         static void NewScene();
         static void OpenScene();
         static void OpenScene(const std::filesystem::path& path);

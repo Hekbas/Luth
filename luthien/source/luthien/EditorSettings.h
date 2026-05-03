@@ -58,6 +58,11 @@ namespace Luth
         // Play mode
         bool  previewAnimationInEditor = true;   // Animations tick in Editing state
 
+        // Autosave (side-channel backup; never overwrites canonical scene)
+        bool  autoSaveEnabled     = true;
+        float autoSaveIntervalSec = 60.0f;
+        u32   autoSaveKeepN       = 10;
+
         // Scene persistence
         std::string lastSceneUUID;
 

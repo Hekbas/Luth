@@ -37,6 +37,7 @@
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
 #include "luth/core/diagnostics/StackTrace.h"
@@ -104,6 +105,8 @@ namespace Luth
         // s_LastHierarchyVersion stamp dance.
         EventBus::Subscribe<HierarchyChangedSignal>(BusType::MainThread,
             [](Event&) { Editor::MarkDirty(); });
+
+        EditorAutoSave::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -228,6 +231,8 @@ namespace Luth
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();
 
         SaveSettings();
+
+        EditorAutoSave::Shutdown();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
         // Run OnShutdown before destroying — gives panels a chance to detach from
@@ -403,6 +408,8 @@ namespace Luth
 
         // Skip rendering if context is null (Vulkan case)
         if (!s_Context) return;
+
+        EditorAutoSave::Tick();
 
         // ── Gather phase ─────────────────────────────────────────────────────────
         // Dispatch one gather job per visible panel. Workers run concurrently while
@@ -839,6 +846,9 @@ namespace Luth
                     SaveScene();
                 if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
                     SaveSceneAs();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Autosave Now"))
+                    EditorAutoSave::ForceNow();
                 ImGui::EndMenu();
             }
 
@@ -968,6 +978,10 @@ namespace Luth
         }
         if (s_IsDirty) {
             title += "*";
+        }
+        if (EditorAutoSave::IsNoticeActive()) {
+            title += " — ";
+            title += EditorAutoSave::GetLastNotice();
         }
 
         GLFWwindow* win = (GLFWwindow*)s_Window->GetNativeWindow();

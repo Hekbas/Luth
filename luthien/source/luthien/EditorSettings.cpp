@@ -74,6 +74,11 @@ namespace Luth
             settings.gridLineThickness = j.value("gridLineThickness", settings.gridLineThickness);
 
             settings.previewAnimationInEditor = j.value("previewAnimationInEditor", settings.previewAnimationInEditor);
+
+            settings.autoSaveEnabled     = j.value("autoSaveEnabled", settings.autoSaveEnabled);
+            settings.autoSaveIntervalSec = j.value("autoSaveIntervalSec", settings.autoSaveIntervalSec);
+            settings.autoSaveKeepN       = j.value("autoSaveKeepN", settings.autoSaveKeepN);
+
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
@@ -126,6 +131,11 @@ namespace Luth
             j["gridLineThickness"] = settings.gridLineThickness;
 
             j["previewAnimationInEditor"] = settings.previewAnimationInEditor;
+
+            j["autoSaveEnabled"]     = settings.autoSaveEnabled;
+            j["autoSaveIntervalSec"] = settings.autoSaveIntervalSec;
+            j["autoSaveKeepN"]       = settings.autoSaveKeepN;
+
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 
             std::ofstream file(path);
