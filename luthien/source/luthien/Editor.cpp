@@ -617,20 +617,10 @@ namespace Luth
         if (auto* sp = GetPanel<ScenePanel>())
             sp->SetContext(scene);
 
-        // Load last opened scene (on first call from App::Init, s_ActiveScene is now valid)
-        if (!s_Settings.lastSceneUUID.empty())
-        {
-            UUID sceneUUID = UUID::FromString(s_Settings.lastSceneUUID);
-            if (sceneUUID.IsValid() && AssetDatabase::Exists(sceneUUID))
-            {
-                const auto& meta = AssetDatabase::GetMetadata(sceneUUID);
-                if (!meta.Path.empty() && fs::exists(meta.Path)) {
-                    OpenScene(meta.Path);
-                    EditorAutoSave::ScanForRecovery(s_ScenePath);
-                }
-            }
-            s_Settings.lastSceneUUID.clear(); // One-shot: don't re-trigger on subsequent SetActiveScene calls
-        }
+        // The auto-load-from-lastSceneUUID flow used to live here, but
+        // SetActiveScene fires from App::App() before LoadProject populates
+        // AssetDatabase — Exists() always returned false. Auto-load now runs
+        // in OnProjectChanged, after the database is live.
     }
 
     void Editor::NewScene()
@@ -680,6 +670,10 @@ namespace Luth
                     }
                 }
             }
+
+            // Surface a fresher autosave if we crashed mid-edit on this scene.
+            // Covers auto-load (OnProjectChanged) AND manual File > Open paths.
+            EditorAutoSave::ScanForRecovery(s_ScenePath);
         }
     }
 
@@ -1019,6 +1013,22 @@ namespace Luth
         // Reset hierarchy selection
         if (auto* hp = GetPanel<HierarchyPanel>())
             hp->SetContext(s_ActiveScene);
+
+        // Auto-load last scene now that AssetDatabase is populated for the
+        // new project. SetActiveScene runs at App::App() before LoadProject,
+        // so it can't do this — see comment in SetActiveScene. OpenScene
+        // fires the autosave recovery scan as a side effect.
+        if (s_ActiveScene && !s_Settings.lastSceneUUID.empty())
+        {
+            UUID uuid = UUID::FromString(s_Settings.lastSceneUUID);
+            if (uuid.IsValid() && AssetDatabase::Exists(uuid))
+            {
+                const auto& meta = AssetDatabase::GetMetadata(uuid);
+                if (!meta.Path.empty() && fs::exists(meta.Path))
+                    OpenScene(meta.Path);
+            }
+            s_Settings.lastSceneUUID.clear();
+        }
 
         // Reload the skybox now that the project's asset paths are live.
         // RenderingSystem::ctor runs before any project is loaded, so its IBL

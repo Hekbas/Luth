@@ -34,6 +34,7 @@ namespace Luth
         SubscriptionHandle  s_PlaySub;
         bool                s_WarnedUntitled    = false;
         bool                s_WarnedForeignPath = false;
+        bool                s_TickArmed         = false;
 
         bool        s_RecoveryPending = false;
         bool        s_RecoveryModalOpened = false;
@@ -142,7 +143,11 @@ namespace Luth
 
     void EditorAutoSave::Init()
     {
-        s_LastSaveTime = Time::GetTime();
+        // s_LastSaveTime is intentionally NOT captured from Time::GetTime() here:
+        // Editor::Init runs before App::Run's first Time::Update(), so the steady
+        // clock baseline isn't initialised yet. First Tick() captures it lazily.
+        s_LastSaveTime = 0.0f;
+        s_TickArmed    = false;
         s_PlayActive   = false;
         s_LastNotice.clear();
         s_NoticeExpiry = 0.0f;
@@ -171,6 +176,11 @@ namespace Luth
 
     void EditorAutoSave::Tick()
     {
+        if (!s_TickArmed) {
+            s_LastSaveTime = Time::GetTime();
+            s_TickArmed = true;
+        }
+
         const auto& settings = Editor::GetSettings();
         if (!settings.autoSaveEnabled) return;
         if (s_PlayActive) return;
