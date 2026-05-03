@@ -1,6 +1,5 @@
 #include "lepch.h"
 #include "luthien/widgets/AssetSlot.h"
-#include "luthien/widgets/Properties.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -10,10 +9,11 @@
 
 namespace Luth::UI
 {
-    bool PropertyAsset(const char* label, UUID& assetHandle, AssetType type)
+    EditState PropertyAsset(const char* label, UUID& assetHandle, AssetType type)
     {
         PropertyLabel(label);
 
+        UUID pre = assetHandle;
         bool changed = false;
         std::string assetName = "None";
 
@@ -56,6 +56,7 @@ namespace Luth::UI
         {
             // TODO: Open Asset Picker popup
         }
+        ImGuiID itemId = ImGui::GetItemID();
         ImGui::PopStyleVar();
 
         // Drag & Drop Target
@@ -92,6 +93,14 @@ namespace Luth::UI
         }
 
         ImGui::PopItemWidth();
-        return changed;
+
+        EditState st{ changed, false, itemId };
+        // Drag-drop and clear are discrete one-frame gestures: commit synchronously
+        // and stash pre-value under the button's item ID for the caller to consume.
+        if (changed) {
+            SaveItemPreEdit<UUID>(itemId, pre);
+            st.committed = true;
+        }
+        return st;
     }
 }
