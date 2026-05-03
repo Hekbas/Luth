@@ -70,6 +70,7 @@
 | v2.9.3 | `editor-job-pump` | New `Luth::MainThreadPump` static facade — `Post(Callback)` from any thread, `Drain()` on main, `PendingCount()` diagnostic. Storage `std::queue<std::function<void()>>` under `std::mutex`, mirroring v2.9.1-hardened EventBus shape: swap-and-drain, debug thread-assert latched on first Drain, per-callback `try/catch`, `Memory::Category::Editor` accounting outside the lock. Drain wired in `App::Run` at L178 after `EventBus::ProcessEvents` and before `EditorHooks::BeginFrame` so callbacks mutate state, not ImGui mid-frame. `AssetManager::s_UploadQueue` deliberately not migrated — typed pipeline stage with mid-iteration `LoadAsync` recursion + GPU-fence ordering, not opaque callback erasure. Foundation for `editor-autosave` (v2.9.4) and `editor-thumbnails` (v2.9.5). Tag-only | 2026-05-02 |
 | v2.9.4 | `editor-autosave` | First real consumer of `MainThreadPump`. Periodic side-channel autosave to `<project>/.luth/autosaves/<stem>-<TS>.luth` — never the canonical scene; dirty `*` persists until manual Save. New `Luth::EditorAutoSave` static module (`Init/Shutdown/Tick/ForceNow/ScanForRecovery/DrawRecoveryModal`); JSON snapshot via `SceneSerializer::SaveToString` on main (V3-anchored), file write via `IOThread::WriteFile`, completion + prune via `MainThreadPump::Post`. Play-mode gate via `PlayStateChangedSignal`. Lazy timer init (Time::Update lags Editor::Init). Crash-recovery prompt: scan in `OpenScene` covers auto-load + manual paths; modal Recover/Discard/Cancel. `EditorSettings` extension (`autoSaveEnabled`, `autoSaveIntervalSec`, `autoSaveKeepN`) + `File > Autosave Now` + fading title-bar `Autosaved HH:MM` suffix. Drive-by: scene auto-load relocated from `SetActiveScene` (ran before `LoadProject`) to `OnProjectChanged` — long-broken auto-load works again as a side effect. Tag-only | 2026-05-03 |
 | v2.9.5 | `editor-thumbnails` | ProjectPanel grid switches from FA-icon-only to rendered previews for textures, meshes, materials. New `widgets/ThumbnailCache` (UUID-keyed, SpinLock-guarded map + completion queue + dispatch queue, `AssetChangedSignal` cascade invalidation for material→texture deps), `widgets/ThumbnailGenerator` (worker-fiber CPU bake for textures via stbi_load → stbir_resize → stbi_write_png; main-thread synchronous GPU bake for mesh + material via `VulkanContext::ImmediateSubmit`), `widgets/ThumbnailPreviewScene` (custom Lambert + ambient × albedo shader, two pipeline variants for static/skinned vertex strides, persistent 128² color RT + D32 depth + host-mapped staging, lazy-loaded Sphere primitive for material bakes, direct sampler binding bypasses bindless registration race). Disk-persisted at `<project>/.luth/thumbnails/<uuid>.png`; per-frame budgets (5 texture / 1 GPU bake) keep cold-start smooth. Drive-bys: new `Luth::Image` module centralises every stb_image touch (one site sets the global flip flag, no race); deleted dead `VKTexture(const fs::path&)`; engine-wide fix — `VulkanContext::FlushAllDeletionQueues` before `ImGui_ImplVulkan_Shutdown` so PushDeletion lambdas don't fire against a destroyed pool at close. ProjectPanel layout polish: full-cell `Selectable` (selection visual + click + drag-drop), 3-line truncated names, list-view actual thumbnails. Tag-only | 2026-05-03 |
+| v2.9.6 | `editor-undo-fix` | Slider-driven inspector edits stop over-coalescing across release boundaries. New `EditState { changed, committed, itemId }` returned from every `UI::Property*` + `PropertyAsset` (`operator bool` keeps existing `if (UI::Property(...))` call sites compiling); per-T `unordered_map<ImGuiID, T>` Meyers-singleton stash holds the pre-edit value between `IsItemActivated` and `IsItemDeactivatedAfterEdit`. `ComponentPropertyCommand::CanMerge` and `VectorElementPropertyCommand::CanMerge` deleted — every release-after-edit boundary = one undo entry. 8 component drawers migrated to push on `state.committed`; direct `ImGui::SliderFloat` sites in `AnimationControllerDrawer` use the inline activate/deactivate pattern. Discrete widgets (Checkbox / Combo / PropertyAsset) commit synchronously on `changed` because ImGui's `IsItemDeactivatedAfterEdit` is unreliable when activation + edit + deactivation collapse into one frame. `MaterialEditor` debounced `MaterialSnapshotCommand` deliberately untouched — different mechanism, already correct. Tag-only | 2026-05-04 |
 
 ---
 
@@ -79,18 +80,19 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
-| 2 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
-| 3 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
-| 4 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
-| 5 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
-| 6 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
-| 7 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
-| 8 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
-| 9 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
-| 10 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
-| 11 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
-| 12 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `editor-panels-polish` | NEW | v2.9.7 | M | `editor-foundation` |
+| 2 | `editor-inspector-polish` | NEW | v2.9.8 | M | `editor-undo-fix`, `editor-thumbnails` |
+| 3 | `editor-workspaces` | NEW | v2.9.9 | M | `editor-foundation` |
+| 4 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
+| 5 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
+| 6 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
+| 7 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
+| 8 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
+| 9 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
+| 10 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 11 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
+| 12 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
+| 13 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 

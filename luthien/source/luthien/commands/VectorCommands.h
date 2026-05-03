@@ -33,18 +33,6 @@ namespace Luth
         void Redo()    override { Apply(m_NewValue); }
         const char* GetName() const override { return m_Name; }
 
-        bool CanMerge(const ICommand& other) const override {
-            auto* o = dynamic_cast<const VectorElementPropertyCommand<C, Elem, T>*>(&other);
-            return o
-                && o->m_EntityUUID == m_EntityUUID
-                && o->m_Vector == m_Vector
-                && o->m_Index == m_Index
-                && o->m_Field == m_Field;
-        }
-        void MergeWith(const ICommand& other) override {
-            m_NewValue = static_cast<const VectorElementPropertyCommand<C, Elem, T>&>(other).m_NewValue;
-        }
-
     private:
         void Apply(const T& value) {
             Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);

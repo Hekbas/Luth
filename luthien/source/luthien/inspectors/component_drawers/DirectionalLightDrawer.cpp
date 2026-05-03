@@ -19,20 +19,27 @@ namespace Luth::ComponentDrawers
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
-                    auto oldColor = dirLight.Color;
-                    if (UI::PropertyColor("Color", dirLight.Color))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, Vec3>>(
-                            "Change Light Color", scene, ent, &DirectionalLight::Color, oldColor, dirLight.Color));
-
-                    auto oldIntensity = dirLight.Intensity;
-                    if (UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                            "Change Light Intensity", scene, ent, &DirectionalLight::Intensity, oldIntensity, dirLight.Intensity));
-
-                    auto oldCastShadows = dirLight.CastShadows;
-                    if (UI::Property("Cast Shadows", dirLight.CastShadows))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, bool>>(
-                            "Toggle Cast Shadows", scene, ent, &DirectionalLight::CastShadows, oldCastShadows, dirLight.CastShadows));
+                    {
+                        auto state = UI::PropertyColor("Color", dirLight.Color);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, Vec3>>(
+                                "Change Light Color", scene, ent, &DirectionalLight::Color,
+                                UI::ConsumeItemPreEdit<Vec3>(state.itemId), dirLight.Color));
+                    }
+                    {
+                        auto state = UI::Property("Intensity", dirLight.Intensity, 0.1f, 0.0f, 1000.0f);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                                "Change Light Intensity", scene, ent, &DirectionalLight::Intensity,
+                                UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.Intensity));
+                    }
+                    {
+                        auto state = UI::Property("Cast Shadows", dirLight.CastShadows);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, bool>>(
+                                "Toggle Cast Shadows", scene, ent, &DirectionalLight::CastShadows,
+                                UI::ConsumeItemPreEdit<bool>(state.itemId), dirLight.CastShadows));
+                    }
 
                     if (dirLight.CastShadows) {
                         UI::Property("Shadow Bias (C0)", dirLight.ShadowBias[0], 0.0001f, 0.0f, 0.05f);
@@ -40,15 +47,20 @@ namespace Luth::ComponentDrawers
                         UI::Property("Blend Width", dirLight.CascadeBlendWidth, 0.01f, 0.0f, 1.0f);
                         UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
 
-                        auto oldOrtho = dirLight.ShadowOrthoSize;
-                        if (UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f))
-                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                                "Change Shadow Size", scene, ent, &DirectionalLight::ShadowOrthoSize, oldOrtho, dirLight.ShadowOrthoSize));
-
-                        auto oldDist = dirLight.ShadowDistance;
-                        if (UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f))
-                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                                "Change Shadow Distance", scene, ent, &DirectionalLight::ShadowDistance, oldDist, dirLight.ShadowDistance));
+                        {
+                            auto state = UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
+                            if (state.committed)
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                                    "Change Shadow Size", scene, ent, &DirectionalLight::ShadowOrthoSize,
+                                    UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowOrthoSize));
+                        }
+                        {
+                            auto state = UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
+                            if (state.committed)
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                                    "Change Shadow Distance", scene, ent, &DirectionalLight::ShadowDistance,
+                                    UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowDistance));
+                        }
                     }
                     UI::EndProperties();
                 }

@@ -19,20 +19,27 @@ namespace Luth::ComponentDrawers
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
-                    auto oldColor = pointLight.Color;
-                    if (UI::PropertyColor("Color", pointLight.Color))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, Vec3>>(
-                            "Change Light Color", scene, ent, &PointLight::Color, oldColor, pointLight.Color));
-
-                    auto oldIntensity = pointLight.Intensity;
-                    if (UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
-                            "Change Light Intensity", scene, ent, &PointLight::Intensity, oldIntensity, pointLight.Intensity));
-
-                    auto oldRange = pointLight.Range;
-                    if (UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f))
-                        CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
-                            "Change Light Range", scene, ent, &PointLight::Range, oldRange, pointLight.Range));
+                    {
+                        auto state = UI::PropertyColor("Color", pointLight.Color);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, Vec3>>(
+                                "Change Light Color", scene, ent, &PointLight::Color,
+                                UI::ConsumeItemPreEdit<Vec3>(state.itemId), pointLight.Color));
+                    }
+                    {
+                        auto state = UI::Property("Intensity", pointLight.Intensity, 0.1f, 0.0f, 1000.0f);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
+                                "Change Light Intensity", scene, ent, &PointLight::Intensity,
+                                UI::ConsumeItemPreEdit<float>(state.itemId), pointLight.Intensity));
+                    }
+                    {
+                        auto state = UI::Property("Range", pointLight.Range, 0.1f, 0.0f, 10000.0f);
+                        if (state.committed)
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<PointLight, float>>(
+                                "Change Light Range", scene, ent, &PointLight::Range,
+                                UI::ConsumeItemPreEdit<float>(state.itemId), pointLight.Range));
+                    }
 
                     UI::EndProperties();
                 }
