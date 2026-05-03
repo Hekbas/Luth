@@ -51,8 +51,19 @@ namespace Luth::UI
             u32             height = 0;
         };
 
-        constexpr u32 kMaxDrainPerFrame   = 16;     // bounds per-frame upload pressure
-        constexpr u32 kMaxDiskEntries     = 500;    // settings-driven in commit G
+        constexpr u32 kMaxDrainPerFrame    = 8;      // bounds per-frame upload pressure
+        constexpr u32 kMaxDispatchPerFrame = 5;      // Unreal-style FAssetThumbnailPool tick budget
+        constexpr u32 kMaxDiskEntries      = 500;    // settings-driven in commit G
+
+        // Deferred dispatch — Get / ScanDiskCache append; Drain pumps up to
+        // kMaxDispatchPerFrame per frame. Spreads cold-start CPU work over
+        // multiple frames to bound stutter on first folder entry.
+        struct DispatchRequest
+        {
+            UUID      asset;
+            AssetType type;
+            bool      fromDisk;   // true → DispatchLoadFromDisk, false → Dispatch
+        };
 
         namespace fs = std::filesystem;
 
@@ -71,6 +82,9 @@ namespace Luth::UI
 
         SpinLock                                   s_QueueLock;
         std::vector<TextureCompletion>             s_TexCompletions;
+
+        SpinLock                                   s_DispatchLock;
+        std::vector<DispatchRequest>               s_PendingDispatches;
 
         SubscriptionHandle s_AssetSub;
         bool               s_Initialized = false;
@@ -159,6 +173,25 @@ namespace Luth::UI
 
     void ThumbnailCache::Drain()
     {
+        // Pump deferred-dispatch queue first. LIFO — most-recently-requested
+        // (newly-visible) thumbnails get baked before older requests, mirroring
+        // Unreal's FAssetThumbnailPool::Tick visibility-prioritized behavior.
+        {
+            std::vector<DispatchRequest> batch;
+            {
+                SpinLockGuard g(s_DispatchLock);
+                if (!s_PendingDispatches.empty()) {
+                    const size_t take = std::min<size_t>(s_PendingDispatches.size(), kMaxDispatchPerFrame);
+                    batch.assign(s_PendingDispatches.end() - take, s_PendingDispatches.end());
+                    s_PendingDispatches.erase(s_PendingDispatches.end() - take, s_PendingDispatches.end());
+                }
+            }
+            for (auto& r : batch) {
+                if (r.fromDisk) ThumbnailGenerator::DispatchLoadFromDisk(r.asset, r.type);
+                else            ThumbnailGenerator::Dispatch(r.asset, r.type);
+            }
+        }
+
         std::vector<TextureCompletion> local;
         {
             SpinLockGuard g(s_QueueLock);
@@ -272,7 +305,10 @@ namespace Luth::UI
             needsBake = true;
         }
 
-        if (needsBake) ThumbnailGenerator::Dispatch(asset, type);
+        if (needsBake) {
+            SpinLockGuard g(s_DispatchLock);
+            s_PendingDispatches.push_back({asset, type, /*fromDisk=*/false});
+        }
         return 0;
     }
 
@@ -375,7 +411,8 @@ namespace Luth::UI
                 }
             }
             if (!inserted) continue;
-            ThumbnailGenerator::DispatchLoadFromDisk(e.uuid, e.type);
+            SpinLockGuard gd(s_DispatchLock);
+            s_PendingDispatches.push_back({e.uuid, e.type, /*fromDisk=*/true});
         }
 
         if (!entries.empty())
@@ -384,6 +421,11 @@ namespace Luth::UI
 
     void ThumbnailCache::Clear()
     {
+        // Discard deferred dispatches — UUIDs belong to the outgoing project.
+        {
+            SpinLockGuard g(s_DispatchLock);
+            s_PendingDispatches.clear();
+        }
         std::vector<VkDescriptorSet> toFree;
         {
             SpinLockGuard g(s_MapLock);
