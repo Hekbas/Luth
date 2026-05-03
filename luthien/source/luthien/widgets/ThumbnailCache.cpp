@@ -173,17 +173,20 @@ namespace Luth::UI
 
     void ThumbnailCache::Drain()
     {
-        // Pump deferred-dispatch queue first. LIFO — most-recently-requested
-        // (newly-visible) thumbnails get baked before older requests, mirroring
-        // Unreal's FAssetThumbnailPool::Tick visibility-prioritized behavior.
+        // Pump deferred-dispatch queue. FIFO — ProjectPanel iterates the grid
+        // top-to-bottom calling Get, so push order matches reading order;
+        // taking from the front yields top-down thumbnail population.
+        // (Trade-off: items pushed before a folder switch finish before the
+        // new folder's items start. Acceptable in v1; viewport-aware
+        // visibility prioritization is a future polish.)
         {
             std::vector<DispatchRequest> batch;
             {
                 SpinLockGuard g(s_DispatchLock);
                 if (!s_PendingDispatches.empty()) {
                     const size_t take = std::min<size_t>(s_PendingDispatches.size(), kMaxDispatchPerFrame);
-                    batch.assign(s_PendingDispatches.end() - take, s_PendingDispatches.end());
-                    s_PendingDispatches.erase(s_PendingDispatches.end() - take, s_PendingDispatches.end());
+                    batch.assign(s_PendingDispatches.begin(), s_PendingDispatches.begin() + take);
+                    s_PendingDispatches.erase(s_PendingDispatches.begin(), s_PendingDispatches.begin() + take);
                 }
             }
             for (auto& r : batch) {
