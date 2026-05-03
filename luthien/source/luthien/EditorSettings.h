@@ -63,6 +63,13 @@ namespace Luth
         float autoSaveIntervalSec = 60.0f;
         u32   autoSaveKeepN       = 10;
 
+        // ProjectPanel thumbnails (cache + disk persist at <project>/.luth/thumbnails/).
+        // thumbnailMaxDiskEntries = 0 → unbounded (matches Unity / Unreal / Godot
+        // which rely on orphan cleanup only). 10000 is a safety floor against
+        // runaway accumulation if orphan GC ever regresses.
+        bool  thumbnailsEnabled       = true;
+        u32   thumbnailMaxDiskEntries = 10000;
+
         // Scene persistence
         std::string lastSceneUUID;
 

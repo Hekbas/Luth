@@ -79,6 +79,9 @@ namespace Luth
             settings.autoSaveIntervalSec = j.value("autoSaveIntervalSec", settings.autoSaveIntervalSec);
             settings.autoSaveKeepN       = j.value("autoSaveKeepN", settings.autoSaveKeepN);
 
+            settings.thumbnailsEnabled       = j.value("thumbnailsEnabled", settings.thumbnailsEnabled);
+            settings.thumbnailMaxDiskEntries = j.value("thumbnailMaxDiskEntries", settings.thumbnailMaxDiskEntries);
+
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
@@ -135,6 +138,9 @@ namespace Luth
             j["autoSaveEnabled"]     = settings.autoSaveEnabled;
             j["autoSaveIntervalSec"] = settings.autoSaveIntervalSec;
             j["autoSaveKeepN"]       = settings.autoSaveKeepN;
+
+            j["thumbnailsEnabled"]       = settings.thumbnailsEnabled;
+            j["thumbnailMaxDiskEntries"] = settings.thumbnailMaxDiskEntries;
 
             j["lastSceneUUID"]   = settings.lastSceneUUID;
 

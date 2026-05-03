@@ -13,6 +13,8 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
 
+#include "luthien/Editor.h"
+#include "luthien/EditorSettings.h"
 #include "luthien/events/EditorSignals.h"
 
 #include <backends/imgui_impl_vulkan.h>
@@ -54,7 +56,6 @@ namespace Luth::UI
         constexpr u32 kMaxDrainPerFrame              = 8;    // bounds per-frame upload pressure
         constexpr u32 kMaxTextureDispatchPerFrame    = 5;    // CPU bakes — run on workers, cheap
         constexpr u32 kMaxBakeDispatchPerFrame       = 1;    // GPU bakes — block main, ~10–30 ms each
-        constexpr u32 kMaxDiskEntries                = 500;  // settings-driven in commit G
 
         // Deferred dispatch — Get / ScanDiskCache append; Drain pumps up to
         // kMaxDispatchPerFrame per frame. Spreads cold-start CPU work over
@@ -318,10 +319,11 @@ namespace Luth::UI
 
     ImTextureID ThumbnailCache::Get(UUID asset, AssetType type)
     {
-        if (!asset.IsValid())             return 0;
-        if (!VulkanActive())              return 0;
-        if (!FileSystem::HasProject())    return 0;
-        if (!IsSupportedType(type))       return 0;
+        if (!asset.IsValid())                       return 0;
+        if (!VulkanActive())                        return 0;
+        if (!FileSystem::HasProject())              return 0;
+        if (!IsSupportedType(type))                 return 0;
+        if (!Editor::GetSettings().thumbnailsEnabled) return 0;
 
         // Pending sentinel acts as the de-dupe — back-to-back Gets for the same
         // UUID see Pending and skip re-dispatch. Natural backpressure (IOThread
@@ -423,11 +425,12 @@ namespace Luth::UI
             entries.push_back({ dirent.path(), uuid, meta.Type, dirent.last_write_time() });
         }
 
-        // GC over-cap by oldest mtime first. Settings-driven in commit G.
-        if (entries.size() > kMaxDiskEntries) {
+        // GC over-cap by oldest mtime first.
+        const u32 maxEntries = Editor::GetSettings().thumbnailMaxDiskEntries;
+        if (maxEntries > 0 && entries.size() > maxEntries) {
             std::sort(entries.begin(), entries.end(),
                 [](const DiskEntry& a, const DiskEntry& b) { return a.mtime < b.mtime; });
-            const size_t toDrop = entries.size() - kMaxDiskEntries;
+            const size_t toDrop = entries.size() - maxEntries;
             for (size_t i = 0; i < toDrop; ++i)
                 fs::remove(entries[i].path, ec);
             entries.erase(entries.begin(), entries.begin() + toDrop);
