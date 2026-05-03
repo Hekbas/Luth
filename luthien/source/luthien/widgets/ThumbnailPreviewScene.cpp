@@ -40,9 +40,9 @@ namespace Luth::UI::ThumbnailPreviewScene
         };
         static_assert(sizeof(PushConstants) == 80, "thumbnail PC layout drift");
 
-        // Two pipelines share the same shaders (Position@0 + Normal@12 are at
-        // identical offsets in Vertex and SkinnedVertex); only the binding's
-        // stride differs. Skinned bakes render bind pose — bone data ignored.
+        // Two pipelines share the same shaders (Position@0 + Normal@12 + UV@24
+        // are at identical offsets in Vertex and SkinnedVertex); only the
+        // binding stride differs. Skinned bakes render bind pose.
         bool                        s_Initialized = false;
         std::unique_ptr<VKPipeline> s_PipelineStatic;
         std::unique_ptr<VKPipeline> s_PipelineSkinned;
@@ -51,6 +51,19 @@ namespace Luth::UI::ThumbnailPreviewScene
         VkBuffer                    s_Staging       = VK_NULL_HANDLE;
         VmaAllocation               s_StagingAlloc  = nullptr;
         void*                       s_StagingMapped = nullptr;
+
+        // Per-bake descriptor: set=0 binding=0 = combined image sampler. Updated
+        // each bake to point at the chosen texture (white for mesh, material's
+        // albedo otherwise). invariant: ImmediateSubmit waits before returning,
+        // so the descriptor is never in flight across updates.
+        VkDescriptorSetLayout       s_SamplerLayout = VK_NULL_HANDLE;
+        VkDescriptorPool            s_SamplerPool   = VK_NULL_HANDLE;
+        VkDescriptorSet             s_SamplerSet    = VK_NULL_HANDLE;
+
+        // 1x1 white default texture — bound for mesh bakes (no albedo texture)
+        // and as a fallback when a material has no albedo map. Created via
+        // Texture::Create (async upload) then flushed with vkDeviceWaitIdle.
+        std::shared_ptr<Texture>    s_WhiteTexture;
 
         // Sphere primitive used for material bakes. Lazy-loaded on first
         // BakeMaterial call to avoid the upfront cost when no project / no
@@ -93,8 +106,8 @@ namespace Luth::UI::ThumbnailPreviewScene
             bind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
             cfg.bindingDescriptions = { bind };
 
-            // Position@0 and Normal@12 are at identical offsets in Vertex and
-            // SkinnedVertex; only the per-vertex stride differs.
+            // Position@0, Normal@12, TexCoord0@24 are at identical offsets in
+            // both Vertex and SkinnedVertex; only the per-vertex stride differs.
             VkVertexInputAttributeDescription pos{};
             pos.location = 0;
             pos.binding  = 0;
@@ -107,7 +120,13 @@ namespace Luth::UI::ThumbnailPreviewScene
             nrm.format   = VK_FORMAT_R32G32B32_SFLOAT;
             nrm.offset   = offsetof(Vertex, Normal);
 
-            cfg.attributeDescriptions = { pos, nrm };
+            VkVertexInputAttributeDescription uv{};
+            uv.location = 2;
+            uv.binding  = 0;
+            uv.format   = VK_FORMAT_R32G32_SFLOAT;
+            uv.offset   = offsetof(Vertex, TexCoord0);
+
+            cfg.attributeDescriptions = { pos, nrm, uv };
 
             VkPushConstantRange pc{};
             pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -116,7 +135,69 @@ namespace Luth::UI::ThumbnailPreviewScene
             cfg.pushConstantRanges = { pc };
 
             return std::make_unique<VKPipeline>(cfg, vert, frag,
-                                                std::vector<VkDescriptorSetLayout>{});
+                                                std::vector<VkDescriptorSetLayout>{ s_SamplerLayout });
+        }
+
+        bool CreateSamplerDescriptor()
+        {
+            VkDevice device = VulkanContext::Get().GetDevice();
+
+            VkDescriptorSetLayoutBinding binding{};
+            binding.binding         = 0;
+            binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            binding.descriptorCount = 1;
+            binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutInfo.bindingCount = 1;
+            layoutInfo.pBindings    = &binding;
+            if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &s_SamplerLayout) != VK_SUCCESS)
+                return false;
+
+            VkDescriptorPoolSize poolSize{};
+            poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            poolSize.descriptorCount = 1;
+
+            VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            poolInfo.maxSets       = 1;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes    = &poolSize;
+            if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &s_SamplerPool) != VK_SUCCESS)
+                return false;
+
+            VkDescriptorSetAllocateInfo alloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            alloc.descriptorPool     = s_SamplerPool;
+            alloc.descriptorSetCount = 1;
+            alloc.pSetLayouts        = &s_SamplerLayout;
+            return vkAllocateDescriptorSets(device, &alloc, &s_SamplerSet) == VK_SUCCESS;
+        }
+
+        bool CreateWhiteTexture()
+        {
+            // Async-upload path; flush with vkDeviceWaitIdle below so the
+            // first sample isn't UB. Init runs once at editor startup so the
+            // wait has no per-frame cost.
+            const u8 white[4] = { 255, 255, 255, 255 };
+            s_WhiteTexture = Texture::Create(1, 1, TextureFormat::RGBA8, white);
+            if (!s_WhiteTexture) return false;
+            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            return true;
+        }
+
+        void UpdateSamplerDescriptor(VkImageView view, VkSampler sampler)
+        {
+            VkDescriptorImageInfo info{};
+            info.sampler     = sampler;
+            info.imageView   = view;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            w.dstSet          = s_SamplerSet;
+            w.dstBinding      = 0;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.descriptorCount = 1;
+            w.pImageInfo      = &info;
+            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
         }
 
         bool CreatePipelines()
@@ -176,9 +257,12 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (s_Initialized) return true;
         if (!VulkanActive()) return false;
 
-        if (!CreatePipelines()) { Shutdown(); return false; }
-        if (!CreateTargets())  { Shutdown(); return false; }
-        if (!CreateStaging())  { Shutdown(); return false; }
+        // Sampler layout/pool/set first — pipelines depend on the layout.
+        if (!CreateSamplerDescriptor()) { Shutdown(); return false; }
+        if (!CreatePipelines())         { Shutdown(); return false; }
+        if (!CreateTargets())           { Shutdown(); return false; }
+        if (!CreateStaging())           { Shutdown(); return false; }
+        if (!CreateWhiteTexture())      { Shutdown(); return false; }
 
         s_Initialized = true;
         return true;
@@ -191,7 +275,19 @@ namespace Luth::UI::ThumbnailPreviewScene
         s_PipelineSkinned.reset();
         s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
+        s_WhiteTexture.reset();
         s_SphereModel.reset();
+
+        VkDevice device = VulkanActive() ? VulkanContext::Get().GetDevice() : VK_NULL_HANDLE;
+        if (device != VK_NULL_HANDLE) {
+            // Pool destroy frees the allocated set.
+            if (s_SamplerPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_SamplerPool, nullptr);
+            if (s_SamplerLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_SamplerLayout, nullptr);
+        }
+        s_SamplerPool   = VK_NULL_HANDLE;
+        s_SamplerLayout = VK_NULL_HANDLE;
+        s_SamplerSet    = VK_NULL_HANDLE;
+
         if (s_StagingAlloc) {
             if (s_StagingMapped) VulkanAllocator::Unmap(s_StagingAlloc);
             VulkanAllocator::FreeBuffer(s_Staging, s_StagingAlloc);
@@ -228,6 +324,11 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model)
     {
+        if (!s_Initialized) return {};
+        // Mesh bakes have no per-asset texture — bind the white default so the
+        // shader's texture × albedo multiply degrades to the flat tint.
+        auto vkWhite = std::static_pointer_cast<VKTexture>(s_WhiteTexture);
+        UpdateSamplerDescriptor(vkWhite->GetImageView(), vkWhite->GetSampler());
         return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f));
     }
 
@@ -235,6 +336,22 @@ namespace Luth::UI::ThumbnailPreviewScene
     {
         if (!s_Initialized || !material) return {};
         if (!LoadSphereLazy()) return {};
+
+        // invariant: LoadImmediate every sampled texture, then vkDeviceWaitIdle
+        // so async upload fences retire before sampling (else UB). Full GPU
+        // sync per material bake; paired with the cache's 1 GPU-bake/frame
+        // budget, one sync per affected frame.
+        for (const auto& m : material->GetTextures()) {
+            if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
+        }
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
+        // Resolve albedo — fall back to white when material has no diffuse map.
+        std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
+        if (!albedo) albedo = s_WhiteTexture;
+        auto vkAlbedo = std::static_pointer_cast<VKTexture>(albedo);
+        UpdateSamplerDescriptor(vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
+
         return BakeMeshInternal(s_SphereModel, material->GetColor());
     }
 
@@ -277,13 +394,21 @@ namespace Luth::UI::ThumbnailPreviewScene
         }
         if (!aabb.IsValid()) aabb = AABB{ Vec3(-0.5f), Vec3(0.5f) };
 
+        // Camera fit: use the AABB's largest half-axis, not the bounding-sphere
+        // radius (Extents().Length() = sqrt(3)*half-axis for a uniform shape,
+        // which would push the camera ~1.73x too far). Tight 10% padding so
+        // the model nearly fills the frame.
         const Vec3 center = aabb.Center();
-        const f32  radius = std::max(0.01f, Math::Length(aabb.Extents()));
+        const Vec3 ext    = aabb.Extents();
+        const f32  maxAxis = std::max({ 0.01f, ext.x, ext.y, ext.z });
         const f32  fov    = Math::Radians(45.0f);
-        const f32  dist   = (radius / std::tan(fov * 0.5f)) * 1.4f;
+        const f32  dist   = (maxAxis / std::tan(fov * 0.5f)) * 1.1f;
         const Vec3 eye    = center + Math::Normalize(Vec3(1.0f, 0.7f, 1.0f)) * dist;
         Mat4       view   = Math::LookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
-        Mat4       proj   = Math::Perspective(fov, 1.0f, dist * 0.05f, dist * 5.0f + radius * 4.0f);
+        // Far plane stays generous to handle the bounding-sphere worst case
+        // (elongated models seen along the long axis).
+        const f32  diag   = Math::Length(ext);
+        Mat4       proj   = Math::Perspective(fov, 1.0f, dist * 0.05f, dist * 5.0f + diag * 4.0f);
         proj[1][1] *= -1.0f;   // Vulkan flips Y vs GL convention
 
         PushConstants pc;
@@ -346,6 +471,13 @@ namespace Luth::UI::ThumbnailPreviewScene
             VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
                                                        : s_PipelineStatic.get();
             pipeline->Bind(cmd);
+
+            // Bind the per-bake sampler descriptor — caller updated it before
+            // ImmediateSubmit to point at the right texture (white default for
+            // mesh, material's albedo for material).
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline->GetLayout(), 0, 1, &s_SamplerSet, 0, nullptr);
+
             vkCmdPushConstants(cmd, pipeline->GetLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0, sizeof(pc), &pc);
