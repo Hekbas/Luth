@@ -64,7 +64,8 @@ namespace Luth
         // Bindless Support
         virtual u32 GetBindlessIndex() const { return 0; }
 
-        static std::shared_ptr<Texture> Create(const fs::path& path);
+        // Path overload deleted with luth-image-centralize — VKTexture(path) was
+        // dead code (no live callers; asset pipeline uses the data-taking form).
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
             TextureFormat format, const void* data = nullptr);
         static std::shared_ptr<Texture> Create(u32 width, u32 height,

@@ -10,6 +10,7 @@
 #include "luth/core/Version.h"
 #include "luth/core/EditorHooks.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/resources/Image.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
@@ -67,6 +68,7 @@ namespace Luth
         JobSystem::Init();
         IOThread::Init();
         m_FrameData.Init();
+        Image::Init();   // sets stb's global flip flag to 0; no other site touches it
 
         // 2. Engine root + engine assets
         fs::path engineRoot = DiscoverEngineRoot();

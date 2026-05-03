@@ -6,16 +6,6 @@
 
 namespace Luth
 {
-    std::shared_ptr<Texture> Texture::Create(const fs::path& path)
-    {
-        switch (Renderer::GetBackend()->GetAPI()) {
-            case RenderBackend::API::Vulkan: return std::make_shared<VKTexture>(path);
-            default:
-                LH_CORE_ASSERT(false, "Unknown renderer API!");
-                return nullptr;
-        }
-    }
-
     std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, TextureFormat format, const void* data)
     {
         if (width == 0 || height == 0) {

@@ -37,6 +37,8 @@
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
 #include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
@@ -107,6 +109,8 @@ namespace Luth
             [](Event&) { Editor::MarkDirty(); });
 
         EditorAutoSave::Init();
+        UI::ThumbnailCache::Init();
+        UI::ThumbnailPreviewScene::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -232,6 +236,8 @@ namespace Luth
 
         SaveSettings();
 
+        UI::ThumbnailPreviewScene::Shutdown();
+        UI::ThumbnailCache::Shutdown();
         EditorAutoSave::Shutdown();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
@@ -244,6 +250,15 @@ namespace Luth
         s_PanelRegistry.clear();
         s_Panels.clear();
         UI::ClearTextureCache();
+
+        // Drain any pending fenced deletions while ImGui Vulkan is still alive.
+        // PushDeletion lambdas (UI::GetTextureID stale-eviction, ThumbnailCache
+        // Invalidate/Drain) call ImGui_ImplVulkan_RemoveTexture; if they fire
+        // later from App::Close → Renderer::FlushDeletionQueues, the ImGui
+        // backend has already torn down → null-deref crash on the descriptor
+        // pool. invariant: must run before ImGui_ImplVulkan_Shutdown below.
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
+            VulkanContext::Get().FlushAllDeletionQueues();
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             // Clear GLFW callbacks that forward to ImGui BEFORE destroying
@@ -410,6 +425,7 @@ namespace Luth
         if (!s_Context) return;
 
         EditorAutoSave::Tick();
+        UI::ThumbnailCache::Drain();
 
         // ── Gather phase ─────────────────────────────────────────────────────────
         // Dispatch one gather job per visible panel. Workers run concurrently while
@@ -996,6 +1012,11 @@ namespace Luth
 
     void Editor::OnProjectChanged()
     {
+        // invariant: thumbnails belong to the outgoing project's UUID space —
+        // dropped before any reload so PushDeletion fences against the current
+        // ImGui pool, and the new project starts with an empty cache.
+        UI::ThumbnailCache::Clear();
+
         // Reload editor settings from the new project directory
         LoadSettings();
 
@@ -1043,6 +1064,11 @@ namespace Luth
             if (fs::exists(skyboxAbsPath))
                 rs->ReloadSkybox(skyboxAbsPath);
         }
+
+        // Re-hydrate thumbnail cache from the new project's <project>/.luth/thumbnails/.
+        // AssetDatabase has been fully reloaded by LoadProject by this point, so
+        // orphan-GC has the stable registry it needs.
+        UI::ThumbnailCache::ScanDiskCache();
 
         // Broadcast project switch to panels. Path stays empty when called from
         // shutdown / unload (no project loaded yet); subscribers should treat
