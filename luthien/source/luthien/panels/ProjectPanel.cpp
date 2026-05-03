@@ -10,6 +10,7 @@
 #include "luth/renderer/material/Material.h"
 #include "luthien/widgets/ImGuiUtils.h"
 #include "luthien/widgets/Icons.h"
+#include "luthien/widgets/ThumbnailCache.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -410,11 +411,23 @@ namespace Luth
                 ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
             }
 
-            // Icon Button
+            // Icon Button — cache miss / non-asset / non-Vulkan returns 0 and
+            // falls back to the FA glyph. ImageButton + Button paths produce
+            // identically-sized hoverable items, so drag-drop / context menu
+            // below works for both.
+            ImTextureID thumb = isDirectory
+                ? (ImTextureID)0
+                : UI::ThumbnailCache::Get(node->Handle, node->Type);
+
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            if (ImGui::Button(icon, { m_ThumbnailSize, m_ThumbnailSize })) {
-                HandleClick(node, false);
+            bool clicked;
+            if (thumb != 0) {
+                clicked = ImGui::ImageButton("##thumb", thumb,
+                    { m_ThumbnailSize, m_ThumbnailSize }, { 0, 0 }, { 1, 1 });
+            } else {
+                clicked = ImGui::Button(icon, { m_ThumbnailSize, m_ThumbnailSize });
             }
+            if (clicked) HandleClick(node, false);
             ImGui::PopStyleColor();
 
             if (!isDirectory) ImGui::PopStyleColor();

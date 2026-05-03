@@ -37,6 +37,7 @@
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
 #include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
@@ -107,6 +108,7 @@ namespace Luth
             [](Event&) { Editor::MarkDirty(); });
 
         EditorAutoSave::Init();
+        UI::ThumbnailCache::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -232,6 +234,7 @@ namespace Luth
 
         SaveSettings();
 
+        UI::ThumbnailCache::Shutdown();
         EditorAutoSave::Shutdown();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
@@ -410,6 +413,7 @@ namespace Luth
         if (!s_Context) return;
 
         EditorAutoSave::Tick();
+        UI::ThumbnailCache::Drain();
 
         // ── Gather phase ─────────────────────────────────────────────────────────
         // Dispatch one gather job per visible panel. Workers run concurrently while
@@ -996,6 +1000,11 @@ namespace Luth
 
     void Editor::OnProjectChanged()
     {
+        // invariant: thumbnails belong to the outgoing project's UUID space —
+        // dropped before any reload so PushDeletion fences against the current
+        // ImGui pool, and the new project starts with an empty cache.
+        UI::ThumbnailCache::Clear();
+
         // Reload editor settings from the new project directory
         LoadSettings();
 
