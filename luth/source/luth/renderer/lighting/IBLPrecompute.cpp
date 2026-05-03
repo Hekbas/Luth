@@ -6,8 +6,8 @@
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/resources/Image.h"
 
-#include <stb/stb_image.h>
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth
@@ -80,15 +80,22 @@ namespace Luth
 
             // ---- 1. Load HDR environment map ----
             // Empty path is the deliberate "no project loaded yet" signal from RenderPipeline::Init —
-            // skip stbi_loadf and the warn, fall straight through to the dummy-cubemap path so the
+            // skip the load and the warn, fall straight through to the dummy-cubemap path so the
             // engine has valid (if empty) IBL state until Editor::OnProjectChanged calls ReloadSkybox.
-            int hdrW = 0, hdrH = 0, hdrChannels = 0;
-            float* hdrData = nullptr;
+            //
+            // invariant: equirect→cubemap shader expects bottom-left V convention (north pole at
+            // V=1 of source = bottom of the in-memory layout). Image::LoadHDR returns top-left,
+            // so we flip in-place to match the long-standing PBR sampling contract.
+            Image::LoadResultF hdr;
             if (!hdrPath.empty())
             {
-                stbi_set_flip_vertically_on_load(1);
-                hdrData = stbi_loadf(hdrPath.string().c_str(), &hdrW, &hdrH, &hdrChannels, 4);
+                hdr = Image::LoadHDR(hdrPath);
+                if (hdr.valid)
+                    Image::FlipVerticalF32(hdr.pixels.data(), hdr.width, hdr.height, 4);
             }
+            int hdrW = static_cast<int>(hdr.width);
+            int hdrH = static_cast<int>(hdr.height);
+            float* hdrData = hdr.valid ? hdr.pixels.data() : nullptr;
             if (!hdrData)
             {
                 if (!hdrPath.empty())
@@ -143,7 +150,7 @@ namespace Luth
                     });
                     VulkanAllocator::FreeBuffer(stagingBuffer, stagingAlloc);
                 }
-                stbi_image_free(hdrData);
+                // hdr.pixels owns the data; std::vector destructor frees it.
 
                 // ---- 3. Create environment cubemap (1024x1024) ----
                 const u32 envSize = 1024;

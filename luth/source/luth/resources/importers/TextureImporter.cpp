@@ -1,8 +1,8 @@
 #include "luthpch.h"
 #include "TextureImporter.h"
 #include "luth/resources/AssetSerializer.h"
+#include "luth/resources/Image.h"
 #include "luth/resources/MetaFile.h"
-#include <stb/stb_image.h>
 
 namespace Luth
 {
@@ -23,30 +23,18 @@ namespace Luth
             if (ts.contains("filter_mag"))       settings.MagFilter = (TextureFilterMode)ts["filter_mag"].get<int>();
         }
 
-        int width, height, channels;
-        stbi_set_flip_vertically_on_load(0);
-
-        // Force 4 channels for now (RGBA)
-        stbi_uc* data = stbi_load(source.string().c_str(), &width, &height, &channels, 4);
-
-        if (!data)
-        {
+        Image::LoadResult8 img = Image::Load(source);
+        if (!img.valid) {
             LH_CORE_ERROR("TextureImporter: Failed to load image {0}", source.string());
             return false;
         }
 
         TextureAssetData texData;
-        texData.Width = width;
-        texData.Height = height;
-        texData.Format = TextureFormat::RGBA8;
+        texData.Width    = static_cast<int>(img.width);
+        texData.Height   = static_cast<int>(img.height);
+        texData.Format   = TextureFormat::RGBA8;
         texData.Settings = settings;
-
-        // Copy data to vector to own it
-        size_t size = width * height * 4;
-        texData.Pixels.resize(size);
-        memcpy(texData.Pixels.data(), data, size);
-
-        stbi_image_free(data);
+        texData.Pixels   = std::move(img.pixels);
 
         return AssetSerializer::SerializeTexture(destination, texData);
     }

@@ -9,7 +9,6 @@ namespace Luth
     class VKTexture : public Texture
     {
     public:
-        VKTexture(const fs::path& path);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings);
         // Cubemap / storage image constructor (no data upload — filled via compute or blit)
