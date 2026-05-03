@@ -137,6 +137,13 @@ namespace Luth::UI
         {
             MarkFailed(asset);
         }
+
+        void SetEntryDeps(UUID asset, std::vector<UUID> deps)
+        {
+            SpinLockGuard g(s_MapLock);
+            auto it = s_Entries.find(asset);
+            if (it != s_Entries.end()) it->second.deps = std::move(deps);
+        }
     }
 
     void ThumbnailCache::Init()
@@ -151,7 +158,25 @@ namespace Luth::UI
         s_AssetSub = EventBus::Subscribe<AssetChangedSignal>(BusType::MainThread,
             [](Event& e) {
                 auto& sig = static_cast<AssetChangedSignal&>(e);
-                ThumbnailCache::Invalidate(sig.GetAsset());
+                const UUID changed = sig.GetAsset();
+                ThumbnailCache::Invalidate(changed);
+
+                // Cascade: invalidate material thumbnails whose deps contain
+                // the changed UUID. invariant: walk under s_MapLock to collect
+                // dependents, invalidate outside so PushDeletion + disk remove
+                // run unblocked. Edge-frequency (asset save / file-watch) —
+                // V1 micro-critical budget doesn't apply on this path.
+                std::vector<UUID> dependents;
+                {
+                    SpinLockGuard g(s_MapLock);
+                    for (auto& [uuid, entry] : s_Entries) {
+                        if (entry.type != AssetType::Material) continue;
+                        for (const UUID& dep : entry.deps) {
+                            if (dep == changed) { dependents.push_back(uuid); break; }
+                        }
+                    }
+                }
+                for (const UUID& u : dependents) ThumbnailCache::Invalidate(u);
             });
     }
 

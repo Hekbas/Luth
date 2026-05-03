@@ -7,6 +7,7 @@
 
 namespace Luth
 {
+    class Material;
     class Model;
 }
 
@@ -27,11 +28,15 @@ namespace Luth::UI
         bool Init();
         void Shutdown();
 
-        // Bakes the model's first non-skinned mesh into a 128×128 RGBA8 image
-        // and returns the CPU pixels. Returns invalid LoadResult8 on any
-        // failure (uninitialized, model missing first mesh, skinned mesh,
-        // empty AABB, etc.).
+        // Bakes every sub-mesh of `model` (non-skinned and skinned both
+        // supported via two pipeline variants) into a 128×128 RGBA8 image with
+        // a neutral white albedo. Returns invalid LoadResult8 on any failure.
         Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model);
+
+        // Bakes the engine's Sphere primitive with the material's albedo
+        // color, producing a uniform "this is the material's tint" preview.
+        // Returns invalid LoadResult8 if the sphere primitive is unavailable.
+        Image::LoadResult8 BakeMaterial(const std::shared_ptr<Material>& material);
 
         // Output thumbnail size — square. Matches BakeTexture's targetSize so
         // disk persistence and ImGui display dimensions stay uniform.

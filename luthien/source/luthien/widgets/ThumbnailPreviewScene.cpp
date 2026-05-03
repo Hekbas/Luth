@@ -10,11 +10,13 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/shader/Shader.h"
+#include "luth/resources/AssetManager.h"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -34,9 +36,9 @@ namespace Luth::UI::ThumbnailPreviewScene
         struct PushConstants
         {
             Mat4 viewProj;
-            Mat4 model;
+            Vec4 albedo;
         };
-        static_assert(sizeof(PushConstants) == 128, "thumbnail PC must fit minMaxPushConstantsSize");
+        static_assert(sizeof(PushConstants) == 80, "thumbnail PC layout drift");
 
         // Two pipelines share the same shaders (Position@0 + Normal@12 are at
         // identical offsets in Vertex and SkinnedVertex); only the binding's
@@ -49,6 +51,11 @@ namespace Luth::UI::ThumbnailPreviewScene
         VkBuffer                    s_Staging       = VK_NULL_HANDLE;
         VmaAllocation               s_StagingAlloc  = nullptr;
         void*                       s_StagingMapped = nullptr;
+
+        // Sphere primitive used for material bakes. Lazy-loaded on first
+        // BakeMaterial call to avoid the upfront cost when no project / no
+        // material thumbnails are needed yet.
+        std::shared_ptr<Model>      s_SphereModel;
 
         bool VulkanActive()
         {
@@ -184,6 +191,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         s_PipelineSkinned.reset();
         s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
+        s_SphereModel.reset();
         if (s_StagingAlloc) {
             if (s_StagingMapped) VulkanAllocator::Unmap(s_StagingAlloc);
             VulkanAllocator::FreeBuffer(s_Staging, s_StagingAlloc);
@@ -195,7 +203,42 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     u32 GetSize() { return kSize; }
 
+    namespace
+    {
+        // Sphere primitive UUID — luth/assets/models/primitives/Sphere.fbx.
+        // Stable across builds via the .meta file shipped with the engine.
+        const UUID kSphereUUID = UUID::FromString("4c5ad301-7125-475e-954d-80c64c38a552");
+
+        bool LoadSphereLazy()
+        {
+            if (s_SphereModel) return true;
+            auto base = AssetManager::LoadImmediate(kSphereUUID);
+            s_SphereModel = std::dynamic_pointer_cast<Model>(base);
+            if (!s_SphereModel) {
+                LH_CORE_WARN("Thumbnail: failed to load Sphere primitive for material bake");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    // Shared mesh-bake body. Public BakeMesh / BakeMaterial differ only by
+    // which model + albedo they pass — the GPU work is identical.
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo);
+
     Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model)
+    {
+        return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f));
+    }
+
+    Image::LoadResult8 BakeMaterial(const std::shared_ptr<Material>& material)
+    {
+        if (!s_Initialized || !material) return {};
+        if (!LoadSphereLazy()) return {};
+        return BakeMeshInternal(s_SphereModel, material->GetColor());
+    }
+
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo)
     {
         Image::LoadResult8 out;
         if (!s_Initialized || !model) return out;
@@ -245,7 +288,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
         PushConstants pc;
         pc.viewProj = proj * view;
-        pc.model    = Mat4(1.0f);
+        pc.albedo   = albedo;
 
         auto vkColor = std::static_pointer_cast<VKTexture>(s_ColorRT);
         auto vkDepth = std::static_pointer_cast<VKTexture>(s_DepthRT);

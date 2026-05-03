@@ -6,6 +6,7 @@
 #include "luth/jobs/IOThread.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/memory/MemoryMacros.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -26,6 +27,10 @@ namespace Luth::UI
     {
         void PushTextureCompletion(UUID asset, std::vector<u8> pixels, u32 width, u32 height);
         void NotifyBakeFailed(UUID asset);
+        // Records the texture UUIDs a material samples. The cache uses this to
+        // cascade-invalidate dependent material thumbnails when one of those
+        // textures changes (AssetChangedSignal::Modified handler).
+        void SetEntryDeps(UUID asset, std::vector<UUID> deps);
     }
 
     namespace
@@ -161,6 +166,53 @@ namespace Luth::UI
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             }
         }
+
+        void BakeMaterialSync(UUID asset)
+        {
+            try {
+                auto matBase = AssetManager::LoadImmediate(asset);
+                auto material = std::dynamic_pointer_cast<Material>(matBase);
+                if (!material) {
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+
+                // Capture sampled-texture UUIDs for cascade invalidation —
+                // editing a sampled texture invalidates this material thumbnail.
+                // Recorded even though v1 bakes only use the albedo color.
+                std::vector<UUID> deps;
+                deps.reserve(material->GetTextures().size());
+                for (const auto& mapInfo : material->GetTextures()) {
+                    if (mapInfo.Uuid.IsValid()) deps.push_back(mapInfo.Uuid);
+                }
+
+                Image::LoadResult8 baked = ThumbnailPreviewScene::BakeMaterial(material);
+                if (!baked.valid) {
+                    ThumbnailCacheInternal::NotifyBakeFailed(asset);
+                    return;
+                }
+
+                if (FileSystem::HasProject()) {
+                    std::vector<u8> png = Image::EncodePngToMemory(
+                        baked.pixels.data(), baked.width, baked.height, 4);
+                    if (!png.empty()) {
+                        const fs::path outPath = ThumbnailDiskPath(asset);
+                        std::error_code ec;
+                        fs::create_directories(outPath.parent_path(), ec);
+                        if (!ec) IOThread::WriteFile(outPath.string(), std::move(png));
+                    }
+                }
+                ThumbnailCacheInternal::PushTextureCompletion(
+                    asset, std::move(baked.pixels), baked.width, baked.height);
+                ThumbnailCacheInternal::SetEntryDeps(asset, std::move(deps));
+            } catch (const std::exception& e) {
+                LH_CORE_ERROR("Thumbnail: material bake threw for {}: {}", asset.ToString(), e.what());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            } catch (...) {
+                LH_CORE_ERROR("Thumbnail: material bake threw non-std exception for {}", asset.ToString());
+                ThumbnailCacheInternal::NotifyBakeFailed(asset);
+            }
+        }
     }
 
     void ThumbnailGenerator::Dispatch(UUID asset, AssetType type)
@@ -177,7 +229,9 @@ namespace Luth::UI
         else if (type == AssetType::Model) {
             BakeMeshSync(asset);
         }
-        // Material handled in a follow-up commit (cascade invalidation also lands there).
+        else if (type == AssetType::Material) {
+            BakeMaterialSync(asset);
+        }
     }
 
     void ThumbnailGenerator::DispatchLoadFromDisk(UUID asset, AssetType /*type*/)
