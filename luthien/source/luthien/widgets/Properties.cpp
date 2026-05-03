@@ -73,10 +73,13 @@ namespace Luth::UI
         ImGuiID itemId = ImGui::GetItemID();
 
         EditState st{ changed, false, itemId };
-        // Checkbox toggles are discrete: a click both activates and commits in one frame.
-        // Save pre-value on activation, signal commit on the deactivated-after-edit edge.
-        if (ImGui::IsItemActivated())            SaveItemPreEdit<bool>(itemId, pre);
-        if (ImGui::IsItemDeactivatedAfterEdit()) st.committed = true;
+        // Checkbox is discrete (one toggle per click). Synchronous commit:
+        // IsItemDeactivatedAfterEdit is unreliable for click-toggle widgets where
+        // activation + edit + deactivation can collapse into a single frame.
+        if (changed) {
+            SaveItemPreEdit<bool>(itemId, pre);
+            st.committed = true;
+        }
 
         ImGui::PopItemWidth();
         return st;
