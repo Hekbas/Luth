@@ -103,18 +103,20 @@ namespace Luth::ComponentDrawers
                     }
 
                     {
-                        auto oldOffset = attachment.LocalOffset;
-                        if (UI::Property("Local Offset", attachment.LocalOffset))
+                        auto state = UI::Property("Local Offset", attachment.LocalOffset);
+                        if (state.committed)
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Vec3>>(
                                 "Change Local Offset", entity.GetScene(), (entt::entity)entity,
-                                &BoneAttachment::LocalOffset, oldOffset, attachment.LocalOffset));
+                                &BoneAttachment::LocalOffset,
+                                UI::ConsumeItemPreEdit<Vec3>(state.itemId), attachment.LocalOffset));
                     }
                     {
-                        auto oldRot = attachment.LocalRotation;
-                        if (UI::Property("Local Rotation", attachment.LocalRotation))
+                        auto state = UI::Property("Local Rotation", attachment.LocalRotation);
+                        if (state.committed)
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<BoneAttachment, Vec3>>(
                                 "Change Local Rotation", entity.GetScene(), (entt::entity)entity,
-                                &BoneAttachment::LocalRotation, oldRot, attachment.LocalRotation));
+                                &BoneAttachment::LocalRotation,
+                                UI::ConsumeItemPreEdit<Vec3>(state.itemId), attachment.LocalRotation));
                     }
 
                     UI::EndProperties();

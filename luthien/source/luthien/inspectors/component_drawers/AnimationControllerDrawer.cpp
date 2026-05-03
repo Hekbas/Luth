@@ -61,9 +61,10 @@ namespace Luth::ComponentDrawers
                 entt::entity ent = (entt::entity)entity;
 
                 {
-                    UUID oldUUID = ctrl.CurrentClipUUID;
                     UUID picked = ctrl.CurrentClipUUID;
-                    if (UI::PropertyAsset("Current Clip##Ctrl", picked, AssetType::Animation)) {
+                    auto state = UI::PropertyAsset("Current Clip##Ctrl", picked, AssetType::Animation);
+                    if (state.committed) {
+                        UUID oldUUID = UI::ConsumeItemPreEdit<UUID>(state.itemId);
                         // Route through Play() so transitions/crossfade fire correctly.
                         ctrl.Play(picked);
                         EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipUUID, oldUUID, ctrl.CurrentClipUUID);
@@ -77,9 +78,13 @@ namespace Luth::ComponentDrawers
                 }
 
                 {
-                    auto oldVal = ctrl.DefaultTransitionDuration;
-                    if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
-                        EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration);
+                    f32 pre = ctrl.DefaultTransitionDuration;
+                    ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s");
+                    ImGuiID id = ImGui::GetItemID();
+                    if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration,
+                                            UI::ConsumeItemPreEdit<f32>(id), ctrl.DefaultTransitionDuration);
                 }
 
                 ImGui::Separator();
@@ -96,31 +101,39 @@ namespace Luth::ComponentDrawers
 
                     ImGui::PushID((int)layerIdx);
                     if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                        UUID oldClipUUID = layer.ClipUUID;
-                        if (UI::PropertyAsset("Clip##Layer", layer.ClipUUID, AssetType::Animation)) {
-                            layer.CurrentTime = 0.0f;
-                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
-                                "Change Layer Clip", scene, ent,
-                                &AnimationController::Layers, layerIdx, &BlendLayer::ClipUUID,
-                                oldClipUUID, layer.ClipUUID));
+                        {
+                            auto state = UI::PropertyAsset("Clip##Layer", layer.ClipUUID, AssetType::Animation);
+                            if (state.committed) {
+                                layer.CurrentTime = 0.0f;
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
+                                    "Change Layer Clip", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::ClipUUID,
+                                    UI::ConsumeItemPreEdit<UUID>(state.itemId), layer.ClipUUID));
+                            }
                         }
 
                         if (layerIdx > 0) {
-                            f32 oldWeight = layer.Weight;
-                            if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
+                            f32 pre = layer.Weight;
+                            ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f");
+                            ImGuiID id = ImGui::GetItemID();
+                            if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                            if (ImGui::IsItemDeactivatedAfterEdit())
                                 CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
                                     "Change Layer Weight", scene, ent,
                                     &AnimationController::Layers, layerIdx, &BlendLayer::Weight,
-                                    oldWeight, layer.Weight));
+                                    UI::ConsumeItemPreEdit<f32>(id), layer.Weight));
                         }
 
                         {
-                            f32 oldSpeed = layer.Speed;
-                            if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                            f32 pre = layer.Speed;
+                            ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f");
+                            ImGuiID id = ImGui::GetItemID();
+                            if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                            if (ImGui::IsItemDeactivatedAfterEdit())
                                 CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
                                     "Change Layer Speed", scene, ent,
                                     &AnimationController::Layers, layerIdx, &BlendLayer::Speed,
-                                    oldSpeed, layer.Speed));
+                                    UI::ConsumeItemPreEdit<f32>(id), layer.Speed));
                         }
 
                         {

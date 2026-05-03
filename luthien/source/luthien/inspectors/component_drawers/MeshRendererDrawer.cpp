@@ -24,11 +24,11 @@ namespace Luth::ComponentDrawers
                     entt::entity ent = (entt::entity)entity;
 
                     {
-                        auto oldUUID = meshRenderer.ModelUUID;
-                        if (UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model)) {
+                        auto state = UI::PropertyAsset("Model", meshRenderer.ModelUUID, AssetType::Model);
+                        if (state.committed)
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, UUID>>(
-                                "Change Model", scene, ent, &MeshRenderer::ModelUUID, oldUUID, meshRenderer.ModelUUID));
-                        }
+                                "Change Model", scene, ent, &MeshRenderer::ModelUUID,
+                                UI::ConsumeItemPreEdit<UUID>(state.itemId), meshRenderer.ModelUUID));
                     }
 
                     if (meshRenderer.ModelUUID.IsValid() && !AssetManager::IsLoaded(meshRenderer.ModelUUID) && !AssetManager::IsLoading(meshRenderer.ModelUUID))
@@ -36,22 +36,23 @@ namespace Luth::ComponentDrawers
 
                     if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID)) {
                         int meshIndex = (int)meshRenderer.MeshIndex;
-                        auto oldIndex = meshRenderer.MeshIndex;
-                        if (UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1)) {
-                            meshRenderer.MeshIndex = (u32)meshIndex;
+                        auto state = UI::Property("Mesh Index", meshIndex, 0, (int)model->GetMeshes().size() - 1);
+                        if (state.changed) meshRenderer.MeshIndex = (u32)meshIndex;
+                        if (state.committed) {
+                            u32 prev = (u32)UI::ConsumeItemPreEdit<int>(state.itemId);
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, uint32_t>>(
-                                "Change Mesh Index", scene, ent, &MeshRenderer::MeshIndex, oldIndex, meshRenderer.MeshIndex));
+                                "Change Mesh Index", scene, ent, &MeshRenderer::MeshIndex, prev, meshRenderer.MeshIndex));
                         }
                     }
 
                     {
-                        auto oldMatUUID = meshRenderer.MaterialUUID;
-                        if (UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material))
-                        {
+                        auto state = UI::PropertyAsset("Material", meshRenderer.MaterialUUID, AssetType::Material);
+                        if (state.committed) {
                             if (auto model = AssetManager::GetAsset<Model>(meshRenderer.ModelUUID))
                                 model->AddMaterial(meshRenderer.MaterialUUID, meshRenderer.MeshIndex);
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<MeshRenderer, UUID>>(
-                                "Change Material", scene, ent, &MeshRenderer::MaterialUUID, oldMatUUID, meshRenderer.MaterialUUID));
+                                "Change Material", scene, ent, &MeshRenderer::MaterialUUID,
+                                UI::ConsumeItemPreEdit<UUID>(state.itemId), meshRenderer.MaterialUUID));
                         }
                     }
 
