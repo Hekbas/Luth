@@ -4,6 +4,7 @@
 #include "luthien/commands/Commands.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/EditorColors.h"
+#include "luthien/EditorSnapshot.h"
 #include "luthien/Editor.h"
 
 #include <imgui.h>
@@ -98,10 +99,17 @@ namespace Luth
 
     void HistoryPanel::OnInit() {}
 
-    void HistoryPanel::OnRender()
+    void HistoryPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Undo/redo stack is owned by CommandHistory; future polish can copy entry
+        // metadata (icon kind, label, type) into the snapshot for OnDraw to consume.
+        builder.Add<HistorySnapshot>();
+    }
+
+    void HistoryPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        if (ImGui::Begin(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
+        if (BeginWindow(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
         {
             auto& undoStack = CommandHistory::GetUndoStack();
             auto& redoStack = CommandHistory::GetRedoStack();

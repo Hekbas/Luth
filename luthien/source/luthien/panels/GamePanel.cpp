@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/GamePanel.h"
 
+#include "luthien/EditorSnapshot.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
@@ -83,13 +84,20 @@ namespace Luth
         return true;
     }
 
-    void GamePanel::OnRender()
+    void GamePanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // No state to capture beyond the placeholder fragment — Game viewport is
+        // fully ImGui-driven against the live RenderingSystem game-camera target.
+        builder.Add<GameViewportSnapshot>();
+    }
+
+    void GamePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_GAMEPAD + std::string("  Game");
 
-        if (ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar))
+        if (BeginWindow(title.c_str(), ImGuiWindowFlags_NoScrollbar))
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 

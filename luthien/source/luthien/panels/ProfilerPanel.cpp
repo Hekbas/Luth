@@ -2,6 +2,7 @@
 #include "ProfilerPanel.h"
 #include "luth/jobs/JobSystem.h"
 #include "luthien/EditorColors.h"
+#include "luthien/EditorSnapshot.h"
 #include "luth/core/time/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/SystemRegistry.h"
@@ -69,13 +70,21 @@ namespace Luth
         return buf;
     }
 
-    void ProfilerPanel::OnRender()
+    void ProfilerPanel::OnGather(EditorSnapshotBuilder& builder)
+    {
+        // Stat aggregation (FPS history rotate, MemoryTracker::GetSnapshot,
+        // JobSystem::GetStats, GPU memory) reads globals — all candidate for OnGather
+        // moves. v2.9.0 keeps it inline; future polish epic shifts it.
+        builder.Add<ProfilerSnapshot>();
+    }
+
+    void ProfilerPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
         ImGui::PushFont(Editor::GetFASolid());
         std::string title = ICON_FA_CHART_LINE + std::string("  Profiler");
 
-        if (ImGui::Begin(title.c_str()))
+        if (BeginWindow(title.c_str()))
         {
             // 25002500 Per-frame sampling (worker states + job counters) 25002500
             {

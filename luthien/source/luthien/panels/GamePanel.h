@@ -10,6 +10,8 @@ namespace Luth
 {
     class RenderingSystem;
 
+    struct GameViewportSnapshot { /* placeholder; populated by future polish */ };
+
     // Read-only viewport rendering through the first Component::Camera
     // entity in the active scene. Queues its view each frame for
     // RenderingSystem::Update to record alongside the scene view. No
@@ -22,7 +24,8 @@ namespace Luth
         ~GamePanel() override;
 
         void OnInit() override;
-        void OnRender() override;
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
     private:
         RenderingSystem* m_RenderingSystem = nullptr;

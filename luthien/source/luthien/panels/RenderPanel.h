@@ -10,12 +10,15 @@
 
 namespace Luth
 {
+    struct RenderSettingsSnapshot { /* placeholder; settings UI is fully ImGui-driven */ };
+
     class RenderPanel : public Panel
     {
     public:
         RenderPanel();
         void OnInit() override;
-        void OnRender() override;
+        void OnGather(EditorSnapshotBuilder& builder) override;
+        void OnDraw(const EditorSnapshot& snapshot) override;
 
         u32 GetSelectedAttachment() const { return m_SelectedAttachment; }
 

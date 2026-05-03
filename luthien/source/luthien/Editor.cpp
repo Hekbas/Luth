@@ -1,5 +1,9 @@
 #include "lepch.h"
 #include "luthien/Editor.h"
+#include "luthien/EditorSnapshot.h"
+#include "luthien/events/EditorSignals.h"
+#include "luth/events/EventBus.h"
+#include "luth/jobs/JobSystem.h"
 #include "luth/platform/Window.h"
 #include "luth/platform/FileDialog.h"
 #include "luth/scene/systems/SystemRegistry.h"
@@ -29,11 +33,14 @@
 #include "luthien/panels/ProfilerPanel.h"
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luthien/panels/HistoryPanel.h"
+#include "luthien/panels/ConsolePanel.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
 #include "luth/core/Version.h"
+#include "luth/core/diagnostics/StackTrace.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/widgets/Icons.h"
 
@@ -76,6 +83,30 @@ namespace Luth
         ProjectLauncher::Init();
         InitPanels();
         ApplyPersistence();
+
+        // Forward AssetDatabase file-watch flushes onto the EventBus as typed
+        // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
+        // can react via subscriptions instead of polling. The current AssetDatabase
+        // callback API only exposes the dirty-UUID list, not per-asset op — for
+        // v2.9.1 we publish Modified for everything; subscribers that need to
+        // distinguish import-vs-delete query AssetDatabase::Exists(uuid) themselves.
+        AssetDatabase::AddChangeCallback([]() {
+            for (const UUID& uuid : AssetDatabase::GetDirtyAssets()) {
+                EventBus::Enqueue<AssetChangedSignal>(BusType::MainThread,
+                    AssetChangedSignal::Op::Modified, uuid);
+            }
+        });
+
+        // Replace v2.8.x hierarchy-version polling with reactive dirty-marking.
+        // Every EntityCommand publishes HierarchyChangedSignal; this handler
+        // bumps the dirty flag exactly when user edits land. Scene LOAD does
+        // not fire signals (deserialization bypasses commands), so the dirty
+        // flag stays clean across scene open/close — no need for the prior
+        // s_LastHierarchyVersion stamp dance.
+        EventBus::Subscribe<HierarchyChangedSignal>(BusType::MainThread,
+            [](Event&) { Editor::MarkDirty(); });
+
+        EditorAutoSave::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -162,6 +193,7 @@ namespace Luth
         AddPanel(new ProfilerPanel());
         AddPanel(new FrameDebuggerPanel());
         AddPanel(new HistoryPanel());
+        AddPanel(new ConsolePanel());
 
         ComponentDrawers::RegisterComponentDrawers();
 
@@ -200,7 +232,14 @@ namespace Luth
 
         SaveSettings();
 
+        EditorAutoSave::Shutdown();
+
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        // Run OnShutdown before destroying — gives panels a chance to detach from
+        // engine subsystems (Log sinks, EventBus subscriptions) while the rest of
+        // the editor is still alive. Without this hop, a post-clear LH_CORE_* call
+        // would walk dangling sink pointers.
+        for (auto& panel : s_Panels) panel->OnShutdown();
         ComponentDrawerRegistry::Shutdown();
         s_PanelRegistry.clear();
         s_Panels.clear();
@@ -285,12 +324,119 @@ namespace Luth
         }
     }
 
+    void Editor::GatherJobThunk(JobSystem::JobArgs args)
+    {
+        Panel* panel = static_cast<Panel*>(args.data);
+        LH_PROFILE_SCOPE_DYNAMIC_CSTR(panel->GetWindowID());
+
+        // Reset the panel's scratch first thing — Reset() rewinds the bump pointer
+        // without freeing pages, so the prior frame's m_SnapshotFragment is invalid
+        // from this line onward. Null it explicitly so a thrown OnGather doesn't
+        // leave a dangling pointer for the snapshot-assembly phase to read.
+        panel->m_GatherAlloc.Reset();
+        panel->m_SnapshotFragment = nullptr;
+        panel->m_FragmentType = std::type_index(typeid(void));
+
+        EditorSnapshotBuilder builder(*panel);
+        try
+        {
+            panel->OnGather(builder);
+        }
+        catch (const std::exception& e)
+        {
+            LH_CORE_ERROR("Panel '{}' threw in OnGather: {}", panel->GetWindowID(), e.what());
+            StackTrace::LogStackTrace(1, 32);
+            panel->m_SnapshotFragment = nullptr;
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+        catch (...)
+        {
+            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnGather", panel->GetWindowID());
+            StackTrace::LogStackTrace(1, 32);
+            panel->m_SnapshotFragment = nullptr;
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+    }
+
+    void Editor::DrawPanelGuarded(Panel* panel, const EditorSnapshot& snapshot)
+    {
+        try
+        {
+            panel->OnDraw(snapshot);
+        }
+        catch (const std::exception& e)
+        {
+            LH_CORE_ERROR("Panel '{}' threw in OnDraw: {}", panel->GetWindowID(), e.what());
+            StackTrace::LogStackTrace(1, 32);
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+        catch (...)
+        {
+            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnDraw", panel->GetWindowID());
+            StackTrace::LogStackTrace(1, 32);
+            if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
+        }
+    }
+
+    void Editor::DrawCrashedPlaceholder(Panel* panel)
+    {
+        // Reuse the panel's window ID so docking persists; an unresponsive panel
+        // becomes a clearly-marked stub that the user can revive after fixing.
+        if (panel->BeginWindow(panel->GetWindowID()))
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+            ImGui::PushFont(GetFASolid());
+            ImGui::TextUnformatted(ICON_FA_TRIANGLE_EXCLAMATION);
+            ImGui::PopFont();
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Panel crashed.");
+            ImGui::PopStyleColor();
+            ImGui::TextDisabled("See Console for the stack trace.");
+            ImGui::Spacing();
+            if (ImGui::Button("Reset"))
+            {
+                panel->m_Crashed     = false;
+                panel->m_CrashStreak = 0;
+            }
+        }
+        ImGui::End();
+    }
+
     void Editor::Render()
     {
         LH_PROFILE_FUNCTION();
 
         // Skip rendering if context is null (Vulkan case)
         if (!s_Context) return;
+
+        EditorAutoSave::Tick();
+
+        // ── Gather phase ─────────────────────────────────────────────────────────
+        // Dispatch one gather job per visible panel. Workers run concurrently while
+        // main is still on this thread; we busy-spin (V2-isolated) before assembling
+        // the snapshot. Visibility reflects last frame's ImGui state via
+        // Panel::BeginWindow — first frame after a panel becomes visible runs OnDraw
+        // against an empty snapshot fragment, then re-gathers next frame.
+        JobSystem::Counter gatherCounter;
+        const bool launcherOpen = ProjectLauncher::IsVisible();
+        if (!launcherOpen)
+        {
+            for (auto& panel : s_Panels)
+            {
+                if (!panel->IsVisible() || panel->m_Crashed) continue;
+                JobSystem::Execute(GatherJobThunk, panel.get(), &gatherCounter,
+                                   "Editor.Gather", JobSystem::Priority::Low);
+            }
+            JobSystem::WaitForCounter(&gatherCounter);
+        }
+
+        // ── Snapshot assembly (single-threaded post-wait, no contention) ────────
+        EditorSnapshot snapshot;
+        for (auto& panel : s_Panels)
+        {
+            if (panel->IsVisible() && panel->m_SnapshotFragment)
+                snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
+        }
 
         // Create dockspace
         static bool dockspaceOpen = true;
@@ -329,14 +475,8 @@ namespace Luth
         // Keyboard shortcuts
         ProcessShortcuts();
 
-        // Dirty detection via hierarchy version
-        if (s_ActiveScene) {
-            u32 currentVersion = s_ActiveScene->GetHierarchyVersion();
-            if (currentVersion != s_LastHierarchyVersion) {
-                s_LastHierarchyVersion = currentVersion;
-                s_IsDirty = true;
-            }
-        }
+        // Dirty bumps now arrive via HierarchyChangedSignal subscription
+        // installed in Init (sub-task F of v2.9.1 editor-signal-bus).
 
         // Update window title
         UpdateWindowTitle();
@@ -348,9 +488,14 @@ namespace Luth
         }
         else
         {
-            // Render all panels
             for (auto& panel : s_Panels)
-                panel->OnRender();
+            {
+                if (panel->m_Crashed) {
+                    DrawCrashedPlaceholder(panel.get());
+                    continue;
+                }
+                DrawPanelGuarded(panel.get(), snapshot);
+            }
         }
 
         // Check if a model import completed with unresolved textures
@@ -365,6 +510,9 @@ namespace Luth
 
         // Draw texture remap modal (no-op when closed)
         TextureRemapDialog::Draw();
+
+        // Crash-recovery prompt (no-op when nothing pending)
+        EditorAutoSave::DrawRecoveryModal();
 
         ImGui::End();
     }
@@ -459,7 +607,6 @@ namespace Luth
     {
         s_ActiveScene = scene;
         CommandHistory::Clear();
-        s_LastHierarchyVersion = scene ? scene->GetHierarchyVersion() : 0;
 
         // Update Systems raw pointer so TransformSystem/RenderingSystem use the correct scene
         SystemRegistry::SetScene(scene.get());
@@ -470,18 +617,10 @@ namespace Luth
         if (auto* sp = GetPanel<ScenePanel>())
             sp->SetContext(scene);
 
-        // Load last opened scene (on first call from App::Init, s_ActiveScene is now valid)
-        if (!s_Settings.lastSceneUUID.empty())
-        {
-            UUID sceneUUID = UUID::FromString(s_Settings.lastSceneUUID);
-            if (sceneUUID.IsValid() && AssetDatabase::Exists(sceneUUID))
-            {
-                const auto& meta = AssetDatabase::GetMetadata(sceneUUID);
-                if (!meta.Path.empty() && fs::exists(meta.Path))
-                    OpenScene(meta.Path);
-            }
-            s_Settings.lastSceneUUID.clear(); // One-shot: don't re-trigger on subsequent SetActiveScene calls
-        }
+        // The auto-load-from-lastSceneUUID flow used to live here, but
+        // SetActiveScene fires from App::App() before LoadProject populates
+        // AssetDatabase — Exists() always returned false. Auto-load now runs
+        // in OnProjectChanged, after the database is live.
     }
 
     void Editor::NewScene()
@@ -494,7 +633,6 @@ namespace Luth
 
         s_ScenePath.clear();
         s_IsDirty = false;
-        s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
 
         LH_CORE_INFO("New scene created");
     }
@@ -514,7 +652,6 @@ namespace Luth
             CommandHistory::Clear();
             s_ScenePath = path;
             s_IsDirty = false;
-            s_LastHierarchyVersion = s_ActiveScene->GetHierarchyVersion();
             s_Settings.lastSceneUUID = AssetDatabase::GetUUID(path).ToString();
 
             // Eagerly kick off loading for all assets referenced by the scene
@@ -533,6 +670,10 @@ namespace Luth
                     }
                 }
             }
+
+            // Surface a fresher autosave if we crashed mid-edit on this scene.
+            // Covers auto-load (OnProjectChanged) AND manual File > Open paths.
+            EditorAutoSave::ScanForRecovery(s_ScenePath);
         }
     }
 
@@ -574,7 +715,6 @@ namespace Luth
     void Editor::ResetDirtyState(bool dirty)
     {
         s_IsDirty = dirty;
-        s_LastHierarchyVersion = s_ActiveScene ? s_ActiveScene->GetHierarchyVersion() : 0;
     }
 
     // ── Settings & Layout ──
@@ -705,6 +845,9 @@ namespace Luth
                     SaveScene();
                 if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
                     SaveSceneAs();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Autosave Now"))
+                    EditorAutoSave::ForceNow();
                 ImGui::EndMenu();
             }
 
@@ -835,6 +978,10 @@ namespace Luth
         if (s_IsDirty) {
             title += "*";
         }
+        if (EditorAutoSave::IsNoticeActive()) {
+            title += " — ";
+            title += EditorAutoSave::GetLastNotice();
+        }
 
         GLFWwindow* win = (GLFWwindow*)s_Window->GetNativeWindow();
         if (win) {
@@ -867,6 +1014,22 @@ namespace Luth
         if (auto* hp = GetPanel<HierarchyPanel>())
             hp->SetContext(s_ActiveScene);
 
+        // Auto-load last scene now that AssetDatabase is populated for the
+        // new project. SetActiveScene runs at App::App() before LoadProject,
+        // so it can't do this — see comment in SetActiveScene. OpenScene
+        // fires the autosave recovery scan as a side effect.
+        if (s_ActiveScene && !s_Settings.lastSceneUUID.empty())
+        {
+            UUID uuid = UUID::FromString(s_Settings.lastSceneUUID);
+            if (uuid.IsValid() && AssetDatabase::Exists(uuid))
+            {
+                const auto& meta = AssetDatabase::GetMetadata(uuid);
+                if (!meta.Path.empty() && fs::exists(meta.Path))
+                    OpenScene(meta.Path);
+            }
+            s_Settings.lastSceneUUID.clear();
+        }
+
         // Reload the skybox now that the project's asset paths are live.
         // RenderingSystem::ctor runs before any project is loaded, so its IBL
         // init falls back to engine-assets (which don't ship an HDR). Once the
@@ -880,6 +1043,13 @@ namespace Luth
             if (fs::exists(skyboxAbsPath))
                 rs->ReloadSkybox(skyboxAbsPath);
         }
+
+        // Broadcast project switch to panels. Path stays empty when called from
+        // shutdown / unload (no project loaded yet); subscribers should treat
+        // empty path as "project unloaded" rather than "default project."
+        const std::string projPath = FileSystem::ProjectPath().string();
+        const std::string projName = FileSystem::ProjectPath().filename().string();
+        EventBus::Enqueue<ProjectChangedSignal>(BusType::MainThread, projPath, projName);
 
         LH_CORE_INFO("Editor: Project changed, panels refreshed");
     }

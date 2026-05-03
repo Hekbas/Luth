@@ -2,11 +2,18 @@
 #include "luthien/PlayModeController.h"
 #include "luthien/Editor.h"
 #include "luthien/CommandHistory.h"
+#include "luthien/events/EditorSignals.h"
+#include "luth/events/EventBus.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/SceneSerializer.h"
 
 namespace Luth
 {
+    static void PublishPlayState(PlayState from, PlayState to)
+    {
+        EventBus::Enqueue<PlayStateChangedSignal>(BusType::MainThread, from, to);
+    }
+
     void PlayModeController::EnterPlay()
     {
         if (s_State != PlayState::Editing) return;
@@ -22,22 +29,28 @@ namespace Luth
         CommandHistory::Clear();
         CommandHistory::SetBlocked(true);
 
+        const PlayState from = s_State;
         s_State = PlayState::Playing;
         s_StepRequested = false;
+        PublishPlayState(from, s_State);
         LH_CORE_INFO("Play: enter");
     }
 
     void PlayModeController::Pause()
     {
         if (s_State != PlayState::Playing) return;
+        const PlayState from = s_State;
         s_State = PlayState::Paused;
+        PublishPlayState(from, s_State);
         LH_CORE_INFO("Play: pause");
     }
 
     void PlayModeController::Resume()
     {
         if (s_State != PlayState::Paused) return;
+        const PlayState from = s_State;
         s_State = PlayState::Playing;
+        PublishPlayState(from, s_State);
         LH_CORE_INFO("Play: resume");
     }
 
@@ -57,8 +70,10 @@ namespace Luth
         Editor::ResetDirtyState(s_SavedDirtyFlag);
         CommandHistory::Clear();
 
+        const PlayState from = s_State;
         s_State = PlayState::Editing;
         s_StepRequested = false;
+        PublishPlayState(from, s_State);
         LH_CORE_INFO("Play: stop (scene restored)");
     }
 
