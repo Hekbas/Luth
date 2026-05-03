@@ -68,6 +68,7 @@
 | v2.9.1 | `editor-signal-bus` | Layers typed `EditorSignal` events on the existing `EventBus::BusType::MainThread` so panels react to selection / hierarchy / asset / project / play-state via subscriptions instead of polling. Replaces `Scene::GetHierarchyVersion` polling block in `Editor::Render` with `HierarchyChangedSignal` subscription. Bundles `EventBus` hardening (pre-effort audit verdict YELLOW): exception-safe dispatch; `SubscriptionHandle` + `Unsubscribe` for panel-lifetime safety; tracked allocations via `EventDeleter` + `MemoryTracker`; thread assertion on `ProcessEvents`. Five signals (Selection/Hierarchy/Asset/Project/PlayState), all UUID-based per the v2.7.0 command precedent. `EditorSelection` split header/cpp so signal includes don't leak through wide accessors. Tag-only | 2026-05-02 |
 | v2.9.2 | `editor-console-errors` | Bundles two pillars from the editor-aaa plan. New `Log::AddSink` / `ILogSink` interface with internal `ForwardingSink` (spdlog `base_sink`) fanning to registered sinks under `Luth::SpinLock`. New `ConsolePanel` implements `Panel` + `ILogSink`: sink callback (any thread) enqueues `LogEntrySignal` on main bus, handler appends to capped deque (1024); level filter + case-insensitive search + auto-scroll + `ImGuiListClipper`. Per-panel error boundary on `OnDraw` mirrors gather thunk's catch contract: `m_CrashStreak >= 3` flips `m_Crashed`, panel goes dark behind a placeholder window with manual `Reset`. Stack-trace dump (Win32 DbgHelp, `dbghelp.lib` already linked) on every catch. Tag-only | 2026-05-02 |
 | v2.9.3 | `editor-job-pump` | New `Luth::MainThreadPump` static facade — `Post(Callback)` from any thread, `Drain()` on main, `PendingCount()` diagnostic. Storage `std::queue<std::function<void()>>` under `std::mutex`, mirroring v2.9.1-hardened EventBus shape: swap-and-drain, debug thread-assert latched on first Drain, per-callback `try/catch`, `Memory::Category::Editor` accounting outside the lock. Drain wired in `App::Run` at L178 after `EventBus::ProcessEvents` and before `EditorHooks::BeginFrame` so callbacks mutate state, not ImGui mid-frame. `AssetManager::s_UploadQueue` deliberately not migrated — typed pipeline stage with mid-iteration `LoadAsync` recursion + GPU-fence ordering, not opaque callback erasure. Foundation for `editor-autosave` (v2.9.4) and `editor-thumbnails` (v2.9.5). Tag-only | 2026-05-02 |
+| v2.9.4 | `editor-autosave` | First real consumer of `MainThreadPump`. Periodic side-channel autosave to `<project>/.luth/autosaves/<stem>-<TS>.luth` — never the canonical scene; dirty `*` persists until manual Save. New `Luth::EditorAutoSave` static module (`Init/Shutdown/Tick/ForceNow/ScanForRecovery/DrawRecoveryModal`); JSON snapshot via `SceneSerializer::SaveToString` on main (V3-anchored), file write via `IOThread::WriteFile`, completion + prune via `MainThreadPump::Post`. Play-mode gate via `PlayStateChangedSignal`. Lazy timer init (Time::Update lags Editor::Init). Crash-recovery prompt: scan in `OpenScene` covers auto-load + manual paths; modal Recover/Discard/Cancel. `EditorSettings` extension (`autoSaveEnabled`, `autoSaveIntervalSec`, `autoSaveKeepN`) + `File > Autosave Now` + fading title-bar `Autosaved HH:MM` suffix. Drive-by: scene auto-load relocated from `SetActiveScene` (ran before `LoadProject`) to `OnProjectChanged` — long-broken auto-load works again as a side effect. Tag-only | 2026-05-03 |
 
 ---
 
@@ -77,20 +78,19 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Priority | Epic | Issue | Target | Effort | Deps |
 |----------|------|-------|--------|--------|------|
-| 1 | `editor-autosave` | NEW | v2.9.4 | M | `editor-job-pump`, `editor-signal-bus` |
-| 2 | `editor-thumbnails` | NEW | v2.9.5 | S–M | `editor-job-pump`, `editor-signal-bus` |
-| 3 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
-| 4 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
-| 5 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
-| 6 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
-| 7 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
-| 8 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
-| 9 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
-| 10 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
-| 11 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
-| 12 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
-| 13 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
-| 14 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
+| 1 | `editor-thumbnails` | NEW | v2.9.5 | S–M | `editor-job-pump`, `editor-signal-bus` |
+| 2 | `editor-live-preview` | NEW | v2.9.6 | S | `editor-foundation` |
+| 3 | `editor-workspaces` | NEW | v2.9.7 | M | `editor-foundation` |
+| 4 | `frame-debugger-replay-extend` | [#100](https://github.com/Hekbas/Luth/issues/100) | v2.9.x | S–M | `frame-debugger-polish` |
+| 5 | `jolt-physics` | [#56](https://github.com/Hekbas/Luth/issues/56) | v2.10.0 | XL | `play-mode`, `editor-workspaces` |
+| 6 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | v2.10.1 | M | — |
+| 7 | `async-compute-queue` | NEW | v2.10.2 | L | `vulkan-correctness` |
+| 8 | `rg-aliasing` (optional) | NEW | v2.10.3 | M | — |
+| 9 | `procedural-sky` | NEW | v2.10.4 | M | `jolt-physics` |
+| 10 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.11.0 | L | `compute-gpu-culling`, `async-compute-queue` |
+| 11 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | v2.11.1 | M | — |
+| 12 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.12.0 | XL | `animation-quick-pass` |
+| 13 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `compute-gpu-culling`, `forward-plus` |
 
 > Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
 
