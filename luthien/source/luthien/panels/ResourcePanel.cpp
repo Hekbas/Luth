@@ -164,46 +164,53 @@ namespace Luth
             specs->SpecsDirty = false;
         }
 
-        // Display entries
-        for (const auto& entry : m_FilteredResources) {
-            ImGui::TableNextRow();
-
-            // Type column (also handle the span-all row selectable here)
-            ImGui::TableSetColumnIndex(0);
-            bool selected = (m_SelectedUUID == entry.Uuid);
-            std::string selectableId = "##sel_" + entry.Uuid.ToString();
-            
-            if (ImGui::Selectable(selectableId.c_str(), selected,
-                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap,
-                ImVec2(0, 0)))
+        // Display entries — clipped so off-screen rows skip the per-row work.
+        ImGuiListClipper clipper;
+        clipper.Begin((int)m_FilteredResources.size(), ImGui::GetTextLineHeightWithSpacing());
+        while (clipper.Step())
+        {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
             {
-                m_SelectedUUID = entry.Uuid;
-                EditorSelection::SelectResource(entry.Uuid);
-            }
-            ImGui::SameLine();
-            ImGui::TextColored(GetTypeColor(entry.Type), "%s", GetTypeIcon(entry.Type));
+                const auto& entry = m_FilteredResources[row];
+                ImGui::TableNextRow();
 
-            // Name column
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%s", entry.Name.c_str());
-            if (ImGui::IsItemHovered() && entry.Name.size() > 24)
-            {
-                ImGui::BeginTooltip();
+                // Type column (also handle the span-all row selectable here)
+                ImGui::TableSetColumnIndex(0);
+                bool selected = (m_SelectedUUID == entry.Uuid);
+                std::string selectableId = "##sel_" + entry.Uuid.ToString();
+
+                if (ImGui::Selectable(selectableId.c_str(), selected,
+                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap,
+                    ImVec2(0, 0)))
+                {
+                    m_SelectedUUID = entry.Uuid;
+                    EditorSelection::SelectResource(entry.Uuid);
+                }
+                ImGui::SameLine();
+                ImGui::TextColored(GetTypeColor(entry.Type), "%s", GetTypeIcon(entry.Type));
+
+                // Name column
+                ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%s", entry.Name.c_str());
-                ImGui::EndTooltip();
-            }
+                if (ImGui::IsItemHovered() && entry.Name.size() > 24)
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%s", entry.Name.c_str());
+                    ImGui::EndTooltip();
+                }
 
-            // Refs column
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%d", entry.RefCount);
+                // Refs column
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%d", entry.RefCount);
 
-            // UUID column
-            ImGui::TableSetColumnIndex(3);
-            ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                ImGui::Text("UUID: %s", entry.Uuid.ToString().c_str());
-                ImGui::EndTooltip();
+                // UUID column
+                ImGui::TableSetColumnIndex(3);
+                ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("UUID: %s", entry.Uuid.ToString().c_str());
+                    ImGui::EndTooltip();
+                }
             }
         }
     }
