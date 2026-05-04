@@ -6,13 +6,48 @@
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
 
     void RegisterCamera()
     {
-        ComponentDrawerRegistry::RegisterSimple<Camera>(
+        ComponentDrawerOptions opts;
+        opts.OnCopy = [](Entity e) {
+            const auto& c = e.GetComponent<Camera>();
+            nlohmann::json j;
+            j["projection"]       = (int)c.Projection;
+            j["verticalFOV"]      = c.VerticalFOV;
+            j["nearClip"]         = c.NearClip;
+            j["farClip"]          = c.FarClip;
+            j["orthographicSize"] = c.OrthographicSize;
+            j["orthographicNear"] = c.OrthographicNear;
+            j["orthographicFar"]  = c.OrthographicFar;
+            j["aspectRatio"]      = c.AspectRatio;
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                Camera newC = e.GetComponent<Camera>();
+                newC.Projection       = (Camera::ProjectionType)j.value("projection", 0);
+                newC.VerticalFOV      = j.value("verticalFOV", 45.0f);
+                newC.NearClip         = j.value("nearClip", 0.01f);
+                newC.FarClip          = j.value("farClip", 1000.0f);
+                newC.OrthographicSize = j.value("orthographicSize", 10.0f);
+                newC.OrthographicNear = j.value("orthographicNear", -1.0f);
+                newC.OrthographicFar  = j.value("orthographicFar", 1.0f);
+                newC.AspectRatio      = j.value("aspectRatio", 16.0f / 9.0f);
+                newC.IsDirty = true;
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<Camera>>(
+                    "Paste Camera", e.GetScene(), (entt::entity)e, std::move(newC)));
+                return true;
+            } catch (...) { return false; }
+        };
+
+        ComponentDrawerRegistry::Register<Camera>(
             "Camera",
             [](Entity e, Camera& camera) {
                 if (UI::BeginProperties("CameraProps")) {
@@ -97,6 +132,7 @@ namespace Luth::ComponentDrawers
                     if (changed) camera.IsDirty = true;
                     UI::EndProperties();
                 }
-            });
+            },
+            std::move(opts));
     }
 }

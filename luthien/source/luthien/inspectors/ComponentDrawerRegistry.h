@@ -2,6 +2,7 @@
 
 #include "luth/scene/Entity.h"
 #include "luthien/CommandHistory.h"
+#include "luthien/EditorClipboard.h"
 #include "luthien/commands/ComponentCommands.h"
 #include "luthien/widgets/CollapsingHeader.h"
 
@@ -85,23 +86,6 @@ namespace Luth
             /*ShowInAddMenu*/   opts.ShowInAddMenu,
         };
 
-        std::string headerName = name;
-        bool removable = opts.Removable;
-        auto userDraw = std::move(drawFn);
-        d.Draw = [headerName = std::move(headerName), removable, userDraw = std::move(userDraw)](Entity entity) mutable {
-            if (!entity.HasComponent<T>()) return;
-            auto contextMenu = [entity, removable]() {
-                if (ImGui::MenuItem("Remove component", nullptr, nullptr, removable)) {
-                    CommandHistory::Execute(std::make_unique<ComponentRemoveCommand<T>>(
-                        "Remove Component", entity.GetScene(), (entt::entity)entity));
-                }
-            };
-            if (UI::BeginCollapsingHeader(headerName.c_str(), true, contextMenu)) {
-                userDraw(entity, entity.GetComponent<T>());
-                UI::EndCollapsingHeader();
-            }
-        };
-
         d.CanAdd = opts.CanAdd
             ? std::move(opts.CanAdd)
             : std::function<bool(Entity)>{[](Entity e) { return !e.HasComponent<T>(); }};
@@ -125,6 +109,54 @@ namespace Luth
                     resetCmdName.c_str(), e.GetScene(), (entt::entity)e));
             };
         }
+
+        // Draw built last so the contextMenu lambda can capture OnReset/OnCopy/
+        // OnPaste by value — std::function copies are independent of d's move
+        // into s_Drawers below.
+        std::string headerName = name;
+        bool removable = opts.Removable;
+        auto userDraw = std::move(drawFn);
+        auto onReset  = d.OnReset;
+        auto onCopy   = d.OnCopy;
+        auto onPaste  = d.OnPaste;
+        const entt::id_type typeId = d.ComponentTypeId;
+
+        d.Draw = [
+            headerName = std::move(headerName),
+            removable, userDraw = std::move(userDraw),
+            onReset = std::move(onReset),
+            onCopy  = std::move(onCopy),
+            onPaste = std::move(onPaste),
+            typeId
+        ](Entity entity) mutable {
+            if (!entity.HasComponent<T>()) return;
+            auto contextMenu = [entity, removable, &onReset, &onCopy, &onPaste, typeId]() {
+                if (ImGui::MenuItem("Reset Values"))
+                    onReset(entity);
+
+                bool canCopy = static_cast<bool>(onCopy);
+                if (ImGui::MenuItem("Copy Component", nullptr, nullptr, canCopy)) {
+                    EditorClipboard::SetComponent(typeId, onCopy(entity));
+                }
+
+                bool canPaste = static_cast<bool>(onPaste) && EditorClipboard::HasComponent(typeId);
+                if (ImGui::MenuItem("Paste Component Values", nullptr, nullptr, canPaste)) {
+                    if (auto data = EditorClipboard::GetComponent(typeId))
+                        onPaste(entity, *data);
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Remove Component", nullptr, nullptr, removable)) {
+                    CommandHistory::Execute(std::make_unique<ComponentRemoveCommand<T>>(
+                        "Remove Component", entity.GetScene(), (entt::entity)entity));
+                }
+            };
+            if (UI::BeginCollapsingHeader(headerName.c_str(), true, contextMenu)) {
+                userDraw(entity, entity.GetComponent<T>());
+                UI::EndCollapsingHeader();
+            }
+        };
 
         s_Drawers.push_back(std::move(d));
     }

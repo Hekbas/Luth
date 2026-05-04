@@ -8,13 +8,41 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
 
     void RegisterBoneAttachment()
     {
-        ComponentDrawerRegistry::RegisterSimple<BoneAttachment>(
+        ComponentDrawerOptions opts;
+        opts.OnCopy = [](Entity e) {
+            const auto& ba = e.GetComponent<BoneAttachment>();
+            nlohmann::json j;
+            j["boneName"]      = ba.BoneName;
+            j["localOffset"]   = { ba.LocalOffset.x,   ba.LocalOffset.y,   ba.LocalOffset.z };
+            j["localRotation"] = { ba.LocalRotation.x, ba.LocalRotation.y, ba.LocalRotation.z };
+            return j.dump();
+        };
+        // TargetEntity + BoneIndex preserved from existing component — paste copies
+        // only the offset/rotation/name. Re-link target via the inspector if needed.
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                BoneAttachment newBa = e.GetComponent<BoneAttachment>();
+                newBa.BoneName = j.value("boneName", "");
+                if (j.contains("localOffset") && j["localOffset"].is_array() && j["localOffset"].size() >= 3)
+                    newBa.LocalOffset = { j["localOffset"][0], j["localOffset"][1], j["localOffset"][2] };
+                if (j.contains("localRotation") && j["localRotation"].is_array() && j["localRotation"].size() >= 3)
+                    newBa.LocalRotation = { j["localRotation"][0], j["localRotation"][1], j["localRotation"][2] };
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<BoneAttachment>>(
+                    "Paste BoneAttachment", e.GetScene(), (entt::entity)e, std::move(newBa)));
+                return true;
+            } catch (...) { return false; }
+        };
+
+        ComponentDrawerRegistry::Register<BoneAttachment>(
             "Bone Attachment",
             [](Entity entity, BoneAttachment& attachment) {
                 Scene* scene = entity.GetScene();
@@ -121,6 +149,7 @@ namespace Luth::ComponentDrawers
 
                     UI::EndProperties();
                 }
-            });
+            },
+            std::move(opts));
     }
 }
