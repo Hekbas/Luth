@@ -141,6 +141,29 @@ namespace Luth
         LogEntry m_Entry;
     };
 
+    // Active workspace switched by Editor::LoadWorkspace. Carries the workspace
+    // name (also written to EditorSettings::activeLayout) and whether the source
+    // was the engine-shipped built-in or a user-saved copy. No subscribers in-tree
+    // yet — hook is for future panels that need to react to layout changes.
+    class WorkspaceChangedSignal : public Event
+    {
+    public:
+        WorkspaceChangedSignal(std::string name, bool builtin)
+            : m_Name(std::move(name)), m_Builtin(builtin) {}
+
+        const std::string& GetWorkspaceName() const { return m_Name; }   // GetName() reserved by Event base
+        bool IsBuiltin() const { return m_Builtin; }
+
+        const char* GetName() const override { return "WorkspaceChangedSignal"; }
+        u32 GetCategoryFlags() const override { return EventCategory::None; }
+
+        static const char* GetStaticName() { return "WorkspaceChangedSignal"; }
+
+    private:
+        std::string m_Name;
+        bool        m_Builtin;
+    };
+
     // Play-mode state transition. AnimationSystem-gated panels, dirty-flag
     // controllers, autosave (v2.9.4+) all subscribe.
     class PlayStateChangedSignal : public Event

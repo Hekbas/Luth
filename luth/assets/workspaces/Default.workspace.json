@@ -1,0 +1,15 @@
+{
+    "panel_open": {
+        "Hierarchy": true,
+        "Inspector": true,
+        "Project": true,
+        "Resources": true,
+        "Scene": true,
+        "Game": true,
+        "Render": true,
+        "Profiler": true,
+        "Frame Debugger": false,
+        "History": false,
+        "Console": true
+    }
+}
