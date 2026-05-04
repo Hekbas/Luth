@@ -33,6 +33,7 @@ namespace Luth
         void SetupColumns();
 
         void RebuildIfDirty();
+        void RefreshDynamicData();
         void PopulateData();
         void AddModelEntries();
         void AddTextureEntries();

@@ -168,6 +168,38 @@ namespace Luth
         }
     }
 
+    void ResourcePanel::RefreshDynamicData()
+    {
+        // RefCount drifts as AssetManager hands out / drops shared_ptrs without
+        // bumping the registry callback. Re-read it cheaply each frame; only
+        // re-sort when the user is sorting by that column AND a value moved.
+        bool refsChanged = false;
+        for (auto& entry : m_FilteredResources)
+        {
+            int newRef = 0;
+            if (auto asset = AssetManager::GetAsset<Asset>(entry.Uuid))
+                newRef = asset.use_count() - 1;
+            if (entry.RefCount != newRef) {
+                entry.RefCount = newRef;
+                refsChanged = true;
+            }
+        }
+
+        if (!refsChanged) return;
+
+        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+        {
+            if (specs->SpecsCount > 0 && specs->Specs[0].ColumnIndex == 2)
+            {
+                bool asc = (specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending);
+                std::sort(m_FilteredResources.begin(), m_FilteredResources.end(),
+                    [asc](const ResourceEntry& a, const ResourceEntry& b) {
+                        return asc ? a.RefCount < b.RefCount : a.RefCount > b.RefCount;
+                    });
+            }
+        }
+    }
+
     void ResourcePanel::PopulateData()
     {
         // Sort-spec edits ride the same dirty path. SpecsDirty is consumed here
@@ -181,6 +213,7 @@ namespace Luth
         }
 
         RebuildIfDirty();
+        RefreshDynamicData();
 
         // Display entries — clipped so off-screen rows skip the per-row work.
         ImGuiListClipper clipper;
