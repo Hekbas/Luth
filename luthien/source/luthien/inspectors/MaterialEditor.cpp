@@ -1,6 +1,8 @@
 #include "lepch.h"
 #include "luthien/inspectors/MaterialEditor.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
@@ -34,7 +36,26 @@ namespace Luth
                 ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
         }
         ImGui::EndChild();
-        ImGui::Dummy({ 0, 8 });
+        ImGui::Dummy({ 0, 4 });
+
+        // Live preview via ThumbnailCache. Refresh trigger in auto-save block below.
+        constexpr float kPreviewSize = 192.0f;
+        if (ImGui::BeginChild("##Preview", { 0, kPreviewSize + 8 }, false))
+        {
+            ImTextureID thumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
+            float availW = ImGui::GetContentRegionAvail().x;
+            float xOff = (availW - kPreviewSize) * 0.5f;
+            if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+            if (thumb) {
+                ImGui::Image(thumb, { kPreviewSize, kPreviewSize });
+            } else {
+                ImGui::Dummy({ kPreviewSize, kPreviewSize * 0.4f });
+                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+                ImGui::TextDisabled("%s", ICON_FA_CIRCLE_HALF_STROKE);
+            }
+        }
+        ImGui::EndChild();
+        ImGui::Dummy({ 0, 4 });
 
         // Shader selection
         ImGui::Text("Shader     ");
@@ -367,7 +388,14 @@ namespace Luth
             }
             else
             {
+                // Per-release thumbnail refresh: justReleased = timer-just-zeroed
+                // by the IsAnyItemActive branch on the prior frame. One Invalidate
+                // per drag/discrete edit cycle — no per-pixel re-bake spam.
+                bool justReleased = (m_SaveTimer == 0.0f);
                 m_SaveTimer += Time::UnscaledDeltaTime();
+                if (justReleased)
+                    UI::ThumbnailCache::Invalidate(material.Handle);
+
                 if (m_SaveTimer >= kAutoSaveDelay)
                 {
                     // Push undo command with old/new state
