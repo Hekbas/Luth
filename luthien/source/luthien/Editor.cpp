@@ -21,6 +21,8 @@
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
 #include "luthien/CommandHistory.h"
+#include "luthien/EditorSelection.h"
+#include "luthien/commands/EntityCommands.h"
 #include "luthien/inspectors/ComponentDrawerRegistry.h"
 #include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
 #include "luthien/panels/HierarchyPanel.h"
@@ -871,6 +873,11 @@ namespace Luth
                 else
                     SaveScene();
             }
+            else if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+                Entity sel = EditorSelection::GetSelectedEntity();
+                if (sel && sel.IsValid())
+                    CommandHistory::Execute(std::make_unique<EntityDuplicateCommand>(sel.GetScene(), sel));
+            }
         }
     }
 
@@ -912,7 +919,18 @@ namespace Luth
                     CommandHistory::Undo();
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, CommandHistory::CanRedo()))
                     CommandHistory::Redo();
+
                 ImGui::Separator();
+
+                Entity sel = EditorSelection::GetSelectedEntity();
+                const bool hasSel = sel && sel.IsValid();
+                if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSel))
+                    CommandHistory::Execute(std::make_unique<EntityDuplicateCommand>(sel.GetScene(), sel));
+                if (ImGui::MenuItem("Delete", "Del", false, hasSel))
+                    CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(sel.GetScene(), sel));
+
+                ImGui::Separator();
+
                 if (ImGui::MenuItem("Preferences..."))
                     EditorSettingsWindow::Show();
                 ImGui::EndMenu();
