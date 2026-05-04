@@ -83,15 +83,16 @@ namespace Luth
                 auto& settings = Editor::GetSettings();
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
                 const float btnSize      = ImGui::GetFrameHeight();
-                const float chevW        = btnSize * 0.55f;
+                const float chevW        = btnSize * 0.75f;     // matches SplitToggleButton
                 const float splitW       = btnSize + chevW;
                 const float gap          = 2.0f;
                 const float groupGap     = 8.0f;
+                const float wideGap      = 14.0f;               // gizmo|grid + debug|camera separation
 
                 // Pre-compute block widths so transport/right blocks land deterministically.
                 const float transportW     = (4 * btnSize) + (3 * gap);
                 const float renderModeW    = (4 * btnSize) + (3 * gap);
-                const float rightW         = renderModeW + groupGap + splitW + gap + splitW + gap + splitW + gap + btnSize;
+                const float rightW         = renderModeW + groupGap + splitW + wideGap + splitW + gap + splitW + gap + btnSize;
                 const float transportStart = (toolbarWidth - transportW) * 0.5f;
                 const float rightStart     = toolbarWidth - rightW;
 
@@ -106,7 +107,7 @@ namespace Luth
                 if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx))
                     m_Gizmo->SetOperation(kGizmoOps[gizmoIdx]);
 
-                ImGui::SameLine(0, groupGap);
+                ImGui::SameLine(0, wideGap);
 
                 UI::SplitToggleButton("Grid", ICON_FA_TABLE_CELLS, "Grid",
                     &settings.showGrid,
@@ -163,10 +164,10 @@ namespace Luth
 
                 struct RenderModeBtn { const char* icon; const char* tip; int mode; };
                 static const RenderModeBtn kRenderModes[] = {
-                    { ICON_FA_DRAW_POLYGON, "Wireframe",                                 (int)ShadeMode::Wireframe },
-                    { ICON_FA_BORDER_ALL,   "Shaded Wireframe (engine support pending)", -1 },
-                    { ICON_FA_CIRCLE,       "Unlit",                                     (int)ShadeMode::Unlit },
-                    { ICON_FA_PALETTE,      "Lit",                                       (int)ShadeMode::Lit },
+                    { ICON_FA_GLOBE,              "Wireframe",                                 (int)ShadeMode::Wireframe },
+                    { ICON_FA_EARTH_AMERICAS,     "Shaded Wireframe (engine support pending)", -1 },
+                    { ICON_FA_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
+                    { ICON_FA_CIRCLE_HALF_STROKE, "Lit",                                       (int)ShadeMode::Lit },
                 };
                 const int curMode = (int)m_RenderingSystem->GetShadeMode();
                 const ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
@@ -214,7 +215,7 @@ namespace Luth
                     }
                 }
 
-                ImGui::SameLine(0, gap);
+                ImGui::SameLine(0, wideGap);
 
                 // Camera split (chevron-only).
                 UI::SplitToggleButton("Camera", ICON_FA_CAMERA, "Camera Settings", nullptr,
@@ -249,21 +250,54 @@ namespace Luth
 
                 ImGui::SameLine(0, gap);
 
-                // Gizmo visibility split (chevron-only). Grid moved out of this menu
-                // since it's a top-level toolbar split now; tri indicator overlay lives here.
-                UI::SplitToggleButton("GizmoVis", ICON_FA_EYE, "Gizmo Visibility", nullptr,
-                    [this, &settings]() {
-                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
-                        ImGui::PushFont(Editor::GetMainFont());
-                        ImGui::Checkbox("Transform Gizmo", m_Gizmo->GetTransformGizmoVisibleRef());
-                        ImGui::Checkbox("Bone Debug",      &settings.showBoneDebug);
-                        ImGui::Checkbox("Light Gizmos",    &settings.showLightGizmos);
-                        ImGui::Checkbox("Camera Gizmos",   &settings.showCameraGizmos);
-                        ImGui::Checkbox("AABB Gizmos",     &settings.showAABBGizmos);
-                        ImGui::Checkbox("Tri Indicator",   &settings.showTriIndicatorOverlay);
-                        ImGui::PopFont();
-                        ImGui::PopStyleVar();
-                    });
+                // Gizmo visibility split — icon toggles all gizmos on/off; chevron lists
+                // per-gizmo flags + the tri-indicator overlay (Grid lives in its own split now).
+                {
+                    static struct { bool transform; bool bone; bool light; bool camera; bool aabb; bool valid; }
+                        s_savedGizmoFlags{};
+                    bool* xformVisRef = m_Gizmo->GetTransformGizmoVisibleRef();
+                    bool gizState = (*xformVisRef) || settings.showBoneDebug
+                                  || settings.showLightGizmos || settings.showCameraGizmos
+                                  || settings.showAABBGizmos;
+                    if (UI::SplitToggleButton("GizmoVis", ICON_FA_EYE, "Gizmos", &gizState,
+                        [this, &settings, xformVisRef]() {
+                            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
+                            ImGui::PushFont(Editor::GetMainFont());
+                            ImGui::Checkbox("Transform Gizmo", xformVisRef);
+                            ImGui::Checkbox("Bone Debug",      &settings.showBoneDebug);
+                            ImGui::Checkbox("Light Gizmos",    &settings.showLightGizmos);
+                            ImGui::Checkbox("Camera Gizmos",   &settings.showCameraGizmos);
+                            ImGui::Checkbox("AABB Gizmos",     &settings.showAABBGizmos);
+                            ImGui::Checkbox("Tri Indicator",   &settings.showTriIndicatorOverlay);
+                            ImGui::PopFont();
+                            ImGui::PopStyleVar();
+                        }))
+                    {
+                        if (!gizState) {
+                            // Toggling OFF: snapshot per-flag state so the next ON can restore it.
+                            s_savedGizmoFlags = { *xformVisRef, settings.showBoneDebug,
+                                                  settings.showLightGizmos, settings.showCameraGizmos,
+                                                  settings.showAABBGizmos, true };
+                            *xformVisRef = false;
+                            settings.showBoneDebug = false;
+                            settings.showLightGizmos = false;
+                            settings.showCameraGizmos = false;
+                            settings.showAABBGizmos = false;
+                        }
+                        else if (s_savedGizmoFlags.valid) {
+                            *xformVisRef = s_savedGizmoFlags.transform;
+                            settings.showBoneDebug   = s_savedGizmoFlags.bone;
+                            settings.showLightGizmos = s_savedGizmoFlags.light;
+                            settings.showCameraGizmos= s_savedGizmoFlags.camera;
+                            settings.showAABBGizmos  = s_savedGizmoFlags.aabb;
+                        }
+                        else {
+                            *xformVisRef = true;
+                            settings.showLightGizmos = true;
+                            settings.showCameraGizmos = true;
+                        }
+                    }
+                }
 
                 ImGui::SameLine(0, gap);
 

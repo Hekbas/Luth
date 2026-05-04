@@ -106,24 +106,31 @@ namespace Luth::UI
         ImGui::PushID(groupId);
 
         const float btnH    = ImGui::GetFrameHeight();
-        const float chevW   = btnH * 0.55f;
+        const float chevW   = btnH * 0.75f;     // wider so the caret glyph isn't clipped
         const bool  active  = state && *state;
         bool        toggled = false;
 
         // Icon half — square, owns the toggle state if caller passed one.
+        // When state is null, treat the whole split as one big dropdown opener
+        // (icon-click does the same thing as chevron-click).
         if (active) PushActiveStyle();
         if (ImGui::Button(icon ? icon : "##icon", ImVec2(btnH, btnH))) {
             if (state) { *state = !*state; toggled = true; }
+            else       { ImGui::OpenPopup("##split_popup"); }
         }
         if (active) PopActiveStyle();
         if (tooltip && ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", tooltip);
+        const ImVec2 iconMin = ImGui::GetItemRectMin();
 
         // Chevron half — sits flush against the icon (zero spacing).
         ImGui::SameLine(0.0f, 0.0f);
-        if (ImGui::Button(ICON_FA_CHEVRON_DOWN "##chev", ImVec2(chevW, btnH)))
+        if (ImGui::Button(ICON_FA_CARET_DOWN "##chev", ImVec2(chevW, btnH)))
             ImGui::OpenPopup("##split_popup");
+        const float popupY = ImGui::GetItemRectMax().y;
 
+        // Anchor the popup to the bottom-left of the split button (Unity style).
+        ImGui::SetNextWindowPos(ImVec2(iconMin.x, popupY));
         if (ImGui::BeginPopup("##split_popup")) {
             if (dropdownBody) dropdownBody();
             ImGui::EndPopup();
