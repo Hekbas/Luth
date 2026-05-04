@@ -188,6 +188,12 @@ namespace Luth
         static void InitImGui(Window* window);
         static void InitPanels();
 
+        // Snapshot live panel m_Open and write the active workspace's sidecar JSON
+        // to runtime/layouts/. No-op if the active name resolves to a built-in
+        // (engine assets are read-only). Called on workspace switch and on Shutdown
+        // so per-workspace visibility tweaks persist without an explicit Save As.
+        static void SaveActiveWorkspaceSidecar();
+
         static void ProcessShortcuts();
         static void DrawMenuBar();
         static void UpdateWindowTitle();

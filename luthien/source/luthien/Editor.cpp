@@ -258,6 +258,7 @@ namespace Luth
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();
 
         SaveSettings();
+        SaveActiveWorkspaceSidecar();
 
         UI::ThumbnailPreviewScene::Shutdown();
         UI::ThumbnailCache::Shutdown();
@@ -821,6 +822,11 @@ namespace Luth
     {
         namespace fs = std::filesystem;
 
+        // Persist outgoing user workspace's panel visibility before switching so
+        // mid-session toggles aren't lost. Built-in outgoing is a no-op.
+        if (!s_Settings.activeLayout.empty() && s_Settings.activeLayout != name)
+            SaveActiveWorkspaceSidecar();
+
         const fs::path bIni  = BuiltinIni(name);
         const fs::path bJson = BuiltinJson(name);
         const fs::path uIni  = UserIni(name);
@@ -986,6 +992,24 @@ namespace Luth
             return a.name < b.name;
         });
         return out;
+    }
+
+    void Editor::SaveActiveWorkspaceSidecar()
+    {
+        namespace fs = std::filesystem;
+        if (s_Settings.activeLayout.empty()) return;
+
+        // Built-in workspaces are read-only — visibility tweaks made while a built-in
+        // is active persist in-session only. User must "Save Current As..." to fork.
+        if (fs::exists(BuiltinIni(s_Settings.activeLayout))) return;
+
+        if (!fs::exists(UserDir())) fs::create_directories(UserDir());
+
+        std::unordered_map<std::string, bool> snap;
+        for (auto& panel : s_Panels)
+            snap[panel->GetWindowID()] = panel->m_Open;
+
+        Workspace::SaveJson(UserJson(s_Settings.activeLayout), snap);
     }
 
     void Editor::ProcessShortcuts()
