@@ -19,6 +19,7 @@ namespace Luth
 {
     ProjectPanel::ProjectPanel()
     {
+        m_WindowID = "Project";
         LH_CORE_INFO("Created Project panel");
     }
 

@@ -21,6 +21,7 @@ namespace Luth
     using namespace Component;
     HierarchyPanel::HierarchyPanel()
     {
+        m_WindowID = "Hierarchy";
         LH_CORE_INFO("Created Hierarchy panel");
     }
 

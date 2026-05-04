@@ -44,6 +44,7 @@ namespace Luth
 {
     ProfilerPanel::ProfilerPanel()
     {
+        m_WindowID = "Profiler";
         m_FrameTimeHistory.resize(100, 0.0f);
         m_MemoryHistory.resize(100, 0.0f);
     }

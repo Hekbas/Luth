@@ -33,6 +33,7 @@ namespace Luth
         , m_Gizmo(std::make_unique<GizmoController>())
         , m_Overlays(std::make_unique<ViewportOverlays>(*m_Viewport, *m_Gizmo))
     {
+        m_WindowID = "Scene";
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
         m_Gizmo->SetOperation(ImGuizmo::OPERATION::TRANSLATE);
 

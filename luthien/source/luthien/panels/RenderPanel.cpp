@@ -13,6 +13,7 @@ namespace Luth
 {
     RenderPanel::RenderPanel() : m_SelectedMode("Final")
     {
+        m_WindowID = "Render";
         LH_CORE_INFO("Created Render panel");
     }
 

@@ -18,6 +18,8 @@ namespace Luth
     class FrameDebuggerPanel : public Panel
     {
     public:
+        FrameDebuggerPanel() { m_WindowID = "Frame Debugger"; }
+
         void OnInit() override;
         void OnGather(EditorSnapshotBuilder& builder) override;
         void OnDraw(const EditorSnapshot& snapshot) override;
