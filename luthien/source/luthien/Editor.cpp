@@ -34,6 +34,7 @@
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luthien/panels/HistoryPanel.h"
 #include "luthien/panels/ConsolePanel.h"
+#include "luthien/panels/EditorSettingsWindow.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
@@ -529,6 +530,10 @@ namespace Luth
             }
         }
 
+        // Preferences window — drawn outside the dockspace's panel loop so
+        // it floats independently and is not tied to any dock node.
+        EditorSettingsWindow::Draw();
+
         // Check if a model import completed with unresolved textures
         {
             static fs::path s_LastReportedModel;
@@ -907,6 +912,9 @@ namespace Luth
                     CommandHistory::Undo();
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, CommandHistory::CanRedo()))
                     CommandHistory::Redo();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Preferences..."))
+                    EditorSettingsWindow::Show();
                 ImGui::EndMenu();
             }
 

@@ -166,6 +166,9 @@ namespace Luth
         static EditorSettings& GetSettings() { return s_Settings; }
         static void LoadSettings();
         static void SaveSettings();
+        // Push live state from s_Settings into panels (camera params, skybox, etc.).
+        // Public so EditorSettingsWindow can re-sync after a Preferences edit.
+        static void ApplyPersistence();
         static void SaveLayout(const std::string& name);
         static void LoadLayout(const std::string& name);
         static std::vector<std::string> GetLayoutNames();
@@ -173,7 +176,6 @@ namespace Luth
     private:
         static void InitImGui(Window* window);
         static void InitPanels();
-        static void ApplyPersistence();
 
         static void ProcessShortcuts();
         static void DrawMenuBar();
