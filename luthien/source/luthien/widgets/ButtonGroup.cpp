@@ -1,5 +1,6 @@
 #include "lepch.h"
 #include "luthien/widgets/ButtonGroup.h"
+#include "luthien/widgets/Icons.h"
 
 #include <imgui.h>
 #include <cstdio>
@@ -97,5 +98,38 @@ namespace Luth::UI
             ImGui::SetTooltip("%s", tooltip);
         if (clicked) *state = !*state;
         return clicked;
+    }
+
+    bool SplitToggleButton(const char* groupId, const char* icon, const char* tooltip,
+                           bool* state, const std::function<void()>& dropdownBody)
+    {
+        ImGui::PushID(groupId);
+
+        const float btnH    = ImGui::GetFrameHeight();
+        const float chevW   = btnH * 0.55f;
+        const bool  active  = state && *state;
+        bool        toggled = false;
+
+        // Icon half — square, owns the toggle state if caller passed one.
+        if (active) PushActiveStyle();
+        if (ImGui::Button(icon ? icon : "##icon", ImVec2(btnH, btnH))) {
+            if (state) { *state = !*state; toggled = true; }
+        }
+        if (active) PopActiveStyle();
+        if (tooltip && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", tooltip);
+
+        // Chevron half — sits flush against the icon (zero spacing).
+        ImGui::SameLine(0.0f, 0.0f);
+        if (ImGui::Button(ICON_FA_CHEVRON_DOWN "##chev", ImVec2(chevW, btnH)))
+            ImGui::OpenPopup("##split_popup");
+
+        if (ImGui::BeginPopup("##split_popup")) {
+            if (dropdownBody) dropdownBody();
+            ImGui::EndPopup();
+        }
+
+        ImGui::PopID();
+        return toggled;
     }
 }
