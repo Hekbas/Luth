@@ -53,7 +53,8 @@ namespace Luth
             settings.cameraPanSpeed      = j.value("cameraPanSpeed", settings.cameraPanSpeed);
             settings.cameraZoomSpeed     = j.value("cameraZoomSpeed", settings.cameraZoomSpeed);
             settings.cameraShiftMult     = j.value("cameraShiftMult", settings.cameraShiftMult);
-            settings.thumbnailSize       = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.thumbnailSize              = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.texturePreviewFooterHeight = j.value("texturePreviewFooterHeight", settings.texturePreviewFooterHeight);
             settings.showControlsOverlay = j.value("showControlsOverlay", settings.showControlsOverlay);
             settings.showBoneDebug       = j.value("showBoneDebug", settings.showBoneDebug);
             settings.showLightGizmos     = j.value("showLightGizmos", settings.showLightGizmos);
@@ -122,7 +123,8 @@ namespace Luth
             j["cameraPanSpeed"]      = settings.cameraPanSpeed;
             j["cameraZoomSpeed"]     = settings.cameraZoomSpeed;
             j["cameraShiftMult"]     = settings.cameraShiftMult;
-            j["thumbnailSize"]       = settings.thumbnailSize;
+            j["thumbnailSize"]              = settings.thumbnailSize;
+            j["texturePreviewFooterHeight"] = settings.texturePreviewFooterHeight;
             j["showControlsOverlay"] = settings.showControlsOverlay;
             j["showBoneDebug"]       = settings.showBoneDebug;
             j["showLightGizmos"]     = settings.showLightGizmos;

@@ -528,16 +528,23 @@ namespace Luth
                 ImGui::SetCursorScreenPos(imgPos);
                 ImGui::Image(thumb, disp, { 0, 0 }, { 1, 1 });
             } else {
-                if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
-                    ImGui::PushFont(Editor::GetFARegular());
-                else
-                    ImGui::PushFont(Editor::GetFASolid());
+                // invariant: use 64-px FA bakes in grid mode so glyphs stay
+                // crisp at large thumbnails; bilinear minify handles downscale.
+                const bool emptyDir = isDirectory && node->SubDirectories.empty() && node->Files.empty();
+                ImFont* large = emptyDir ? Editor::GetFARegularLarge() : Editor::GetFASolidLarge();
+                if (large) {
+                    ImGui::PushFont(large);
+                    ImGui::SetWindowFontScale((m_ThumbnailSize * 0.5f) / 64.0f);
+                } else {
+                    ImGui::PushFont(emptyDir ? Editor::GetFARegular() : Editor::GetFASolid());
+                }
                 if (!isDirectory) {
                     const Vec4 c = FileSystem::GetTypeInfo().at(node->Type).color;
                     ImGui::PushStyleColor(ImGuiCol_Text, { c.r, c.g, c.b, c.a });
                 }
                 DrawIconCentered(icon, startScreen, m_ThumbnailSize);
                 if (!isDirectory) ImGui::PopStyleColor();
+                if (large) ImGui::SetWindowFontScale(1.0f);
                 ImGui::PopFont();
             }
 

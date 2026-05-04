@@ -123,9 +123,10 @@ namespace Luth::UI
         return st;
     }
 
-    // Multi-axis vector control. Pre-edit snapshot is the WHOLE composite, keyed by row label,
-    // saved once on the first axis to activate this frame. Commit fires when ANY axis is
-    // deactivated-after-edit. Reset button is treated as a synchronous one-frame commit.
+    // Multi-axis vector control. Pre-edit snapshot is the WHOLE composite,
+    // keyed by row label, saved once on the first axis to activate this frame.
+    // Commit fires when ANY axis is deactivated-after-edit. Right-click on an
+    // axis label opens a context menu with Reset / Copy / Paste (whole vec).
     template <typename T>
     static EditState DrawVecControlT(const char* label, T& value, float resetValue, float speed)
     {
@@ -134,19 +135,7 @@ namespace Luth::UI
         float* values = &value.x;
 
         PropertyLabel(label);
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-
-        float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-        ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
-
-        float totalButtonWidth = components * buttonSize.x;
-        ImGui::PushMultiItemsWidths(components, ImGui::CalcItemWidth() - totalButtonWidth);
-
-        EditState st;
-        T preComposite = value;            // captured at entry; on activation frame this == pre-drag state
-        ImGuiID rowId = ImGui::GetID(label);
-        st.itemId = rowId;
-        bool savedThisFrame = false;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 4, 0 });
 
         const char* axisLabels[] = { "X", "Y", "Z", "W" };
         const ImVec4 axisColors[] = {
@@ -156,22 +145,65 @@ namespace Luth::UI
             EditorColors::AxisW
         };
 
+        // Width budget: text-label widths come from CalcTextSize so proportional
+        // fonts stay aligned; the rest goes to the DragFloat fields.
+        float labelsWidth = 0.0f;
+        for (int i = 0; i < components; i++)
+            labelsWidth += ImGui::CalcTextSize(axisLabels[i]).x + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+        ImGui::PushMultiItemsWidths(components, ImGui::CalcItemWidth() - labelsWidth);
+
+        EditState st;
+        T preComposite = value;
+        ImGuiID rowId = ImGui::GetID(label);
+        st.itemId = rowId;
+        bool savedThisFrame = false;
+
+        auto applyResetWholeVec = [&]() {
+            for (int k = 0; k < components; k++) values[k] = resetValue;
+            st.changed = true;
+            if (!savedThisFrame) { SaveItemPreEdit<T>(rowId, preComposite); savedThisFrame = true; }
+            st.committed = true;
+        };
+        auto copyWholeVec = [&]() {
+            char buf[128];
+            if constexpr (components == 2)
+                snprintf(buf, sizeof(buf), "(%.4f, %.4f)", values[0], values[1]);
+            else if constexpr (components == 3)
+                snprintf(buf, sizeof(buf), "(%.4f, %.4f, %.4f)", values[0], values[1], values[2]);
+            else
+                snprintf(buf, sizeof(buf), "(%.4f, %.4f, %.4f, %.4f)", values[0], values[1], values[2], values[3]);
+            ImGui::SetClipboardText(buf);
+        };
+        auto pasteWholeVec = [&]() {
+            const char* clip = ImGui::GetClipboardText();
+            if (!clip) return;
+            float v[4] = { 0, 0, 0, 0 };
+            int parsed = 0;
+            if constexpr (components == 2) parsed = sscanf(clip, " ( %f , %f )", &v[0], &v[1]);
+            else if constexpr (components == 3) parsed = sscanf(clip, " ( %f , %f , %f )", &v[0], &v[1], &v[2]);
+            else parsed = sscanf(clip, " ( %f , %f , %f , %f )", &v[0], &v[1], &v[2], &v[3]);
+            if (parsed != components) return;
+            for (int k = 0; k < components; k++) values[k] = v[k];
+            st.changed = true;
+            if (!savedThisFrame) { SaveItemPreEdit<T>(rowId, preComposite); savedThisFrame = true; }
+            st.committed = true;
+        };
+
         for (int i = 0; i < components; i++)
         {
-            ImGui::PushStyleColor(ImGuiCol_Button, axisColors[i]);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { axisColors[i].x + 0.1f, axisColors[i].y + 0.1f, axisColors[i].z + 0.1f, 1.0f });
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, { axisColors[i].x + 0.2f, axisColors[i].y + 0.2f, axisColors[i].z + 0.2f, 1.0f });
+            // Colored axis label (no fill). Right-click → ctx menu.
+            ImGui::PushStyleColor(ImGuiCol_Text, axisColors[i]);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(axisLabels[i]);
+            ImGui::PopStyleColor();
 
-            std::string buttonId = std::string(axisLabels[i]) + "##" + label + std::to_string(i);
-            if (ImGui::Button(buttonId.c_str(), buttonSize))
-            {
-                values[i] = resetValue;
-                st.changed = true;
-                // Buttons don't emit IsItemDeactivatedAfterEdit. Commit synchronously.
-                if (!savedThisFrame) { SaveItemPreEdit<T>(rowId, preComposite); savedThisFrame = true; }
-                st.committed = true;
+            std::string ctxId = std::string("##VecCtx_") + label + axisLabels[i];
+            if (ImGui::BeginPopupContextItem(ctxId.c_str())) {
+                if (ImGui::MenuItem("Reset")) applyResetWholeVec();
+                if (ImGui::MenuItem("Copy"))  copyWholeVec();
+                if (ImGui::MenuItem("Paste")) pasteWholeVec();
+                ImGui::EndPopup();
             }
-            ImGui::PopStyleColor(3);
 
             ImGui::SameLine();
             std::string dragId = "##" + std::string(label) + std::to_string(i);

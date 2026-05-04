@@ -9,6 +9,8 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/AnimationClip.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
@@ -31,6 +33,49 @@ namespace Luth::ComponentDrawers
             initCtrl.CurrentClipUUID = a.ClipUUID;
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
                 "Add AnimationController", e.GetScene(), (entt::entity)e, initCtrl));
+        };
+        opts.OnCopy = [](Entity e) {
+            const auto& ctrl = e.GetComponent<AnimationController>();
+            nlohmann::json j;
+            j["currentClipUUID"]           = ctrl.CurrentClipUUID.ToString();
+            j["applyRootMotion"]           = ctrl.ApplyRootMotion;
+            j["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
+            nlohmann::json layers = nlohmann::json::array();
+            for (const auto& layer : ctrl.Layers) {
+                nlohmann::json lj;
+                lj["clipUUID"] = layer.ClipUUID.ToString();
+                lj["speed"]    = layer.Speed;
+                lj["weight"]   = layer.Weight;
+                lj["loop"]     = layer.Loop;
+                layers.push_back(lj);
+            }
+            j["layers"] = layers;
+            return j.dump();
+        };
+        // BoneMask intentionally omitted — bone indices are skeleton-specific.
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                AnimationController newCtrl = e.GetComponent<AnimationController>();
+                newCtrl.CurrentClipUUID           = UUID::FromString(j.value("currentClipUUID", ""));
+                newCtrl.ApplyRootMotion           = j.value("applyRootMotion", false);
+                newCtrl.DefaultTransitionDuration = j.value("defaultTransitionDuration", 0.2f);
+                newCtrl.Layers.clear();
+                if (j.contains("layers")) {
+                    for (const auto& lj : j["layers"]) {
+                        BlendLayer layer;
+                        layer.ClipUUID = UUID::FromString(lj.value("clipUUID", ""));
+                        layer.Speed    = lj.value("speed", 1.0f);
+                        layer.Weight   = lj.value("weight", 1.0f);
+                        layer.Loop     = lj.value("loop", true);
+                        newCtrl.Layers.push_back(std::move(layer));
+                    }
+                }
+                newCtrl.ActiveTransition.reset();
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<AnimationController>>(
+                    "Paste AnimationController", e.GetScene(), (entt::entity)e, std::move(newCtrl)));
+                return true;
+            } catch (...) { return false; }
         };
 
         ComponentDrawerRegistry::Register<AnimationController>(

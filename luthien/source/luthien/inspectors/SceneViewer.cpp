@@ -12,26 +12,35 @@ namespace Luth
         // Scene Info
         if (UI::BeginCollapsingHeader("Scene Info", true))
         {
-            size_t fileSize = 0;
-            int entityCount = 0;
+            // mtime check is a cheap stat; full read+parse only on actual change.
+            std::error_code ec;
+            const fs::file_time_type mtime = fs::exists(scenePath, ec)
+                ? fs::last_write_time(scenePath, ec) : fs::file_time_type{};
+            const bool fileExists = fs::exists(scenePath, ec);
 
-            if (fs::exists(scenePath))
+            if (fileExists && (!m_Cache || m_Cache->uuid != sceneUUID || m_Cache->mtime != mtime))
             {
-                fileSize = fs::file_size(scenePath);
+                CacheEntry e;
+                e.uuid     = sceneUUID;
+                e.mtime    = mtime;
+                e.fileSize = fs::file_size(scenePath, ec);
 
-                // Parse scene JSON to count entities
                 std::ifstream file(scenePath);
-                if (file.is_open())
-                {
-                    try
-                    {
+                if (file.is_open()) {
+                    try {
                         nlohmann::json sceneJson = nlohmann::json::parse(file);
                         if (sceneJson.contains("entities") && sceneJson["entities"].is_array())
-                            entityCount = (int)sceneJson["entities"].size();
-                    }
-                    catch (...) {}
+                            e.entityCount = (int)sceneJson["entities"].size();
+                    } catch (...) {}
                 }
+                m_Cache = std::move(e);
             }
+            else if (!fileExists) {
+                m_Cache.reset();
+            }
+
+            const int entityCount = m_Cache ? m_Cache->entityCount : 0;
+            const std::uintmax_t fileSize = m_Cache ? m_Cache->fileSize : 0;
 
             if (UI::BeginInfoTable("SceneProps")) {
                 UI::InfoRow("Entities", "%d", entityCount);

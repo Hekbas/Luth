@@ -18,6 +18,7 @@
 #include "luth/renderer/shader/Shader.h"
 #include "luth/resources/AssetManager.h"
 
+#include <backends/imgui_impl_vulkan.h>
 #include <vma/vk_mem_alloc.h>
 
 #include <cmath>
@@ -69,6 +70,15 @@ namespace Luth::UI::ThumbnailPreviewScene
         // BakeMaterial call to avoid the upfront cost when no project / no
         // material thumbnails are needed yet.
         std::shared_ptr<Model>      s_SphereModel;
+
+        // Live inspector render target — separate from the bake RTs so disk
+        // thumbnails (128²) and inspector previews (256²) don't conflict.
+        // Lazy-init on first inspector call. Shared single set since only one
+        // Material/Model inspector is visible inside InspectorPanel at a time.
+        constexpr u32 kInspectorSize = 256;
+        std::shared_ptr<Texture>    s_InspectorColorRT;
+        std::shared_ptr<Texture>    s_InspectorDepthRT;
+        VkDescriptorSet             s_InspectorImGuiSet = VK_NULL_HANDLE;
 
         bool VulkanActive()
         {
@@ -275,6 +285,11 @@ namespace Luth::UI::ThumbnailPreviewScene
         s_PipelineSkinned.reset();
         s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
+        s_InspectorColorRT.reset();
+        s_InspectorDepthRT.reset();
+        // ImGui descriptor pool is destroyed during Editor::Shutdown alongside
+        // ours; skip ImGui_ImplVulkan_RemoveTexture (would race with pool destroy).
+        s_InspectorImGuiSet = VK_NULL_HANDLE;
         s_WhiteTexture.reset();
         s_SphereModel.reset();
 
@@ -530,4 +545,218 @@ namespace Luth::UI::ThumbnailPreviewScene
         out.valid  = true;
         return out;
     }
+
+    // ── Inspector preview path (no readback, separate RT) ───────────────────
+
+    namespace
+    {
+        // Lazy-create the inspector RTs + ImGui descriptor on first call.
+        // The descriptor outlives any single bake (caller draws ImGui::Image
+        // referencing it), so we register it once and reuse.
+        bool EnsureInspectorRTs()
+        {
+            if (s_InspectorImGuiSet != VK_NULL_HANDLE) return true;
+            if (!s_Initialized || !VulkanActive()) return false;
+
+            s_InspectorColorRT = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::RGBA8);
+            s_InspectorDepthRT = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::D32_Float);
+            if (!s_InspectorColorRT || !s_InspectorDepthRT) {
+                s_InspectorColorRT.reset();
+                s_InspectorDepthRT.reset();
+                return false;
+            }
+
+            // Texture::Create dispatches the upload async; flush so the first
+            // sample isn't UB. Cost is paid once on first inspector open.
+            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
+            auto vkColor = std::static_pointer_cast<VKTexture>(s_InspectorColorRT);
+            s_InspectorImGuiSet = ImGui_ImplVulkan_AddTexture(
+                vkColor->GetSampler(),
+                vkColor->GetImageView(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            return s_InspectorImGuiSet != VK_NULL_HANDLE;
+        }
+
+        // Eye/view from AABB + orbit. Distance derived from largest half-axis
+        // (matches BakeMeshInternal's fit math); azimuth/elevation orbit around
+        // the AABB center; distMul scales the tight-fit baseline.
+        Mat4 BuildOrbitView(const AABB& aabb, const ThumbnailPreviewScene::OrbitCamera& orb,
+                            f32 fovRad, f32& outDist)
+        {
+            const Vec3 center  = aabb.Center();
+            const Vec3 ext     = aabb.Extents();
+            const f32  maxAxis = std::max({ 0.01f, ext.x, ext.y, ext.z });
+            outDist            = (maxAxis / std::tan(fovRad * 0.5f)) * orb.distMul;
+
+            // Spherical coords: azimuth around Y, elevation above XZ plane.
+            const f32 cosE = std::cos(orb.elevation);
+            const Vec3 dir = {
+                cosE * std::sin(orb.azimuth),
+                std::sin(orb.elevation),
+                cosE * std::cos(orb.azimuth),
+            };
+            const Vec3 eye = center + dir * outDist;
+            return Math::LookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
+        }
+
+        ImTextureID RenderInspectorInternal(const std::shared_ptr<Model>& model,
+                                            Vec4 albedo,
+                                            const ThumbnailPreviewScene::OrbitCamera& orb)
+        {
+            if (!s_Initialized || !model) return (ImTextureID)0;
+            if (!EnsureInspectorRTs())    return (ImTextureID)0;
+
+            struct DrawEntry { VkBuffer vb; VkBuffer ib; u32 indexCount; };
+            std::vector<DrawEntry> draws;
+            const auto& meshes = model->GetMeshes();
+            draws.reserve(meshes.size());
+            for (const auto& meshPtr : meshes) {
+                if (!meshPtr) continue;
+                auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(meshPtr->GetVertexBuffer());
+                auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(meshPtr->GetIndexBuffer());
+                if (!vkVB || !vkIB) continue;
+                VkBuffer vbBuf = vkVB->GetVulkanBuffer();
+                VkBuffer ibBuf = vkIB->GetVulkanBuffer();
+                u32      ic    = vkIB->GetCount();
+                if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || ic == 0) continue;
+                draws.push_back({ vbBuf, ibBuf, ic });
+            }
+            if (draws.empty()) return (ImTextureID)0;
+
+            AABB aabb;
+            for (const auto& md : model->GetMeshesData()) {
+                if (!md.BindPoseAABB.IsValid()) continue;
+                if (!aabb.IsValid()) aabb = md.BindPoseAABB;
+                else { aabb.Expand(md.BindPoseAABB.Min); aabb.Expand(md.BindPoseAABB.Max); }
+            }
+            if (!aabb.IsValid()) aabb = AABB{ Vec3(-0.5f), Vec3(0.5f) };
+
+            const f32 fov = Math::Radians(45.0f);
+            f32 dist = 0.0f;
+            const Mat4 view = BuildOrbitView(aabb, orb, fov, dist);
+            const f32 diag = Math::Length(aabb.Extents());
+            Mat4 proj = Math::Perspective(fov, 1.0f, dist * 0.05f, dist * 5.0f + diag * 4.0f);
+            proj[1][1] *= -1.0f;
+
+            PushConstants pc;
+            pc.viewProj = proj * view;
+            pc.albedo   = albedo;
+
+            auto vkColor = std::static_pointer_cast<VKTexture>(s_InspectorColorRT);
+            auto vkDepth = std::static_pointer_cast<VKTexture>(s_InspectorDepthRT);
+
+            VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+                Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                        0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
+
+                VkRenderingAttachmentInfo color{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+                color.imageView   = vkColor->GetImageView();
+                color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                color.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+                color.clearValue.color = {{ 0.13f, 0.13f, 0.15f, 1.0f }};
+
+                VkRenderingAttachmentInfo depth{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+                depth.imageView   = vkDepth->GetImageView();
+                depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                depth.storeOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                depth.clearValue.depthStencil = { 1.0f, 0 };
+
+                VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO };
+                info.renderArea.offset    = { 0, 0 };
+                info.renderArea.extent    = { kInspectorSize, kInspectorSize };
+                info.layerCount           = 1;
+                info.colorAttachmentCount = 1;
+                info.pColorAttachments    = &color;
+                info.pDepthAttachment     = &depth;
+
+                vkCmdBeginRendering(cmd, &info);
+
+                VkViewport vp{};
+                vp.width    = static_cast<f32>(kInspectorSize);
+                vp.height   = static_cast<f32>(kInspectorSize);
+                vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{};
+                sc.extent = { kInspectorSize, kInspectorSize };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
+                                                          : s_PipelineStatic.get();
+                pipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipeline->GetLayout(), 0, 1, &s_SamplerSet, 0, nullptr);
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(pc), &pc);
+
+                VkDeviceSize offsets[] = { 0 };
+                for (const auto& d : draws) {
+                    vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
+                    vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+                }
+
+                vkCmdEndRendering(cmd);
+
+                Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
+                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 0,
+                        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            });
+
+            return (ImTextureID)s_InspectorImGuiSet;
+        }
+    }
+
+    ImTextureID RenderMeshInspector(const std::shared_ptr<Model>& model, const OrbitCamera& cam)
+    {
+        if (!s_Initialized || !model) return (ImTextureID)0;
+        auto vkWhite = std::static_pointer_cast<VKTexture>(s_WhiteTexture);
+        UpdateSamplerDescriptor(vkWhite->GetImageView(), vkWhite->GetSampler());
+        return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam);
+    }
+
+    ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material, const OrbitCamera& cam)
+    {
+        if (!s_Initialized || !material) return (ImTextureID)0;
+        if (!LoadSphereLazy())            return (ImTextureID)0;
+
+        // Sampled textures must be resident before the bake samples them.
+        // LoadImmediate is blocking; vkDeviceWaitIdle ensures async upload
+        // fences retire so the descriptor write reads valid pixels.
+        for (const auto& m : material->GetTextures()) {
+            if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
+        }
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+
+        std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
+        if (!albedo) albedo = s_WhiteTexture;
+        auto vkAlbedo = std::static_pointer_cast<VKTexture>(albedo);
+        UpdateSamplerDescriptor(vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
+
+        return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam);
+    }
+
+    u32 GetInspectorSize() { return kInspectorSize; }
 }

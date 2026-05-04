@@ -81,24 +81,34 @@ namespace Luth
             // Toolbar - Left (gizmos + grid) | Transport | Right (render + dropdowns)
             {
                 auto& settings = Editor::GetSettings();
+                const ImGuiStyle& style  = ImGui::GetStyle();
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
                 const float btnSize      = ImGui::GetFrameHeight();
-                const float chevW        = btnSize * 0.75f;     // matches SplitToggleButton
-                const float splitW       = btnSize + chevW;
+                // invariant: matches widgets/ButtonGroup IconBtnSize() — icon-toggle
+                // buttons add 2*(FramePadding.x - FramePadding.y) to width so the
+                // glyph isn't pinched horizontally at default style {6,4}.
+                const float iconBtnW     = btnSize + 2.0f * std::max(0.0f, style.FramePadding.x - style.FramePadding.y);
+                const float chevW        = btnSize * 0.75f;     // matches SplitToggleButton chevron half
+                const float splitW       = iconBtnW + chevW;
                 const float gap          = 2.0f;
                 const float groupGap     = 8.0f;
                 const float wideGap      = 14.0f;               // gizmo|grid + debug|camera separation
 
                 // Pre-compute block widths so transport/right blocks land deterministically.
+                // Transport + render-mode buttons are plain ImGui::Button({btnSize,btnSize}),
+                // not icon-toggles — keep btnSize. Splits + Overlay use iconBtnW.
+                // invariant: SameLine(absX) is window-relative, NOT content-relative —
+                // it ignores WindowPadding.x, so the absX values must include it.
+                const float windowPadX     = style.WindowPadding.x;
                 const float transportW     = (4 * btnSize) + (3 * gap);
                 const float renderModeW    = (4 * btnSize) + (3 * gap);
-                const float rightW         = renderModeW + groupGap + splitW + wideGap + splitW + gap + splitW + gap + btnSize;
-                const float transportStart = (toolbarWidth - transportW) * 0.5f;
-                const float rightStart     = toolbarWidth - rightW;
+                const float rightW         = renderModeW + groupGap + splitW + wideGap + splitW + gap + splitW + gap + iconBtnW;
+                const float transportStart = windowPadX + (toolbarWidth - transportW) * 0.5f;
+                const float rightStart     = windowPadX + (toolbarWidth - rightW);
 
                 // LEFT: gizmo tools + grid split
                 ImGui::AlignTextToFramePadding();
-                static const char* kGizmoIcons[]    = { ICON_FA_CROSSHAIRS, ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_EXPAND };
+                static const char* kGizmoIcons[]    = { ICON_FA_ARROW_POINTER, ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_EXPAND };
                 static const char* kGizmoTooltips[] = { "Select (Q)", "Translate (W)", "Rotate (E)", "Scale (R)" };
                 static constexpr int kGizmoOps[]    = { -1, ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::OPERATION::ROTATE, ImGuizmo::OPERATION::SCALE };
                 int gizmoIdx = 0;
@@ -165,7 +175,7 @@ namespace Luth
                 struct RenderModeBtn { const char* icon; const char* tip; int mode; };
                 static const RenderModeBtn kRenderModes[] = {
                     { ICON_FA_GLOBE,              "Wireframe",                                 (int)ShadeMode::Wireframe },
-                    { ICON_FA_EARTH_AMERICAS,     "Shaded Wireframe (engine support pending)", -1 },
+                    { ICON_FA_GLOBE,              "Shaded Wireframe (engine support pending)", -1 },
                     { ICON_FA_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
                     { ICON_FA_CIRCLE_HALF_STROKE, "Lit",                                       (int)ShadeMode::Lit },
                 };

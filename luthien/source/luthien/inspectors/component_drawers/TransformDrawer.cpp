@@ -6,6 +6,8 @@
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
@@ -15,6 +17,27 @@ namespace Luth::ComponentDrawers
         ComponentDrawerOptions opts;
         opts.Removable     = false;
         opts.ShowInAddMenu = false;
+        opts.OnCopy = [](Entity e) {
+            const auto& t = e.GetComponent<Transform>();
+            nlohmann::json j;
+            j["position"] = { t.Position.x, t.Position.y, t.Position.z };
+            j["rotation"] = { t.Rotation.x, t.Rotation.y, t.Rotation.z };
+            j["scale"]    = { t.Scale.x,    t.Scale.y,    t.Scale.z };
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                Transform newT = e.GetComponent<Transform>();
+                newT.Position = { j["position"][0], j["position"][1], j["position"][2] };
+                newT.Rotation = { j["rotation"][0], j["rotation"][1], j["rotation"][2] };
+                newT.Scale    = { j["scale"][0],    j["scale"][1],    j["scale"][2] };
+                newT.IsDirty  = true;
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<Transform>>(
+                    "Paste Transform", e.GetScene(), (entt::entity)e, std::move(newT)));
+                return true;
+            } catch (...) { return false; }
+        };
 
         ComponentDrawerRegistry::Register<Transform>(
             "Transform",

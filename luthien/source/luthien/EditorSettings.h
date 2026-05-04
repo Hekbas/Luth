@@ -34,6 +34,7 @@ namespace Luth
 
         // Editor panels
         float thumbnailSize             = 64.0f;
+        float texturePreviewFooterHeight = 220.0f;   // pinned-footer height in TextureEditor / Material / Model inspectors
         bool  showControlsOverlay       = true;
         bool  showBoneDebug             = false;
         bool  showLightGizmos           = true;

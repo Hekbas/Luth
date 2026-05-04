@@ -3,6 +3,8 @@
 #include "luth/core/UUID.h"
 #include "luth/resources/Image.h"
 
+#include <imgui.h>
+
 #include <memory>
 
 namespace Luth
@@ -41,5 +43,23 @@ namespace Luth::UI
         // Output thumbnail size — square. Matches BakeTexture's targetSize so
         // disk persistence and ImGui display dimensions stay uniform.
         u32 GetSize();
+
+        // Live inspector preview: renders into a shared persistent RT (no readback)
+        // and returns the persistent ImGui descriptor. invariant: only one inspector
+        // is visible inside InspectorPanel at a time, so the shared RT never races.
+        struct OrbitCamera
+        {
+            float azimuth   = 0.6f;   // around Y axis
+            float elevation = 0.4f;   // above XZ plane
+            float distMul   = 1.1f;   // multiplier on AABB-fit distance
+        };
+
+        // Returns 0 on Init failure / null asset; otherwise the persistent
+        // inspector descriptor (do NOT call ImGui_ImplVulkan_RemoveTexture on it).
+        ImTextureID RenderMeshInspector(const std::shared_ptr<Model>& model,
+                                        const OrbitCamera& cam);
+        ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material,
+                                            const OrbitCamera& cam);
+        u32 GetInspectorSize();
     }
 }

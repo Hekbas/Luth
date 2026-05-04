@@ -12,6 +12,8 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/AnimationClip.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
@@ -26,6 +28,30 @@ namespace Luth::ComponentDrawers
             Animation initAnim(modelUUID);
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<Animation>>(
                 "Add Animation", e.GetScene(), (entt::entity)e, initAnim));
+        };
+        opts.OnCopy = [](Entity e) {
+            const auto& a = e.GetComponent<Animation>();
+            nlohmann::json j;
+            j["modelUUID"] = a.ModelUUID.ToString();
+            j["clipUUID"]  = a.ClipUUID.ToString();
+            j["speed"]     = a.Speed;
+            j["loopMode"]  = (int)a.LoopMode;
+            j["playing"]   = a.Playing;
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                Animation newA = e.GetComponent<Animation>();
+                newA.ModelUUID = UUID::FromString(j.value("modelUUID", ""));
+                newA.ClipUUID  = UUID::FromString(j.value("clipUUID", ""));
+                newA.Speed     = j.value("speed", 1.0f);
+                newA.LoopMode  = (AnimationLoopMode)j.value("loopMode", 1);
+                newA.Playing   = j.value("playing", true);
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<Animation>>(
+                    "Paste Animation", e.GetScene(), (entt::entity)e, std::move(newA)));
+                return true;
+            } catch (...) { return false; }
         };
 
         ComponentDrawerRegistry::Register<Animation>(

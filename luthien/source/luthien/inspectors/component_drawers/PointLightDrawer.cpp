@@ -6,13 +6,38 @@
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
 
     void RegisterPointLight()
     {
-        ComponentDrawerRegistry::RegisterSimple<PointLight>(
+        ComponentDrawerOptions opts;
+        opts.OnCopy = [](Entity e) {
+            const auto& pl = e.GetComponent<PointLight>();
+            nlohmann::json j;
+            j["color"]     = { pl.Color.x, pl.Color.y, pl.Color.z };
+            j["intensity"] = pl.Intensity;
+            j["range"]     = pl.Range;
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                PointLight newPl;
+                if (j.contains("color") && j["color"].is_array() && j["color"].size() >= 3)
+                    newPl.Color = { j["color"][0], j["color"][1], j["color"][2] };
+                newPl.Intensity = j.value("intensity", 1.0f);
+                newPl.Range     = j.value("range", 350.0f);
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<PointLight>>(
+                    "Paste PointLight", e.GetScene(), (entt::entity)e, std::move(newPl)));
+                return true;
+            } catch (...) { return false; }
+        };
+
+        ComponentDrawerRegistry::Register<PointLight>(
             "Point Light",
             [](Entity entity, PointLight& pointLight) {
                 if (UI::BeginProperties()) {
@@ -43,6 +68,7 @@ namespace Luth::ComponentDrawers
 
                     UI::EndProperties();
                 }
-            });
+            },
+            std::move(opts));
     }
 }

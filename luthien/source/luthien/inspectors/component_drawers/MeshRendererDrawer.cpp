@@ -10,13 +10,39 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
 
     void RegisterMeshRenderer()
     {
-        ComponentDrawerRegistry::RegisterSimple<MeshRenderer>(
+        ComponentDrawerOptions opts;
+        opts.OnCopy = [](Entity e) {
+            const auto& mr = e.GetComponent<MeshRenderer>();
+            nlohmann::json j;
+            j["modelUUID"]    = mr.ModelUUID.ToString();
+            j["meshIndex"]    = mr.MeshIndex;
+            j["materialUUID"] = mr.MaterialUUID.ToString();
+            j["isSkinned"]    = mr.isSkinned;
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                MeshRenderer newMr;
+                newMr.ModelUUID    = UUID::FromString(j.value("modelUUID", ""));
+                newMr.MeshIndex    = j.value("meshIndex", 0u);
+                newMr.MaterialUUID = UUID::FromString(j.value("materialUUID", ""));
+                newMr.isSkinned    = j.value("isSkinned", false);
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<MeshRenderer>>(
+                    "Paste MeshRenderer", e.GetScene(), (entt::entity)e, std::move(newMr)));
+                return true;
+            } catch (...) { return false; }
+        };
+
+        ComponentDrawerRegistry::Register<MeshRenderer>(
             "Mesh Renderer",
             [](Entity entity, MeshRenderer& meshRenderer) {
                 if (UI::BeginProperties()) {
@@ -63,6 +89,7 @@ namespace Luth::ComponentDrawers
                 // after the component loop completes.
                 if (auto* insp = Editor::GetPanel<InspectorPanel>())
                     insp->SetActiveMaterial(meshRenderer.MaterialUUID);
-            });
+            },
+            std::move(opts));
     }
 }
