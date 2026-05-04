@@ -85,36 +85,16 @@ namespace Luth
                 const float btnSize = ImGui::GetFrameHeight();
                 const float sepWidth = 2.0f + itemSpacing * 2.0f;
 
-                // --- Accent color for active tool button ---
-                ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
-                ImVec4 normalCol = ImGui::GetStyleColorVec4(ImGuiCol_Button);
-
-                auto ToolButton = [&](const char* icon, const char* id, const char* tooltip, int gizmoOp) {
-                    bool isActive = (m_Gizmo->GetOperation() == gizmoOp);
-                    if (isActive) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
-                    }
-                    std::string label = std::string(icon) + id;
-                    if (ImGui::Button(label.c_str(), { btnSize, btnSize }))
-                        m_Gizmo->SetOperation(gizmoOp);
-                    if (isActive)
-                        ImGui::PushStyleColor(ImGuiCol_Border, activeCol); // pop below
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", tooltip);
-                    if (isActive)
-                        ImGui::PopStyleColor(3); // Button, ButtonHovered, Border
-                };
-
                 // ── Left: gizmo tools ──
                 ImGui::AlignTextToFramePadding();
-                ToolButton(ICON_FA_CROSSHAIRS, "##Select", "Select (Q)", -1);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "##Translate", "Translate (W)", ImGuizmo::OPERATION::TRANSLATE);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_ROTATE, "##Rotate", "Rotate (E)", ImGuizmo::OPERATION::ROTATE);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_EXPAND, "##Scale", "Scale (R)", ImGuizmo::OPERATION::SCALE);
+                static const char* kGizmoIcons[]    = { ICON_FA_CROSSHAIRS, ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_EXPAND };
+                static const char* kGizmoTooltips[] = { "Select (Q)", "Translate (W)", "Rotate (E)", "Scale (R)" };
+                static constexpr int kGizmoOps[]    = { -1, ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::OPERATION::ROTATE, ImGuizmo::OPERATION::SCALE };
+                int gizmoIdx = 0;
+                const int currentOp = m_Gizmo->GetOperation();
+                for (int i = 0; i < IM_ARRAYSIZE(kGizmoOps); ++i) if (kGizmoOps[i] == currentOp) { gizmoIdx = i; break; }
+                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx))
+                    m_Gizmo->SetOperation(kGizmoOps[gizmoIdx]);
 
                 // ── Transport controls ──
                 ImGui::SameLine(0, 4.0f);
@@ -169,11 +149,15 @@ namespace Luth
                 else
                     snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %u tris", triCount);
 
+                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
+                const float segPadX = ImGui::GetStyle().FramePadding.x * 2.0f;
+                float segW = 0;
+                for (auto* n : shadeModeNames) segW += ImGui::CalcTextSize(n).x + segPadX;
+
                 float triTextW = ImGui::CalcTextSize(triText).x;
                 float eyeIconW = ImGui::CalcTextSize(ICON_FA_EYE).x;
-                float comboW = 90.0f;
                 float sunIconW = ImGui::CalcTextSize(ICON_FA_SUN).x;
-                float midWidth = triTextW + sepWidth + eyeIconW + itemSpacing + comboW + sunIconW;
+                float midWidth = triTextW + sepWidth + eyeIconW + itemSpacing + segW + sunIconW;
 
                 float midStart = (toolbarWidth - midWidth) * 0.5f;
                 float cursorX = ImGui::GetCursorPosX();
@@ -191,10 +175,8 @@ namespace Luth
 
                 ImGui::Text(ICON_FA_EYE);
                 ImGui::SameLine();
-                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
                 int currentMode = static_cast<int>(m_RenderingSystem->GetShadeMode());
-                ImGui::SetNextItemWidth(comboW);
-                if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
+                if (UI::SegmentedButton("ShadeMode", shadeModeNames, IM_ARRAYSIZE(shadeModeNames), &currentMode))
                     m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
                 
                 ImGui::SameLine();
@@ -299,10 +281,8 @@ namespace Luth
                 ImGui::SameLine();
                 ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
                 ImGui::SameLine();
-                if (ImGui::Button(m_ShowControlsOverlay ? ICON_FA_KEYBOARD "##OverlayOn" : ICON_FA_KEYBOARD "##OverlayOff", { btnSize, btnSize }))
-                    m_ShowControlsOverlay = !m_ShowControlsOverlay;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay");
+                const char* overlayTip = m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay";
+                UI::IconToggleButton("Overlay", ICON_FA_KEYBOARD, overlayTip, &m_ShowControlsOverlay);
             }
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
