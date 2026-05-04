@@ -225,8 +225,11 @@ namespace Luth
         // Deferred style change (fonts can't be rebuilt mid-frame)
         static inline std::string s_PendingStyle;
 
-        // Layout popup state
-        static inline bool s_ShowSaveLayoutPopup = false;
+        // Workspace popup state — Save / Rename / Delete are deferred from the menu
+        // scope so ImGui can track the popup window outside BeginMenuBar.
+        static inline bool s_ShowSaveWorkspacePopup   = false;
+        static inline bool s_ShowRenameWorkspacePopup = false;
+        static inline bool s_ShowDeleteWorkspaceConfirm = false;
 
         // First-run default-layout snapshot — set in Init when layouts/Default.ini
         // is missing, consumed at end of the first Render once ImGui has populated

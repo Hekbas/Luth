@@ -1079,8 +1079,32 @@ namespace Luth
                 for (auto& panel : s_Panels)
                     ImGui::MenuItem(panel->GetWindowID(), nullptr, &panel->m_Open);
                 ImGui::Separator();
-                if (ImGui::MenuItem("Reset Layout"))
-                    LoadWorkspace("Default");
+
+                if (ImGui::BeginMenu("Workspaces")) {
+                    auto wss = GetWorkspaces();
+
+                    bool activeIsBuiltin = false;
+                    for (const auto& ws : wss) {
+                        bool isActive = (s_Settings.activeLayout == ws.name);
+                        std::string label = ws.builtin ? (ws.name + "  (builtin)") : ws.name;
+                        if (ImGui::MenuItem(label.c_str(), nullptr, isActive))
+                            LoadWorkspace(ws.name);
+                        if (isActive) activeIsBuiltin = ws.builtin;
+                    }
+                    if (!wss.empty()) ImGui::Separator();
+
+                    if (ImGui::MenuItem("Save Current As..."))
+                        s_ShowSaveWorkspacePopup = true;
+                    if (ImGui::MenuItem("Rename Current...", nullptr, false, !activeIsBuiltin))
+                        s_ShowRenameWorkspacePopup = true;
+                    if (ImGui::MenuItem("Delete Current...", nullptr, false, !activeIsBuiltin))
+                        s_ShowDeleteWorkspaceConfirm = true;
+
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Reset to Built-in"))
+                        ResetWorkspaceToBuiltin();
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
 
@@ -1127,28 +1151,6 @@ namespace Luth
                     }
                     ImGui::EndMenu();
                 }
-
-                ImGui::Separator();
-
-                // Layout submenu — restructured into Window > Workspaces in sub-task E.
-                if (ImGui::BeginMenu("Layouts")) {
-                    auto wss = GetWorkspaces();
-                    for (const auto& ws : wss) {
-                        bool isActive = (s_Settings.activeLayout == ws.name);
-                        std::string label = ws.builtin ? (ws.name + " (builtin)") : ws.name;
-                        if (ImGui::MenuItem(label.c_str(), nullptr, isActive))
-                            LoadWorkspace(ws.name);
-                    }
-
-                    if (!wss.empty())
-                        ImGui::Separator();
-
-                    if (ImGui::MenuItem("Save Layout..."))
-                        s_ShowSaveLayoutPopup = true;
-
-                    ImGui::EndMenu();
-                }
-
                 ImGui::EndMenu();
             }
 
@@ -1163,29 +1165,78 @@ namespace Luth
             s_ShowTextureRemapDialog = false;
         }
 
-        // Save Layout popup — rendered outside menu scope so ImGui can track it
-        if (s_ShowSaveLayoutPopup) {
-            ImGui::OpenPopup("Save Layout");
-            s_ShowSaveLayoutPopup = false;
+        // Workspace Save / Rename / Delete popups — rendered outside menu scope
+        // so ImGui can track them; deferred-open pattern from Save Layout precedent.
+        if (s_ShowSaveWorkspacePopup) {
+            ImGui::OpenPopup("Save Workspace");
+            s_ShowSaveWorkspacePopup = false;
         }
-
-        if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            static char layoutName[128] = "";
-            ImGui::Text("Layout Name:");
+        if (ImGui::BeginPopupModal("Save Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            static char nameBuf[128] = "";
+            ImGui::Text("Workspace Name:");
             ImGui::SetNextItemWidth(250.0f);
-            ImGui::InputText("##LayoutName", layoutName, sizeof(layoutName));
+            ImGui::InputText("##SaveWorkspaceName", nameBuf, sizeof(nameBuf));
 
             ImGui::Spacing();
-            if (ImGui::Button("Save", ImVec2(120, 0)) && layoutName[0] != '\0') {
-                SaveWorkspaceAs(layoutName);
-                layoutName[0] = '\0';
+            if (ImGui::Button("Save", ImVec2(120, 0)) && nameBuf[0] != '\0') {
+                SaveWorkspaceAs(nameBuf);
+                nameBuf[0] = '\0';
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                layoutName[0] = '\0';
+                nameBuf[0] = '\0';
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::EndPopup();
+        }
+
+        // Rename input pre-fills with the active name on open so the user can edit
+        // in place rather than retyping. Static buf is re-seeded each open.
+        static char s_RenameBuf[128] = "";
+        if (s_ShowRenameWorkspacePopup) {
+            std::snprintf(s_RenameBuf, sizeof(s_RenameBuf), "%s", s_Settings.activeLayout.c_str());
+            ImGui::OpenPopup("Rename Workspace");
+            s_ShowRenameWorkspacePopup = false;
+        }
+        if (ImGui::BeginPopupModal("Rename Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("New Name:");
+            ImGui::SetNextItemWidth(250.0f);
+            ImGui::InputText("##RenameWorkspaceName", s_RenameBuf, sizeof(s_RenameBuf));
+
+            ImGui::Spacing();
+            const bool canRename = s_RenameBuf[0] != '\0' && s_RenameBuf != s_Settings.activeLayout;
+            if (!canRename) ImGui::BeginDisabled();
+            if (ImGui::Button("Rename", ImVec2(120, 0))) {
+                RenameWorkspace(s_Settings.activeLayout, s_RenameBuf);
+                s_RenameBuf[0] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+            if (!canRename) ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                s_RenameBuf[0] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (s_ShowDeleteWorkspaceConfirm) {
+            ImGui::OpenPopup("Delete Workspace");
+            s_ShowDeleteWorkspaceConfirm = false;
+        }
+        if (ImGui::BeginPopupModal("Delete Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Delete workspace '%s'?", s_Settings.activeLayout.c_str());
+            ImGui::TextDisabled("This cannot be undone.");
+
+            ImGui::Spacing();
+            if (ImGui::Button("Delete", ImVec2(120, 0))) {
+                DeleteWorkspace(s_Settings.activeLayout);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
     }
