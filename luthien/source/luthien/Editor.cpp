@@ -852,6 +852,10 @@ namespace Luth
         ImGui::LoadIniSettingsFromMemory(data.c_str(), data.size());
 
         s_Settings.activeLayout = name;
+
+        const bool isBuiltin = Workspace::IsBuiltinPath(iniPath);
+        EventBus::Enqueue<WorkspaceChangedSignal>(BusType::MainThread, name, isBuiltin);
+
         LH_CORE_INFO("Loaded workspace '{}' from '{}'", name, iniPath.string());
         return true;
     }
