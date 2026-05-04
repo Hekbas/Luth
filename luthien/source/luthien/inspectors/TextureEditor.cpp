@@ -1,5 +1,7 @@
 #include "lepch.h"
 #include "luthien/inspectors/TextureEditor.h"
+#include "luthien/Editor.h"
+#include "luthien/EditorSettings.h"
 #include "luthien/widgets/Widgets.h"
 #include "luthien/widgets/ThumbnailCache.h"
 #include "luthien/widgets/Icons.h"
@@ -7,6 +9,8 @@
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"
+
+#include <algorithm>
 
 namespace Luth
 {
@@ -45,68 +49,84 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // ---- Info Section ----
-        if (UI::BeginCollapsingHeader("Texture Info", true))
+        // Pinned-footer layout: settings scroll above, splitter, preview pinned bottom.
+        const float kSplitterH = 4.0f;
+        const float availH     = ImGui::GetContentRegionAvail().y;
+        float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
+        // Clamp before sizing so a stale persisted value can't starve either region.
+        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH));
+
+        const float topH = availH - footerH - kSplitterH;
+        if (ImGui::BeginChild("##Settings", { -1, topH }, false))
         {
-            if (UI::BeginInfoTable("TextureProps")) {
-                UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
-                UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
-                UI::InfoRow("Type",       "%s", "2D");
-                UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
-                UI::EndInfoTable();
-            }
-            UI::EndCollapsingHeader();
-        }
-
-        ImGui::Dummy({ 0, 8 });
-        
-        // ---- Settings Section ----
-        if (UI::BeginCollapsingHeader("Import Settings", true))
-        {
-            const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
-            const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
-
-            if (UI::BeginProperties("TextureSettings")) {
-                UI::Property("Generate Mipmaps", m_GenerateMipmaps);
-                UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
-                UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
-                UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
-                UI::EndProperties();
-            }
-
-            ImGui::Dummy({ 0, 4 });
-
-            // Apply button — right-aligned
-            float buttonWidth = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - buttonWidth);
-            if (ImGui::Button("Apply")) {
-                fs::path metaPath = texture.GetPath().string() + ".meta";
-                MetaFile meta(texture.Handle);
-                if (meta.Load(metaPath))
-                {
-                    auto& ts = meta.GetTypeSettings();
-                    ts["generate_mipmaps"] = m_GenerateMipmaps;
-                    ts["wrap_mode"] = m_WrapMode;
-                    ts["filter_min"] = m_MinFilter;
-                    ts["filter_mag"] = m_MagFilter;
-                    meta.Save(metaPath);
-
-                    // Delete artifact to force reimport with new settings
-                    fs::path artifactPath = AssetDatabase::GetArtifactPath(texture.Handle);
-                    if (fs::exists(artifactPath))
-                        fs::remove(artifactPath);
-
-                    AssetManager::Import(texture.Handle);
-                    AssetManager::Evict(texture.Handle);
-                    m_LastTextureUUID = UUID::Invalid();
+            // ---- Info Section ----
+            if (UI::BeginCollapsingHeader("Texture Info", true))
+            {
+                if (UI::BeginInfoTable("TextureProps")) {
+                    UI::InfoRow("Dimensions", "%d x %d", texture.GetWidth(), texture.GetHeight());
+                    UI::InfoRow("Format",     "%s", texture.GetFormatString().c_str());
+                    UI::InfoRow("Type",       "%s", "2D");
+                    UI::InfoRow("Mip Levels", "%d", texture.GetMipLevels());
+                    UI::EndInfoTable();
                 }
+                UI::EndCollapsingHeader();
             }
-            UI::EndCollapsingHeader();
+
+            ImGui::Dummy({ 0, 8 });
+
+            // ---- Settings Section ----
+            if (UI::BeginCollapsingHeader("Import Settings", true))
+            {
+                const char* wrapModes[] = { "Repeat", "Clamp to Edge", "Mirrored Repeat" };
+                const char* filterModes[] = { "Linear", "Nearest", "Linear Mipmap", "Nearest Mipmap" };
+
+                if (UI::BeginProperties("TextureSettings")) {
+                    UI::Property("Generate Mipmaps", m_GenerateMipmaps);
+                    UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
+                    UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
+                    UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
+                    UI::EndProperties();
+                }
+
+                ImGui::Dummy({ 0, 4 });
+
+                // Apply button — right-aligned
+                float buttonWidth = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - buttonWidth);
+                if (ImGui::Button("Apply")) {
+                    fs::path metaPath = texture.GetPath().string() + ".meta";
+                    MetaFile meta(texture.Handle);
+                    if (meta.Load(metaPath))
+                    {
+                        auto& ts = meta.GetTypeSettings();
+                        ts["generate_mipmaps"] = m_GenerateMipmaps;
+                        ts["wrap_mode"] = m_WrapMode;
+                        ts["filter_min"] = m_MinFilter;
+                        ts["filter_mag"] = m_MagFilter;
+                        meta.Save(metaPath);
+
+                        // Delete artifact to force reimport with new settings
+                        fs::path artifactPath = AssetDatabase::GetArtifactPath(texture.Handle);
+                        if (fs::exists(artifactPath))
+                            fs::remove(artifactPath);
+
+                        AssetManager::Import(texture.Handle);
+                        AssetManager::Evict(texture.Handle);
+                        m_LastTextureUUID = UUID::Invalid();
+                    }
+                }
+                UI::EndCollapsingHeader();
+            }
         }
+        ImGui::EndChild();
 
-        ImGui::Dummy({ 0, 4 });
+        if (UI::Splitter("##TextureSplitter", &footerH, kSplitterH))
+            Editor::SaveSettings();
 
-        // ---- Preview Section ----
-        UI::TexturePreview(std::shared_ptr<Texture>(&texture, [](Texture*){}));
+        if (ImGui::BeginChild("##Preview", { -1, footerH }, false))
+        {
+            UI::TexturePreview(std::shared_ptr<Texture>(&texture, [](Texture*){}));
+        }
+        ImGui::EndChild();
     }
 }
