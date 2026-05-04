@@ -84,6 +84,13 @@ namespace Luth
 
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
 
+            if (j.contains("panel_open") && j["panel_open"].is_object())
+            {
+                for (auto it = j["panel_open"].begin(); it != j["panel_open"].end(); ++it)
+                    if (it.value().is_boolean())
+                        settings.panelOpen[it.key()] = it.value().get<bool>();
+            }
+
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
         }
         catch (const std::exception& e)
@@ -143,6 +150,11 @@ namespace Luth
             j["thumbnailMaxDiskEntries"] = settings.thumbnailMaxDiskEntries;
 
             j["lastSceneUUID"]   = settings.lastSceneUUID;
+
+            json po = json::object();
+            for (const auto& [name, open] : settings.panelOpen)
+                po[name] = open;
+            j["panel_open"] = po;
 
             std::ofstream file(path);
             file << j.dump(4);

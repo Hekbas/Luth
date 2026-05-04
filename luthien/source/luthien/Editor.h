@@ -213,6 +213,11 @@ namespace Luth
         // Layout popup state
         static inline bool s_ShowSaveLayoutPopup = false;
 
+        // First-run default-layout snapshot — set in Init when layouts/Default.ini
+        // is missing, consumed at end of the first Render once ImGui has populated
+        // dock state.
+        static inline bool s_NeedDefaultLayoutSave = false;
+
         // Texture remap dialog state (deferred open from menu)
         static inline bool s_ShowTextureRemapDialog = false;
 

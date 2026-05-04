@@ -4,6 +4,7 @@
 
 #include <string>
 #include <filesystem>
+#include <unordered_map>
 
 namespace Luth
 {
@@ -72,6 +73,10 @@ namespace Luth
 
         // Scene persistence
         std::string lastSceneUUID;
+
+        // Per-panel visibility (Window menu). Keyed by Panel::GetWindowID().
+        // Missing keys default to true (panel shown) — matches Panel::m_Open default.
+        std::unordered_map<std::string, bool> panelOpen;
 
         static EditorSettings Load(const std::filesystem::path& path);
         static void Save(const EditorSettings& settings, const std::filesystem::path& path);

@@ -86,6 +86,11 @@ namespace Luth
         InitPanels();
         ApplyPersistence();
 
+        // Snapshot the live ImGui dock layout into layouts/Default.ini on first
+        // run so Window > Reset Layout always has a fallback target. Deferred
+        // to end of first Render — ImGui hasn't built dock state yet.
+        s_NeedDefaultLayoutSave = !fs::exists("layouts/Default.ini");
+
         // Forward AssetDatabase file-watch flushes onto the EventBus as typed
         // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
         // can react via subscriptions instead of polling. The current AssetDatabase
@@ -207,6 +212,15 @@ namespace Luth
 
     void Editor::ApplyPersistence()
     {
+        // Hydrate per-panel visibility from the persisted map. Missing keys keep
+        // Panel's default (true) so panels added in later versions appear by default.
+        for (auto& panel : s_Panels)
+        {
+            auto it = s_Settings.panelOpen.find(panel->GetWindowID());
+            if (it != s_Settings.panelOpen.end())
+                panel->m_Open = it->second;
+        }
+
         if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().ApplySettings(s_Settings);
             sp->SetShowControlsOverlay(s_Settings.showControlsOverlay);
@@ -531,6 +545,21 @@ namespace Luth
         // Crash-recovery prompt (no-op when nothing pending)
         EditorAutoSave::DrawRecoveryModal();
 
+        // First-run default layout snapshot (see s_NeedDefaultLayoutSave decl).
+        if (s_NeedDefaultLayoutSave)
+        {
+            fs::path layoutDir = "layouts";
+            if (!fs::exists(layoutDir)) fs::create_directories(layoutDir);
+            size_t size = 0;
+            const char* iniData = ImGui::SaveIniSettingsToMemory(&size);
+            std::ofstream f(layoutDir / "Default.ini");
+            if (f.is_open()) {
+                f.write(iniData, size);
+                LH_CORE_INFO("Saved first-run default layout to layouts/Default.ini");
+            }
+            s_NeedDefaultLayoutSave = false;
+        }
+
         ImGui::End();
     }
 
@@ -744,6 +773,11 @@ namespace Luth
 
     void Editor::SaveSettings()
     {
+        // Mirror live panel visibility into the settings map. Skipping this would
+        // lose Window-menu toggles between the toggle and the next save trigger.
+        for (auto& panel : s_Panels)
+            s_Settings.panelOpen[panel->GetWindowID()] = panel->m_Open;
+
         if (!s_SettingsPath.empty())
             EditorSettings::Save(s_Settings, s_SettingsPath);
     }
@@ -873,6 +907,15 @@ namespace Luth
                     CommandHistory::Undo();
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, CommandHistory::CanRedo()))
                     CommandHistory::Redo();
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Window")) {
+                for (auto& panel : s_Panels)
+                    ImGui::MenuItem(panel->GetWindowID(), nullptr, &panel->m_Open);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Reset Layout"))
+                    LoadLayout("Default");
                 ImGui::EndMenu();
             }
 
