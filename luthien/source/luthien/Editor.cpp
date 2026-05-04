@@ -979,10 +979,11 @@ namespace Luth
             for (const auto& e : fs::directory_iterator(UserDir())) {
                 if (e.path().extension() != ".ini") continue;
                 const std::string name = e.path().stem().string();
-                if (seen.count(name)) {
-                    LH_CORE_WARN("Workspace '{}' user copy shadowed by built-in", name);
-                    continue;
-                }
+                // Built-in shadows silently — SaveWorkspaceAs refuses colliding names,
+                // so the only way a user copy collides is the first-run Default snapshot
+                // (intentional fallback, not user error). Warning here would spam the
+                // log every frame from the Window > Workspaces menu.
+                if (seen.count(name)) continue;
                 out.push_back({ name, false });
             }
         }
