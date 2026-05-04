@@ -27,43 +27,18 @@ namespace Luth
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return;
 
-        // Material header with name and unsaved indicator
-        if (ImGui::BeginChild("##Header", { 0, 30 })) {
-            ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            if (material.NeedsSave())
-                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s* (Material)", material.GetName().c_str());
-            else
-                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 4 });
+        // Header: thumbnail-on-left, name + Shader combo on right.
+        // Live 3D preview pinned in the footer (sub-task O).
+        ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
+        UI::InspectorHeader(headerThumb, ICON_FA_CIRCLE_HALF_STROKE, 64.0f, [&]() {
+            const ImVec4 nameCol = { 0.2f, 0.9f, 0.4f, 1.0f };
+            ImGui::TextColored(nameCol, "%s%s (Material)",
+                material.GetName().c_str(), material.NeedsSave() ? "*" : "");
 
-        // Live preview via ThumbnailCache. Refresh trigger in auto-save block below.
-        constexpr float kPreviewSize = 192.0f;
-        if (ImGui::BeginChild("##Preview", { 0, kPreviewSize + 8 }, false))
-        {
-            ImTextureID thumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
-            float availW = ImGui::GetContentRegionAvail().x;
-            float xOff = (availW - kPreviewSize) * 0.5f;
-            if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
-            if (thumb) {
-                ImGui::Image(thumb, { kPreviewSize, kPreviewSize });
-            } else {
-                ImGui::Dummy({ kPreviewSize, kPreviewSize * 0.4f });
-                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
-                ImGui::TextDisabled("%s", ICON_FA_CIRCLE_HALF_STROKE);
-            }
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 4 });
-
-        // Shader selection
-        ImGui::Text("Shader     ");
-        ImGui::SameLine();
-        {
             auto shader = material.GetShader();
-            std::string currentName = shader ? shader->GetName() : "<none>";
+            const std::string currentName = shader ? shader->GetName() : "<none>";
 
+            ImGui::TextDisabled("Shader"); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", currentName.c_str())) {
                 for (const auto& [name, s] : ShaderLibrary::GetAll()) {
@@ -76,7 +51,7 @@ namespace Luth
                 }
                 ImGui::EndCombo();
             }
-        }
+        });
 
         ImGui::Dummy({ 0, 4 });
 

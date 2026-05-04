@@ -12,31 +12,19 @@ namespace Luth
 {
     void ModelViewer::Draw(Model& model)
     {
-        // Model header with name and type
-        if (ImGui::BeginChild("##Header", { 0, 30 })) {
-			ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            ImGui::TextColored({ 0.4f, 0.8f, 1.0f, 1.0f }, "%s (Model)", model.GetName().c_str());
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 4 });
+        // Header: thumbnail-on-left, name + summary on right.
+        // Interactive 3D preview pinned in the footer (sub-task O).
+        ImTextureID headerThumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
+        const auto& headerInfo = model.GetCachedModelInfo();
+        UI::InspectorHeader(headerThumb, ICON_FA_CUBE, 64.0f, [&]() {
+            const ImVec4 nameCol = { 0.4f, 0.8f, 1.0f, 1.0f };
+            ImGui::TextColored(nameCol, "%s (Model)", model.GetName().c_str());
+            ImGui::TextDisabled("%d meshes  ·  %d verts  ·  %s",
+                headerInfo.TotalMeshCount,
+                headerInfo.TotalVertexCount,
+                headerInfo.IsSkinned ? "skinned" : "static");
+        });
 
-        // Live preview via ThumbnailCache. Cascade refreshes on Apply re-import.
-        constexpr float kPreviewSize = 192.0f;
-        if (ImGui::BeginChild("##Preview", { 0, kPreviewSize + 8 }, false))
-        {
-            ImTextureID thumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
-            float availW = ImGui::GetContentRegionAvail().x;
-            float xOff = (availW - kPreviewSize) * 0.5f;
-            if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
-            if (thumb) {
-                ImGui::Image(thumb, { kPreviewSize, kPreviewSize });
-            } else {
-                ImGui::Dummy({ kPreviewSize, kPreviewSize * 0.4f });
-                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
-                ImGui::TextDisabled("%s", ICON_FA_CUBE);
-            }
-        }
-        ImGui::EndChild();
         ImGui::Dummy({ 0, 4 });
 
         // Per-model state: reset when selected model changes

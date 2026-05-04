@@ -6,6 +6,7 @@
 #include "luthien/widgets/ButtonGroup.h"
 #include "luthien/widgets/CollapsingHeader.h"
 #include "luthien/widgets/InfoTable.h"
+#include "luthien/widgets/InspectorHeader.h"
 #include "luthien/widgets/Properties.h"
 #include "luthien/widgets/Splitter.h"
 #include "luthien/widgets/TexturePreview.h"

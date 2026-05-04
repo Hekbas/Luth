@@ -1,6 +1,8 @@
 #include "lepch.h"
 #include "luthien/inspectors/TextureEditor.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -28,7 +30,21 @@ namespace Luth
                 if (ts.contains("generate_mipmaps")) m_GenerateMipmaps = ts["generate_mipmaps"].get<bool>();
             }
         }
-        
+
+        // Header: thumbnail-on-left, name + dimensions on right.
+        ImTextureID headerThumb = UI::ThumbnailCache::Get(texture.Handle, AssetType::Texture);
+        UI::InspectorHeader(headerThumb, ICON_FA_IMAGE, 64.0f, [&]() {
+            const ImVec4 nameCol = { 1.0f, 0.7f, 0.2f, 1.0f };
+            ImGui::TextColored(nameCol, "%s (Texture)", texture.GetName().c_str());
+            ImGui::TextDisabled("%dx%d  ·  %s  ·  %d mip%s",
+                texture.GetWidth(), texture.GetHeight(),
+                texture.GetFormatString().c_str(),
+                texture.GetMipLevels(),
+                texture.GetMipLevels() == 1 ? "" : "s");
+        });
+
+        ImGui::Dummy({ 0, 4 });
+
         // ---- Info Section ----
         if (UI::BeginCollapsingHeader("Texture Info", true))
         {
