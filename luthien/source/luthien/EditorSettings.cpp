@@ -60,6 +60,8 @@ namespace Luth
             settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
             settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
+            settings.showTriIndicatorOverlay = j.value("showTriIndicatorOverlay", settings.showTriIndicatorOverlay);
+            settings.lastDebugMode       = (u8)j.value("lastDebugMode", (int)settings.lastDebugMode);
 
             LoadVec4(j, "outlineColor", settings.outlineColor);
             settings.outlineWidth         = j.value("outlineWidth", settings.outlineWidth);
@@ -83,6 +85,13 @@ namespace Luth
             settings.thumbnailMaxDiskEntries = j.value("thumbnailMaxDiskEntries", settings.thumbnailMaxDiskEntries);
 
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
+
+            if (j.contains("panel_open") && j["panel_open"].is_object())
+            {
+                for (auto it = j["panel_open"].begin(); it != j["panel_open"].end(); ++it)
+                    if (it.value().is_boolean())
+                        settings.panelOpen[it.key()] = it.value().get<bool>();
+            }
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
         }
@@ -120,6 +129,8 @@ namespace Luth
             j["showCameraGizmos"]    = settings.showCameraGizmos;
             j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["showGrid"]            = settings.showGrid;
+            j["showTriIndicatorOverlay"] = settings.showTriIndicatorOverlay;
+            j["lastDebugMode"]       = (int)settings.lastDebugMode;
 
             j["outlineColor"]         = ToJson(settings.outlineColor);
             j["outlineWidth"]         = settings.outlineWidth;
@@ -143,6 +154,11 @@ namespace Luth
             j["thumbnailMaxDiskEntries"] = settings.thumbnailMaxDiskEntries;
 
             j["lastSceneUUID"]   = settings.lastSceneUUID;
+
+            json po = json::object();
+            for (const auto& [name, open] : settings.panelOpen)
+                po[name] = open;
+            j["panel_open"] = po;
 
             std::ofstream file(path);
             file << j.dump(4);

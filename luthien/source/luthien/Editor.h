@@ -69,10 +69,24 @@ namespace Luth
             return open;
         }
 
+        // Overload that wires the title-bar X to a persistent open flag (typically
+        // &m_Open). Panels using this opt into the Window menu's toggle path.
+        bool BeginWindow(const char* name, bool* p_open, ImGuiWindowFlags flags = 0)
+        {
+            bool open = ImGui::Begin(name, p_open, flags);
+            m_Visible = open;
+            m_Focused = open && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow);
+            m_Docked  = open && ImGui::IsWindowDocked();
+            return open;
+        }
+
     protected:
         friend class Editor;
         friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
 
+        // m_Open is the persistent user choice (Window menu, close X). m_Visible
+        // is per-frame ImGui state (collapsed / off-screen tab / etc.).
+        bool m_Open    = true;
         bool m_Visible = true;
         bool m_Focused = false;
         bool m_Docked  = false;
@@ -152,6 +166,9 @@ namespace Luth
         static EditorSettings& GetSettings() { return s_Settings; }
         static void LoadSettings();
         static void SaveSettings();
+        // Push live state from s_Settings into panels (camera params, skybox, etc.).
+        // Public so EditorSettingsWindow can re-sync after a Preferences edit.
+        static void ApplyPersistence();
         static void SaveLayout(const std::string& name);
         static void LoadLayout(const std::string& name);
         static std::vector<std::string> GetLayoutNames();
@@ -159,7 +176,6 @@ namespace Luth
     private:
         static void InitImGui(Window* window);
         static void InitPanels();
-        static void ApplyPersistence();
 
         static void ProcessShortcuts();
         static void DrawMenuBar();
@@ -198,6 +214,11 @@ namespace Luth
 
         // Layout popup state
         static inline bool s_ShowSaveLayoutPopup = false;
+
+        // First-run default-layout snapshot — set in Init when layouts/Default.ini
+        // is missing, consumed at end of the first Render once ImGui has populated
+        // dock state.
+        static inline bool s_NeedDefaultLayoutSave = false;
 
         // Texture remap dialog state (deferred open from menu)
         static inline bool s_ShowTextureRemapDialog = false;

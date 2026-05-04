@@ -19,6 +19,7 @@ namespace Luth
 {
     ProjectPanel::ProjectPanel()
     {
+        m_WindowID = "Project";
         LH_CORE_INFO("Created Project panel");
     }
 
@@ -353,50 +354,78 @@ namespace Luth
             ImGui::EndPopup();
         }
 
-        bool isListView = m_ThumbnailSize <= k_ListModeThreshold;
-        float cellSize = m_ThumbnailSize + m_Padding;
-        float panelWidth = ImGui::GetContentRegionAvail().x;
-        int columnCount = (int)(panelWidth / cellSize);
-        if (columnCount < 1) columnCount = 1;
+        const bool  isListView  = m_ThumbnailSize <= k_ListModeThreshold;
+        const float cellSize    = m_ThumbnailSize + m_Padding;
+        const float panelWidth  = ImGui::GetContentRegionAvail().x;
+        const int   columnCount = std::max(1, (int)(panelWidth / cellSize));
 
-        if (!isListView) {
-            ImGui::Columns(columnCount, 0, false);
+        // Flatten the iteration source so a single ImGuiListClipper covers grid /
+        // list / search paths uniformly. Pointer copy is cheap relative to skipping
+        // off-screen DrawItem calls (thumbnail lookup + Selectable + drag-drop bind).
+        std::vector<DirectoryNode*> entries;
+        if (m_IsSearching) {
+            entries.assign(m_SearchResults.begin(), m_SearchResults.end());
+        }
+        else {
+            entries.reserve(m_CurrentDirNode->SubDirectories.size() + m_CurrentDirNode->Files.size());
+            for (auto& d : m_CurrentDirNode->SubDirectories) entries.push_back(d.get());
+            for (auto& f : m_CurrentDirNode->Files)          entries.push_back(f.get());
         }
 
-        if (m_IsSearching)
+        if (entries.empty()) {
+            if (m_IsSearching) ImGui::TextDisabled("No results found.");
+            return;
+        }
+
+        // DrawItem's cellH (uniform across rows; clipper requires this).
+        const float lineH      = ImGui::GetTextLineHeight();
+        const float listThumbH = std::max(20.0f, lineH + 4.0f);
+        const float spacingY   = ImGui::GetStyle().ItemSpacing.y;
+        const float gridRowH   = m_ThumbnailSize + lineH * (float)k_MaxNameLines + 2.0f + spacingY;
+        const float listRowH   = listThumbH + spacingY;
+
+        if (isListView)
         {
-            for (auto* node : m_SearchResults) {
-                ImGui::PushID(node);
-                DrawItem(node, !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
-            }
-            
-            if (m_SearchResults.empty()) {
-                ImGui::TextDisabled("No results found.");
+            ImGuiListClipper clipper;
+            clipper.Begin((int)entries.size(), listRowH);
+            while (clipper.Step())
+            {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+                {
+                    DirectoryNode* node = entries[row];
+                    ImGui::PushID(node);
+                    DrawItem(node, /*isGrid=*/false);
+                    ImGui::PopID();
+                }
             }
         }
         else
         {
-            // Directories
-            for (auto& dir : m_CurrentDirNode->SubDirectories) {
-                ImGui::PushID(dir.get());
-                DrawItem(dir.get(), !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
+            if (ImGui::BeginTable("##ProjectGrid", columnCount,
+                ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingStretchSame))
+            {
+                const int rowCount = (int)((entries.size() + columnCount - 1) / (size_t)columnCount);
+                ImGuiListClipper clipper;
+                clipper.Begin(rowCount, gridRowH);
+                while (clipper.Step())
+                {
+                    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+                    {
+                        ImGui::TableNextRow();
+                        for (int col = 0; col < columnCount; ++col)
+                        {
+                            const int idx = row * columnCount + col;
+                            if (idx >= (int)entries.size()) break;
+                            ImGui::TableNextColumn();
+                            DirectoryNode* node = entries[idx];
+                            ImGui::PushID(node);
+                            DrawItem(node, /*isGrid=*/true);
+                            ImGui::PopID();
+                        }
+                    }
+                }
+                ImGui::EndTable();
             }
-
-            // Files
-            for (auto& file : m_CurrentDirNode->Files) {
-                ImGui::PushID(file.get());
-                DrawItem(file.get(), !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
-            }
-        }
-
-        if (!isListView) {
-            ImGui::Columns(1);
         }
     }
 

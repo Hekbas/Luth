@@ -21,6 +21,7 @@ namespace Luth
     using namespace Component;
     HierarchyPanel::HierarchyPanel()
     {
+        m_WindowID = "Hierarchy";
         LH_CORE_INFO("Created Hierarchy panel");
     }
 
@@ -182,7 +183,8 @@ namespace Luth
         ImGuiTreeNodeFlags flags =
             ImGuiTreeNodeFlags_OpenOnArrow |
             ImGuiTreeNodeFlags_SpanAvailWidth |
-            ImGuiTreeNodeFlags_FramePadding;
+            ImGuiTreeNodeFlags_FramePadding |
+            ImGuiTreeNodeFlags_AllowItemOverlap;
 
         if (EditorSelection::IsSelected(entity)) flags |= ImGuiTreeNodeFlags_Selected;
 
@@ -202,28 +204,31 @@ namespace Luth
 
         // Handle Renaming State
         bool isRenamingThis = (m_IsRenaming && m_RenamingEntity == entity);
-        
-        
+
+        // Dim text + icon for inactive entities (shared ImGuiCol_Text). Skip when
+        // renaming so the InputText stays legible.
+        const bool isActive   = entity.IsActive();
+        const bool dimThisRow = !isActive && !isRenamingThis;
+        if (dimThisRow) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+
         bool opened = false;
 
         if (isRenamingThis)
         {
             // Draw the arrow (if children) but no text label
-            // We use AllowItemOverlap to draw the InputText over the node area
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-            flags |= ImGuiTreeNodeFlags_AllowItemOverlap;
-            opened = ImGui::TreeNodeEx("##Node", flags, ""); 
+            opened = ImGui::TreeNodeEx("##Node", flags, "");
             ImGui::PopStyleVar();
 
             ImGui::SameLine();
-            
+
             // Input Text
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
             if (m_FocusRename) {
                 ImGui::SetKeyboardFocusHere();
                 m_FocusRename = false;
             }
-            
+
             if (ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
             {
                 std::string oldName = entity.GetName();
@@ -247,8 +252,47 @@ namespace Luth
             opened = ImGui::TreeNodeEx("##Node", flags, "%s  %s", icon, name.c_str());
         }
 
-        // Handle Selection (with Ctrl/Shift multi-select)
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+        // invariant: hover-gated selection is required because TreeNodeEx fires
+        // IsItemClicked on press while SmallButton fires on release. Capturing
+        // here keeps IsItemHovered tied to the tree node before the eye renders.
+        const bool nodeHovered       = ImGui::IsItemHovered();
+        const bool toggledOpen       = ImGui::IsItemToggledOpen();
+        const bool nodeDoubleClicked = ImGui::IsMouseDoubleClicked(0);
+
+        if (dimThisRow) ImGui::PopStyleColor();
+
+        // Context Menu (still tied to the tree-node "last item")
+        if (ImGui::BeginPopupContextItem())
+        {
+            SetSelectedEntity(entity); // Select on right click
+            DrawContextMenu(entity);   // Pass clicked entity as parent
+            ImGui::EndPopup();
+        }
+
+        // Drag & Drop (also tied to the tree-node "last item")
+        HandleDragDropSource(entity);
+        HandleDragDropTarget(entity);
+
+        // Right-aligned visibility eye — overlaps the tree node via AllowItemOverlap.
+        const float eyeBtnW = ImGui::CalcTextSize(ICON_FA_EYE).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - eyeBtnW);
+        const char* eyeIcon = isActive ? ICON_FA_EYE : ICON_FA_EYE_SLASH;
+        if (!isActive) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        const bool eyeClicked = ImGui::SmallButton(eyeIcon);
+        if (!isActive) ImGui::PopStyleColor();
+        const bool eyeHovered = ImGui::IsItemHovered();
+        if (eyeHovered)
+            ImGui::SetTooltip(isActive ? "Hide in scene" : "Show in scene");
+        if (eyeClicked)
+        {
+            CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
+                entity.GetScene(), (entt::entity)entity, isActive, !isActive));
+        }
+
+        // Selection (Ctrl/Shift multi-select). Suppressed when the cursor is over
+        // the eye's hit-rect — the eye's release-fire wouldn't suppress selection
+        // on the press frame otherwise.
+        if (nodeHovered && !eyeHovered && !toggledOpen && ImGui::IsMouseClicked(0))
         {
             bool ctrlHeld  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
             bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
@@ -263,22 +307,10 @@ namespace Luth
             m_Selection = EditorSelection::GetSelectedEntity();
 
             // Double click to rename (Unity style)
-            if (ImGui::IsMouseDoubleClicked(0)) {
+            if (nodeDoubleClicked) {
                 RenameEntity(entity);
             }
         }
-
-        // Context Menu
-        if (ImGui::BeginPopupContextItem())
-        {
-            SetSelectedEntity(entity); // Select on right click
-            DrawContextMenu(entity);   // Pass clicked entity as parent
-            ImGui::EndPopup();
-        }
-
-        // Drag & Drop
-        HandleDragDropSource(entity);
-        HandleDragDropTarget(entity);
 
         // Recursion
         if (opened)

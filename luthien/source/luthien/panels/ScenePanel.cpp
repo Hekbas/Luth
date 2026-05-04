@@ -33,6 +33,7 @@ namespace Luth
         , m_Gizmo(std::make_unique<GizmoController>())
         , m_Overlays(std::make_unique<ViewportOverlays>(*m_Viewport, *m_Gizmo))
     {
+        m_WindowID = "Scene";
         m_EditorCamera = EditorCamera(70.0f, 1.77f, 0.1f, 10000.0f);
         m_Gizmo->SetOperation(ImGuizmo::OPERATION::TRANSLATE);
 
@@ -77,52 +78,58 @@ namespace Luth
         std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
 
         if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
-            // Toolbar â Left | Mid | Right
+            // Toolbar - Left (gizmos + grid) | Transport | Right (render + dropdowns)
             {
+                auto& settings = Editor::GetSettings();
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
-                const float framePad = ImGui::GetStyle().FramePadding.x;
-                const float itemSpacing = ImGui::GetStyle().ItemSpacing.x;
-                const float btnSize = ImGui::GetFrameHeight();
-                const float sepWidth = 2.0f + itemSpacing * 2.0f;
+                const float btnSize      = ImGui::GetFrameHeight();
+                const float chevW        = btnSize * 0.75f;     // matches SplitToggleButton
+                const float splitW       = btnSize + chevW;
+                const float gap          = 2.0f;
+                const float groupGap     = 8.0f;
+                const float wideGap      = 14.0f;               // gizmo|grid + debug|camera separation
 
-                // --- Accent color for active tool button ---
-                ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
-                ImVec4 normalCol = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+                // Pre-compute block widths so transport/right blocks land deterministically.
+                const float transportW     = (4 * btnSize) + (3 * gap);
+                const float renderModeW    = (4 * btnSize) + (3 * gap);
+                const float rightW         = renderModeW + groupGap + splitW + wideGap + splitW + gap + splitW + gap + btnSize;
+                const float transportStart = (toolbarWidth - transportW) * 0.5f;
+                const float rightStart     = toolbarWidth - rightW;
 
-                auto ToolButton = [&](const char* icon, const char* id, const char* tooltip, int gizmoOp) {
-                    bool isActive = (m_Gizmo->GetOperation() == gizmoOp);
-                    if (isActive) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
-                    }
-                    std::string label = std::string(icon) + id;
-                    if (ImGui::Button(label.c_str(), { btnSize, btnSize }))
-                        m_Gizmo->SetOperation(gizmoOp);
-                    if (isActive)
-                        ImGui::PushStyleColor(ImGuiCol_Border, activeCol); // pop below
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", tooltip);
-                    if (isActive)
-                        ImGui::PopStyleColor(3); // Button, ButtonHovered, Border
-                };
-
-                // ── Left: gizmo tools ──
+                // LEFT: gizmo tools + grid split
                 ImGui::AlignTextToFramePadding();
-                ToolButton(ICON_FA_CROSSHAIRS, "##Select", "Select (Q)", -1);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "##Translate", "Translate (W)", ImGuizmo::OPERATION::TRANSLATE);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_ROTATE, "##Rotate", "Rotate (E)", ImGuizmo::OPERATION::ROTATE);
-                ImGui::SameLine(0, 2.0f);
-                ToolButton(ICON_FA_EXPAND, "##Scale", "Scale (R)", ImGuizmo::OPERATION::SCALE);
+                static const char* kGizmoIcons[]    = { ICON_FA_CROSSHAIRS, ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_EXPAND };
+                static const char* kGizmoTooltips[] = { "Select (Q)", "Translate (W)", "Rotate (E)", "Scale (R)" };
+                static constexpr int kGizmoOps[]    = { -1, ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::OPERATION::ROTATE, ImGuizmo::OPERATION::SCALE };
+                int gizmoIdx = 0;
+                const int currentOp = m_Gizmo->GetOperation();
+                for (int i = 0; i < IM_ARRAYSIZE(kGizmoOps); ++i) if (kGizmoOps[i] == currentOp) { gizmoIdx = i; break; }
+                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx))
+                    m_Gizmo->SetOperation(kGizmoOps[gizmoIdx]);
 
-                // ── Transport controls ──
-                ImGui::SameLine(0, 4.0f);
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine(0, 4.0f);
+                ImGui::SameLine(0, wideGap);
+
+                UI::SplitToggleButton("Grid", ICON_FA_TABLE_CELLS, "Grid",
+                    &settings.showGrid,
+                    [&]() {
+                        ImGui::PushFont(Editor::GetMainFont());
+                        if (UI::BeginProperties("GridProps")) {
+                            UI::PropertyColor("Axis X Color", settings.gridAxisXColor);
+                            UI::PropertyColor("Axis Z Color", settings.gridAxisZColor);
+                            UI::PropertyColor("Grid Color",   settings.gridColor);
+                            UI::Property("Major Scale",      settings.gridMajorScale,    0.1f, 0.1f, 100.0f);
+                            UI::Property("Fade Start",       settings.gridFadeStart,     1.0f, 1.0f, 1000.0f);
+                            UI::Property("Fade End",         settings.gridFadeEnd,       1.0f, 1.0f, 5000.0f);
+                            UI::Property("Line Thickness",   settings.gridLineThickness, 0.05f, 0.1f, 10.0f);
+                            UI::EndProperties();
+                        }
+                        ImGui::PopFont();
+                    });
+
+                // CENTER: transport (centered)
+                ImGui::SameLine(transportStart);
 
                 const PlayState playState = PlayModeController::GetState();
-
                 auto TransportBtn = [&](const char* icon, const char* id, const char* tooltip, bool enabled) -> bool {
                     if (!enabled) ImGui::BeginDisabled();
                     std::string label = std::string(icon) + id;
@@ -133,7 +140,6 @@ namespace Luth
                     return clicked;
                 };
 
-                // Play / Resume — same button, tooltip shifts based on state
                 const bool canPlay   = (playState == PlayState::Editing);
                 const bool canResume = (playState == PlayState::Paused);
                 if (TransportBtn(ICON_FA_PLAY, "##Play",
@@ -142,167 +148,161 @@ namespace Luth
                     if (canResume) PlayModeController::Resume();
                     else           PlayModeController::EnterPlay();
                 }
-                ImGui::SameLine(0, 2.0f);
-
+                ImGui::SameLine(0, gap);
                 if (TransportBtn(ICON_FA_PAUSE, "##Pause", "Pause", playState == PlayState::Playing))
                     PlayModeController::Pause();
-                ImGui::SameLine(0, 2.0f);
-
+                ImGui::SameLine(0, gap);
                 if (TransportBtn(ICON_FA_STOP, "##Stop", "Stop", playState != PlayState::Editing))
                     PlayModeController::Stop();
-                ImGui::SameLine(0, 2.0f);
-
+                ImGui::SameLine(0, gap);
                 if (TransportBtn(ICON_FA_FORWARD_STEP, "##Step", "Step one frame",
                                  playState == PlayState::Paused))
                     PlayModeController::RequestStep();
 
-                ImGui::SameLine();
-
-                // ── Center: stats / view ──
-                // Pre-calculate mid section width
-                u32 triCount = m_RenderingSystem->GetTriangleCount();
-                char triText[64];
-                if (triCount >= 1000000)
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
-                else if (triCount >= 1000)
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
-                else
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %u tris", triCount);
-
-                float triTextW = ImGui::CalcTextSize(triText).x;
-                float eyeIconW = ImGui::CalcTextSize(ICON_FA_EYE).x;
-                float comboW = 90.0f;
-                float sunIconW = ImGui::CalcTextSize(ICON_FA_SUN).x;
-                float midWidth = triTextW + sepWidth + eyeIconW + itemSpacing + comboW + sunIconW;
-
-                float midStart = (toolbarWidth - midWidth) * 0.5f;
-                float cursorX = ImGui::GetCursorPosX();
-                if (midStart > cursorX)
-                    ImGui::SameLine(midStart);
-                else
-                    ImGui::SameLine();
-
-                ImGui::AlignTextToFramePadding();
-                ImGui::Text("%s", triText);
-
-                ImGui::SameLine();
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine();
-
-                ImGui::Text(ICON_FA_EYE);
-                ImGui::SameLine();
-                static const char* shadeModeNames[] = { "Lit", "Unlit", "Wireframe", "Normals", "EntityID" };
-                int currentMode = static_cast<int>(m_RenderingSystem->GetShadeMode());
-                ImGui::SetNextItemWidth(comboW);
-                if (ImGui::Combo("##ShadeMode", &currentMode, shadeModeNames, IM_ARRAYSIZE(shadeModeNames)))
-                    m_RenderingSystem->SetShadeMode(static_cast<ShadeMode>(currentMode));
-                
-                ImGui::SameLine();
-                
-                // Environment
-                ButtonDropdown(ICON_FA_SUN, "##Environment", [this]() {
-                    ImGui::PushFont(Editor::GetMainFont());
-                    
-                    auto& settings = Editor::GetSettings();
-                    ImGui::Text("HDR: %s", settings.skyboxPath.c_str());
-                    if (ImGui::Button("Browse HDR..."))
-                    {
-                        auto result = FileDialog::OpenFile("HDR Environment\0*.hdr;*.exr\0All Files\0*.*\0");
-                        if (result.has_value())
-                        {
-                            fs::path absPath = result.value();
-                            fs::path assetsPath = FileSystem::AssetsPath();
-                            auto rel = fs::relative(absPath, assetsPath);
-                            if (!rel.empty() && rel.string().find("..") == std::string::npos)
-                                settings.skyboxPath = rel.generic_string();
-                            else
-                                settings.skyboxPath = absPath.generic_string();
-
-                            m_RenderingSystem->ReloadSkybox(absPath);
-                            Editor::MarkDirty();
-                        }
-                    }
-
-                    ImGui::PopFont();
-                });
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Environment");
-
-                // ── Right: camera & overlay ──
-                float rightWidth = btnSize*3 + sepWidth + itemSpacing*2;
-                float rightStart = toolbarWidth - rightWidth + ImGui::GetStyle().WindowPadding.x;
+                // RIGHT: render modes + debug split + camera split + gizmo-vis split + overlay toggle
                 ImGui::SameLine(rightStart);
 
-                // Camera settings
-                ButtonDropdown(ICON_FA_CAMERA, "##CamPopup", [this]() {
-                    ImGui::PushFont(Editor::GetMainFont());
-
-                    // Fly speed
-                    if (UI::BeginProperties("CamSpeedProps")) {
-                        UI::Property("Fly Speed", m_EditorCamera.GetFlySpeedRef(), 0.1f, 0.1f, 200.0f);
-                        UI::EndProperties();
+                struct RenderModeBtn { const char* icon; const char* tip; int mode; };
+                static const RenderModeBtn kRenderModes[] = {
+                    { ICON_FA_GLOBE,              "Wireframe",                                 (int)ShadeMode::Wireframe },
+                    { ICON_FA_EARTH_AMERICAS,     "Shaded Wireframe (engine support pending)", -1 },
+                    { ICON_FA_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
+                    { ICON_FA_CIRCLE_HALF_STROKE, "Lit",                                       (int)ShadeMode::Lit },
+                };
+                const int curMode = (int)m_RenderingSystem->GetShadeMode();
+                const ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+                for (int i = 0; i < IM_ARRAYSIZE(kRenderModes); ++i) {
+                    const bool active  = (curMode == kRenderModes[i].mode);
+                    const bool enabled = (kRenderModes[i].mode != -1);
+                    if (active) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
                     }
+                    if (!enabled) ImGui::BeginDisabled();
+                    ImGui::PushID(i);
+                    if (ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize }) && enabled)
+                        m_RenderingSystem->SetShadeMode((ShadeMode)kRenderModes[i].mode);
+                    ImGui::PopID();
+                    if (!enabled) ImGui::EndDisabled();
+                    if (active) ImGui::PopStyleColor(2);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kRenderModes[i].tip);
+                    if (i + 1 < IM_ARRAYSIZE(kRenderModes)) ImGui::SameLine(0, gap);
+                }
 
-                    ImGui::Separator();
+                ImGui::SameLine(0, groupGap);
 
-                    // Camera settings
-                    ImGui::Text("Camera");
-                    ImGui::Spacing();
-                    
-                    if (UI::BeginProperties("CameraProps")) {
-                        if (UI::Property("FOV", m_EditorCamera.GetFOVRef(), 1.0f, 30.0f, 120.0f))
-                            m_EditorCamera.SetFOV(m_EditorCamera.GetFOV());
-                        UI::Property("Near Clip", m_EditorCamera.GetNearClipRef(), 0.01f, 0.01f, 10.0f);
-                        UI::Property("Far Clip", m_EditorCamera.GetFarClipRef(), 1.0f, 100.0f, 50000.0f);
-                        UI::EndProperties();
+                // Debug split — icon toggles current<->lastDebugMode; chevron picks the mode.
+                {
+                    const bool dbgActive = (curMode == (int)ShadeMode::Normals) || (curMode == (int)ShadeMode::EntityID);
+                    bool dbgState = dbgActive;
+                    if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
+                        [&]() {
+                            ImGui::PushFont(Editor::GetMainFont());
+                            if (ImGui::RadioButton("Normals", curMode == (int)ShadeMode::Normals)) {
+                                settings.lastDebugMode = (u8)ShadeMode::Normals;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::Normals);
+                            }
+                            if (ImGui::RadioButton("EntityID", curMode == (int)ShadeMode::EntityID)) {
+                                settings.lastDebugMode = (u8)ShadeMode::EntityID;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::EntityID);
+                            }
+                            ImGui::PopFont();
+                        }))
+                    {
+                        m_RenderingSystem->SetShadeMode(dbgState
+                            ? (ShadeMode)settings.lastDebugMode
+                            : ShadeMode::Lit);
                     }
+                }
 
-                    ImGui::Separator();
+                ImGui::SameLine(0, wideGap);
 
-                    ImGui::Text("Controls");
-                    ImGui::Spacing();
-                    
-                    if (UI::BeginProperties("ControlsProps")) {
-                        UI::Property("Rotation Speed", m_EditorCamera.GetRotationSpeedRef(), 10.0f, 1000.0f, 50000.0f);
-                        UI::Property("Pan Speed", m_EditorCamera.GetPanSpeedRef(), 1.0f, 10.0f, 1000.0f);
-                        UI::Property("Zoom Speed", m_EditorCamera.GetZoomSpeedRef(), 1.0f, 10.0f, 500.0f);
-                        UI::Property("Shift Multiplier", m_EditorCamera.GetShiftMultiplierRef(), 0.1f, 1.0f, 10.0f);
-                        UI::EndProperties();
+                // Camera split (chevron-only).
+                UI::SplitToggleButton("Camera", ICON_FA_CAMERA, "Camera Settings", nullptr,
+                    [this]() {
+                        ImGui::PushFont(Editor::GetMainFont());
+                        if (UI::BeginProperties("CamSpeedProps")) {
+                            UI::Property("Fly Speed", m_EditorCamera.GetFlySpeedRef(), 0.1f, 0.1f, 200.0f);
+                            UI::EndProperties();
+                        }
+                        ImGui::Separator();
+                        ImGui::Text("Camera");
+                        ImGui::Spacing();
+                        if (UI::BeginProperties("CameraProps")) {
+                            if (UI::Property("FOV", m_EditorCamera.GetFOVRef(), 1.0f, 30.0f, 120.0f))
+                                m_EditorCamera.SetFOV(m_EditorCamera.GetFOV());
+                            UI::Property("Near Clip", m_EditorCamera.GetNearClipRef(), 0.01f, 0.01f, 10.0f);
+                            UI::Property("Far Clip",  m_EditorCamera.GetFarClipRef(),  1.0f, 100.0f, 50000.0f);
+                            UI::EndProperties();
+                        }
+                        ImGui::Separator();
+                        ImGui::Text("Controls");
+                        ImGui::Spacing();
+                        if (UI::BeginProperties("ControlsProps")) {
+                            UI::Property("Rotation Speed",   m_EditorCamera.GetRotationSpeedRef(), 10.0f, 1000.0f, 50000.0f);
+                            UI::Property("Pan Speed",        m_EditorCamera.GetPanSpeedRef(),     1.0f, 10.0f, 1000.0f);
+                            UI::Property("Zoom Speed",       m_EditorCamera.GetZoomSpeedRef(),    1.0f, 10.0f, 500.0f);
+                            UI::Property("Shift Multiplier", m_EditorCamera.GetShiftMultiplierRef(), 0.1f, 1.0f, 10.0f);
+                            UI::EndProperties();
+                        }
+                        ImGui::PopFont();
+                    });
+
+                ImGui::SameLine(0, gap);
+
+                // Gizmo visibility split — icon toggles all gizmos on/off; chevron lists
+                // per-gizmo flags + the tri-indicator overlay (Grid lives in its own split now).
+                {
+                    static struct { bool transform; bool bone; bool light; bool camera; bool aabb; bool valid; }
+                        s_savedGizmoFlags{};
+                    bool* xformVisRef = m_Gizmo->GetTransformGizmoVisibleRef();
+                    bool gizState = (*xformVisRef) || settings.showBoneDebug
+                                  || settings.showLightGizmos || settings.showCameraGizmos
+                                  || settings.showAABBGizmos;
+                    if (UI::SplitToggleButton("GizmoVis", ICON_FA_EYE, "Gizmos", &gizState,
+                        [this, &settings, xformVisRef]() {
+                            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
+                            ImGui::PushFont(Editor::GetMainFont());
+                            ImGui::Checkbox("Transform Gizmo", xformVisRef);
+                            ImGui::Checkbox("Bone Debug",      &settings.showBoneDebug);
+                            ImGui::Checkbox("Light Gizmos",    &settings.showLightGizmos);
+                            ImGui::Checkbox("Camera Gizmos",   &settings.showCameraGizmos);
+                            ImGui::Checkbox("AABB Gizmos",     &settings.showAABBGizmos);
+                            ImGui::Checkbox("Tri Indicator",   &settings.showTriIndicatorOverlay);
+                            ImGui::PopFont();
+                            ImGui::PopStyleVar();
+                        }))
+                    {
+                        if (!gizState) {
+                            // Toggling OFF: snapshot per-flag state so the next ON can restore it.
+                            s_savedGizmoFlags = { *xformVisRef, settings.showBoneDebug,
+                                                  settings.showLightGizmos, settings.showCameraGizmos,
+                                                  settings.showAABBGizmos, true };
+                            *xformVisRef = false;
+                            settings.showBoneDebug = false;
+                            settings.showLightGizmos = false;
+                            settings.showCameraGizmos = false;
+                            settings.showAABBGizmos = false;
+                        }
+                        else if (s_savedGizmoFlags.valid) {
+                            *xformVisRef = s_savedGizmoFlags.transform;
+                            settings.showBoneDebug   = s_savedGizmoFlags.bone;
+                            settings.showLightGizmos = s_savedGizmoFlags.light;
+                            settings.showCameraGizmos= s_savedGizmoFlags.camera;
+                            settings.showAABBGizmos  = s_savedGizmoFlags.aabb;
+                        }
+                        else {
+                            *xformVisRef = true;
+                            settings.showLightGizmos = true;
+                            settings.showCameraGizmos = true;
+                        }
                     }
-                    
-                    ImGui::PopFont();
-                });
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Camera settings");
+                }
 
-                ImGui::SameLine();
-                
-                // Gizmo visibility dropdown
-                ButtonDropdown(ICON_FA_EYE, "##GizmoVis", [this]() {
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
-                    ImGui::PushFont(Editor::GetMainFont());
-                    ImGui::Checkbox("Transform Gizmo", m_Gizmo->GetTransformGizmoVisibleRef());
-                    ImGui::Checkbox("Grid", &Editor::GetSettings().showGrid);
-                    ImGui::Checkbox("Bone Debug", &Editor::GetSettings().showBoneDebug);
-                    ImGui::Checkbox("Light Gizmos", &Editor::GetSettings().showLightGizmos);
-                    ImGui::Checkbox("Camera Gizmos", &Editor::GetSettings().showCameraGizmos);
-                    ImGui::Checkbox("AABB Gizmos", &Editor::GetSettings().showAABBGizmos);
-                    ImGui::PopFont();
-                    ImGui::PopStyleVar();
-                });
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Gizmo visibility");
-                
-                ImGui::SameLine();
-                
-                // Controls overlay toggle
-                ImGui::SameLine();
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine();
-                if (ImGui::Button(m_ShowControlsOverlay ? ICON_FA_KEYBOARD "##OverlayOn" : ICON_FA_KEYBOARD "##OverlayOff", { btnSize, btnSize }))
-                    m_ShowControlsOverlay = !m_ShowControlsOverlay;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay");
+                ImGui::SameLine(0, gap);
+
+                const char* overlayTip = m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay";
+                UI::IconToggleButton("Overlay", ICON_FA_KEYBOARD, overlayTip, &m_ShowControlsOverlay);
             }
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -503,6 +503,33 @@ namespace Luth
                     dl->AddText({ boxMin.x + pad, boxMin.y + pad }, IM_COL32(255, 255, 255, 255), displayText.c_str());
                     ImGui::PopFont();
                 }
+            }
+
+            // Tri indicator overlay (top-right)
+            if (Editor::GetSettings().showTriIndicatorOverlay
+                && m_Viewport->GetSize().x > 0 && m_Viewport->GetSize().y > 0)
+            {
+                u32 triCount = m_RenderingSystem->GetTriangleCount();
+                char triText[64];
+                if (triCount >= 1000000)
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
+                else if (triCount >= 1000)
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
+                else
+                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %u tris", triCount);
+
+                const float triPad = 12.0f;
+                ImVec2 triSize = ImGui::CalcTextSize(triText);
+                float boxW = triSize.x + triPad * 2.0f;
+                float boxH = triSize.y + triPad * 2.0f;
+                float vpTop   = m_Viewport->GetBounds()[0].y;
+                float vpRight = m_Viewport->GetBounds()[1].x;
+                ImVec2 boxMin = { vpRight - boxW - triPad, vpTop + triPad };
+                ImVec2 boxMax = { vpRight - triPad,        vpTop + triPad + boxH };
+
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(boxMin, boxMax, IM_COL32(0.2, 0.2, 0.2, 128), 8.0f);
+                dl->AddText({ boxMin.x + triPad, boxMin.y + triPad }, IM_COL32(255, 255, 255, 255), triText);
             }
 
             ImGui::PopStyleVar();
