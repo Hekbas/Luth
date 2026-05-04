@@ -15,7 +15,12 @@ namespace Luth
         LH_CORE_INFO("Created Resource panel");
     }
 
-    void ResourcePanel::OnInit() {}
+    void ResourcePanel::OnInit()
+    {
+        // Bump dirty flag whenever the asset registry changes; main-thread fan-out
+        // happens via the same AssetDatabase callback ProjectPanel uses.
+        AssetDatabase::AddChangeCallback([this]() { m_NeedsRebuild = true; });
+    }
 
     void ResourcePanel::OnGather(EditorSnapshotBuilder& builder)
     {
@@ -56,18 +61,21 @@ namespace Luth
     void ResourcePanel::DrawFilterControls()
     {
         ImGui::SetNextItemWidth(200);
-        ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer));
+        if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer)))
+            m_NeedsRebuild = true;
 
         ImGui::SameLine();
 
         ButtonDropdown(ICON_FA_FILTER, "type_filter", [this]() {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
-            ImGui::Checkbox("Models",    &m_ShowModels);
-            ImGui::Checkbox("Textures",  &m_ShowTextures);
-            ImGui::Checkbox("Materials", &m_ShowMaterials);
-            ImGui::Checkbox("Shaders",   &m_ShowShaders);
-            ImGui::Checkbox("Fonts",     &m_ShowFonts);
-            ImGui::Checkbox("Scenes",    &m_ShowScenes);
+            bool changed = false;
+            changed |= ImGui::Checkbox("Models",    &m_ShowModels);
+            changed |= ImGui::Checkbox("Textures",  &m_ShowTextures);
+            changed |= ImGui::Checkbox("Materials", &m_ShowMaterials);
+            changed |= ImGui::Checkbox("Shaders",   &m_ShowShaders);
+            changed |= ImGui::Checkbox("Fonts",     &m_ShowFonts);
+            changed |= ImGui::Checkbox("Scenes",    &m_ShowScenes);
+            if (changed) m_NeedsRebuild = true;
             ImGui::PopStyleVar();
         });
     }
@@ -82,12 +90,17 @@ namespace Luth
         ImGui::TableHeadersRow();
     }
 
-    void ResourcePanel::PopulateData()
+    void ResourcePanel::RebuildIfDirty()
     {
+        if (!m_NeedsRebuild) return;
+        m_NeedsRebuild = false;
+
         m_FilteredResources.clear();
 
         const auto& registry = AssetDatabase::GetRegistry();
         if (registry.empty()) return;
+
+        m_FilteredResources.reserve(registry.size());
 
         for (const auto& [uuid, metadata] : registry)
         {
@@ -99,7 +112,6 @@ namespace Luth
             if (metadata.Type == AssetType::Font     && !m_ShowFonts)     continue;
             if (metadata.Type == AssetType::Scene    && !m_ShowScenes)    continue;
 
-            // Create entry
             ResourceEntry entry;
             entry.Name = metadata.Path.filename().string();
             entry.Uuid = uuid;
@@ -115,24 +127,16 @@ namespace Luth
             default:                  entry.Type = "Unknown";  break;
             }
 
-            // Check if loaded in AssetManager
             if (auto asset = AssetManager::GetAsset<Asset>(uuid))
-            {
-                // -1 because AssetManager holds one reference
-                entry.RefCount = asset.use_count() - 1;
-            }
+                entry.RefCount = asset.use_count() - 1;  // AssetManager holds one ref
             else
-            {
                 entry.RefCount = 0;
-            }
 
             if (ResourceMatchesSearch(entry))
-            {
-                m_FilteredResources.push_back(entry);
-            }
+                m_FilteredResources.push_back(std::move(entry));
         }
 
-        // Sorting
+        // Sort using current TableSortSpecs (caller is inside BeginTable scope).
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
         {
             if (specs->SpecsCount > 0)
@@ -161,8 +165,22 @@ namespace Luth
                     break;
                 }
             }
-            specs->SpecsDirty = false;
         }
+    }
+
+    void ResourcePanel::PopulateData()
+    {
+        // Sort-spec edits ride the same dirty path. SpecsDirty is consumed here
+        // so the rebuild runs exactly once after the user clicks a header.
+        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+        {
+            if (specs->SpecsDirty) {
+                m_NeedsRebuild = true;
+                specs->SpecsDirty = false;
+            }
+        }
+
+        RebuildIfDirty();
 
         // Display entries — clipped so off-screen rows skip the per-row work.
         ImGuiListClipper clipper;
