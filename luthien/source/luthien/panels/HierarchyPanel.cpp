@@ -252,9 +252,11 @@ namespace Luth
             opened = ImGui::TreeNodeEx("##Node", flags, "%s  %s", icon, name.c_str());
         }
 
-        // Capture click state immediately — eye-button render below shifts
-        // ImGui's "last item" off the tree node.
-        const bool nodeClicked       = ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen();
+        // invariant: hover-gated selection is required because TreeNodeEx fires
+        // IsItemClicked on press while SmallButton fires on release. Capturing
+        // here keeps IsItemHovered tied to the tree node before the eye renders.
+        const bool nodeHovered       = ImGui::IsItemHovered();
+        const bool toggledOpen       = ImGui::IsItemToggledOpen();
         const bool nodeDoubleClicked = ImGui::IsMouseDoubleClicked(0);
 
         if (dimThisRow) ImGui::PopStyleColor();
@@ -278,7 +280,8 @@ namespace Luth
         if (!isActive) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         const bool eyeClicked = ImGui::SmallButton(eyeIcon);
         if (!isActive) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
+        const bool eyeHovered = ImGui::IsItemHovered();
+        if (eyeHovered)
             ImGui::SetTooltip(isActive ? "Hide in scene" : "Show in scene");
         if (eyeClicked)
         {
@@ -286,8 +289,10 @@ namespace Luth
                 entity.GetScene(), (entt::entity)entity, isActive, !isActive));
         }
 
-        // Selection (Ctrl/Shift multi-select). Suppressed when the eye claimed the click.
-        if (nodeClicked && !eyeClicked)
+        // Selection (Ctrl/Shift multi-select). Suppressed when the cursor is over
+        // the eye's hit-rect — the eye's release-fire wouldn't suppress selection
+        // on the press frame otherwise.
+        if (nodeHovered && !eyeHovered && !toggledOpen && ImGui::IsMouseClicked(0))
         {
             bool ctrlHeld  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
             bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
