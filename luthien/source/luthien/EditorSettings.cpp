@@ -60,6 +60,8 @@ namespace Luth
             settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
             settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
+            settings.showTriIndicatorOverlay = j.value("showTriIndicatorOverlay", settings.showTriIndicatorOverlay);
+            settings.lastDebugMode       = (u8)j.value("lastDebugMode", (int)settings.lastDebugMode);
 
             LoadVec4(j, "outlineColor", settings.outlineColor);
             settings.outlineWidth         = j.value("outlineWidth", settings.outlineWidth);
@@ -127,6 +129,8 @@ namespace Luth
             j["showCameraGizmos"]    = settings.showCameraGizmos;
             j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["showGrid"]            = settings.showGrid;
+            j["showTriIndicatorOverlay"] = settings.showTriIndicatorOverlay;
+            j["lastDebugMode"]       = (int)settings.lastDebugMode;
 
             j["outlineColor"]         = ToJson(settings.outlineColor);
             j["outlineWidth"]         = settings.outlineWidth;
