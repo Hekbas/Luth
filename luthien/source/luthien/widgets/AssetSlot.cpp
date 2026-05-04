@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/widgets/AssetSlot.h"
 #include "luthien/widgets/Icons.h"
+#include "luthien/widgets/ThumbnailCache.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 
@@ -51,12 +52,30 @@ namespace Luth::UI
             default: break;
         }
 
-        std::string buttonText = std::string(icon) + "  " + assetName;
+        // Asset-type thumbnail overrides the icon when baked. Hit/miss = ImTextureID/0.
+        const bool thumbCapable = assetHandle.IsValid() &&
+            (type == AssetType::Material || type == AssetType::Model || type == AssetType::Texture);
+        const ImTextureID thumb = thumbCapable ? ThumbnailCache::Get(assetHandle, type) : (ImTextureID)0;
+
+        // Reserve space at the button's left edge for the thumbnail overlay (drawn
+        // after the button so it composites on top of the button background).
+        std::string buttonText = thumb
+            ? std::string("    ") + assetName
+            : std::string(icon) + "  " + assetName;
         if (ImGui::Button(buttonText.c_str(), ImVec2(-1, 0)))
         {
             // TODO: Open Asset Picker popup
         }
         ImGuiID itemId = ImGui::GetItemID();
+        if (thumb) {
+            ImVec2 itemMin = ImGui::GetItemRectMin();
+            ImVec2 itemMax = ImGui::GetItemRectMax();
+            float pad = 2.0f;
+            float sz = (itemMax.y - itemMin.y) - 2 * pad;
+            ImGui::GetWindowDrawList()->AddImage(thumb,
+                { itemMin.x + pad, itemMin.y + pad },
+                { itemMin.x + pad + sz, itemMin.y + pad + sz });
+        }
         ImGui::PopStyleVar();
 
         // Drag & Drop Target
