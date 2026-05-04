@@ -3,9 +3,11 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+
 namespace Luth::UI
 {
-    bool Splitter(const char* id, float* bottomHeight, float thickness)
+    bool Splitter(const char* id, float* bottomHeight, float minH, float maxH, float thickness)
     {
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
         ImGui::InvisibleButton(id, ImVec2(-1, thickness));
@@ -16,8 +18,14 @@ namespace Luth::UI
         if (hovered || active)
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
 
-        if (active && bottomHeight)
+        // Same-frame clamp so the caller's split layout never overshoots its
+        // available space. invariant: minH ≤ maxH; defensively swap otherwise.
+        if (active && bottomHeight) {
             *bottomHeight -= ImGui::GetIO().MouseDelta.y;
+            const float lo = std::min(minH, maxH);
+            const float hi = std::max(minH, maxH);
+            *bottomHeight = std::clamp(*bottomHeight, lo, hi);
+        }
 
         // Subtle baseline (1-px center line) when idle; full-strip fill on
         // hover/active so the drag affordance is unmistakable when reached.

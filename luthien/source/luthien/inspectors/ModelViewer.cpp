@@ -32,15 +32,21 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Pinned-footer layout: settings scroll above, splitter, 3D preview pinned bottom.
-        // 2*ItemSpacing.y subtracted: ImGui inserts spacing between adjacent
-        // children/items — without it the chain overflows availH and the parent scrolls.
-        const float kSplitterH = 4.0f;
-        const float spacingY   = ImGui::GetStyle().ItemSpacing.y;
-        const float availH     = ImGui::GetContentRegionAvail().y;
+        // Pinned-footer layout: snapshot pattern — Settings + Preview size with
+        // the same frame-start value; Splitter mutates the persisted height so
+        // the change takes effect next frame (no one-frame overshoot).
+        const float kSplitterH    = 4.0f;
+        const float kMinSettingsH = 80.0f;
+        const float kMinFooterH   = 80.0f;
+        const float kMaxFooterAbs = 400.0f;
+        const float spacingY      = ImGui::GetStyle().ItemSpacing.y;
+        const float availH        = ImGui::GetContentRegionAvail().y;
         float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
-        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH - 2.0f * spacingY));
-        const float topH = availH - footerH - kSplitterH - 2.0f * spacingY;
+        const float kMaxFooterH = std::max(kMinFooterH,
+            std::min(kMaxFooterAbs, availH - kMinSettingsH - kSplitterH - 2.0f * spacingY));
+        footerH = std::clamp(footerH, kMinFooterH, kMaxFooterH);
+        const float footerH_snap = footerH;
+        const float topH = availH - footerH_snap - kSplitterH - 2.0f * spacingY;
 
         if (ImGui::BeginChild("##Settings", { -1, topH }, false))
         {
@@ -254,11 +260,11 @@ namespace Luth
         }
         ImGui::EndChild();
 
-        if (UI::Splitter("##ModelSplitter", &footerH, kSplitterH))
+        if (UI::Splitter("##ModelSplitter", &footerH, kMinFooterH, kMaxFooterH, kSplitterH))
             Editor::SaveSettings();
 
-        // Pinned 3D preview footer with orbit drag input.
-        if (ImGui::BeginChild("##Preview", { -1, footerH }, false))
+        // Pinned 3D preview footer with orbit drag input. Snapshot-sized.
+        if (ImGui::BeginChild("##Preview", { -1, footerH_snap }, false))
         {
             const float pAvailW = ImGui::GetContentRegionAvail().x;
             const float pAvailY = ImGui::GetContentRegionAvail().y;
