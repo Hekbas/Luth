@@ -103,9 +103,9 @@ namespace Luth
             switch (idx) {
             case 0: { // General
                 Header("General");
-                ImGui::TextDisabled("Theme:  %s", s.activeStyle.c_str());
-                ImGui::TextDisabled("Layout: %s", s.activeLayout.c_str());
-                ImGui::TextWrapped("Manage themes via View > Style and layouts via View > Layouts.");
+                ImGui::TextDisabled("Theme:     %s", s.activeStyle.c_str());
+                ImGui::TextDisabled("Workspace: %s", s.activeLayout.c_str());
+                ImGui::TextWrapped("Manage themes via View > Style and workspaces via Window > Workspaces.");
                 rowsRendered = 1;  // section is informational; treat as always shown
                 break;
             }

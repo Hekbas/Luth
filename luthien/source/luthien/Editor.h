@@ -6,6 +6,7 @@
 #include "luth/scene/Scene.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/ProjectLauncher.h"
+#include "luthien/Workspace.h"
 
 #include <memory>
 #include <filesystem>
@@ -173,9 +174,15 @@ namespace Luth
         // Push live state from s_Settings into panels (camera params, skybox, etc.).
         // Public so EditorSettingsWindow can re-sync after a Preferences edit.
         static void ApplyPersistence();
-        static void SaveLayout(const std::string& name);
-        static void LoadLayout(const std::string& name);
-        static std::vector<std::string> GetLayoutNames();
+        // Workspace = ImGui dock layout (.ini) + sidecar JSON (per-panel visibility).
+        // Built-ins live under FileSystem::EngineAssetsPath("workspaces"); user copies
+        // under runtime/layouts/. Built-in name shadows user copy of the same name.
+        static bool LoadWorkspace(const std::string& name);
+        static bool SaveWorkspaceAs(const std::string& name);
+        static bool RenameWorkspace(const std::string& oldName, const std::string& newName);
+        static bool DeleteWorkspace(const std::string& name);
+        static bool ResetWorkspaceToBuiltin();
+        static std::vector<WorkspaceInfo> GetWorkspaces();
 
     private:
         static void InitImGui(Window* window);
@@ -225,6 +232,10 @@ namespace Luth
         // is missing, consumed at end of the first Render once ImGui has populated
         // dock state.
         static inline bool s_NeedDefaultLayoutSave = false;
+
+        // Deferred LoadWorkspace(activeLayout) — set in Init, consumed at end of the
+        // first Render so panels and ImGui dock state exist before we apply.
+        static inline bool s_NeedActiveWorkspaceLoad = false;
 
         // Texture remap dialog state (deferred open from menu)
         static inline bool s_ShowTextureRemapDialog = false;
