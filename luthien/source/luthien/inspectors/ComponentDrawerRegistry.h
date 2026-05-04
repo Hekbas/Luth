@@ -153,7 +153,10 @@ namespace Luth
                 }
             };
             if (UI::BeginCollapsingHeader(headerName.c_str(), true, contextMenu)) {
-                userDraw(entity, entity.GetComponent<T>());
+                // contextMenu runs INSIDE BeginCollapsingHeader; Remove Component
+                // synchronously detaches T before this line runs. Re-guard.
+                if (entity.HasComponent<T>())
+                    userDraw(entity, entity.GetComponent<T>());
                 UI::EndCollapsingHeader();
             }
         };
