@@ -19,9 +19,12 @@ namespace Luth
     {
         bool Removable     = true;
         bool ShowInAddMenu = true;
-        std::string AddLabel;                          // empty → Name
-        std::function<bool(Entity)> CanAdd;            // empty → !HasComponent<T>()
-        std::function<void(Entity)> OnAdd;             // empty → issue ComponentAddCommand<T>
+        std::string AddLabel;                                       // empty → Name
+        std::function<bool(Entity)> CanAdd;                         // empty → !HasComponent<T>()
+        std::function<void(Entity)> OnAdd;                          // empty → issue ComponentAddCommand<T>
+        std::function<void(Entity)> OnReset;                        // empty → issue ComponentResetCommand<T>
+        std::function<std::string(Entity)> OnCopy;                  // empty → menu item disabled
+        std::function<bool(Entity, const std::string&)> OnPaste;    // empty → menu item disabled
     };
 
     struct ComponentDrawerDescriptor
@@ -29,10 +32,14 @@ namespace Luth
         std::string                 Name;
         std::string                 AddCommandName;    // "Add <Name>" — owns the const char* lifetime
         std::type_index             Type;
+        entt::id_type               ComponentTypeId;   // entt::type_hash<T>::value() — clipboard key
         std::function<bool(Entity)> HasComponent;
         std::function<void(Entity)> Draw;
         std::function<bool(Entity)> CanAdd;
         std::function<void(Entity)> OnAdd;
+        std::function<void(Entity)> OnReset;
+        std::function<std::string(Entity)> OnCopy;
+        std::function<bool(Entity, const std::string&)> OnPaste;
         bool Removable     = true;
         bool ShowInAddMenu = true;
     };
@@ -63,15 +70,19 @@ namespace Luth
         if (s_Drawers.capacity() == 0) s_Drawers.reserve(32);
 
         ComponentDrawerDescriptor d{
-            /*Name*/           name,
-            /*AddCommandName*/ std::string("Add ") + (opts.AddLabel.empty() ? std::string(name) : opts.AddLabel),
-            /*Type*/           std::type_index(typeid(T)),
-            /*HasComponent*/   [](Entity e) { return e.HasComponent<T>(); },
-            /*Draw*/           {},
-            /*CanAdd*/         {},
-            /*OnAdd*/          {},
-            /*Removable*/      opts.Removable,
-            /*ShowInAddMenu*/  opts.ShowInAddMenu,
+            /*Name*/            name,
+            /*AddCommandName*/  std::string("Add ") + (opts.AddLabel.empty() ? std::string(name) : opts.AddLabel),
+            /*Type*/            std::type_index(typeid(T)),
+            /*ComponentTypeId*/ entt::type_hash<T>::value(),
+            /*HasComponent*/    [](Entity e) { return e.HasComponent<T>(); },
+            /*Draw*/            {},
+            /*CanAdd*/          {},
+            /*OnAdd*/           {},
+            /*OnReset*/         {},
+            /*OnCopy*/          std::move(opts.OnCopy),
+            /*OnPaste*/         std::move(opts.OnPaste),
+            /*Removable*/       opts.Removable,
+            /*ShowInAddMenu*/   opts.ShowInAddMenu,
         };
 
         std::string headerName = name;
@@ -102,6 +113,16 @@ namespace Luth
             d.OnAdd = [addCmdName = std::move(addCmdName)](Entity e) {
                 CommandHistory::Execute(std::make_unique<ComponentAddCommand<T>>(
                     addCmdName.c_str(), e.GetScene(), (entt::entity)e));
+            };
+        }
+
+        if (opts.OnReset) {
+            d.OnReset = std::move(opts.OnReset);
+        } else {
+            std::string resetCmdName = std::string("Reset ") + name;
+            d.OnReset = [resetCmdName = std::move(resetCmdName)](Entity e) {
+                CommandHistory::Execute(std::make_unique<ComponentResetCommand<T>>(
+                    resetCmdName.c_str(), e.GetScene(), (entt::entity)e));
             };
         }
 
