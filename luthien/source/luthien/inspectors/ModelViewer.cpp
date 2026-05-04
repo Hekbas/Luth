@@ -1,6 +1,8 @@
 #include "lepch.h"
 #include "luthien/inspectors/ModelViewer.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -16,7 +18,26 @@ namespace Luth
             ImGui::TextColored({ 0.4f, 0.8f, 1.0f, 1.0f }, "%s (Model)", model.GetName().c_str());
         }
         ImGui::EndChild();
-        ImGui::Dummy({ 0, 8 });
+        ImGui::Dummy({ 0, 4 });
+
+        // Live preview via ThumbnailCache. Cascade refreshes on Apply re-import.
+        constexpr float kPreviewSize = 192.0f;
+        if (ImGui::BeginChild("##Preview", { 0, kPreviewSize + 8 }, false))
+        {
+            ImTextureID thumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
+            float availW = ImGui::GetContentRegionAvail().x;
+            float xOff = (availW - kPreviewSize) * 0.5f;
+            if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+            if (thumb) {
+                ImGui::Image(thumb, { kPreviewSize, kPreviewSize });
+            } else {
+                ImGui::Dummy({ kPreviewSize, kPreviewSize * 0.4f });
+                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+                ImGui::TextDisabled("%s", ICON_FA_CUBE);
+            }
+        }
+        ImGui::EndChild();
+        ImGui::Dummy({ 0, 4 });
 
         // Per-model state: reset when selected model changes
         if (model.Handle != m_LastModelUUID)
