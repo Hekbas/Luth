@@ -6,14 +6,15 @@ namespace Luth::UI
     void InspectorHeader(ImTextureID thumb, const char* fallbackIcon,
                          float thumbSize, std::function<void()> rightContent)
     {
-        const float pad = 6.0f;
+        const float pad = 8.0f;
         const float headerH = thumbSize + pad * 2;
 
         if (ImGui::BeginChild("##InspectorHeader", { 0, headerH },
                               false, ImGuiWindowFlags_NoScrollbar))
         {
-            ImGui::Dummy({ pad, pad });
-            ImGui::SameLine(0.0f, 0.0f);
+            // Anchor inside child with both top + left padding. Dummy+SameLine
+            // can give one or the other but not both — SetCursorPos avoids that.
+            ImGui::SetCursorPos({ pad, pad });
 
             const ImVec2 boxStart = ImGui::GetCursorScreenPos();
             if (thumb) {

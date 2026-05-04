@@ -35,7 +35,7 @@ namespace Luth
         // Header: thumbnail-on-left, name + Shader combo on right.
         // Live 3D preview pinned in the footer (sub-task O).
         ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
-        UI::InspectorHeader(headerThumb, ICON_FA_CIRCLE_HALF_STROKE, 64.0f, [&]() {
+        UI::InspectorHeader(headerThumb, ICON_FA_CIRCLE_HALF_STROKE, 48.0f, [&]() {
             const ImVec4 nameCol = { 0.2f, 0.9f, 0.4f, 1.0f };
             ImGui::TextColored(nameCol, "%s%s (Material)",
                 material.GetName().c_str(), material.NeedsSave() ? "*" : "");
@@ -43,6 +43,8 @@ namespace Luth
             auto shader = material.GetShader();
             const std::string currentName = shader ? shader->GetName() : "<none>";
 
+            // AlignTextToFramePadding so "Shader" sits at the same baseline as the combo's text.
+            ImGui::AlignTextToFramePadding();
             ImGui::TextDisabled("Shader"); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", currentName.c_str())) {
@@ -61,11 +63,15 @@ namespace Luth
         ImGui::Dummy({ 0, 4 });
 
         // Pinned-footer layout: settings scroll above, splitter, 3D preview pinned bottom.
+        // Subtract 2*ItemSpacing.y because ImGui inserts spacing between Settings/
+        // Splitter and Splitter/Preview — without this the chain overflows availH
+        // by ~2*spacingY and the parent gets a scrollbar.
         const float kSplitterH = 4.0f;
+        const float spacingY   = ImGui::GetStyle().ItemSpacing.y;
         const float availH     = ImGui::GetContentRegionAvail().y;
         float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
-        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH));
-        const float topH = availH - footerH - kSplitterH;
+        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH - 2.0f * spacingY));
+        const float topH = availH - footerH - kSplitterH - 2.0f * spacingY;
 
         if (ImGui::BeginChild("##Settings", { -1, topH }, false))
         {

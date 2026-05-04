@@ -37,7 +37,7 @@ namespace Luth
 
         // Header: thumbnail-on-left, name + dimensions on right.
         ImTextureID headerThumb = UI::ThumbnailCache::Get(texture.Handle, AssetType::Texture);
-        UI::InspectorHeader(headerThumb, ICON_FA_IMAGE, 64.0f, [&]() {
+        UI::InspectorHeader(headerThumb, ICON_FA_IMAGE, 48.0f, [&]() {
             const ImVec4 nameCol = { 1.0f, 0.7f, 0.2f, 1.0f };
             ImGui::TextColored(nameCol, "%s (Texture)", texture.GetName().c_str());
             ImGui::TextDisabled("%dx%d  ·  %s  ·  %d mip%s",
@@ -50,13 +50,16 @@ namespace Luth
         ImGui::Dummy({ 0, 4 });
 
         // Pinned-footer layout: settings scroll above, splitter, preview pinned bottom.
+        // 2*ItemSpacing.y subtracted: ImGui inserts spacing between adjacent
+        // children/items — without it the chain overflows availH and the parent scrolls.
         const float kSplitterH = 4.0f;
+        const float spacingY   = ImGui::GetStyle().ItemSpacing.y;
         const float availH     = ImGui::GetContentRegionAvail().y;
         float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
         // Clamp before sizing so a stale persisted value can't starve either region.
-        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH));
+        footerH = std::clamp(footerH, 80.0f, std::max(80.0f, availH - 80.0f - kSplitterH - 2.0f * spacingY));
 
-        const float topH = availH - footerH - kSplitterH;
+        const float topH = availH - footerH - kSplitterH - 2.0f * spacingY;
         if (ImGui::BeginChild("##Settings", { -1, topH }, false))
         {
             // ---- Info Section ----
