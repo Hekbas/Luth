@@ -69,10 +69,24 @@ namespace Luth
             return open;
         }
 
+        // Overload that wires the title-bar X to a persistent open flag (typically
+        // &m_Open). Panels using this opt into the Window menu's toggle path.
+        bool BeginWindow(const char* name, bool* p_open, ImGuiWindowFlags flags = 0)
+        {
+            bool open = ImGui::Begin(name, p_open, flags);
+            m_Visible = open;
+            m_Focused = open && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow);
+            m_Docked  = open && ImGui::IsWindowDocked();
+            return open;
+        }
+
     protected:
         friend class Editor;
         friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
 
+        // m_Open is the persistent user choice (Window menu, close X). m_Visible
+        // is per-frame ImGui state (collapsed / off-screen tab / etc.).
+        bool m_Open    = true;
         bool m_Visible = true;
         bool m_Focused = false;
         bool m_Docked  = false;

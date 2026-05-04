@@ -439,7 +439,7 @@ namespace Luth
         {
             for (auto& panel : s_Panels)
             {
-                if (!panel->IsVisible() || panel->m_Crashed) continue;
+                if (!panel->m_Open || !panel->IsVisible() || panel->m_Crashed) continue;
                 JobSystem::Execute(GatherJobThunk, panel.get(), &gatherCounter,
                                    "Editor.Gather", JobSystem::Priority::Low);
             }
@@ -450,7 +450,7 @@ namespace Luth
         EditorSnapshot snapshot;
         for (auto& panel : s_Panels)
         {
-            if (panel->IsVisible() && panel->m_SnapshotFragment)
+            if (panel->m_Open && panel->IsVisible() && panel->m_SnapshotFragment)
                 snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
         }
 
@@ -506,6 +506,7 @@ namespace Luth
         {
             for (auto& panel : s_Panels)
             {
+                if (!panel->m_Open) continue;
                 if (panel->m_Crashed) {
                     DrawCrashedPlaceholder(panel.get());
                     continue;
