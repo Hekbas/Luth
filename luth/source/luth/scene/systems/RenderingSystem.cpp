@@ -213,10 +213,20 @@ namespace Luth
         const u64 frameIndex = Renderer::GetFrameData()->GetFrameIndex();
         void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
 
+        // invariant: m_ShadowMap is shared across view subgraphs. Each view's RG imports it
+        // as Undefined, which produces no cross-view RAW execution dependency between View1's
+        // GeometryPass shader-read and View2's ShadowPass depth-write. Insert a memory barrier
+        // between subgraphs to provide the dependency.
+        bool needsInterViewBarrier = false;
         for (const RenderView& v : m_QueuedViews)
+        {
+            if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
             RecordView(v, primaryCmd);
+            needsInterViewBarrier = true;
+        }
         m_QueuedViews.clear();
 
+        if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
         RecordView(sceneView, primaryCmd);
 
         Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
@@ -253,6 +263,20 @@ namespace Luth
         m_Pipeline->UpdateGTAOUBO();
 
         m_Pipeline->Execute(view, primaryCmd);
+    }
+
+    void RenderingSystem::InsertInterViewBarrier(void* primaryCmd)
+    {
+        VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        mb.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        mb.dstStageMask  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+        mb.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers    = &mb;
+        vkCmdPipelineBarrier2(static_cast<VkCommandBuffer>(primaryCmd), &dep);
     }
 
     // =========================================================================

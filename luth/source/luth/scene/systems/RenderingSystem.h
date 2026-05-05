@@ -165,6 +165,10 @@ namespace Luth
         // uploads) and record the subgraph into primaryCmd.
         void RecordView(const RenderView& view, void* primaryCmd);
 
+        // Cross-view RAW barrier on primaryCmd between consecutive view subgraphs.
+        // Synchronizes shared m_ShadowMap (FRAGMENT_SHADER_READ → EARLY_FRAGMENT_TESTS_DEPTH_WRITE).
+        void InsertInterViewBarrier(void* primaryCmd);
+
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
 
