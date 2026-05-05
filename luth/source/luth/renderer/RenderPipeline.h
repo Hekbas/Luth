@@ -72,12 +72,10 @@ namespace Luth
         // frees them all on release.
         VkDescriptorPool descPool = VK_NULL_HANDLE;
 
-        // Set 0: per-view UBO + per-view GTAO final sampler + shared IBL.
-        std::shared_ptr<VKUniformBuffer> globalUniformBuffer;
+        // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
+        // render-stage to fresh GPUTaggedPageAllocator regions in UpdateGlobalUniforms /
+        // UpdateGTAOUBO. IBL samplers (1-3) and GTAO final sampler (4) are stable.
         VkDescriptorSet                  globalDescriptorSet = VK_NULL_HANDLE;
-
-        // GTAO UBO — per-view because invResolution depends on view size.
-        std::shared_ptr<VKUniformBuffer> gtaoUBOBuffer;
 
         // Bloom half-res ping-pong textures (RGBA16F).
         std::shared_ptr<Texture> bloomA;

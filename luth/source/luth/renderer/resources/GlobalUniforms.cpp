@@ -1,9 +1,13 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/time/Time.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 namespace Luth
 {
@@ -66,9 +70,9 @@ namespace Luth
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
     }
 
-    // Writes the per-view GlobalUBO content into m_CurrentViewResources
-    // (set by PrepareForTargets). Buffer write only — safe to reorder with
-    // other views' GPU work.
+    // Allocates a per-frame UBO region from GPUTaggedPageAllocator and rebinds
+    // Set 0 binding 0 + Grid set binding 0 to it. Replaces the prior in-place
+    // memcpy into a single persistent VKUniformBuffer that raced GPU N-2 reads.
     void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams)
     {
         // Cache for downstream per-frame reads (Execute + capturedFrame snapshot).
@@ -94,8 +98,48 @@ namespace Luth
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
-        if (m_CurrentViewResources && m_CurrentViewResources->globalUniformBuffer)
-            m_CurrentViewResources->globalUniformBuffer->SetData(&ubo, sizeof(GlobalUniforms));
         m_CachedViewProj = ubo.viewProjection;
+
+        if (!m_CurrentViewResources || m_CurrentViewResources->globalDescriptorSet == VK_NULL_HANDLE) return;
+
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return;
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+
+        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
+        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
+        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(GlobalUniforms), al);
+        if (!region.buffer) return;
+
+        memcpy(region.mappedPtr, &ubo, sizeof(GlobalUniforms));
+        heap.FlushRegion(region);
+
+        VkDescriptorBufferInfo bi{};
+        bi.buffer = region.buffer;
+        bi.offset = region.offset;
+        bi.range  = region.size;
+
+        // Set 0 binding 0 + Grid set binding 0 share the same per-frame region.
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = m_CurrentViewResources->globalDescriptorSet;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &bi;
+
+        u32 n = 1;
+        if (m_CurrentViewResources->gridDescSet != VK_NULL_HANDLE)
+        {
+            writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[1].dstSet          = m_CurrentViewResources->gridDescSet;
+            writes[1].dstBinding      = 0;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[1].descriptorCount = 1;
+            writes[1].pBufferInfo     = &bi;
+            ++n;
+        }
+
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), n, writes, 0, nullptr);
     }
 }

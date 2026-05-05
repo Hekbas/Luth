@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -7,6 +8,9 @@
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/settings/GTAOSettings.h"
+#include "luth/core/FrameData.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 namespace Luth
 {
@@ -146,7 +150,7 @@ namespace Luth
 
     void RenderPipeline::UpdateGTAOUBO()
     {
-        if (!m_CurrentViewResources || !m_CurrentViewResources->gtaoUBOBuffer) return;
+        if (!m_CurrentViewResources || m_CurrentViewResources->globalDescriptorSet == VK_NULL_HANDLE) return;
 
         const auto& s = m_System.m_PostProcessSettings.gtao;
         GTAOUBO ubo{};
@@ -170,6 +174,45 @@ namespace Luth
         ubo.invFullResolution[0] = 1.0f / float(fullW);
         ubo.invFullResolution[1] = 1.0f / float(fullH);
 
-        m_CurrentViewResources->gtaoUBOBuffer->SetData(&ubo, sizeof(GTAOUBO));
+        // Per-frame UBO from GPU tagged heap; Set 0 binding 5 + GTAO main set binding 2
+        // share the same region.
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return;
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+
+        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
+        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
+        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(GTAOUBO), al);
+        if (!region.buffer) return;
+
+        memcpy(region.mappedPtr, &ubo, sizeof(GTAOUBO));
+        heap.FlushRegion(region);
+
+        VkDescriptorBufferInfo bi{};
+        bi.buffer = region.buffer;
+        bi.offset = region.offset;
+        bi.range  = region.size;
+
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = m_CurrentViewResources->globalDescriptorSet;
+        writes[0].dstBinding      = 5;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &bi;
+
+        u32 n = 1;
+        if (m_CurrentViewResources->gtaoMainDescSet != VK_NULL_HANDLE)
+        {
+            writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[1].dstSet          = m_CurrentViewResources->gtaoMainDescSet;
+            writes[1].dstBinding      = 2;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[1].descriptorCount = 1;
+            writes[1].pBufferInfo     = &bi;
+            ++n;
+        }
+
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), n, writes, 0, nullptr);
     }
 }
