@@ -46,8 +46,20 @@ namespace Luth
         bindings[5].descriptorCount = 1;
         bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // Bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per render-stage to fresh
+        // GPUTaggedPageAllocator regions. Samplers (1-4) are stable.
+        VkDescriptorBindingFlags bindingFlags[6] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0, 0, 0, 0,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsInfo.bindingCount  = 6;
+        bindingFlagsInfo.pBindingFlags = bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.pNext = &bindingFlagsInfo;
+        layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 6;
         layoutInfo.pBindings = bindings;
 

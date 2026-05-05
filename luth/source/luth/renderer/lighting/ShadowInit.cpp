@@ -50,8 +50,16 @@ namespace Luth
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // Light UBO is rebound per render-stage to a fresh tagged-heap region. Sampler stable.
+        VkDescriptorBindingFlags bindingFlags[2] = { VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0 };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsInfo.bindingCount  = 2;
+        bindingFlagsInfo.pBindingFlags = bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo lightLayoutInfo{};
         lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        lightLayoutInfo.pNext = &bindingFlagsInfo;
+        lightLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         lightLayoutInfo.bindingCount = 2;
         lightLayoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
@@ -65,6 +73,7 @@ namespace Luth
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets = 1;
         poolInfo.poolSizeCount = 2;
         poolInfo.pPoolSizes = poolSizes;

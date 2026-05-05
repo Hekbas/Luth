@@ -77,7 +77,16 @@ namespace Luth
             bindings[2].descriptorCount = 1;
             bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
+            // Binding 2 (GTAO UBO) shares lifetime with Set 0 binding 5 — rebound per
+            // render-stage to the same fresh tagged-heap region.
+            VkDescriptorBindingFlags bindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsInfo.bindingCount  = 3;
+            bindingFlagsInfo.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsInfo;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_GTAOMainDescLayout);

@@ -50,8 +50,16 @@ namespace Luth
         bindings[2].descriptorCount = 1;
         bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // Binding 2 (shared PostProcess UBO) is rebound per render-stage to a fresh tagged-heap region.
+        VkDescriptorBindingFlags ppBindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo ppBindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        ppBindingFlagsInfo.bindingCount  = 3;
+        ppBindingFlagsInfo.pBindingFlags = ppBindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.pNext = &ppBindingFlagsInfo;
+        layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 3;
         layoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_PPDescSetLayout);
@@ -105,8 +113,17 @@ namespace Luth
             gridBindings[1].descriptorCount = 1;
             gridBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+            // Binding 0 (per-view GlobalUBO viewProj) shares lifetime with Set 0 binding 0
+            // — rebound per render-stage to the same fresh tagged-heap region.
+            VkDescriptorBindingFlags gridBindingFlags[2] = { VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0 };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo gridBindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            gridBindingFlagsInfo.bindingCount  = 2;
+            gridBindingFlagsInfo.pBindingFlags = gridBindingFlags;
+
             VkDescriptorSetLayoutCreateInfo gridLayoutInfo{};
             gridLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            gridLayoutInfo.pNext = &gridBindingFlagsInfo;
+            gridLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             gridLayoutInfo.bindingCount = 2;
             gridLayoutInfo.pBindings = gridBindings;
             vkCreateDescriptorSetLayout(device, &gridLayoutInfo, nullptr, &m_GridDescSetLayout);
