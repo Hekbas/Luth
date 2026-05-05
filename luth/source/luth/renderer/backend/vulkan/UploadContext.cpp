@@ -131,6 +131,12 @@ namespace Luth
         {
             hasSpace = true;
         }
+        else if (alignedHead == m_StagingTail)
+        {
+            // ring full: head landed exactly on the oldest in-flight block's start
+            // (happens when a wrap-allocation ended at the tail block's offset).
+            hasSpace = false;
+        }
         else if (wrapped || alignedHead < m_StagingTail)
         {
             // wrapped: free region is [alignedHead, m_StagingTail)
