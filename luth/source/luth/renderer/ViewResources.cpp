@@ -212,7 +212,7 @@ namespace Luth
 
     void RenderPipeline::WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets)
     {
-        if (vr.compositeDescSet == VK_NULL_HANDLE || !m_PostProcessUBOBuffer) return;
+        if (vr.compositeDescSet == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -220,11 +220,8 @@ namespace Luth
         auto bloomAVk = std::static_pointer_cast<VKTexture>(vr.bloomA);
         auto bloomBVk = std::static_pointer_cast<VKTexture>(vr.bloomB);
 
-        VkDescriptorBufferInfo uboInfo{};
-        uboInfo.buffer = m_PostProcessUBOBuffer->GetVulkanBuffer();
-        uboInfo.offset = 0;
-        uboInfo.range  = sizeof(PostProcessUBO);
-
+        // Stable image bindings only. The shared PostProcess UBO (binding 2 of each
+        // PP set) is rewritten per render-stage in UpdatePostProcessUBO.
         auto makeImg = [&](VkImageView v) {
             VkDescriptorImageInfo info{};
             info.sampler     = m_PPSampler;
@@ -242,36 +239,27 @@ namespace Luth
         VkDescriptorImageInfo compImg0         = makeImg(sceneVk->GetImageView());
         VkDescriptorImageInfo compImg1         = makeImg(bloomAVk->GetImageView());
 
-        VkWriteDescriptorSet writes[12] = {};
+        VkWriteDescriptorSet writes[8] = {};
         u32 idx = 0;
 
-        auto addWrite = [&](VkDescriptorSet set, u32 binding, VkDescriptorType type,
-                            VkDescriptorImageInfo* imgInfo, VkDescriptorBufferInfo* bufInfo) {
+        auto addImg = [&](VkDescriptorSet set, u32 binding, VkDescriptorImageInfo* imgInfo) {
             writes[idx] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[idx].dstSet          = set;
             writes[idx].dstBinding      = binding;
             writes[idx].descriptorCount = 1;
-            writes[idx].descriptorType  = type;
+            writes[idx].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[idx].pImageInfo      = imgInfo;
-            writes[idx].pBufferInfo     = bufInfo;
             ++idx;
         };
 
-        addWrite(vr.bloomExtractDescSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg0, nullptr);
-        addWrite(vr.bloomExtractDescSet, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &bloomExtractImg1, nullptr);
-        addWrite(vr.bloomExtractDescSet, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         nullptr,           &uboInfo);
-
-        addWrite(vr.bloomBlurHDescSet,   0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg0,        nullptr);
-        addWrite(vr.bloomBlurHDescSet,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurHImg1,        nullptr);
-        addWrite(vr.bloomBlurHDescSet,   2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         nullptr,           &uboInfo);
-
-        addWrite(vr.bloomBlurVDescSet,   0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg0,        nullptr);
-        addWrite(vr.bloomBlurVDescSet,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &blurVImg1,        nullptr);
-        addWrite(vr.bloomBlurVDescSet,   2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         nullptr,           &uboInfo);
-
-        addWrite(vr.compositeDescSet,    0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg0,         nullptr);
-        addWrite(vr.compositeDescSet,    1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &compImg1,         nullptr);
-        addWrite(vr.compositeDescSet,    2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         nullptr,           &uboInfo);
+        addImg(vr.bloomExtractDescSet, 0, &bloomExtractImg0);
+        addImg(vr.bloomExtractDescSet, 1, &bloomExtractImg1);
+        addImg(vr.bloomBlurHDescSet,   0, &blurHImg0);
+        addImg(vr.bloomBlurHDescSet,   1, &blurHImg1);
+        addImg(vr.bloomBlurVDescSet,   0, &blurVImg0);
+        addImg(vr.bloomBlurVDescSet,   1, &blurVImg1);
+        addImg(vr.compositeDescSet,    0, &compImg0);
+        addImg(vr.compositeDescSet,    1, &compImg1);
 
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
     }

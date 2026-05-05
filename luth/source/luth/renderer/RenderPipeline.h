@@ -366,8 +366,8 @@ namespace Luth
         DirectionalLightShadowParams m_FrameShadowParams{};
 
         // ---- Post-process shared state (per-view bloom + sets in ViewResources) ----
-        // UBO content is view-independent (scalar settings only).
-        std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
+        // PostProcess UBO is allocated per render-stage from GPUTaggedPageAllocator;
+        // binding 2 of each PP set is rewritten in UpdatePostProcessUBO each frame.
         VkSampler              m_PPSampler       = VK_NULL_HANDLE;
         VkDescriptorSetLayout  m_PPDescSetLayout = VK_NULL_HANDLE;
 

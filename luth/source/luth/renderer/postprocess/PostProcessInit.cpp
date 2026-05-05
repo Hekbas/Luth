@@ -1,12 +1,16 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/time/Time.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 namespace Luth
 {
@@ -17,8 +21,8 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Scalar settings only — shared across views.
-        m_PostProcessUBOBuffer = std::make_shared<VKUniformBuffer>(sizeof(PostProcessUBO));
+        // PostProcess UBO storage is allocated per render-stage from GPUTaggedPageAllocator
+        // (see UpdatePostProcessUBO). Nothing to allocate up front.
 
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -132,6 +136,8 @@ namespace Luth
 
     void RenderPipeline::UpdatePostProcessUBO()
     {
+        if (!m_CurrentViewResources || m_CurrentViewResources->compositeDescSet == VK_NULL_HANDLE) return;
+
         PostProcessUBO ubo{};
         ubo.bloomThreshold      = m_System.m_PostProcessSettings.bloomThreshold;
         ubo.bloomStrength       = m_System.m_PostProcessSettings.bloomStrength;
@@ -148,6 +154,44 @@ namespace Luth
         ubo.shadowBalance       = m_System.m_PostProcessSettings.shadowBalance;
         ubo.midtoneBalance      = m_System.m_PostProcessSettings.midtoneBalance;
         ubo.highlightBalance    = m_System.m_PostProcessSettings.highlightBalance;
-        m_PostProcessUBOBuffer->SetData(&ubo, sizeof(PostProcessUBO));
+
+        // Per-frame UBO from GPU tagged heap; the 4 PP descriptor sets share the region.
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return;
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+
+        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
+        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
+        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(PostProcessUBO), al);
+        if (!region.buffer) return;
+
+        memcpy(region.mappedPtr, &ubo, sizeof(PostProcessUBO));
+        heap.FlushRegion(region);
+
+        VkDescriptorBufferInfo bi{};
+        bi.buffer = region.buffer;
+        bi.offset = region.offset;
+        bi.range  = region.size;
+
+        const VkDescriptorSet ppSets[4] = {
+            m_CurrentViewResources->bloomExtractDescSet,
+            m_CurrentViewResources->bloomBlurHDescSet,
+            m_CurrentViewResources->bloomBlurVDescSet,
+            m_CurrentViewResources->compositeDescSet,
+        };
+        VkWriteDescriptorSet writes[4] = {};
+        u32 n = 0;
+        for (u32 i = 0; i < 4; ++i)
+        {
+            if (ppSets[i] == VK_NULL_HANDLE) continue;
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = ppSets[i];
+            writes[n].dstBinding      = 2;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[n].descriptorCount = 1;
+            writes[n].pBufferInfo     = &bi;
+            ++n;
+        }
+        if (n > 0) vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), n, writes, 0, nullptr);
     }
 }
