@@ -63,12 +63,19 @@ namespace Luth
             u64 waitValue = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
             m_FrameTimeline.Wait(waitValue);
 
-            // V6 driver: GPU has retired frame N-2; reclaim its tagged pages on
-            // both halves of the Onion/Garlic split.
-            // See arch/fiber-system.md V6 + arch/memory.md.
-            const u32 finishedTag = static_cast<u32>(waitValue);
-            Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(finishedTag);
+            // invariant: a page tagged T is referenced by both iter T (game-stage
+            // alloc tag T) and iter T+1 (render-stage alloc tag T = GetRenderFrameIndex
+            // = iter-1). Both cmd buffers must be GPU-done to reclaim safely; iter T+1
+            // signals timeline T+2, so tag T is safe only after timeline T+2 retires.
+            // waitValue confirms timeline V; safe-to-free tag is V - 2.
+            // (Earlier code used FreeTag(waitValue) which raced with iter (waitValue-1)
+            // and iter waitValue's in-flight GPU work — produced afterimage during motion.)
+            if (waitValue >= 2)
+            {
+                const u32 finishedTag = static_cast<u32>(waitValue - 2);
+                Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(finishedTag);
+            }
         }
 
         // Flush deletions AFTER we know the GPU is done with this frame's resources

@@ -28,6 +28,8 @@ namespace Luth
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
+        // UBO descriptor base offsets (and size) must satisfy this when sub-allocating from a tagged page.
+        u64 GetMinUniformBufferAlignment() const { return m_PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
         RG::RenderResourceCache& GetResourceCache() { return m_ResourceCache; } // Getter
 

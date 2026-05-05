@@ -72,12 +72,10 @@ namespace Luth
         // frees them all on release.
         VkDescriptorPool descPool = VK_NULL_HANDLE;
 
-        // Set 0: per-view UBO + per-view GTAO final sampler + shared IBL.
-        std::shared_ptr<VKUniformBuffer> globalUniformBuffer;
+        // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
+        // render-stage to fresh GPUTaggedPageAllocator regions in UpdateGlobalUniforms /
+        // UpdateGTAOUBO. IBL samplers (1-3) and GTAO final sampler (4) are stable.
         VkDescriptorSet                  globalDescriptorSet = VK_NULL_HANDLE;
-
-        // GTAO UBO — per-view because invResolution depends on view size.
-        std::shared_ptr<VKUniformBuffer> gtaoUBOBuffer;
 
         // Bloom half-res ping-pong textures (RGBA16F).
         std::shared_ptr<Texture> bloomA;
@@ -294,8 +292,7 @@ namespace Luth
         VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkSampler                m_ShadowSampler = VK_NULL_HANDLE;
 
-        // ---- Light UBO + shadow descriptor (Set 3) ----
-        std::shared_ptr<VKUniformBuffer> m_LightUniformBuffer;
+        // ---- Set 3: Light UBO (per-frame from GPU tagged heap) + shadow sampler (stable) ----
         VkDescriptorPool      m_LightDescPool  = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_LightSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet       m_LightDescSet   = VK_NULL_HANDLE;
@@ -369,8 +366,8 @@ namespace Luth
         DirectionalLightShadowParams m_FrameShadowParams{};
 
         // ---- Post-process shared state (per-view bloom + sets in ViewResources) ----
-        // UBO content is view-independent (scalar settings only).
-        std::shared_ptr<VKUniformBuffer> m_PostProcessUBOBuffer;
+        // PostProcess UBO is allocated per render-stage from GPUTaggedPageAllocator;
+        // binding 2 of each PP set is rewritten in UpdatePostProcessUBO each frame.
         VkSampler              m_PPSampler       = VK_NULL_HANDLE;
         VkDescriptorSetLayout  m_PPDescSetLayout = VK_NULL_HANDLE;
 
