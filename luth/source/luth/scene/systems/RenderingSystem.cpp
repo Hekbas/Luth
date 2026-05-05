@@ -184,6 +184,15 @@ namespace Luth
         // reference the freshly populated indirect buffer.
         m_DrawListBuilder.Build(snapshot, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
+        // invariant: Set 3 is a single global descriptor — UPDATE_AFTER_BIND late-write would
+        // make View1 draws read View2's lights if rebound per view. Lights are snapshot-derived
+        // (view-independent); cascades stay per-view via Set 0 in RecordView.
+        if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+        {
+            lighting->UpdateFor(snapshot, m_CameraParams); // gathers m_Lights from snapshot
+            m_Pipeline->UploadLightUBO(lighting->GetLights());
+        }
+
         // Primary view — always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;
         sceneView.targets              = &m_SceneTargets;
@@ -226,6 +235,10 @@ namespace Luth
 
         // Cascade fit is camera-dependent so this refits per view
         // (~1 ms GPU with game panel open; frustum-union fit is backlog).
+        // m_Lights was already gathered once in Update before this loop;
+        // UpdateFor here only needs the cascade rebuild for view.camera.
+        // (Re-gathering m_Lights from the same snapshot is idempotent — left as
+        // a no-cost guard against future signature drift.)
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
         lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera);
 
@@ -233,7 +246,8 @@ namespace Luth
         // m_CurrentViewResources, which PrepareForTargets sets.
         m_Pipeline->PrepareForTargets(*view.targets);
 
-        m_Pipeline->UploadLightUBO(lighting->GetLights());
+        // Light UBO (Set 3) is hoisted to Update — view-independent, single global Set 3
+        // would race across views otherwise.
         m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
