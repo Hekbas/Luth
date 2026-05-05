@@ -34,8 +34,8 @@ namespace Luth
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
 
-        // --- Light UBO ---
-        m_LightUniformBuffer = std::make_shared<VKUniformBuffer>(sizeof(LightUniforms));
+        // Light UBO storage is now allocated per render-stage from GPUTaggedPageAllocator;
+        // descriptor binding 0 is rewritten in UploadLightUBO each frame.
 
         // --- Set 3 descriptor layout: binding 0 = LightUBO, binding 1 = shadow sampler ---
         VkDescriptorSetLayoutBinding bindings[2] = {};
@@ -87,34 +87,21 @@ namespace Luth
         allocInfo.pSetLayouts = &m_LightSetLayout;
         vkAllocateDescriptorSets(device, &allocInfo, &m_LightDescSet);
 
-        // --- Write descriptors ---
-        VkDescriptorBufferInfo lightBufInfo{};
-        lightBufInfo.buffer = m_LightUniformBuffer->GetVulkanBuffer();
-        lightBufInfo.offset = 0;
-        lightBufInfo.range = sizeof(LightUniforms);
-
+        // Initial write: only the stable shadow sampler. Binding 0 (Light UBO) is rewritten
+        // each frame in UploadLightUBO to point at the per-frame tagged-heap region.
         auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler     = m_ShadowSampler;
         shadowImgInfo.imageView   = vkShadowTex->GetImageView();
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet writes[2] = {};
+        VkWriteDescriptorSet samplerWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        samplerWrite.dstSet          = m_LightDescSet;
+        samplerWrite.dstBinding      = 1;
+        samplerWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerWrite.descriptorCount = 1;
+        samplerWrite.pImageInfo      = &shadowImgInfo;
 
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = m_LightDescSet;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &lightBufInfo;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = m_LightDescSet;
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &shadowImgInfo;
-
-        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, 1, &samplerWrite, 0, nullptr);
     }
 }

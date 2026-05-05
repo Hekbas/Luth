@@ -294,8 +294,7 @@ namespace Luth
         VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkSampler                m_ShadowSampler = VK_NULL_HANDLE;
 
-        // ---- Light UBO + shadow descriptor (Set 3) ----
-        std::shared_ptr<VKUniformBuffer> m_LightUniformBuffer;
+        // ---- Set 3: Light UBO (per-frame from GPU tagged heap) + shadow sampler (stable) ----
         VkDescriptorPool      m_LightDescPool  = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_LightSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet       m_LightDescSet   = VK_NULL_HANDLE;
