@@ -126,49 +126,74 @@ namespace Luth::RG
         root.kind  = EventNodeKind::Group;
         root.label = "Frame";
 
-        int shadowsGroupIdx = -1;
-        int cullGroupIdx    = -1;
+        // invariant: root order matches graph-execution order regardless of group encounter order.
+        struct Entry
+        {
+            EventNode node;       // pass / cascade / group
+            u32       sortKey;    // for groups, min graphPassIndex across members
+        };
+        std::vector<Entry> entries;
+        entries.reserve(frame.passes.size());
+
+        int shadowsEntryIdx = -1;
+        int cullEntryIdx    = -1;
 
         for (u32 pi = 0; pi < frame.passes.size(); ++pi)
         {
             const auto& pass = frame.passes[pi];
+            const u32 graphIdx = pass.graphPassIndex;
             EventNode passNode = BuildPassNode(frame, pi);
 
             // --- Group routing (explicit prefix registry, not split-on-dot) ---
             int cascadeIdx = CascadeIndexFromName(pass.name);
             if (cascadeIdx >= 0)
             {
-                if (shadowsGroupIdx < 0)
+                if (shadowsEntryIdx < 0)
                 {
                     EventNode g;
                     g.kind  = EventNodeKind::Group;
                     g.label = "Shadows";
-                    root.children.push_back(std::move(g));
-                    shadowsGroupIdx = (int)root.children.size() - 1;
+                    entries.push_back({ std::move(g), graphIdx });
+                    shadowsEntryIdx = (int)entries.size() - 1;
+                }
+                else if (graphIdx < entries[shadowsEntryIdx].sortKey)
+                {
+                    entries[shadowsEntryIdx].sortKey = graphIdx;
                 }
                 passNode.kind         = EventNodeKind::Cascade;
                 passNode.label        = "Cascade " + std::to_string(cascadeIdx);
                 passNode.archiveLayer = cascadeIdx;
-                root.children[shadowsGroupIdx].children.push_back(std::move(passNode));
+                entries[shadowsEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
 
             if (pass.name.compare(0, 12, "FrustumCull.") == 0)
             {
-                if (cullGroupIdx < 0)
+                if (cullEntryIdx < 0)
                 {
                     EventNode g;
                     g.kind  = EventNodeKind::Group;
                     g.label = "Frustum Culling";
-                    root.children.push_back(std::move(g));
-                    cullGroupIdx = (int)root.children.size() - 1;
+                    entries.push_back({ std::move(g), graphIdx });
+                    cullEntryIdx = (int)entries.size() - 1;
                 }
-                root.children[cullGroupIdx].children.push_back(std::move(passNode));
+                else if (graphIdx < entries[cullEntryIdx].sortKey)
+                {
+                    entries[cullEntryIdx].sortKey = graphIdx;
+                }
+                entries[cullEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
 
-            root.children.push_back(std::move(passNode));
+            entries.push_back({ std::move(passNode), graphIdx });
         }
+
+        std::stable_sort(entries.begin(), entries.end(),
+            [](const Entry& a, const Entry& b) { return a.sortKey < b.sortKey; });
+
+        root.children.reserve(entries.size());
+        for (auto& e : entries)
+            root.children.push_back(std::move(e.node));
 
         PopulateLastDrawIndex(root);
         return root;
