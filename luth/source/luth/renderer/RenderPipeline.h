@@ -95,11 +95,12 @@ namespace Luth
         std::shared_ptr<Texture> gtaoFinal;
 
         // Bloom extract / blur / composite — bind view's SceneColor +
-        // bloomA/B + shared PP UBO.
-        VkDescriptorSet bloomExtractDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet bloomBlurHDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet bloomBlurVDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet compositeDescSet    = VK_NULL_HANDLE;
+        // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
+        // all 4 sets atomically against the per-frame slot.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomExtractDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurHDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurVDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> compositeDescSet{};
 
         // GTAO compute passes.
         VkDescriptorSet gtaoPrefilterDescSet = VK_NULL_HANDLE;

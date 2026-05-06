@@ -97,10 +97,7 @@ namespace Luth
         poolSizes[2].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[2].descriptorCount = k_ViewPoolCombinedSamplerCount;
 
-        // UPDATE_AFTER_BIND for sets that rebind their UBO bindings per render-stage
-        // (Global / GTAO Main / PostProcess / Grid) to fresh tagged-heap regions.
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = k_ViewPoolMaxSets;
         poolInfo.poolSizeCount = 3;
         poolInfo.pPoolSizes    = poolSizes;
@@ -135,10 +132,10 @@ namespace Luth
 
         const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
         allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet);
-        allocSingle(ppLayout,                            vr.bloomExtractDescSet);
-        allocSingle(ppLayout,                            vr.bloomBlurHDescSet);
-        allocSingle(ppLayout,                            vr.bloomBlurVDescSet);
-        allocSingle(ppLayout,                            vr.compositeDescSet);
+        allocCycled(ppLayout,                            vr.bloomExtractDescSet);
+        allocCycled(ppLayout,                            vr.bloomBlurHDescSet);
+        allocCycled(ppLayout,                            vr.bloomBlurVDescSet);
+        allocCycled(ppLayout,                            vr.compositeDescSet);
         allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet);
         allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet);
         allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet);
