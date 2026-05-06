@@ -56,7 +56,6 @@ namespace Luth
     void RenderPipeline::CreatePipelines()
     {
         BuildSelectionPipelines();
-        BuildPostPipelines();
         BuildOutlinePipeline();
         BuildGridPipeline();
         // PBR / DepthPrepass live on GeometrySubsystem; shadow / skybox on LightingSubsystem.
@@ -126,72 +125,11 @@ namespace Luth
     }
 
     // =========================================================================
-    //  Post-process — bloom extract, bloom blur, composite
-    // =========================================================================
-    void RenderPipeline::BuildPostPipelines()
-    {
-        if (m_FullscreenVertSpv.empty() || m_PPDescSetLayout == VK_NULL_HANDLE) return;
-
-        std::vector<VkDescriptorSetLayout> ppLayouts = { m_PPDescSetLayout };
-
-        // Bloom extract: push constant = float threshold + pad
-        if (!m_BloomExtractFragSpv.empty())
-        {
-            VkPushConstantRange bloomExtractPC{};
-            bloomExtractPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-            bloomExtractPC.offset = 0;
-            bloomExtractPC.size = sizeof(float) * 4; // threshold + pad[3]
-
-            PipelineConfig bloomExtractConfig;
-            bloomExtractConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
-            bloomExtractConfig.depthFormat = VK_FORMAT_UNDEFINED;
-            bloomExtractConfig.depthTest = false; bloomExtractConfig.depthWrite = false;
-            bloomExtractConfig.blendEnabled = false;
-            bloomExtractConfig.cullMode = VK_CULL_MODE_NONE;
-            bloomExtractConfig.pushConstantRanges = { bloomExtractPC };
-            m_BloomExtractPipeline = std::make_unique<VKPipeline>(
-                bloomExtractConfig, m_FullscreenVertSpv, m_BloomExtractFragSpv, ppLayouts);
-        }
-
-        // Bloom blur: push constant = vec2 direction + pad
-        if (!m_BloomBlurFragSpv.empty())
-        {
-            VkPushConstantRange bloomBlurPC{};
-            bloomBlurPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-            bloomBlurPC.offset = 0;
-            bloomBlurPC.size = sizeof(float) * 4; // direction.xy + pad[2]
-
-            PipelineConfig bloomBlurConfig;
-            bloomBlurConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
-            bloomBlurConfig.depthFormat = VK_FORMAT_UNDEFINED;
-            bloomBlurConfig.depthTest = false; bloomBlurConfig.depthWrite = false;
-            bloomBlurConfig.blendEnabled = false;
-            bloomBlurConfig.cullMode = VK_CULL_MODE_NONE;
-            bloomBlurConfig.pushConstantRanges = { bloomBlurPC };
-            m_BloomBlurPipeline = std::make_unique<VKPipeline>(
-                bloomBlurConfig, m_FullscreenVertSpv, m_BloomBlurFragSpv, ppLayouts);
-        }
-
-        // PostProcess composite: no push constants, UBO at binding 2
-        if (!m_PostProcessFragSpv.empty())
-        {
-            PipelineConfig ppConfig;
-            ppConfig.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM }; // LDR output
-            ppConfig.depthFormat = VK_FORMAT_UNDEFINED;
-            ppConfig.depthTest = false; ppConfig.depthWrite = false;
-            ppConfig.blendEnabled = false;
-            ppConfig.cullMode = VK_CULL_MODE_NONE;
-            m_PostProcessPipeline = std::make_unique<VKPipeline>(
-                ppConfig, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
-        }
-    }
-
-    // =========================================================================
     //  Outline — alpha-blended fullscreen pass
     // =========================================================================
     void RenderPipeline::BuildOutlinePipeline()
     {
-        if (m_FullscreenVertSpv.empty() || m_OutlineFragSpv.empty() || m_OutlineDescSetLayout == VK_NULL_HANDLE) return;
+        if (m_PostProcess.GetFullscreenVertSpv().empty() || m_OutlineFragSpv.empty() || m_OutlineDescSetLayout == VK_NULL_HANDLE) return;
 
         std::vector<VkDescriptorSetLayout> outlineLayouts = { m_OutlineDescSetLayout };
 
@@ -208,7 +146,7 @@ namespace Luth
         outlineConfig.cullMode = VK_CULL_MODE_NONE;
         outlineConfig.pushConstantRanges = { outlinePC };
         m_OutlinePipeline = std::make_unique<VKPipeline>(
-            outlineConfig, m_FullscreenVertSpv, m_OutlineFragSpv, outlineLayouts);
+            outlineConfig, m_PostProcess.GetFullscreenVertSpv(), m_OutlineFragSpv, outlineLayouts);
     }
 
     // =========================================================================
@@ -216,7 +154,7 @@ namespace Luth
     // =========================================================================
     void RenderPipeline::BuildGridPipeline()
     {
-        if (m_FullscreenVertSpv.empty() || m_GridFragSpv.empty() || m_GridDescSetLayout == VK_NULL_HANDLE) return;
+        if (m_PostProcess.GetFullscreenVertSpv().empty() || m_GridFragSpv.empty() || m_GridDescSetLayout == VK_NULL_HANDLE) return;
 
         std::vector<VkDescriptorSetLayout> gridLayouts = { m_GridDescSetLayout };
 
@@ -233,6 +171,6 @@ namespace Luth
         gridConfig.cullMode = VK_CULL_MODE_NONE;
         gridConfig.pushConstantRanges = { gridPC };
         m_GridPipeline = std::make_unique<VKPipeline>(
-            gridConfig, m_FullscreenVertSpv, m_GridFragSpv, gridLayouts);
+            gridConfig, m_PostProcess.GetFullscreenVertSpv(), m_GridFragSpv, gridLayouts);
     }
 }

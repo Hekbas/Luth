@@ -1,6 +1,8 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/subsystems/GlobalSubsystem.h"
+#include "luth/renderer/subsystems/GTAOSubsystem.h"
+#include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -29,7 +31,7 @@ namespace Luth
             GlobalViewWriteContext ctx{};
             ctx.haveIBL          = lighting.IsIBLReady();
             ctx.iblSampler       = lighting.GetIBLSampler();
-            ctx.gtaoSampler      = rp.GetGTAOSampler();
+            ctx.gtaoSampler      = rp.GetGTAO().GetSampler();
             if (ctx.haveIBL)
             {
                 ctx.irradianceView  = std::static_pointer_cast<VKTexture>(lighting.GetIrradianceMap())->GetImageView();
@@ -63,8 +65,8 @@ namespace Luth
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
             RecreateViewTextures(vr, halfW, halfH);
-            WriteViewPostProcessSets(vr, targets);
-            WriteViewGTAOSets(vr, targets);
+            m_PostProcess.WriteView(vr, targets);
+            m_GTAO.WriteView(vr, targets);
             WriteViewOutlineSet(vr, targets);
             WriteViewGridSet(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
@@ -121,19 +123,20 @@ namespace Luth
             vkAllocateDescriptorSets(device, &ai, &outSet);
         };
 
-        alloc(m_Global.GetSetLayout(),    vr.globalDescriptorSet);
-        alloc(m_PPDescSetLayout,          vr.bloomExtractDescSet);
-        alloc(m_PPDescSetLayout,          vr.bloomBlurHDescSet);
-        alloc(m_PPDescSetLayout,          vr.bloomBlurVDescSet);
-        alloc(m_PPDescSetLayout,          vr.compositeDescSet);
-        alloc(m_GTAOPrefilterDescLayout,  vr.gtaoPrefilterDescSet);
-        alloc(m_GTAOMainDescLayout,       vr.gtaoMainDescSet);
-        alloc(m_GTAODenoiseDescLayout,    vr.gtaoDenoiseDescSet);
-        alloc(m_OutlineDescSetLayout,     vr.outlineDescSet);
-        alloc(m_GridDescSetLayout,        vr.gridDescSet);
+        const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
+        alloc(m_Global.GetSetLayout(),         vr.globalDescriptorSet);
+        alloc(ppLayout,                        vr.bloomExtractDescSet);
+        alloc(ppLayout,                        vr.bloomBlurHDescSet);
+        alloc(ppLayout,                        vr.bloomBlurVDescSet);
+        alloc(ppLayout,                        vr.compositeDescSet);
+        alloc(m_GTAO.GetPrefilterLayout(),     vr.gtaoPrefilterDescSet);
+        alloc(m_GTAO.GetMainLayout(),          vr.gtaoMainDescSet);
+        alloc(m_GTAO.GetDenoiseLayout(),       vr.gtaoDenoiseDescSet);
+        alloc(m_OutlineDescSetLayout,          vr.outlineDescSet);
+        alloc(m_GridDescSetLayout,             vr.gridDescSet);
 
-        WriteViewPostProcessSets(vr, targets);
-        WriteViewGTAOSets(vr, targets);
+        m_PostProcess.WriteView(vr, targets);
+        m_GTAO.WriteView(vr, targets);
         WriteViewOutlineSet(vr, targets);
         WriteViewGridSet(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
@@ -155,165 +158,6 @@ namespace Luth
         vr.gtaoRawAO       = makeStorage(TextureFormat::R8);
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
-    }
-
-    void RenderPipeline::WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets)
-    {
-        if (vr.compositeDescSet == VK_NULL_HANDLE) return;
-
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        auto sceneVk  = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
-        auto bloomAVk = std::static_pointer_cast<VKTexture>(vr.bloomA);
-        auto bloomBVk = std::static_pointer_cast<VKTexture>(vr.bloomB);
-
-        // Stable image bindings only. The shared PostProcess UBO (binding 2 of each
-        // PP set) is rewritten per render-stage in UpdatePostProcessUBO.
-        auto makeImg = [&](VkImageView v) {
-            VkDescriptorImageInfo info{};
-            info.sampler     = m_PPSampler;
-            info.imageView   = v;
-            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            return info;
-        };
-
-        VkDescriptorImageInfo bloomExtractImg0 = makeImg(sceneVk->GetImageView());
-        VkDescriptorImageInfo bloomExtractImg1 = makeImg(bloomAVk->GetImageView());
-        VkDescriptorImageInfo blurHImg0        = makeImg(bloomAVk->GetImageView());
-        VkDescriptorImageInfo blurHImg1        = makeImg(bloomBVk->GetImageView());
-        VkDescriptorImageInfo blurVImg0        = makeImg(bloomBVk->GetImageView());
-        VkDescriptorImageInfo blurVImg1        = makeImg(bloomAVk->GetImageView());
-        VkDescriptorImageInfo compImg0         = makeImg(sceneVk->GetImageView());
-        VkDescriptorImageInfo compImg1         = makeImg(bloomAVk->GetImageView());
-
-        VkWriteDescriptorSet writes[8] = {};
-        u32 idx = 0;
-
-        auto addImg = [&](VkDescriptorSet set, u32 binding, VkDescriptorImageInfo* imgInfo) {
-            writes[idx] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[idx].dstSet          = set;
-            writes[idx].dstBinding      = binding;
-            writes[idx].descriptorCount = 1;
-            writes[idx].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[idx].pImageInfo      = imgInfo;
-            ++idx;
-        };
-
-        addImg(vr.bloomExtractDescSet, 0, &bloomExtractImg0);
-        addImg(vr.bloomExtractDescSet, 1, &bloomExtractImg1);
-        addImg(vr.bloomBlurHDescSet,   0, &blurHImg0);
-        addImg(vr.bloomBlurHDescSet,   1, &blurHImg1);
-        addImg(vr.bloomBlurVDescSet,   0, &blurVImg0);
-        addImg(vr.bloomBlurVDescSet,   1, &blurVImg1);
-        addImg(vr.compositeDescSet,    0, &compImg0);
-        addImg(vr.compositeDescSet,    1, &compImg1);
-
-        vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
-    }
-
-    void RenderPipeline::WriteViewGTAOSets(ViewResources& vr, FrameTargets& targets)
-    {
-        if (vr.gtaoPrefilterDescSet == VK_NULL_HANDLE) return;
-
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
-        auto vkLinDepth   = std::static_pointer_cast<VKTexture>(vr.gtaoLinearDepth);
-        auto vkRawAO      = std::static_pointer_cast<VKTexture>(vr.gtaoRawAO);
-        auto vkFinalAO    = std::static_pointer_cast<VKTexture>(vr.gtaoFinal);
-
-        VkDescriptorImageInfo sceneDepthInfo{};
-        sceneDepthInfo.sampler     = m_GTAOSampler;
-        sceneDepthInfo.imageView   = vkSceneDepth->GetImageView();
-        sceneDepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo linDepthSampledInfo{};
-        linDepthSampledInfo.sampler     = m_GTAOSampler;
-        linDepthSampledInfo.imageView   = vkLinDepth->GetImageView();
-        linDepthSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo linDepthStorageInfo{};
-        linDepthStorageInfo.imageView   = vkLinDepth->GetImageView();
-        linDepthStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorImageInfo rawAOStorageInfo{};
-        rawAOStorageInfo.imageView   = vkRawAO->GetImageView();
-        rawAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        // GTAO main set binding 2 (UBO) is rewritten per render-stage in UpdateGTAOUBO
-        // alongside Set 0 binding 5. Stable bindings only here.
-
-        // Prefilter: [sceneDepth (sampler), linDepth (storage)]
-        VkWriteDescriptorSet preWrites[2]{};
-        preWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        preWrites[0].dstSet          = vr.gtaoPrefilterDescSet;
-        preWrites[0].dstBinding      = 0;
-        preWrites[0].descriptorCount = 1;
-        preWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        preWrites[0].pImageInfo      = &sceneDepthInfo;
-
-        preWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        preWrites[1].dstSet          = vr.gtaoPrefilterDescSet;
-        preWrites[1].dstBinding      = 1;
-        preWrites[1].descriptorCount = 1;
-        preWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        preWrites[1].pImageInfo      = &linDepthStorageInfo;
-
-        vkUpdateDescriptorSets(device, 2, preWrites, 0, nullptr);
-
-        if (vr.gtaoMainDescSet == VK_NULL_HANDLE) return;
-
-        VkWriteDescriptorSet mainWrites[2]{};
-        mainWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        mainWrites[0].dstSet          = vr.gtaoMainDescSet;
-        mainWrites[0].dstBinding      = 0;
-        mainWrites[0].descriptorCount = 1;
-        mainWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        mainWrites[0].pImageInfo      = &linDepthSampledInfo;
-
-        mainWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        mainWrites[1].dstSet          = vr.gtaoMainDescSet;
-        mainWrites[1].dstBinding      = 1;
-        mainWrites[1].descriptorCount = 1;
-        mainWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        mainWrites[1].pImageInfo      = &rawAOStorageInfo;
-
-        vkUpdateDescriptorSets(device, 2, mainWrites, 0, nullptr);
-
-        if (vr.gtaoDenoiseDescSet == VK_NULL_HANDLE) return;
-
-        VkDescriptorImageInfo rawAOSampledInfo{};
-        rawAOSampledInfo.sampler     = m_GTAOSampler;
-        rawAOSampledInfo.imageView   = vkRawAO->GetImageView();
-        rawAOSampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo finalAOStorageInfo{};
-        finalAOStorageInfo.imageView   = vkFinalAO->GetImageView();
-        finalAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet denoiseWrites[3]{};
-        denoiseWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        denoiseWrites[0].dstSet          = vr.gtaoDenoiseDescSet;
-        denoiseWrites[0].dstBinding      = 0;
-        denoiseWrites[0].descriptorCount = 1;
-        denoiseWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        denoiseWrites[0].pImageInfo      = &rawAOSampledInfo;
-
-        denoiseWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        denoiseWrites[1].dstSet          = vr.gtaoDenoiseDescSet;
-        denoiseWrites[1].dstBinding      = 1;
-        denoiseWrites[1].descriptorCount = 1;
-        denoiseWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        denoiseWrites[1].pImageInfo      = &linDepthSampledInfo;
-
-        denoiseWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        denoiseWrites[2].dstSet          = vr.gtaoDenoiseDescSet;
-        denoiseWrites[2].dstBinding      = 2;
-        denoiseWrites[2].descriptorCount = 1;
-        denoiseWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        denoiseWrites[2].pImageInfo      = &finalAOStorageInfo;
-
-        vkUpdateDescriptorSets(device, 3, denoiseWrites, 0, nullptr);
     }
 
     void RenderPipeline::WriteViewOutlineSet(ViewResources& vr, FrameTargets& targets)

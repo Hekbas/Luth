@@ -41,7 +41,7 @@ namespace Luth
         if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
             fd.depthFragSpv = sh->GetSpirV();
 
-        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty() || m_Pipeline.GetFullscreenVertSpv().empty())
+        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty() || m_Pipeline.GetPostProcess().GetFullscreenVertSpv().empty())
         {
             LH_CORE_ERROR("Failed to compile debug blit shaders");
             return;
@@ -98,7 +98,7 @@ namespace Luth
         blitConfig.cullMode         = VK_CULL_MODE_NONE;
         blitConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
         fd.blitPipeline = std::make_unique<VKPipeline>(
-            blitConfig, m_Pipeline.GetFullscreenVertSpv(), fd.blitFragSpv, layouts);
+            blitConfig, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.blitFragSpv, layouts);
 
         // Create depth visualization pipeline
         PipelineConfig depthConfig;
@@ -114,7 +114,7 @@ namespace Luth
         depthConfig.pushConstantRanges = { depthPC };
 
         fd.depthPipeline = std::make_unique<VKPipeline>(
-            depthConfig, m_Pipeline.GetFullscreenVertSpv(), fd.depthFragSpv, layouts);
+            depthConfig, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.depthFragSpv, layouts);
     }
 
     RG::ResourceHandle FrameDebuggerContext::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)

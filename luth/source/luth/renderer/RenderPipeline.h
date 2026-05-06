@@ -16,6 +16,8 @@
 #include "luth/renderer/subsystems/GlobalSubsystem.h"
 #include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
+#include "luth/renderer/subsystems/GTAOSubsystem.h"
+#include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -213,21 +215,17 @@ namespace Luth
         const LightingSubsystem& GetLighting() const { return m_Lighting; }
         GeometrySubsystem&       GetGeometry()       { return m_Geometry; }
         const GeometrySubsystem& GetGeometry() const { return m_Geometry; }
-
-        // Temp accessors — expose state that *Subsystem extractions will own. Each is removed in
-        // the sub-task that extracts it. invariant: all gone by sub-task E.
-        const std::vector<u32>& GetFullscreenVertSpv() const   { return m_FullscreenVertSpv; }
-        VkSampler               GetGTAOSampler() const         { return m_GTAOSampler; }
+        GTAOSubsystem&           GetGTAO()         { return m_GTAO; }
+        const GTAOSubsystem&     GetGTAO()   const { return m_GTAO; }
+        PostProcessSubsystem&       GetPostProcess()       { return m_PostProcess; }
+        const PostProcessSubsystem& GetPostProcess() const { return m_PostProcess; }
 
     private:
-        // Init / Update helpers for the subsystems still on RP (GTAO /
-        // PostProcess / EditorOverlays). Per-view state allocated lazily by
-        // EnsureViewResources.
-        void InitPostProcessResources();
-        void InitAOResources();
+        // Init / Update helpers for the subsystems still on RP (EditorOverlays).
+        // Per-view state allocated lazily by EnsureViewResources.
+        void InitOverlayResources();
         void CreatePipelines();
         void BuildSelectionPipelines();
-        void BuildPostPipelines();
         void BuildOutlinePipeline();
         void BuildGridPipeline();
         void RegisterNamedTextures();
@@ -236,11 +234,6 @@ namespace Luth
         // execute lambdas) and returns a handle to its primary output so
         // callers can chain the graph. All pass files live under
         // renderer/passes/ and used to be RenderingSystem methods.
-        RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
-        RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg);
         RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
@@ -288,38 +281,11 @@ namespace Luth
         void DestroyViewResources(ViewResources& vr);
 
         // ---- Subsystems (own their domain state + lifecycle + passes) ----
-        GlobalSubsystem   m_Global;
-        LightingSubsystem m_Lighting;
-        GeometrySubsystem m_Geometry;
-
-        // ---- GTAO shared state (per-view textures/UBO/sets in ViewResources) ----
-        std::unique_ptr<VKComputePipeline> m_GTAOPrefilterPipeline;
-        std::unique_ptr<VKComputePipeline> m_GTAOMainPipeline;
-        std::unique_ptr<VKComputePipeline> m_GTAODenoisePipeline;
-        VkSampler                          m_GTAOSampler             = VK_NULL_HANDLE;
-        VkDescriptorSetLayout              m_GTAOPrefilterDescLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout              m_GTAOMainDescLayout      = VK_NULL_HANDLE;
-        VkDescriptorSetLayout              m_GTAODenoiseDescLayout   = VK_NULL_HANDLE;
-        std::vector<u32>                   m_GTAOPrefilterSpv;
-        std::vector<u32>                   m_GTAOMainSpv;
-        std::vector<u32>                   m_GTAODenoiseSpv;
-
-        // ---- Post-process shared state (per-view bloom + sets in ViewResources) ----
-        // PostProcess UBO is allocated per render-stage from GPUTaggedPageAllocator;
-        // binding 2 of each PP set is rewritten in UpdatePostProcessUBO each frame.
-        VkSampler              m_PPSampler       = VK_NULL_HANDLE;
-        VkDescriptorSetLayout  m_PPDescSetLayout = VK_NULL_HANDLE;
-
-        // ---- Post-process pipelines ----
-        std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
-        std::unique_ptr<VKPipeline> m_BloomBlurPipeline;
-        std::unique_ptr<VKPipeline> m_PostProcessPipeline;
-
-        // ---- Post-process shader SPIR-V ----
-        std::vector<u32> m_FullscreenVertSpv;
-        std::vector<u32> m_BloomExtractFragSpv;
-        std::vector<u32> m_BloomBlurFragSpv;
-        std::vector<u32> m_PostProcessFragSpv;
+        GlobalSubsystem      m_Global;
+        LightingSubsystem    m_Lighting;
+        GeometrySubsystem    m_Geometry;
+        GTAOSubsystem        m_GTAO;
+        PostProcessSubsystem m_PostProcess;
 
         // ---- Selection mask pipelines ----
         std::unique_ptr<VKPipeline> m_SelectionMaskPipeline;

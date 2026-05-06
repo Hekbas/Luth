@@ -67,17 +67,11 @@ namespace Luth
         m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
         m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
         m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
-        m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.vert");
-        m_BloomExtractFragSpv         = loadSpv("shaders/bloomExtract.frag");
-        m_BloomBlurFragSpv            = loadSpv("shaders/bloomBlur.frag");
-        m_PostProcessFragSpv          = loadSpv("shaders/postprocess.frag");
         m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
         m_GridFragSpv                 = loadSpv("shaders/grid.frag");
 
         if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
             m_SelectionMaskSkinnedVertSpv.empty() ||
-            m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
-            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
             m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
         {
             LH_CORE_ERROR("Engine shader SPIR-V empty after asset load!");
@@ -85,7 +79,8 @@ namespace Luth
         }
 
         BoneMatrixBuffer::Init();
-        InitPostProcessResources();
+        InitOverlayResources();
+        m_PostProcess.Init(*this);
 
         // Lighting owns Set 3 + shadow map + IBL + skybox VB/SPVs. Engine ships no HDR;
         // an empty path triggers IBL::Precompute's silent dummy-cubemap fallback —
@@ -111,7 +106,7 @@ namespace Luth
         m_Geometry.BuildPipelines(geoLayouts);
 
         CreatePipelines();
-        InitAOResources();
+        m_GTAO.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -152,66 +147,34 @@ namespace Luth
                 m_Geometry.GetSet5Layout()
             };
             if (m_Lighting.OnShaderReloaded(name, spv, geoLayouts) ||
-                m_Geometry.OnShaderReloaded(name, spv, geoLayouts))
+                m_Geometry.OnShaderReloaded(name, spv, geoLayouts) ||
+                m_GTAO.OnShaderReloaded(name, spv))
             {
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
                 return;
             }
+            // PostProcess returns false for fullscreen.vert so Outline + Grid (RP-owned, share
+            // the same vertex shader) get rebuilt below; non-shared shaders return true to short-circuit.
+            const bool ppHandled = m_PostProcess.OnShaderReloaded(name, spv);
 
             // Pull fresh SPIR-V into the cached blob used by pipeline builders.
             if      (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
             else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
             else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
-            else if (name == "fullscreen.vert")            m_FullscreenVertSpv           = spv;
-            else if (name == "bloomExtract.frag")          m_BloomExtractFragSpv         = spv;
-            else if (name == "bloomBlur.frag")             m_BloomBlurFragSpv            = spv;
-            else if (name == "postprocess.frag")           m_PostProcessFragSpv          = spv;
             else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
             else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
-            else if (name == "gtao_depth_prefilter.comp")  m_GTAOPrefilterSpv            = spv;
-            else if (name == "gtao_main.comp")             m_GTAOMainSpv                 = spv;
-            else if (name == "gtao_denoise.comp")          m_GTAODenoiseSpv              = spv;
             else if (name == "debugBlit.frag")             m_System.GetFrameDebugger().blitFragSpv  = spv;
             else if (name == "debugDepth.frag")            m_System.GetFrameDebugger().depthFragSpv = spv;
+            else if (ppHandled) { LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name); return; }
             // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut) refresh in the
             // library, but the precomputed results don't re-bake — ReloadSkybox() must run.
 
-            // Rebuild graphics pipelines for residual subsystems.
-            deferGfx(m_BloomExtractPipeline);
-            deferGfx(m_BloomBlurPipeline);
-            deferGfx(m_PostProcessPipeline);
+            // Rebuild graphics pipelines for residual subsystems (selection / outline / grid).
             deferGfx(m_OutlinePipeline);
             deferGfx(m_GridPipeline);
             deferGfx(m_SelectionMaskPipeline);
             deferGfx(m_SelectionMaskSkinnedPipeline);
             CreatePipelines();
-
-            // Rebuild the matching compute pipeline (descriptor layouts untouched).
-            // Defer the old pipeline's destroy so any in-flight cmd buffer that bound
-            // it survives until AcquireImage drains the deletion queue.
-            if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
-            {
-                deferComp(m_GTAOPrefilterPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
-                m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(m_GTAOPrefilterSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_main.comp" && m_GTAOMainDescLayout)
-            {
-                deferComp(m_GTAOMainPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float) * 4 + sizeof(u32) * 4 };
-                m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(m_GTAOMainSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_denoise.comp" && m_GTAODenoiseDescLayout)
-            {
-                deferComp(m_GTAODenoisePipeline);
-                m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(m_GTAODenoiseSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
-                    std::vector<VkPushConstantRange>{});
-            }
 
             LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
         });
@@ -249,26 +212,19 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_PostProcess.Shutdown();
+        m_GTAO.Shutdown();
         m_Geometry.Shutdown();
         m_Lighting.Shutdown();
         m_Global.Shutdown();
 
-        // Sub-task-pending state (D / E extract these).
+        // Sub-task-pending state (E extracts these).
         if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
         if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
         if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
         if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
-        if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
-        if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
 
         // GTAO resources (epic #58) — shared.
-        m_GTAOPrefilterPipeline.reset();
-        m_GTAOMainPipeline.reset();
-        m_GTAODenoisePipeline.reset();
-        if (m_GTAOSampler)             vkDestroySampler(device, m_GTAOSampler, nullptr);
-        if (m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
-        if (m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
-        if (m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
     }
 
     void RenderPipeline::OnResize(u32 width, u32 height)
@@ -342,20 +298,20 @@ namespace Luth
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
         // on a mid-range GPU at 1080p; can be gated later if a cheaper
         // bypass path is worth the complexity.
-        RG::ResourceHandle gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
-        RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
-        RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
+        RG::ResourceHandle gtaoLinearDepth = m_GTAO.AddPrefilterPass(rg, prepassDepth);
+        RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
+        RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
         auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-        RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
                                          ? AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
-        RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
+        RG::ResourceHandle ldrOutput   = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
@@ -740,6 +696,9 @@ namespace Luth
         return m_Geometry.EnsureMaterialRegistered(material);
     }
 
+    void RenderPipeline::UpdatePostProcessUBO() { m_PostProcess.UpdateUBO(); }
+    void RenderPipeline::UpdateGTAOUBO()        { m_GTAO.UpdateUBO(); }
+
     void RenderPipeline::ReloadSkybox(const fs::path& hdrPath)
     {
         std::vector<VkDescriptorSetLayout> geoLayouts = {
@@ -756,7 +715,7 @@ namespace Luth
         GlobalViewWriteContext ctx{};
         ctx.haveIBL          = m_Lighting.IsIBLReady();
         ctx.iblSampler       = m_Lighting.GetIBLSampler();
-        ctx.gtaoSampler      = m_GTAOSampler;
+        ctx.gtaoSampler      = m_GTAO.GetSampler();
         if (ctx.haveIBL)
         {
             ctx.irradianceView  = std::static_pointer_cast<VKTexture>(m_Lighting.GetIrradianceMap())->GetImageView();

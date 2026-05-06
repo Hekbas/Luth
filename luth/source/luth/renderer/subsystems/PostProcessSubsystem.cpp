@@ -1,0 +1,497 @@
+#include "luthpch.h"
+#include "luth/renderer/subsystems/PostProcessSubsystem.h"
+#include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/FrameTargets.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/draw/DrawCommand.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/core/FrameData.h"
+#include "luth/core/time/Time.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
+
+namespace Luth
+{
+    void PostProcessSubsystem::Init(RenderPipeline& pipeline)
+    {
+        m_Pipeline = &pipeline;
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        samplerInfo.magFilter    = VK_FILTER_LINEAR;
+        samplerInfo.minFilter    = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        vkCreateSampler(device, &samplerInfo, nullptr, &m_Sampler);
+
+        // Bloom extract / blur / composite descriptor layout:
+        //   binding 0 = sampler2D (primary), binding 1 = sampler2D (secondary), binding 2 = UBO.
+        VkDescriptorSetLayoutBinding bindings[3] = {};
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        // Binding 2 (PP UBO) is rebound per render-stage to a fresh tagged-heap region.
+        VkDescriptorBindingFlags ppBindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo ppBindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        ppBindingFlagsInfo.bindingCount  = 3;
+        ppBindingFlagsInfo.pBindingFlags = ppBindingFlags;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext        = &ppBindingFlagsInfo;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutInfo.bindingCount = 3;
+        layoutInfo.pBindings    = bindings;
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescSetLayout);
+
+        auto loadSpv = [](const char* relPath) -> std::vector<u32> {
+            auto sh = ShaderLibrary::LoadEngine(relPath);
+            return sh ? sh->GetSpirV() : std::vector<u32>{};
+        };
+        m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.vert");
+        m_BloomExtractFragSpv = loadSpv("shaders/bloomExtract.frag");
+        m_BloomBlurFragSpv    = loadSpv("shaders/bloomBlur.frag");
+        m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
+
+        if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
+            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty())
+        {
+            LH_CORE_ERROR("PostProcessSubsystem: shader SPIR-V empty after asset load!");
+            return;
+        }
+
+        BuildPipelines();
+    }
+
+    void PostProcessSubsystem::BuildPipelines()
+    {
+        std::vector<VkDescriptorSetLayout> ppLayouts = { m_DescSetLayout };
+
+        if (!m_BloomExtractFragSpv.empty())
+        {
+            VkPushConstantRange bloomExtractPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) * 4 };
+            PipelineConfig cfg;
+            cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false; cfg.depthWrite = false;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { bloomExtractPC };
+            m_BloomExtractPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_BloomExtractFragSpv, ppLayouts);
+        }
+        if (!m_BloomBlurFragSpv.empty())
+        {
+            VkPushConstantRange bloomBlurPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) * 4 };
+            PipelineConfig cfg;
+            cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false; cfg.depthWrite = false;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { bloomBlurPC };
+            m_BloomBlurPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_BloomBlurFragSpv, ppLayouts);
+        }
+        if (!m_PostProcessFragSpv.empty())
+        {
+            PipelineConfig cfg;
+            cfg.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false; cfg.depthWrite = false;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            m_PostProcessPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
+        }
+    }
+
+    void PostProcessSubsystem::Shutdown()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        m_PostProcessPipeline.reset();
+        m_BloomBlurPipeline.reset();
+        m_BloomExtractPipeline.reset();
+        if (m_Sampler)       { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
+        if (m_DescSetLayout) { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
+    }
+
+    bool PostProcessSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
+    {
+        auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
+            if (auto* raw = p.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        };
+
+        if      (name == "fullscreen.vert")    m_FullscreenVertSpv   = spv;
+        else if (name == "bloomExtract.frag")  m_BloomExtractFragSpv = spv;
+        else if (name == "bloomBlur.frag")     m_BloomBlurFragSpv    = spv;
+        else if (name == "postprocess.frag")   m_PostProcessFragSpv  = spv;
+        else return false;
+
+        deferGfx(m_BloomExtractPipeline);
+        deferGfx(m_BloomBlurPipeline);
+        deferGfx(m_PostProcessPipeline);
+        BuildPipelines();
+        // For fullscreen.vert, return false so the orchestrator also rebuilds Outline + Grid
+        // (they share the same vertex shader). PostProcess pipelines are already rebuilt above.
+        return name != "fullscreen.vert";
+    }
+
+    void PostProcessSubsystem::UpdateUBO()
+    {
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!vr || vr->compositeDescSet == VK_NULL_HANDLE) return;
+
+        const auto& s = m_Pipeline->GetSystem().GetPostProcessSettings();
+        PostProcessUBO ubo{};
+        ubo.bloomThreshold      = s.bloomThreshold;
+        ubo.bloomStrength       = s.bloomStrength;
+        ubo.exposure            = s.exposure;
+        ubo.contrast            = s.contrast;
+        ubo.saturation          = s.saturation;
+        ubo.tonemapOp           = static_cast<int>(s.tonemapOp);
+        ubo.vignetteAmount      = s.vignetteAmount;
+        ubo.vignetteHardness    = s.vignetteHardness;
+        ubo.grainAmount         = s.grainAmount;
+        ubo.sharpness           = s.sharpness;
+        ubo.chromaticAberration = s.chromaticAberration;
+        ubo.time                = Time::GetTime();
+        ubo.shadowBalance       = s.shadowBalance;
+        ubo.midtoneBalance      = s.midtoneBalance;
+        ubo.highlightBalance    = s.highlightBalance;
+
+        // All 4 PP descriptor sets share one tagged-heap region.
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return;
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+
+        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
+        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
+        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(PostProcessUBO), al);
+        if (!region.buffer) return;
+
+        memcpy(region.mappedPtr, &ubo, sizeof(PostProcessUBO));
+        heap.FlushRegion(region);
+
+        VkDescriptorBufferInfo bi{};
+        bi.buffer = region.buffer;
+        bi.offset = region.offset;
+        bi.range  = region.size;
+
+        const VkDescriptorSet ppSets[4] = {
+            vr->bloomExtractDescSet,
+            vr->bloomBlurHDescSet,
+            vr->bloomBlurVDescSet,
+            vr->compositeDescSet,
+        };
+        VkWriteDescriptorSet writes[4] = {};
+        u32 n = 0;
+        for (u32 i = 0; i < 4; ++i)
+        {
+            if (ppSets[i] == VK_NULL_HANDLE) continue;
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = ppSets[i];
+            writes[n].dstBinding      = 2;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[n].descriptorCount = 1;
+            writes[n].pBufferInfo     = &bi;
+            ++n;
+        }
+        if (n > 0) vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), n, writes, 0, nullptr);
+    }
+
+    void PostProcessSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (vr.compositeDescSet == VK_NULL_HANDLE) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        auto sceneVk  = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(vr.bloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(vr.bloomB);
+
+        auto makeImg = [&](VkImageView v) {
+            VkDescriptorImageInfo info{};
+            info.sampler     = m_Sampler;
+            info.imageView   = v;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            return info;
+        };
+
+        VkDescriptorImageInfo bloomExtractImg0 = makeImg(sceneVk->GetImageView());
+        VkDescriptorImageInfo bloomExtractImg1 = makeImg(bloomAVk->GetImageView());
+        VkDescriptorImageInfo blurHImg0        = makeImg(bloomAVk->GetImageView());
+        VkDescriptorImageInfo blurHImg1        = makeImg(bloomBVk->GetImageView());
+        VkDescriptorImageInfo blurVImg0        = makeImg(bloomBVk->GetImageView());
+        VkDescriptorImageInfo blurVImg1        = makeImg(bloomAVk->GetImageView());
+        VkDescriptorImageInfo compImg0         = makeImg(sceneVk->GetImageView());
+        VkDescriptorImageInfo compImg1         = makeImg(bloomAVk->GetImageView());
+
+        VkWriteDescriptorSet writes[8] = {};
+        u32 idx = 0;
+        auto addImg = [&](VkDescriptorSet set, u32 binding, VkDescriptorImageInfo* imgInfo) {
+            writes[idx] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[idx].dstSet          = set;
+            writes[idx].dstBinding      = binding;
+            writes[idx].descriptorCount = 1;
+            writes[idx].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[idx].pImageInfo      = imgInfo;
+            ++idx;
+        };
+
+        addImg(vr.bloomExtractDescSet, 0, &bloomExtractImg0);
+        addImg(vr.bloomExtractDescSet, 1, &bloomExtractImg1);
+        addImg(vr.bloomBlurHDescSet,   0, &blurHImg0);
+        addImg(vr.bloomBlurHDescSet,   1, &blurHImg1);
+        addImg(vr.bloomBlurVDescSet,   0, &blurVImg0);
+        addImg(vr.bloomBlurVDescSet,   1, &blurVImg1);
+        addImg(vr.compositeDescSet,    0, &compImg0);
+        addImg(vr.compositeDescSet,    1, &compImg1);
+
+        vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
+    }
+
+    RG::ResourceHandle PostProcessSubsystem::AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
+    {
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!m_BloomExtractPipeline || !m_BloomBlurPipeline || !vr->bloomA || !vr->bloomB)
+            return {};
+
+        struct BloomPassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle input;
+        };
+
+        u32 halfW = vr->bloomA->GetWidth();
+        u32 halfH = vr->bloomA->GetHeight();
+        auto bloomAVk = std::static_pointer_cast<VKTexture>(vr->bloomA);
+        auto bloomBVk = std::static_pointer_cast<VKTexture>(vr->bloomB);
+
+        // BloomExtract: SceneColor → BloomA.
+        RG::ResourceHandle bloomAHandle;
+        rg.AddPass<BloomPassData>("BloomExtract",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "BloomA";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomAVk->GetImage(), (void*)bloomAVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+                data.input  = builder.Read(sceneColor);
+                bloomAHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomExtract", "BloomA", false,
+                    { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomExtractPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomExtractPipeline->GetLayout(), 0, 1, &vr->bloomExtractDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { sys.GetPostProcessSettings().bloomThreshold, 0, 0, 0 };
+                vkCmdPushConstants(cmd, m_BloomExtractPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
+                    { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+
+        // BloomBlurH: BloomA → BloomB.
+        RG::ResourceHandle bloomBHandle;
+        rg.AddPass<BloomPassData>("BloomBlurH",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "BloomB";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomBVk->GetImage(), (void*)bloomBVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+                data.input  = builder.Read(bloomAHandle);
+                bloomBHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurH", "BloomB", false,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomBlurPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurHDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { 1.0f / (float)halfW, 0.0f, 0.0f, 0.0f };
+                vkCmdPushConstants(cmd, m_BloomBlurPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+
+        // BloomBlurV: BloomB → BloomA (re-imported as BloomAFinal).
+        RG::ResourceHandle finalBloomHandle;
+        rg.AddPass<BloomPassData>("BloomBlurV",
+            [&](BloomPassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "BloomAFinal";
+                desc.width  = halfW;
+                desc.height = halfH;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)bloomAVk->GetImage(), (void*)bloomAVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output = builder.Write(data.output);
+                data.input  = builder.Read(bloomBHandle);
+                finalBloomHandle = data.output;
+            },
+            [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurV", "BloomAFinal", false,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_BloomBlurPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurVDescSet, 0, nullptr);
+
+                VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { halfW, halfH };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                float pc[4] = { 0.0f, 1.0f / (float)halfH, 0.0f, 0.0f };
+                vkCmdPushConstants(cmd, m_BloomBlurPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
+                    { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+
+        return finalBloomHandle;
+    }
+
+    RG::ResourceHandle PostProcessSubsystem::AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
+    {
+        const auto* view = m_Pipeline->GetCurrentView();
+        if (!m_PostProcessPipeline || !view->targets->GetLDROutput())
+            return sceneColor;
+
+        struct PostProcessPassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle hdrInput;
+            RG::ResourceHandle bloomInput;
+        };
+        RG::ResourceHandle outputHandle;
+        auto ldrVk = std::static_pointer_cast<VKTexture>(view->targets->GetLDROutput());
+
+        rg.AddPass<PostProcessPassData>("PostProcess",
+            [&, sceneColor, bloomResult, ldrVk](PostProcessPassData& data, RG::RenderPassBuilder& builder)
+            {
+                const auto* v = m_Pipeline->GetCurrentView();
+                RG::TextureDesc desc;
+                desc.name   = "LDROutput";
+                desc.width  = v->targets->GetLDROutput()->GetWidth();
+                desc.height = v->targets->GetLDROutput()->GetHeight();
+                desc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)ldrVk->GetImage(), (void*)ldrVk->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+                data.output = builder.Write(data.output);
+
+                data.hdrInput = builder.Read(sceneColor);
+                if (bloomResult.IsValid())
+                    data.bloomInput = builder.Read(bloomResult);
+
+                outputHandle = data.output;
+            },
+            [this](PostProcessPassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                const auto* v = m_Pipeline->GetCurrentView();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "PostProcess", "LDROutput", false,
+                    { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_PostProcessPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_PostProcessPipeline->GetLayout(), 0, 1, &vr->compositeDescSet, 0, nullptr);
+
+                u32 w = v->targets->GetLDROutput()->GetWidth();
+                u32 h = v->targets->GetLDROutput()->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("PostProcess", "FullscreenTriangle", "PostProcess", 0, 0, dummyPC,
+                    { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+        return outputHandle;
+    }
+}
