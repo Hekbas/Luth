@@ -37,19 +37,9 @@ namespace Luth
         bindings[5].descriptorCount = 1;
         bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per render-stage to fresh
-        // GPUTaggedPageAllocator regions. Samplers (1-4) are stable.
-        VkDescriptorBindingFlags bindingFlags[6] = {
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0, 0, 0, 0,
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
-        };
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsInfo.bindingCount  = 6;
-        bindingFlagsInfo.pBindingFlags = bindingFlags;
-
+        // Bindings 0 (Global UBO) + 5 (GTAO UBO) rebound per render-stage against
+        // a per-frame slot of vr.globalDescriptorSet — UAB no longer required.
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.pNext        = &bindingFlagsInfo;
-        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 6;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
@@ -66,8 +56,10 @@ namespace Luth
 
     // Allocates a per-frame UBO region from GPUTaggedPageAllocator and rebinds Set 0
     // binding 0 + Grid set binding 0 to it. invariant: the Grid set's binding 0
-    // shares this exact region — the two writes MUST stay in one batched call so
-    // we don't double-allocate per frame (see arch/rendering-pipeline.md).
+    // shares this exact region AND the same per-frame slot — the two writes MUST
+    // stay in one batched call so we don't double-allocate per frame, and both must
+    // use the same `slot` so the next frame's allocator doesn't overwrite a region
+    // the previous frame's Grid binding still references (see arch/rendering-pipeline.md).
     void GlobalSubsystem::UpdateUBO(const CameraParams& camera, const CascadeData& cascades,
                                     const DirectionalLightShadowParams& shadowParams)
     {
@@ -96,11 +88,13 @@ namespace Luth
         m_CachedViewProj = ubo.viewProjection;
 
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-        if (!vr || vr->globalDescriptorSet == VK_NULL_HANDLE) return;
+        if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap   = Memory::GPUTaggedPageAllocator::Get();
         const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
@@ -117,17 +111,17 @@ namespace Luth
 
         VkWriteDescriptorSet writes[2] = {};
         writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr->globalDescriptorSet;
+        writes[0].dstSet          = vr->globalDescriptorSet[slot];
         writes[0].dstBinding      = 0;
         writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[0].descriptorCount = 1;
         writes[0].pBufferInfo     = &bi;
 
         u32 n = 1;
-        if (vr->gridDescSet != VK_NULL_HANDLE)
+        if (vr->gridDescSet[0] != VK_NULL_HANDLE)
         {
             writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[1].dstSet          = vr->gridDescSet;
+            writes[1].dstSet          = vr->gridDescSet[slot];
             writes[1].dstBinding      = 0;
             writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             writes[1].descriptorCount = 1;
@@ -140,7 +134,7 @@ namespace Luth
 
     void GlobalSubsystem::WriteView(ViewResources& vr, const GlobalViewWriteContext& ctx)
     {
-        if (vr.globalDescriptorSet == VK_NULL_HANDLE) return;
+        if (vr.globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -165,43 +159,48 @@ namespace Luth
         gtaoFinalInfo.imageView   = ctx.gtaoFinalView;
         gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet writes[4] = {};
+        // Stable bindings — propagate to every cycled slot. Allocate-time write;
+        // resize path (RenderPipeline::EnsureViewResources) gates on WaitForGPU
+        // before re-entering WriteView so no in-flight cmd buffer is bound.
+        VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT] = {};
         u32 n = 0;
-
-        if (ctx.haveIBL)
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
         {
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 1;
-            writes[n].descriptorCount = 1;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &irrInfo;
-            ++n;
+            if (ctx.haveIBL)
+            {
+                writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[n].dstSet          = vr.globalDescriptorSet[s];
+                writes[n].dstBinding      = 1;
+                writes[n].descriptorCount = 1;
+                writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[n].pImageInfo      = &irrInfo;
+                ++n;
+
+                writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[n].dstSet          = vr.globalDescriptorSet[s];
+                writes[n].dstBinding      = 2;
+                writes[n].descriptorCount = 1;
+                writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[n].pImageInfo      = &pfInfo;
+                ++n;
+
+                writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[n].dstSet          = vr.globalDescriptorSet[s];
+                writes[n].dstBinding      = 3;
+                writes[n].descriptorCount = 1;
+                writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[n].pImageInfo      = &lutInfo;
+                ++n;
+            }
 
             writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 2;
+            writes[n].dstSet          = vr.globalDescriptorSet[s];
+            writes[n].dstBinding      = 4;
             writes[n].descriptorCount = 1;
             writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &pfInfo;
-            ++n;
-
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 3;
-            writes[n].descriptorCount = 1;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &lutInfo;
+            writes[n].pImageInfo      = &gtaoFinalInfo;
             ++n;
         }
-
-        writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[n].dstSet          = vr.globalDescriptorSet;
-        writes[n].dstBinding      = 4;
-        writes[n].descriptorCount = 1;
-        writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[n].pImageInfo      = &gtaoFinalInfo;
-        ++n;
 
         if (n > 0) vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
     }

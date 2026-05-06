@@ -117,16 +117,10 @@ namespace Luth
             bindings[1].descriptorCount = 1;
             bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-            // invariant: binding 0 (per-view GlobalUBO) shares lifetime with Set 0 binding 0
-            // — rebound per render-stage by GlobalSubsystem::UpdateUBO to the same heap region.
-            VkDescriptorBindingFlags bf[2] = { VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0 };
-            VkDescriptorSetLayoutBindingFlagsCreateInfo bfi{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bfi.bindingCount  = 2;
-            bfi.pBindingFlags = bf;
-
+            // invariant: binding 0 (per-view GlobalUBO) shares lifetime AND slot with
+            // Set 0 binding 0 — rebound per render-stage by GlobalSubsystem::UpdateUBO
+            // to the same heap region against the same `slot`. Cycling makes UAB unnecessary.
             VkDescriptorSetLayoutCreateInfo li{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            li.pNext        = &bfi;
-            li.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             li.bindingCount = 2;
             li.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &li, nullptr, &m_GridDescSetLayout);
@@ -323,26 +317,30 @@ namespace Luth
 
     void EditorOverlaysSubsystem::WriteGridView(ViewResources& vr, FrameTargets& targets)
     {
-        if (vr.gridDescSet == VK_NULL_HANDLE || m_GridDepthSampler == VK_NULL_HANDLE) return;
+        if (vr.gridDescSet[0] == VK_NULL_HANDLE || m_GridDepthSampler == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Binding 0 (per-view GlobalUBO) is rewritten per render-stage by GlobalSubsystem::UpdateUBO.
-        // Stable depth-sampler binding only.
+        // Binding 0 (per-view GlobalUBO) rewritten per render-stage by GlobalSubsystem::UpdateUBO.
+        // Stable depth-sampler binding propagated to every cycled slot.
         auto vkScnDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
         VkDescriptorImageInfo depthInfo{};
         depthInfo.sampler     = m_GridDepthSampler;
         depthInfo.imageView   = vkScnDepth->GetImageView();
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet samplerWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        samplerWrite.dstSet          = vr.gridDescSet;
-        samplerWrite.dstBinding      = 1;
-        samplerWrite.descriptorCount = 1;
-        samplerWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerWrite.pImageInfo      = &depthInfo;
+        VkWriteDescriptorSet samplerWrites[MAX_FRAMES_IN_FLIGHT] = {};
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            samplerWrites[s] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            samplerWrites[s].dstSet          = vr.gridDescSet[s];
+            samplerWrites[s].dstBinding      = 1;
+            samplerWrites[s].descriptorCount = 1;
+            samplerWrites[s].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            samplerWrites[s].pImageInfo      = &depthInfo;
+        }
 
-        vkUpdateDescriptorSets(device, 1, &samplerWrite, 0, nullptr);
+        vkUpdateDescriptorSets(device, MAX_FRAMES_IN_FLIGHT, samplerWrites, 0, nullptr);
     }
 
     void EditorOverlaysSubsystem::CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const
@@ -426,7 +424,7 @@ namespace Luth
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    vr->globalDescriptorSet,
+                    vr->globalDescriptorSet[slot],
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
                     m_Pipeline->GetLighting().GetLightDescSet(slot),
@@ -607,9 +605,10 @@ namespace Luth
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_GridPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_GridPipeline->GetLayout(), 0, 1, &vr->gridDescSet, 0, nullptr);
+                    m_GridPipeline->GetLayout(), 0, 1, &vr->gridDescSet[slot], 0, nullptr);
 
                 RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.colorTex);
                 VkViewport vp{};

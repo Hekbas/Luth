@@ -201,7 +201,7 @@ namespace Luth
     void GTAOSubsystem::UpdateUBO()
     {
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-        if (!vr || vr->globalDescriptorSet == VK_NULL_HANDLE) return;
+        if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         const auto& s = m_Pipeline->GetSystem().GetPostProcessSettings().gtao;
         GTAOUBO ubo{};
@@ -225,11 +225,15 @@ namespace Luth
         ubo.invFullResolution[0] = 1.0f / float(fullW);
         ubo.invFullResolution[1] = 1.0f / float(fullH);
 
-        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame region.
-        // The two writes MUST stay in one batched call so we don't double-allocate per frame.
+        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame
+        // region AND the same per-frame slot. The two writes MUST stay in one batched call
+        // so we don't double-allocate, and both must use the same `slot` so the next frame's
+        // allocator doesn't overwrite a region the previous frame's binding still references.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap   = Memory::GPUTaggedPageAllocator::Get();
         const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
@@ -246,7 +250,7 @@ namespace Luth
 
         VkWriteDescriptorSet writes[2] = {};
         writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr->globalDescriptorSet;
+        writes[0].dstSet          = vr->globalDescriptorSet[slot];
         writes[0].dstBinding      = 5;
         writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[0].descriptorCount = 1;

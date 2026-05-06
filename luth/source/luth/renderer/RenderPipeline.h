@@ -80,8 +80,9 @@ namespace Luth
 
         // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
         // render-stage to fresh GPUTaggedPageAllocator regions in UpdateGlobalUniforms /
-        // UpdateGTAOUBO. IBL samplers (1-3) and GTAO final sampler (4) are stable.
-        VkDescriptorSet                  globalDescriptorSet = VK_NULL_HANDLE;
+        // UpdateGTAOUBO against per-frame slot. IBL samplers (1-3) and GTAO final
+        // sampler (4) are stable — replicated across all slots at WriteView time.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> globalDescriptorSet{};
 
         // Bloom half-res ping-pong textures (RGBA16F).
         std::shared_ptr<Texture> bloomA;
@@ -108,7 +109,7 @@ namespace Luth
         // Editor overlays — allocated for every view, bound only by the
         // scene view (game view's subgraph skips both passes via flags).
         VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet gridDescSet    = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
     };
 
     // Owns the per-frame render-graph assembly and execution. Created by
