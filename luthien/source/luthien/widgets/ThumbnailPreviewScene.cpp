@@ -7,6 +7,7 @@
 #include "luth/renderer/RenderBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/backend/vulkan/TimelineSemaphore.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -21,6 +22,7 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <vma/vk_mem_alloc.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -71,14 +73,37 @@ namespace Luth::UI::ThumbnailPreviewScene
         // material thumbnails are needed yet.
         std::shared_ptr<Model>      s_SphereModel;
 
-        // Live inspector render target — separate from the bake RTs so disk
-        // thumbnails (128²) and inspector previews (256²) don't conflict.
-        // Lazy-init on first inspector call. Shared single set since only one
-        // Material/Model inspector is visible inside InspectorPanel at a time.
-        constexpr u32 kInspectorSize = 256;
-        std::shared_ptr<Texture>    s_InspectorColorRT;
-        std::shared_ptr<Texture>    s_InspectorDepthRT;
-        VkDescriptorSet             s_InspectorImGuiSet = VK_NULL_HANDLE;
+        // Async ring submission: per-slot RT + sampler set + cmd buffer signaled
+        // via dedicated timeline semaphore so per-frame inspector renders don't
+        // stall the device. Lazy-init on first inspector call. Slot count matches
+        // MAX_FRAMES_IN_FLIGHT (game can be 3 frames ahead of GPU).
+        constexpr u32 kInspectorSize     = 256;
+        constexpr u32 kInspectorRingSize = 3; // matches MAX_FRAMES_IN_FLIGHT
+
+        struct InspectorSlot
+        {
+            std::shared_ptr<Texture> color;
+            std::shared_ptr<Texture> depth;
+            VkDescriptorSet          imguiSet     = VK_NULL_HANDLE;
+            VkDescriptorSet          samplerSet   = VK_NULL_HANDLE;
+            VkCommandBuffer          cmd          = VK_NULL_HANDLE;
+            u64                      timelineValue = 0;
+        };
+
+        std::array<InspectorSlot, kInspectorRingSize> s_Ring{};
+        VkCommandPool         s_InspectorCmdPool        = VK_NULL_HANDLE;
+        VkDescriptorSetLayout s_InspectorSamplerLayout  = VK_NULL_HANDLE;
+        VkDescriptorPool      s_InspectorSamplerPool    = VK_NULL_HANDLE;
+        TimelineSemaphore     s_InspectorTimeline;
+        u64                   s_NextSubmitValue         = 0;
+        u32                   s_RingHead                = 0;
+        ImTextureID           s_LastGoodInspectorTex    = (ImTextureID)0;
+
+        // Material-change gate keys — `RenderMaterialInspector` re-runs
+        // LoadImmediate + vkDeviceWaitIdle only when the inspected material's
+        // identity or its texture-map UUID set changes.
+        UUID                  s_LastInspectorMaterialHandle = UUID::Invalid();
+        size_t                s_LastInspectorMaterialTexHash = 0;
 
         bool VulkanActive()
         {
@@ -210,6 +235,26 @@ namespace Luth::UI::ThumbnailPreviewScene
             vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
         }
 
+        // Per-slot variant for the async inspector path. The slot's sampler set
+        // is private to its in-flight cmd buffer, so writes here cannot race
+        // a pending submission as long as the caller has waited on that slot's
+        // timeline value before recording.
+        void UpdateInspectorSamplerSet(VkDescriptorSet set, VkImageView view, VkSampler sampler)
+        {
+            VkDescriptorImageInfo info{};
+            info.sampler     = sampler;
+            info.imageView   = view;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            w.dstSet          = set;
+            w.dstBinding      = 0;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.descriptorCount = 1;
+            w.pImageInfo      = &info;
+            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
+        }
+
         bool CreatePipelines()
         {
             std::vector<u32> vert, frag;
@@ -281,24 +326,57 @@ namespace Luth::UI::ThumbnailPreviewScene
     void Shutdown()
     {
         s_Initialized = false;
+
+        // Drain in-flight inspector submissions before tearing down their
+        // resources. Timeline must reach the last signal value or we may
+        // free a cmd buffer / RT the GPU is still consuming.
+        VkDevice device = VulkanActive() ? VulkanContext::Get().GetDevice() : VK_NULL_HANDLE;
+        if (device != VK_NULL_HANDLE
+            && s_InspectorTimeline.GetHandle() != VK_NULL_HANDLE
+            && s_NextSubmitValue > 0)
+        {
+            s_InspectorTimeline.Wait(s_NextSubmitValue);
+        }
+
         s_PipelineStatic.reset();   // ~VKPipeline destroys VkPipeline + layout
         s_PipelineSkinned.reset();
         s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
-        s_InspectorColorRT.reset();
-        s_InspectorDepthRT.reset();
-        // ImGui descriptor pool is destroyed during Editor::Shutdown alongside
-        // ours; skip ImGui_ImplVulkan_RemoveTexture (would race with pool destroy).
-        s_InspectorImGuiSet = VK_NULL_HANDLE;
+
+        // Inspector ring teardown. ImGui descriptor pool is destroyed during
+        // Editor::Shutdown alongside ours; skip ImGui_ImplVulkan_RemoveTexture
+        // (would race with pool destroy).
+        for (auto& slot : s_Ring) {
+            slot.color.reset();
+            slot.depth.reset();
+            slot.imguiSet     = VK_NULL_HANDLE;
+            slot.samplerSet   = VK_NULL_HANDLE;
+            slot.cmd          = VK_NULL_HANDLE;
+            slot.timelineValue = 0;
+        }
+        s_LastGoodInspectorTex         = (ImTextureID)0;
+        s_LastInspectorMaterialHandle  = UUID::Invalid();
+        s_LastInspectorMaterialTexHash = 0;
+        s_RingHead                     = 0;
+        s_NextSubmitValue              = 0;
+
         s_WhiteTexture.reset();
         s_SphereModel.reset();
 
-        VkDevice device = VulkanActive() ? VulkanContext::Get().GetDevice() : VK_NULL_HANDLE;
         if (device != VK_NULL_HANDLE) {
-            // Pool destroy frees the allocated set.
+            // Pool destroy frees the allocated sets and command buffers.
+            if (s_InspectorSamplerPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_InspectorSamplerPool, nullptr);
+            if (s_InspectorSamplerLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_InspectorSamplerLayout, nullptr);
+            if (s_InspectorCmdPool       != VK_NULL_HANDLE) vkDestroyCommandPool(device, s_InspectorCmdPool, nullptr);
+
             if (s_SamplerPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_SamplerPool, nullptr);
             if (s_SamplerLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_SamplerLayout, nullptr);
         }
+        s_InspectorSamplerPool   = VK_NULL_HANDLE;
+        s_InspectorSamplerLayout = VK_NULL_HANDLE;
+        s_InspectorCmdPool       = VK_NULL_HANDLE;
+        s_InspectorTimeline.Shutdown();
+
         s_SamplerPool   = VK_NULL_HANDLE;
         s_SamplerLayout = VK_NULL_HANDLE;
         s_SamplerSet    = VK_NULL_HANDLE;
@@ -550,32 +628,107 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     namespace
     {
-        // Lazy-create the inspector RTs + ImGui descriptor on first call.
-        // The descriptor outlives any single bake (caller draws ImGui::Image
-        // referencing it), so we register it once and reuse.
-        bool EnsureInspectorRTs()
+        // Lazy-create the inspector ring on first call. Each slot owns its own
+        // RT pair, sampler set, ImGui descriptor and primary command buffer.
+        // The ImGui descriptors outlive any single render (caller draws
+        // ImGui::Image referencing them), so they're registered once and reused.
+        bool EnsureInspectorRing()
         {
-            if (s_InspectorImGuiSet != VK_NULL_HANDLE) return true;
+            if (s_InspectorCmdPool != VK_NULL_HANDLE) return true;
             if (!s_Initialized || !VulkanActive()) return false;
 
-            s_InspectorColorRT = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::RGBA8);
-            s_InspectorDepthRT = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::D32_Float);
-            if (!s_InspectorColorRT || !s_InspectorDepthRT) {
-                s_InspectorColorRT.reset();
-                s_InspectorDepthRT.reset();
-                return false;
+            VkDevice device = VulkanContext::Get().GetDevice();
+
+            // Inspector sampler layout/pool — separate from the bake path's
+            // single set so per-slot writes don't race with bake submissions.
+            {
+                VkDescriptorSetLayoutBinding binding{};
+                binding.binding         = 0;
+                binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                binding.descriptorCount = 1;
+                binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+                layoutInfo.bindingCount = 1;
+                layoutInfo.pBindings    = &binding;
+                if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &s_InspectorSamplerLayout) != VK_SUCCESS)
+                    return false;
+
+                VkDescriptorPoolSize poolSize{};
+                poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                poolSize.descriptorCount = kInspectorRingSize;
+
+                VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+                poolInfo.maxSets       = kInspectorRingSize;
+                poolInfo.poolSizeCount = 1;
+                poolInfo.pPoolSizes    = &poolSize;
+                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &s_InspectorSamplerPool) != VK_SUCCESS)
+                    return false;
             }
 
-            // Texture::Create dispatches the upload async; flush so the first
-            // sample isn't UB. Cost is paid once on first inspector open.
-            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            // Cmd pool with RESET_COMMAND_BUFFER_BIT — slot buffers are reused
+            // per submission rather than freed/reallocated.
+            {
+                VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+                poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+                poolInfo.queueFamilyIndex = VulkanContext::Get().GetGraphicsFamily();
+                if (vkCreateCommandPool(device, &poolInfo, nullptr, &s_InspectorCmdPool) != VK_SUCCESS)
+                    return false;
+            }
 
-            auto vkColor = std::static_pointer_cast<VKTexture>(s_InspectorColorRT);
-            s_InspectorImGuiSet = ImGui_ImplVulkan_AddTexture(
-                vkColor->GetSampler(),
-                vkColor->GetImageView(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            return s_InspectorImGuiSet != VK_NULL_HANDLE;
+            // Allocate per-slot resources: cmd buffer, sampler set, RT pair,
+            // ImGui descriptor for the color view.
+            VkCommandBuffer cmdBufs[kInspectorRingSize]{};
+            {
+                VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+                allocInfo.commandPool        = s_InspectorCmdPool;
+                allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                allocInfo.commandBufferCount = kInspectorRingSize;
+                if (vkAllocateCommandBuffers(device, &allocInfo, cmdBufs) != VK_SUCCESS)
+                    return false;
+            }
+
+            VkDescriptorSet samplerSets[kInspectorRingSize]{};
+            {
+                VkDescriptorSetLayout layouts[kInspectorRingSize];
+                for (u32 i = 0; i < kInspectorRingSize; ++i) layouts[i] = s_InspectorSamplerLayout;
+
+                VkDescriptorSetAllocateInfo alloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+                alloc.descriptorPool     = s_InspectorSamplerPool;
+                alloc.descriptorSetCount = kInspectorRingSize;
+                alloc.pSetLayouts        = layouts;
+                if (vkAllocateDescriptorSets(device, &alloc, samplerSets) != VK_SUCCESS)
+                    return false;
+            }
+
+            for (u32 i = 0; i < kInspectorRingSize; ++i) {
+                auto& slot = s_Ring[i];
+                slot.cmd        = cmdBufs[i];
+                slot.samplerSet = samplerSets[i];
+                slot.color      = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::RGBA8);
+                slot.depth      = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::D32_Float);
+                if (!slot.color || !slot.depth) return false;
+            }
+
+            // Texture::Create dispatches uploads async; flush once so first
+            // samples and first layout transitions are well-defined. Paid
+            // once at first inspector open.
+            vkDeviceWaitIdle(device);
+
+            for (u32 i = 0; i < kInspectorRingSize; ++i) {
+                auto& slot = s_Ring[i];
+                auto vkColor = std::static_pointer_cast<VKTexture>(slot.color);
+                slot.imguiSet = ImGui_ImplVulkan_AddTexture(
+                    vkColor->GetSampler(),
+                    vkColor->GetImageView(),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (slot.imguiSet == VK_NULL_HANDLE) return false;
+            }
+
+            s_InspectorTimeline.Init(0);
+            s_NextSubmitValue = 0;
+            s_RingHead        = 0;
+            return true;
         }
 
         // Eye/view from AABB + orbit. Distance derived from largest half-axis
@@ -602,10 +755,12 @@ namespace Luth::UI::ThumbnailPreviewScene
 
         ImTextureID RenderInspectorInternal(const std::shared_ptr<Model>& model,
                                             Vec4 albedo,
-                                            const ThumbnailPreviewScene::OrbitCamera& orb)
+                                            const ThumbnailPreviewScene::OrbitCamera& orb,
+                                            VkImageView samplerView,
+                                            VkSampler   samplerHandle)
         {
-            if (!s_Initialized || !model) return (ImTextureID)0;
-            if (!EnsureInspectorRTs())    return (ImTextureID)0;
+            if (!s_Initialized || !model) return s_LastGoodInspectorTex;
+            if (!EnsureInspectorRing())   return s_LastGoodInspectorTex;
 
             struct DrawEntry { VkBuffer vb; VkBuffer ib; u32 indexCount; };
             std::vector<DrawEntry> draws;
@@ -622,7 +777,7 @@ namespace Luth::UI::ThumbnailPreviewScene
                 if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || ic == 0) continue;
                 draws.push_back({ vbBuf, ibBuf, ic });
             }
-            if (draws.empty()) return (ImTextureID)0;
+            if (draws.empty()) return s_LastGoodInspectorTex;
 
             AABB aabb;
             for (const auto& md : model->GetMeshesData()) {
@@ -643,89 +798,129 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.viewProj = proj * view;
             pc.albedo   = albedo;
 
-            auto vkColor = std::static_pointer_cast<VKTexture>(s_InspectorColorRT);
-            auto vkDepth = std::static_pointer_cast<VKTexture>(s_InspectorDepthRT);
+            // Pick slot; wait on its previous submission so its cmd buffer and
+            // sampler-set descriptor are safe to overwrite.
+            const u32 slotIdx = s_RingHead % kInspectorRingSize;
+            auto&     slot    = s_Ring[slotIdx];
+            if (slot.timelineValue != 0 && s_InspectorTimeline.GetValue() < slot.timelineValue)
+                s_InspectorTimeline.Wait(slot.timelineValue);
 
-            VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-                Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-                Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-                        0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
+            UpdateInspectorSamplerSet(slot.samplerSet, samplerView, samplerHandle);
 
-                VkRenderingAttachmentInfo color{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-                color.imageView   = vkColor->GetImageView();
-                color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                color.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-                color.clearValue.color = {{ 0.13f, 0.13f, 0.15f, 1.0f }};
+            auto vkColor = std::static_pointer_cast<VKTexture>(slot.color);
+            auto vkDepth = std::static_pointer_cast<VKTexture>(slot.depth);
 
-                VkRenderingAttachmentInfo depth{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-                depth.imageView   = vkDepth->GetImageView();
-                depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                depth.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                depth.storeOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-                depth.clearValue.depthStencil = { 1.0f, 0 };
+            vkResetCommandBuffer(slot.cmd, 0);
+            VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(slot.cmd, &beginInfo);
 
-                VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO };
-                info.renderArea.offset    = { 0, 0 };
-                info.renderArea.extent    = { kInspectorSize, kInspectorSize };
-                info.layerCount           = 1;
-                info.colorAttachmentCount = 1;
-                info.pColorAttachments    = &color;
-                info.pDepthAttachment     = &depth;
+            VkCommandBuffer cmd = slot.cmd;
+            Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                    0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
 
-                vkCmdBeginRendering(cmd, &info);
+            VkRenderingAttachmentInfo colorAtt{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+            colorAtt.imageView   = vkColor->GetImageView();
+            colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            colorAtt.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt.clearValue.color = {{ 0.13f, 0.13f, 0.15f, 1.0f }};
 
-                VkViewport vp{};
-                vp.width    = static_cast<f32>(kInspectorSize);
-                vp.height   = static_cast<f32>(kInspectorSize);
-                vp.maxDepth = 1.0f;
-                vkCmdSetViewport(cmd, 0, 1, &vp);
-                VkRect2D sc{};
-                sc.extent = { kInspectorSize, kInspectorSize };
-                vkCmdSetScissor(cmd, 0, 1, &sc);
+            VkRenderingAttachmentInfo depthAtt{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+            depthAtt.imageView   = vkDepth->GetImageView();
+            depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depthAtt.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.storeOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            depthAtt.clearValue.depthStencil = { 1.0f, 0 };
 
-                VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
-                                                          : s_PipelineStatic.get();
-                pipeline->Bind(cmd);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    pipeline->GetLayout(), 0, 1, &s_SamplerSet, 0, nullptr);
-                vkCmdPushConstants(cmd, pipeline->GetLayout(),
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, sizeof(pc), &pc);
+            VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO };
+            info.renderArea.offset    = { 0, 0 };
+            info.renderArea.extent    = { kInspectorSize, kInspectorSize };
+            info.layerCount           = 1;
+            info.colorAttachmentCount = 1;
+            info.pColorAttachments    = &colorAtt;
+            info.pDepthAttachment     = &depthAtt;
 
-                VkDeviceSize offsets[] = { 0 };
-                for (const auto& d : draws) {
-                    vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
-                    vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
-                }
+            vkCmdBeginRendering(cmd, &info);
 
-                vkCmdEndRendering(cmd);
+            VkViewport vp{};
+            vp.width    = static_cast<f32>(kInspectorSize);
+            vp.height   = static_cast<f32>(kInspectorSize);
+            vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D sc{};
+            sc.extent = { kInspectorSize, kInspectorSize };
+            vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-                Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
-                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 0,
-                        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-            });
+            VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
+                                                      : s_PipelineStatic.get();
+            pipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline->GetLayout(), 0, 1, &slot.samplerSet, 0, nullptr);
+            vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(pc), &pc);
 
-            return (ImTextureID)s_InspectorImGuiSet;
+            VkDeviceSize offsets[] = { 0 };
+            for (const auto& d : draws) {
+                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
+                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+            }
+
+            vkCmdEndRendering(cmd);
+
+            Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
+                    VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 0,
+                    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+            vkEndCommandBuffer(cmd);
+
+            // Submit via timeline semaphore — no wait semaphores (preview is
+            // independent of the swapchain), no fence (timeline signal serves
+            // as our completion gate).
+            const u64 signalValue = ++s_NextSubmitValue;
+
+            VkCommandBufferSubmitInfo cbi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+            cbi.commandBuffer = cmd;
+
+            VkSemaphoreSubmitInfo sigSem{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+            sigSem.semaphore = s_InspectorTimeline.GetHandle();
+            sigSem.value     = signalValue;
+            sigSem.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+                             | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+
+            VkSubmitInfo2 si{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+            si.commandBufferInfoCount   = 1;
+            si.pCommandBufferInfos      = &cbi;
+            si.signalSemaphoreInfoCount = 1;
+            si.pSignalSemaphoreInfos    = &sigSem;
+
+            VulkanContext::Get().Submit2(si, VK_NULL_HANDLE);
+
+            slot.timelineValue     = signalValue;
+            s_RingHead++;
+            s_LastGoodInspectorTex = (ImTextureID)slot.imguiSet;
+            return s_LastGoodInspectorTex;
         }
     }
 
@@ -733,8 +928,8 @@ namespace Luth::UI::ThumbnailPreviewScene
     {
         if (!s_Initialized || !model) return (ImTextureID)0;
         auto vkWhite = std::static_pointer_cast<VKTexture>(s_WhiteTexture);
-        UpdateSamplerDescriptor(vkWhite->GetImageView(), vkWhite->GetSampler());
-        return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam);
+        return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam,
+                                       vkWhite->GetImageView(), vkWhite->GetSampler());
     }
 
     ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material, const OrbitCamera& cam)
@@ -742,20 +937,35 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!s_Initialized || !material) return (ImTextureID)0;
         if (!LoadSphereLazy())            return (ImTextureID)0;
 
-        // Sampled textures must be resident before the bake samples them.
-        // LoadImmediate is blocking; vkDeviceWaitIdle ensures async upload
-        // fences retire so the descriptor write reads valid pixels.
-        for (const auto& m : material->GetTextures()) {
-            if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
+        // Material-change gate: only flush async uploads when the inspected
+        // material's identity or its texture-map UUID set changes. Steady
+        // state (same material, no edits) does no work here.
+        const UUID matHandle = material->Handle;
+        size_t texHash = 0;
+        {
+            UUIDHash hasher;
+            for (const auto& m : material->GetTextures()) {
+                const size_t h = hasher(m.Uuid);
+                texHash ^= h + 0x9e3779b97f4a7c15ULL + (texHash << 6) + (texHash >> 2);
+            }
         }
-        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+        if (matHandle != s_LastInspectorMaterialHandle ||
+            texHash   != s_LastInspectorMaterialTexHash)
+        {
+            for (const auto& m : material->GetTextures()) {
+                if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
+            }
+            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            s_LastInspectorMaterialHandle  = matHandle;
+            s_LastInspectorMaterialTexHash = texHash;
+        }
 
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
         if (!albedo) albedo = s_WhiteTexture;
         auto vkAlbedo = std::static_pointer_cast<VKTexture>(albedo);
-        UpdateSamplerDescriptor(vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
 
-        return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam);
+        return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam,
+                                       vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
     }
 
     u32 GetInspectorSize() { return kInspectorSize; }
