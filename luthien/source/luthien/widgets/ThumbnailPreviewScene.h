@@ -44,9 +44,10 @@ namespace Luth::UI
         // disk persistence and ImGui display dimensions stay uniform.
         u32 GetSize();
 
-        // Live inspector preview: renders into a shared persistent RT (no readback)
-        // and returns the persistent ImGui descriptor. invariant: only one inspector
-        // is visible inside InspectorPanel at a time, so the shared RT never races.
+        // Live inspector preview: async ring submit (no readback). Each call
+        // records into the next free slot, submits via timeline semaphore, and
+        // returns that slot's persistent ImGui descriptor (or the last-good one
+        // on null asset / init failure).
         struct OrbitCamera
         {
             float azimuth   = 0.6f;   // around Y axis
