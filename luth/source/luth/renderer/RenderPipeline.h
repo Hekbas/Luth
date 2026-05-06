@@ -193,6 +193,27 @@ namespace Luth
         // forwards to this getter.
         ShaderWatcher& GetShaderWatcher() { return m_ShaderWatcher; }
 
+        // Owning RenderingSystem (set by ctor). FrameDebuggerContext + future
+        // subsystems read scene state through this accessor.
+        RenderingSystem&       GetSystem()       { return m_System; }
+        const RenderingSystem& GetSystem() const { return m_System; }
+
+        // Active per-view scratch (set during Execute; consumed by FrameDebuggerContext).
+        ViewResources*       GetCurrentViewResources()       { return m_CurrentViewResources; }
+        const ViewResources* GetCurrentViewResources() const { return m_CurrentViewResources; }
+
+        // Temp accessors — expose state that *Subsystem extractions will own. Each is removed in
+        // the sub-task that extracts it. invariant: all gone by sub-task E.
+        PipelineManager&        GetGeoPipelineManager()        { return m_GeoPipelineManager; }
+        PipelineManager&        GetGeoSkinnedPipelineManager() { return m_GeoSkinnedPipelineManager; }
+        const std::vector<u32>& GetPBRVertSpv() const          { return m_PBRVertSpv; }
+        const std::vector<u32>& GetPBRFragSpv() const          { return m_PBRFragSpv; }
+        const std::vector<u32>& GetPBRSkinnedVertSpv() const   { return m_PBRSkinnedVertSpv; }
+        VkDescriptorSet         GetLightDescSet() const        { return m_LightDescSet; }
+        VkDescriptorSet         GetObjectSSBODescSet() const   { return m_ObjectSSBODescSet; }
+        const Memory::GPUSubRegion& GetIndirectRegion() const  { return m_IndirectRegion; }
+        const std::vector<u32>& GetFullscreenVertSpv() const   { return m_FullscreenVertSpv; }
+
     private:
         // Init / Update helpers (moved from RenderingSystem in sub-task E1).
         // Per-view state (bloom / GTAO textures, UBOs, descriptor sets) is
@@ -243,8 +264,6 @@ namespace Luth
         void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
-
-        friend class FrameDebuggerContext;
 
         RenderingSystem& m_System;
         std::unique_ptr<FrameDebuggerContext> m_Debugger;

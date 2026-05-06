@@ -107,14 +107,14 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                VkPolygonMode polyMode = (m_System.m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
+                VkPolygonMode polyMode = (m_System.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
                 UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                if (!opaquePipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!opaquePipeline) { m_System.GetFrameDebugger().EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
@@ -200,7 +200,7 @@ namespace Luth
                             sizeof(VkDrawIndexedIndirectCommand));
 
                         // Capture for frame debugger
-                        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                        if (m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
                             const auto& tags = m_System.GetActiveSnapshot().tagsByEntity;
@@ -210,7 +210,7 @@ namespace Luth
                             u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
                                        : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
                                        : VK_CULL_MODE_NONE;
-                            m_System.m_FrameDebugger.CaptureIndirectDraw("GeometryPass",
+                            m_System.GetFrameDebugger().CaptureIndirectDraw("GeometryPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(),
                                 dc.gpuObjectIndex, indirectOffset,
@@ -220,11 +220,11 @@ namespace Luth
                     }
                 };
 
-                DrawBatch(m_System.m_DrawList.opaque,      Material::RenderMode::Opaque);
-                DrawBatch(m_System.m_DrawList.cutout,      Material::RenderMode::Cutout);
-                DrawBatch(m_System.m_DrawList.transparent, Material::RenderMode::Transparent);
+                DrawBatch(m_System.GetDrawList().opaque,      Material::RenderMode::Opaque);
+                DrawBatch(m_System.GetDrawList().cutout,      Material::RenderMode::Cutout);
+                DrawBatch(m_System.GetDrawList().transparent, Material::RenderMode::Transparent);
 
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
         return output;

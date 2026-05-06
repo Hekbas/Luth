@@ -57,7 +57,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomExtract", "BloomA", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomExtract", "BloomA", false,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -71,16 +71,16 @@ namespace Luth
                 VkRect2D sc{}; sc.extent = { halfW, halfH };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                float pc[4] = { m_System.m_PostProcessSettings.bloomThreshold, 0, 0, 0 };
+                float pc[4] = { m_System.GetPostProcessSettings().bloomThreshold, 0, 0, 0 };
                 vkCmdPushConstants(cmd, m_BloomExtractPipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("BloomExtract", "FullscreenTriangle", "BloomExtract", 0, 0, dummyPC,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 
@@ -105,7 +105,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomBlurH", "BloomB", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurH", "BloomB", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -126,9 +126,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("BloomBlurH", "FullscreenTriangle", "BloomBlurH", 0, 0, dummyPC,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 
@@ -154,7 +154,7 @@ namespace Luth
             },
             [this, halfW, halfH](BloomPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "BloomBlurV", "BloomAFinal", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurV", "BloomAFinal", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -175,9 +175,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("BloomBlurV", "FullscreenTriangle", "BloomBlurV", 0, 0, dummyPC,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

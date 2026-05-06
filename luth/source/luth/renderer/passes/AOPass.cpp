@@ -66,12 +66,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GTAODepthPrefilter", "GTAOLinearDepth", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GTAODepthPrefilter", "GTAOLinearDepth", false,
                     { "gtao_depth_prefilter", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAOPrefilterPipeline || m_CurrentViewResources->gtaoPrefilterDescSet == VK_NULL_HANDLE)
                 {
-                    m_System.m_FrameDebugger.EndCapturePass();
+                    m_System.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
@@ -99,9 +99,9 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAODepthPrefilter",
+                m_System.GetFrameDebugger().CaptureComputeDispatch("GTAODepthPrefilter",
                     "gtao_depth_prefilter", groupX, groupY, 1);
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             });
 
         return outputHandle;
@@ -158,12 +158,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GTAOMain", "GTAORawAO", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GTAOMain", "GTAORawAO", false,
                     { "gtao_main", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAOMainPipeline || m_CurrentViewResources->gtaoMainDescSet == VK_NULL_HANDLE)
                 {
-                    m_System.m_FrameDebugger.EndCapturePass();
+                    m_System.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
@@ -192,9 +192,9 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAOMain",
+                m_System.GetFrameDebugger().CaptureComputeDispatch("GTAOMain",
                     "gtao_main", groupX, groupY, 1);
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             });
 
         return outputHandle;
@@ -237,12 +237,12 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GTAODenoise", "GTAOFinal", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GTAODenoise", "GTAOFinal", false,
                     { "gtao_denoise", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 if (!m_GTAODenoisePipeline || m_CurrentViewResources->gtaoDenoiseDescSet == VK_NULL_HANDLE)
                 {
-                    m_System.m_FrameDebugger.EndCapturePass();
+                    m_System.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
@@ -256,9 +256,9 @@ namespace Luth
                 const u32 groupY = (halfH + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
-                m_System.m_FrameDebugger.CaptureComputeDispatch("GTAODenoise",
+                m_System.GetFrameDebugger().CaptureComputeDispatch("GTAODenoise",
                     "gtao_denoise", groupX, groupY, 1);
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             });
 
         return outputHandle;

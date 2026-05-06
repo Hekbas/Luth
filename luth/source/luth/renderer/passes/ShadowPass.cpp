@@ -75,10 +75,10 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, passName, resName, true,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, passName, resName, true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); m_System.GetFrameDebugger().EndCapturePass(); return; }
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO)
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -159,14 +159,14 @@ namespace Luth
                         vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));
 
-                        if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                        if (m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
                         {
                             std::string entName = "Entity";
                             const auto& tags = m_System.GetActiveSnapshot().tagsByEntity;
                             u32 idx = entt::to_entity(dc.entity);
                             if (idx < tags.size() && tags[idx])
                                 entName = tags[idx];
-                            m_System.m_FrameDebugger.CaptureIndirectDraw(passName,
+                            m_System.GetFrameDebugger().CaptureIndirectDraw(passName,
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                                 { "shadowDepth", 0, static_cast<u32>(VK_CULL_MODE_FRONT_BIT),
@@ -176,11 +176,11 @@ namespace Luth
                 };
 
                 // Shadow casters = all visible geometry (opaque + cutout + transparent).
-                DrawBatch(m_System.m_DrawList.opaque);
-                DrawBatch(m_System.m_DrawList.cutout);
-                DrawBatch(m_System.m_DrawList.transparent);
+                DrawBatch(m_System.GetDrawList().opaque);
+                DrawBatch(m_System.GetDrawList().cutout);
+                DrawBatch(m_System.GetDrawList().transparent);
 
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

@@ -43,10 +43,10 @@ namespace Luth
             },
             [this](SkyboxPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "SkyboxPass", "SceneColor", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "SkyboxPass", "SceneColor", false,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_SkyboxPipeline || !m_SkyboxVB) { m_System.GetFrameDebugger().EndCapturePass(); return; }
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
@@ -80,9 +80,9 @@ namespace Luth
                 vkCmdDraw(cmd, 36, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("SkyboxPass", "SkyboxCube", "Skybox", 0, 0, dummyPC,
                     { "skybox", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
         return outputHandle;

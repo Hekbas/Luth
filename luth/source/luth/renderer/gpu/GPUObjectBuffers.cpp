@@ -212,7 +212,7 @@ namespace Luth
                 if (it != m_MaterialSlotMap.end()) matSlot = it->second;
             }
             obj.materialIndex = matSlot;
-            obj.shadeMode     = static_cast<u32>(m_System.m_ShadeMode);
+            obj.shadeMode     = static_cast<u32>(m_System.GetShadeMode());
             // entityID is 1-indexed so the fragment shader output matches m_EntityLookup
             obj.entityID      = (u32)m_EntityLookup.size();
             obj.boneOffset    = meshSnap.boneOffset;

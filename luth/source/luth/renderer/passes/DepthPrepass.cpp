@@ -65,10 +65,10 @@ namespace Luth
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "DepthPrepass", "SceneDepth", true,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "DepthPrepass", "SceneDepth", true,
                     { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); m_System.GetFrameDebugger().EndCapturePass(); return; }
 
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
@@ -99,7 +99,7 @@ namespace Luth
 
                 // Opaque-only: cutouts and transparents write their depth in
                 // GeometryPass (LESS_EQUAL, so opaque depth written here wins).
-                for (const auto& dc : m_System.m_DrawList.opaque)
+                for (const auto& dc : m_System.GetDrawList().opaque)
                 {
                     auto mesh = dc.model->GetMesh(dc.meshIndex);
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
@@ -137,14 +137,14 @@ namespace Luth
                     vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
-                    if (m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+                    if (m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
                     {
                         std::string entName = "Entity";
                         const auto& tags = m_System.GetActiveSnapshot().tagsByEntity;
                         u32 idx = entt::to_entity(dc.entity);
                         if (idx < tags.size() && tags[idx])
                             entName = tags[idx];
-                        m_System.m_FrameDebugger.CaptureIndirectDraw("DepthPrepass",
+                        m_System.GetFrameDebugger().CaptureIndirectDraw("DepthPrepass",
                             dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                             entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                             { "depthPrepass", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
@@ -152,7 +152,7 @@ namespace Luth
                     }
                 }
 
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

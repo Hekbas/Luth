@@ -47,7 +47,7 @@ namespace Luth
             },
             [this](GridPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "GridPass", "SceneColor", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GridPass", "SceneColor", false,
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -67,7 +67,7 @@ namespace Luth
 
                 // Must match GridPushConstants in grid.frag (16 floats / 64 bytes).
                 // All values flow from EditorSettings → EditorViewportState → CameraParams.
-                const auto& cp = m_System.m_CameraParams;
+                const auto& cp = m_System.GetCameraParams();
                 struct GridPushConstants {
                     float axisXColor[4];
                     float axisZColor[4];
@@ -92,9 +92,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("GridPass", "FullscreenTriangle", "GridPass", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("GridPass", "FullscreenTriangle", "GridPass", 0, 0, dummyPC,
                     { "grid", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

@@ -51,7 +51,7 @@ namespace Luth
             },
             [this](OutlinePassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "OutlinePass", "LDROutput", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "OutlinePass", "LDROutput", false,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -71,7 +71,7 @@ namespace Luth
                 // Push constants: outlineWidth, texelSize, outlineColor, occludedAlpha.
                 // All editor-tunable values flow from EditorSettings → EditorViewportState
                 // → CameraParams (see App.cpp); engine reads its own struct only.
-                const auto& cp = m_System.m_CameraParams;
+                const auto& cp = m_System.GetCameraParams();
                 struct OutlinePushConstants {
                     float outlineWidth;
                     float texelSizeX;
@@ -98,9 +98,9 @@ namespace Luth
                 vkCmdDraw(cmd, 3, 1, 0, 0);
 
                 ObjectPushConstants dummyPC{};
-                m_System.m_FrameDebugger.CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
+                m_System.GetFrameDebugger().CaptureDrawCall("OutlinePass", "FullscreenTriangle", "OutlinePass", 0, 0, dummyPC,
                     { "outline", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

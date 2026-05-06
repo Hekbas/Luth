@@ -86,10 +86,10 @@ namespace Luth
             },
             [this](SelectionMaskPassData& data, RG::RenderPassContext& ctx)
             {
-                m_System.m_FrameDebugger.BeginCapturePass(ctx.passIndex, "SelectionMaskPass", "SelectionMask", false,
+                m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "SelectionMaskPass", "SelectionMask", false,
                     { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_SelectionMaskPipeline) { m_System.m_FrameDebugger.EndCapturePass(); return; }
+                if (!m_SelectionMaskPipeline) { m_System.GetFrameDebugger().EndCapturePass(); return; }
 
                 // Build set of selected entity handles (including descendants)
                 std::unordered_set<entt::entity> selectedSet;
@@ -170,11 +170,11 @@ namespace Luth
                     }
                 };
 
-                DrawBatch(m_System.m_DrawList.opaque);
-                DrawBatch(m_System.m_DrawList.cutout);
-                DrawBatch(m_System.m_DrawList.transparent);
+                DrawBatch(m_System.GetDrawList().opaque);
+                DrawBatch(m_System.GetDrawList().cutout);
+                DrawBatch(m_System.GetDrawList().transparent);
 
-                m_System.m_FrameDebugger.EndCapturePass();
+                m_System.GetFrameDebugger().EndCapturePass();
             }
         );
 

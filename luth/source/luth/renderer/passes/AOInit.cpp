@@ -152,7 +152,7 @@ namespace Luth
     {
         if (!m_CurrentViewResources || m_CurrentViewResources->globalDescriptorSet == VK_NULL_HANDLE) return;
 
-        const auto& s = m_System.m_PostProcessSettings.gtao;
+        const auto& s = m_System.GetPostProcessSettings().gtao;
         GTAOUBO ubo{};
         ubo.intensity      = s.intensity;
         ubo.radius         = s.radius;

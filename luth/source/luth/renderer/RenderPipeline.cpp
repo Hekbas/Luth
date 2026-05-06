@@ -55,7 +55,7 @@ namespace Luth
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         auto& s = m_System;
-        m_System.m_SceneTargets.Allocate(viewportWidth, viewportHeight);
+        m_System.GetSceneTargets().Allocate(viewportWidth, viewportHeight);
 
         InitGlobalUniforms();
         InitShadowResources();
@@ -167,8 +167,8 @@ namespace Luth
             else if (name == "gtao_depth_prefilter.comp")  m_GTAOPrefilterSpv            = spv;
             else if (name == "gtao_main.comp")             m_GTAOMainSpv                 = spv;
             else if (name == "gtao_denoise.comp")          m_GTAODenoiseSpv              = spv;
-            else if (name == "debugBlit.frag")             m_System.m_FrameDebugger.blitFragSpv  = spv;
-            else if (name == "debugDepth.frag")            m_System.m_FrameDebugger.depthFragSpv = spv;
+            else if (name == "debugBlit.frag")             m_System.GetFrameDebugger().blitFragSpv  = spv;
+            else if (name == "debugDepth.frag")            m_System.GetFrameDebugger().depthFragSpv = spv;
             // gpu_cull.comp: pipeline rebuilt below using `spv` directly
             // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut):
             // library entries refresh, but the precomputed results don't
@@ -266,7 +266,7 @@ namespace Luth
         m_ViewResources.clear();
 
         m_Debugger->Shutdown();
-        m_System.m_FrameDebugger.Shutdown(device);
+        m_System.GetFrameDebugger().Shutdown(device);
 
         if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
         if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
@@ -306,7 +306,7 @@ namespace Luth
         // Scene-panel resize. FrameTargets is already resized by
         // RenderingSystem::Resize; EnsureViewResources picks up the size
         // change and rebuilds textures + descriptors.
-        EnsureViewResources(m_System.m_SceneTargets);
+        EnsureViewResources(m_System.GetSceneTargets());
         RegisterNamedTextures();
     }
 
@@ -318,7 +318,7 @@ namespace Luth
     void RenderPipeline::ExecuteMinimal()
     {
         auto& s = m_System;
-        RG::RenderGraph rg(*m_System.m_FrameAllocator);
+        RG::RenderGraph rg(m_System.GetFrameAllocator());
         AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
         rg.Compile();
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
@@ -330,7 +330,7 @@ namespace Luth
         m_CurrentView          = &view;
         m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
 
-        RG::RenderGraph rg(*m_System.m_FrameAllocator);
+        RG::RenderGraph rg(m_System.GetFrameAllocator());
 
         // Import this frame's tagged-heap regions for RG barrier tracking. Buffers can
         // change identity each frame (heap allocator may reuse pages or grow backings).
@@ -349,7 +349,7 @@ namespace Luth
             AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                 m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
                 baseRegion * k_IndirectRegionStride,
-                "FrustumCull.Cam", &m_System.m_FrameDebugger);
+                "FrustumCull.Cam", &m_System.GetFrameDebugger());
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
@@ -358,7 +358,7 @@ namespace Luth
                 const std::string name = "FrustumCull.C" + std::to_string(i);
                 AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
                     m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
-                    destOffset, name.c_str(), &m_System.m_FrameDebugger);
+                    destOffset, name.c_str(), &m_System.GetFrameDebugger());
             }
         }
 
@@ -426,7 +426,7 @@ namespace Luth
         // captureRequested flag (set by the view's owner — RenderingSystem
         // for the scene view, GamePanel for the game view) so the chosen
         // capture source's RG installs the sink, not the editor's by default.
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -440,46 +440,46 @@ namespace Luth
             // cascade slice after recapture would hit stale cached previews.
             m_Debugger->ResetPreviewCacheKeys();
 
-            m_System.m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
+            m_System.GetFrameDebugger().BeginCapture(VulkanContext::Get().GetDevice(),
                                             VulkanContext::Get().GetAllocator());
-            m_System.m_FrameDebugger.RegisterTrackedRT("SceneColor");
-            m_System.m_FrameDebugger.RegisterTrackedRT("SceneDepth");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SceneColor");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SceneDepth");
             // Phase 13 ShadowPass imports per-cascade resources named
             // "ShadowMap.C<i>" (one per cascade, single-layer view onto
             // the shared 4-layer array). Track each variant so the sink
             // archives them — without this, cascade nodes have no
             // primary output and the panel shows "no output preview".
             for (u32 ci = 0; ci < k_ShadowCascadeCount; ++ci)
-                m_System.m_FrameDebugger.RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
-            m_System.m_FrameDebugger.RegisterTrackedRT("LDROutput");
-            m_System.m_FrameDebugger.RegisterTrackedRT("EntityID");
-            m_System.m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
-            rg.SetArchiveSink(&m_System.m_FrameDebugger);
+                m_System.GetFrameDebugger().RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
+            m_System.GetFrameDebugger().RegisterTrackedRT("LDROutput");
+            m_System.GetFrameDebugger().RegisterTrackedRT("EntityID");
+            m_System.GetFrameDebugger().RegisterTrackedRT("BloomAFinal");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAOLinearDepth");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAORawAO");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAOFinal");
+            rg.SetArchiveSink(&m_System.GetFrameDebugger());
         }
 
         // Only the capturing view needs serial Phase-1 dispatch — its
         // lambdas push into shared FrameDebugger metadata vectors. Non-
         // capturing views' pushes are suppressed below, so they record
         // in parallel exactly as in non-capture frames.
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
             rg.SetSerialize(true);
 
         // Mask state to Inactive around non-capturing views' RG execute so
         // their lambdas' BeginCapturePass / CaptureXX early-return — no
         // pushes, no race, no need for SetSerialize.
-        const DebuggerState savedDbgState = m_System.m_FrameDebugger.state;
+        const DebuggerState savedDbgState = m_System.GetFrameDebugger().state;
         const bool suppressDebuggerMetadata = !view.captureRequested
                                               && savedDbgState == DebuggerState::CaptureRequested;
         if (suppressDebuggerMetadata)
-            m_System.m_FrameDebugger.state = DebuggerState::Inactive;
+            m_System.GetFrameDebugger().state = DebuggerState::Inactive;
 
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
         if (suppressDebuggerMetadata)
-            m_System.m_FrameDebugger.state = savedDbgState;
+            m_System.GetFrameDebugger().state = savedDbgState;
 
         // Non-primary views: transition LDR → SHADER_READ so the scene
         // view's ImGui pass can sample it. (The scene view's RG already
@@ -504,15 +504,15 @@ namespace Luth
         }
 
         // Finalize capture (only the source view — matches the sink gate above).
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the
             // CapturedDrawCall records + frozen indirect/object SSBOs.
 
             // Copy resource and timing info from the graph snapshot
-            m_System.m_FrameDebugger.capturedFrame.resources      = m_GraphSnapshot.resources;
-            m_System.m_FrameDebugger.capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
+            m_System.GetFrameDebugger().capturedFrame.resources      = m_GraphSnapshot.resources;
+            m_System.GetFrameDebugger().capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
 
             // Copy per-pass GPU times into captured passes
             {
@@ -520,31 +520,31 @@ namespace Luth
                 for (auto& ps : m_GraphSnapshot.passes)
                 {
                     if (ps.culled) continue;
-                    if (capturedIdx < m_System.m_FrameDebugger.capturedFrame.passes.size())
-                        m_System.m_FrameDebugger.capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
+                    if (capturedIdx < m_System.GetFrameDebugger().capturedFrame.passes.size())
+                        m_System.GetFrameDebugger().capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
                     capturedIdx++;
                 }
             }
 
             // Snapshot capture-time camera viewProj for the Frozen-state
             // auto-recapture comparison (see top of Update).
-            m_System.m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
+            m_System.GetFrameDebugger().FinalizeCapture(m_CachedViewProj);
 
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_FrameCascades.splitsViewZ;
-            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_FrameShadowParams.shadowBias;
-            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_FrameShadowParams.shadowNormalBias;
-            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_FrameCascades.texelSize;
+            m_System.GetFrameDebugger().capturedFrame.cascadeSplitsViewZ = m_FrameCascades.splitsViewZ;
+            m_System.GetFrameDebugger().capturedFrame.shadowBias         = m_FrameShadowParams.shadowBias;
+            m_System.GetFrameDebugger().capturedFrame.shadowNormalBias   = m_FrameShadowParams.shadowNormalBias;
+            m_System.GetFrameDebugger().capturedFrame.cascadeTexelSize   = m_FrameCascades.texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
+                m_System.GetFrameDebugger().capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
 
-            m_System.m_FrameDebugger.capturedFrame.valid = true;
+            m_System.GetFrameDebugger().capturedFrame.valid = true;
             // Snapshot which source produced this capture so viewport overlays
             // survive the user toggling requestedSource between captures.
-            m_System.m_FrameDebugger.capturedSource = m_System.m_FrameDebugger.requestedSource;
-            m_System.m_FrameDebugger.state          = DebuggerState::Frozen;
+            m_System.GetFrameDebugger().capturedSource = m_System.GetFrameDebugger().requestedSource;
+            m_System.GetFrameDebugger().state          = DebuggerState::Frozen;
         }
     }
 
@@ -614,7 +614,7 @@ namespace Luth
         }
 
         // Compute geometry stats from the current DrawList (built before pass dispatch)
-        u32 totalDraws = (u32)(m_System.m_DrawList.opaque.size() + m_System.m_DrawList.cutout.size() + m_System.m_DrawList.transparent.size());
+        u32 totalDraws = (u32)(m_System.GetDrawList().opaque.size() + m_System.GetDrawList().cutout.size() + m_System.GetDrawList().transparent.size());
         u32 totalIndices = 0;
         auto sumIndices = [&](const std::vector<DrawCommand>& draws) {
             for (auto& dc : draws)
@@ -625,9 +625,9 @@ namespace Luth
                     totalIndices += mesh->GetIndexBuffer()->GetCount();
             }
         };
-        sumIndices(m_System.m_DrawList.opaque);
-        sumIndices(m_System.m_DrawList.cutout);
-        sumIndices(m_System.m_DrawList.transparent);
+        sumIndices(m_System.GetDrawList().opaque);
+        sumIndices(m_System.GetDrawList().cutout);
+        sumIndices(m_System.GetDrawList().transparent);
 
         // Enrich per-pass pipeline state (known at RenderingSystem level, not RenderGraph)
         for (auto& ps : snapshot.passes)
@@ -700,12 +700,12 @@ namespace Luth
     {
         m_NamedTextures.clear();
         if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
-        if (m_System.m_SceneTargets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_SceneTargets.GetSceneColor();
-        if (m_System.m_SceneTargets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_SceneTargets.GetSceneDepth();
-        if (m_System.m_SceneTargets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_SceneTargets.GetLDROutput();
-        if (m_System.m_SceneTargets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_SceneTargets.GetEntityIDBuffer();
+        if (m_System.GetSceneTargets().GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.GetSceneTargets().GetSceneColor();
+        if (m_System.GetSceneTargets().GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.GetSceneTargets().GetSceneDepth();
+        if (m_System.GetSceneTargets().GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.GetSceneTargets().GetLDROutput();
+        if (m_System.GetSceneTargets().GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.GetSceneTargets().GetEntityIDBuffer();
         // Scene-view bloom textures — Frame Debugger is scene-view-only.
-        if (auto it = m_ViewResources.find(&m_System.m_SceneTargets); it != m_ViewResources.end()) {
+        if (auto it = m_ViewResources.find(&m_System.GetSceneTargets()); it != m_ViewResources.end()) {
             if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
             if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
         }

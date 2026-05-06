@@ -33,7 +33,7 @@ namespace Luth
 
     void FrameDebuggerContext::InitDebugBlitResources()
     {
-        auto& fd = m_Pipeline.m_System.m_FrameDebugger;
+        auto& fd = m_Pipeline.GetSystem().GetFrameDebugger();
         if (fd.blitPipeline) return; // Already initialized
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.frag"))
@@ -41,7 +41,7 @@ namespace Luth
         if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
             fd.depthFragSpv = sh->GetSpirV();
 
-        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty() || m_Pipeline.m_FullscreenVertSpv.empty())
+        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty() || m_Pipeline.GetFullscreenVertSpv().empty())
         {
             LH_CORE_ERROR("Failed to compile debug blit shaders");
             return;
@@ -98,7 +98,7 @@ namespace Luth
         blitConfig.cullMode         = VK_CULL_MODE_NONE;
         blitConfig.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
         fd.blitPipeline = std::make_unique<VKPipeline>(
-            blitConfig, m_Pipeline.m_FullscreenVertSpv, fd.blitFragSpv, layouts);
+            blitConfig, m_Pipeline.GetFullscreenVertSpv(), fd.blitFragSpv, layouts);
 
         // Create depth visualization pipeline
         PipelineConfig depthConfig;
@@ -114,13 +114,13 @@ namespace Luth
         depthConfig.pushConstantRanges = { depthPC };
 
         fd.depthPipeline = std::make_unique<VKPipeline>(
-            depthConfig, m_Pipeline.m_FullscreenVertSpv, fd.depthFragSpv, layouts);
+            depthConfig, m_Pipeline.GetFullscreenVertSpv(), fd.depthFragSpv, layouts);
     }
 
     RG::ResourceHandle FrameDebuggerContext::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
     {
-        auto& sys = m_Pipeline.m_System;
-        if (!sys.m_FrameDebugger.blitPipeline || !sys.m_SceneTargets.GetLDROutput()) return inputHandle;
+        auto& sys = m_Pipeline.GetSystem();
+        if (!sys.GetFrameDebugger().blitPipeline || !sys.GetSceneTargets().GetLDROutput()) return inputHandle;
 
         struct DebugBlitData {
             RG::ResourceHandle output;
@@ -132,11 +132,11 @@ namespace Luth
         rg.AddPass<DebugBlitData>("DebugDisplayBlit",
             [&](DebugBlitData& data, RG::RenderPassBuilder& builder)
             {
-                auto ldrVk = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetLDROutput());
+                auto ldrVk = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetLDROutput());
                 RG::TextureDesc desc;
                 desc.name   = "LDROutput";
-                desc.width  = sys.m_SceneTargets.GetLDROutput()->GetWidth();
-                desc.height = sys.m_SceneTargets.GetLDROutput()->GetHeight();
+                desc.width  = sys.GetSceneTargets().GetLDROutput()->GetWidth();
+                desc.height = sys.GetSceneTargets().GetLDROutput()->GetHeight();
                 desc.format = RG::TextureFormat::RGBA8_Unorm;
 
                 data.output = rg.ImportResource(desc,
@@ -149,31 +149,31 @@ namespace Luth
             },
             [this, isDepth](DebugBlitData& data, RG::RenderPassContext& ctx)
             {
-                auto& sys = m_Pipeline.m_System;
+                auto& sys = m_Pipeline.GetSystem();
                 VkCommandBuffer cmd = ctx.commandBuffer;
 
-                u32 w = sys.m_SceneTargets.GetLDROutput()->GetWidth();
-                u32 h = sys.m_SceneTargets.GetLDROutput()->GetHeight();
+                u32 w = sys.GetSceneTargets().GetLDROutput()->GetWidth();
+                u32 h = sys.GetSceneTargets().GetLDROutput()->GetHeight();
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 VkRect2D sc{}; sc.extent = { w, h };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                if (isDepth && sys.m_FrameDebugger.depthPipeline)
+                if (isDepth && sys.GetFrameDebugger().depthPipeline)
                 {
-                    sys.m_FrameDebugger.depthPipeline->Bind(cmd);
+                    sys.GetFrameDebugger().depthPipeline->Bind(cmd);
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        sys.m_FrameDebugger.depthPipeline->GetLayout(), 0, 1, &sys.m_FrameDebugger.descSet, 0, nullptr);
+                        sys.GetFrameDebugger().depthPipeline->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
 
                     float pc[2] = { 0.1f, 200.0f }; // near/far for shadow maps
-                    vkCmdPushConstants(cmd, sys.m_FrameDebugger.depthPipeline->GetLayout(),
+                    vkCmdPushConstants(cmd, sys.GetFrameDebugger().depthPipeline->GetLayout(),
                         VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
                 }
                 else
                 {
-                    sys.m_FrameDebugger.blitPipeline->Bind(cmd);
+                    sys.GetFrameDebugger().blitPipeline->Bind(cmd);
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        sys.m_FrameDebugger.blitPipeline->GetLayout(), 0, 1, &sys.m_FrameDebugger.descSet, 0, nullptr);
+                        sys.GetFrameDebugger().blitPipeline->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
                 }
 
                 vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -270,13 +270,13 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
     {
-        auto& sys = m_Pipeline.m_System;
+        auto& sys = m_Pipeline.GetSystem();
 
-        if (sys.m_FrameDebugger.state != DebuggerState::Frozen) return;
-        if (!sys.m_FrameDebugger.capturedFrame.valid) return;
-        if (passIdx >= sys.m_FrameDebugger.capturedFrame.passes.size()) return;
+        if (sys.GetFrameDebugger().state != DebuggerState::Frozen) return;
+        if (!sys.GetFrameDebugger().capturedFrame.valid) return;
+        if (passIdx >= sys.GetFrameDebugger().capturedFrame.passes.size()) return;
 
-        const auto& pass = sys.m_FrameDebugger.capturedFrame.passes[passIdx];
+        const auto& pass = sys.GetFrameDebugger().capturedFrame.passes[passIdx];
 
         // Dispatch by pass type. Unsupported pass names leave
         // m_PerDrawPreviewKey untouched so the caller (panel / viewport
@@ -301,21 +301,21 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
     {
-        auto& sys = m_Pipeline.m_System;
-        if (!sys.m_SceneTargets.GetSceneColor() || !sys.m_SceneTargets.GetSceneDepth() || !sys.m_SceneTargets.GetEntityIDBuffer()) return;
+        auto& sys = m_Pipeline.GetSystem();
+        if (!sys.GetSceneTargets().GetSceneColor() || !sys.GetSceneTargets().GetSceneDepth() || !sys.GetSceneTargets().GetEntityIDBuffer()) return;
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
-        const u32 width  = sys.m_SceneTargets.GetSceneColor()->GetWidth();
-        const u32 height = sys.m_SceneTargets.GetSceneColor()->GetHeight();
+        const u32 width  = sys.GetSceneTargets().GetSceneColor()->GetWidth();
+        const u32 height = sys.GetSceneTargets().GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
         if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetSceneColor());
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetSceneDepth());
-        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.m_SceneTargets.GetEntityIDBuffer());
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneColor());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneDepth());
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetEntityIDBuffer());
         VkImage     sceneColorImg  = vkSceneColor->GetImage();
         VkImageView sceneColorView = vkSceneColor->GetImageView();
         VkImage     sceneDepthImg  = vkSceneDepth->GetImage();
@@ -330,12 +330,12 @@ namespace Luth
 
         // Capture the CPU-side data we need by value (the lambda runs inside
         // ImmediateSubmit and must be self-contained).
-        VkPolygonMode polyMode = (sys.m_ShadeMode == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+        VkPolygonMode polyMode = (sys.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
         UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
 
         VulkanContext::Get().ImmediateSubmit([&, this](VkCommandBuffer cmd)
         {
-            auto& sys = m_Pipeline.m_System;
+            auto& sys = m_Pipeline.GetSystem();
             auto& rp  = m_Pipeline;
 
             // ---- Phase 1: prep all attachments + preview ----
@@ -411,9 +411,9 @@ namespace Luth
             // ---- Phase 3: bind pipelines + descriptors, replay draws ----
             // Same descriptor sets as the live GeometryPass — the underlying
             // UBOs/SSBOs are byte-stable in Frozen state (no live writers).
-            auto* opaquePipeline = rp.m_GeoPipelineManager.GetOrCreate(
+            auto* opaquePipeline = rp.GetGeoPipelineManager().GetOrCreate(
                 pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back,
-                polyMode, rp.m_PBRVertSpv, rp.m_PBRFragSpv);
+                polyMode, rp.GetPBRVertSpv(), rp.GetPBRFragSpv());
             if (!opaquePipeline)
             {
                 DynamicRendering::EndRendering(cmd);
@@ -423,8 +423,8 @@ namespace Luth
 
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                rp.m_CurrentViewResources->globalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
-                rp.m_LightDescSet, BoneMatrixBuffer::GetDescriptorSet(), rp.m_ObjectSSBODescSet
+                rp.GetCurrentViewResources()->globalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
+                rp.GetLightDescSet(), BoneMatrixBuffer::GetDescriptorSet(), rp.GetObjectSSBODescSet()
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipelineLayout, 0, 6, sets, 0, nullptr);
@@ -442,8 +442,8 @@ namespace Luth
 
                 Material::CullMode currentCull = Material::CullMode::Back;
                 bool currentSkinned = false;
-                auto* pipeline = rp.m_GeoPipelineManager.GetOrCreate(
-                    pbrUUID, mode, currentCull, polyMode, rp.m_PBRVertSpv, rp.m_PBRFragSpv);
+                auto* pipeline = rp.GetGeoPipelineManager().GetOrCreate(
+                    pbrUUID, mode, currentCull, polyMode, rp.GetPBRVertSpv(), rp.GetPBRFragSpv());
                 if (!pipeline) return;
                 pipeline->Bind(cmd);
 
@@ -456,8 +456,8 @@ namespace Luth
                         currentCull    = dc.cullMode;
                         currentSkinned = dc.isSkinned;
                         VKPipeline* newPipeline = currentSkinned
-                            ? rp.m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, rp.m_PBRSkinnedVertSpv, rp.m_PBRFragSpv)
-                            : rp.m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, rp.m_PBRVertSpv,        rp.m_PBRFragSpv);
+                            ? rp.GetGeoSkinnedPipelineManager().GetOrCreate(pbrUUID, mode, currentCull, polyMode, rp.GetPBRSkinnedVertSpv(), rp.GetPBRFragSpv())
+                            : rp.GetGeoPipelineManager().GetOrCreate       (pbrUUID, mode, currentCull, polyMode, rp.GetPBRVertSpv(),        rp.GetPBRFragSpv());
                         if (!newPipeline) continue;
                         newPipeline->Bind(cmd);
                     }
@@ -478,17 +478,17 @@ namespace Luth
                     // (gpuObjectIndex * sizeof(...)), mirroring GeometryPass with
                     // viewBaseRegion=0 (replay is scene-view only).
                     const u32 cmdIndex = dc.gpuObjectIndex;
-                    VkDeviceSize indirectOffset = rp.m_IndirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, rp.m_IndirectRegion.buffer, indirectOffset, 1,
+                    VkDeviceSize indirectOffset = rp.GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, rp.GetIndirectRegion().buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     --drawsRemaining;
                 }
             };
 
-            ReplayBatch(sys.m_DrawList.opaque,      Material::RenderMode::Opaque);
-            ReplayBatch(sys.m_DrawList.cutout,      Material::RenderMode::Cutout);
-            ReplayBatch(sys.m_DrawList.transparent, Material::RenderMode::Transparent);
+            ReplayBatch(sys.GetDrawList().opaque,      Material::RenderMode::Opaque);
+            ReplayBatch(sys.GetDrawList().cutout,      Material::RenderMode::Cutout);
+            ReplayBatch(sys.GetDrawList().transparent, Material::RenderMode::Transparent);
 
             DynamicRendering::EndRendering(cmd);
 
@@ -662,17 +662,17 @@ namespace Luth
 
     void FrameDebuggerContext::BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ)
     {
-        auto& sys = m_Pipeline.m_System;
+        auto& sys = m_Pipeline.GetSystem();
 
-        if (sys.m_FrameDebugger.state != DebuggerState::Frozen) return;
-        if (!sys.m_FrameDebugger.capturedFrame.valid) return;
-        if (archiveIdx >= sys.m_FrameDebugger.capturedFrame.archivedImages.size()) return;
+        if (sys.GetFrameDebugger().state != DebuggerState::Frozen) return;
+        if (!sys.GetFrameDebugger().capturedFrame.valid) return;
+        if (archiveIdx >= sys.GetFrameDebugger().capturedFrame.archivedImages.size()) return;
 
-        auto& archive = sys.m_FrameDebugger.capturedFrame.archivedImages[archiveIdx];
+        auto& archive = sys.GetFrameDebugger().capturedFrame.archivedImages[archiveIdx];
         if (!archive.isDepth || archive.image == VK_NULL_HANDLE) return;
 
         InitDebugBlitResources();  // idempotent — needed for sampler + depthPipeline + descSet
-        if (!sys.m_FrameDebugger.depthPipeline || sys.m_FrameDebugger.descSet == VK_NULL_HANDLE) return;
+        if (!sys.GetFrameDebugger().depthPipeline || sys.GetFrameDebugger().descSet == VK_NULL_HANDLE) return;
 
         // Cache short-circuit (use layer+1 in the low bits so layer == -1 maps to 0).
         const u64 key = ((u64)archiveIdx << 32) | (u64)((layer < 0 ? 0u : (u32)layer + 1u));
@@ -704,12 +704,12 @@ namespace Luth
         // synchronously: ImmediateSubmit below blocks on a fence so the
         // descriptor isn't in flight while we're rewriting it.
         VkDescriptorImageInfo imgInfo{};
-        imgInfo.sampler     = sys.m_FrameDebugger.sampler;
+        imgInfo.sampler     = sys.GetFrameDebugger().sampler;
         imgInfo.imageView   = srcView;
         imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet          = sys.m_FrameDebugger.descSet;
+        write.dstSet          = sys.GetFrameDebugger().descSet;
         write.dstBinding      = 0;
         write.descriptorCount = 1;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -723,7 +723,7 @@ namespace Luth
 
         VulkanContext::Get().ImmediateSubmit([this, dstImg, dstView, width, height, nearZ, farZ](VkCommandBuffer cmd)
         {
-            auto& sys = m_Pipeline.m_System;
+            auto& sys = m_Pipeline.GetSystem();
 
             // Preview UNDEFINED → COLOR_ATTACHMENT_OPTIMAL (clear-on-load).
             VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -762,12 +762,12 @@ namespace Luth
             VkRect2D scRect{}; scRect.extent = { width, height };
             vkCmdSetScissor(cmd, 0, 1, &scRect);
 
-            sys.m_FrameDebugger.depthPipeline->Bind(cmd);
+            sys.GetFrameDebugger().depthPipeline->Bind(cmd);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                sys.m_FrameDebugger.depthPipeline->GetLayout(), 0, 1, &sys.m_FrameDebugger.descSet, 0, nullptr);
+                sys.GetFrameDebugger().depthPipeline->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
 
             float pc[2] = { nearZ, farZ };
-            vkCmdPushConstants(cmd, sys.m_FrameDebugger.depthPipeline->GetLayout(),
+            vkCmdPushConstants(cmd, sys.GetFrameDebugger().depthPipeline->GetLayout(),
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
 
             // Fullscreen triangle baked into the vertex shader (3 verts, no VB).

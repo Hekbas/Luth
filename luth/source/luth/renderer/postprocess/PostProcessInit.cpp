@@ -139,21 +139,21 @@ namespace Luth
         if (!m_CurrentViewResources || m_CurrentViewResources->compositeDescSet == VK_NULL_HANDLE) return;
 
         PostProcessUBO ubo{};
-        ubo.bloomThreshold      = m_System.m_PostProcessSettings.bloomThreshold;
-        ubo.bloomStrength       = m_System.m_PostProcessSettings.bloomStrength;
-        ubo.exposure            = m_System.m_PostProcessSettings.exposure;
-        ubo.contrast            = m_System.m_PostProcessSettings.contrast;
-        ubo.saturation          = m_System.m_PostProcessSettings.saturation;
-        ubo.tonemapOp           = static_cast<int>(m_System.m_PostProcessSettings.tonemapOp);
-        ubo.vignetteAmount      = m_System.m_PostProcessSettings.vignetteAmount;
-        ubo.vignetteHardness    = m_System.m_PostProcessSettings.vignetteHardness;
-        ubo.grainAmount         = m_System.m_PostProcessSettings.grainAmount;
-        ubo.sharpness           = m_System.m_PostProcessSettings.sharpness;
-        ubo.chromaticAberration = m_System.m_PostProcessSettings.chromaticAberration;
+        ubo.bloomThreshold      = m_System.GetPostProcessSettings().bloomThreshold;
+        ubo.bloomStrength       = m_System.GetPostProcessSettings().bloomStrength;
+        ubo.exposure            = m_System.GetPostProcessSettings().exposure;
+        ubo.contrast            = m_System.GetPostProcessSettings().contrast;
+        ubo.saturation          = m_System.GetPostProcessSettings().saturation;
+        ubo.tonemapOp           = static_cast<int>(m_System.GetPostProcessSettings().tonemapOp);
+        ubo.vignetteAmount      = m_System.GetPostProcessSettings().vignetteAmount;
+        ubo.vignetteHardness    = m_System.GetPostProcessSettings().vignetteHardness;
+        ubo.grainAmount         = m_System.GetPostProcessSettings().grainAmount;
+        ubo.sharpness           = m_System.GetPostProcessSettings().sharpness;
+        ubo.chromaticAberration = m_System.GetPostProcessSettings().chromaticAberration;
         ubo.time                = Time::GetTime();
-        ubo.shadowBalance       = m_System.m_PostProcessSettings.shadowBalance;
-        ubo.midtoneBalance      = m_System.m_PostProcessSettings.midtoneBalance;
-        ubo.highlightBalance    = m_System.m_PostProcessSettings.highlightBalance;
+        ubo.shadowBalance       = m_System.GetPostProcessSettings().shadowBalance;
+        ubo.midtoneBalance      = m_System.GetPostProcessSettings().midtoneBalance;
+        ubo.highlightBalance    = m_System.GetPostProcessSettings().highlightBalance;
 
         // Per-frame UBO from GPU tagged heap; the 4 PP descriptor sets share the region.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
