@@ -112,6 +112,10 @@ namespace Luth::RG
         std::vector<std::vector<u32>>  passArchives;
         Mat4                       captureViewProj = Mat4(1.0f);
 
+        // Render-frame index at BeginCapture — pins descriptor-set slot for
+        // Frozen replay (per-frame cycling — see arch/rendering-pipeline.md).
+        u32 capturedRenderFrameIndex = 0;
+
         // Phase 14D — Hierarchical event tree built at capture finalize from
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
@@ -141,6 +145,7 @@ namespace Luth::RG
             shadowNormalBias    = Vec4(0.0f);
             cascadeTexelSize    = Vec4(0.0f);
             for (auto& m : lightSpaceMatrix) m = Mat4(0.0f);
+            capturedRenderFrameIndex = 0;
             totalGpuTimeMs      = 0.0f;
             valid               = false;
         }

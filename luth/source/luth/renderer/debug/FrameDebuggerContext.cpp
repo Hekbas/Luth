@@ -422,10 +422,9 @@ namespace Luth
             }
             VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
-            // Live `slot` placeholder — Commit 6 (FrameDebugger) swaps this to the
-            // captured frame's slot so Frozen replay binds the captured slot, not whatever
-            // the live render loop has rotated to.
-            const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+            // Use captured slot — Frozen state pins descriptor data; live
+            // GetRenderFrameIndex() would index a slot the live loop has rotated past.
+            const u32 slot = sys.GetFrameDebugger().capturedFrame.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
                 rp.GetCurrentViewResources()->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(),
