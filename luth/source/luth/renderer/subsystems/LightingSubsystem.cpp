@@ -73,7 +73,7 @@ namespace Luth
 
         if (m_LightDescPool)  { vkDestroyDescriptorPool(device, m_LightDescPool, nullptr); m_LightDescPool = VK_NULL_HANDLE; }
         if (m_LightSetLayout) { vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr); m_LightSetLayout = VK_NULL_HANDLE; }
-        m_LightDescSet = VK_NULL_HANDLE;
+        m_LightDescSet.fill(VK_NULL_HANDLE);
     }
 
     void LightingSubsystem::ReloadSkybox(const fs::path& hdrPath, const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -122,11 +122,14 @@ namespace Luth
 
     void LightingSubsystem::UploadLightUBO(const LightUniforms& lights)
     {
-        // Per-frame UBO from GPUTaggedPageAllocator. Tag = render-frame index;
+        // Per-frame UBO from GPUTaggedPageAllocator. Tag = render-frame index (absolute);
+        // descriptor slot = same index modulo MAX_FRAMES_IN_FLIGHT (cycles per-frame storage).
         // FreeTag(N-2) reclaims after the GPU retires the consuming frame.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap   = Memory::GPUTaggedPageAllocator::Get();
         const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
@@ -142,7 +145,7 @@ namespace Luth
         bi.range  = region.size;
 
         VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet          = m_LightDescSet;
+        write.dstSet          = m_LightDescSet[slot];
         write.dstBinding      = 0;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         write.descriptorCount = 1;
@@ -186,53 +189,53 @@ namespace Luth
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Light UBO is rebound per render-stage to a fresh tagged-heap region; sampler stable.
-        VkDescriptorBindingFlags bindingFlags[2] = { VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0 };
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsInfo.bindingCount  = 2;
-        bindingFlagsInfo.pBindingFlags = bindingFlags;
-
+        // Light UBO rebound per render-stage to a fresh tagged-heap region against a
+        // per-frame slot of m_LightDescSet — no UAB needed (cycling guarantees the slot
+        // we write is not the slot the GPU is consuming).
         VkDescriptorSetLayoutCreateInfo lightLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        lightLayoutInfo.pNext = &bindingFlagsInfo;
-        lightLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         lightLayoutInfo.bindingCount = 2;
         lightLayoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
         VkDescriptorPoolSize poolSizes[2] = {};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = 1;
+        poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = 1;
+        poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        poolInfo.maxSets = 1;
+        poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 2;
         poolInfo.pPoolSizes = poolSizes;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_LightDescPool);
 
+        VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = m_LightSetLayout;
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocInfo.descriptorPool = m_LightDescPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_LightSetLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_LightDescSet);
+        allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        allocInfo.pSetLayouts = layouts;
+        vkAllocateDescriptorSets(device, &allocInfo, m_LightDescSet.data());
 
-        // Initial write: only the stable shadow sampler. Binding 0 (Light UBO) is rewritten
-        // each frame in UploadLightUBO to point at the per-frame tagged-heap region.
+        // Initial write: stable shadow sampler propagated to every slot. Binding 0
+        // (Light UBO) is rewritten per-frame in UploadLightUBO against the slot's set.
         auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler     = m_ShadowSampler;
         shadowImgInfo.imageView   = vkShadowTex->GetImageView();
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet samplerWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        samplerWrite.dstSet          = m_LightDescSet;
-        samplerWrite.dstBinding      = 1;
-        samplerWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerWrite.descriptorCount = 1;
-        samplerWrite.pImageInfo      = &shadowImgInfo;
-        vkUpdateDescriptorSets(device, 1, &samplerWrite, 0, nullptr);
+        VkWriteDescriptorSet samplerWrites[MAX_FRAMES_IN_FLIGHT] = {};
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            samplerWrites[s] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            samplerWrites[s].dstSet          = m_LightDescSet[s];
+            samplerWrites[s].dstBinding      = 1;
+            samplerWrites[s].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            samplerWrites[s].descriptorCount = 1;
+            samplerWrites[s].pImageInfo      = &shadowImgInfo;
+        }
+        vkUpdateDescriptorSets(device, MAX_FRAMES_IN_FLIGHT, samplerWrites, 0, nullptr);
     }
 
     // ---- Internal: IBL precompute (irradiance + prefiltered + BRDF LUT + skybox VB/SPVs) ----
@@ -379,12 +382,13 @@ namespace Luth
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO, owned by Geometry until sub-task C).
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_LightDescSet[slot],
                     BoneMatrixBuffer::GetDescriptorSet(),
                     m_Pipeline->GetGeometry().GetObjectSSBODescSet()
                 };
@@ -511,12 +515,13 @@ namespace Luth
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_SkyboxPipeline->Bind(cmd);
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_LightDescSet[slot],
                     BoneMatrixBuffer::GetDescriptorSet()
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,

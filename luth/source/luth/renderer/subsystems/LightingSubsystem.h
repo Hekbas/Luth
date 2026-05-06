@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/core/FrameData.h"
 #include "luth/renderer/CameraParams.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
@@ -8,6 +9,7 @@
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/resources/Texture.h"
 
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -44,7 +46,7 @@ namespace Luth
 
         // ---- Accessors ----
         VkDescriptorSetLayout GetSetLayout() const          { return m_LightSetLayout; }
-        VkDescriptorSet       GetLightDescSet() const       { return m_LightDescSet; }
+        VkDescriptorSet       GetLightDescSet(u32 slot) const { return m_LightDescSet[slot]; }
         VkSampler             GetShadowSampler() const      { return m_ShadowSampler; }
         const std::shared_ptr<Texture>& GetShadowMap() const { return m_ShadowMap; }
         VkImageView           GetShadowLayerView(u32 i) const { return m_ShadowLayerViews[i]; }
@@ -73,7 +75,7 @@ namespace Luth
         VkSampler                m_ShadowSampler  = VK_NULL_HANDLE;
         VkDescriptorPool         m_LightDescPool  = VK_NULL_HANDLE;
         VkDescriptorSetLayout    m_LightSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet          m_LightDescSet   = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_LightDescSet{};
 
         // Shadow pipelines + SPV.
         std::unique_ptr<VKPipeline> m_ShadowPipeline;

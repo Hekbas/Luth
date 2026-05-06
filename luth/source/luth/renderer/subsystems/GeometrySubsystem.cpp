@@ -619,12 +619,13 @@ namespace Luth
 
                 if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_Pipeline->GetLighting().GetLightDescSet(),
+                    m_Pipeline->GetLighting().GetLightDescSet(slot),
                     BoneMatrixBuffer::GetDescriptorSet(),
                     m_ObjectSSBODescSet
                 };
@@ -790,12 +791,13 @@ namespace Luth
                 if (!opaquePipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_Pipeline->GetLighting().GetLightDescSet(),
+                    m_Pipeline->GetLighting().GetLightDescSet(slot),
                     BoneMatrixBuffer::GetDescriptorSet(),
                     m_ObjectSSBODescSet
                 };

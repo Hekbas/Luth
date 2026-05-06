@@ -423,12 +423,13 @@ namespace Luth
                 if (selectedSet.empty()) return;
 
                 VkCommandBuffer cmd = ctx.commandBuffer;
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
                     vr->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_Pipeline->GetLighting().GetLightDescSet(),
+                    m_Pipeline->GetLighting().GetLightDescSet(slot),
                     BoneMatrixBuffer::GetDescriptorSet()
                 };
 

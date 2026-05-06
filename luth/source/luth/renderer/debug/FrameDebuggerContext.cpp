@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
@@ -421,10 +422,14 @@ namespace Luth
             }
             VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
+            // Live `slot` placeholder — Commit 6 (FrameDebugger) swaps this to the
+            // captured frame's slot so Frozen replay binds the captured slot, not whatever
+            // the live render loop has rotated to.
+            const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
                 rp.GetCurrentViewResources()->globalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
-                rp.GetLighting().GetLightDescSet(), BoneMatrixBuffer::GetDescriptorSet(), rp.GetGeometry().GetObjectSSBODescSet()
+                rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(), rp.GetGeometry().GetObjectSSBODescSet()
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipelineLayout, 0, 6, sets, 0, nullptr);
