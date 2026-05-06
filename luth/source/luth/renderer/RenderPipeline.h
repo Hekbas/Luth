@@ -71,6 +71,10 @@ namespace Luth
     // without mid-frame vkUpdateDescriptorSets aliasing.
     struct ViewResources
     {
+        // Identity token minted at creation; survives resize, dies with
+        // ReleaseViewResources. invariant: replay validates against this
+        // to catch FrameTargets-pointer reuse after panel close.
+        u64 id     = 0;
         u32 width  = 0;
         u32 height = 0;
 
@@ -257,6 +261,12 @@ namespace Luth
         // outside a frame.
         ViewResources& EnsureViewResources(FrameTargets& targets);
         void           ReleaseViewResources(FrameTargets& targets);
+
+        // True iff `targets` has a cached ViewResources whose identity token
+        // matches `expectedId`. Replay path uses this to validate that the
+        // captured FrameTargets is still the same instance — pointer reuse
+        // after panel close + reopen would mint a different id.
+        bool HasViewResources(FrameTargets* targets, u64 expectedId) const;
 
     private:
         // Split allocation + per-group descriptor writes for readability.

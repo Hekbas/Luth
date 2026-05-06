@@ -5,9 +5,16 @@
 #include "luth/renderer/rendergraph/ArchivedImage.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
+
+namespace Luth
+{
+    class FrameTargets;
+    class Texture;
+}
 
 namespace Luth::RG
 {
@@ -62,6 +69,18 @@ namespace Luth::RG
         u32 groupCountX = 0;
         u32 groupCountY = 0;
         u32 groupCountZ = 0;
+    };
+
+    // invariant: every Replay* entry calls HasViewResources(targets, viewResourcesId)
+    // before reading these — FrameTargets pointer alone isn't safe (panel close +
+    // re-allocation can hand back the same address with different content).
+    struct CapturedViewState
+    {
+        FrameTargets* targets         = nullptr;
+        u64           viewResourcesId = 0;
+        u32           viewIndex       = 0;
+        u32           width           = 0;
+        u32           height          = 0;
     };
 
     // Aggregated info per render pass
@@ -130,6 +149,17 @@ namespace Luth::RG
         Vec4 cascadeTexelSize   = Vec4(0.0f);  // World-space texel footprint
         Mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
 
+        // Captured-view metadata + GPU-true Set 0 binding sources for replay.
+        // invariant: replay must render against these, not live state — when
+        // capturedSource == Game and the live scene view runs after capture,
+        // m_CurrentViewResources points at the scene view, not the captured one.
+        CapturedViewState        capturedView;
+        std::vector<u8>          capturedGlobalUboBytes;   // GlobalUniforms snapshot
+        std::shared_ptr<Texture> capturedIrradiance;
+        std::shared_ptr<Texture> capturedPrefiltered;
+        std::shared_ptr<Texture> capturedBRDF;
+        std::shared_ptr<Texture> capturedGTAOFinal;
+
         // Metadata-only reset. GPU-owned archives are NOT touched; the owner
         // (FrameDebugger) must call DestroyArchives separately to free them.
         // BeginCapture orchestrates both in the right order.
@@ -146,6 +176,12 @@ namespace Luth::RG
             cascadeTexelSize    = Vec4(0.0f);
             for (auto& m : lightSpaceMatrix) m = Mat4(0.0f);
             capturedRenderFrameIndex = 0;
+            capturedView        = {};
+            capturedGlobalUboBytes.clear();
+            capturedIrradiance.reset();
+            capturedPrefiltered.reset();
+            capturedBRDF.reset();
+            capturedGTAOFinal.reset();
             totalGpuTimeMs      = 0.0f;
             valid               = false;
         }

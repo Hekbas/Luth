@@ -57,6 +57,11 @@ namespace Luth
 
         if (inserted)
         {
+            // Mint a fresh identity token. Survives resize, dies with
+            // ReleaseViewResources — replay's HasViewResources(t,id) check
+            // detects FrameTargets-pointer reuse after a panel close.
+            static std::atomic<u64> s_NextId{ 1 };
+            vr.id = s_NextId.fetch_add(1, std::memory_order_relaxed);
             AllocateViewResources(vr, targets);
         }
         else if (vr.width != newW || vr.height != newH)
@@ -83,6 +88,13 @@ namespace Luth
         if (it == m_ViewResources.end()) return;
         DestroyViewResources(it->second);
         m_ViewResources.erase(it);
+    }
+
+    bool RenderPipeline::HasViewResources(FrameTargets* targets, u64 expectedId) const
+    {
+        if (!targets) return false;
+        auto it = m_ViewResources.find(targets);
+        return it != m_ViewResources.end() && it->second.id == expectedId;
     }
 
     void RenderPipeline::AllocateViewResources(ViewResources& vr, FrameTargets& targets)
