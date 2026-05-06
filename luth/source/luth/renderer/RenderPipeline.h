@@ -15,6 +15,7 @@
 #include "luth/renderer/shader/ShaderWatcher.h"
 #include "luth/renderer/subsystems/GlobalSubsystem.h"
 #include "luth/renderer/subsystems/LightingSubsystem.h"
+#include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -183,12 +184,12 @@ namespace Luth
         void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
 
         // Maps consumed by DrawListBuilder (populated by BuildGPUObjectBuffer).
-        const std::unordered_map<UUID, u32, UUIDHash>& GetMaterialSlotMap() const { return m_MaterialSlotMap; }
-        const std::unordered_map<entt::entity, u32>& GetEntityToSSBOIndex() const { return m_EntityToSSBOIndex; }
+        const std::unordered_map<UUID, u32, UUIDHash>& GetMaterialSlotMap() const { return m_Geometry.GetMaterialSlotMap(); }
+        const std::unordered_map<entt::entity, u32>& GetEntityToSSBOIndex() const { return m_Geometry.GetEntityToSSBOIndex(); }
 
         // Entity lookup table for mouse picking (index 0 = null sentinel;
         // valid entities start at 1). Populated by BuildGPUObjectBuffer.
-        const std::vector<entt::entity>& GetEntityLookup() const { return m_EntityLookup; }
+        const std::vector<entt::entity>& GetEntityLookup() const { return m_Geometry.GetEntityLookup(); }
 
         // Engine-side hot-reload service for .vert/.frag/.comp files. Project
         // shader dirs register via RenderingSystem::OnProjectLoaded, which
@@ -210,34 +211,21 @@ namespace Luth
         const GlobalSubsystem&   GetGlobal()   const { return m_Global; }
         LightingSubsystem&       GetLighting()       { return m_Lighting; }
         const LightingSubsystem& GetLighting() const { return m_Lighting; }
+        GeometrySubsystem&       GetGeometry()       { return m_Geometry; }
+        const GeometrySubsystem& GetGeometry() const { return m_Geometry; }
 
         // Temp accessors — expose state that *Subsystem extractions will own. Each is removed in
         // the sub-task that extracts it. invariant: all gone by sub-task E.
-        PipelineManager&        GetGeoPipelineManager()        { return m_GeoPipelineManager; }
-        PipelineManager&        GetGeoSkinnedPipelineManager() { return m_GeoSkinnedPipelineManager; }
-        const std::vector<u32>& GetPBRVertSpv() const          { return m_PBRVertSpv; }
-        const std::vector<u32>& GetPBRFragSpv() const          { return m_PBRFragSpv; }
-        const std::vector<u32>& GetPBRSkinnedVertSpv() const   { return m_PBRSkinnedVertSpv; }
-        VkDescriptorSet         GetObjectSSBODescSet() const   { return m_ObjectSSBODescSet; }
-        const Memory::GPUSubRegion& GetIndirectRegion() const  { return m_IndirectRegion; }
         const std::vector<u32>& GetFullscreenVertSpv() const   { return m_FullscreenVertSpv; }
         VkSampler               GetGTAOSampler() const         { return m_GTAOSampler; }
 
     private:
-        // Init / Update helpers. Per-view state (bloom / GTAO textures, UBOs,
-        // descriptor sets) is allocated lazily by EnsureViewResources; these
-        // Init*Resources functions set up shared state (layouts, samplers,
-        // pipelines, shared UBOs with view-independent content) for the
-        // subsystems still on RP (Geometry / GTAO / PostProcess /
-        // EditorOverlays / Skybox-related residuals).
+        // Init / Update helpers for the subsystems still on RP (GTAO /
+        // PostProcess / EditorOverlays). Per-view state allocated lazily by
+        // EnsureViewResources.
         void InitPostProcessResources();
-        void InitObjectSSBODescriptorLayout();
-        void InitGPUObjectBuffers();
-        void InitCullPipeline();
         void InitAOResources();
         void CreatePipelines();
-        void BuildPBRPipelines();
-        void BuildDepthPrepassPipelines();
         void BuildSelectionPipelines();
         void BuildPostPipelines();
         void BuildOutlinePipeline();
@@ -248,15 +236,9 @@ namespace Luth
         // execute lambdas) and returns a handle to its primary output so
         // callers can chain the graph. All pass files live under
         // renderer/passes/ and used to be RenderingSystem methods.
-        RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle);
         RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
         RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
-        GeometryOutput AddGeometryPass(RG::RenderGraph& rg,
-                                        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
-                                        RG::BufferHandle indirectBufferHandle,
-                                        RG::ResourceHandle sceneDepth,
-                                        RG::ResourceHandle gtaoFinalAO);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg);
@@ -308,45 +290,7 @@ namespace Luth
         // ---- Subsystems (own their domain state + lifecycle + passes) ----
         GlobalSubsystem   m_Global;
         LightingSubsystem m_Lighting;
-
-        // ---- Depth prepass pipeline ----
-        std::unique_ptr<VKPipeline> m_DepthPrepassPipeline;
-        std::unique_ptr<VKPipeline> m_DepthPrepassSkinnedPipeline;
-        std::vector<u32>            m_DepthPrepassVertSpv;
-        std::vector<u32>            m_DepthPrepassSkinnedVertSpv;
-
-        // ---- PBR pipeline manager ----
-        PipelineManager  m_GeoPipelineManager;
-        PipelineManager  m_GeoSkinnedPipelineManager;
-        std::vector<u32> m_PBRVertSpv;
-        std::vector<u32> m_PBRFragSpv;
-        std::vector<u32> m_PBRSkinnedVertSpv;
-
-        // ---- Material SSBO slot tracking (MaterialUUID -> SSBO index) ----
-        std::unordered_map<UUID, u32, UUIDHash> m_MaterialSlotMap;
-
-        // ---- GPU Object + Indirect regions (per-frame, allocated from tagged heap) ----
-        // Both regions are allocated each render-stage in BuildGPUObjectBuffer;
-        // FreeTag(N-2) returns their pages once the GPU has retired the consuming frame.
-        // m_GPUObjectCount carries forward into Execute (cull dispatch + indirect draw).
-        Memory::GPUSubRegion m_ObjectRegion{};
-        Memory::GPUSubRegion m_IndirectRegion{};
-        u32                  m_GPUObjectCount = 0;
-
-        // ---- Set 5 — GPUObjectData SSBO descriptor (graphics pipeline) ----
-        VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_ObjectSSBODescLayout = VK_NULL_HANDLE;
-        VkDescriptorSet       m_ObjectSSBODescSet    = VK_NULL_HANDLE;
-
-        // ---- Entity → SSBO index (rebuilt every frame in BuildGPUObjectBuffer) ----
-        std::unordered_map<entt::entity, u32> m_EntityToSSBOIndex;
-        std::vector<entt::entity>             m_EntityLookup;
-
-        // ---- Cull compute pipeline + descriptor ----
-        std::unique_ptr<VKComputePipeline> m_CullPipeline;
-        VkDescriptorPool                   m_CullDescPool   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
-        VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
+        GeometrySubsystem m_Geometry;
 
         // ---- GTAO shared state (per-view textures/UBO/sets in ViewResources) ----
         std::unique_ptr<VKComputePipeline> m_GTAOPrefilterPipeline;

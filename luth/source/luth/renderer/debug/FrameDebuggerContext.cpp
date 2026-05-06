@@ -411,9 +411,9 @@ namespace Luth
             // ---- Phase 3: bind pipelines + descriptors, replay draws ----
             // Same descriptor sets as the live GeometryPass — the underlying
             // UBOs/SSBOs are byte-stable in Frozen state (no live writers).
-            auto* opaquePipeline = rp.GetGeoPipelineManager().GetOrCreate(
+            auto* opaquePipeline = rp.GetGeometry().GetGeoPipelineManager().GetOrCreate(
                 pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back,
-                polyMode, rp.GetPBRVertSpv(), rp.GetPBRFragSpv());
+                polyMode, rp.GetGeometry().GetPBRVertSpv(), rp.GetGeometry().GetPBRFragSpv());
             if (!opaquePipeline)
             {
                 DynamicRendering::EndRendering(cmd);
@@ -424,7 +424,7 @@ namespace Luth
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
                 rp.GetCurrentViewResources()->globalDescriptorSet, bindlessSet, MaterialSystem::GetDescriptorSet(),
-                rp.GetLighting().GetLightDescSet(), BoneMatrixBuffer::GetDescriptorSet(), rp.GetObjectSSBODescSet()
+                rp.GetLighting().GetLightDescSet(), BoneMatrixBuffer::GetDescriptorSet(), rp.GetGeometry().GetObjectSSBODescSet()
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipelineLayout, 0, 6, sets, 0, nullptr);
@@ -442,8 +442,8 @@ namespace Luth
 
                 Material::CullMode currentCull = Material::CullMode::Back;
                 bool currentSkinned = false;
-                auto* pipeline = rp.GetGeoPipelineManager().GetOrCreate(
-                    pbrUUID, mode, currentCull, polyMode, rp.GetPBRVertSpv(), rp.GetPBRFragSpv());
+                auto* pipeline = rp.GetGeometry().GetGeoPipelineManager().GetOrCreate(
+                    pbrUUID, mode, currentCull, polyMode, rp.GetGeometry().GetPBRVertSpv(), rp.GetGeometry().GetPBRFragSpv());
                 if (!pipeline) return;
                 pipeline->Bind(cmd);
 
@@ -456,8 +456,8 @@ namespace Luth
                         currentCull    = dc.cullMode;
                         currentSkinned = dc.isSkinned;
                         VKPipeline* newPipeline = currentSkinned
-                            ? rp.GetGeoSkinnedPipelineManager().GetOrCreate(pbrUUID, mode, currentCull, polyMode, rp.GetPBRSkinnedVertSpv(), rp.GetPBRFragSpv())
-                            : rp.GetGeoPipelineManager().GetOrCreate       (pbrUUID, mode, currentCull, polyMode, rp.GetPBRVertSpv(),        rp.GetPBRFragSpv());
+                            ? rp.GetGeometry().GetGeoSkinnedPipelineManager().GetOrCreate(pbrUUID, mode, currentCull, polyMode, rp.GetGeometry().GetPBRSkinnedVertSpv(), rp.GetGeometry().GetPBRFragSpv())
+                            : rp.GetGeometry().GetGeoPipelineManager().GetOrCreate       (pbrUUID, mode, currentCull, polyMode, rp.GetGeometry().GetPBRVertSpv(),        rp.GetGeometry().GetPBRFragSpv());
                         if (!newPipeline) continue;
                         newPipeline->Bind(cmd);
                     }
@@ -478,8 +478,8 @@ namespace Luth
                     // (gpuObjectIndex * sizeof(...)), mirroring GeometryPass with
                     // viewBaseRegion=0 (replay is scene-view only).
                     const u32 cmdIndex = dc.gpuObjectIndex;
-                    VkDeviceSize indirectOffset = rp.GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cmd, rp.GetIndirectRegion().buffer, indirectOffset, 1,
+                    VkDeviceSize indirectOffset = rp.GetGeometry().GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, rp.GetGeometry().GetIndirectRegion().buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
 
                     --drawsRemaining;

@@ -16,7 +16,6 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Buffer.h"
 #include "luth/renderer/lighting/IBLPrecompute.h"
-#include "luth/renderer/passes/CullPass.h"
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/resources/AssetManager.h"
@@ -65,14 +64,9 @@ namespace Luth
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
 
-        m_PBRVertSpv                  = loadSpv("shaders/pbr.vert");
-        m_PBRFragSpv                  = loadSpv("shaders/pbr.frag");
-        m_PBRSkinnedVertSpv           = loadSpv("shaders/pbr_skinned.vert");
         m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
         m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
         m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
-        m_DepthPrepassVertSpv         = loadSpv("shaders/depthPrepass.vert");
-        m_DepthPrepassSkinnedVertSpv  = loadSpv("shaders/depthPrepass_skinned.vert");
         m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.vert");
         m_BloomExtractFragSpv         = loadSpv("shaders/bloomExtract.frag");
         m_BloomBlurFragSpv            = loadSpv("shaders/bloomBlur.frag");
@@ -80,11 +74,8 @@ namespace Luth
         m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
         m_GridFragSpv                 = loadSpv("shaders/grid.frag");
 
-        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() ||
-            m_PBRSkinnedVertSpv.empty() ||
-            m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
+        if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
             m_SelectionMaskSkinnedVertSpv.empty() ||
-            m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty() ||
             m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
             m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
             m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
@@ -103,21 +94,23 @@ namespace Luth
             ? FileSystem::ResolveAsset("textures/environment.hdr")
             : fs::path{});
 
-        CreatePipelines();
+        // Geometry owns Set 5 + cull + PBR + DepthPrepass. Init creates layouts +
+        // descriptors + cull pipeline; pipelines that need geoLayouts build below.
+        m_Geometry.Init(*this);
 
-        // Shadow + skybox pipelines need all 6 set layouts (Set 5 = ObjectSSBO created above).
+        // Shadow / skybox / PBR / DepthPrepass pipelines all need the shared 6-layout vector.
         std::vector<VkDescriptorSetLayout> geoLayouts = {
             m_Global.GetSetLayout(),
             VulkanContext::Get().GetBindlessSet().GetLayout(),
             MaterialSystem::GetDescriptorSetLayout(),
             m_Lighting.GetSetLayout(),
             BoneMatrixBuffer::GetDescriptorSetLayout(),
-            m_ObjectSSBODescLayout
+            m_Geometry.GetSet5Layout()
         };
         m_Lighting.BuildPipelines(geoLayouts);
+        m_Geometry.BuildPipelines(geoLayouts);
 
-        InitGPUObjectBuffers();
-        InitCullPipeline();
+        CreatePipelines();
         InitAOResources();
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -149,30 +142,26 @@ namespace Luth
                     VulkanContext::Get().PushDeletion([raw]() { delete raw; });
             };
 
-            // Lighting handles its own shadow + skybox shaders (own SPV blobs + pipeline rebuilds).
+            // Subsystems handle their own shaders (own SPV blobs + pipeline rebuilds).
             std::vector<VkDescriptorSetLayout> geoLayouts = {
                 m_Global.GetSetLayout(),
                 VulkanContext::Get().GetBindlessSet().GetLayout(),
                 MaterialSystem::GetDescriptorSetLayout(),
                 m_Lighting.GetSetLayout(),
                 BoneMatrixBuffer::GetDescriptorSetLayout(),
-                m_ObjectSSBODescLayout
+                m_Geometry.GetSet5Layout()
             };
-            if (m_Lighting.OnShaderReloaded(name, spv, geoLayouts))
+            if (m_Lighting.OnShaderReloaded(name, spv, geoLayouts) ||
+                m_Geometry.OnShaderReloaded(name, spv, geoLayouts))
             {
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
                 return;
             }
 
             // Pull fresh SPIR-V into the cached blob used by pipeline builders.
-            if      (name == "pbr.vert")                   m_PBRVertSpv                  = spv;
-            else if (name == "pbr.frag")                   m_PBRFragSpv                  = spv;
-            else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv           = spv;
-            else if (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
+            if      (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
             else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
             else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
-            else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv         = spv;
-            else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv  = spv;
             else if (name == "fullscreen.vert")            m_FullscreenVertSpv           = spv;
             else if (name == "bloomExtract.frag")          m_BloomExtractFragSpv         = spv;
             else if (name == "bloomBlur.frag")             m_BloomBlurFragSpv            = spv;
@@ -184,22 +173,10 @@ namespace Luth
             else if (name == "gtao_denoise.comp")          m_GTAODenoiseSpv              = spv;
             else if (name == "debugBlit.frag")             m_System.GetFrameDebugger().blitFragSpv  = spv;
             else if (name == "debugDepth.frag")            m_System.GetFrameDebugger().depthFragSpv = spv;
-            // gpu_cull.comp rebuilt below using `spv` directly. IBL precompute shaders
-            // (equirect/irradiance/prefilter/brdf_lut) refresh in the library, but the
-            // precomputed results don't re-bake on edit — ReloadSkybox() must be invoked.
+            // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut) refresh in the
+            // library, but the precomputed results don't re-bake — ReloadSkybox() must run.
 
-            // Rebuild graphics pipelines (invalidate PBR cache by its canonical key).
-            const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
-            if (isPBR) {
-                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
-                m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
-                m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
-            } else {
-                m_GeoPipelineManager.DeferredClear();
-                m_GeoSkinnedPipelineManager.DeferredClear();
-            }
-            deferGfx(m_DepthPrepassPipeline);
-            deferGfx(m_DepthPrepassSkinnedPipeline);
+            // Rebuild graphics pipelines for residual subsystems.
             deferGfx(m_BloomExtractPipeline);
             deferGfx(m_BloomBlurPipeline);
             deferGfx(m_PostProcessPipeline);
@@ -212,15 +189,7 @@ namespace Luth
             // Rebuild the matching compute pipeline (descriptor layouts untouched).
             // Defer the old pipeline's destroy so any in-flight cmd buffer that bound
             // it survives until AcquireImage drains the deletion queue.
-            if (name == "gpu_cull.comp" && m_CullDescLayout)
-            {
-                deferComp(m_CullPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
-                m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
-                    std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
+            if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
             {
                 deferComp(m_GTAOPrefilterPipeline);
                 VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
@@ -280,6 +249,7 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_Geometry.Shutdown();
         m_Lighting.Shutdown();
         m_Global.Shutdown();
 
@@ -290,14 +260,6 @@ namespace Luth
         if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
         if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
         if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
-
-        // Object + Indirect storage owned by GPUTaggedPageAllocator; freed by FreeTag(N-2)
-        // each frame and finally drained at GPU heap Shutdown.
-        if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
-        if (m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
-        if (m_CullDescPool)         vkDestroyDescriptorPool(device, m_CullDescPool, nullptr);
-        if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
-        m_CullPipeline.reset();
 
         // GTAO resources (epic #58) — shared.
         m_GTAOPrefilterPipeline.reset();
@@ -342,31 +304,28 @@ namespace Luth
 
         // Import this frame's tagged-heap regions for RG barrier tracking. Buffers can
         // change identity each frame (heap allocator may reuse pages or grow backings).
-        RG::BufferDesc objDesc { "ObjectSSBO",     m_ObjectRegion.size,   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        RG::BufferDesc indDesc { "IndirectBuffer", m_IndirectRegion.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT };
-        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectRegion.buffer,   RG::ResourceState::Undefined);
-        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectRegion.buffer, RG::ResourceState::Undefined);
+        const auto& objectRegion   = m_Geometry.GetObjectRegion();
+        const auto& indirectRegion = m_Geometry.GetIndirectRegion();
+        RG::BufferDesc objDesc { "ObjectSSBO",     objectRegion.size,   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        RG::BufferDesc indDesc { "IndirectBuffer", indirectRegion.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT };
+        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)objectRegion.buffer,   RG::ResourceState::Undefined);
+        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)indirectRegion.buffer, RG::ResourceState::Undefined);
 
-        // Frustum cull — 5 dispatches per view (camera + 4 cascades).
-        // Each view owns a disjoint range within the indirect region; the cull shader
-        // now reads objects[idx] (0-based) since the descriptor binding starts at
-        // m_ObjectRegion's base.
+        // Frustum cull — 5 dispatches per view (camera + 4 cascades). Each view owns a
+        // disjoint range within the indirect region.
         {
             const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
-            AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
-                baseRegion * k_IndirectRegionStride,
-                "FrustumCull.Cam", &m_System.GetFrameDebugger());
+            m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
+                camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
                 Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
                 const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
-                AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
-                    destOffset, name.c_str(), &m_System.GetFrameDebugger());
+                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
+                    cascadeFrustum.planes, destOffset, name.c_str());
             }
         }
 
@@ -376,7 +335,7 @@ namespace Luth
 
         // Z-prepass produces SceneDepth before forward shading. The render
         // graph can schedule it in parallel with the shadow cascades.
-        RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, hIndirectBuf);
+        RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -387,7 +346,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
@@ -771,6 +730,16 @@ namespace Luth
         m_Lighting.UploadLightUBO(lights);
     }
 
+    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
+    {
+        m_Geometry.BuildGPUObjectBuffer(snapshot);
+    }
+
+    u32 RenderPipeline::EnsureMaterialRegistered(std::shared_ptr<Material> material)
+    {
+        return m_Geometry.EnsureMaterialRegistered(material);
+    }
+
     void RenderPipeline::ReloadSkybox(const fs::path& hdrPath)
     {
         std::vector<VkDescriptorSetLayout> geoLayouts = {
@@ -779,7 +748,7 @@ namespace Luth
             MaterialSystem::GetDescriptorSetLayout(),
             m_Lighting.GetSetLayout(),
             BoneMatrixBuffer::GetDescriptorSetLayout(),
-            m_ObjectSSBODescLayout
+            m_Geometry.GetSet5Layout()
         };
         m_Lighting.ReloadSkybox(hdrPath, geoLayouts);
 

@@ -386,7 +386,7 @@ namespace Luth
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet,
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_Pipeline->GetObjectSSBODescSet()
+                    m_Pipeline->GetGeometry().GetObjectSSBODescSet()
                 };
 
                 m_ShadowPipeline->Bind(cmd);
@@ -448,7 +448,7 @@ namespace Luth
                         // region (N * k_IndirectRegionsPerView); cascade i lives at offset (i+1).
                         const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
                         const u32 cmdIndex = (viewBaseRegion + data.cascadeIndex + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
-                        const auto& indirectRegion = m_Pipeline->GetIndirectRegion();
+                        const auto& indirectRegion = m_Pipeline->GetGeometry().GetIndirectRegion();
                         VkDeviceSize indirectOffset = indirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                         vkCmdDrawIndexedIndirect(cmd, indirectRegion.buffer, indirectOffset, 1,
                             sizeof(VkDrawIndexedIndirectCommand));

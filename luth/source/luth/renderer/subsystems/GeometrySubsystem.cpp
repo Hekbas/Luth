@@ -1,0 +1,887 @@
+#include "luthpch.h"
+#include "luth/renderer/subsystems/GeometrySubsystem.h"
+#include "luth/renderer/subsystems/LightingSubsystem.h"
+#include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
+#include "luth/renderer/FrameDebugger.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/renderer/material/MaterialSystem.h"
+#include "luth/renderer/resources/BoneMatrixBuffer.h"
+#include "luth/renderer/resources/Buffer.h"
+#include "luth/renderer/resources/Model.h"
+#include "luth/renderer/draw/DrawCommand.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/core/FrameData.h"
+#include "luth/core/RenderSnapshot.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/resources/AssetManager.h"
+
+namespace Luth
+{
+    namespace {
+        BufferLayout MakePBRVertexLayout() {
+            return BufferLayout{
+                { ShaderDataType::Float3, "a_Position"  },
+                { ShaderDataType::Float3, "a_Normal"    },
+                { ShaderDataType::Float2, "a_TexCoord0" },
+                { ShaderDataType::Float2, "a_TexCoord1" },
+                { ShaderDataType::Float3, "a_Tangent"   }
+            };
+        }
+        BufferLayout MakeSkinnedVertexLayout() {
+            return BufferLayout{
+                { ShaderDataType::Float3, "a_Position"    },
+                { ShaderDataType::Float3, "a_Normal"      },
+                { ShaderDataType::Float2, "a_TexCoord0"   },
+                { ShaderDataType::Float2, "a_TexCoord1"   },
+                { ShaderDataType::Float3, "a_Tangent"     },
+                { ShaderDataType::Int4,   "a_BoneIDs"     },
+                { ShaderDataType::Float4, "a_BoneWeights" }
+            };
+        }
+        // Position-only attribute with full PBR vertex stride — depth-prepass and shadow
+        // pipelines reuse the PBR vertex buffer but only consume a_Position.
+        std::pair<std::vector<VkVertexInputBindingDescription>, std::vector<VkVertexInputAttributeDescription>>
+        MakePositionOnlyWithFullStride() {
+            BufferLayout layout = { { ShaderDataType::Float3, "a_Position" } };
+            auto bindings = layout.GetBindingDescriptions();
+            auto attribs  = layout.GetAttributeDescriptions();
+            if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3);
+            return { std::move(bindings), std::move(attribs) };
+        }
+    }
+
+    void GeometrySubsystem::Init(RenderPipeline& pipeline)
+    {
+        m_Pipeline = &pipeline;
+
+        auto loadSpv = [](const char* relPath) -> std::vector<u32> {
+            auto sh = ShaderLibrary::LoadEngine(relPath);
+            return sh ? sh->GetSpirV() : std::vector<u32>{};
+        };
+        m_PBRVertSpv                 = loadSpv("shaders/pbr.vert");
+        m_PBRFragSpv                 = loadSpv("shaders/pbr.frag");
+        m_PBRSkinnedVertSpv          = loadSpv("shaders/pbr_skinned.vert");
+        m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.vert");
+        m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.vert");
+
+        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() || m_PBRSkinnedVertSpv.empty()
+         || m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty())
+        {
+            LH_CORE_ERROR("GeometrySubsystem: shader SPIR-V empty after asset load!");
+            return;
+        }
+
+        InitObjectSSBO();
+        InitCullPipeline();
+    }
+
+    void GeometrySubsystem::InitObjectSSBO()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // Set 5 layout: binding 0 = ObjectSSBO (UPDATE_AFTER_BIND so BuildGPUObjectBuffer
+        // can rewrite the binding each render stage to a fresh tagged-heap region).
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding         = 0;
+        binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        binding.descriptorCount = 1;
+        binding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsInfo.bindingCount = 1;
+        bindingFlagsInfo.pBindingFlags = &bindingFlags;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext        = &bindingFlagsInfo;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutInfo.bindingCount = 1;
+        layoutInfo.pBindings    = &binding;
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_ObjectSSBODescLayout);
+
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSize.descriptorCount = 1;
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        poolInfo.maxSets       = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_ObjectSSBODescPool);
+
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool     = m_ObjectSSBODescPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts        = &m_ObjectSSBODescLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_ObjectSSBODescSet);
+    }
+
+    void GeometrySubsystem::InitCullPipeline()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // Cull descriptor layout: binding 0 = ObjectSSBO (read), binding 1 = IndirectBuffer (write).
+        VkDescriptorSetLayoutBinding bindings[2]{};
+        bindings[0].binding         = 0;
+        bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[1].binding         = 1;
+        bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        VkDescriptorBindingFlags bindingFlags[2] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsInfo.bindingCount  = 2;
+        bindingFlagsInfo.pBindingFlags = bindingFlags;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext        = &bindingFlagsInfo;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutInfo.bindingCount = 2;
+        layoutInfo.pBindings    = bindings;
+        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_CullDescLayout);
+
+        // Dedicated UPDATE_AFTER_BIND pool (default DescriptorAllocator's pool isn't UAB-capable).
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSize.descriptorCount = 2;
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        poolInfo.maxSets       = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_CullDescPool);
+
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool     = m_CullDescPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts        = &m_CullDescLayout;
+        vkAllocateDescriptorSets(device, &allocInfo, &m_CullDescSet);
+
+        // PC: 6 frustum planes (96B) + objectCount + destOffset = 104B.
+        VkPushConstantRange pcRange{};
+        pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        pcRange.offset     = 0;
+        pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 2;
+
+        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
+        auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
+        if (spv.empty())
+        {
+            LH_CORE_ERROR("GeometrySubsystem: failed to load gpu_cull.comp!");
+            return;
+        }
+        m_CullPipeline = std::make_unique<VKComputePipeline>(
+            spv,
+            std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
+            std::vector<VkPushConstantRange>{ pcRange });
+    }
+
+    void GeometrySubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
+    {
+        BuildPBRPipelines(geoLayouts);
+        BuildDepthPrepassPipelines(geoLayouts);
+    }
+
+    void GeometrySubsystem::BuildPBRPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
+    {
+        auto pbrLayout = MakePBRVertexLayout();
+        auto bindingDescs = pbrLayout.GetBindingDescriptions();
+        auto attribDescs  = pbrLayout.GetAttributeDescriptions();
+
+        m_GeoPipelineManager.Init(geoLayouts,
+            [bindingDescs, attribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+            {
+                PipelineConfig config;
+                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
+                config.depthFormat  = VK_FORMAT_D32_SFLOAT;
+                config.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                config.bindingDescriptions   = bindingDescs;
+                config.attributeDescriptions = attribDescs;
+                config.polygonMode = polygonMode;
+                // LESS_OR_EQUAL: opaques pass DepthPrepass values (LESS) exactly;
+                // cutouts/transparents Z-test against the prepass depth.
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+                switch (mode)
+                {
+                    case Material::RenderMode::Opaque:
+                    case Material::RenderMode::Cutout:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false;
+                        break;
+                    case Material::RenderMode::Transparent:
+                    case Material::RenderMode::Fade:
+                        config.depthTest = true; config.depthWrite = false;
+                        config.blendEnabled = true;
+                        break;
+                }
+                switch (cullMode)
+                {
+                    case Material::CullMode::Back:  config.cullMode = VK_CULL_MODE_BACK_BIT;  break;
+                    case Material::CullMode::Front: config.cullMode = VK_CULL_MODE_FRONT_BIT; break;
+                    case Material::CullMode::None:  config.cullMode = VK_CULL_MODE_NONE;      break;
+                }
+                return config;
+            });
+
+        auto skinnedLayout = MakeSkinnedVertexLayout();
+        auto skinnedBindingDescs = skinnedLayout.GetBindingDescriptions();
+        auto skinnedAttribDescs  = skinnedLayout.GetAttributeDescriptions();
+
+        m_GeoSkinnedPipelineManager.Init(geoLayouts,
+            [skinnedBindingDescs, skinnedAttribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+            {
+                PipelineConfig config;
+                config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
+                config.depthFormat  = VK_FORMAT_D32_SFLOAT;
+                config.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                config.bindingDescriptions   = skinnedBindingDescs;
+                config.attributeDescriptions = skinnedAttribDescs;
+                config.polygonMode    = polygonMode;
+                config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+                switch (mode)
+                {
+                    case Material::RenderMode::Opaque:
+                    case Material::RenderMode::Cutout:
+                        config.depthTest = true; config.depthWrite = true;
+                        config.blendEnabled = false;
+                        break;
+                    case Material::RenderMode::Transparent:
+                    case Material::RenderMode::Fade:
+                        config.depthTest = true; config.depthWrite = false;
+                        config.blendEnabled = true;
+                        break;
+                }
+                switch (cullMode)
+                {
+                    case Material::CullMode::Back:  config.cullMode = VK_CULL_MODE_BACK_BIT;  break;
+                    case Material::CullMode::Front: config.cullMode = VK_CULL_MODE_FRONT_BIT; break;
+                    case Material::CullMode::None:  config.cullMode = VK_CULL_MODE_NONE;      break;
+                }
+                return config;
+            });
+    }
+
+    void GeometrySubsystem::BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
+    {
+        auto [posOnlyBindings, posOnlyAttribs] = MakePositionOnlyWithFullStride();
+        const auto& shadowFragSpv = m_Pipeline->GetLighting().GetShadowFragSpv();
+
+        if (!m_DepthPrepassVertSpv.empty() && !shadowFragSpv.empty())
+        {
+            PipelineConfig cfg;
+            cfg.colorFormats = {};
+            cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            cfg.depthTest    = true;
+            cfg.depthWrite   = true;
+            cfg.depthCompareOp = VK_COMPARE_OP_LESS;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_BACK_BIT;
+            cfg.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            cfg.bindingDescriptions   = posOnlyBindings;
+            cfg.attributeDescriptions = posOnlyAttribs;
+
+            m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
+                cfg, m_DepthPrepassVertSpv, shadowFragSpv, geoLayouts);
+        }
+
+        if (!m_DepthPrepassSkinnedVertSpv.empty() && !shadowFragSpv.empty())
+        {
+            auto skinned = MakeSkinnedVertexLayout();
+            auto skinnedBindings = skinned.GetBindingDescriptions();
+            auto skinnedAttribs  = skinned.GetAttributeDescriptions();
+
+            PipelineConfig cfg;
+            cfg.colorFormats = {};
+            cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
+            cfg.depthTest    = true;
+            cfg.depthWrite   = true;
+            cfg.depthCompareOp = VK_COMPARE_OP_LESS;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_BACK_BIT;
+            cfg.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            cfg.bindingDescriptions   = skinnedBindings;
+            cfg.attributeDescriptions = skinnedAttribs;
+
+            m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
+                cfg, m_DepthPrepassSkinnedVertSpv, shadowFragSpv, geoLayouts);
+        }
+    }
+
+    void GeometrySubsystem::Shutdown()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        m_DepthPrepassSkinnedPipeline.reset();
+        m_DepthPrepassPipeline.reset();
+        // PipelineManagers tear down internally on destruction.
+
+        m_CullPipeline.reset();
+        if (m_CullDescPool)   { vkDestroyDescriptorPool(device, m_CullDescPool, nullptr); m_CullDescPool = VK_NULL_HANDLE; }
+        if (m_CullDescLayout) { vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr); m_CullDescLayout = VK_NULL_HANDLE; }
+        m_CullDescSet = VK_NULL_HANDLE;
+
+        if (m_ObjectSSBODescPool)   { vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr); m_ObjectSSBODescPool = VK_NULL_HANDLE; }
+        if (m_ObjectSSBODescLayout) { vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr); m_ObjectSSBODescLayout = VK_NULL_HANDLE; }
+        m_ObjectSSBODescSet = VK_NULL_HANDLE;
+    }
+
+    bool GeometrySubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
+                                              const std::vector<VkDescriptorSetLayout>& geoLayouts)
+    {
+        auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
+            if (auto* raw = p.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        };
+        auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
+            if (auto* raw = p.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        };
+
+        if      (name == "pbr.vert")                  m_PBRVertSpv                 = spv;
+        else if (name == "pbr.frag")                  m_PBRFragSpv                 = spv;
+        else if (name == "pbr_skinned.vert")          m_PBRSkinnedVertSpv          = spv;
+        else if (name == "depthPrepass.vert")         m_DepthPrepassVertSpv        = spv;
+        else if (name == "depthPrepass_skinned.vert") m_DepthPrepassSkinnedVertSpv = spv;
+        else if (name != "gpu_cull.comp") return false;
+
+        if (name == "gpu_cull.comp" && m_CullDescLayout)
+        {
+            deferComp(m_CullPipeline);
+            VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
+            m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
+                std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
+                std::vector<VkPushConstantRange>{ pc });
+        }
+        else if (name == "depthPrepass.vert" || name == "depthPrepass_skinned.vert")
+        {
+            deferGfx(m_DepthPrepassPipeline);
+            deferGfx(m_DepthPrepassSkinnedPipeline);
+            BuildDepthPrepassPipelines(geoLayouts);
+        }
+        else
+        {
+            // pbr.* — invalidate the pipeline manager cache, rebuild the manager.
+            const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
+            if (isPBR) {
+                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
+                m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
+                m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
+            } else {
+                m_GeoPipelineManager.DeferredClear();
+                m_GeoSkinnedPipelineManager.DeferredClear();
+            }
+            BuildPBRPipelines(geoLayouts);
+        }
+        return true;
+    }
+
+    u32 GeometrySubsystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
+    {
+        auto it = m_MaterialSlotMap.find(material->Handle);
+        if (it != m_MaterialSlotMap.end()) return it->second;
+
+        u32 slot = MaterialSystem::RegisterMaterial(material);
+        m_MaterialSlotMap[material->Handle] = slot;
+        return slot;
+    }
+
+    void GeometrySubsystem::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
+    {
+        // Allocate fresh regions from the GPU tagged heap. Tag = absolute render-frame index.
+        // FreeTag(N-2) reclaims them once the GPU retires the consuming submission.
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return;
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+
+        auto& heap = Memory::GPUTaggedPageAllocator::Get();
+        const u64 objBytes = static_cast<u64>(RenderPipeline::k_MaxGPUObjects) * sizeof(GPUObjectData);
+        const u64 indBytes = static_cast<u64>(RenderPipeline::k_IndirectRegionCount)
+                           * RenderPipeline::k_IndirectRegionStride
+                           * sizeof(VkDrawIndexedIndirectCommand);
+
+        m_ObjectRegion   = heap.Allocate(jobCtx->GpuCache, objBytes, 16);
+        m_IndirectRegion = heap.Allocate(jobCtx->GpuCache, indBytes, 16);
+        if (!m_ObjectRegion.buffer || !m_IndirectRegion.buffer) { m_GPUObjectCount = 0; return; }
+
+        auto* objectData   = static_cast<GPUObjectData*>(m_ObjectRegion.mappedPtr);
+        auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectRegion.mappedPtr);
+        u32   count        = 0;
+
+        // Rebuild entity lookup. Index 0 = null sentinel; valid entities start at 1
+        // (the geometry pass writes (entityID + 1) so 0 means "background").
+        m_EntityLookup.clear();
+        m_EntityLookup.push_back(entt::null);
+        m_EntityToSSBOIndex.clear();
+
+        for (const MeshDrawSnapshot& meshSnap : snapshot.meshes)
+        {
+            if (count >= RenderPipeline::k_MaxGPUObjects) break;
+
+            auto model = AssetManager::GetAsset<Model>(meshSnap.modelUUID);
+            if (!model) continue;
+            const auto& meshesData = model->GetMeshesData();
+            auto mesh = model->GetMesh(meshSnap.meshIndex);
+            if (!mesh) continue;
+
+            GPUObjectData& obj = objectData[count];
+            obj.model = meshSnap.worldMatrix;
+
+            const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
+            obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
+
+            u32 matSlot = 0;
+            if (meshSnap.materialUUID.IsValid()) {
+                auto it = m_MaterialSlotMap.find(meshSnap.materialUUID);
+                if (it != m_MaterialSlotMap.end()) matSlot = it->second;
+            }
+            obj.materialIndex = matSlot;
+            obj.shadeMode     = static_cast<u32>(m_Pipeline->GetSystem().GetShadeMode());
+            obj.entityID      = (u32)m_EntityLookup.size();
+            obj.boneOffset    = meshSnap.boneOffset;
+
+            entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
+            m_EntityLookup.push_back(entity);
+            m_EntityToSSBOIndex[entity] = count;
+
+            auto* ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer()).get();
+            obj.indexCount   = ib ? ib->GetCount() : 0;
+            obj.firstIndex   = 0;
+            obj.vertexOffset = 0;
+            obj._pad         = 0;
+
+            VkDrawIndexedIndirectCommand baseCmd{};
+            baseCmd.indexCount    = obj.indexCount;
+            baseCmd.instanceCount = 1;
+            baseCmd.firstIndex    = 0;
+            baseCmd.vertexOffset  = 0;
+            baseCmd.firstInstance = count;
+            for (u32 r = 0; r < RenderPipeline::k_IndirectRegionCount; ++r)
+                indirectCmds[r * RenderPipeline::k_IndirectRegionStride + count] = baseCmd;
+            count++;
+        }
+
+        m_GPUObjectCount = count;
+
+        heap.FlushRegion(m_ObjectRegion);
+        heap.FlushRegion(m_IndirectRegion);
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        {
+            VkDescriptorBufferInfo bi{};
+            bi.buffer = m_ObjectRegion.buffer;
+            bi.offset = m_ObjectRegion.offset;
+            bi.range  = m_ObjectRegion.size;
+
+            VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            write.dstSet          = m_ObjectSSBODescSet;
+            write.dstBinding      = 0;
+            write.descriptorCount = 1;
+            write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.pBufferInfo     = &bi;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+        {
+            VkDescriptorBufferInfo objInfo{};
+            objInfo.buffer = m_ObjectRegion.buffer;
+            objInfo.offset = m_ObjectRegion.offset;
+            objInfo.range  = m_ObjectRegion.size;
+
+            VkDescriptorBufferInfo indInfo{};
+            indInfo.buffer = m_IndirectRegion.buffer;
+            indInfo.offset = m_IndirectRegion.offset;
+            indInfo.range  = m_IndirectRegion.size;
+
+            VkWriteDescriptorSet writes[2]{};
+            writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[0].dstSet          = m_CullDescSet;
+            writes[0].dstBinding      = 0;
+            writes[0].descriptorCount = 1;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[0].pBufferInfo     = &objInfo;
+            writes[1]                 = writes[0];
+            writes[1].dstBinding      = 1;
+            writes[1].pBufferInfo     = &indInfo;
+            vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        }
+    }
+
+    void GeometrySubsystem::AddCullPass(RG::RenderGraph& rg,
+                                         RG::BufferHandle objectBuffer, RG::BufferHandle indirectBuffer,
+                                         const std::array<Vec4, 6>& frustumPlanes, u32 destOffset,
+                                         const char* passName)
+    {
+        if (!m_CullPipeline || m_GPUObjectCount == 0) return;
+
+        struct CullPassData {
+            RG::BufferHandle objectBuffer;
+            RG::BufferHandle indirectBuffer;
+        };
+        struct CullPushConstants {
+            Vec4 frustumPlanes[6]; // 96B
+            u32  objectCount;      // 4B
+            u32  destOffset;       // 4B — index offset into commands[] (per-view-cascade region)
+        };
+
+        std::string name = passName ? passName : "FrustumCull";
+        auto* pipeline = m_CullPipeline.get();
+        VkDescriptorSet descSet = m_CullDescSet;
+        u32 objectCount = m_GPUObjectCount;
+        FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
+
+        rg.AddComputePass<CullPassData>(name,
+            [=](CullPassData& data, RG::RenderPassBuilder& builder)
+            {
+                data.objectBuffer   = builder.ReadBuffer(objectBuffer);
+                data.indirectBuffer = builder.WriteBuffer(indirectBuffer);
+            },
+            [pipeline, descSet, frustumPlanes, objectCount, destOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                if (debugger)
+                    debugger->BeginCapturePass(ctx.passIndex, name, "", false,
+                        { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                pipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    pipeline->GetLayout(), 0, 1, &descSet, 0, nullptr);
+
+                CullPushConstants pc{};
+                for (int i = 0; i < 6; ++i) pc.frustumPlanes[i] = frustumPlanes[i];
+                pc.objectCount = objectCount;
+                pc.destOffset  = destOffset;
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullPushConstants), &pc);
+
+                u32 groupCountX = (objectCount + 255) / 256;
+                vkCmdDispatch(cmd, groupCountX, 1, 1);
+
+                if (debugger)
+                {
+                    debugger->CaptureComputeDispatch(name, "gpu_cull", groupCountX, 1, 1);
+                    debugger->EndCapturePass();
+                }
+            });
+    }
+
+    RG::ResourceHandle GeometrySubsystem::AddDepthPrepass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle)
+    {
+        struct DepthPrepassData {
+            RG::ResourceHandle depthTex;
+            RG::BufferHandle   indirectBuf;
+        };
+        RG::ResourceHandle depthHandle;
+
+        rg.AddPass<DepthPrepassData>("DepthPrepass",
+            [&](DepthPrepassData& data, RG::RenderPassBuilder& builder)
+            {
+                const auto* view = m_Pipeline->GetCurrentView();
+                RG::TextureDesc depthDesc;
+                depthDesc.name   = "SceneDepth";
+                depthDesc.width  = view->targets->GetSceneDepth()->GetWidth();
+                depthDesc.height = view->targets->GetSceneDepth()->GetHeight();
+                depthDesc.format = RG::TextureFormat::D32_Float;
+
+                auto vkDepth = std::static_pointer_cast<VKTexture>(view->targets->GetSceneDepth());
+                data.depthTex = rg.ImportResource(depthDesc,
+                    (void*)vkDepth->GetImage(),
+                    (void*)vkDepth->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                VkClearValue depthClear{};
+                depthClear.depthStencil = { 1.0f, 0 };
+                data.depthTex = builder.WriteDepth(data.depthTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, depthClear);
+
+                data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
+                depthHandle = data.depthTex;
+            },
+            [this](DepthPrepassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                auto& sys = m_Pipeline->GetSystem();
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "DepthPrepass", "SceneDepth", true,
+                    { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
+
+                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
+
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = {
+                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
+                    bindlessSet,
+                    MaterialSystem::GetDescriptorSet(),
+                    m_Pipeline->GetLighting().GetLightDescSet(),
+                    BoneMatrixBuffer::GetDescriptorSet(),
+                    m_ObjectSSBODescSet
+                };
+
+                m_DepthPrepassPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+
+                RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.depthTex);
+                VkViewport viewport{};
+                viewport.width    = (float)res->desc.width;
+                viewport.height   = (float)res->desc.height;
+                viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+                VkRect2D scissor{};
+                scissor.extent = { res->desc.width, res->desc.height };
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                bool currentSkinned = false;
+
+                // Opaque-only: cutouts/transparents write their depth in GeometryPass.
+                for (const auto& dc : sys.GetDrawList().opaque)
+                {
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                    if (!vb || !ib) continue;
+
+                    if (dc.isSkinned != currentSkinned)
+                    {
+                        currentSkinned = dc.isSkinned;
+                        if (currentSkinned && m_DepthPrepassSkinnedPipeline)
+                        {
+                            m_DepthPrepassSkinnedPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_DepthPrepassSkinnedPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                        }
+                        else
+                        {
+                            m_DepthPrepassPipeline->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_DepthPrepassPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+                        }
+                    }
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                    const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    VkDeviceSize indirectOffset = m_IndirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
+                        sizeof(VkDrawIndexedIndirectCommand));
+
+                    if (sys.GetFrameDebugger().state == DebuggerState::CaptureRequested)
+                    {
+                        std::string entName = "Entity";
+                        const auto& tags = sys.GetActiveSnapshot().tagsByEntity;
+                        u32 idx = entt::to_entity(dc.entity);
+                        if (idx < tags.size() && tags[idx])
+                            entName = tags[idx];
+                        sys.GetFrameDebugger().CaptureIndirectDraw("DepthPrepass",
+                            dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                            entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
+                            { "depthPrepass", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
+                              VK_POLYGON_MODE_FILL, dc.isSkinned, true, true, false });
+                    }
+                }
+
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+
+        return depthHandle;
+    }
+
+    GeometryOutput GeometrySubsystem::AddGeometryPass(RG::RenderGraph& rg,
+                                                      const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
+                                                      RG::BufferHandle indirectBufferHandle,
+                                                      RG::ResourceHandle sceneDepth,
+                                                      RG::ResourceHandle gtaoFinalAO)
+    {
+        struct GeometryPassData {
+            RG::ResourceHandle outputTex;
+            RG::ResourceHandle entityIDTex;
+            RG::ResourceHandle depthTex;
+            RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
+            RG::ResourceHandle gtaoFinalAO;
+            RG::BufferHandle   indirectBuf;
+        };
+        GeometryOutput output;
+
+        rg.AddPass<GeometryPassData>("GeometryPass",
+            [&, sceneDepth](GeometryPassData& data, RG::RenderPassBuilder& builder)
+            {
+                const auto* view = m_Pipeline->GetCurrentView();
+                RG::TextureDesc desc;
+                desc.name   = "SceneColor";
+                desc.width  = view->targets->GetSceneColor()->GetWidth();
+                desc.height = view->targets->GetSceneColor()->GetHeight();
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                auto vkTex = std::static_pointer_cast<VKTexture>(view->targets->GetSceneColor());
+                data.outputTex = rg.ImportResource(desc,
+                    (void*)vkTex->GetImage(),
+                    (void*)vkTex->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+
+                RG::TextureDesc idDesc;
+                idDesc.name   = "EntityID";
+                idDesc.width  = view->targets->GetEntityIDBuffer()->GetWidth();
+                idDesc.height = view->targets->GetEntityIDBuffer()->GetHeight();
+                idDesc.format = RG::TextureFormat::R32_Uint;
+
+                auto vkID = std::static_pointer_cast<VKTexture>(view->targets->GetEntityIDBuffer());
+                data.entityIDTex = rg.ImportResource(idDesc,
+                    (void*)vkID->GetImage(),
+                    (void*)vkID->GetImageView(),
+                    RG::ResourceState::Undefined);
+
+                // SceneDepth is produced by DepthPrepass — load + keep writing (cutouts
+                // still write their own depth; opaques pass LESS_EQUAL against prepass).
+                data.depthTex  = builder.WriteDepth(sceneDepth,
+                    VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, {});
+                data.outputTex = builder.Write(data.outputTex);
+
+                VkClearValue idClear{};
+                idClear.color.uint32[0] = 0;
+                data.entityIDTex = builder.Write(data.entityIDTex,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
+
+                // Per-cascade Read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1).
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                    if (shadowHandles[i].IsValid())
+                        data.shadowCascades[i] = builder.Read(shadowHandles[i]);
+
+                // pbr.frag samples gtaoFinal via Set 0 binding 4 — explicit Read triggers
+                // GENERAL → SHADER_READ_ONLY transition from GTAODenoise.
+                if (gtaoFinalAO.IsValid())
+                    data.gtaoFinalAO = builder.Read(gtaoFinalAO);
+
+                data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
+
+                output.color    = data.outputTex;
+                output.depth    = data.depthTex;
+                output.entityID = data.entityIDTex;
+            },
+            [this](GeometryPassData& data, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                auto& sys = m_Pipeline->GetSystem();
+
+                VkPolygonMode polyMode = (sys.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
+                    { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
+
+                UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
+                auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
+                    pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                if (!opaquePipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }
+                VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
+
+                VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+                VkDescriptorSet sets[] = {
+                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
+                    bindlessSet,
+                    MaterialSystem::GetDescriptorSet(),
+                    m_Pipeline->GetLighting().GetLightDescSet(),
+                    BoneMatrixBuffer::GetDescriptorSet(),
+                    m_ObjectSSBODescSet
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipelineLayout, 0, 6, sets, 0, nullptr);
+
+                RG::RenderGraph::ResourceNode* res = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.outputTex);
+                VkViewport viewport{};
+                viewport.width    = (float)res->desc.width;
+                viewport.height   = (float)res->desc.height;
+                viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+                VkRect2D scissor{};
+                scissor.extent = { res->desc.width, res->desc.height };
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+                auto DrawBatch = [&](const std::vector<DrawCommand>& draws, Material::RenderMode mode)
+                {
+                    if (draws.empty()) return;
+
+                    Material::CullMode currentCull = Material::CullMode::Back;
+                    bool currentSkinned = false;
+                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
+                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
+                    if (!pipeline) return;
+                    pipeline->Bind(cmd);
+
+                    for (const auto& dc : draws)
+                    {
+                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
+                        {
+                            currentCull    = dc.cullMode;
+                            currentSkinned = dc.isSkinned;
+                            VKPipeline* newPipeline = currentSkinned
+                                ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
+                                : m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv,        m_PBRFragSpv);
+                            if (!newPipeline) continue;
+                            newPipeline->Bind(cmd);
+                        }
+
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                        if (!vb || !ib) continue;
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                        // GPU cull sets instanceCount=0 for culled draws. gl_BaseInstance =
+                        // dc.gpuObjectIndex; shader reads objects[gl_BaseInstance] via Set 5.
+                        const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                        const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        VkDeviceSize indirectOffset = m_IndirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
+                            sizeof(VkDrawIndexedIndirectCommand));
+
+                        if (sys.GetFrameDebugger().state == DebuggerState::CaptureRequested)
+                        {
+                            std::string entName = "Entity";
+                            const auto& tags = sys.GetActiveSnapshot().tagsByEntity;
+                            u32 idx = entt::to_entity(dc.entity);
+                            if (idx < tags.size() && tags[idx])
+                                entName = tags[idx];
+                            u32 vkCull = (currentCull == Material::CullMode::Back) ? VK_CULL_MODE_BACK_BIT
+                                       : (currentCull == Material::CullMode::Front) ? VK_CULL_MODE_FRONT_BIT
+                                       : VK_CULL_MODE_NONE;
+                            sys.GetFrameDebugger().CaptureIndirectDraw("GeometryPass",
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(),
+                                dc.gpuObjectIndex, indirectOffset,
+                                { "pbr", static_cast<u32>(mode), vkCull, polyMode, currentSkinned, true, true,
+                                  mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade });
+                        }
+                    }
+                };
+
+                DrawBatch(sys.GetDrawList().opaque,      Material::RenderMode::Opaque);
+                DrawBatch(sys.GetDrawList().cutout,      Material::RenderMode::Cutout);
+                DrawBatch(sys.GetDrawList().transparent, Material::RenderMode::Transparent);
+
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+        return output;
+    }
+}
