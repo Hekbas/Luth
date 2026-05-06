@@ -22,6 +22,7 @@ namespace Luth
         : m_RenderingSystem(renderingSystem)
         , m_Viewport(std::make_unique<ViewportRenderer>())
     {
+        m_WindowID = "Game";
         m_Viewport->SetOnResize([this](u32 w, u32 h) {
             // Drain GPU + drop ViewResources before swapping FrameTargets;
             // the size-keyed cache otherwise leaves descriptors pointing at

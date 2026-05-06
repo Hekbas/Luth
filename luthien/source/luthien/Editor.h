@@ -6,6 +6,7 @@
 #include "luth/scene/Scene.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/ProjectLauncher.h"
+#include "luthien/Workspace.h"
 
 #include <memory>
 #include <filesystem>
@@ -69,10 +70,24 @@ namespace Luth
             return open;
         }
 
+        // Overload that wires the title-bar X to a persistent open flag (typically
+        // &m_Open). Panels using this opt into the Window menu's toggle path.
+        bool BeginWindow(const char* name, bool* p_open, ImGuiWindowFlags flags = 0)
+        {
+            bool open = ImGui::Begin(name, p_open, flags);
+            m_Visible = open;
+            m_Focused = open && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow);
+            m_Docked  = open && ImGui::IsWindowDocked();
+            return open;
+        }
+
     protected:
         friend class Editor;
         friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
 
+        // m_Open is the persistent user choice (Window menu, close X). m_Visible
+        // is per-frame ImGui state (collapsed / off-screen tab / etc.).
+        bool m_Open    = true;
         bool m_Visible = true;
         bool m_Focused = false;
         bool m_Docked  = false;
@@ -121,12 +136,16 @@ namespace Luth
         // Easter egg — randomised color palette. Unrelated to LoadStyle.
         static void SetRandomStyle();
 
-        static ImFont*  GetMainFont()     { return m_MainFont; }
-        static ImFont*  GetFARegular()    { return m_FARegular; }
-        static ImFont*  GetFASolid()      { return m_FASolid; }
-        static ImFont*& MainFontRef()     { return m_MainFont; }
-        static ImFont*& FARegularRef()    { return m_FARegular; }
-        static ImFont*& FASolidRef()      { return m_FASolid; }
+        static ImFont*  GetMainFont()        { return m_MainFont; }
+        static ImFont*  GetFARegular()       { return m_FARegular; }
+        static ImFont*  GetFASolid()         { return m_FASolid; }
+        static ImFont*  GetFARegularLarge()  { return m_FARegularLarge; }
+        static ImFont*  GetFASolidLarge()    { return m_FASolidLarge; }
+        static ImFont*& MainFontRef()        { return m_MainFont; }
+        static ImFont*& FARegularRef()       { return m_FARegular; }
+        static ImFont*& FASolidRef()         { return m_FASolid; }
+        static ImFont*& FARegularLargeRef()  { return m_FARegularLarge; }
+        static ImFont*& FASolidLargeRef()    { return m_FASolidLarge; }
 
         // Scene management
         static void SetActiveScene(std::shared_ptr<Scene> scene);
@@ -152,14 +171,28 @@ namespace Luth
         static EditorSettings& GetSettings() { return s_Settings; }
         static void LoadSettings();
         static void SaveSettings();
-        static void SaveLayout(const std::string& name);
-        static void LoadLayout(const std::string& name);
-        static std::vector<std::string> GetLayoutNames();
+        // Push live state from s_Settings into panels (camera params, skybox, etc.).
+        // Public so EditorSettingsWindow can re-sync after a Preferences edit.
+        static void ApplyPersistence();
+        // Workspace = ImGui dock layout (.ini) + sidecar JSON (per-panel visibility).
+        // Built-ins live under FileSystem::EngineAssetsPath("workspaces"); user copies
+        // under runtime/layouts/. Built-in name shadows user copy of the same name.
+        static bool LoadWorkspace(const std::string& name);
+        static bool SaveWorkspaceAs(const std::string& name);
+        static bool RenameWorkspace(const std::string& oldName, const std::string& newName);
+        static bool DeleteWorkspace(const std::string& name);
+        static bool ResetWorkspaceToBuiltin();
+        static std::vector<WorkspaceInfo> GetWorkspaces();
 
     private:
         static void InitImGui(Window* window);
         static void InitPanels();
-        static void ApplyPersistence();
+
+        // Snapshot live panel m_Open and write the active workspace's sidecar JSON
+        // to runtime/layouts/. No-op if the active name resolves to a built-in
+        // (engine assets are read-only). Called on workspace switch and on Shutdown
+        // so per-workspace visibility tweaks persist without an explicit Save As.
+        static void SaveActiveWorkspaceSidecar();
 
         static void ProcessShortcuts();
         static void DrawMenuBar();
@@ -180,9 +213,11 @@ namespace Luth
         static inline std::vector<std::unique_ptr<Panel>> s_Panels;
         static inline std::unordered_map<std::type_index, Panel*> s_PanelRegistry;
 
-        static inline ImFont* m_MainFont = nullptr;
-        static inline ImFont* m_FARegular = nullptr;
-        static inline ImFont* m_FASolid = nullptr;
+        static inline ImFont* m_MainFont        = nullptr;
+        static inline ImFont* m_FARegular       = nullptr;
+        static inline ImFont* m_FASolid         = nullptr;
+        static inline ImFont* m_FARegularLarge  = nullptr;   // 64 px FA-Regular for large icons (ProjectPanel grid empty-folder)
+        static inline ImFont* m_FASolidLarge    = nullptr;   // 64 px FA-Solid for large icons (ProjectPanel grid)
 
         // Scene state
         static inline std::shared_ptr<Scene> s_ActiveScene;
@@ -196,8 +231,20 @@ namespace Luth
         // Deferred style change (fonts can't be rebuilt mid-frame)
         static inline std::string s_PendingStyle;
 
-        // Layout popup state
-        static inline bool s_ShowSaveLayoutPopup = false;
+        // Workspace popup state — Save / Rename / Delete are deferred from the menu
+        // scope so ImGui can track the popup window outside BeginMenuBar.
+        static inline bool s_ShowSaveWorkspacePopup   = false;
+        static inline bool s_ShowRenameWorkspacePopup = false;
+        static inline bool s_ShowDeleteWorkspaceConfirm = false;
+
+        // First-run default-layout snapshot — set in Init when layouts/Default.ini
+        // is missing, consumed at end of the first Render once ImGui has populated
+        // dock state.
+        static inline bool s_NeedDefaultLayoutSave = false;
+
+        // Deferred LoadWorkspace(activeLayout) — set in Init, consumed at end of the
+        // first Render so panels and ImGui dock state exist before we apply.
+        static inline bool s_NeedActiveWorkspaceLoad = false;
 
         // Texture remap dialog state (deferred open from menu)
         static inline bool s_ShowTextureRemapDialog = false;

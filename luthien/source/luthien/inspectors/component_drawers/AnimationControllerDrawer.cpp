@@ -9,6 +9,8 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/AnimationClip.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
@@ -31,6 +33,49 @@ namespace Luth::ComponentDrawers
             initCtrl.CurrentClipUUID = a.ClipUUID;
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<AnimationController>>(
                 "Add AnimationController", e.GetScene(), (entt::entity)e, initCtrl));
+        };
+        opts.OnCopy = [](Entity e) {
+            const auto& ctrl = e.GetComponent<AnimationController>();
+            nlohmann::json j;
+            j["currentClipUUID"]           = ctrl.CurrentClipUUID.ToString();
+            j["applyRootMotion"]           = ctrl.ApplyRootMotion;
+            j["defaultTransitionDuration"] = ctrl.DefaultTransitionDuration;
+            nlohmann::json layers = nlohmann::json::array();
+            for (const auto& layer : ctrl.Layers) {
+                nlohmann::json lj;
+                lj["clipUUID"] = layer.ClipUUID.ToString();
+                lj["speed"]    = layer.Speed;
+                lj["weight"]   = layer.Weight;
+                lj["loop"]     = layer.Loop;
+                layers.push_back(lj);
+            }
+            j["layers"] = layers;
+            return j.dump();
+        };
+        // BoneMask intentionally omitted — bone indices are skeleton-specific.
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                AnimationController newCtrl = e.GetComponent<AnimationController>();
+                newCtrl.CurrentClipUUID           = UUID::FromString(j.value("currentClipUUID", ""));
+                newCtrl.ApplyRootMotion           = j.value("applyRootMotion", false);
+                newCtrl.DefaultTransitionDuration = j.value("defaultTransitionDuration", 0.2f);
+                newCtrl.Layers.clear();
+                if (j.contains("layers")) {
+                    for (const auto& lj : j["layers"]) {
+                        BlendLayer layer;
+                        layer.ClipUUID = UUID::FromString(lj.value("clipUUID", ""));
+                        layer.Speed    = lj.value("speed", 1.0f);
+                        layer.Weight   = lj.value("weight", 1.0f);
+                        layer.Loop     = lj.value("loop", true);
+                        newCtrl.Layers.push_back(std::move(layer));
+                    }
+                }
+                newCtrl.ActiveTransition.reset();
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<AnimationController>>(
+                    "Paste AnimationController", e.GetScene(), (entt::entity)e, std::move(newCtrl)));
+                return true;
+            } catch (...) { return false; }
         };
 
         ComponentDrawerRegistry::Register<AnimationController>(
@@ -61,9 +106,10 @@ namespace Luth::ComponentDrawers
                 entt::entity ent = (entt::entity)entity;
 
                 {
-                    UUID oldUUID = ctrl.CurrentClipUUID;
                     UUID picked = ctrl.CurrentClipUUID;
-                    if (UI::PropertyAsset("Current Clip##Ctrl", picked, AssetType::Animation)) {
+                    auto state = UI::PropertyAsset("Current Clip##Ctrl", picked, AssetType::Animation);
+                    if (state.committed) {
+                        UUID oldUUID = UI::ConsumeItemPreEdit<UUID>(state.itemId);
                         // Route through Play() so transitions/crossfade fire correctly.
                         ctrl.Play(picked);
                         EXEC_COMPONENT_PROP("Change Clip", scene, ent, AnimationController, CurrentClipUUID, oldUUID, ctrl.CurrentClipUUID);
@@ -77,9 +123,13 @@ namespace Luth::ComponentDrawers
                 }
 
                 {
-                    auto oldVal = ctrl.DefaultTransitionDuration;
-                    if (ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s"))
-                        EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration, oldVal, ctrl.DefaultTransitionDuration);
+                    f32 pre = ctrl.DefaultTransitionDuration;
+                    ImGui::SliderFloat("Transition##Ctrl", &ctrl.DefaultTransitionDuration, 0.0f, 2.0f, "%.2f s");
+                    ImGuiID id = ImGui::GetItemID();
+                    if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                        EXEC_COMPONENT_PROP("Change Transition", scene, ent, AnimationController, DefaultTransitionDuration,
+                                            UI::ConsumeItemPreEdit<f32>(id), ctrl.DefaultTransitionDuration);
                 }
 
                 ImGui::Separator();
@@ -96,31 +146,39 @@ namespace Luth::ComponentDrawers
 
                     ImGui::PushID((int)layerIdx);
                     if (ImGui::TreeNodeEx(layerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                        UUID oldClipUUID = layer.ClipUUID;
-                        if (UI::PropertyAsset("Clip##Layer", layer.ClipUUID, AssetType::Animation)) {
-                            layer.CurrentTime = 0.0f;
-                            CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
-                                "Change Layer Clip", scene, ent,
-                                &AnimationController::Layers, layerIdx, &BlendLayer::ClipUUID,
-                                oldClipUUID, layer.ClipUUID));
+                        {
+                            auto state = UI::PropertyAsset("Clip##Layer", layer.ClipUUID, AssetType::Animation);
+                            if (state.committed) {
+                                layer.CurrentTime = 0.0f;
+                                CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, UUID>>(
+                                    "Change Layer Clip", scene, ent,
+                                    &AnimationController::Layers, layerIdx, &BlendLayer::ClipUUID,
+                                    UI::ConsumeItemPreEdit<UUID>(state.itemId), layer.ClipUUID));
+                            }
                         }
 
                         if (layerIdx > 0) {
-                            f32 oldWeight = layer.Weight;
-                            if (ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f"))
+                            f32 pre = layer.Weight;
+                            ImGui::SliderFloat("Weight##Layer", &layer.Weight, 0.0f, 1.0f, "%.2f");
+                            ImGuiID id = ImGui::GetItemID();
+                            if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                            if (ImGui::IsItemDeactivatedAfterEdit())
                                 CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
                                     "Change Layer Weight", scene, ent,
                                     &AnimationController::Layers, layerIdx, &BlendLayer::Weight,
-                                    oldWeight, layer.Weight));
+                                    UI::ConsumeItemPreEdit<f32>(id), layer.Weight));
                         }
 
                         {
-                            f32 oldSpeed = layer.Speed;
-                            if (ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f"))
+                            f32 pre = layer.Speed;
+                            ImGui::SliderFloat("Speed##Layer", &layer.Speed, 0.0f, 5.0f, "%.2f");
+                            ImGuiID id = ImGui::GetItemID();
+                            if (ImGui::IsItemActivated()) UI::SaveItemPreEdit<f32>(id, pre);
+                            if (ImGui::IsItemDeactivatedAfterEdit())
                                 CommandHistory::Execute(std::make_unique<VectorElementPropertyCommand<AnimationController, BlendLayer, f32>>(
                                     "Change Layer Speed", scene, ent,
                                     &AnimationController::Layers, layerIdx, &BlendLayer::Speed,
-                                    oldSpeed, layer.Speed));
+                                    UI::ConsumeItemPreEdit<f32>(id), layer.Speed));
                         }
 
                         {

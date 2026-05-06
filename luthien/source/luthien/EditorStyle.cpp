@@ -232,6 +232,12 @@ namespace Luth::EditorStyle
             Editor::FARegularRef() = LoadIconFont("fa-regular-400.ttf", config.IconFontSize, false);
             Editor::FASolidRef() = LoadIconFont("fa-solid-900.ttf", config.IconFontSize, false);
         }
+
+        // invariant: large 64-px bakes for ProjectPanel grid icons. Bilinear
+        // downscale to small cells stays clean; upscale from the default 16-px
+        // bake would not. Both Solid and Regular needed (empty folders use Regular).
+        Editor::FASolidLargeRef()   = LoadIconFont("fa-solid-900.ttf",   64.0f, false);
+        Editor::FARegularLargeRef() = LoadIconFont("fa-regular-400.ttf", 64.0f, false);
     }
 
     // ── Style Application ──

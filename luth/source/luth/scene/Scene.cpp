@@ -93,6 +93,9 @@ namespace Luth
         if (!original.IsValid()) return {};
 
         std::string newName = GenerateUniqueName(original);
+        // invariant: CreateEntity always pushes to m_RootEntities. Anything below
+        // that re-parents the duplicate (or expects the caller to) MUST RemoveFromRoots
+        // first, otherwise the entity appears twice in the hierarchy.
         Entity duplicate = CreateEntity(newName);
 
         // Copy all components except hierarchy-related ones
@@ -104,27 +107,26 @@ namespace Luth
         original.CopyComponentIfExists<DirectionalLight>(duplicate);
         original.CopyComponentIfExists<PointLight>(duplicate);
 
-        // Handle parent relationship if not skipped
+        // Resolve final parent. Recursive-children case (skipParentAddition)
+        // hands off to the caller, which assigns Parent on the next line.
+        Entity newParent = {};
         if (!skipParentAddition && original.HasComponent<Parent>()) {
-            Entity parent = original.GetComponent<Parent>().Value;
-
-            if (parent.IsValid()) {
-                // Add duplicate to parent's children list
-                if (parent.HasComponent<Children>()) {
-                    auto& parentChildren = parent.GetComponent<Children>().Value;
-                    parentChildren.push_back(duplicate);
-                }
-                else {
-                    auto& parentChildren = parent.AddComponent<Children>().Value;
-                    parentChildren.push_back(duplicate);
-                }
-
-                // Set duplicate's parent
-                duplicate.AddComponent<Parent>().Value = parent;
-            }
+            Entity p = original.GetComponent<Parent>().Value;
+            if (p.IsValid()) newParent = p;
         }
-        else
-            m_RootEntities.push_back(duplicate);
+
+        // Strip from roots before any reparenting so the entity ends up in
+        // exactly one place (root list OR parent's Children, never both).
+        if (skipParentAddition || newParent.IsValid())
+            RemoveFromRoots(duplicate);
+
+        if (newParent.IsValid()) {
+            if (newParent.HasComponent<Children>())
+                newParent.GetComponent<Children>().Value.push_back(duplicate);
+            else
+                newParent.AddComponent<Children>().Value.push_back(duplicate);
+            duplicate.AddComponent<Parent>().Value = newParent;
+        }
 
         // Recursively duplicate children
         if (original.HasComponent<Children>()) {

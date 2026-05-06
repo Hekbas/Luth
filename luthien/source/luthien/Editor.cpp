@@ -21,6 +21,8 @@
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 
 #include "luthien/CommandHistory.h"
+#include "luthien/EditorSelection.h"
+#include "luthien/commands/EntityCommands.h"
 #include "luthien/inspectors/ComponentDrawerRegistry.h"
 #include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
 #include "luthien/panels/HierarchyPanel.h"
@@ -34,11 +36,15 @@
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luthien/panels/HistoryPanel.h"
 #include "luthien/panels/ConsolePanel.h"
+#include "luthien/panels/EditorSettingsWindow.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
 #include "luthien/EditorAutoSave.h"
 #include "luthien/EditorStyle.h"
+#include "luthien/Workspace.h"
 #include "luth/core/Version.h"
 #include "luth/core/diagnostics/StackTrace.h"
 #include "luthien/EditorSettings.h"
@@ -84,6 +90,16 @@ namespace Luth
         InitPanels();
         ApplyPersistence();
 
+        // Snapshot the live ImGui dock layout into layouts/Default.ini on first
+        // run so Window > Reset Layout always has a fallback target. Deferred
+        // to end of first Render — ImGui hasn't built dock state yet.
+        s_NeedDefaultLayoutSave = !fs::exists("layouts/Default.ini");
+
+        // Auto-apply the persisted active workspace at end of first Render. Panels
+        // exist by then; ImGui dock state has built. Empty string skips (fresh user
+        // before any save).
+        s_NeedActiveWorkspaceLoad = !s_Settings.activeLayout.empty();
+
         // Forward AssetDatabase file-watch flushes onto the EventBus as typed
         // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
         // can react via subscriptions instead of polling. The current AssetDatabase
@@ -107,6 +123,8 @@ namespace Luth
             [](Event&) { Editor::MarkDirty(); });
 
         EditorAutoSave::Init();
+        UI::ThumbnailCache::Init();
+        UI::ThumbnailPreviewScene::Init();
     }
 
     void Editor::InitImGui(Window* window)
@@ -203,6 +221,15 @@ namespace Luth
 
     void Editor::ApplyPersistence()
     {
+        // Hydrate per-panel visibility from the persisted map. Missing keys keep
+        // Panel's default (true) so panels added in later versions appear by default.
+        for (auto& panel : s_Panels)
+        {
+            auto it = s_Settings.panelOpen.find(panel->GetWindowID());
+            if (it != s_Settings.panelOpen.end())
+                panel->m_Open = it->second;
+        }
+
         if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().ApplySettings(s_Settings);
             sp->SetShowControlsOverlay(s_Settings.showControlsOverlay);
@@ -231,7 +258,10 @@ namespace Luth
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();
 
         SaveSettings();
+        SaveActiveWorkspaceSidecar();
 
+        UI::ThumbnailPreviewScene::Shutdown();
+        UI::ThumbnailCache::Shutdown();
         EditorAutoSave::Shutdown();
 
         LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
@@ -244,6 +274,15 @@ namespace Luth
         s_PanelRegistry.clear();
         s_Panels.clear();
         UI::ClearTextureCache();
+
+        // Drain any pending fenced deletions while ImGui Vulkan is still alive.
+        // PushDeletion lambdas (UI::GetTextureID stale-eviction, ThumbnailCache
+        // Invalidate/Drain) call ImGui_ImplVulkan_RemoveTexture; if they fire
+        // later from App::Close → Renderer::FlushDeletionQueues, the ImGui
+        // backend has already torn down → null-deref crash on the descriptor
+        // pool. invariant: must run before ImGui_ImplVulkan_Shutdown below.
+        if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
+            VulkanContext::Get().FlushAllDeletionQueues();
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
             // Clear GLFW callbacks that forward to ImGui BEFORE destroying
@@ -410,6 +449,7 @@ namespace Luth
         if (!s_Context) return;
 
         EditorAutoSave::Tick();
+        UI::ThumbnailCache::Drain();
 
         // ── Gather phase ─────────────────────────────────────────────────────────
         // Dispatch one gather job per visible panel. Workers run concurrently while
@@ -423,7 +463,7 @@ namespace Luth
         {
             for (auto& panel : s_Panels)
             {
-                if (!panel->IsVisible() || panel->m_Crashed) continue;
+                if (!panel->m_Open || !panel->IsVisible() || panel->m_Crashed) continue;
                 JobSystem::Execute(GatherJobThunk, panel.get(), &gatherCounter,
                                    "Editor.Gather", JobSystem::Priority::Low);
             }
@@ -434,7 +474,7 @@ namespace Luth
         EditorSnapshot snapshot;
         for (auto& panel : s_Panels)
         {
-            if (panel->IsVisible() && panel->m_SnapshotFragment)
+            if (panel->m_Open && panel->IsVisible() && panel->m_SnapshotFragment)
                 snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
         }
 
@@ -490,6 +530,7 @@ namespace Luth
         {
             for (auto& panel : s_Panels)
             {
+                if (!panel->m_Open) continue;
                 if (panel->m_Crashed) {
                     DrawCrashedPlaceholder(panel.get());
                     continue;
@@ -497,6 +538,10 @@ namespace Luth
                 DrawPanelGuarded(panel.get(), snapshot);
             }
         }
+
+        // Preferences window — drawn outside the dockspace's panel loop so
+        // it floats independently and is not tied to any dock node.
+        EditorSettingsWindow::Draw();
 
         // Check if a model import completed with unresolved textures
         {
@@ -513,6 +558,30 @@ namespace Luth
 
         // Crash-recovery prompt (no-op when nothing pending)
         EditorAutoSave::DrawRecoveryModal();
+
+        // First-run default layout snapshot (see s_NeedDefaultLayoutSave decl).
+        if (s_NeedDefaultLayoutSave)
+        {
+            fs::path layoutDir = "layouts";
+            if (!fs::exists(layoutDir)) fs::create_directories(layoutDir);
+            size_t size = 0;
+            const char* iniData = ImGui::SaveIniSettingsToMemory(&size);
+            std::ofstream f(layoutDir / "Default.ini");
+            if (f.is_open()) {
+                f.write(iniData, size);
+                LH_CORE_INFO("Saved first-run default layout to layouts/Default.ini");
+            }
+            s_NeedDefaultLayoutSave = false;
+        }
+
+        // Persisted active workspace — runs after the snapshot so a built-in Default
+        // overrides whatever ImGui's first-frame state was. One-frame flash of the
+        // un-docked default state is acceptable on fresh installs.
+        if (s_NeedActiveWorkspaceLoad)
+        {
+            LoadWorkspace(s_Settings.activeLayout);
+            s_NeedActiveWorkspaceLoad = false;
+        }
 
         ImGui::End();
     }
@@ -727,68 +796,221 @@ namespace Luth
 
     void Editor::SaveSettings()
     {
+        // Mirror live panel visibility into the settings map. Skipping this would
+        // lose Window-menu toggles between the toggle and the next save trigger.
+        for (auto& panel : s_Panels)
+            s_Settings.panelOpen[panel->GetWindowID()] = panel->m_Open;
+
         if (!s_SettingsPath.empty())
             EditorSettings::Save(s_Settings, s_SettingsPath);
     }
 
-    void Editor::SaveLayout(const std::string& name)
+    namespace
+    {
+        // Built-ins live alongside other engine assets; user copies under cwd-relative
+        // runtime/layouts/ (existing first-run snapshot path — no migration).
+        std::filesystem::path BuiltinDir() { return FileSystem::EngineAssetsPath("workspaces"); }
+        std::filesystem::path UserDir()    { return std::filesystem::path("layouts"); }
+
+        std::filesystem::path BuiltinIni (const std::string& n) { return BuiltinDir() / (n + ".ini"); }
+        std::filesystem::path BuiltinJson(const std::string& n) { return BuiltinDir() / (n + ".workspace.json"); }
+        std::filesystem::path UserIni    (const std::string& n) { return UserDir()    / (n + ".ini"); }
+        std::filesystem::path UserJson   (const std::string& n) { return UserDir()    / (n + ".workspace.json"); }
+    }
+
+    bool Editor::LoadWorkspace(const std::string& name)
     {
         namespace fs = std::filesystem;
-        fs::path layoutDir = "layouts";
-        if (!fs::exists(layoutDir))
-            fs::create_directories(layoutDir);
+
+        // Persist outgoing user workspace's panel visibility before switching so
+        // mid-session toggles aren't lost. Built-in outgoing is a no-op.
+        if (!s_Settings.activeLayout.empty() && s_Settings.activeLayout != name)
+            SaveActiveWorkspaceSidecar();
+
+        const fs::path bIni  = BuiltinIni(name);
+        const fs::path bJson = BuiltinJson(name);
+        const fs::path uIni  = UserIni(name);
+        const fs::path uJson = UserJson(name);
+
+        const fs::path iniPath  = fs::exists(bIni)  ? bIni  : uIni;
+        const fs::path jsonPath = fs::exists(bJson) ? bJson : uJson;
+
+        if (!fs::exists(iniPath)) {
+            LH_CORE_WARN("Workspace '{}' not found", name);
+            return false;
+        }
+
+        // Sidecar may be absent on legacy .ini-only workspaces — Workspace::LoadJson
+        // returns false in that case and leaves panelOpen unchanged so we don't
+        // clobber the in-memory visibility set.
+        if (Workspace::LoadJson(jsonPath, s_Settings.panelOpen))
+            ApplyPersistence();
+
+        std::ifstream f(iniPath, std::ios::binary | std::ios::ate);
+        if (!f.is_open()) {
+            LH_CORE_ERROR("Failed to open workspace ini '{}'", iniPath.string());
+            return false;
+        }
+        auto size = f.tellg();
+        f.seekg(0);
+        std::string data(size, '\0');
+        f.read(data.data(), size);
+        ImGui::LoadIniSettingsFromMemory(data.c_str(), data.size());
+
+        s_Settings.activeLayout = name;
+
+        const bool isBuiltin = Workspace::IsBuiltinPath(iniPath);
+        EventBus::Enqueue<WorkspaceChangedSignal>(BusType::MainThread, name, isBuiltin);
+
+        LH_CORE_INFO("Loaded workspace '{}' from '{}'", name, iniPath.string());
+        return true;
+    }
+
+    bool Editor::SaveWorkspaceAs(const std::string& name)
+    {
+        namespace fs = std::filesystem;
+
+        if (fs::exists(BuiltinIni(name))) {
+            LH_CORE_WARN("Cannot overwrite built-in workspace '{}' — pick a different name", name);
+            return false;
+        }
+
+        const fs::path iniPath  = UserIni(name);
+        const fs::path jsonPath = UserJson(name);
+        if (!fs::exists(UserDir())) fs::create_directories(UserDir());
+
+        // Snapshot live panel visibility at call time — s_Settings.panelOpen may
+        // be stale relative to current m_Open state.
+        std::unordered_map<std::string, bool> snap;
+        for (auto& panel : s_Panels)
+            snap[panel->GetWindowID()] = panel->m_Open;
 
         size_t size = 0;
         const char* iniData = ImGui::SaveIniSettingsToMemory(&size);
-
-        fs::path layoutPath = layoutDir / (name + ".ini");
-        std::ofstream file(layoutPath);
-        if (file.is_open()) {
-            file.write(iniData, size);
-            s_Settings.activeLayout = name;
-            LH_CORE_INFO("Saved layout '{}' to '{}'", name, layoutPath.string());
+        std::ofstream f(iniPath);
+        if (!f.is_open()) {
+            LH_CORE_ERROR("Failed to write workspace ini '{}'", iniPath.string());
+            return false;
         }
-    }
+        f.write(iniData, size);
+        f.close();
 
-    void Editor::LoadLayout(const std::string& name)
-    {
-        namespace fs = std::filesystem;
-        fs::path layoutPath = fs::path("layouts") / (name + ".ini");
+        if (!Workspace::SaveJson(jsonPath, snap))
+            return false;
 
-        if (!fs::exists(layoutPath)) {
-            LH_CORE_WARN("Layout '{}' not found", name);
-            return;
-        }
-
-        std::ifstream file(layoutPath, std::ios::binary | std::ios::ate);
-        if (!file.is_open()) return;
-
-        auto size = file.tellg();
-        file.seekg(0);
-        std::string data(size, '\0');
-        file.read(data.data(), size);
-
-        ImGui::LoadIniSettingsFromMemory(data.c_str(), data.size());
+        s_Settings.panelOpen    = snap;
         s_Settings.activeLayout = name;
-        LH_CORE_INFO("Loaded layout '{}'", name);
+        LH_CORE_INFO("Saved workspace '{}' to '{}'", name, iniPath.string());
+        return true;
     }
 
-    std::vector<std::string> Editor::GetLayoutNames()
+    bool Editor::RenameWorkspace(const std::string& oldName, const std::string& newName)
     {
         namespace fs = std::filesystem;
-        std::vector<std::string> names;
-        fs::path layoutDir = "layouts";
+        if (oldName == newName) return true;
 
-        if (!fs::exists(layoutDir))
-            return names;
-
-        for (const auto& entry : fs::directory_iterator(layoutDir)) {
-            if (entry.path().extension() == ".ini")
-                names.push_back(entry.path().stem().string());
+        if (fs::exists(BuiltinIni(oldName))) {
+            LH_CORE_WARN("Cannot rename built-in workspace '{}'", oldName);
+            return false;
+        }
+        if (fs::exists(UserIni(newName)) || fs::exists(BuiltinIni(newName))) {
+            LH_CORE_WARN("Cannot rename workspace '{}' to '{}': target exists", oldName, newName);
+            return false;
         }
 
-        std::sort(names.begin(), names.end());
-        return names;
+        std::error_code ec;
+        if (fs::exists(UserIni(oldName)))  fs::rename(UserIni(oldName),  UserIni(newName),  ec);
+        if (fs::exists(UserJson(oldName))) fs::rename(UserJson(oldName), UserJson(newName), ec);
+
+        if (s_Settings.activeLayout == oldName)
+            s_Settings.activeLayout = newName;
+
+        LH_CORE_INFO("Renamed workspace '{}' -> '{}'", oldName, newName);
+        return true;
+    }
+
+    bool Editor::DeleteWorkspace(const std::string& name)
+    {
+        namespace fs = std::filesystem;
+
+        if (fs::exists(BuiltinIni(name))) {
+            LH_CORE_WARN("Cannot delete built-in workspace '{}'", name);
+            return false;
+        }
+
+        std::error_code ec;
+        bool removed = false;
+        if (fs::exists(UserIni(name)))  { fs::remove(UserIni(name),  ec); removed = true; }
+        if (fs::exists(UserJson(name))) { fs::remove(UserJson(name), ec); removed = true; }
+
+        if (!removed) return false;
+
+        if (s_Settings.activeLayout == name) {
+            s_Settings.activeLayout = "Default";
+            LoadWorkspace("Default");
+        }
+        LH_CORE_INFO("Deleted workspace '{}'", name);
+        return true;
+    }
+
+    bool Editor::ResetWorkspaceToBuiltin()
+    {
+        // LoadWorkspace prefers built-in path over user copy, so reloading the active
+        // name effectively snaps back to the shipped baseline (or last-saved if none).
+        return LoadWorkspace(s_Settings.activeLayout);
+    }
+
+    std::vector<WorkspaceInfo> Editor::GetWorkspaces()
+    {
+        namespace fs = std::filesystem;
+        std::vector<WorkspaceInfo> out;
+        std::unordered_set<std::string> seen;
+
+        if (fs::exists(BuiltinDir())) {
+            for (const auto& e : fs::directory_iterator(BuiltinDir())) {
+                if (e.path().extension() != ".ini") continue;
+                const std::string name = e.path().stem().string();
+                out.push_back({ name, true });
+                seen.insert(name);
+            }
+        }
+
+        if (fs::exists(UserDir())) {
+            for (const auto& e : fs::directory_iterator(UserDir())) {
+                if (e.path().extension() != ".ini") continue;
+                const std::string name = e.path().stem().string();
+                // Built-in shadows silently — SaveWorkspaceAs refuses colliding names,
+                // so the only way a user copy collides is the first-run Default snapshot
+                // (intentional fallback, not user error). Warning here would spam the
+                // log every frame from the Window > Workspaces menu.
+                if (seen.count(name)) continue;
+                out.push_back({ name, false });
+            }
+        }
+
+        std::sort(out.begin(), out.end(), [](const WorkspaceInfo& a, const WorkspaceInfo& b) {
+            if (a.builtin != b.builtin) return a.builtin > b.builtin;   // built-ins first
+            return a.name < b.name;
+        });
+        return out;
+    }
+
+    void Editor::SaveActiveWorkspaceSidecar()
+    {
+        namespace fs = std::filesystem;
+        if (s_Settings.activeLayout.empty()) return;
+
+        // Built-in workspaces are read-only — visibility tweaks made while a built-in
+        // is active persist in-session only. User must "Save Current As..." to fork.
+        if (fs::exists(BuiltinIni(s_Settings.activeLayout))) return;
+
+        if (!fs::exists(UserDir())) fs::create_directories(UserDir());
+
+        std::unordered_map<std::string, bool> snap;
+        for (auto& panel : s_Panels)
+            snap[panel->GetWindowID()] = panel->m_Open;
+
+        Workspace::SaveJson(UserJson(s_Settings.activeLayout), snap);
     }
 
     void Editor::ProcessShortcuts()
@@ -814,6 +1036,11 @@ namespace Luth
                     SaveSceneAs();
                 else
                     SaveScene();
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+                Entity sel = EditorSelection::GetSelectedEntity();
+                if (sel && sel.IsValid())
+                    CommandHistory::Execute(std::make_unique<EntityDuplicateCommand>(sel.GetScene(), sel));
             }
         }
     }
@@ -856,6 +1083,53 @@ namespace Luth
                     CommandHistory::Undo();
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, CommandHistory::CanRedo()))
                     CommandHistory::Redo();
+
+                ImGui::Separator();
+
+                Entity sel = EditorSelection::GetSelectedEntity();
+                const bool hasSel = sel && sel.IsValid();
+                if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSel))
+                    CommandHistory::Execute(std::make_unique<EntityDuplicateCommand>(sel.GetScene(), sel));
+                if (ImGui::MenuItem("Delete", "Del", false, hasSel))
+                    CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(sel.GetScene(), sel));
+
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Preferences..."))
+                    EditorSettingsWindow::Show();
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Window")) {
+                for (auto& panel : s_Panels)
+                    ImGui::MenuItem(panel->GetWindowID(), nullptr, &panel->m_Open);
+                ImGui::Separator();
+
+                if (ImGui::BeginMenu("Workspaces")) {
+                    auto wss = GetWorkspaces();
+
+                    bool activeIsBuiltin = false;
+                    for (const auto& ws : wss) {
+                        bool isActive = (s_Settings.activeLayout == ws.name);
+                        std::string label = ws.builtin ? (ws.name + "  (builtin)") : ws.name;
+                        if (ImGui::MenuItem(label.c_str(), nullptr, isActive))
+                            LoadWorkspace(ws.name);
+                        if (isActive) activeIsBuiltin = ws.builtin;
+                    }
+                    if (!wss.empty()) ImGui::Separator();
+
+                    if (ImGui::MenuItem("Save Current As..."))
+                        s_ShowSaveWorkspacePopup = true;
+                    if (ImGui::MenuItem("Rename Current...", nullptr, false, !activeIsBuiltin))
+                        s_ShowRenameWorkspacePopup = true;
+                    if (ImGui::MenuItem("Delete Current...", nullptr, false, !activeIsBuiltin))
+                        s_ShowDeleteWorkspaceConfirm = true;
+
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Reset to Built-in"))
+                        ResetWorkspaceToBuiltin();
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
 
@@ -902,27 +1176,6 @@ namespace Luth
                     }
                     ImGui::EndMenu();
                 }
-
-                ImGui::Separator();
-
-                // Layout submenu
-                if (ImGui::BeginMenu("Layouts")) {
-                    auto names = GetLayoutNames();
-                    for (const auto& name : names) {
-                        bool isActive = (s_Settings.activeLayout == name);
-                        if (ImGui::MenuItem(name.c_str(), nullptr, isActive))
-                            LoadLayout(name);
-                    }
-
-                    if (!names.empty())
-                        ImGui::Separator();
-
-                    if (ImGui::MenuItem("Save Layout..."))
-                        s_ShowSaveLayoutPopup = true;
-
-                    ImGui::EndMenu();
-                }
-
                 ImGui::EndMenu();
             }
 
@@ -937,29 +1190,78 @@ namespace Luth
             s_ShowTextureRemapDialog = false;
         }
 
-        // Save Layout popup — rendered outside menu scope so ImGui can track it
-        if (s_ShowSaveLayoutPopup) {
-            ImGui::OpenPopup("Save Layout");
-            s_ShowSaveLayoutPopup = false;
+        // Workspace Save / Rename / Delete popups — rendered outside menu scope
+        // so ImGui can track them; deferred-open pattern from Save Layout precedent.
+        if (s_ShowSaveWorkspacePopup) {
+            ImGui::OpenPopup("Save Workspace");
+            s_ShowSaveWorkspacePopup = false;
         }
-
-        if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            static char layoutName[128] = "";
-            ImGui::Text("Layout Name:");
+        if (ImGui::BeginPopupModal("Save Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            static char nameBuf[128] = "";
+            ImGui::Text("Workspace Name:");
             ImGui::SetNextItemWidth(250.0f);
-            ImGui::InputText("##LayoutName", layoutName, sizeof(layoutName));
+            ImGui::InputText("##SaveWorkspaceName", nameBuf, sizeof(nameBuf));
 
             ImGui::Spacing();
-            if (ImGui::Button("Save", ImVec2(120, 0)) && layoutName[0] != '\0') {
-                SaveLayout(layoutName);
-                layoutName[0] = '\0';
+            if (ImGui::Button("Save", ImVec2(120, 0)) && nameBuf[0] != '\0') {
+                SaveWorkspaceAs(nameBuf);
+                nameBuf[0] = '\0';
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                layoutName[0] = '\0';
+                nameBuf[0] = '\0';
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::EndPopup();
+        }
+
+        // Rename input pre-fills with the active name on open so the user can edit
+        // in place rather than retyping. Static buf is re-seeded each open.
+        static char s_RenameBuf[128] = "";
+        if (s_ShowRenameWorkspacePopup) {
+            std::snprintf(s_RenameBuf, sizeof(s_RenameBuf), "%s", s_Settings.activeLayout.c_str());
+            ImGui::OpenPopup("Rename Workspace");
+            s_ShowRenameWorkspacePopup = false;
+        }
+        if (ImGui::BeginPopupModal("Rename Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("New Name:");
+            ImGui::SetNextItemWidth(250.0f);
+            ImGui::InputText("##RenameWorkspaceName", s_RenameBuf, sizeof(s_RenameBuf));
+
+            ImGui::Spacing();
+            const bool canRename = s_RenameBuf[0] != '\0' && s_RenameBuf != s_Settings.activeLayout;
+            if (!canRename) ImGui::BeginDisabled();
+            if (ImGui::Button("Rename", ImVec2(120, 0))) {
+                RenameWorkspace(s_Settings.activeLayout, s_RenameBuf);
+                s_RenameBuf[0] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+            if (!canRename) ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                s_RenameBuf[0] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (s_ShowDeleteWorkspaceConfirm) {
+            ImGui::OpenPopup("Delete Workspace");
+            s_ShowDeleteWorkspaceConfirm = false;
+        }
+        if (ImGui::BeginPopupModal("Delete Workspace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Delete workspace '%s'?", s_Settings.activeLayout.c_str());
+            ImGui::TextDisabled("This cannot be undone.");
+
+            ImGui::Spacing();
+            if (ImGui::Button("Delete", ImVec2(120, 0))) {
+                DeleteWorkspace(s_Settings.activeLayout);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
     }
@@ -996,6 +1298,11 @@ namespace Luth
 
     void Editor::OnProjectChanged()
     {
+        // invariant: thumbnails belong to the outgoing project's UUID space —
+        // dropped before any reload so PushDeletion fences against the current
+        // ImGui pool, and the new project starts with an empty cache.
+        UI::ThumbnailCache::Clear();
+
         // Reload editor settings from the new project directory
         LoadSettings();
 
@@ -1043,6 +1350,11 @@ namespace Luth
             if (fs::exists(skyboxAbsPath))
                 rs->ReloadSkybox(skyboxAbsPath);
         }
+
+        // Re-hydrate thumbnail cache from the new project's <project>/.luth/thumbnails/.
+        // AssetDatabase has been fully reloaded by LoadProject by this point, so
+        // orphan-GC has the stable registry it needs.
+        UI::ThumbnailCache::ScanDiskCache();
 
         // Broadcast project switch to panels. Path stays empty when called from
         // shutdown / unload (no project loaded yet); subscribers should treat

@@ -10,6 +10,7 @@
 #include "luth/renderer/material/Material.h"
 #include "luthien/widgets/ImGuiUtils.h"
 #include "luthien/widgets/Icons.h"
+#include "luthien/widgets/ThumbnailCache.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -18,6 +19,7 @@ namespace Luth
 {
     ProjectPanel::ProjectPanel()
     {
+        m_WindowID = "Project";
         LH_CORE_INFO("Created Project panel");
     }
 
@@ -78,7 +80,12 @@ namespace Luth
         ImGui::PushFont(Editor::GetFASolid());
         std::string project = ICON_FA_FOLDER + std::string("  Project");
 
-        if (BeginWindow(project.c_str()))
+        // Outer project window: 0 padding so child borders sit flush against
+        // the panel chrome. Child windows below set their own internal padding.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        const bool windowOpen = BeginWindow(project.c_str());
+        ImGui::PopStyleVar();
+        if (windowOpen)
         {
             if (!FileSystem::HasProject())
             {
@@ -130,7 +137,12 @@ namespace Luth
 
             ImGui::SameLine();
 
-            // Right panel - directory contents
+            // Right panel - directory contents. Internal WindowPadding gives
+            // the grid breathing room from the child border; ItemSpacing.y
+            // adds a small gap between rows.
+            const ImVec2 prevSpacing = ImGui::GetStyle().ItemSpacing;
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(prevSpacing.x, 4.0f));
             ImGui::BeginChild("##ProjectContent", ImVec2(0, 0), ImGuiChildFlags_Border);
 
             if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl)
@@ -144,6 +156,7 @@ namespace Luth
 
             DrawContent();
             ImGui::EndChild();
+            ImGui::PopStyleVar(2);
         }
         ImGui::End();
         ImGui::PopFont();
@@ -341,150 +354,253 @@ namespace Luth
             ImGui::EndPopup();
         }
 
-        bool isListView = m_ThumbnailSize <= k_ListModeThreshold;
-        float cellSize = m_ThumbnailSize + m_Padding;
-        float panelWidth = ImGui::GetContentRegionAvail().x;
-        int columnCount = (int)(panelWidth / cellSize);
-        if (columnCount < 1) columnCount = 1;
+        const bool  isListView  = m_ThumbnailSize <= k_ListModeThreshold;
+        const float cellSize    = m_ThumbnailSize + m_Padding;
+        const float panelWidth  = ImGui::GetContentRegionAvail().x;
+        const int   columnCount = std::max(1, (int)(panelWidth / cellSize));
 
-        if (!isListView) {
-            ImGui::Columns(columnCount, 0, false);
+        // Flatten the iteration source so a single ImGuiListClipper covers grid /
+        // list / search paths uniformly. Pointer copy is cheap relative to skipping
+        // off-screen DrawItem calls (thumbnail lookup + Selectable + drag-drop bind).
+        std::vector<DirectoryNode*> entries;
+        if (m_IsSearching) {
+            entries.assign(m_SearchResults.begin(), m_SearchResults.end());
+        }
+        else {
+            entries.reserve(m_CurrentDirNode->SubDirectories.size() + m_CurrentDirNode->Files.size());
+            for (auto& d : m_CurrentDirNode->SubDirectories) entries.push_back(d.get());
+            for (auto& f : m_CurrentDirNode->Files)          entries.push_back(f.get());
         }
 
-        if (m_IsSearching)
+        if (entries.empty()) {
+            if (m_IsSearching) ImGui::TextDisabled("No results found.");
+            return;
+        }
+
+        // DrawItem's cellH (uniform across rows; clipper requires this).
+        const float lineH      = ImGui::GetTextLineHeight();
+        const float listThumbH = std::max(20.0f, lineH + 4.0f);
+        const float spacingY   = ImGui::GetStyle().ItemSpacing.y;
+        const float gridRowH   = m_ThumbnailSize + lineH * (float)k_MaxNameLines + 2.0f + spacingY;
+        const float listRowH   = listThumbH + spacingY;
+
+        if (isListView)
         {
-            for (auto* node : m_SearchResults) {
-                ImGui::PushID(node);
-                DrawItem(node, !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
-            }
-            
-            if (m_SearchResults.empty()) {
-                ImGui::TextDisabled("No results found.");
+            ImGuiListClipper clipper;
+            clipper.Begin((int)entries.size(), listRowH);
+            while (clipper.Step())
+            {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+                {
+                    DirectoryNode* node = entries[row];
+                    ImGui::PushID(node);
+                    DrawItem(node, /*isGrid=*/false);
+                    ImGui::PopID();
+                }
             }
         }
         else
         {
-            // Directories
-            for (auto& dir : m_CurrentDirNode->SubDirectories) {
-                ImGui::PushID(dir.get());
-                DrawItem(dir.get(), !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
+            if (ImGui::BeginTable("##ProjectGrid", columnCount,
+                ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingStretchSame))
+            {
+                const int rowCount = (int)((entries.size() + columnCount - 1) / (size_t)columnCount);
+                ImGuiListClipper clipper;
+                clipper.Begin(rowCount, gridRowH);
+                while (clipper.Step())
+                {
+                    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+                    {
+                        ImGui::TableNextRow();
+                        for (int col = 0; col < columnCount; ++col)
+                        {
+                            const int idx = row * columnCount + col;
+                            if (idx >= (int)entries.size()) break;
+                            ImGui::TableNextColumn();
+                            DirectoryNode* node = entries[idx];
+                            ImGui::PushID(node);
+                            DrawItem(node, /*isGrid=*/true);
+                            ImGui::PopID();
+                        }
+                    }
+                }
+                ImGui::EndTable();
             }
+        }
+    }
 
-            // Files
-            for (auto& file : m_CurrentDirNode->Files) {
-                ImGui::PushID(file.get());
-                DrawItem(file.get(), !isListView);
-                ImGui::PopID();
-                if (!isListView) ImGui::NextColumn();
+    namespace
+    {
+        // Word-wraps `text` to `wrapWidth` and renders up to `maxLines` lines.
+        // Overflowing text on the last drawn line is replaced with "<chunk>..."
+        // sized to fit the wrap width — mirrors Unreal's project-browser cap.
+        void DrawTruncatedTextWrapped(const std::string& text, float wrapWidth, int maxLines)
+        {
+            if (text.empty() || maxLines <= 0 || wrapWidth <= 0.0f) return;
+            ImFont* font = ImGui::GetFont();
+            const char* p   = text.c_str();
+            const char* end = p + text.size();
+            int drawn = 0;
+            while (p < end && drawn < maxLines)
+            {
+                const char* nextWrap = font->CalcWordWrapPositionA(1.0f, p, end, wrapWidth);
+                if (nextWrap == p) nextWrap = p + 1;
+                const bool needsTruncate = (drawn == maxLines - 1) && (nextWrap < end);
+                if (!needsTruncate) {
+                    ImGui::TextUnformatted(p, nextWrap);
+                } else {
+                    std::string line(p, nextWrap);
+                    std::string display = line + "...";
+                    while (ImGui::CalcTextSize(display.c_str()).x > wrapWidth && !line.empty()) {
+                        line.pop_back();
+                        display = line + "...";
+                    }
+                    ImGui::TextUnformatted(display.c_str());
+                }
+                p = nextWrap;
+                while (p < end && (*p == ' ' || *p == '\n')) ++p;
+                ++drawn;
             }
         }
 
-        if (!isListView) {
-            ImGui::Columns(1);
+        // Centers an FA glyph at `pos` within a `size` x `size` square. Caller
+        // pushes the appropriate font + color before calling.
+        void DrawIconCentered(const char* glyph, ImVec2 pos, float size)
+        {
+            const ImVec2 g = ImGui::CalcTextSize(glyph);
+            ImGui::SetCursorScreenPos(ImVec2(pos.x + (size - g.x) * 0.5f,
+                                             pos.y + (size - g.y) * 0.5f));
+            ImGui::TextUnformatted(glyph);
         }
     }
 
     void ProjectPanel::DrawItem(DirectoryNode* node, bool isGrid)
     {
-        bool isDirectory = (node->Type == AssetType::None);
-        const char* icon = GetIcon(node->Type, isDirectory);
-        
-        bool isSelected = (m_SelectedPath == node->Path);
-        bool isRenaming = (m_RenamingNode == node);
+        const bool isDirectory = (node->Type == AssetType::None);
+        const bool isSelected  = (m_SelectedPath == node->Path);
+        const bool isRenaming  = (m_RenamingNode == node);
+        const char* icon       = GetIcon(node->Type, isDirectory);
 
-        if (isGrid)
-        {
-            ImGui::BeginGroup();
-            if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
-                ImGui::PushFont(Editor::GetFARegular());
-            else
-                ImGui::PushFont(Editor::GetFASolid());
+        const ImTextureID thumb = isDirectory
+            ? (ImTextureID)0
+            : UI::ThumbnailCache::Get(node->Handle, node->Type);
 
-            // Colorize icon
-            if (!isDirectory) {
-                Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
-                ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
+        const float lineH    = ImGui::GetTextLineHeight();
+        // List mode picks a small thumbnail close to a single line.
+        const float listThumbH = std::max(20.0f, lineH + 4.0f);
+
+        const float cellW = isGrid ? m_ThumbnailSize : 0.0f;            // 0 → stretch column
+        const float cellH = isGrid ? (m_ThumbnailSize + lineH * (float)k_MaxNameLines + 2.0f)
+                                    : listThumbH;
+
+        const ImVec2 startPos    = ImGui::GetCursorPos();
+        const ImVec2 startScreen = ImGui::GetCursorScreenPos();
+
+        // Selectable owns click + selection visual + drag-drop binding +
+        // context menu binding for the entire cell. AllowOverlap lets the
+        // image we draw on top stay hoverable for tooltips later if needed.
+        if (!isRenaming) {
+            ImGuiSelectableFlags flags = ImGuiSelectableFlags_AllowDoubleClick
+                                       | ImGuiSelectableFlags_AllowOverlap;
+            if (ImGui::Selectable("##sel", isSelected, flags, ImVec2(cellW, cellH))) {
+                HandleClick(node, ImGui::IsMouseDoubleClicked(0));
             }
-
-            // Icon Button
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            if (ImGui::Button(icon, { m_ThumbnailSize, m_ThumbnailSize })) {
-                HandleClick(node, false);
-            }
-            ImGui::PopStyleColor();
-
-            if (!isDirectory) ImGui::PopStyleColor();
-            ImGui::PopFont();
-
-            // Handle Drag Drop
             HandleDragDrop(node);
-            
-            // Handle Double Click
-            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                HandleClick(node, true);
-            }
-
-            // Context Menu
             if (ImGui::BeginPopupContextItem()) {
                 HandleContextMenu(node);
                 ImGui::EndPopup();
             }
-
-            // Name
-            if (isRenaming) {
-                HandleRenaming();
-            }
-            else {
-                ImGui::TextWrapped("%s", node->Name.c_str());
-            }
-            
-            ImGui::EndGroup();
         }
-        else // List View (Small Zoom)
-        {
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
 
-            if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
-                ImGui::PushFont(Editor::GetFARegular());
-            else
-                ImGui::PushFont(Editor::GetFASolid());
-            if (!isDirectory) {
-                Vec4 color = FileSystem::GetTypeInfo().at(node->Type).color;
-                ImGui::PushStyleColor(ImGuiCol_Text, { color.r, color.g, color.b, color.a });
+        // Render visual content on top of the Selectable.
+        ImGui::SetCursorPos(startPos);
+
+        if (isGrid) {
+            // ── Thumbnail / icon area (top, square of m_ThumbnailSize) ─────
+            if (thumb != 0) {
+                ImVec2 dims = UI::ThumbnailCache::GetThumbnailSize(node->Handle);
+                float ar = (dims.y > 0.0f) ? (dims.x / dims.y) : 1.0f;
+                ImVec2 disp = (ar >= 1.0f)
+                    ? ImVec2(m_ThumbnailSize, m_ThumbnailSize / ar)
+                    : ImVec2(m_ThumbnailSize * ar, m_ThumbnailSize);
+                ImVec2 imgPos = ImVec2(startScreen.x + (m_ThumbnailSize - disp.x) * 0.5f,
+                                       startScreen.y + (m_ThumbnailSize - disp.y) * 0.5f);
+                ImGui::SetCursorScreenPos(imgPos);
+                ImGui::Image(thumb, disp, { 0, 0 }, { 1, 1 });
+            } else {
+                // invariant: use 64-px FA bakes in grid mode so glyphs stay
+                // crisp at large thumbnails; bilinear minify handles downscale.
+                const bool emptyDir = isDirectory && node->SubDirectories.empty() && node->Files.empty();
+                ImFont* large = emptyDir ? Editor::GetFARegularLarge() : Editor::GetFASolidLarge();
+                if (large) {
+                    ImGui::PushFont(large);
+                    ImGui::SetWindowFontScale((m_ThumbnailSize * 0.5f) / 64.0f);
+                } else {
+                    ImGui::PushFont(emptyDir ? Editor::GetFARegular() : Editor::GetFASolid());
+                }
+                if (!isDirectory) {
+                    const Vec4 c = FileSystem::GetTypeInfo().at(node->Type).color;
+                    ImGui::PushStyleColor(ImGuiCol_Text, { c.r, c.g, c.b, c.a });
+                }
+                DrawIconCentered(icon, startScreen, m_ThumbnailSize);
+                if (!isDirectory) ImGui::PopStyleColor();
+                if (large) ImGui::SetWindowFontScale(1.0f);
+                ImGui::PopFont();
             }
-            ImGui::Text(icon);
-            if (!isDirectory) ImGui::PopStyleColor();
-            ImGui::PopFont();
-            // TODO: Add small icon texture support here if available
 
-            ImGui::SameLine();
-
+            // ── Name area (3-line truncated) ─────────────────────────────
+            ImGui::SetCursorScreenPos(ImVec2(startScreen.x, startScreen.y + m_ThumbnailSize + 2.0f));
             if (isRenaming) {
+                ImGui::SetNextItemWidth(m_ThumbnailSize);
                 HandleRenaming();
-            }
-            else {
-                if (ImGui::Selectable(node->Name.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick)) {
-                    HandleClick(node, ImGui::IsMouseDoubleClicked(0));
-                }
-                
-                HandleDragDrop(node);
-                
-                if (ImGui::BeginPopupContextItem()) {
-                    HandleContextMenu(node);
-                    ImGui::EndPopup();
-                }
-            }
-
-            // In list view, show extra details if searching (like path)
-            if (m_IsSearching) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%s)", node->Path.parent_path().string().c_str());
+            } else {
+                DrawTruncatedTextWrapped(node->Name, m_ThumbnailSize, k_MaxNameLines);
             }
         }
+        else {  // List view
+            // ── Thumbnail / colored icon (left, square of listThumbH) ────
+            const float pad = 4.0f;
+            ImVec2 imgPos = ImVec2(startScreen.x + pad, startScreen.y);
+            if (thumb != 0) {
+                ImVec2 dims = UI::ThumbnailCache::GetThumbnailSize(node->Handle);
+                float ar = (dims.y > 0.0f) ? (dims.x / dims.y) : 1.0f;
+                ImVec2 disp = (ar >= 1.0f)
+                    ? ImVec2(listThumbH, listThumbH / ar)
+                    : ImVec2(listThumbH * ar, listThumbH);
+                ImVec2 centered = ImVec2(imgPos.x + (listThumbH - disp.x) * 0.5f,
+                                         imgPos.y + (listThumbH - disp.y) * 0.5f);
+                ImGui::SetCursorScreenPos(centered);
+                ImGui::Image(thumb, disp, { 0, 0 }, { 1, 1 });
+            } else {
+                if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
+                    ImGui::PushFont(Editor::GetFARegular());
+                else
+                    ImGui::PushFont(Editor::GetFASolid());
+                if (!isDirectory) {
+                    const Vec4 c = FileSystem::GetTypeInfo().at(node->Type).color;
+                    ImGui::PushStyleColor(ImGuiCol_Text, { c.r, c.g, c.b, c.a });
+                }
+                DrawIconCentered(icon, imgPos, listThumbH);
+                if (!isDirectory) ImGui::PopStyleColor();
+                ImGui::PopFont();
+            }
+
+            // ── Name (right of thumbnail, vertically centered) ────────────
+            ImGui::SetCursorScreenPos(ImVec2(startScreen.x + pad + listThumbH + 6.0f,
+                                             startScreen.y + (listThumbH - lineH) * 0.5f));
+            if (isRenaming) {
+                HandleRenaming();
+            } else {
+                ImGui::TextUnformatted(node->Name.c_str());
+                if (m_IsSearching) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%s)", node->Path.parent_path().string().c_str());
+                }
+            }
+        }
+
+        // Pin cursor to cell bottom so the next column / row starts cleanly.
+        ImGui::SetCursorPos(ImVec2(startPos.x, startPos.y + cellH));
     }
 
     const char* ProjectPanel::GetIcon(AssetType type, bool isDirectory) const

@@ -32,6 +32,8 @@ namespace Luth
         void DrawFilterControls();
         void SetupColumns();
 
+        void RebuildIfDirty();
+        void RefreshDynamicData();
         void PopulateData();
         void AddModelEntries();
         void AddTextureEntries();
@@ -54,6 +56,9 @@ namespace Luth
         UUID m_SelectedUUID = UUID::Invalid();
 
         std::vector<ResourceEntry> m_FilteredResources;
+        // invariant: m_FilteredResources is rebuilt only when m_NeedsRebuild flips.
+        // Sources of truth: AssetDatabase callback, filter/search edits, sort spec.
+        bool m_NeedsRebuild = true;
 
         static const std::unordered_map<std::string, ImVec4> m_TypeColors;
 

@@ -1,6 +1,11 @@
 #include "lepch.h"
 #include "luthien/inspectors/MaterialEditor.h"
+#include "luthien/Editor.h"
+#include "luthien/EditorSettings.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
@@ -15,6 +20,8 @@
 
 #include <imgui/imgui_internal.h>
 
+#include <algorithm>
+
 namespace Luth
 {
     void MaterialEditor::Draw(Material& material)
@@ -25,24 +32,20 @@ namespace Luth
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return;
 
-        // Material header with name and unsaved indicator
-        if (ImGui::BeginChild("##Header", { 0, 30 })) {
-            ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            if (material.NeedsSave())
-                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s* (Material)", material.GetName().c_str());
-            else
-                ImGui::TextColored({ 0.2f, 0.9f, 0.4f, 1.0f }, "%s (Material)", material.GetName().c_str());
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 8 });
+        // Header: thumbnail-on-left, name + Shader combo on right.
+        // Live 3D preview pinned in the footer (sub-task O).
+        ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
+        UI::InspectorHeader(headerThumb, ICON_FA_CIRCLE_HALF_STROKE, 48.0f, [&]() {
+            const ImVec4 nameCol = { 0.2f, 0.9f, 0.4f, 1.0f };
+            ImGui::TextColored(nameCol, "%s%s (Material)",
+                material.GetName().c_str(), material.NeedsSave() ? "*" : "");
 
-        // Shader selection
-        ImGui::Text("Shader     ");
-        ImGui::SameLine();
-        {
             auto shader = material.GetShader();
-            std::string currentName = shader ? shader->GetName() : "<none>";
+            const std::string currentName = shader ? shader->GetName() : "<none>";
 
+            // AlignTextToFramePadding so "Shader" sits at the same baseline as the combo's text.
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Shader"); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##Shader", currentName.c_str())) {
                 for (const auto& [name, s] : ShaderLibrary::GetAll()) {
@@ -55,9 +58,31 @@ namespace Luth
                 }
                 ImGui::EndCombo();
             }
-        }
+        });
 
         ImGui::Dummy({ 0, 4 });
+
+        // Pinned-footer layout: settings scroll above, splitter, 3D preview pinned bottom.
+        // invariant: layout uses a SNAPSHOT of footerH frozen at frame start.
+        // The Splitter mutates the persisted footerH (so next frame picks up the
+        // new height) but this frame's Settings AND Preview both size with the
+        // snapshot — avoids one-frame overshoot when dragging UP. See git
+        // history for the failed in-place mutation attempt.
+        const float kSplitterH    = 4.0f;
+        const float kMinSettingsH = 80.0f;
+        const float kMinFooterH   = 80.0f;
+        const float kMaxFooterAbs = 400.0f;
+        const float spacingY      = ImGui::GetStyle().ItemSpacing.y;
+        const float availH        = ImGui::GetContentRegionAvail().y;
+        float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
+        const float kMaxFooterH = std::max(kMinFooterH,
+            std::min(kMaxFooterAbs, availH - kMinSettingsH - kSplitterH - 2.0f * spacingY));
+        footerH = std::clamp(footerH, kMinFooterH, kMaxFooterH);
+        const float footerH_snap = footerH;
+        const float topH = availH - footerH_snap - kSplitterH - 2.0f * spacingY;
+
+        if (ImGui::BeginChild("##Settings", { -1, topH }, false))
+        {
 
         // Surface Settings
         if (UI::BeginCollapsingHeader("Surface Settings", true))
@@ -338,6 +363,49 @@ namespace Luth
             }
         }
 
+        }
+        ImGui::EndChild();
+
+        if (UI::Splitter("##MatSplitter", &footerH, kMinFooterH, kMaxFooterH, kSplitterH))
+            Editor::SaveSettings();
+
+        // Pinned 3D preview footer with orbit drag input. Sized to the snapshot
+        // so this frame's layout matches Settings sizing — Splitter writeback
+        // takes effect next frame.
+        if (ImGui::BeginChild("##Preview", { -1, footerH_snap }, false))
+        {
+            const float pAvailW = ImGui::GetContentRegionAvail().x;
+            const float pAvailY = ImGui::GetContentRegionAvail().y;
+            const float pSz = std::min(pAvailW, pAvailY);
+            if (pSz >= 32.0f) {
+                const float xOff = (pAvailW - pSz) * 0.5f;
+                const float yOff = (pAvailY - pSz) * 0.5f;
+                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+                if (yOff > 0) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + yOff);
+
+                ImGui::InvisibleButton("##OrbitInput", { pSz, pSz });
+                if (ImGui::IsItemActive()) {
+                    const ImVec2 d = ImGui::GetIO().MouseDelta;
+                    const float sens = 0.01f;
+                    m_OrbitCam.azimuth   -= d.x * sens;
+                    m_OrbitCam.elevation += d.y * sens;
+                    const float maxElev = Math::Radians(85.0f);
+                    m_OrbitCam.elevation = std::clamp(m_OrbitCam.elevation, -maxElev, maxElev);
+                }
+                if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+
+                auto matPtr = AssetManager::GetAsset<Material>(material.Handle);
+                ImTextureID tex = matPtr
+                    ? UI::ThumbnailPreviewScene::RenderMaterialInspector(matPtr, m_OrbitCam)
+                    : (ImTextureID)0;
+                if (tex)
+                    ImGui::GetWindowDrawList()->AddImage(tex,
+                        ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+            }
+        }
+        ImGui::EndChild();
+
         // --- Auto-save debounce + Undo snapshot ---
         if (material.NeedsSave() && !m_PendingSave)
         {
@@ -367,7 +435,14 @@ namespace Luth
             }
             else
             {
+                // Per-release thumbnail refresh: justReleased = timer-just-zeroed
+                // by the IsAnyItemActive branch on the prior frame. One Invalidate
+                // per drag/discrete edit cycle — no per-pixel re-bake spam.
+                bool justReleased = (m_SaveTimer == 0.0f);
                 m_SaveTimer += Time::UnscaledDeltaTime();
+                if (justReleased)
+                    UI::ThumbnailCache::Invalidate(material.Handle);
+
                 if (m_SaveTimer >= kAutoSaveDelay)
                 {
                     // Push undo command with old/new state

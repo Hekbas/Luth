@@ -12,6 +12,8 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/AnimationClip.h"
 
+#include <nlohmann/json.hpp>
+
 namespace Luth::ComponentDrawers
 {
     using namespace Component;
@@ -26,6 +28,30 @@ namespace Luth::ComponentDrawers
             Animation initAnim(modelUUID);
             CommandHistory::Execute(std::make_unique<ComponentAddCommand<Animation>>(
                 "Add Animation", e.GetScene(), (entt::entity)e, initAnim));
+        };
+        opts.OnCopy = [](Entity e) {
+            const auto& a = e.GetComponent<Animation>();
+            nlohmann::json j;
+            j["modelUUID"] = a.ModelUUID.ToString();
+            j["clipUUID"]  = a.ClipUUID.ToString();
+            j["speed"]     = a.Speed;
+            j["loopMode"]  = (int)a.LoopMode;
+            j["playing"]   = a.Playing;
+            return j.dump();
+        };
+        opts.OnPaste = [](Entity e, const std::string& data) -> bool {
+            try {
+                auto j = nlohmann::json::parse(data);
+                Animation newA = e.GetComponent<Animation>();
+                newA.ModelUUID = UUID::FromString(j.value("modelUUID", ""));
+                newA.ClipUUID  = UUID::FromString(j.value("clipUUID", ""));
+                newA.Speed     = j.value("speed", 1.0f);
+                newA.LoopMode  = (AnimationLoopMode)j.value("loopMode", 1);
+                newA.Playing   = j.value("playing", true);
+                CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<Animation>>(
+                    "Paste Animation", e.GetScene(), (entt::entity)e, std::move(newA)));
+                return true;
+            } catch (...) { return false; }
         };
 
         ComponentDrawerRegistry::Register<Animation>(
@@ -65,11 +91,12 @@ namespace Luth::ComponentDrawers
                     entt::entity ent = (entt::entity)entity;
 
                     {
-                        UUID oldUUID = animation.ClipUUID;
-                        if (UI::PropertyAsset("Clip", animation.ClipUUID, AssetType::Animation)) {
+                        auto state = UI::PropertyAsset("Clip", animation.ClipUUID, AssetType::Animation);
+                        if (state.committed) {
                             animation.CurrentTime = 0.0f;
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, UUID>>(
-                                "Change Clip", scene, ent, &Animation::ClipUUID, oldUUID, animation.ClipUUID));
+                                "Change Clip", scene, ent, &Animation::ClipUUID,
+                                UI::ConsumeItemPreEdit<UUID>(state.itemId), animation.ClipUUID));
                         }
                     }
 
@@ -78,16 +105,20 @@ namespace Luth::ComponentDrawers
                     if (clip) {
                         f32 duration = clip->GetDurationSeconds();
 
-                        auto oldSpeed = animation.Speed;
-                        if (UI::Property("Speed", animation.Speed, 0.05f, 0.0f, 5.0f))
-                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
-                                "Change Speed", scene, ent, &Animation::Speed, oldSpeed, animation.Speed));
+                        {
+                            auto state = UI::Property("Speed", animation.Speed, 0.05f, 0.0f, 5.0f);
+                            if (state.committed)
+                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
+                                    "Change Speed", scene, ent, &Animation::Speed,
+                                    UI::ConsumeItemPreEdit<f32>(state.itemId), animation.Speed));
+                        }
 
                         if (duration > 0.0f) {
-                            auto oldTime = animation.CurrentTime;
-                            if (UI::Property("Timeline", animation.CurrentTime, 0.01f, 0.0f, duration))
+                            auto state = UI::Property("Timeline", animation.CurrentTime, 0.01f, 0.0f, duration);
+                            if (state.committed)
                                 CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, f32>>(
-                                    "Change Timeline", scene, ent, &Animation::CurrentTime, oldTime, animation.CurrentTime));
+                                    "Change Timeline", scene, ent, &Animation::CurrentTime,
+                                    UI::ConsumeItemPreEdit<f32>(state.itemId), animation.CurrentTime));
                         }
                     }
 

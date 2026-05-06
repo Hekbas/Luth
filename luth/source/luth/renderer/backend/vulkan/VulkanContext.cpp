@@ -250,6 +250,7 @@ namespace Luth
                      && avail12.descriptorBindingPartiallyBound
                      && avail12.descriptorBindingSampledImageUpdateAfterBind
                      && avail12.descriptorBindingStorageBufferUpdateAfterBind
+                     && avail12.descriptorBindingUniformBufferUpdateAfterBind
                      && avail12.runtimeDescriptorArray
                      && avail12.shaderSampledImageArrayNonUniformIndexing
                      && avail12.timelineSemaphore
@@ -260,12 +261,14 @@ namespace Luth
             LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 features missing on selected device — "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
+                "descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
                 "dynamicRendering={} synchronization2={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
                 (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
                 (bool)avail12.descriptorBindingStorageBufferUpdateAfterBind,
+                (bool)avail12.descriptorBindingUniformBufferUpdateAfterBind,
                 (bool)avail12.runtimeDescriptorArray,
                 (bool)avail12.shaderSampledImageArrayNonUniformIndexing,
                 (bool)avail12.timelineSemaphore,
@@ -297,9 +300,11 @@ namespace Luth
         features12.pNext = &features11;
         features12.descriptorBindingPartiallyBound = VK_TRUE;
         features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-        // Required for tagged-heap consumers (Set 2 Material / Set 4 Bones / Set 5 Object)
-        // whose descriptors are rewritten each frame to point at fresh allocator regions.
+        // Required for tagged-heap consumers whose descriptors are rewritten each frame
+        // to point at fresh allocator regions: SSBOs (Set 2 Material / Set 4 Bones / Set 5 Object)
+        // and UBOs (Set 0 Global+GTAO / Set 3 Light / PostProcess / Grid).
         features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        features12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
         features12.runtimeDescriptorArray = VK_TRUE;
         features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
         

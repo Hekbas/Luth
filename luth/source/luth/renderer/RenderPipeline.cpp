@@ -16,7 +16,6 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Buffer.h"
 #include "luth/renderer/lighting/IBLPrecompute.h"
-#include "luth/renderer/passes/CullPass.h"
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/resources/AssetManager.h"
@@ -54,66 +53,39 @@ namespace Luth
     {
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-        auto& s = m_System;
-        m_System.m_SceneTargets.Allocate(viewportWidth, viewportHeight);
+        m_System.GetSceneTargets().Allocate(viewportWidth, viewportHeight);
 
-        InitGlobalUniforms();
-        InitShadowResources();
-
-        // Load all engine shaders through the asset pipeline. Each file is a
-        // single-stage asset; pipelines combine stages at creation time.
-        // LoadEngine is idempotent and registers the shader in the library
-        // keyed by filename (e.g. "pbr.vert").
-        auto loadSpv = [](const char* relPath) -> std::vector<u32>
-        {
-            auto sh = ShaderLibrary::LoadEngine(relPath);
-            return sh ? sh->GetSpirV() : std::vector<u32>{};
-        };
-
-        m_PBRVertSpv                  = loadSpv("shaders/pbr.vert");
-        m_PBRFragSpv                  = loadSpv("shaders/pbr.frag");
-        m_ShadowVertSpv               = loadSpv("shaders/shadowDepth.vert");
-        m_ShadowFragSpv               = loadSpv("shaders/shadowDepth.frag");
-        m_PBRSkinnedVertSpv           = loadSpv("shaders/pbr_skinned.vert");
-        m_ShadowSkinnedVertSpv        = loadSpv("shaders/shadowDepth_skinned.vert");
-        m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
-        m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
-        m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
-        m_DepthPrepassVertSpv         = loadSpv("shaders/depthPrepass.vert");
-        m_DepthPrepassSkinnedVertSpv  = loadSpv("shaders/depthPrepass_skinned.vert");
-        m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.vert");
-        m_BloomExtractFragSpv         = loadSpv("shaders/bloomExtract.frag");
-        m_BloomBlurFragSpv            = loadSpv("shaders/bloomBlur.frag");
-        m_PostProcessFragSpv          = loadSpv("shaders/postprocess.frag");
-        m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
-        m_GridFragSpv                 = loadSpv("shaders/grid.frag");
-
-        if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() ||
-            m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() ||
-            m_PBRSkinnedVertSpv.empty() || m_ShadowSkinnedVertSpv.empty() ||
-            m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
-            m_SelectionMaskSkinnedVertSpv.empty() ||
-            m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty() ||
-            m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
-            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
-            m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
-        {
-            LH_CORE_ERROR("Engine shader SPIR-V empty after asset load!");
-            return;
-        }
+        m_Global.Init(*this);
 
         BoneMatrixBuffer::Init();
-        InitPostProcessResources();
-        // RenderingSystem ctor runs before any project is loaded; the engine ships no HDR.
-        // Pass an empty path so IBL::Precompute uses its silent dummy-cubemap fallback.
-        // Editor::OnProjectChanged re-runs ReloadSkybox once the project's asset paths are live.
-        InitIBLResources(FileSystem::HasProject()
+        m_EditorOverlays.Init(*this);
+        m_PostProcess.Init(*this);
+
+        // Lighting owns Set 3 + shadow map + IBL + skybox VB/SPVs. Engine ships no HDR;
+        // an empty path triggers IBL::Precompute's silent dummy-cubemap fallback —
+        // Editor::OnProjectChanged invokes ReloadSkybox once the project paths are live.
+        m_Lighting.Init(*this, FileSystem::HasProject()
             ? FileSystem::ResolveAsset("textures/environment.hdr")
             : fs::path{});
-        CreatePipelines();
-        InitGPUObjectBuffers();
-        InitCullPipeline();
-        InitAOResources();
+
+        // Geometry owns Set 5 + cull + PBR + DepthPrepass. Init creates layouts +
+        // descriptors + cull pipeline; pipelines that need geoLayouts build below.
+        m_Geometry.Init(*this);
+
+        // Shadow / skybox / PBR / DepthPrepass pipelines all need the shared 6-layout vector.
+        std::vector<VkDescriptorSetLayout> geoLayouts = {
+            m_Global.GetSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
+            MaterialSystem::GetDescriptorSetLayout(),
+            m_Lighting.GetSetLayout(),
+            BoneMatrixBuffer::GetDescriptorSetLayout(),
+            m_Geometry.GetSet5Layout()
+        };
+        m_Lighting.BuildPipelines(geoLayouts);
+        m_Geometry.BuildPipelines(geoLayouts);
+        m_EditorOverlays.BuildPipelines(geoLayouts);
+
+        m_GTAO.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -132,108 +104,36 @@ namespace Luth
             }
             const auto& spv = vk->GetSpirV();
 
-            // Defer-destroy helpers — release the unique_ptr and push a delete lambda
-            // to the per-frame deletion queue. std::function requires CopyConstructible
-            // captures, so we capture a raw pointer.
-            auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
-                if (auto* raw = p.release(); raw)
-                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            std::vector<VkDescriptorSetLayout> geoLayouts = {
+                m_Global.GetSetLayout(),
+                VulkanContext::Get().GetBindlessSet().GetLayout(),
+                MaterialSystem::GetDescriptorSetLayout(),
+                m_Lighting.GetSetLayout(),
+                BoneMatrixBuffer::GetDescriptorSetLayout(),
+                m_Geometry.GetSet5Layout()
             };
-            auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
-                if (auto* raw = p.release(); raw)
-                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
-            };
-
-            // Pull fresh SPIR-V into the cached blob used by pipeline builders.
-            if      (name == "pbr.vert")                   m_PBRVertSpv                  = spv;
-            else if (name == "pbr.frag")                   m_PBRFragSpv                  = spv;
-            else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv           = spv;
-            else if (name == "shadowDepth.vert")           m_ShadowVertSpv               = spv;
-            else if (name == "shadowDepth.frag")           m_ShadowFragSpv               = spv;
-            else if (name == "shadowDepth_skinned.vert")   m_ShadowSkinnedVertSpv        = spv;
-            else if (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
-            else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
-            else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
-            else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv         = spv;
-            else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv  = spv;
-            else if (name == "fullscreen.vert")            m_FullscreenVertSpv           = spv;
-            else if (name == "bloomExtract.frag")          m_BloomExtractFragSpv         = spv;
-            else if (name == "bloomBlur.frag")             m_BloomBlurFragSpv            = spv;
-            else if (name == "postprocess.frag")           m_PostProcessFragSpv          = spv;
-            else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
-            else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
-            else if (name == "skybox.vert")                m_SkyboxVertSpv               = spv;
-            else if (name == "skybox.frag")                m_SkyboxFragSpv               = spv;
-            else if (name == "gtao_depth_prefilter.comp")  m_GTAOPrefilterSpv            = spv;
-            else if (name == "gtao_main.comp")             m_GTAOMainSpv                 = spv;
-            else if (name == "gtao_denoise.comp")          m_GTAODenoiseSpv              = spv;
-            else if (name == "debugBlit.frag")             m_System.m_FrameDebugger.blitFragSpv  = spv;
-            else if (name == "debugDepth.frag")            m_System.m_FrameDebugger.depthFragSpv = spv;
-            // gpu_cull.comp: pipeline rebuilt below using `spv` directly
-            // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut):
-            // library entries refresh, but the precomputed results don't
-            // re-bake on edit — ReloadSkybox() must be invoked for that.
-
-            // Rebuild graphics pipelines (invalidate PBR cache by its canonical key).
-            const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
-            if (isPBR) {
-                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
-                m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
-                m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
-            } else {
-                m_GeoPipelineManager.DeferredClear();
-                m_GeoSkinnedPipelineManager.DeferredClear();
-            }
-            deferGfx(m_ShadowPipeline);
-            deferGfx(m_ShadowSkinnedPipeline);
-            deferGfx(m_DepthPrepassPipeline);
-            deferGfx(m_DepthPrepassSkinnedPipeline);
-            deferGfx(m_SkyboxPipeline);
-            deferGfx(m_BloomExtractPipeline);
-            deferGfx(m_BloomBlurPipeline);
-            deferGfx(m_PostProcessPipeline);
-            deferGfx(m_OutlinePipeline);
-            deferGfx(m_GridPipeline);
-            deferGfx(m_SelectionMaskPipeline);
-            deferGfx(m_SelectionMaskSkinnedPipeline);
-            CreatePipelines();
-
-            // Rebuild the matching compute pipeline (descriptor layouts untouched).
-            // Defer the old pipeline's destroy so any in-flight cmd buffer that bound
-            // it survives until AcquireImage drains the deletion queue.
-            if (name == "gpu_cull.comp" && m_CullDescLayout)
+            // Subsystems handle their own shaders + pipeline rebuilds. Order ensures fullscreen.vert
+            // reaches both PostProcess and EditorOverlays (PostProcess returns false for it; EditorOverlays
+            // returns true). Debug shaders + IBL precompute remain RP residual.
+            const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
+                              || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
+                              || m_GTAO.OnShaderReloaded(name, spv);
+            // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
+            // its outline/grid pipelines below.
+            const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
+            const bool overlaysHandled = m_EditorOverlays.OnShaderReloaded(name, spv, geoLayouts);
+            if (handled || ppHandled || overlaysHandled)
             {
-                deferComp(m_CullPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
-                m_CullPipeline = std::make_unique<VKComputePipeline>(spv,
-                    std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_depth_prefilter.comp" && m_GTAOPrefilterDescLayout)
-            {
-                deferComp(m_GTAOPrefilterPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
-                m_GTAOPrefilterPipeline = std::make_unique<VKComputePipeline>(m_GTAOPrefilterSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAOPrefilterDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_main.comp" && m_GTAOMainDescLayout)
-            {
-                deferComp(m_GTAOMainPipeline);
-                VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float) * 4 + sizeof(u32) * 4 };
-                m_GTAOMainPipeline = std::make_unique<VKComputePipeline>(m_GTAOMainSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAOMainDescLayout },
-                    std::vector<VkPushConstantRange>{ pc });
-            }
-            else if (name == "gtao_denoise.comp" && m_GTAODenoiseDescLayout)
-            {
-                deferComp(m_GTAODenoisePipeline);
-                m_GTAODenoisePipeline = std::make_unique<VKComputePipeline>(m_GTAODenoiseSpv,
-                    std::vector<VkDescriptorSetLayout>{ m_GTAODenoiseDescLayout },
-                    std::vector<VkPushConstantRange>{});
+                if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+                else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
+                LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
+                return;
             }
 
-            LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
+            // Debug-shader-only path (no pipeline rebuild on RP side; FrameDebuggerContext rebuilds lazily).
+            if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+            else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
+            // IBL precompute shaders refresh in the library; ReloadSkybox() must run to re-bake.
         });
 
         // Shader hot-reload watcher (engine-shaders dir; project dirs added via
@@ -266,39 +166,17 @@ namespace Luth
         m_ViewResources.clear();
 
         m_Debugger->Shutdown();
-        m_System.m_FrameDebugger.Shutdown(device);
+        m_System.GetFrameDebugger().Shutdown(device);
 
-        if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
-        if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
-        if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
-        if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
-        if (m_PPSampler)            vkDestroySampler(device, m_PPSampler, nullptr);
-        if (m_PPDescSetLayout)      vkDestroyDescriptorSetLayout(device, m_PPDescSetLayout, nullptr);
-        if (m_IBLSampler)           vkDestroySampler(device, m_IBLSampler, nullptr);
-        if (m_ShadowSampler)        vkDestroySampler(device, m_ShadowSampler, nullptr);
-        for (u32 i = 0; i < k_ShadowCascadeCount; ++i) {
-            if (m_ShadowLayerViews[i]) vkDestroyImageView(device, m_ShadowLayerViews[i], nullptr);
-        }
-        if (m_LightSetLayout)  vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr);
-        if (m_LightDescPool)   vkDestroyDescriptorPool(device, m_LightDescPool, nullptr);
-        if (m_GlobalSetLayout) vkDestroyDescriptorSetLayout(device, m_GlobalSetLayout, nullptr);
-
-        // Object + Indirect storage owned by GPUTaggedPageAllocator; freed by FreeTag(N-2)
-        // each frame and finally drained at GPU heap Shutdown.
-        if (m_ObjectSSBODescPool)   vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr);
-        if (m_ObjectSSBODescLayout) vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr);
-        if (m_CullDescPool)         vkDestroyDescriptorPool(device, m_CullDescPool, nullptr);
-        if (m_CullDescLayout)       vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr);
-        m_CullPipeline.reset();
+        // Subsystems own their layouts/pools/samplers/pipelines.
+        m_EditorOverlays.Shutdown();
+        m_PostProcess.Shutdown();
+        m_GTAO.Shutdown();
+        m_Geometry.Shutdown();
+        m_Lighting.Shutdown();
+        m_Global.Shutdown();
 
         // GTAO resources (epic #58) — shared.
-        m_GTAOPrefilterPipeline.reset();
-        m_GTAOMainPipeline.reset();
-        m_GTAODenoisePipeline.reset();
-        if (m_GTAOSampler)             vkDestroySampler(device, m_GTAOSampler, nullptr);
-        if (m_GTAOPrefilterDescLayout) vkDestroyDescriptorSetLayout(device, m_GTAOPrefilterDescLayout, nullptr);
-        if (m_GTAOMainDescLayout)      vkDestroyDescriptorSetLayout(device, m_GTAOMainDescLayout, nullptr);
-        if (m_GTAODenoiseDescLayout)   vkDestroyDescriptorSetLayout(device, m_GTAODenoiseDescLayout, nullptr);
     }
 
     void RenderPipeline::OnResize(u32 width, u32 height)
@@ -306,7 +184,7 @@ namespace Luth
         // Scene-panel resize. FrameTargets is already resized by
         // RenderingSystem::Resize; EnsureViewResources picks up the size
         // change and rebuilds textures + descriptors.
-        EnsureViewResources(m_System.m_SceneTargets);
+        EnsureViewResources(m_System.GetSceneTargets());
         RegisterNamedTextures();
     }
 
@@ -318,7 +196,7 @@ namespace Luth
     void RenderPipeline::ExecuteMinimal()
     {
         auto& s = m_System;
-        RG::RenderGraph rg(*m_System.m_FrameAllocator);
+        RG::RenderGraph rg(m_System.GetFrameAllocator());
         AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
         rg.Compile();
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
@@ -330,67 +208,64 @@ namespace Luth
         m_CurrentView          = &view;
         m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
 
-        RG::RenderGraph rg(*m_System.m_FrameAllocator);
+        RG::RenderGraph rg(m_System.GetFrameAllocator());
 
         // Import this frame's tagged-heap regions for RG barrier tracking. Buffers can
         // change identity each frame (heap allocator may reuse pages or grow backings).
-        RG::BufferDesc objDesc { "ObjectSSBO",     m_ObjectRegion.size,   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        RG::BufferDesc indDesc { "IndirectBuffer", m_IndirectRegion.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT };
-        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)m_ObjectRegion.buffer,   RG::ResourceState::Undefined);
-        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)m_IndirectRegion.buffer, RG::ResourceState::Undefined);
+        const auto& objectRegion   = m_Geometry.GetObjectRegion();
+        const auto& indirectRegion = m_Geometry.GetIndirectRegion();
+        RG::BufferDesc objDesc { "ObjectSSBO",     objectRegion.size,   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        RG::BufferDesc indDesc { "IndirectBuffer", indirectRegion.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT };
+        RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)objectRegion.buffer,   RG::ResourceState::Undefined);
+        RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)indirectRegion.buffer, RG::ResourceState::Undefined);
 
-        // Frustum cull — 5 dispatches per view (camera + 4 cascades).
-        // Each view owns a disjoint range within the indirect region; the cull shader
-        // now reads objects[idx] (0-based) since the descriptor binding starts at
-        // m_ObjectRegion's base.
+        // Frustum cull — 5 dispatches per view (camera + 4 cascades). Each view owns a
+        // disjoint range within the indirect region.
         {
             const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
-            Frustum camFrustum = CreateFrustumFromCamera(m_CachedViewProj);
-            AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                m_CullPipeline.get(), m_CullDescSet, camFrustum.planes, m_GPUObjectCount,
-                baseRegion * k_IndirectRegionStride,
-                "FrustumCull.Cam", &m_System.m_FrameDebugger);
+            Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
+            m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
+                camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(m_FrameCascades.lightSpaceMatrix[i]);
+                Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
                 const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
-                AddCullComputePass(rg, hObjectBuf, hIndirectBuf,
-                    m_CullPipeline.get(), m_CullDescSet, cascadeFrustum.planes, m_GPUObjectCount,
-                    destOffset, name.c_str(), &m_System.m_FrameDebugger);
+                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
+                    cascadeFrustum.planes, destOffset, name.c_str());
             }
         }
 
         RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            shadowHandles[i] = AddShadowPass(rg, hIndirectBuf, i);
+            shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
 
         // Z-prepass produces SceneDepth before forward shading. The render
         // graph can schedule it in parallel with the shadow cascades.
-        RG::ResourceHandle prepassDepth = AddDepthPrepass(rg, hIndirectBuf);
+        RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
         // on a mid-range GPU at 1080p; can be gated later if a cheaper
         // bypass path is worth the complexity.
-        RG::ResourceHandle gtaoLinearDepth = AddGTAODepthPrefilterPass(rg, prepassDepth);
-        RG::ResourceHandle gtaoRawAO       = AddGTAOMainPass(rg, gtaoLinearDepth);
-        RG::ResourceHandle gtaoFinalAO     = AddGTAODenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
+        RG::ResourceHandle gtaoLinearDepth = m_GTAO.AddPrefilterPass(rg, prepassDepth);
+        RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
+        RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
-                                         ? AddSelectionMaskPass(rg)
+                                         ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
-        RG::ResourceHandle skyboxColor = AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-        RG::ResourceHandle bloomResult = AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
+        RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? AddGridPass(rg, skyboxColor, geoOutput.depth)
+                                         ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
-        RG::ResourceHandle ldrOutput   = AddPostProcessPass(rg, gridColor, bloomResult);
+        RG::ResourceHandle ldrOutput   = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
-                                         ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
+                                         ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
         if (view.emitImGuiPass)
             AddImGuiPass(rg, finalOutput);
@@ -426,7 +301,7 @@ namespace Luth
         // captureRequested flag (set by the view's owner — RenderingSystem
         // for the scene view, GamePanel for the game view) so the chosen
         // capture source's RG installs the sink, not the editor's by default.
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
         {
             // Phase 14D — ensure the debug sampler exists for ImGui archive previews.
             // Idempotent: returns immediately once blitPipeline is set.
@@ -440,46 +315,46 @@ namespace Luth
             // cascade slice after recapture would hit stale cached previews.
             m_Debugger->ResetPreviewCacheKeys();
 
-            m_System.m_FrameDebugger.BeginCapture(VulkanContext::Get().GetDevice(),
+            m_System.GetFrameDebugger().BeginCapture(VulkanContext::Get().GetDevice(),
                                             VulkanContext::Get().GetAllocator());
-            m_System.m_FrameDebugger.RegisterTrackedRT("SceneColor");
-            m_System.m_FrameDebugger.RegisterTrackedRT("SceneDepth");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SceneColor");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SceneDepth");
             // Phase 13 ShadowPass imports per-cascade resources named
             // "ShadowMap.C<i>" (one per cascade, single-layer view onto
             // the shared 4-layer array). Track each variant so the sink
             // archives them — without this, cascade nodes have no
             // primary output and the panel shows "no output preview".
             for (u32 ci = 0; ci < k_ShadowCascadeCount; ++ci)
-                m_System.m_FrameDebugger.RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
-            m_System.m_FrameDebugger.RegisterTrackedRT("LDROutput");
-            m_System.m_FrameDebugger.RegisterTrackedRT("EntityID");
-            m_System.m_FrameDebugger.RegisterTrackedRT("BloomAFinal");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOLinearDepth");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAORawAO");
-            m_System.m_FrameDebugger.RegisterTrackedRT("GTAOFinal");
-            rg.SetArchiveSink(&m_System.m_FrameDebugger);
+                m_System.GetFrameDebugger().RegisterTrackedRT("ShadowMap.C" + std::to_string(ci));
+            m_System.GetFrameDebugger().RegisterTrackedRT("LDROutput");
+            m_System.GetFrameDebugger().RegisterTrackedRT("EntityID");
+            m_System.GetFrameDebugger().RegisterTrackedRT("BloomAFinal");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAOLinearDepth");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAORawAO");
+            m_System.GetFrameDebugger().RegisterTrackedRT("GTAOFinal");
+            rg.SetArchiveSink(&m_System.GetFrameDebugger());
         }
 
         // Only the capturing view needs serial Phase-1 dispatch — its
         // lambdas push into shared FrameDebugger metadata vectors. Non-
         // capturing views' pushes are suppressed below, so they record
         // in parallel exactly as in non-capture frames.
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
             rg.SetSerialize(true);
 
         // Mask state to Inactive around non-capturing views' RG execute so
         // their lambdas' BeginCapturePass / CaptureXX early-return — no
         // pushes, no race, no need for SetSerialize.
-        const DebuggerState savedDbgState = m_System.m_FrameDebugger.state;
+        const DebuggerState savedDbgState = m_System.GetFrameDebugger().state;
         const bool suppressDebuggerMetadata = !view.captureRequested
                                               && savedDbgState == DebuggerState::CaptureRequested;
         if (suppressDebuggerMetadata)
-            m_System.m_FrameDebugger.state = DebuggerState::Inactive;
+            m_System.GetFrameDebugger().state = DebuggerState::Inactive;
 
         Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
 
         if (suppressDebuggerMetadata)
-            m_System.m_FrameDebugger.state = savedDbgState;
+            m_System.GetFrameDebugger().state = savedDbgState;
 
         // Non-primary views: transition LDR → SHADER_READ so the scene
         // view's ImGui pass can sample it. (The scene view's RG already
@@ -504,15 +379,15 @@ namespace Luth
         }
 
         // Finalize capture (only the source view — matches the sink gate above).
-        if (view.captureRequested && m_System.m_FrameDebugger.state == DebuggerState::CaptureRequested)
+        if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
         {
             // Phase 14C — captured*Draws / drawLimit removed.
             // Per-draw replay (Phase 14E) re-derives draw inputs from the
             // CapturedDrawCall records + frozen indirect/object SSBOs.
 
             // Copy resource and timing info from the graph snapshot
-            m_System.m_FrameDebugger.capturedFrame.resources      = m_GraphSnapshot.resources;
-            m_System.m_FrameDebugger.capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
+            m_System.GetFrameDebugger().capturedFrame.resources      = m_GraphSnapshot.resources;
+            m_System.GetFrameDebugger().capturedFrame.totalGpuTimeMs = m_GraphSnapshot.totalGpuTimeMs;
 
             // Copy per-pass GPU times into captured passes
             {
@@ -520,31 +395,31 @@ namespace Luth
                 for (auto& ps : m_GraphSnapshot.passes)
                 {
                     if (ps.culled) continue;
-                    if (capturedIdx < m_System.m_FrameDebugger.capturedFrame.passes.size())
-                        m_System.m_FrameDebugger.capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
+                    if (capturedIdx < m_System.GetFrameDebugger().capturedFrame.passes.size())
+                        m_System.GetFrameDebugger().capturedFrame.passes[capturedIdx].gpuTimeMs = ps.gpuTimeMs;
                     capturedIdx++;
                 }
             }
 
             // Snapshot capture-time camera viewProj for the Frozen-state
             // auto-recapture comparison (see top of Update).
-            m_System.m_FrameDebugger.FinalizeCapture(m_CachedViewProj);
+            m_System.GetFrameDebugger().FinalizeCapture(m_Global.GetCachedViewProj());
 
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            m_System.m_FrameDebugger.capturedFrame.cascadeSplitsViewZ = m_FrameCascades.splitsViewZ;
-            m_System.m_FrameDebugger.capturedFrame.shadowBias         = m_FrameShadowParams.shadowBias;
-            m_System.m_FrameDebugger.capturedFrame.shadowNormalBias   = m_FrameShadowParams.shadowNormalBias;
-            m_System.m_FrameDebugger.capturedFrame.cascadeTexelSize   = m_FrameCascades.texelSize;
+            m_System.GetFrameDebugger().capturedFrame.cascadeSplitsViewZ = m_Global.GetCascades().splitsViewZ;
+            m_System.GetFrameDebugger().capturedFrame.shadowBias         = m_Global.GetShadowParams().shadowBias;
+            m_System.GetFrameDebugger().capturedFrame.shadowNormalBias   = m_Global.GetShadowParams().shadowNormalBias;
+            m_System.GetFrameDebugger().capturedFrame.cascadeTexelSize   = m_Global.GetCascades().texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                m_System.m_FrameDebugger.capturedFrame.lightSpaceMatrix[i] = m_FrameCascades.lightSpaceMatrix[i];
+                m_System.GetFrameDebugger().capturedFrame.lightSpaceMatrix[i] = m_Global.GetCascades().lightSpaceMatrix[i];
 
-            m_System.m_FrameDebugger.capturedFrame.valid = true;
+            m_System.GetFrameDebugger().capturedFrame.valid = true;
             // Snapshot which source produced this capture so viewport overlays
             // survive the user toggling requestedSource between captures.
-            m_System.m_FrameDebugger.capturedSource = m_System.m_FrameDebugger.requestedSource;
-            m_System.m_FrameDebugger.state          = DebuggerState::Frozen;
+            m_System.GetFrameDebugger().capturedSource = m_System.GetFrameDebugger().requestedSource;
+            m_System.GetFrameDebugger().state          = DebuggerState::Frozen;
         }
     }
 
@@ -614,7 +489,7 @@ namespace Luth
         }
 
         // Compute geometry stats from the current DrawList (built before pass dispatch)
-        u32 totalDraws = (u32)(m_System.m_DrawList.opaque.size() + m_System.m_DrawList.cutout.size() + m_System.m_DrawList.transparent.size());
+        u32 totalDraws = (u32)(m_System.GetDrawList().opaque.size() + m_System.GetDrawList().cutout.size() + m_System.GetDrawList().transparent.size());
         u32 totalIndices = 0;
         auto sumIndices = [&](const std::vector<DrawCommand>& draws) {
             for (auto& dc : draws)
@@ -625,9 +500,9 @@ namespace Luth
                     totalIndices += mesh->GetIndexBuffer()->GetCount();
             }
         };
-        sumIndices(m_System.m_DrawList.opaque);
-        sumIndices(m_System.m_DrawList.cutout);
-        sumIndices(m_System.m_DrawList.transparent);
+        sumIndices(m_System.GetDrawList().opaque);
+        sumIndices(m_System.GetDrawList().cutout);
+        sumIndices(m_System.GetDrawList().transparent);
 
         // Enrich per-pass pipeline state (known at RenderingSystem level, not RenderGraph)
         for (auto& ps : snapshot.passes)
@@ -699,19 +574,19 @@ namespace Luth
     void RenderPipeline::RegisterNamedTextures()
     {
         m_NamedTextures.clear();
-        if (m_ShadowMap)      m_NamedTextures["ShadowMap"]      = m_ShadowMap;
-        if (m_System.m_SceneTargets.GetSceneColor())    m_NamedTextures["SceneColor"]    = m_System.m_SceneTargets.GetSceneColor();
-        if (m_System.m_SceneTargets.GetSceneDepth())    m_NamedTextures["SceneDepth"]    = m_System.m_SceneTargets.GetSceneDepth();
-        if (m_System.m_SceneTargets.GetLDROutput())     m_NamedTextures["LDROutput"]     = m_System.m_SceneTargets.GetLDROutput();
-        if (m_System.m_SceneTargets.GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.m_SceneTargets.GetEntityIDBuffer();
+        if (m_Lighting.GetShadowMap())                     m_NamedTextures["ShadowMap"]    = m_Lighting.GetShadowMap();
+        if (m_System.GetSceneTargets().GetSceneColor())    m_NamedTextures["SceneColor"]   = m_System.GetSceneTargets().GetSceneColor();
+        if (m_System.GetSceneTargets().GetSceneDepth())    m_NamedTextures["SceneDepth"]   = m_System.GetSceneTargets().GetSceneDepth();
+        if (m_System.GetSceneTargets().GetLDROutput())     m_NamedTextures["LDROutput"]    = m_System.GetSceneTargets().GetLDROutput();
+        if (m_System.GetSceneTargets().GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.GetSceneTargets().GetEntityIDBuffer();
         // Scene-view bloom textures — Frame Debugger is scene-view-only.
-        if (auto it = m_ViewResources.find(&m_System.m_SceneTargets); it != m_ViewResources.end()) {
+        if (auto it = m_ViewResources.find(&m_System.GetSceneTargets()); it != m_ViewResources.end()) {
             if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
             if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
         }
-        if (m_IrradianceMap) m_NamedTextures["IrradianceMap"] = m_IrradianceMap;
-        if (m_PrefilteredMap)m_NamedTextures["PrefilteredMap"]= m_PrefilteredMap;
-        if (m_BRDFLut)       m_NamedTextures["BRDF_LUT"]     = m_BRDFLut;
+        if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
+        if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();
+        if (m_Lighting.GetBRDFLut())        m_NamedTextures["BRDF_LUT"]       = m_Lighting.GetBRDFLut();
     }
 
     // =========================================================================
@@ -745,5 +620,66 @@ namespace Luth
     void RenderPipeline::BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ)
     {
         m_Debugger->BlitArchivedDepthToPreview(archiveIdx, layer, nearZ, farZ);
+    }
+
+    // =========================================================================
+    //  Public-API forwarders into subsystems (preserve caller compat)
+    // =========================================================================
+
+    void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera,
+                                              const CascadeData& cascades,
+                                              const DirectionalLightShadowParams& shadowParams)
+    {
+        m_Global.UpdateUBO(camera, cascades, shadowParams);
+    }
+
+    void RenderPipeline::UploadLightUBO(const LightUniforms& lights)
+    {
+        m_Lighting.UploadLightUBO(lights);
+    }
+
+    void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
+    {
+        m_Geometry.BuildGPUObjectBuffer(snapshot);
+    }
+
+    u32 RenderPipeline::EnsureMaterialRegistered(std::shared_ptr<Material> material)
+    {
+        return m_Geometry.EnsureMaterialRegistered(material);
+    }
+
+    void RenderPipeline::UpdatePostProcessUBO() { m_PostProcess.UpdateUBO(); }
+    void RenderPipeline::UpdateGTAOUBO()        { m_GTAO.UpdateUBO(); }
+
+    void RenderPipeline::ReloadSkybox(const fs::path& hdrPath)
+    {
+        std::vector<VkDescriptorSetLayout> geoLayouts = {
+            m_Global.GetSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
+            MaterialSystem::GetDescriptorSetLayout(),
+            m_Lighting.GetSetLayout(),
+            BoneMatrixBuffer::GetDescriptorSetLayout(),
+            m_Geometry.GetSet5Layout()
+        };
+        m_Lighting.ReloadSkybox(hdrPath, geoLayouts);
+
+        // Rewrite Set 0 IBL bindings on every cached view (new textures behind the old views).
+        GlobalViewWriteContext ctx{};
+        ctx.haveIBL          = m_Lighting.IsIBLReady();
+        ctx.iblSampler       = m_Lighting.GetIBLSampler();
+        ctx.gtaoSampler      = m_GTAO.GetSampler();
+        if (ctx.haveIBL)
+        {
+            ctx.irradianceView  = std::static_pointer_cast<VKTexture>(m_Lighting.GetIrradianceMap())->GetImageView();
+            ctx.prefilteredView = std::static_pointer_cast<VKTexture>(m_Lighting.GetPrefilteredMap())->GetImageView();
+            ctx.brdfView        = std::static_pointer_cast<VKTexture>(m_Lighting.GetBRDFLut())->GetImageView();
+        }
+        for (auto& [targets, vr] : m_ViewResources)
+        {
+            ctx.gtaoFinalView = vr.gtaoFinal
+                ? std::static_pointer_cast<VKTexture>(vr.gtaoFinal)->GetImageView()
+                : VK_NULL_HANDLE;
+            m_Global.WriteView(vr, ctx);
+        }
     }
 }

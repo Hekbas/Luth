@@ -1,22 +1,55 @@
 #include "lepch.h"
 #include "luthien/inspectors/ModelViewer.h"
+#include "luthien/Editor.h"
+#include "luthien/EditorSettings.h"
 #include "luthien/widgets/Widgets.h"
+#include "luthien/widgets/ThumbnailCache.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/MetaFile.h"
 
+#include <algorithm>
+
 namespace Luth
 {
     void ModelViewer::Draw(Model& model)
     {
-        // Model header with name and type
-        if (ImGui::BeginChild("##Header", { 0, 30 })) {
-			ImGui::Dummy({ 0, 4 }); ImGui::Dummy({ 4, 0 }); ImGui::SameLine();
-            ImGui::TextColored({ 0.4f, 0.8f, 1.0f, 1.0f }, "%s (Model)", model.GetName().c_str());
-        }
-        ImGui::EndChild();
-        ImGui::Dummy({ 0, 8 });
+        // Header: thumbnail-on-left, name + summary on right.
+        // Interactive 3D preview pinned in the footer (sub-task O).
+        ImTextureID headerThumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
+        const auto& headerInfo = model.GetCachedModelInfo();
+        UI::InspectorHeader(headerThumb, ICON_FA_CUBE, 48.0f, [&]() {
+            const ImVec4 nameCol = { 0.4f, 0.8f, 1.0f, 1.0f };
+            ImGui::TextColored(nameCol, "%s (Model)", model.GetName().c_str());
+            ImGui::TextDisabled("%d meshes  ·  %d verts  ·  %s",
+                headerInfo.TotalMeshCount,
+                headerInfo.TotalVertexCount,
+                headerInfo.IsSkinned ? "skinned" : "static");
+        });
+
+        ImGui::Dummy({ 0, 4 });
+
+        // Pinned-footer layout: snapshot pattern — Settings + Preview size with
+        // the same frame-start value; Splitter mutates the persisted height so
+        // the change takes effect next frame (no one-frame overshoot).
+        const float kSplitterH    = 4.0f;
+        const float kMinSettingsH = 80.0f;
+        const float kMinFooterH   = 80.0f;
+        const float kMaxFooterAbs = 400.0f;
+        const float spacingY      = ImGui::GetStyle().ItemSpacing.y;
+        const float availH        = ImGui::GetContentRegionAvail().y;
+        float& footerH = Editor::GetSettings().texturePreviewFooterHeight;
+        const float kMaxFooterH = std::max(kMinFooterH,
+            std::min(kMaxFooterAbs, availH - kMinSettingsH - kSplitterH - 2.0f * spacingY));
+        footerH = std::clamp(footerH, kMinFooterH, kMaxFooterH);
+        const float footerH_snap = footerH;
+        const float topH = availH - footerH_snap - kSplitterH - 2.0f * spacingY;
+
+        if (ImGui::BeginChild("##Settings", { -1, topH }, false))
+        {
 
         // Per-model state: reset when selected model changes
         if (model.Handle != m_LastModelUUID)
@@ -223,5 +256,46 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
         }
+
+        }
+        ImGui::EndChild();
+
+        if (UI::Splitter("##ModelSplitter", &footerH, kMinFooterH, kMaxFooterH, kSplitterH))
+            Editor::SaveSettings();
+
+        // Pinned 3D preview footer with orbit drag input. Snapshot-sized.
+        if (ImGui::BeginChild("##Preview", { -1, footerH_snap }, false))
+        {
+            const float pAvailW = ImGui::GetContentRegionAvail().x;
+            const float pAvailY = ImGui::GetContentRegionAvail().y;
+            const float pSz = std::min(pAvailW, pAvailY);
+            if (pSz >= 32.0f) {
+                const float xOff = (pAvailW - pSz) * 0.5f;
+                const float yOff = (pAvailY - pSz) * 0.5f;
+                if (xOff > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOff);
+                if (yOff > 0) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + yOff);
+
+                ImGui::InvisibleButton("##OrbitInput", { pSz, pSz });
+                if (ImGui::IsItemActive()) {
+                    const ImVec2 d = ImGui::GetIO().MouseDelta;
+                    const float sens = 0.01f;
+                    m_OrbitCam.azimuth   -= d.x * sens;
+                    m_OrbitCam.elevation += d.y * sens;
+                    const float maxElev = Math::Radians(85.0f);
+                    m_OrbitCam.elevation = std::clamp(m_OrbitCam.elevation, -maxElev, maxElev);
+                }
+                if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+
+                auto modelPtr = AssetManager::GetAsset<Model>(model.Handle);
+                ImTextureID tex = modelPtr
+                    ? UI::ThumbnailPreviewScene::RenderMeshInspector(modelPtr, m_OrbitCam)
+                    : (ImTextureID)0;
+                if (tex)
+                    ImGui::GetWindowDrawList()->AddImage(tex,
+                        ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+            }
+        }
+        ImGui::EndChild();
     }
 }

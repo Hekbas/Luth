@@ -94,6 +94,7 @@ namespace Luth
 
     HistoryPanel::HistoryPanel()
     {
+        m_WindowID = "History";
         LH_CORE_INFO("Created History panel");
     }
 

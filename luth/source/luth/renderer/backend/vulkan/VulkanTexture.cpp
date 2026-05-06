@@ -5,7 +5,6 @@
 #include "UploadContext.h"
 #include "luth/core/diagnostics/Log.h"
 
-#include <stb/stb_image.h>
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth
@@ -66,33 +65,6 @@ namespace Luth
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
-
-    VKTexture::VKTexture(const fs::path& path)
-        : m_Path(path)
-    {
-        int width, height, channels;
-        stbi_set_flip_vertically_on_load(1);
-        stbi_uc* data = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
-
-        if (data)
-        {
-            m_Width = width;
-            m_Height = height;
-            m_Format = TextureFormat::RGBA8;
-
-            // Default: generate mipmaps for textures loaded from file
-            m_MipLevels = static_cast<u32>(std::floor(std::log2(std::max(m_Width, m_Height)))) + 1;
-
-            CreateImage(data);
-            CreateViewAndSampler();
-
-            stbi_image_free(data);
-        }
-        else
-        {
-            LH_CORE_ERROR("Failed to load texture: {0}", path.string());
-        }
-    }
 
     VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, const void* data)
         : m_Width(width), m_Height(height), m_Format(format)

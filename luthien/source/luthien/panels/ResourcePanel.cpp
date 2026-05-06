@@ -11,10 +11,16 @@ namespace Luth
 {
     ResourcePanel::ResourcePanel()
     {
+        m_WindowID = "Resources";
         LH_CORE_INFO("Created Resource panel");
     }
 
-    void ResourcePanel::OnInit() {}
+    void ResourcePanel::OnInit()
+    {
+        // Bump dirty flag whenever the asset registry changes; main-thread fan-out
+        // happens via the same AssetDatabase callback ProjectPanel uses.
+        AssetDatabase::AddChangeCallback([this]() { m_NeedsRebuild = true; });
+    }
 
     void ResourcePanel::OnGather(EditorSnapshotBuilder& builder)
     {
@@ -55,18 +61,21 @@ namespace Luth
     void ResourcePanel::DrawFilterControls()
     {
         ImGui::SetNextItemWidth(200);
-        ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer));
+        if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer)))
+            m_NeedsRebuild = true;
 
         ImGui::SameLine();
 
         ButtonDropdown(ICON_FA_FILTER, "type_filter", [this]() {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
-            ImGui::Checkbox("Models",    &m_ShowModels);
-            ImGui::Checkbox("Textures",  &m_ShowTextures);
-            ImGui::Checkbox("Materials", &m_ShowMaterials);
-            ImGui::Checkbox("Shaders",   &m_ShowShaders);
-            ImGui::Checkbox("Fonts",     &m_ShowFonts);
-            ImGui::Checkbox("Scenes",    &m_ShowScenes);
+            bool changed = false;
+            changed |= ImGui::Checkbox("Models",    &m_ShowModels);
+            changed |= ImGui::Checkbox("Textures",  &m_ShowTextures);
+            changed |= ImGui::Checkbox("Materials", &m_ShowMaterials);
+            changed |= ImGui::Checkbox("Shaders",   &m_ShowShaders);
+            changed |= ImGui::Checkbox("Fonts",     &m_ShowFonts);
+            changed |= ImGui::Checkbox("Scenes",    &m_ShowScenes);
+            if (changed) m_NeedsRebuild = true;
             ImGui::PopStyleVar();
         });
     }
@@ -81,12 +90,17 @@ namespace Luth
         ImGui::TableHeadersRow();
     }
 
-    void ResourcePanel::PopulateData()
+    void ResourcePanel::RebuildIfDirty()
     {
+        if (!m_NeedsRebuild) return;
+        m_NeedsRebuild = false;
+
         m_FilteredResources.clear();
 
         const auto& registry = AssetDatabase::GetRegistry();
         if (registry.empty()) return;
+
+        m_FilteredResources.reserve(registry.size());
 
         for (const auto& [uuid, metadata] : registry)
         {
@@ -98,7 +112,6 @@ namespace Luth
             if (metadata.Type == AssetType::Font     && !m_ShowFonts)     continue;
             if (metadata.Type == AssetType::Scene    && !m_ShowScenes)    continue;
 
-            // Create entry
             ResourceEntry entry;
             entry.Name = metadata.Path.filename().string();
             entry.Uuid = uuid;
@@ -114,24 +127,16 @@ namespace Luth
             default:                  entry.Type = "Unknown";  break;
             }
 
-            // Check if loaded in AssetManager
             if (auto asset = AssetManager::GetAsset<Asset>(uuid))
-            {
-                // -1 because AssetManager holds one reference
-                entry.RefCount = asset.use_count() - 1;
-            }
+                entry.RefCount = asset.use_count() - 1;  // AssetManager holds one ref
             else
-            {
                 entry.RefCount = 0;
-            }
 
             if (ResourceMatchesSearch(entry))
-            {
-                m_FilteredResources.push_back(entry);
-            }
+                m_FilteredResources.push_back(std::move(entry));
         }
 
-        // Sorting
+        // Sort using current TableSortSpecs (caller is inside BeginTable scope).
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
         {
             if (specs->SpecsCount > 0)
@@ -160,49 +165,103 @@ namespace Luth
                     break;
                 }
             }
-            specs->SpecsDirty = false;
+        }
+    }
+
+    void ResourcePanel::RefreshDynamicData()
+    {
+        // RefCount drifts as AssetManager hands out / drops shared_ptrs without
+        // bumping the registry callback. Re-read it cheaply each frame; only
+        // re-sort when the user is sorting by that column AND a value moved.
+        bool refsChanged = false;
+        for (auto& entry : m_FilteredResources)
+        {
+            int newRef = 0;
+            if (auto asset = AssetManager::GetAsset<Asset>(entry.Uuid))
+                newRef = asset.use_count() - 1;
+            if (entry.RefCount != newRef) {
+                entry.RefCount = newRef;
+                refsChanged = true;
+            }
         }
 
-        // Display entries
-        for (const auto& entry : m_FilteredResources) {
-            ImGui::TableNextRow();
+        if (!refsChanged) return;
 
-            // Type column (also handle the span-all row selectable here)
-            ImGui::TableSetColumnIndex(0);
-            bool selected = (m_SelectedUUID == entry.Uuid);
-            std::string selectableId = "##sel_" + entry.Uuid.ToString();
-            
-            if (ImGui::Selectable(selectableId.c_str(), selected,
-                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap,
-                ImVec2(0, 0)))
+        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+        {
+            if (specs->SpecsCount > 0 && specs->Specs[0].ColumnIndex == 2)
             {
-                m_SelectedUUID = entry.Uuid;
-                EditorSelection::SelectResource(entry.Uuid);
+                bool asc = (specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending);
+                std::sort(m_FilteredResources.begin(), m_FilteredResources.end(),
+                    [asc](const ResourceEntry& a, const ResourceEntry& b) {
+                        return asc ? a.RefCount < b.RefCount : a.RefCount > b.RefCount;
+                    });
             }
-            ImGui::SameLine();
-            ImGui::TextColored(GetTypeColor(entry.Type), "%s", GetTypeIcon(entry.Type));
+        }
+    }
 
-            // Name column
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%s", entry.Name.c_str());
-            if (ImGui::IsItemHovered() && entry.Name.size() > 24)
+    void ResourcePanel::PopulateData()
+    {
+        // Sort-spec edits ride the same dirty path. SpecsDirty is consumed here
+        // so the rebuild runs exactly once after the user clicks a header.
+        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+        {
+            if (specs->SpecsDirty) {
+                m_NeedsRebuild = true;
+                specs->SpecsDirty = false;
+            }
+        }
+
+        RebuildIfDirty();
+        RefreshDynamicData();
+
+        // Display entries — clipped so off-screen rows skip the per-row work.
+        ImGuiListClipper clipper;
+        clipper.Begin((int)m_FilteredResources.size(), ImGui::GetTextLineHeightWithSpacing());
+        while (clipper.Step())
+        {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
             {
-                ImGui::BeginTooltip();
+                const auto& entry = m_FilteredResources[row];
+                ImGui::TableNextRow();
+
+                // Type column (also handle the span-all row selectable here)
+                ImGui::TableSetColumnIndex(0);
+                bool selected = (m_SelectedUUID == entry.Uuid);
+                std::string selectableId = "##sel_" + entry.Uuid.ToString();
+
+                if (ImGui::Selectable(selectableId.c_str(), selected,
+                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap,
+                    ImVec2(0, 0)))
+                {
+                    m_SelectedUUID = entry.Uuid;
+                    EditorSelection::SelectResource(entry.Uuid);
+                }
+                ImGui::SameLine();
+                ImGui::TextColored(GetTypeColor(entry.Type), "%s", GetTypeIcon(entry.Type));
+
+                // Name column
+                ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%s", entry.Name.c_str());
-                ImGui::EndTooltip();
-            }
+                if (ImGui::IsItemHovered() && entry.Name.size() > 24)
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%s", entry.Name.c_str());
+                    ImGui::EndTooltip();
+                }
 
-            // Refs column
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%d", entry.RefCount);
+                // Refs column
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%d", entry.RefCount);
 
-            // UUID column
-            ImGui::TableSetColumnIndex(3);
-            ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                ImGui::Text("UUID: %s", entry.Uuid.ToString().c_str());
-                ImGui::EndTooltip();
+                // UUID column
+                ImGui::TableSetColumnIndex(3);
+                ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("UUID: %s", entry.Uuid.ToString().c_str());
+                    ImGui::EndTooltip();
+                }
             }
         }
     }

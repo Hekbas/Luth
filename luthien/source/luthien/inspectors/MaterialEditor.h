@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/UUID.h"
+#include "luthien/widgets/ThumbnailPreviewScene.h"
 
 #include <nlohmann/json.hpp>
 
@@ -23,6 +24,9 @@ namespace Luth
         // Captured when editing begins so undo can restore the full pre-edit state.
         nlohmann::json m_UndoSnapshot;
         bool m_HasUndoSnapshot = false;
+
+        // Per-MaterialEditor orbit state for the pinned-footer 3D preview.
+        UI::ThumbnailPreviewScene::OrbitCamera m_OrbitCam;
 
         static constexpr float kAutoSaveDelay = 0.5f; // seconds idle before autosave fires
     };

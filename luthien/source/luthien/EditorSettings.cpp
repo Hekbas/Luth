@@ -53,13 +53,16 @@ namespace Luth
             settings.cameraPanSpeed      = j.value("cameraPanSpeed", settings.cameraPanSpeed);
             settings.cameraZoomSpeed     = j.value("cameraZoomSpeed", settings.cameraZoomSpeed);
             settings.cameraShiftMult     = j.value("cameraShiftMult", settings.cameraShiftMult);
-            settings.thumbnailSize       = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.thumbnailSize              = j.value("thumbnailSize", settings.thumbnailSize);
+            settings.texturePreviewFooterHeight = j.value("texturePreviewFooterHeight", settings.texturePreviewFooterHeight);
             settings.showControlsOverlay = j.value("showControlsOverlay", settings.showControlsOverlay);
             settings.showBoneDebug       = j.value("showBoneDebug", settings.showBoneDebug);
             settings.showLightGizmos     = j.value("showLightGizmos", settings.showLightGizmos);
             settings.showCameraGizmos    = j.value("showCameraGizmos", settings.showCameraGizmos);
             settings.showAABBGizmos      = j.value("showAABBGizmos", settings.showAABBGizmos);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
+            settings.showTriIndicatorOverlay = j.value("showTriIndicatorOverlay", settings.showTriIndicatorOverlay);
+            settings.lastDebugMode       = (u8)j.value("lastDebugMode", (int)settings.lastDebugMode);
 
             LoadVec4(j, "outlineColor", settings.outlineColor);
             settings.outlineWidth         = j.value("outlineWidth", settings.outlineWidth);
@@ -79,7 +82,17 @@ namespace Luth
             settings.autoSaveIntervalSec = j.value("autoSaveIntervalSec", settings.autoSaveIntervalSec);
             settings.autoSaveKeepN       = j.value("autoSaveKeepN", settings.autoSaveKeepN);
 
+            settings.thumbnailsEnabled       = j.value("thumbnailsEnabled", settings.thumbnailsEnabled);
+            settings.thumbnailMaxDiskEntries = j.value("thumbnailMaxDiskEntries", settings.thumbnailMaxDiskEntries);
+
             settings.lastSceneUUID   = j.value("lastSceneUUID", settings.lastSceneUUID);
+
+            if (j.contains("panel_open") && j["panel_open"].is_object())
+            {
+                for (auto it = j["panel_open"].begin(); it != j["panel_open"].end(); ++it)
+                    if (it.value().is_boolean())
+                        settings.panelOpen[it.key()] = it.value().get<bool>();
+            }
 
             LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
         }
@@ -110,13 +123,16 @@ namespace Luth
             j["cameraPanSpeed"]      = settings.cameraPanSpeed;
             j["cameraZoomSpeed"]     = settings.cameraZoomSpeed;
             j["cameraShiftMult"]     = settings.cameraShiftMult;
-            j["thumbnailSize"]       = settings.thumbnailSize;
+            j["thumbnailSize"]              = settings.thumbnailSize;
+            j["texturePreviewFooterHeight"] = settings.texturePreviewFooterHeight;
             j["showControlsOverlay"] = settings.showControlsOverlay;
             j["showBoneDebug"]       = settings.showBoneDebug;
             j["showLightGizmos"]     = settings.showLightGizmos;
             j["showCameraGizmos"]    = settings.showCameraGizmos;
             j["showAABBGizmos"]      = settings.showAABBGizmos;
             j["showGrid"]            = settings.showGrid;
+            j["showTriIndicatorOverlay"] = settings.showTriIndicatorOverlay;
+            j["lastDebugMode"]       = (int)settings.lastDebugMode;
 
             j["outlineColor"]         = ToJson(settings.outlineColor);
             j["outlineWidth"]         = settings.outlineWidth;
@@ -136,7 +152,15 @@ namespace Luth
             j["autoSaveIntervalSec"] = settings.autoSaveIntervalSec;
             j["autoSaveKeepN"]       = settings.autoSaveKeepN;
 
+            j["thumbnailsEnabled"]       = settings.thumbnailsEnabled;
+            j["thumbnailMaxDiskEntries"] = settings.thumbnailMaxDiskEntries;
+
             j["lastSceneUUID"]   = settings.lastSceneUUID;
+
+            json po = json::object();
+            for (const auto& [name, open] : settings.panelOpen)
+                po[name] = open;
+            j["panel_open"] = po;
 
             std::ofstream file(path);
             file << j.dump(4);

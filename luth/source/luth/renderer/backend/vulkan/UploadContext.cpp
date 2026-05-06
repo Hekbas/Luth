@@ -103,85 +103,64 @@ namespace Luth
 
     u64 UploadContext::AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset)
     {
-        // Simple Ring Buffer Logic
-        // Head moves forward. Tail follows as fences complete.
-        
-        // Align head
+        LH_CORE_ASSERT(size <= STAGING_SIZE, "AllocateStaging: size exceeds ring capacity");
+
         u64 alignedHead = (m_StagingHead + (alignment - 1)) & ~(alignment - 1);
-        
-        // Check wrap around
+
+        // invariant: after wrap, the ring is in "wrapped" state for *this* call —
+        // tail is downstream of head, must not be crossed. Re-deriving from
+        // alignedHead < m_StagingTail post-tail-update misclassifies the case
+        // where the oldest in-flight block sits at offset 0.
+        bool wrapped = false;
         if (alignedHead + size > STAGING_SIZE)
         {
             alignedHead = 0;
             m_StagingHead = 0;
+            wrapped = true;
         }
 
-        // Check overlap with Tail
         u64 completedValue = m_UploadTimeline.GetValue();
-        
-        // Remove completed blocks from tracking
-        while (!m_InFlightBlocks.empty())
-        {
-            if (m_InFlightBlocks.front().fenceValue <= completedValue)
-            {
-                m_InFlightBlocks.erase(m_InFlightBlocks.begin());
-            }
-            else
-            {
-                break;
-            }
-        }
-        
-        // Update Tail
-        if (!m_InFlightBlocks.empty())
-        {
-            m_StagingTail = m_InFlightBlocks.front().offset;
-        }
+        while (!m_InFlightBlocks.empty() && m_InFlightBlocks.front().fenceValue <= completedValue)
+            m_InFlightBlocks.erase(m_InFlightBlocks.begin());
 
-        // Check space
+        if (!m_InFlightBlocks.empty())
+            m_StagingTail = m_InFlightBlocks.front().offset;
+
         bool hasSpace = false;
         if (m_InFlightBlocks.empty())
         {
             hasSpace = true;
         }
+        else if (alignedHead == m_StagingTail)
+        {
+            // ring full: head landed exactly on the oldest in-flight block's start
+            // (happens when a wrap-allocation ended at the tail block's offset).
+            hasSpace = false;
+        }
+        else if (wrapped || alignedHead < m_StagingTail)
+        {
+            // wrapped: free region is [alignedHead, m_StagingTail)
+            hasSpace = (alignedHead + size <= m_StagingTail);
+        }
         else
         {
-            if (alignedHead >= m_StagingTail)
-            {
-                // [ ... Tail ... Head ... ]
-                // If Head >= Tail (not wrapped), we check Head + Size <= Size (already done) AND we don't care about Tail unless we wrap.
-                hasSpace = true; 
-            }
-            else
-            {
-                // [ ... Head ... Tail ... ]
-                // Wrapped. Must not cross Tail.
-                if (alignedHead + size <= m_StagingTail)
-                {
-                    hasSpace = true;
-                }
-            }
+            // head past tail; wrap check above already verified alignedHead+size <= STAGING_SIZE
+            hasSpace = true;
         }
 
         if (!hasSpace)
         {
-            // Buffer full! Wait for the oldest block to finish.
-            if (!m_InFlightBlocks.empty())
-            {
-                m_UploadTimeline.Wait(m_InFlightBlocks.front().fenceValue);
-                // Recurse to update tail and retry
-                return AllocateStaging(size, alignment, outMappedPtr, outBuffer, outOffset);
-            }
+            LH_CORE_ASSERT(!m_InFlightBlocks.empty(), "AllocateStaging: out of space with no in-flight work");
+            m_UploadTimeline.Wait(m_InFlightBlocks.front().fenceValue);
+            return AllocateStaging(size, alignment, outMappedPtr, outBuffer, outOffset);
         }
 
-        // Allocation successful
         *outMappedPtr = (u8*)m_StagingMapped + alignedHead;
         outBuffer = m_StagingBuffer;
         outOffset = alignedHead;
-        
         m_StagingHead = alignedHead + size;
-        
-        return m_CurrentValue + 1; // The fence value this upload will use
+
+        return m_CurrentValue + 1;
     }
 
     u64 UploadContext::UploadBuffer(const void* data, u64 size, VkBuffer dstBuffer, u64 dstOffset)

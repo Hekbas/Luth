@@ -62,18 +62,12 @@ namespace Luth
     // fit, shadow params) live on LightingSystem; RenderingSystem looks
     // it up from SystemRegistry each frame.
     //
-    // All graphics resources (pipelines, descriptor sets, samplers, UBOs,
-    // SSBOs, indirect/object buffers, IBL cubemaps, bloom textures, GPU
-    // timers, named-texture registry, captured graph snapshot, per-draw +
-    // depth preview textures) live on RenderPipeline. RenderPipeline is
-    // friend of RenderingSystem so it can read RS-side scene state
-    // (CameraParams, FrameTargets, FrameDebugger, DrawList, editor toggles)
-    // without a wide public accessor surface.
+    // Graphics resources (pipelines, descriptor sets, samplers, UBOs, SSBOs,
+    // indirect/object buffers, IBL cubemaps, bloom textures, GPU timers,
+    // named-texture registry, captured graph snapshot, per-draw + depth
+    // preview textures) live on RenderPipeline.
     class RenderingSystem : public ISystem
     {
-        friend class RenderPipeline;
-        friend class FrameDebuggerContext;
-
     public:
         RenderingSystem(u32 viewportWidth = 1280, u32 viewportHeight = 720);
         ~RenderingSystem();
@@ -114,6 +108,15 @@ namespace Luth
         // GamePanel (which owns its own FrameTargets but shares the Pipeline).
         FrameTargets&   GetSceneTargets() { return m_SceneTargets; }
         RenderPipeline& GetPipeline()     { return *m_Pipeline; }
+
+        // Renderer-side accessors. The render path reads these per frame
+        // (passes consume DrawList + CameraParams; debugger captures via
+        // FrameDebugger; RG allocators come from FrameAllocator).
+        FrameDebugger&             GetFrameDebugger()       { return m_FrameDebugger; }
+        const FrameDebugger&       GetFrameDebugger() const { return m_FrameDebugger; }
+        Memory::LinearAllocator&   GetFrameAllocator()      { return *m_FrameAllocator; }
+        const DrawList&            GetDrawList() const      { return m_DrawList; }
+        const CameraParams&        GetCameraParams() const  { return m_CameraParams; }
 
         // Selection outline + editor grid params now flow through CameraParams
         // (populated in App.cpp from EditorViewportState each frame).
@@ -164,6 +167,10 @@ namespace Luth
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO
         // uploads) and record the subgraph into primaryCmd.
         void RecordView(const RenderView& view, void* primaryCmd);
+
+        // Cross-view RAW barrier on primaryCmd between consecutive view subgraphs.
+        // Synchronizes shared m_ShadowMap (FRAGMENT_SHADER_READ → EARLY_FRAGMENT_TESTS_DEPTH_WRITE).
+        void InsertInterViewBarrier(void* primaryCmd);
 
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
