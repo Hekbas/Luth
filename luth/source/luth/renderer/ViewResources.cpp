@@ -140,7 +140,7 @@ namespace Luth
         allocSingle(ppLayout,                            vr.bloomBlurVDescSet);
         allocSingle(ppLayout,                            vr.compositeDescSet);
         allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet);
-        allocSingle(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet);
+        allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet);
         allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet);
         allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet);
         allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet);

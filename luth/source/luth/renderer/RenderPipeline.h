@@ -103,7 +103,7 @@ namespace Luth
 
         // GTAO compute passes.
         VkDescriptorSet gtaoPrefilterDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet gtaoMainDescSet      = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gtaoMainDescSet{};
         VkDescriptorSet gtaoDenoiseDescSet   = VK_NULL_HANDLE;
 
         // Editor overlays — allocated for every view, bound only by the
