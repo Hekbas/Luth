@@ -268,6 +268,11 @@ namespace Luth
         // after panel close + reopen would mint a different id.
         bool HasViewResources(FrameTargets* targets, u64 expectedId) const;
 
+        // Lookup without minting — returns nullptr if `targets` isn't in the
+        // map. Used by replay to fetch the captured view's resources.
+        ViewResources*       GetViewResources(FrameTargets* targets);
+        const ViewResources* GetViewResources(FrameTargets* targets) const;
+
     private:
         // Split allocation + per-group descriptor writes for readability.
         void AllocateViewResources(ViewResources& vr, FrameTargets& targets);

@@ -2,6 +2,7 @@
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/FrameTargets.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
@@ -16,6 +17,9 @@
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Buffer.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/core/FrameData.h"
 
 namespace Luth
 {
@@ -303,20 +307,32 @@ namespace Luth
     void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
     {
         auto& sys = m_Pipeline.GetSystem();
-        if (!sys.GetSceneTargets().GetSceneColor() || !sys.GetSceneTargets().GetSceneDepth() || !sys.GetSceneTargets().GetEntityIDBuffer()) return;
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+
+        // invariant: replay must run against the captured view's targets, not the
+        // editor scene's. When capturedSource == Game, m_CurrentViewResources points
+        // at whatever view ran last (often the scene view) — using it would render
+        // game-camera draws against scene-camera UBO into scene's SceneColor.
+        FrameTargets* targets = cf.capturedView.targets;
+        if (!targets || !m_Pipeline.HasViewResources(targets, cf.capturedView.viewResourcesId))
+            return;
+        if (!targets->GetSceneColor() || !targets->GetSceneDepth() || !targets->GetEntityIDBuffer()) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
+        if (!capturedVr) return;
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
-        const u32 width  = sys.GetSceneTargets().GetSceneColor()->GetWidth();
-        const u32 height = sys.GetSceneTargets().GetSceneColor()->GetHeight();
+        const u32 width  = targets->GetSceneColor()->GetWidth();
+        const u32 height = targets->GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
         if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneColor());
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneDepth());
-        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetEntityIDBuffer());
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(targets->GetSceneColor());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets->GetSceneDepth());
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(targets->GetEntityIDBuffer());
         VkImage     sceneColorImg  = vkSceneColor->GetImage();
         VkImageView sceneColorView = vkSceneColor->GetImageView();
         VkImage     sceneDepthImg  = vkSceneDepth->GetImage();
@@ -424,10 +440,37 @@ namespace Luth
 
             // Use captured slot — Frozen state pins descriptor data; live
             // GetRenderFrameIndex() would index a slot the live loop has rotated past.
-            const u32 slot = sys.GetFrameDebugger().capturedFrame.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+
+            // Rewrite the captured view's Set 0 binding 0 with a fresh tagged-heap
+            // region holding the snapshot UBO bytes — the original capture-time
+            // region's tag has been freed by now (FreeTag(N-2)).
+            if (!cf.capturedGlobalUboBytes.empty() && JobSystem::GetCurrentJobContext())
+            {
+                auto* jobCtx = JobSystem::GetCurrentJobContext();
+                const u32 tag = (u32)Renderer::GetFrameData()->GetRenderFrameIndex();
+                jobCtx->GpuCache.CurrentTag = tag;
+                auto& heap = Memory::GPUTaggedPageAllocator::Get();
+                const u64 align = VulkanContext::Get().GetMinUniformBufferAlignment();
+                auto region = heap.Allocate(jobCtx->GpuCache, cf.capturedGlobalUboBytes.size(), align);
+                if (region.buffer)
+                {
+                    std::memcpy(region.mappedPtr, cf.capturedGlobalUboBytes.data(), cf.capturedGlobalUboBytes.size());
+                    heap.FlushRegion(region);
+                    VkDescriptorBufferInfo bi{ region.buffer, region.offset, region.size };
+                    VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                    w.dstSet = capturedVr->globalDescriptorSet[slot];
+                    w.dstBinding = 0;
+                    w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    w.descriptorCount = 1;
+                    w.pBufferInfo = &bi;
+                    vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
+                }
+            }
+
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                rp.GetCurrentViewResources()->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
+                capturedVr->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
                 rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(slot), rp.GetGeometry().GetObjectSSBODescSet(slot)
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -477,11 +520,9 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Replay reads from the live indirect region (cull just ran for
-                    // this frame). Camera region within the heap region is at offset
-                    // (gpuObjectIndex * sizeof(...)), mirroring GeometryPass with
-                    // viewBaseRegion=0 (replay is scene-view only).
-                    const u32 cmdIndex = dc.gpuObjectIndex;
+                    // invariant: cmdIndex must match the camera-region layout the live cull wrote into.
+                    const u32 viewBaseRegion = cf.capturedView.viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                     VkDeviceSize indirectOffset = rp.GetGeometry().GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, rp.GetGeometry().GetIndirectRegion().buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));

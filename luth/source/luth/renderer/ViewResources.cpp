@@ -97,6 +97,20 @@ namespace Luth
         return it != m_ViewResources.end() && it->second.id == expectedId;
     }
 
+    ViewResources* RenderPipeline::GetViewResources(FrameTargets* targets)
+    {
+        if (!targets) return nullptr;
+        auto it = m_ViewResources.find(targets);
+        return it == m_ViewResources.end() ? nullptr : &it->second;
+    }
+
+    const ViewResources* RenderPipeline::GetViewResources(FrameTargets* targets) const
+    {
+        if (!targets) return nullptr;
+        auto it = m_ViewResources.find(targets);
+        return it == m_ViewResources.end() ? nullptr : &it->second;
+    }
+
     void RenderPipeline::AllocateViewResources(ViewResources& vr, FrameTargets& targets)
     {
         VkDevice device = VulkanContext::Get().GetDevice();
