@@ -27,6 +27,7 @@ v2.9.12 (`render-pipeline-subsystems`) was the structural prerequisite — each 
 | 4 | `9ba1b8b` | fix(renderer): cycle GTAO main per-view (extends Pair T) |
 | 5 | `ab137ed` | fix(renderer): cycle 4 PostProcess sets; drop UAB pool flag |
 | 6 | `5610b3e` | fix(renderer): pin captured slot for FrameDebugger replay |
+| 7 | `7826f62` | fix(renderer): cycle Sets 2 + 4; drop UAB |
 
 6 implementation commits + this wrap-up. Each commit ends in build-clean state with Vulkan validation expected to pass.
 
@@ -47,8 +48,10 @@ Every cycled descriptor-set member becomes `std::array<VkDescriptorSet, MAX_FRAM
 | 4 PP (per-view) | `ViewResources::{bloomExtract,bloomBlurH,bloomBlurV,composite}DescSet` | PostProcess |
 | GTAO main (per-view) | `ViewResources::gtaoMainDescSet` | GTAO |
 | Grid (per-view) | `ViewResources::gridDescSet` | EditorOverlays |
+| Set 2 (single-global) | `MaterialSystem::m_DescriptorSets` | Material |
+| Set 4 (single-global) | `BoneMatrixBuffer::m_DescriptorSets` | BoneMatrix |
 
-Sets 1 (bindless), 2 (Material), 4 (BoneMatrix) untouched — different lifecycle. GTAO prefilter, GTAO denoise, Outline per-view sets untouched — no per-frame UBO binding, no UAB to begin with.
+Sets 2 + 4 extended into this effort after smoke-testing surfaced a residual race specifically on skinned models in play mode in the scene panel — opening an inspector that renders a preview via `VulkanContext::ImmediateSubmit` (which serializes the GPU per frame) made the bug disappear, giving a definitive timing-race diagnostic. Sets 2/4 use the same per-game-stage tagged-heap rebind pattern as the others; cycling treatment is identical (game frame K writes slot K%N, render frame K-1 reads slot (K-1)%N). UAB dropped from both layouts/pools as cycling decouples write/read by frame slot. Set 1 (bindless) keeps UAB — its partial-bind / late-fence-retire pattern is structurally different. GTAO prefilter, GTAO denoise, Outline per-view sets untouched — no per-frame UBO binding.
 
 ### Indexing rule
 
@@ -111,7 +114,7 @@ Storage-image count drops because none of those bindings are cycled. Dedicated s
 - **Cornerstone 1 (per-frame data through tagged allocators):** unchanged. Every cycled descriptor still sources its UBO/SSBO from `Memory::GPUTaggedPageAllocator::Get()` — only the *descriptor* is now slot-indexed; the heap region is still tagged with the absolute frame index.
 - **Cornerstone 5 (no legacy Vulkan):** unchanged. `vkAllocateDescriptorSets` bulk allocation is core. Removing UAB doesn't reintroduce any deprecated path.
 - **`FreeTag(N-2)` invariant:** preserved. Heap-region reclamation operates on absolute tags; descriptor slot rotation operates on the modulo. Slot reuse distance (3, gated by `m_FrameTimeline.Wait(N - MAX_FRAMES_IN_FLIGHT + 1)` in `VulkanBackend::AcquireImage`) is stricter than `FreeTag` distance (2), so descriptor cycling is at least as safe as heap reclamation.
-- **`arch/rendering-pipeline.md`:** descriptor table footnote updated — cycled bindings note slot rotation, UAB list reduced to Set 1 (bindless) + Sets 2/4 (Material/BoneMatrix).
+- **`arch/rendering-pipeline.md`:** descriptor table footnote updated — cycled bindings note slot rotation, UAB scope reduced to Set 1 (bindless) only.
 
 ---
 
@@ -156,6 +159,6 @@ Tag-only — no `gh release create` (Mode B internal — see CLAUDE.md "Tagging 
 
 ## Outstanding follow-ups
 
-1. **Stub replays gain captured-slot indexing.** `ReplayShadow`, `ReplayDepthPrepass`, `ReplaySelectionMask` are TODO stubs in `FrameDebuggerContext.cpp`. When implemented they should pull `capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT` exactly like `ReplayGeometry`.
-2. **Set 1 bindless / Sets 2 + 4 cycling.** Out of scope for this effort. Bindless has its own UploadContext pump; Material + BoneMatrix use game-stage tagging. They retain UAB, which is correct for their lifecycle.
+1. **Stub replays gain captured-slot indexing.** `ReplayShadow`, `ReplayDepthPrepass`, `ReplaySelectionMask` are TODO stubs in `FrameDebuggerContext.cpp`. When implemented they should pull `capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT` exactly like `ReplayGeometry` (and pass `slot` to `BoneMatrixBuffer::GetDescriptorSet` / `MaterialSystem::GetDescriptorSet`).
+2. **Set 1 (bindless) cycling.** Bindless has its own UploadContext pump; cycling pattern doesn't fit. Retains UAB, which is correct for its partial-bind / late-fence-retire pattern.
 3. **`renderer/` folder coherence drive-by** (carried from v2.9.12 follow-ups). Empty `gpu/` and `postprocess/` folders, lone `passes/ImGuiPass.cpp`. Cleanup deferred.
