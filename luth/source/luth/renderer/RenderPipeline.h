@@ -18,6 +18,7 @@
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
+#include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -221,25 +222,10 @@ namespace Luth
         const PostProcessSubsystem& GetPostProcess() const { return m_PostProcess; }
 
     private:
-        // Init / Update helpers for the subsystems still on RP (EditorOverlays).
-        // Per-view state allocated lazily by EnsureViewResources.
-        void InitOverlayResources();
-        void CreatePipelines();
-        void BuildSelectionPipelines();
-        void BuildOutlinePipeline();
-        void BuildGridPipeline();
         void RegisterNamedTextures();
 
-        // Render-graph pass builders. Each declares one RG pass (setup +
-        // execute lambdas) and returns a handle to its primary output so
-        // callers can chain the graph. All pass files live under
-        // renderer/passes/ and used to be RenderingSystem methods.
-        SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg);
-        RG::ResourceHandle AddOutlinePass(RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth);
-        RG::ResourceHandle AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
+        // ImGui pass — single-view residual on the orchestrator.
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
-
-        void CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const;
 
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
 
@@ -274,38 +260,21 @@ namespace Luth
         // Split allocation + per-group descriptor writes for readability.
         void AllocateViewResources(ViewResources& vr, FrameTargets& targets);
         void RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH);
-        void WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets);
-        void WriteViewGTAOSets(ViewResources& vr, FrameTargets& targets);
-        void WriteViewOutlineSet(ViewResources& vr, FrameTargets& targets);
-        void WriteViewGridSet(ViewResources& vr, FrameTargets& targets);
         void DestroyViewResources(ViewResources& vr);
 
         // ---- Subsystems (own their domain state + lifecycle + passes) ----
-        GlobalSubsystem      m_Global;
-        LightingSubsystem    m_Lighting;
-        GeometrySubsystem    m_Geometry;
-        GTAOSubsystem        m_GTAO;
-        PostProcessSubsystem m_PostProcess;
+        GlobalSubsystem         m_Global;
+        LightingSubsystem       m_Lighting;
+        GeometrySubsystem       m_Geometry;
+        GTAOSubsystem           m_GTAO;
+        PostProcessSubsystem    m_PostProcess;
+        EditorOverlaysSubsystem m_EditorOverlays;
 
-        // ---- Selection mask pipelines ----
-        std::unique_ptr<VKPipeline> m_SelectionMaskPipeline;
-        std::unique_ptr<VKPipeline> m_SelectionMaskSkinnedPipeline;
-        std::vector<u32>            m_SelectionMaskVertSpv;
-        std::vector<u32>            m_SelectionMaskFragSpv;
-        std::vector<u32>            m_SelectionMaskSkinnedVertSpv;
+    public:
+        EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
+        const EditorOverlaysSubsystem& GetEditorOverlays() const { return m_EditorOverlays; }
 
-        // ---- Outline shared state (per-view set in ViewResources) ----
-        std::unique_ptr<VKPipeline> m_OutlinePipeline;
-        std::vector<u32>            m_OutlineFragSpv;
-        VkDescriptorSetLayout       m_OutlineDescSetLayout = VK_NULL_HANDLE;
-        VkSampler                   m_OutlineSampler       = VK_NULL_HANDLE;
-
-        // ---- Grid shared state (per-view set in ViewResources) ----
-        std::unique_ptr<VKPipeline> m_GridPipeline;
-        std::vector<u32>            m_GridFragSpv;
-        VkDescriptorSetLayout       m_GridDescSetLayout = VK_NULL_HANDLE;
-        VkSampler                   m_GridDepthSampler  = VK_NULL_HANDLE;
-
+    private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----
         RG::RenderGraphSnapshot m_GraphSnapshot;
         GPUTimerPool            m_GPUTimers;

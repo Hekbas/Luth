@@ -3,6 +3,7 @@
 #include "luth/renderer/subsystems/GlobalSubsystem.h"
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
+#include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -67,8 +68,8 @@ namespace Luth
             RecreateViewTextures(vr, halfW, halfH);
             m_PostProcess.WriteView(vr, targets);
             m_GTAO.WriteView(vr, targets);
-            WriteViewOutlineSet(vr, targets);
-            WriteViewGridSet(vr, targets);
+            m_EditorOverlays.WriteOutlineView(vr, targets);
+            m_EditorOverlays.WriteGridView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -124,21 +125,21 @@ namespace Luth
         };
 
         const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
-        alloc(m_Global.GetSetLayout(),         vr.globalDescriptorSet);
-        alloc(ppLayout,                        vr.bloomExtractDescSet);
-        alloc(ppLayout,                        vr.bloomBlurHDescSet);
-        alloc(ppLayout,                        vr.bloomBlurVDescSet);
-        alloc(ppLayout,                        vr.compositeDescSet);
-        alloc(m_GTAO.GetPrefilterLayout(),     vr.gtaoPrefilterDescSet);
-        alloc(m_GTAO.GetMainLayout(),          vr.gtaoMainDescSet);
-        alloc(m_GTAO.GetDenoiseLayout(),       vr.gtaoDenoiseDescSet);
-        alloc(m_OutlineDescSetLayout,          vr.outlineDescSet);
-        alloc(m_GridDescSetLayout,             vr.gridDescSet);
+        alloc(m_Global.GetSetLayout(),                vr.globalDescriptorSet);
+        alloc(ppLayout,                               vr.bloomExtractDescSet);
+        alloc(ppLayout,                               vr.bloomBlurHDescSet);
+        alloc(ppLayout,                               vr.bloomBlurVDescSet);
+        alloc(ppLayout,                               vr.compositeDescSet);
+        alloc(m_GTAO.GetPrefilterLayout(),            vr.gtaoPrefilterDescSet);
+        alloc(m_GTAO.GetMainLayout(),                 vr.gtaoMainDescSet);
+        alloc(m_GTAO.GetDenoiseLayout(),              vr.gtaoDenoiseDescSet);
+        alloc(m_EditorOverlays.GetOutlineLayout(),    vr.outlineDescSet);
+        alloc(m_EditorOverlays.GetGridLayout(),       vr.gridDescSet);
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
-        WriteViewOutlineSet(vr, targets);
-        WriteViewGridSet(vr, targets);
+        m_EditorOverlays.WriteOutlineView(vr, targets);
+        m_EditorOverlays.WriteGridView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -158,80 +159,6 @@ namespace Luth
         vr.gtaoRawAO       = makeStorage(TextureFormat::R8);
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
-    }
-
-    void RenderPipeline::WriteViewOutlineSet(ViewResources& vr, FrameTargets& targets)
-    {
-        if (vr.outlineDescSet == VK_NULL_HANDLE || m_OutlineSampler == VK_NULL_HANDLE) return;
-
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        auto vkMask     = std::static_pointer_cast<VKTexture>(targets.GetSelectionMask());
-        auto vkSelDepth = std::static_pointer_cast<VKTexture>(targets.GetSelectionDepth());
-        auto vkScnDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
-
-        VkDescriptorImageInfo maskInfo{};
-        maskInfo.sampler     = m_OutlineSampler;
-        maskInfo.imageView   = vkMask->GetImageView();
-        maskInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo selDepthInfo{};
-        selDepthInfo.sampler     = m_OutlineSampler;
-        selDepthInfo.imageView   = vkSelDepth->GetImageView();
-        selDepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo scnDepthInfo{};
-        scnDepthInfo.sampler     = m_OutlineSampler;
-        scnDepthInfo.imageView   = vkScnDepth->GetImageView();
-        scnDepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet writes[3] = {};
-        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr.outlineDescSet;
-        writes[0].dstBinding      = 0;
-        writes[0].descriptorCount = 1;
-        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].pImageInfo      = &maskInfo;
-
-        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[1].dstSet          = vr.outlineDescSet;
-        writes[1].dstBinding      = 1;
-        writes[1].descriptorCount = 1;
-        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].pImageInfo      = &selDepthInfo;
-
-        writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[2].dstSet          = vr.outlineDescSet;
-        writes[2].dstBinding      = 2;
-        writes[2].descriptorCount = 1;
-        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[2].pImageInfo      = &scnDepthInfo;
-
-        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
-    }
-
-    void RenderPipeline::WriteViewGridSet(ViewResources& vr, FrameTargets& targets)
-    {
-        if (vr.gridDescSet == VK_NULL_HANDLE || m_GridDepthSampler == VK_NULL_HANDLE) return;
-
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        // Binding 0 (per-view GlobalUBO) is rewritten per render-stage in
-        // UpdateGlobalUniforms alongside Set 0 binding 0. Stable depth sampler only here.
-        auto vkScnDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
-        VkDescriptorImageInfo depthInfo{};
-        depthInfo.sampler     = m_GridDepthSampler;
-        depthInfo.imageView   = vkScnDepth->GetImageView();
-        depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet samplerWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        samplerWrite.dstSet          = vr.gridDescSet;
-        samplerWrite.dstBinding      = 1;
-        samplerWrite.descriptorCount = 1;
-        samplerWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerWrite.pImageInfo      = &depthInfo;
-
-        vkUpdateDescriptorSets(device, 1, &samplerWrite, 0, nullptr);
     }
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)

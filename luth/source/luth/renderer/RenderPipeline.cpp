@@ -57,29 +57,8 @@ namespace Luth
 
         m_Global.Init(*this);
 
-        // Bulk-load shaders for subsystems still on RP. Lighting (shadow + skybox) loads its own.
-        auto loadSpv = [](const char* relPath) -> std::vector<u32>
-        {
-            auto sh = ShaderLibrary::LoadEngine(relPath);
-            return sh ? sh->GetSpirV() : std::vector<u32>{};
-        };
-
-        m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
-        m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
-        m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
-        m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
-        m_GridFragSpv                 = loadSpv("shaders/grid.frag");
-
-        if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
-            m_SelectionMaskSkinnedVertSpv.empty() ||
-            m_OutlineFragSpv.empty() || m_GridFragSpv.empty())
-        {
-            LH_CORE_ERROR("Engine shader SPIR-V empty after asset load!");
-            return;
-        }
-
         BoneMatrixBuffer::Init();
-        InitOverlayResources();
+        m_EditorOverlays.Init(*this);
         m_PostProcess.Init(*this);
 
         // Lighting owns Set 3 + shadow map + IBL + skybox VB/SPVs. Engine ships no HDR;
@@ -104,8 +83,8 @@ namespace Luth
         };
         m_Lighting.BuildPipelines(geoLayouts);
         m_Geometry.BuildPipelines(geoLayouts);
+        m_EditorOverlays.BuildPipelines(geoLayouts);
 
-        CreatePipelines();
         m_GTAO.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -125,19 +104,6 @@ namespace Luth
             }
             const auto& spv = vk->GetSpirV();
 
-            // Defer-destroy helpers — release the unique_ptr and push a delete lambda
-            // to the per-frame deletion queue. std::function requires CopyConstructible
-            // captures, so we capture a raw pointer.
-            auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
-                if (auto* raw = p.release(); raw)
-                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
-            };
-            auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
-                if (auto* raw = p.release(); raw)
-                    VulkanContext::Get().PushDeletion([raw]() { delete raw; });
-            };
-
-            // Subsystems handle their own shaders (own SPV blobs + pipeline rebuilds).
             std::vector<VkDescriptorSetLayout> geoLayouts = {
                 m_Global.GetSetLayout(),
                 VulkanContext::Get().GetBindlessSet().GetLayout(),
@@ -146,37 +112,28 @@ namespace Luth
                 BoneMatrixBuffer::GetDescriptorSetLayout(),
                 m_Geometry.GetSet5Layout()
             };
-            if (m_Lighting.OnShaderReloaded(name, spv, geoLayouts) ||
-                m_Geometry.OnShaderReloaded(name, spv, geoLayouts) ||
-                m_GTAO.OnShaderReloaded(name, spv))
+            // Subsystems handle their own shaders + pipeline rebuilds. Order ensures fullscreen.vert
+            // reaches both PostProcess and EditorOverlays (PostProcess returns false for it; EditorOverlays
+            // returns true). Debug shaders + IBL precompute remain RP residual.
+            const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
+                              || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
+                              || m_GTAO.OnShaderReloaded(name, spv);
+            // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
+            // its outline/grid pipelines below.
+            const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
+            const bool overlaysHandled = m_EditorOverlays.OnShaderReloaded(name, spv, geoLayouts);
+            if (handled || ppHandled || overlaysHandled)
             {
+                if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+                else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
                 LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
                 return;
             }
-            // PostProcess returns false for fullscreen.vert so Outline + Grid (RP-owned, share
-            // the same vertex shader) get rebuilt below; non-shared shaders return true to short-circuit.
-            const bool ppHandled = m_PostProcess.OnShaderReloaded(name, spv);
 
-            // Pull fresh SPIR-V into the cached blob used by pipeline builders.
-            if      (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
-            else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
-            else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
-            else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
-            else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
-            else if (name == "debugBlit.frag")             m_System.GetFrameDebugger().blitFragSpv  = spv;
-            else if (name == "debugDepth.frag")            m_System.GetFrameDebugger().depthFragSpv = spv;
-            else if (ppHandled) { LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name); return; }
-            // IBL precompute shaders (equirect/irradiance/prefilter/brdf_lut) refresh in the
-            // library, but the precomputed results don't re-bake — ReloadSkybox() must run.
-
-            // Rebuild graphics pipelines for residual subsystems (selection / outline / grid).
-            deferGfx(m_OutlinePipeline);
-            deferGfx(m_GridPipeline);
-            deferGfx(m_SelectionMaskPipeline);
-            deferGfx(m_SelectionMaskSkinnedPipeline);
-            CreatePipelines();
-
-            LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
+            // Debug-shader-only path (no pipeline rebuild on RP side; FrameDebuggerContext rebuilds lazily).
+            if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+            else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
+            // IBL precompute shaders refresh in the library; ReloadSkybox() must run to re-bake.
         });
 
         // Shader hot-reload watcher (engine-shaders dir; project dirs added via
@@ -212,17 +169,12 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_EditorOverlays.Shutdown();
         m_PostProcess.Shutdown();
         m_GTAO.Shutdown();
         m_Geometry.Shutdown();
         m_Lighting.Shutdown();
         m_Global.Shutdown();
-
-        // Sub-task-pending state (E extracts these).
-        if (m_OutlineSampler)       vkDestroySampler(device, m_OutlineSampler, nullptr);
-        if (m_OutlineDescSetLayout) vkDestroyDescriptorSetLayout(device, m_OutlineDescSetLayout, nullptr);
-        if (m_GridDepthSampler)     vkDestroySampler(device, m_GridDepthSampler, nullptr);
-        if (m_GridDescSetLayout)    vkDestroyDescriptorSetLayout(device, m_GridDescSetLayout, nullptr);
 
         // GTAO resources (epic #58) — shared.
     }
@@ -304,16 +256,16 @@ namespace Luth
 
         auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
-                                         ? AddSelectionMaskPass(rg)
+                                         ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? AddGridPass(rg, skyboxColor, geoOutput.depth)
+                                         ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
         RG::ResourceHandle ldrOutput   = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
-                                         ? AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
+                                         ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
         if (view.emitImGuiPass)
             AddImGuiPass(rg, finalOutput);
