@@ -440,33 +440,11 @@ namespace Luth
 
             // Use captured slot — Frozen state pins descriptor data; live
             // GetRenderFrameIndex() would index a slot the live loop has rotated past.
+            // invariant: do NOT rewrite Set 0 binding 0 here — the set may be in
+            // use by a still-pending cmd buffer from before Frozen engaged (no
+            // UAB flag set on Set 0). Captured-time region stays alive across
+            // Frozen because the live RG isn't running to advance FreeTag.
             const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
-
-            // Rewrite the captured view's Set 0 binding 0 with a fresh tagged-heap
-            // region holding the snapshot UBO bytes — the original capture-time
-            // region's tag has been freed by now (FreeTag(N-2)).
-            if (!cf.capturedGlobalUboBytes.empty() && JobSystem::GetCurrentJobContext())
-            {
-                auto* jobCtx = JobSystem::GetCurrentJobContext();
-                const u32 tag = (u32)Renderer::GetFrameData()->GetRenderFrameIndex();
-                jobCtx->GpuCache.CurrentTag = tag;
-                auto& heap = Memory::GPUTaggedPageAllocator::Get();
-                const u64 align = VulkanContext::Get().GetMinUniformBufferAlignment();
-                auto region = heap.Allocate(jobCtx->GpuCache, cf.capturedGlobalUboBytes.size(), align);
-                if (region.buffer)
-                {
-                    std::memcpy(region.mappedPtr, cf.capturedGlobalUboBytes.data(), cf.capturedGlobalUboBytes.size());
-                    heap.FlushRegion(region);
-                    VkDescriptorBufferInfo bi{ region.buffer, region.offset, region.size };
-                    VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-                    w.dstSet = capturedVr->globalDescriptorSet[slot];
-                    w.dstBinding = 0;
-                    w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    w.descriptorCount = 1;
-                    w.pBufferInfo = &bi;
-                    vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
-                }
-            }
 
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
