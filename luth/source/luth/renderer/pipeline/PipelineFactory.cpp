@@ -59,13 +59,13 @@ namespace Luth
         InitObjectSSBODescriptorLayout();
 
         BuildPBRPipelines();
-        BuildShadowPipelines();
         BuildDepthPrepassPipelines();
         BuildSelectionPipelines();
-        BuildSkyboxPipeline();
         BuildPostPipelines();
         BuildOutlinePipeline();
         BuildGridPipeline();
+        // Shadow + skybox pipelines are owned by LightingSubsystem; the orchestrator
+        // calls m_Lighting.BuildPipelines after this returns (Set 5 layout now ready).
     }
 
     // =========================================================================
@@ -75,10 +75,10 @@ namespace Luth
     {
         // 6-set layout for geometry pipelines (Set 5 = GPUObjectData SSBO, no push constants)
         std::vector<VkDescriptorSetLayout> geoLayouts = {
-            m_GlobalSetLayout,                                    // Set 0
+            m_Global.GetSetLayout(),                                    // Set 0
             VulkanContext::Get().GetBindlessSet().GetLayout(),   // Set 1
             MaterialSystem::GetDescriptorSetLayout(),            // Set 2
-            m_LightSetLayout,                                    // Set 3
+            m_Lighting.GetSetLayout(),                                    // Set 3
             BoneMatrixBuffer::GetDescriptorSetLayout(),          // Set 4
             m_ObjectSSBODescLayout                               // Set 5
         };
@@ -182,74 +182,15 @@ namespace Luth
     }
 
     // =========================================================================
-    //  Shadow — rigid + skinned depth-only cascades
-    // =========================================================================
-    void RenderPipeline::BuildShadowPipelines()
-    {
-        std::vector<VkDescriptorSetLayout> geoLayouts = {
-            m_GlobalSetLayout,
-            VulkanContext::Get().GetBindlessSet().GetLayout(),
-            MaterialSystem::GetDescriptorSetLayout(),
-            m_LightSetLayout,
-            BoneMatrixBuffer::GetDescriptorSetLayout(),
-            m_ObjectSSBODescLayout
-        };
-
-        // 4-byte VERTEX push constant carries cascadeIndex (Phase 13C).
-        VkPushConstantRange shadowCascadePC{};
-        shadowCascadePC.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        shadowCascadePC.offset     = 0;
-        shadowCascadePC.size       = sizeof(u32);
-
-        // ---- Rigid shadow: position-only attribute with full PBR stride ----
-        auto [shadowBindingDescs, shadowAttribDescs] = MakePositionOnlyWithFullStride();
-
-        PipelineConfig shadowConfig;
-        shadowConfig.colorFormats = {};  // depth-only
-        shadowConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
-        shadowConfig.depthTest = true; shadowConfig.depthWrite = true;
-        shadowConfig.blendEnabled = false;
-        shadowConfig.cullMode = VK_CULL_MODE_FRONT_BIT; // front-face culling reduces shadow acne
-        shadowConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        shadowConfig.bindingDescriptions = shadowBindingDescs;
-        shadowConfig.attributeDescriptions = shadowAttribDescs;
-        shadowConfig.pushConstantRanges = { shadowCascadePC };
-
-        m_ShadowPipeline = std::make_unique<VKPipeline>(shadowConfig, m_ShadowVertSpv, m_ShadowFragSpv, geoLayouts);
-
-        // ---- Skinned shadow: full skinned vertex stride (84 bytes) ----
-        if (!m_ShadowSkinnedVertSpv.empty())
-        {
-            auto skinnedLayout = MakeSkinnedVertexLayout();
-            auto skinnedBindingDescs = skinnedLayout.GetBindingDescriptions();
-            auto skinnedAttribDescs  = skinnedLayout.GetAttributeDescriptions();
-
-            PipelineConfig shadowSkinnedConfig;
-            shadowSkinnedConfig.colorFormats = {};
-            shadowSkinnedConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
-            shadowSkinnedConfig.depthTest = true; shadowSkinnedConfig.depthWrite = true;
-            shadowSkinnedConfig.blendEnabled = false;
-            shadowSkinnedConfig.cullMode = VK_CULL_MODE_FRONT_BIT;
-            shadowSkinnedConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-            shadowSkinnedConfig.bindingDescriptions = skinnedBindingDescs;
-            shadowSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
-            shadowSkinnedConfig.pushConstantRanges = { shadowCascadePC };
-
-            m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
-                shadowSkinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
-        }
-    }
-
-    // =========================================================================
     //  Depth prepass — rigid + skinned camera-space depth-only
     // =========================================================================
     void RenderPipeline::BuildDepthPrepassPipelines()
     {
         std::vector<VkDescriptorSetLayout> geoLayouts = {
-            m_GlobalSetLayout,
+            m_Global.GetSetLayout(),
             VulkanContext::Get().GetBindlessSet().GetLayout(),
             MaterialSystem::GetDescriptorSetLayout(),
-            m_LightSetLayout,
+            m_Lighting.GetSetLayout(),
             BoneMatrixBuffer::GetDescriptorSetLayout(),
             m_ObjectSSBODescLayout
         };
@@ -258,7 +199,7 @@ namespace Luth
 
         // Reuses the shadow frag SPIR-V (empty `void main(){}`) as the null fragment.
         // Rigid variant uses the position-only binding/attribs (full PBR stride).
-        if (!m_DepthPrepassVertSpv.empty() && !m_ShadowFragSpv.empty())
+        if (!m_DepthPrepassVertSpv.empty() && !m_Lighting.GetShadowFragSpv().empty())
         {
             PipelineConfig depthPrepassConfig;
             depthPrepassConfig.colorFormats = {}; // depth-only
@@ -273,10 +214,10 @@ namespace Luth
             depthPrepassConfig.attributeDescriptions = shadowAttribDescs;
 
             m_DepthPrepassPipeline = std::make_unique<VKPipeline>(
-                depthPrepassConfig, m_DepthPrepassVertSpv, m_ShadowFragSpv, geoLayouts);
+                depthPrepassConfig, m_DepthPrepassVertSpv, m_Lighting.GetShadowFragSpv(), geoLayouts);
         }
 
-        if (!m_DepthPrepassSkinnedVertSpv.empty() && !m_ShadowFragSpv.empty())
+        if (!m_DepthPrepassSkinnedVertSpv.empty() && !m_Lighting.GetShadowFragSpv().empty())
         {
             auto skinnedLayout = MakeSkinnedVertexLayout();
             auto skinnedBindingDescs = skinnedLayout.GetBindingDescriptions();
@@ -295,7 +236,7 @@ namespace Luth
             depthPrepassSkinnedConfig.attributeDescriptions = skinnedAttribDescs;
 
             m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
-                depthPrepassSkinnedConfig, m_DepthPrepassSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
+                depthPrepassSkinnedConfig, m_DepthPrepassSkinnedVertSpv, m_Lighting.GetShadowFragSpv(), geoLayouts);
         }
     }
 
@@ -306,10 +247,10 @@ namespace Luth
     {
         // 5-set layout (Set 0-4) + per-draw ObjectPushConstants
         std::vector<VkDescriptorSetLayout> layouts = {
-            m_GlobalSetLayout,
+            m_Global.GetSetLayout(),
             VulkanContext::Get().GetBindlessSet().GetLayout(),
             MaterialSystem::GetDescriptorSetLayout(),
-            m_LightSetLayout,
+            m_Lighting.GetSetLayout(),
             BoneMatrixBuffer::GetDescriptorSetLayout()
         };
 
@@ -359,40 +300,6 @@ namespace Luth
             m_SelectionMaskSkinnedPipeline = std::make_unique<VKPipeline>(
                 maskSkinnedConfig, m_SelectionMaskSkinnedVertSpv, m_SelectionMaskFragSpv, layouts);
         }
-    }
-
-    // =========================================================================
-    //  Skybox — depth-test enabled, cull back (Y-flip reverses winding)
-    // =========================================================================
-    void RenderPipeline::BuildSkyboxPipeline()
-    {
-        if (m_SkyboxVertSpv.empty() || m_SkyboxFragSpv.empty()) return;
-
-        std::vector<VkDescriptorSetLayout> layouts = {
-            m_GlobalSetLayout,
-            VulkanContext::Get().GetBindlessSet().GetLayout(),
-            MaterialSystem::GetDescriptorSetLayout(),
-            m_LightSetLayout,
-            BoneMatrixBuffer::GetDescriptorSetLayout()
-        };
-
-        BufferLayout skyboxVertexLayout = {
-            { ShaderDataType::Float3, "a_Position" }
-        };
-
-        PipelineConfig skyboxConfig;
-        skyboxConfig.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
-        skyboxConfig.depthFormat = VK_FORMAT_D32_SFLOAT;
-        skyboxConfig.depthTest = true;
-        skyboxConfig.depthWrite = false;
-        skyboxConfig.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-        skyboxConfig.blendEnabled = false;
-        skyboxConfig.cullMode = VK_CULL_MODE_BACK_BIT; // Y-flipped projection reverses winding; cull back = show inside faces
-        skyboxConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        skyboxConfig.bindingDescriptions = skyboxVertexLayout.GetBindingDescriptions();
-        skyboxConfig.attributeDescriptions = skyboxVertexLayout.GetAttributeDescriptions();
-
-        m_SkyboxPipeline = std::make_unique<VKPipeline>(skyboxConfig, m_SkyboxVertSpv, m_SkyboxFragSpv, layouts);
     }
 
     // =========================================================================

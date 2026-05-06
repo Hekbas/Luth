@@ -13,6 +13,8 @@
 #include "luth/renderer/pipeline/PipelineManager.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderWatcher.h"
+#include "luth/renderer/subsystems/GlobalSubsystem.h"
+#include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -198,9 +200,16 @@ namespace Luth
         RenderingSystem&       GetSystem()       { return m_System; }
         const RenderingSystem& GetSystem() const { return m_System; }
 
-        // Active per-view scratch (set during Execute; consumed by FrameDebuggerContext).
+        // Active per-view scratch (set during Execute; consumed by FrameDebuggerContext + subsystems).
+        const RenderView*    GetCurrentView()                { return m_CurrentView; }
         ViewResources*       GetCurrentViewResources()       { return m_CurrentViewResources; }
         const ViewResources* GetCurrentViewResources() const { return m_CurrentViewResources; }
+
+        // Subsystem accessors — preferred path for cross-subsystem reads.
+        GlobalSubsystem&         GetGlobal()         { return m_Global; }
+        const GlobalSubsystem&   GetGlobal()   const { return m_Global; }
+        LightingSubsystem&       GetLighting()       { return m_Lighting; }
+        const LightingSubsystem& GetLighting() const { return m_Lighting; }
 
         // Temp accessors — expose state that *Subsystem extractions will own. Each is removed in
         // the sub-task that extracts it. invariant: all gone by sub-task E.
@@ -209,31 +218,27 @@ namespace Luth
         const std::vector<u32>& GetPBRVertSpv() const          { return m_PBRVertSpv; }
         const std::vector<u32>& GetPBRFragSpv() const          { return m_PBRFragSpv; }
         const std::vector<u32>& GetPBRSkinnedVertSpv() const   { return m_PBRSkinnedVertSpv; }
-        VkDescriptorSet         GetLightDescSet() const        { return m_LightDescSet; }
         VkDescriptorSet         GetObjectSSBODescSet() const   { return m_ObjectSSBODescSet; }
         const Memory::GPUSubRegion& GetIndirectRegion() const  { return m_IndirectRegion; }
         const std::vector<u32>& GetFullscreenVertSpv() const   { return m_FullscreenVertSpv; }
+        VkSampler               GetGTAOSampler() const         { return m_GTAOSampler; }
 
     private:
-        // Init / Update helpers (moved from RenderingSystem in sub-task E1).
-        // Per-view state (bloom / GTAO textures, UBOs, descriptor sets) is
-        // allocated lazily by EnsureViewResources; these Init*Resources
-        // functions now set up only the shared state (layouts, samplers,
-        // pipelines, shared UBOs with view-independent content).
-        void InitGlobalUniforms();
-        void InitShadowResources();
+        // Init / Update helpers. Per-view state (bloom / GTAO textures, UBOs,
+        // descriptor sets) is allocated lazily by EnsureViewResources; these
+        // Init*Resources functions set up shared state (layouts, samplers,
+        // pipelines, shared UBOs with view-independent content) for the
+        // subsystems still on RP (Geometry / GTAO / PostProcess /
+        // EditorOverlays / Skybox-related residuals).
         void InitPostProcessResources();
-        void InitIBLResources(const fs::path& hdrPath);
         void InitObjectSSBODescriptorLayout();
         void InitGPUObjectBuffers();
         void InitCullPipeline();
         void InitAOResources();
         void CreatePipelines();
         void BuildPBRPipelines();
-        void BuildShadowPipelines();
         void BuildDepthPrepassPipelines();
         void BuildSelectionPipelines();
-        void BuildSkyboxPipeline();
         void BuildPostPipelines();
         void BuildOutlinePipeline();
         void BuildGridPipeline();
@@ -247,13 +252,11 @@ namespace Luth
         RG::ResourceHandle AddGTAODepthPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddGTAOMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth);
         RG::ResourceHandle AddGTAODenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth);
-        RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         GeometryOutput AddGeometryPass(RG::RenderGraph& rg,
                                         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                         RG::BufferHandle indirectBufferHandle,
                                         RG::ResourceHandle sceneDepth,
                                         RG::ResourceHandle gtaoFinalAO);
-        RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddPostProcessPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         SelectionMaskOutput AddSelectionMaskPass(RG::RenderGraph& rg);
@@ -296,32 +299,15 @@ namespace Luth
         // Split allocation + per-group descriptor writes for readability.
         void AllocateViewResources(ViewResources& vr, FrameTargets& targets);
         void RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH);
-        void WriteViewGlobalSet(ViewResources& vr);
         void WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets);
         void WriteViewGTAOSets(ViewResources& vr, FrameTargets& targets);
         void WriteViewOutlineSet(ViewResources& vr, FrameTargets& targets);
         void WriteViewGridSet(ViewResources& vr, FrameTargets& targets);
         void DestroyViewResources(ViewResources& vr);
 
-        // ---- Set 0 layout (shared; per-view UBO + set in ViewResources) ----
-        VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
-
-        // ---- Shadow map (4-layer 2D array) + per-layer views ----
-        std::shared_ptr<Texture> m_ShadowMap;
-        VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
-        VkSampler                m_ShadowSampler = VK_NULL_HANDLE;
-
-        // ---- Set 3: Light UBO (per-frame from GPU tagged heap) + shadow sampler (stable) ----
-        VkDescriptorPool      m_LightDescPool  = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_LightSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet       m_LightDescSet   = VK_NULL_HANDLE;
-
-        // ---- Shadow pipeline (depth-only) ----
-        std::unique_ptr<VKPipeline> m_ShadowPipeline;
-        std::unique_ptr<VKPipeline> m_ShadowSkinnedPipeline;
-        std::vector<u32>            m_ShadowVertSpv;
-        std::vector<u32>            m_ShadowFragSpv;
-        std::vector<u32>            m_ShadowSkinnedVertSpv;
+        // ---- Subsystems (own their domain state + lifecycle + passes) ----
+        GlobalSubsystem   m_Global;
+        LightingSubsystem m_Lighting;
 
         // ---- Depth prepass pipeline ----
         std::unique_ptr<VKPipeline> m_DepthPrepassPipeline;
@@ -374,16 +360,6 @@ namespace Luth
         std::vector<u32>                   m_GTAOMainSpv;
         std::vector<u32>                   m_GTAODenoiseSpv;
 
-        // ---- Cached view-projection (feeds frustum cull + Frozen-state comparison) ----
-        Mat4 m_CachedViewProj = Mat4(1.0f);
-
-        // ---- Per-frame lighting snapshot (written by UpdateGlobalUniforms) ----
-        // Decouples the pipeline from RenderingSystem's cascade state, which
-        // now lives on LightingSystem. Read by Execute (cascade-frustum cull)
-        // and the capturedFrame snapshot.
-        CascadeData                  m_FrameCascades{};
-        DirectionalLightShadowParams m_FrameShadowParams{};
-
         // ---- Post-process shared state (per-view bloom + sets in ViewResources) ----
         // PostProcess UBO is allocated per render-stage from GPUTaggedPageAllocator;
         // binding 2 of each PP set is rewritten in UpdatePostProcessUBO each frame.
@@ -419,18 +395,6 @@ namespace Luth
         std::vector<u32>            m_GridFragSpv;
         VkDescriptorSetLayout       m_GridDescSetLayout = VK_NULL_HANDLE;
         VkSampler                   m_GridDepthSampler  = VK_NULL_HANDLE;
-
-        // ---- IBL resources ----
-        std::shared_ptr<Texture> m_IrradianceMap;   // 32x32 cubemap, RGBA16F
-        std::shared_ptr<Texture> m_PrefilteredMap;  // 128x128 cubemap, RGBA16F, 5 mips
-        std::shared_ptr<Texture> m_BRDFLut;         // 512x512 2D, RG16F
-        VkSampler                m_IBLSampler = VK_NULL_HANDLE;
-
-        // ---- Skybox resources ----
-        std::unique_ptr<VKPipeline>     m_SkyboxPipeline;
-        std::shared_ptr<VKVertexBuffer> m_SkyboxVB;
-        std::vector<u32>                m_SkyboxVertSpv;
-        std::vector<u32>                m_SkyboxFragSpv;
 
         // ---- Graph snapshot + GPU timers + named-texture registry ----
         RG::RenderGraphSnapshot m_GraphSnapshot;

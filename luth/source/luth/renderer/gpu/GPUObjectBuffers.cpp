@@ -291,33 +291,4 @@ namespace Luth
         }
     }
 
-    void RenderPipeline::UploadLightUBO(const LightUniforms& lights)
-    {
-        // Per-frame UBO from GPUTaggedPageAllocator. Tag = render-frame index;
-        // FreeTag(N-2) reclaims after the GPU retires the consuming frame.
-        auto* jobCtx = JobSystem::GetCurrentJobContext();
-        if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-
-        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
-        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
-        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(LightUniforms), al);
-        if (!region.buffer) return;
-
-        memcpy(region.mappedPtr, &lights, sizeof(LightUniforms));
-        heap.FlushRegion(region);
-
-        VkDescriptorBufferInfo bi{};
-        bi.buffer = region.buffer;
-        bi.offset = region.offset;
-        bi.range  = region.size;
-
-        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet          = m_LightDescSet;
-        write.dstBinding      = 0;
-        write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo     = &bi;
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
-    }
 }

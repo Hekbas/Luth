@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/subsystems/GlobalSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -18,6 +19,29 @@ namespace Luth
     static constexpr u32 k_ViewPoolUniformBufferCount   = 12;
     static constexpr u32 k_ViewPoolStorageImageCount    = 12;
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 32;
+
+    namespace {
+        // Build the per-view Set 0 write context from RP-side state. invariant:
+        // GTAO textures must already exist (RecreateViewTextures runs before).
+        GlobalViewWriteContext MakeGlobalCtx(const RenderPipeline& rp, const ViewResources& vr)
+        {
+            const auto& lighting = rp.GetLighting();
+            GlobalViewWriteContext ctx{};
+            ctx.haveIBL          = lighting.IsIBLReady();
+            ctx.iblSampler       = lighting.GetIBLSampler();
+            ctx.gtaoSampler      = rp.GetGTAOSampler();
+            if (ctx.haveIBL)
+            {
+                ctx.irradianceView  = std::static_pointer_cast<VKTexture>(lighting.GetIrradianceMap())->GetImageView();
+                ctx.prefilteredView = std::static_pointer_cast<VKTexture>(lighting.GetPrefilteredMap())->GetImageView();
+                ctx.brdfView        = std::static_pointer_cast<VKTexture>(lighting.GetBRDFLut())->GetImageView();
+            }
+            ctx.gtaoFinalView = vr.gtaoFinal
+                ? std::static_pointer_cast<VKTexture>(vr.gtaoFinal)->GetImageView()
+                : VK_NULL_HANDLE;
+            return ctx;
+        }
+    }
 
     ViewResources& RenderPipeline::EnsureViewResources(FrameTargets& targets)
     {
@@ -43,8 +67,8 @@ namespace Luth
             WriteViewGTAOSets(vr, targets);
             WriteViewOutlineSet(vr, targets);
             WriteViewGridSet(vr, targets);
-            // Set 0 bindings 4 + 5 reference the recreated GTAO textures.
-            WriteViewGlobalSet(vr);
+            // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
+            m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
 
         vr.width  = newW;
@@ -97,7 +121,7 @@ namespace Luth
             vkAllocateDescriptorSets(device, &ai, &outSet);
         };
 
-        alloc(m_GlobalSetLayout,          vr.globalDescriptorSet);
+        alloc(m_Global.GetSetLayout(),    vr.globalDescriptorSet);
         alloc(m_PPDescSetLayout,          vr.bloomExtractDescSet);
         alloc(m_PPDescSetLayout,          vr.bloomBlurHDescSet);
         alloc(m_PPDescSetLayout,          vr.bloomBlurVDescSet);
@@ -108,11 +132,12 @@ namespace Luth
         alloc(m_OutlineDescSetLayout,     vr.outlineDescSet);
         alloc(m_GridDescSetLayout,        vr.gridDescSet);
 
-        WriteViewGlobalSet(vr);
         WriteViewPostProcessSets(vr, targets);
         WriteViewGTAOSets(vr, targets);
         WriteViewOutlineSet(vr, targets);
         WriteViewGridSet(vr, targets);
+        // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
+        m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
 
     void RenderPipeline::RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH)
@@ -130,84 +155,6 @@ namespace Luth
         vr.gtaoRawAO       = makeStorage(TextureFormat::R8);
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
-    }
-
-    void RenderPipeline::WriteViewGlobalSet(ViewResources& vr)
-    {
-        if (vr.globalDescriptorSet == VK_NULL_HANDLE) return;
-
-        VkDevice device = VulkanContext::Get().GetDevice();
-
-        // Stable bindings only: 1-3 IBL, 4 GTAO final sampler. Bindings 0 (Global UBO)
-        // and 5 (GTAO UBO) are rewritten each frame by UpdateGlobalUniforms / UpdateGTAOUBO.
-        // IBL bindings are skipped if InitIBLResources hasn't run yet;
-        // ReloadSkybox/InitIBLResources rewrites every cached view afterwards.
-        const bool haveIBL = m_IrradianceMap && m_PrefilteredMap && m_BRDFLut && m_IBLSampler;
-        VkDescriptorImageInfo irrInfo{}, pfInfo{}, lutInfo{};
-        if (haveIBL)
-        {
-            auto vkIrr = std::static_pointer_cast<VKTexture>(m_IrradianceMap);
-            auto vkPf  = std::static_pointer_cast<VKTexture>(m_PrefilteredMap);
-            auto vkLut = std::static_pointer_cast<VKTexture>(m_BRDFLut);
-
-            irrInfo.sampler     = m_IBLSampler;
-            irrInfo.imageView   = vkIrr->GetImageView();
-            irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            pfInfo.sampler      = m_IBLSampler;
-            pfInfo.imageView    = vkPf->GetImageView();
-            pfInfo.imageLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            lutInfo.sampler     = m_IBLSampler;
-            lutInfo.imageView   = vkLut->GetImageView();
-            lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        }
-
-        auto vkGTAOFinal = std::static_pointer_cast<VKTexture>(vr.gtaoFinal);
-        VkDescriptorImageInfo gtaoFinalInfo{};
-        gtaoFinalInfo.sampler     = m_GTAOSampler;
-        gtaoFinalInfo.imageView   = vkGTAOFinal->GetImageView();
-        gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet writes[4] = {};
-        u32 n = 0;
-
-        if (haveIBL)
-        {
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 1;
-            writes[n].descriptorCount = 1;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &irrInfo;
-            ++n;
-
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 2;
-            writes[n].descriptorCount = 1;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &pfInfo;
-            ++n;
-
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = vr.globalDescriptorSet;
-            writes[n].dstBinding      = 3;
-            writes[n].descriptorCount = 1;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[n].pImageInfo      = &lutInfo;
-            ++n;
-        }
-
-        writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[n].dstSet          = vr.globalDescriptorSet;
-        writes[n].dstBinding      = 4;
-        writes[n].descriptorCount = 1;
-        writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[n].pImageInfo      = &gtaoFinalInfo;
-        ++n;
-
-        if (n > 0) vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
     }
 
     void RenderPipeline::WriteViewPostProcessSets(ViewResources& vr, FrameTargets& targets)

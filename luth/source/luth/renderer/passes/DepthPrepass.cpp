@@ -75,7 +75,7 @@ namespace Luth
                     m_CurrentViewResources->globalDescriptorSet,
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(),
-                    m_LightDescSet,
+                    m_Lighting.GetLightDescSet(),
                     BoneMatrixBuffer::GetDescriptorSet(),
                     m_ObjectSSBODescSet
                 };
