@@ -390,7 +390,7 @@ namespace Luth
                     MaterialSystem::GetDescriptorSet(),
                     m_LightDescSet[slot],
                     BoneMatrixBuffer::GetDescriptorSet(),
-                    m_Pipeline->GetGeometry().GetObjectSSBODescSet()
+                    m_Pipeline->GetGeometry().GetObjectSSBODescSet(slot)
                 };
 
                 m_ShadowPipeline->Bind(cmd);

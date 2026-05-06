@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
+#include "luth/core/FrameData.h"
 #include "luth/renderer/CameraParams.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
@@ -59,7 +60,7 @@ namespace Luth
 
         // ---- Accessors ----
         VkDescriptorSetLayout       GetSet5Layout()         const { return m_ObjectSSBODescLayout; }
-        VkDescriptorSet             GetObjectSSBODescSet()  const { return m_ObjectSSBODescSet; }
+        VkDescriptorSet             GetObjectSSBODescSet(u32 slot) const { return m_ObjectSSBODescSet[slot]; }
         const Memory::GPUSubRegion& GetObjectRegion()       const { return m_ObjectRegion; }
         const Memory::GPUSubRegion& GetIndirectRegion()     const { return m_IndirectRegion; }
         u32                         GetGPUObjectCount()     const { return m_GPUObjectCount; }
@@ -85,7 +86,7 @@ namespace Luth
         // Set 5 — GPUObjectData SSBO descriptor (graphics).
         VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_ObjectSSBODescLayout = VK_NULL_HANDLE;
-        VkDescriptorSet       m_ObjectSSBODescSet    = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ObjectSSBODescSet{};
 
         // Per-render-stage regions (allocated each frame from tagged heap).
         Memory::GPUSubRegion m_ObjectRegion{};
@@ -101,7 +102,7 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_CullPipeline;
         VkDescriptorPool                   m_CullDescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_CullDescLayout = VK_NULL_HANDLE;
-        VkDescriptorSet                    m_CullDescSet    = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_CullDescSet{};
 
         // Depth-prepass pipelines + SPV.
         std::unique_ptr<VKPipeline> m_DepthPrepassPipeline;
