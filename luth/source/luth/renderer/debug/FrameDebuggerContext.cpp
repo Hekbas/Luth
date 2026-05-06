@@ -427,8 +427,8 @@ namespace Luth
             const u32 slot = sys.GetFrameDebugger().capturedFrame.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                rp.GetCurrentViewResources()->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(),
-                rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(), rp.GetGeometry().GetObjectSSBODescSet(slot)
+                rp.GetCurrentViewResources()->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
+                rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(slot), rp.GetGeometry().GetObjectSSBODescSet(slot)
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipelineLayout, 0, 6, sets, 0, nullptr);

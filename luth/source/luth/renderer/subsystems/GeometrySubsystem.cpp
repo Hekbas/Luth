@@ -615,9 +615,9 @@ namespace Luth
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
-                    MaterialSystem::GetDescriptorSet(),
+                    MaterialSystem::GetDescriptorSet(slot),
                     m_Pipeline->GetLighting().GetLightDescSet(slot),
-                    BoneMatrixBuffer::GetDescriptorSet(),
+                    BoneMatrixBuffer::GetDescriptorSet(slot),
                     m_ObjectSSBODescSet[slot]
                 };
 
@@ -787,9 +787,9 @@ namespace Luth
                 VkDescriptorSet sets[] = {
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
-                    MaterialSystem::GetDescriptorSet(),
+                    MaterialSystem::GetDescriptorSet(slot),
                     m_Pipeline->GetLighting().GetLightDescSet(slot),
-                    BoneMatrixBuffer::GetDescriptorSet(),
+                    BoneMatrixBuffer::GetDescriptorSet(slot),
                     m_ObjectSSBODescSet[slot]
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,

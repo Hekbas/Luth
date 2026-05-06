@@ -426,9 +426,9 @@ namespace Luth
                 VkDescriptorSet sets[] = {
                     vr->globalDescriptorSet[slot],
                     bindlessSet,
-                    MaterialSystem::GetDescriptorSet(),
+                    MaterialSystem::GetDescriptorSet(slot),
                     m_Pipeline->GetLighting().GetLightDescSet(slot),
-                    BoneMatrixBuffer::GetDescriptorSet()
+                    BoneMatrixBuffer::GetDescriptorSet(slot)
                 };
 
                 m_SelectionMaskPipeline->Bind(cmd);
