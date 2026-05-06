@@ -48,15 +48,9 @@ namespace Luth
         bindings[2].descriptorCount = 1;
         bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Binding 2 (PP UBO) is rebound per render-stage to a fresh tagged-heap region.
-        VkDescriptorBindingFlags ppBindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
-        VkDescriptorSetLayoutBindingFlagsCreateInfo ppBindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        ppBindingFlagsInfo.bindingCount  = 3;
-        ppBindingFlagsInfo.pBindingFlags = ppBindingFlags;
-
+        // Binding 2 (PP UBO) rebound per render-stage against a per-frame slot;
+        // cycling makes UAB unnecessary.
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.pNext        = &ppBindingFlagsInfo;
-        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 3;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescSetLayout);
@@ -158,7 +152,7 @@ namespace Luth
     void PostProcessSubsystem::UpdateUBO()
     {
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-        if (!vr || vr->compositeDescSet == VK_NULL_HANDLE) return;
+        if (!vr || vr->compositeDescSet[0] == VK_NULL_HANDLE) return;
 
         const auto& s = m_Pipeline->GetSystem().GetPostProcessSettings();
         PostProcessUBO ubo{};
@@ -178,10 +172,12 @@ namespace Luth
         ubo.midtoneBalance      = s.midtoneBalance;
         ubo.highlightBalance    = s.highlightBalance;
 
-        // All 4 PP descriptor sets share one tagged-heap region.
+        // invariant: all 4 PP sets share one tagged-heap region AND the same per-frame slot.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap   = Memory::GPUTaggedPageAllocator::Get();
         const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
@@ -197,10 +193,10 @@ namespace Luth
         bi.range  = region.size;
 
         const VkDescriptorSet ppSets[4] = {
-            vr->bloomExtractDescSet,
-            vr->bloomBlurHDescSet,
-            vr->bloomBlurVDescSet,
-            vr->compositeDescSet,
+            vr->bloomExtractDescSet[slot],
+            vr->bloomBlurHDescSet[slot],
+            vr->bloomBlurVDescSet[slot],
+            vr->compositeDescSet[slot],
         };
         VkWriteDescriptorSet writes[4] = {};
         u32 n = 0;
@@ -220,7 +216,7 @@ namespace Luth
 
     void PostProcessSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
-        if (vr.compositeDescSet == VK_NULL_HANDLE) return;
+        if (vr.compositeDescSet[0] == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -245,7 +241,8 @@ namespace Luth
         VkDescriptorImageInfo compImg0         = makeImg(sceneVk->GetImageView());
         VkDescriptorImageInfo compImg1         = makeImg(bloomAVk->GetImageView());
 
-        VkWriteDescriptorSet writes[8] = {};
+        // 8 stable bindings (b0+b1 of each of 4 sets) propagated to every cycled slot.
+        VkWriteDescriptorSet writes[8 * MAX_FRAMES_IN_FLIGHT] = {};
         u32 idx = 0;
         auto addImg = [&](VkDescriptorSet set, u32 binding, VkDescriptorImageInfo* imgInfo) {
             writes[idx] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -257,14 +254,17 @@ namespace Luth
             ++idx;
         };
 
-        addImg(vr.bloomExtractDescSet, 0, &bloomExtractImg0);
-        addImg(vr.bloomExtractDescSet, 1, &bloomExtractImg1);
-        addImg(vr.bloomBlurHDescSet,   0, &blurHImg0);
-        addImg(vr.bloomBlurHDescSet,   1, &blurHImg1);
-        addImg(vr.bloomBlurVDescSet,   0, &blurVImg0);
-        addImg(vr.bloomBlurVDescSet,   1, &blurVImg1);
-        addImg(vr.compositeDescSet,    0, &compImg0);
-        addImg(vr.compositeDescSet,    1, &compImg1);
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            addImg(vr.bloomExtractDescSet[s], 0, &bloomExtractImg0);
+            addImg(vr.bloomExtractDescSet[s], 1, &bloomExtractImg1);
+            addImg(vr.bloomBlurHDescSet[s],   0, &blurHImg0);
+            addImg(vr.bloomBlurHDescSet[s],   1, &blurHImg1);
+            addImg(vr.bloomBlurVDescSet[s],   0, &blurVImg0);
+            addImg(vr.bloomBlurVDescSet[s],   1, &blurVImg1);
+            addImg(vr.compositeDescSet[s],    0, &compImg0);
+            addImg(vr.compositeDescSet[s],    1, &compImg1);
+        }
 
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
     }
@@ -310,10 +310,11 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomExtract", "BloomA", false,
                     { "bloomExtract", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomExtractPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomExtractPipeline->GetLayout(), 0, 1, &vr->bloomExtractDescSet, 0, nullptr);
+                    m_BloomExtractPipeline->GetLayout(), 0, 1, &vr->bloomExtractDescSet[slot], 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -357,10 +358,11 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurH", "BloomB", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomBlurPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurHDescSet, 0, nullptr);
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurHDescSet[slot], 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -404,10 +406,11 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "BloomBlurV", "BloomAFinal", false,
                     { "bloomBlur", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_BloomBlurPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurVDescSet, 0, nullptr);
+                    m_BloomBlurPipeline->GetLayout(), 0, 1, &vr->bloomBlurVDescSet[slot], 0, nullptr);
 
                 VkViewport vp{}; vp.width = (float)halfW; vp.height = (float)halfH; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -473,10 +476,11 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "PostProcess", "LDROutput", false,
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_PostProcessPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_PostProcessPipeline->GetLayout(), 0, 1, &vr->compositeDescSet, 0, nullptr);
+                    m_PostProcessPipeline->GetLayout(), 0, 1, &vr->compositeDescSet[slot], 0, nullptr);
 
                 u32 w = v->targets->GetLDROutput()->GetWidth();
                 u32 h = v->targets->GetLDROutput()->GetHeight();

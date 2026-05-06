@@ -15,13 +15,11 @@
 
 namespace Luth
 {
-    // Per-view descriptor pool capacity. 9 sets per view (1 global, 4 PP,
-    // 3 GTAO, 1 outline, 1 grid); binding counts sized above the minimum
-    // so future binding additions don't force a pool-size revisit.
-    static constexpr u32 k_ViewPoolMaxSets              = 16;
-    static constexpr u32 k_ViewPoolUniformBufferCount   = 12;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 12;
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 32;
+    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
+    static constexpr u32 k_ViewPoolMaxSets              = 32;
+    static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
+    static constexpr u32 k_ViewPoolStorageImageCount    = 8;
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
 
     namespace {
         // Build the per-view Set 0 write context from RP-side state. invariant:
@@ -99,10 +97,7 @@ namespace Luth
         poolSizes[2].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[2].descriptorCount = k_ViewPoolCombinedSamplerCount;
 
-        // UPDATE_AFTER_BIND for sets that rebind their UBO bindings per render-stage
-        // (Global / GTAO Main / PostProcess / Grid) to fresh tagged-heap regions.
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = k_ViewPoolMaxSets;
         poolInfo.poolSizeCount = 3;
         poolInfo.pPoolSizes    = poolSizes;
@@ -115,7 +110,7 @@ namespace Luth
         const u32 halfH = std::max(targets.GetSceneColor()->GetHeight() / 2, 1u);
         RecreateViewTextures(vr, halfW, halfH);
 
-        auto alloc = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet) {
+        auto allocSingle = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet) {
             if (layout == VK_NULL_HANDLE) return;
             VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
             ai.descriptorPool     = vr.descPool;
@@ -123,18 +118,29 @@ namespace Luth
             ai.pSetLayouts        = &layout;
             vkAllocateDescriptorSets(device, &ai, &outSet);
         };
+        auto allocCycled = [&](VkDescriptorSetLayout layout,
+                               std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>& outArr) {
+            if (layout == VK_NULL_HANDLE) return;
+            VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
+            for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = layout;
+            VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            ai.descriptorPool     = vr.descPool;
+            ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+            ai.pSetLayouts        = layouts;
+            vkAllocateDescriptorSets(device, &ai, outArr.data());
+        };
 
         const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
-        alloc(m_Global.GetSetLayout(),                vr.globalDescriptorSet);
-        alloc(ppLayout,                               vr.bloomExtractDescSet);
-        alloc(ppLayout,                               vr.bloomBlurHDescSet);
-        alloc(ppLayout,                               vr.bloomBlurVDescSet);
-        alloc(ppLayout,                               vr.compositeDescSet);
-        alloc(m_GTAO.GetPrefilterLayout(),            vr.gtaoPrefilterDescSet);
-        alloc(m_GTAO.GetMainLayout(),                 vr.gtaoMainDescSet);
-        alloc(m_GTAO.GetDenoiseLayout(),              vr.gtaoDenoiseDescSet);
-        alloc(m_EditorOverlays.GetOutlineLayout(),    vr.outlineDescSet);
-        alloc(m_EditorOverlays.GetGridLayout(),       vr.gridDescSet);
+        allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet);
+        allocCycled(ppLayout,                            vr.bloomExtractDescSet);
+        allocCycled(ppLayout,                            vr.bloomBlurHDescSet);
+        allocCycled(ppLayout,                            vr.bloomBlurVDescSet);
+        allocCycled(ppLayout,                            vr.compositeDescSet);
+        allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet);
+        allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet);
+        allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet);
+        allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet);
+        allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet);
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);

@@ -80,8 +80,9 @@ namespace Luth
 
         // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
         // render-stage to fresh GPUTaggedPageAllocator regions in UpdateGlobalUniforms /
-        // UpdateGTAOUBO. IBL samplers (1-3) and GTAO final sampler (4) are stable.
-        VkDescriptorSet                  globalDescriptorSet = VK_NULL_HANDLE;
+        // UpdateGTAOUBO against per-frame slot. IBL samplers (1-3) and GTAO final
+        // sampler (4) are stable — replicated across all slots at WriteView time.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> globalDescriptorSet{};
 
         // Bloom half-res ping-pong textures (RGBA16F).
         std::shared_ptr<Texture> bloomA;
@@ -94,21 +95,22 @@ namespace Luth
         std::shared_ptr<Texture> gtaoFinal;
 
         // Bloom extract / blur / composite — bind view's SceneColor +
-        // bloomA/B + shared PP UBO.
-        VkDescriptorSet bloomExtractDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet bloomBlurHDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet bloomBlurVDescSet   = VK_NULL_HANDLE;
-        VkDescriptorSet compositeDescSet    = VK_NULL_HANDLE;
+        // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
+        // all 4 sets atomically against the per-frame slot.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomExtractDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurHDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurVDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> compositeDescSet{};
 
         // GTAO compute passes.
         VkDescriptorSet gtaoPrefilterDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet gtaoMainDescSet      = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gtaoMainDescSet{};
         VkDescriptorSet gtaoDenoiseDescSet   = VK_NULL_HANDLE;
 
         // Editor overlays — allocated for every view, bound only by the
         // scene view (game view's subgraph skips both passes via flags).
         VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
-        VkDescriptorSet gridDescSet    = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
     };
 
     // Owns the per-frame render-graph assembly and execution. Created by

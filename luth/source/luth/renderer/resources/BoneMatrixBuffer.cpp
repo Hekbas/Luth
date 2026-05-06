@@ -12,9 +12,9 @@ namespace Luth
 {
     byte* BoneMatrixBuffer::m_CpuScratch = nullptr;
 
-    VkDescriptorPool BoneMatrixBuffer::m_DescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorPool      BoneMatrixBuffer::m_DescriptorPool      = VK_NULL_HANDLE;
     VkDescriptorSetLayout BoneMatrixBuffer::m_DescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorSet BoneMatrixBuffer::m_DescriptorSet = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> BoneMatrixBuffer::m_DescriptorSets{};
 
     std::deque<u32> BoneMatrixBuffer::m_FreeBlocks;
     Luth::SpinLock BoneMatrixBuffer::m_Lock;
@@ -105,7 +105,8 @@ namespace Luth
 
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetFrameIndex());
+        const u64 gameFrame = Renderer::GetFrameData()->GetFrameIndex();
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(gameFrame);
 
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
         Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, BUFFER_SIZE, 16);
@@ -114,7 +115,10 @@ namespace Luth
         memcpy(region.mappedPtr, m_CpuScratch, BUFFER_SIZE);
         heap.FlushRegion(region);
 
-        // Rewrite Set 4 descriptor. Layout uses UPDATE_AFTER_BIND_BIT.
+        // Write the GAME-frame slot. Render stage of frame K-1 reads slot (K-1)%N
+        // while we're writing slot K%N — distinct slots, no race, no UAB needed.
+        const u32 slot = static_cast<u32>(gameFrame) % MAX_FRAMES_IN_FLIGHT;
+
         VkDescriptorBufferInfo bi{};
         bi.buffer = region.buffer;
         bi.offset = region.offset;
@@ -122,7 +126,7 @@ namespace Luth
 
         VkWriteDescriptorSet write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet          = m_DescriptorSet;
+        write.dstSet          = m_DescriptorSets[slot];
         write.dstBinding      = 0;
         write.dstArrayElement = 0;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -131,9 +135,9 @@ namespace Luth
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
     }
 
-    VkDescriptorSet BoneMatrixBuffer::GetDescriptorSet()
+    VkDescriptorSet BoneMatrixBuffer::GetDescriptorSet(u32 slot)
     {
-        return m_DescriptorSet;
+        return m_DescriptorSets[slot % MAX_FRAMES_IN_FLIGHT];
     }
 
     VkDescriptorSetLayout BoneMatrixBuffer::GetDescriptorSetLayout()
@@ -145,49 +149,41 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // 1. Layout — UPDATE_AFTER_BIND so per-frame Update() can rewrite the binding while
-        // command buffers from previous frames may still reference it. Same as Set 2/Set 5.
+        // Set 4 layout — non-UAB. Cycling provides write/read isolation by frame slot;
+        // each Update() writes a slot the render stage isn't currently consuming.
         VkDescriptorSetLayoutBinding binding{};
-        binding.binding = 0;
-        binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        binding.binding         = 0;
+        binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         binding.descriptorCount = 1;
-        binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
-        bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-        bindingFlagsInfo.bindingCount = 1;
-        bindingFlagsInfo.pBindingFlags = &bindingFlags;
+        binding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.pNext = &bindingFlagsInfo;
-        layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &binding;
-
+        layoutInfo.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 
-        // 2. Pool
+        // Pool sized for MAX_FRAMES_IN_FLIGHT sets; one storage-buffer descriptor each.
         VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSize.descriptorCount = 1;
+        poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        poolInfo.maxSets = 1;
+        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
-
+        poolInfo.pPoolSizes    = &poolSize;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_DescriptorPool);
 
-        // 3. Set — initial allocation; per-frame Update() rewrites the binding.
+        // Allocate all N slots. Each per-game-stage Update() writes its own slot.
+        std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+        layouts.fill(m_DescriptorSetLayout);
+
         VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_DescriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_DescriptorSetLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_DescriptorSet);
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = m_DescriptorPool;
+        allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        allocInfo.pSetLayouts        = layouts.data();
+        vkAllocateDescriptorSets(device, &allocInfo, m_DescriptorSets.data());
     }
 }

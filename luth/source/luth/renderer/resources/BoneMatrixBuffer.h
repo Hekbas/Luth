@@ -1,9 +1,11 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/FrameData.h"
 #include "luth/jobs/SpinLock.h"
 #include "luth/renderer/resources/Skeleton.h"
 #include <vulkan/vulkan.h>
+#include <array>
 #include <deque>
 
 namespace Luth
@@ -14,7 +16,10 @@ namespace Luth
     // Slot-based block allocator (per-entity stable offsets baked into obj.boneOffset).
     // Bone data accumulates into a CPU staging buffer during the game stage; Update()
     // copies the staging into a fresh per-frame GPU region (GPUTaggedPageAllocator) and
-    // rebinds Set 4. Follows the same per-frame upload pattern as MaterialSystem.
+    // writes the GAME-frame's descriptor slot. Bind sites read the RENDER-frame's slot
+    // — game writes K, render reads K-1 → distinct slots, race-free.
+    // invariant: slot count = MAX_FRAMES_IN_FLIGHT; the cycling decouples write/read by
+    // frame so the layout no longer needs UPDATE_AFTER_BIND.
 
     class BoneMatrixBuffer
     {
@@ -33,10 +38,13 @@ namespace Luth
         static void UploadBones(u32 baseIndex, const Mat4* matrices, u32 count);
 
         // Allocates this frame's GPU region, copies CPU staging in, flushes, and
-        // rewrites Set 4 descriptor. Called once per game stage from RenderSnapshot.
+        // writes the game-frame's descriptor slot. Called once per game stage.
         static void Update();
 
-        static VkDescriptorSet GetDescriptorSet();
+        // Returns the descriptor set for the given slot. Call sites pass
+        // `Renderer::GetFrameData()->GetRenderFrameIndex() % MAX_FRAMES_IN_FLIGHT`
+        // (or, for FrameDebugger replay, the captured slot pinned at capture time).
+        static VkDescriptorSet GetDescriptorSet(u32 slot);
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
     private:
@@ -52,9 +60,9 @@ namespace Luth
         // Initialized to identity at Init so unallocated blocks render bind pose.
         static byte* m_CpuScratch;
 
-        static VkDescriptorPool m_DescriptorPool;
+        static VkDescriptorPool      m_DescriptorPool;
         static VkDescriptorSetLayout m_DescriptorSetLayout;
-        static VkDescriptorSet m_DescriptorSet;
+        static std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_DescriptorSets;
 
         static std::deque<u32> m_FreeBlocks; // Block indices (0..MAX_SKINNED_ENTITIES-1)
         // V1: SpinLock — protects only AllocateBlock/FreeBlock (O(1) deque ops).

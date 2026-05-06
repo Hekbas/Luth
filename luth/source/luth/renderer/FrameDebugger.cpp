@@ -1,9 +1,11 @@
 #include "luthpch.h"
 #include "luth/renderer/FrameDebugger.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/core/FrameData.h"
 
 #include <vma/vk_mem_alloc.h>
 #include <backends/imgui_impl_vulkan.h>
@@ -365,6 +367,7 @@ namespace Luth
         // Full cleanup happens via ExitCapture → DestroyArchives.
         capturedFrame.passArchives.clear();
         capturedFrame.Clear();   // metadata-only reset; preserves archivedImages
+        capturedFrame.capturedRenderFrameIndex = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         trackedRTs.clear();
     }
 

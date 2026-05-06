@@ -85,41 +85,35 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 5 layout: binding 0 = ObjectSSBO (UPDATE_AFTER_BIND so BuildGPUObjectBuffer
-        // can rewrite the binding each render stage to a fresh tagged-heap region).
+        // Set 5 layout: binding 0 = ObjectSSBO. BuildGPUObjectBuffer rewrites binding 0
+        // each render stage against a per-frame slot — UAB no longer required.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         binding.descriptorCount = 1;
         binding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsInfo.bindingCount = 1;
-        bindingFlagsInfo.pBindingFlags = &bindingFlags;
-
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.pNext        = &bindingFlagsInfo;
-        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 1;
         layoutInfo.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_ObjectSSBODescLayout);
 
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSize.descriptorCount = 1;
+        poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        poolInfo.maxSets       = 1;
+        poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_ObjectSSBODescPool);
 
+        VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = m_ObjectSSBODescLayout;
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocInfo.descriptorPool     = m_ObjectSSBODescPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts        = &m_ObjectSSBODescLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_ObjectSSBODescSet);
+        allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        allocInfo.pSetLayouts        = layouts;
+        vkAllocateDescriptorSets(device, &allocInfo, m_ObjectSSBODescSet.data());
     }
 
     void GeometrySubsystem::InitCullPipeline()
@@ -137,37 +131,29 @@ namespace Luth
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-        VkDescriptorBindingFlags bindingFlags[2] = {
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-        };
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsInfo.bindingCount  = 2;
-        bindingFlagsInfo.pBindingFlags = bindingFlags;
-
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.pNext        = &bindingFlagsInfo;
-        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 2;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_CullDescLayout);
 
-        // Dedicated UPDATE_AFTER_BIND pool (default DescriptorAllocator's pool isn't UAB-capable).
+        // Per-frame slot of m_CullDescSet rewritten in BuildGPUObjectBuffer; cycling
+        // makes the written slot disjoint from the slot the GPU is consuming.
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSize.descriptorCount = 2;
+        poolSize.descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        poolInfo.maxSets       = 1;
+        poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_CullDescPool);
 
+        VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = m_CullDescLayout;
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocInfo.descriptorPool     = m_CullDescPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts        = &m_CullDescLayout;
-        vkAllocateDescriptorSets(device, &allocInfo, &m_CullDescSet);
+        allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        allocInfo.pSetLayouts        = layouts;
+        vkAllocateDescriptorSets(device, &allocInfo, m_CullDescSet.data());
 
         // PC: 6 frustum planes (96B) + objectCount + destOffset = 104B.
         VkPushConstantRange pcRange{};
@@ -332,11 +318,11 @@ namespace Luth
         m_CullPipeline.reset();
         if (m_CullDescPool)   { vkDestroyDescriptorPool(device, m_CullDescPool, nullptr); m_CullDescPool = VK_NULL_HANDLE; }
         if (m_CullDescLayout) { vkDestroyDescriptorSetLayout(device, m_CullDescLayout, nullptr); m_CullDescLayout = VK_NULL_HANDLE; }
-        m_CullDescSet = VK_NULL_HANDLE;
+        m_CullDescSet.fill(VK_NULL_HANDLE);
 
         if (m_ObjectSSBODescPool)   { vkDestroyDescriptorPool(device, m_ObjectSSBODescPool, nullptr); m_ObjectSSBODescPool = VK_NULL_HANDLE; }
         if (m_ObjectSSBODescLayout) { vkDestroyDescriptorSetLayout(device, m_ObjectSSBODescLayout, nullptr); m_ObjectSSBODescLayout = VK_NULL_HANDLE; }
-        m_ObjectSSBODescSet = VK_NULL_HANDLE;
+        m_ObjectSSBODescSet.fill(VK_NULL_HANDLE);
     }
 
     bool GeometrySubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
@@ -401,11 +387,14 @@ namespace Luth
 
     void GeometrySubsystem::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
     {
-        // Allocate fresh regions from the GPU tagged heap. Tag = absolute render-frame index.
-        // FreeTag(N-2) reclaims them once the GPU retires the consuming submission.
+        // Allocate fresh regions from the GPU tagged heap. Tag = absolute render-frame index;
+        // descriptor slot = same index modulo MAX_FRAMES_IN_FLIGHT (per-frame storage rotation).
+        // FreeTag(N-2) reclaims regions once the GPU retires the consuming submission.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
         const u64 objBytes = static_cast<u64>(RenderPipeline::k_MaxGPUObjects) * sizeof(GPUObjectData);
@@ -487,7 +476,7 @@ namespace Luth
             bi.range  = m_ObjectRegion.size;
 
             VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            write.dstSet          = m_ObjectSSBODescSet;
+            write.dstSet          = m_ObjectSSBODescSet[slot];
             write.dstBinding      = 0;
             write.descriptorCount = 1;
             write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -507,7 +496,7 @@ namespace Luth
 
             VkWriteDescriptorSet writes[2]{};
             writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet          = m_CullDescSet;
+            writes[0].dstSet          = m_CullDescSet[slot];
             writes[0].dstBinding      = 0;
             writes[0].descriptorCount = 1;
             writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -538,7 +527,6 @@ namespace Luth
 
         std::string name = passName ? passName : "FrustumCull";
         auto* pipeline = m_CullPipeline.get();
-        VkDescriptorSet descSet = m_CullDescSet;
         u32 objectCount = m_GPUObjectCount;
         FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
 
@@ -548,16 +536,19 @@ namespace Luth
                 data.objectBuffer   = builder.ReadBuffer(objectBuffer);
                 data.indirectBuffer = builder.WriteBuffer(indirectBuffer);
             },
-            [pipeline, descSet, frustumPlanes, objectCount, destOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
+            [this, pipeline, frustumPlanes, objectCount, destOffset, name, debugger](CullPassData&, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 if (debugger)
                     debugger->BeginCapturePass(ctx.passIndex, name, "", false,
                         { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
+                // Recompute slot at executor time — capturing m_CullDescSet by value
+                // would freeze slot 0 only (cycling refactor invariant).
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 pipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    pipeline->GetLayout(), 0, 1, &descSet, 0, nullptr);
+                    pipeline->GetLayout(), 0, 1, &m_CullDescSet[slot], 0, nullptr);
 
                 CullPushConstants pc{};
                 for (int i = 0; i < 6; ++i) pc.frustumPlanes[i] = frustumPlanes[i];
@@ -619,14 +610,15 @@ namespace Luth
 
                 if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
+                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
-                    MaterialSystem::GetDescriptorSet(),
-                    m_Pipeline->GetLighting().GetLightDescSet(),
-                    BoneMatrixBuffer::GetDescriptorSet(),
-                    m_ObjectSSBODescSet
+                    MaterialSystem::GetDescriptorSet(slot),
+                    m_Pipeline->GetLighting().GetLightDescSet(slot),
+                    BoneMatrixBuffer::GetDescriptorSet(slot),
+                    m_ObjectSSBODescSet[slot]
                 };
 
                 m_DepthPrepassPipeline->Bind(cmd);
@@ -790,14 +782,15 @@ namespace Luth
                 if (!opaquePipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }
                 VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
-                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet,
+                    m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
-                    MaterialSystem::GetDescriptorSet(),
-                    m_Pipeline->GetLighting().GetLightDescSet(),
-                    BoneMatrixBuffer::GetDescriptorSet(),
-                    m_ObjectSSBODescSet
+                    MaterialSystem::GetDescriptorSet(slot),
+                    m_Pipeline->GetLighting().GetLightDescSet(slot),
+                    BoneMatrixBuffer::GetDescriptorSet(slot),
+                    m_ObjectSSBODescSet[slot]
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipelineLayout, 0, 6, sets, 0, nullptr);

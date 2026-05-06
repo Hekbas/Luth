@@ -79,16 +79,9 @@ namespace Luth
             bindings[2].descriptorCount = 1;
             bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-            // invariant: binding 2 (GTAO UBO) shares a tagged-heap region with Set 0
-            // binding 5; UpdateUBO rebinds them in a single batched vkUpdateDescriptorSets.
-            VkDescriptorBindingFlags bindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
-            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bindingFlagsInfo.bindingCount  = 3;
-            bindingFlagsInfo.pBindingFlags = bindingFlags;
-
+            // invariant: binding 2 (GTAO UBO) shares a tagged-heap region AND a per-frame
+            // slot with Set 0 binding 5; UpdateUBO rebinds them in one batched call.
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            layoutCI.pNext        = &bindingFlagsInfo;
-            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_MainDescLayout);
@@ -201,7 +194,7 @@ namespace Luth
     void GTAOSubsystem::UpdateUBO()
     {
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-        if (!vr || vr->globalDescriptorSet == VK_NULL_HANDLE) return;
+        if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         const auto& s = m_Pipeline->GetSystem().GetPostProcessSettings().gtao;
         GTAOUBO ubo{};
@@ -225,11 +218,15 @@ namespace Luth
         ubo.invFullResolution[0] = 1.0f / float(fullW);
         ubo.invFullResolution[1] = 1.0f / float(fullH);
 
-        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame region.
-        // The two writes MUST stay in one batched call so we don't double-allocate per frame.
+        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame
+        // region AND the same per-frame slot. The two writes MUST stay in one batched call
+        // so we don't double-allocate, and both must use the same `slot` so the next frame's
+        // allocator doesn't overwrite a region the previous frame's binding still references.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap   = Memory::GPUTaggedPageAllocator::Get();
         const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
@@ -246,17 +243,17 @@ namespace Luth
 
         VkWriteDescriptorSet writes[2] = {};
         writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr->globalDescriptorSet;
+        writes[0].dstSet          = vr->globalDescriptorSet[slot];
         writes[0].dstBinding      = 5;
         writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[0].descriptorCount = 1;
         writes[0].pBufferInfo     = &bi;
 
         u32 n = 1;
-        if (vr->gtaoMainDescSet != VK_NULL_HANDLE)
+        if (vr->gtaoMainDescSet[0] != VK_NULL_HANDLE)
         {
             writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[1].dstSet          = vr->gtaoMainDescSet;
+            writes[1].dstSet          = vr->gtaoMainDescSet[slot];
             writes[1].dstBinding      = 2;
             writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             writes[1].descriptorCount = 1;
@@ -312,21 +309,25 @@ namespace Luth
         preWrites[1].pImageInfo      = &linDepthStorageInfo;
         vkUpdateDescriptorSets(device, 2, preWrites, 0, nullptr);
 
-        if (vr.gtaoMainDescSet == VK_NULL_HANDLE) return;
-        VkWriteDescriptorSet mainWrites[2]{};
-        mainWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        mainWrites[0].dstSet          = vr.gtaoMainDescSet;
-        mainWrites[0].dstBinding      = 0;
-        mainWrites[0].descriptorCount = 1;
-        mainWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        mainWrites[0].pImageInfo      = &linDepthSampledInfo;
-        mainWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        mainWrites[1].dstSet          = vr.gtaoMainDescSet;
-        mainWrites[1].dstBinding      = 1;
-        mainWrites[1].descriptorCount = 1;
-        mainWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        mainWrites[1].pImageInfo      = &rawAOStorageInfo;
-        vkUpdateDescriptorSets(device, 2, mainWrites, 0, nullptr);
+        if (vr.gtaoMainDescSet[0] == VK_NULL_HANDLE) return;
+        // Bindings 0 + 1 stable; binding 2 (UBO) rebound per render-stage in UpdateUBO.
+        VkWriteDescriptorSet mainWrites[2 * MAX_FRAMES_IN_FLIGHT]{};
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            mainWrites[s * 2 + 0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            mainWrites[s * 2 + 0].dstSet          = vr.gtaoMainDescSet[s];
+            mainWrites[s * 2 + 0].dstBinding      = 0;
+            mainWrites[s * 2 + 0].descriptorCount = 1;
+            mainWrites[s * 2 + 0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            mainWrites[s * 2 + 0].pImageInfo      = &linDepthSampledInfo;
+            mainWrites[s * 2 + 1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            mainWrites[s * 2 + 1].dstSet          = vr.gtaoMainDescSet[s];
+            mainWrites[s * 2 + 1].dstBinding      = 1;
+            mainWrites[s * 2 + 1].descriptorCount = 1;
+            mainWrites[s * 2 + 1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            mainWrites[s * 2 + 1].pImageInfo      = &rawAOStorageInfo;
+        }
+        vkUpdateDescriptorSets(device, 2 * MAX_FRAMES_IN_FLIGHT, mainWrites, 0, nullptr);
 
         if (vr.gtaoDenoiseDescSet == VK_NULL_HANDLE) return;
         VkDescriptorImageInfo rawAOSampledInfo{};
@@ -491,15 +492,16 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GTAOMain", "GTAORawAO", false,
                     { "gtao_main", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                if (!m_MainPipeline || vr->gtaoMainDescSet == VK_NULL_HANDLE)
+                if (!m_MainPipeline || vr->gtaoMainDescSet[0] == VK_NULL_HANDLE)
                 {
                     sys.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_MainPipeline->Bind(cmd);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_MainPipeline->GetLayout(), 0, 1, &vr->gtaoMainDescSet, 0, nullptr);
+                    m_MainPipeline->GetLayout(), 0, 1, &vr->gtaoMainDescSet[slot], 0, nullptr);
 
                 const u32 halfW = vr->gtaoRawAO->GetWidth();
                 const u32 halfH = vr->gtaoRawAO->GetHeight();
