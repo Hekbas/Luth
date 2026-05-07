@@ -144,26 +144,36 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 2 layout — non-UAB. Cycling provides write/read isolation by frame slot.
+        // invariant: Set 2 needs UAB even though slots are cycled. The K%N write at
+        // game-stage K can fire while render-stage K's cmd buffer (which binds the
+        // same slot, recording in parallel) is still in the pending state.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         binding.descriptorCount = 1;
         binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
+        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 1;
+        bindingFlagsCI.pBindingFlags = &bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.pNext        = &bindingFlagsCI;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 1;
         layoutInfo.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 
-        // Pool sized for MAX_FRAMES_IN_FLIGHT sets.
+        // Pool sized for MAX_FRAMES_IN_FLIGHT sets; UPDATE_AFTER_BIND pairs the layout flag.
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
