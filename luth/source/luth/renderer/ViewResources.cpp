@@ -124,6 +124,7 @@ namespace Luth
         poolSizes[2].descriptorCount = k_ViewPoolCombinedSamplerCount;
 
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = k_ViewPoolMaxSets;
         poolInfo.poolSizeCount = 3;
         poolInfo.pPoolSizes    = poolSizes;

@@ -48,9 +48,20 @@ namespace Luth
         bindings[2].descriptorCount = 1;
         bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Binding 2 (PP UBO) rebound per render-stage against a per-frame slot;
-        // cycling makes UAB unnecessary.
+        // invariant: binding 2 (PP UBO) is rewritten per render-stage; cycling alone
+        // doesn't avoid the in-pending-cmdbuf race in practice. UAB needed.
+        VkDescriptorBindingFlags bindingFlags[3] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 3;
+        bindingFlagsCI.pBindingFlags = bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext        = &bindingFlagsCI;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 3;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescSetLayout);

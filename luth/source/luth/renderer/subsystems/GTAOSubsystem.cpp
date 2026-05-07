@@ -79,9 +79,20 @@ namespace Luth
             bindings[2].descriptorCount = 1;
             bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-            // invariant: binding 2 (GTAO UBO) shares a tagged-heap region AND a per-frame
-            // slot with Set 0 binding 5; UpdateUBO rebinds them in one batched call.
+            // invariant: cycling alone doesn't avoid the in-pending-cmdbuf race for
+            // these per-render-stage rewrites — UAB needed (validation 03047).
+            VkDescriptorBindingFlags bindingFlags[3] = {
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 3;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_MainDescLayout);

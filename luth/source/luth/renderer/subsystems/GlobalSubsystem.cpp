@@ -37,9 +37,17 @@ namespace Luth
         bindings[5].descriptorCount = 1;
         bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Bindings 0 (Global UBO) + 5 (GTAO UBO) rebound per render-stage against
-        // a per-frame slot of vr.globalDescriptorSet — UAB no longer required.
+        // invariant: cycled per-frame slots still need UAB — write-vs-still-pending
+        // races slip past the slot rotation in practice (validation layer 03047).
+        VkDescriptorBindingFlags bindingFlags[6] = {};
+        for (auto& f : bindingFlags) f = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 6;
+        bindingFlagsCI.pBindingFlags = bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext        = &bindingFlagsCI;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 6;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);

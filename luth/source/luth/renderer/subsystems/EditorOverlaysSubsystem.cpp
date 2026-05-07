@@ -118,9 +118,19 @@ namespace Luth
             bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
             // invariant: binding 0 (per-view GlobalUBO) shares lifetime AND slot with
-            // Set 0 binding 0 — rebound per render-stage by GlobalSubsystem::UpdateUBO
-            // to the same heap region against the same `slot`. Cycling makes UAB unnecessary.
+            // Set 0 binding 0 — rewritten per render-stage; cycling alone doesn't
+            // avoid the in-pending-cmdbuf race. UAB needed (validation 03047).
+            VkDescriptorBindingFlags bindingFlags[2] = {
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 2;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo li{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            li.pNext        = &bindingFlagsCI;
+            li.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             li.bindingCount = 2;
             li.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &li, nullptr, &m_GridDescSetLayout);
