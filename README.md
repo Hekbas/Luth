@@ -42,7 +42,7 @@ Honestly? I just really love this stuff.
 
 It started with my Bachelor's Thesis, where I designed a dual-renderer engine to benchmark Vulkan path tracing against traditional OpenGL PBR. The focus was purely on real-time graphics, so the underlying architecture was single-threaded. It worked, and I had a blast building it!
 
-Then I watched Christian Gyrling’s GDC talk on *[Parallelizing the Naughty Dog Engine Using Fibers](https://www.gdcvault.com/play/1022186/Parallelizing-the-Naughty-Dog-Engine)*. Seeing how they saturated every single CPU core made me realize that my "simple loop" was basically running with the parking brake on.
+Then I watched Christian Gyrling’s GDC talk on *[Parallelizing the Naughty Dog Engine Using Fibers](https://www.gdcvault.com/play/1022186/Parallelizing-the-Naughty-Dog-Engine)*. Seeing how they saturated every single CPU core made me realize how much was left to explore.
 
 So, I started Luth from scratch to explore high-performance architecture: fiber-based job systems, lock-free memory models, and bindless Vulkan rendering. It is absolutely over-engineered for a solo project, but that’s the point.
 
@@ -53,7 +53,7 @@ So, I started Luth from scratch to explore high-performance architecture: fiber-
 **Prerequisites:**
 - **OS**: Windows 10 / 11
 - **Compiler**: MSVC (v143+) or Clang (C++20-compliant)
-- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com). Needs `dynamicRendering`, `timelineSemaphore`, and `descriptor indexing` (any GPU 2018+)
+- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com). Needs `dynamicRendering`, `timelineSemaphore`, and descriptor indexing with UBO update-after-bind (any GPU 2018+)
 
 **Steps:**
 1.  **Clone with submodules**
@@ -75,8 +75,6 @@ The editor binary lands at `bin/windows-x86_64/Debug/Runtime/Luthien.exe`.
 
 ## Technical Architecture
 
-Luth moves away from standard C++ patterns (RAII everywhere, heavy STL usage, single-threaded contexts) in favor of **Data-Oriented Design** and **Fiber-Based Concurrency**.
-
 ### 1. The Fiber Job System
 Instead of dedicated OS threads per task ("Render Thread", "Audio Thread"), Luth treats the CPU as a generic worker pool.
 * **N:M Threading:** One Worker Thread per CPU core. Logical tasks are wrapped in **Fibers** aka lightweight user-mode stacks that migrate freely between workers.
@@ -87,11 +85,14 @@ Instead of dedicated OS threads per task ("Render Thread", "Audio Thread"), Luth
 Three stages overlap. At any frame `T`, the engine is processing three frames at once:
 
 ```
-time ──►   frame N          frame N-1        frame N-2
-          ┌────────┐      ┌───────────┐     ┌─────────┐
-   CPU →  │  Game  │  →   │  Render   │  →  │   GPU   │
-          │  logic │      │ recording │     │ execute │
-          └────────┘      └───────────┘     └─────────┘
+time ──►
+              ┌──────────┬──────────┬──────────┬──────────┐
+   CPU game   │ N        │ N+1      │ N+2      │ N+3      │
+              ├──────────┼──────────┼──────────┼──────────┤
+   CPU render │ N-1      │ N        │ N+1      │ N+2      │
+              ├──────────┼──────────┼──────────┼──────────┤
+   GPU exec   │ N-2      │ N-1      │ N        │ N+1      │
+              └──────────┴──────────┴──────────┴──────────┘
 ```
 
 1. **Game (N):** Transform / animation updates, then captures a `RenderSnapshot` POD into the frame's `LogicMemory` arena — the immutable handoff to the next stage.
@@ -105,19 +106,25 @@ Game and render run concurrently on worker fibers from frame 2 onward (frames 0/
 
 ```
 Page Pool (2 MB virtual pages)
- ├── TaggedPageAllocator   ──  tagged lifetime, bulk free
- │   └── per-thread cache  ──  lock-free hot-path allocations
- └── LinearAllocator       ──  per-frame, reset on Begin()
+ ├── TaggedPageAllocator      —  CPU side, tagged lifetime, bulk free
+ │   └── per-thread cache     —  lock-free hot-path allocations
+ ├── GPUTaggedPageAllocator   —  host-mapped device pages, freed when GPU N-2 retires
+ │   └── per-frame UBO/SSBO regions, descriptors rebind via UPDATE_AFTER_BIND
+ └── LinearAllocator          —  per-frame, reset on Begin()
 ```
 
 * **Tagged Page Allocator** — Naughty Dog–style. Allocations carry a tag (`LevelGeometry`, `Frame_N`, …) and are freed in bulk by tag.
+* **GPU Tagged Page Allocator** — sibling of the CPU side. Vends 2 MB pages from host-mapped device backings; bulk-freed when the GPU N-2 timeline value retires.
 * **Linear Allocator** — bump-allocate transient frame data (command lists, UI state); resets each frame, no per-object destructors.
+
+Persistent SSBOs (Material Set 2, Light Set 3, Object Set 5) are triple-buffered so frame N writes never overlap frame N-1 GPU reads.
 
 ### 4. Vulkan 1.3 Backend
 Modern hardware, minimal driver overhead.
 * **Bindless Descriptors:** `VK_EXT_descriptor_indexing` binds all engine textures to one global array (`Set 0`). Materials store an integer index — any draw call can sample any texture without rebinding.
 * **Dynamic Rendering:** No `VkRenderPass` / `VkFramebuffer` — passes use `vkCmdBeginRendering` directly.
 * **Timeline Semaphores:** Replace `vkWaitForFences`. A dedicated **Poller Job** queries semaphore values and wakes dependent fibers only when the GPU finishes their workload.
+* **Update-After-Bind:** Per-frame UBO/SSBO descriptor sets are rewritten each frame as their backing GPU pages cycle, eliminating CPU-GPU sync on those bindings.
 * **VMA:** [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) handles all device-memory placement (buffers, images, staging).
 
 ### 5. Render Graph
@@ -145,22 +152,22 @@ Passes execute in topological order; command-buffer recording inside each pass p
 
 | | |
 |---|---|
-| **PBR** | Cook-Torrance BRDF, metallic/roughness workflow, material SSBO with render mode variants (Opaque, Cutout, Transparent) |
-| **Lighting** | 1 directional + up to 64 point lights from ECS, `LightUBO` (Set 3) |
-| **Shadows** | 4-cascade PSSM (Sascha Willems bounding-sphere fit), per-cascade GPU cull, PCF 3×3 via `sampler2DShadow`, cascade blending + bias |
-| **Ambient Occlusion** | GTAO half-res compute chain — depth prefilter → horizon integral → bilateral denoise (Jimenez 2016 slice integral, VS-normal reconstruction from depth) |
-| **GPU Culling** | Compute frustum cull per cascade + main scene, `GPUObjectData` SSBO (Set 5), `vkCmdDrawIndexedIndirect` everywhere |
-| **IBL** | HDR skybox, diffuse irradiance, pre-filtered specular (5 mips), BRDF LUT, split-sum ambient |
-| **Post-Processing** | HDR pipeline, bloom, tonemapping (Reinhard/ACES/Uncharted 2/exposure), vignette, film grain, chromatic aberration |
-| **Shaders** | Single-stage SPIR-V asset pipeline (.vert/.frag/.comp each one artifact + UUID), hot-reload on any stage via FileWatcher, SPIRV-Cross reflection |
-| **Pipeline Cache** | Disk-persisted VkPipelineCache, lazy variant creation, targeted hot-reload invalidation |
-| **Mipmaps** | Per-texture settings pipeline with sampler maxLod control |
+| **PBR** | Cook-Torrance BRDF, metallic/roughness, render-mode variants (Opaque/Cutout/Transparent) |
+| **Lighting** | 1 directional + up to 64 point lights, ECS-driven |
+| **Shadows** | 4-cascade PSSM, per-cascade GPU cull, PCF, cascade blending |
+| **Ambient Occlusion** | GTAO half-res compute (prefilter → integrate → bilateral denoise) |
+| **GPU Culling** | Compute frustum cull per cascade + main scene, indirect draws everywhere |
+| **IBL** | HDR skybox, diffuse irradiance + pre-filtered specular + BRDF LUT, split-sum ambient |
+| **Post-Processing** | HDR pipeline, bloom, 4 tonemap operators, vignette, grain, chromatic aberration |
+| **Shaders** | Single-stage SPIR-V asset pipeline with UUIDs, hot-reload, SPIRV-Cross reflection |
+| **Pipeline Cache** | Disk-persisted, lazy variant creation, targeted hot-reload invalidation |
+| **Mipmaps** | Per-texture pipeline with sampler maxLod control |
 
 ### Animation
 
 | | |
 |---|---|
-| **Sampling** | Fiber-parallel keyframe evaluation across worker threads |
+| **Sampling** | Fiber-parallel keyframe evaluation |
 | **GPU Skinning** | Bone matrix SSBO, vertex shader skinning |
 | **Blending** | SQT interpolation, crossfade transitions, layered override with bone masks |
 | **Root Motion** | Automatic extraction and application to entity transform |
@@ -170,7 +177,7 @@ Passes execute in topological order; command-buffer recording inside each pass p
 
 | | |
 |---|---|
-| **Asset Database** | UUID-based registry with `.meta` sidecar files, importers for shaders/textures/models/materials |
+| **Asset Database** | UUID-based registry with `.meta` sidecars, importers for shaders/textures/models/materials/animations |
 | **Smart Import** | Multi-strategy texture discovery, drag-and-drop with eager import, texture remap dialog |
 | **Hot Reload** | FileWatcher-based live reload for shaders, textures, and project files |
 | **Scene Format** | Custom JSON `.luth` format with dirty tracking and native file dialogs |
@@ -181,9 +188,13 @@ Passes execute in topological order; command-buffer recording inside each pass p
 |---|---|
 | **Scene Interaction** | Mouse picking (ID buffer), selection outlines with occluded fade, shade modes (Lit/Wireframe/Unlit) |
 | **Inspector** | Material editor, animation controls, light/shadow settings, Add Component workflow |
-| **Undo / Redo** | Command pattern with 14 command types, UUID-based entity resolution, gizmo drag coalescing, compound commands, material snapshot undo |
-| **Frame Debugger** | Trigger-based capture, frozen-state model with auto-recapture on camera move, hierarchical event tree (Group/Pass/Cascade/Draw), per-draw replay-then-copy, archive sink + per-pass image staging, CSM cascade detail panel |
+| **Inspector Preview** | Live orbit-camera 3D preview for Material/Model assets |
+| **Play Mode** | Editing/Playing/Paused state machine, JSON scene snapshot, animation gating, transport bar |
+| **Game Panel** | Dedicated camera-driven runtime view with letterbox, no overlays |
 | **Project Panel** | Folder navigation, search, hot reload, context menus for entity/primitive creation |
+| **Thumbnails** | Rendered previews for textures/meshes/materials in Project panel |
+| **Undo / Redo** | Command pattern with UUID-based entity resolution, gizmo drag coalescing, compound commands, material snapshot undo |
+| **Frame Debugger** | Freeze a frame, scrub through every draw, replay any single one to see what it did |
 | **Profiler** | Per-system timing breakdown with fiber-aware instrumentation |
 | **Persistence** | Window layouts, editor settings, and panel state saved across sessions |
 
@@ -199,7 +210,7 @@ See the full [development roadmap](docs/development/ROADMAP.md) for completed ph
 
 **Gameplay** — Physics (Jolt, jobified), GPU particle system, animation blend trees & IK, prefab system, scripting (C#/Lua)
 
-**Editor** — Play mode, asset streaming, visual shader editor
+**Editor** — Asset streaming, visual shader editor
 
 ---
 
