@@ -114,6 +114,11 @@ namespace Luth
         allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         allocInfo.pSetLayouts        = layouts;
         vkAllocateDescriptorSets(device, &allocInfo, m_ObjectSSBODescSet.data());
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            char name[48]; std::snprintf(name, sizeof(name), "Geometry.ObjectSSBO.Slot%u", i);
+            VulkanContext::SetDebugName(m_ObjectSSBODescSet[i], name);
+        }
     }
 
     void GeometrySubsystem::InitCullPipeline()
@@ -154,6 +159,11 @@ namespace Luth
         allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         allocInfo.pSetLayouts        = layouts;
         vkAllocateDescriptorSets(device, &allocInfo, m_CullDescSet.data());
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            char name[48]; std::snprintf(name, sizeof(name), "Geometry.Cull.Slot%u", i);
+            VulkanContext::SetDebugName(m_CullDescSet[i], name);
+        }
 
         // PC: 6 frustum planes (96B) + objectCount + destOffset = 104B.
         VkPushConstantRange pcRange{};

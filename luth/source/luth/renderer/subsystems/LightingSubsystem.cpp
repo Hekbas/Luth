@@ -216,6 +216,11 @@ namespace Luth
         allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         allocInfo.pSetLayouts = layouts;
         vkAllocateDescriptorSets(device, &allocInfo, m_LightDescSet.data());
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            char name[48]; std::snprintf(name, sizeof(name), "Lighting.Light.Slot%u", i);
+            VulkanContext::SetDebugName(m_LightDescSet[i], name);
+        }
 
         // Initial write: stable shadow sampler propagated to every slot. Binding 0
         // (Light UBO) is rewritten per-frame in UploadLightUBO against the slot's set.

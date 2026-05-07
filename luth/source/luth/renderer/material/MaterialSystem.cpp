@@ -179,5 +179,10 @@ namespace Luth
         allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         allocInfo.pSetLayouts        = layouts.data();
         vkAllocateDescriptorSets(device, &allocInfo, m_DescriptorSets.data());
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            char name[48]; std::snprintf(name, sizeof(name), "Material.Slot%u", i);
+            VulkanContext::SetDebugName(m_DescriptorSets[i], name);
+        }
     }
 }

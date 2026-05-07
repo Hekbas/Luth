@@ -10,6 +10,19 @@ namespace Luth
 {
     static VulkanContext* s_Instance = nullptr;
 
+    void VulkanContext::SetDebugName(VkDescriptorSet set, const char* name)
+    {
+        if (!s_Instance || s_Instance->m_Device == VK_NULL_HANDLE || set == VK_NULL_HANDLE) return;
+        static auto fn = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(
+            s_Instance->m_Device, "vkSetDebugUtilsObjectNameEXT");
+        if (!fn) return;
+        VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
+        info.objectType   = VK_OBJECT_TYPE_DESCRIPTOR_SET;
+        info.objectHandle = (u64)set;
+        info.pObjectName  = name;
+        fn(s_Instance->m_Device, &info);
+    }
+
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,

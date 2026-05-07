@@ -106,6 +106,7 @@ namespace Luth
         allocCI.descriptorSetCount = 1;
         allocCI.pSetLayouts        = &fd.descSetLayout;
         vkAllocateDescriptorSets(device, &allocCI, &fd.descSet);
+        VulkanContext::SetDebugName(fd.descSet, "FrameDebugger.DebugBlit");
 
         // Create blit pipeline (color)
         std::vector<VkDescriptorSetLayout> layouts = { fd.descSetLayout };

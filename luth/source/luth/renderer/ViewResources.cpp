@@ -136,16 +136,18 @@ namespace Luth
         const u32 halfH = std::max(targets.GetSceneColor()->GetHeight() / 2, 1u);
         RecreateViewTextures(vr, halfW, halfH);
 
-        auto allocSingle = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet) {
+        auto allocSingle = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet, const char* tag) {
             if (layout == VK_NULL_HANDLE) return;
             VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
             ai.descriptorPool     = vr.descPool;
             ai.descriptorSetCount = 1;
             ai.pSetLayouts        = &layout;
             vkAllocateDescriptorSets(device, &ai, &outSet);
+            VulkanContext::SetDebugName(outSet, tag);
         };
         auto allocCycled = [&](VkDescriptorSetLayout layout,
-                               std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>& outArr) {
+                               std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>& outArr,
+                               const char* tagPrefix) {
             if (layout == VK_NULL_HANDLE) return;
             VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
             for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = layout;
@@ -154,19 +156,24 @@ namespace Luth
             ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
             ai.pSetLayouts        = layouts;
             vkAllocateDescriptorSets(device, &ai, outArr.data());
+            for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+            {
+                char name[64]; std::snprintf(name, sizeof(name), "%s.Slot%u", tagPrefix, i);
+                VulkanContext::SetDebugName(outArr[i], name);
+            }
         };
 
         const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
-        allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet);
-        allocCycled(ppLayout,                            vr.bloomExtractDescSet);
-        allocCycled(ppLayout,                            vr.bloomBlurHDescSet);
-        allocCycled(ppLayout,                            vr.bloomBlurVDescSet);
-        allocCycled(ppLayout,                            vr.compositeDescSet);
-        allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet);
-        allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet);
-        allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet);
-        allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet);
-        allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet);
+        allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet,  "View.Global");
+        allocCycled(ppLayout,                            vr.bloomExtractDescSet,  "View.BloomExtract");
+        allocCycled(ppLayout,                            vr.bloomBlurHDescSet,    "View.BloomBlurH");
+        allocCycled(ppLayout,                            vr.bloomBlurVDescSet,    "View.BloomBlurV");
+        allocCycled(ppLayout,                            vr.compositeDescSet,     "View.Composite");
+        allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet, "View.GTAOPrefilter");
+        allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet,      "View.GTAOMain");
+        allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet,   "View.GTAODenoise");
+        allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet,       "View.Outline");
+        allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet,          "View.Grid");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);

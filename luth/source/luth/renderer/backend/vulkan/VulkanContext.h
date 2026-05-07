@@ -52,9 +52,13 @@ namespace Luth
         void PushDeletion(std::function<void()>&& function);
         void FlushDeletionQueue();
         void FlushAllDeletionQueues();
-        
+
         // Called by RendererAPI
         void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
+
+        // VK_EXT_debug_utils tag — validation layer prints `name` alongside the
+        // raw handle in error messages. No-op when validation/debug-utils is off.
+        static void SetDebugName(VkDescriptorSet set, const char* name);
 
     private:
         void CreateInstance();

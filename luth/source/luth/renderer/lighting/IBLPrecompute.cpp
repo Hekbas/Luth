@@ -55,7 +55,7 @@ namespace Luth
         return pool;
     }
 
-    static VkDescriptorSet AllocateIBLSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout)
+    static VkDescriptorSet AllocateIBLSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout, const char* tag = "IBL")
     {
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocInfo.descriptorPool = pool;
@@ -63,6 +63,7 @@ namespace Luth
         allocInfo.pSetLayouts = &layout;
         VkDescriptorSet set = VK_NULL_HANDLE;
         vkAllocateDescriptorSets(device, &allocInfo, &set);
+        VulkanContext::SetDebugName(set, tag);
         return set;
     }
 
@@ -173,7 +174,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout, "IBL.Equirect2Cube");
 
                     VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
                     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -316,7 +317,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout, "IBL.Irradiance");
 
                     VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
                     sampCI.magFilter = VK_FILTER_LINEAR;
@@ -441,7 +442,8 @@ namespace Luth
 
                         VkImageView mipView = vkPf->CreateMipView(mip, true);
 
-                        VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
+                        char tag[32]; std::snprintf(tag, sizeof(tag), "IBL.Prefilter.Mip%u", mip);
+                        VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout, tag);
 
                         VkDescriptorImageInfo envInfo{};
                         envInfo.sampler = envSampler;
@@ -508,7 +510,7 @@ namespace Luth
                     VkDescriptorSetLayout descLayout;
                     vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &descLayout);
 
-                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout);
+                    VkDescriptorSet descSet = AllocateIBLSet(device, iblPool, descLayout, "IBL.BRDFLut");
 
                     auto vkLut = std::static_pointer_cast<VKTexture>(result.brdfLut);
 
