@@ -9,16 +9,14 @@ namespace Luth::RG
 {
     struct CapturedFrame;
 
-    // Phase 14D — Hierarchical event tree shown in the Frame Debugger panel.
+    // Hierarchical event tree shown in the Frame Debugger panel. Built once at capture finalize
+    // from CapturedFrame::passes + drawCalls, then traversed recursively by the panel's
+    // DrawEventNode. Selection is stored on the panel as (passIndex, drawIndex) and resolved
+    // through the tree by walking children, which keeps the model simple and serialization-free.
     //
-    // Built once at capture finalize from CapturedFrame::passes + drawCalls,
-    // then traversed recursively by the panel's DrawEventNode. Selection is
-    // stored on the panel as (passIndex, drawIndex) and resolved through the
-    // tree by walking children — keeps the model simple and serialization-free.
-    //
-    // Group routing is via an explicit prefix registry inside BuildEventTree
-    // (NOT a generic split-on-dot — too brittle when a pass name happens to
-    // contain a period). Today's groups: "Frustum Culling" and "Shadows".
+    // Group routing uses an explicit prefix registry inside BuildEventTree (NOT a generic
+    // split-on-dot, which would be brittle when a pass name happens to contain a period).
+    // Today's groups: "Frustum Culling" and "Shadows".
     enum class EventNodeKind : u8 { Group, Pass, Draw, Cascade };
 
     struct EventNode

@@ -24,7 +24,7 @@ namespace Luth
 
     void ResourcePanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // PopulateData (asset DB enumeration + sort/filter) stays inline for v2.9.0;
+        // PopulateData (asset DB enumeration + sort/filter) stays inline today;
         // future polish can shift it here.
         builder.Add<ResourceListSnapshot>();
     }

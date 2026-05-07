@@ -55,10 +55,9 @@ namespace Luth
 
     void ScenePanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // v2.9.0 minimum-viable migration. Most viewport work is unavoidably ImGui-driven
-        // (ImGuizmo, ImGui::Image of the rendertarget, drag-drop). Camera matrices feed
-        // into RenderingSystem via EditorViewportState in App::Run line 239 — moving that
-        // capture here is a future polish target.
+        // Most viewport work is unavoidably ImGui-driven (ImGuizmo, ImGui::Image of the
+        // rendertarget, drag-drop). Camera matrices feed RenderingSystem via
+        // EditorViewportState in App::Run; capturing them here is future polish.
         auto* snap = builder.Add<SceneViewportSnapshot>();
         snap->selectionVersion = EditorSelection::GetVersion();
     }

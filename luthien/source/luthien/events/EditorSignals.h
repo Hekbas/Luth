@@ -1,17 +1,15 @@
 #pragma once
 
-// EditorSignal — typed events on EventBus::BusType::MainThread that broadcast
-// editor state mutations to subscribed panels. Replaces the v2.8.x hierarchy-
-// version polling pattern.
+// Typed events on EventBus::BusType::MainThread that broadcast editor state mutations to
+// subscribed panels. The reactive replacement for the older hierarchy-version polling pattern.
 //
-// All signals are UUID-based (never raw entt::entity, per the v2.7.0 command
-// precedent) so handles stay valid across destroy-undo cycles. Dispatched
-// between frames by EventBus::ProcessEvents on the main thread; panels'
-// OnEvent handlers can mutate panel state without racing OnGather.
+// All signals are UUID-based (never raw entt::entity, matching the command system) so handles
+// stay valid across destroy-undo cycles. EventBus::ProcessEvents drains them between frames on
+// the main thread, so panels' OnEvent handlers can mutate panel state without racing OnGather.
 //
-// Reentrancy: a handler that enqueues another EditorSignal will see it fire
-// on the NEXT ProcessEvents drain (next frame, typically). Don't rely on
-// chained synchronous dispatch — write to panel state instead.
+// Reentrancy: a handler that enqueues another EditorSignal will see it fire on the NEXT
+// ProcessEvents drain (typically the next frame). Don't rely on chained synchronous dispatch;
+// write to panel state and let the next pump deliver it.
 
 #include "luth/core/EditorHooks.h"   // PlayState
 #include "luth/core/UUID.h"
@@ -165,7 +163,7 @@ namespace Luth
     };
 
     // Play-mode state transition. AnimationSystem-gated panels, dirty-flag
-    // controllers, autosave (v2.9.4+) all subscribe.
+    // controllers, and autosave subscribe.
     class PlayStateChangedSignal : public Event
     {
     public:

@@ -10,6 +10,9 @@ namespace Luth
 {
     class Scene;
 
+    // ImGuizmo wrapper. Holds the active gizmo operation (translate / rotate / scale) and the
+    // 2D icon-overlay state for camera and light entities drawn over the viewport. ScenePanel
+    // invokes it during its OnDraw — gizmo input is dominantly ImGui-driven so it stays inline.
     class GizmoController
     {
     public:

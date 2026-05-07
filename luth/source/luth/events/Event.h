@@ -4,6 +4,8 @@
 
 namespace Luth
 {
+    // Base class for everything the EventBus dispatches. Derived classes implement
+    // GetName / GetCategoryFlags; subscribers filter by category bit.
     enum EventCategory
     {
         None = 0,

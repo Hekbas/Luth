@@ -1,19 +1,18 @@
 #pragma once
 
+// Engine-wide primitive aliases (i32, f32, byte, ...) and the std::filesystem alias `fs`.
+// Headers that need only primitives include this instead of pulling LuthMath.h, which also
+// drags in GLM. See LuthMath.h for vector / matrix / quaternion aliases and the Math:: facade.
+
 #include <cstdint>
 #include <cstddef>
 #include <filesystem>
 
 namespace Luth
 {
-    // =============================================
-    //                   Alias
-    // =============================================
     namespace fs = std::filesystem;
 
-    // =============================================
-    //            Primitive Types
-    // =============================================
+    // ── Primitive types ──
     using i8  = int8_t;     //  8-bit signed integer
     using i16 = int16_t;    // 16-bit signed integer
     using i32 = int32_t;    // 32-bit signed integer
@@ -29,9 +28,7 @@ namespace Luth
 
     using byte = std::byte; // Standard byte type
 
-    // =============================================
-    //          Static Assertions (Safety)
-    // =============================================
+    // ── Static assertions (safety) ──
     static_assert(sizeof(Luth::i32) == 4, "i32 must be 4 bytes!");
     static_assert(sizeof(Luth::f32) == 4, "f32 must be 4 bytes!");
 }

@@ -7,6 +7,9 @@ namespace Luth
 {
     struct EditorSettings;
 
+    // Orbit-and-fly camera that drives the Scene viewport. ScenePanel input updates it on the main
+    // thread between frames; the resulting view and projection matrices feed RenderingSystem each
+    // frame through EditorViewportState. Locked-entity mode follows a target Entity's transform.
     class EditorCamera
     {
     public:

@@ -8,6 +8,9 @@
 
 namespace Luth
 {
+    // Add / remove / property-change commands for ECS components. Each is keyed by Component::ID
+    // (the UUID), so undo / redo survives entity-handle recycling: replaying an ancient command
+    // after a destroy / recreate cycle still finds the right entity by its persistent UUID.
     template<typename T>
     class ComponentAddCommand : public ICommand
     {

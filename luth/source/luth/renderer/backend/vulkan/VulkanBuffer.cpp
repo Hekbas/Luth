@@ -9,9 +9,7 @@
 
 namespace Luth
 {
-    // ========================================================================
-    // Vertex Buffer
-    // ========================================================================
+    // ── Vertex Buffer ──
 
     VKVertexBuffer::VKVertexBuffer(uint32_t size)
     {
@@ -50,13 +48,11 @@ namespace Luth
         // submit. Caller does not wait on the fence — submissions on the same queue serialize,
         // so any draw that consumes m_Buffer (always submitted later in the frame) implicitly
         // observes the upload. Today UploadContext runs on the graphics queue; the fence-based
-        // sync stays correct when async-compute-queue (v2.9.2) splits to a transfer family.
+        // sync stays correct if a future async-compute split moves this to a dedicated transfer family.
         UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
     }
 
-    // ========================================================================
-    // Index Buffer
-    // ========================================================================
+    // ── Index Buffer ──
 
     VKIndexBuffer::VKIndexBuffer(const uint32_t* indices, uint32_t count)
         : m_Count(count)
@@ -84,9 +80,7 @@ namespace Luth
 
     void VKIndexBuffer::Bind() const {}
 
-    // ========================================================================
-    // Uniform Buffer
-    // ========================================================================
+    // ── Uniform Buffer ──
 
     VKUniformBuffer::VKUniformBuffer(uint32_t size)
     {

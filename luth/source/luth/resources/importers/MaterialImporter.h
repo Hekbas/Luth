@@ -5,14 +5,15 @@
 
 namespace Luth
 {
+    // The raw JSON survives the import step intact and is parsed by Material::Deserialize on
+    // the main thread, where the live Material can resolve UUID references against AssetManager.
     struct MaterialAssetData : public AssetData
     {
-        // We store the raw JSON to deserialize on the main thread, 
-        // or we could parse into a struct here. 
-        // Since Material::Deserialize takes JSON, let's store that.
         nlohmann::json JsonData;
     };
 
+    // Imports .lhmat material assets. The .lhmat is itself JSON, so the importer is essentially
+    // a copy + validate pass that pins the JSON for later main-thread deserialization.
     class MaterialImporter : public AssetImporter
     {
     public:

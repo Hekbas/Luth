@@ -8,6 +8,9 @@
 
 namespace Luth
 {
+    // Bind-pose bone hierarchy for a Model. Bones are stored in topological order (parent before
+    // child) so a single forward sweep is enough to compose world matrices. Owned by Model;
+    // per-entity playback state lives separately on Component::Animation.
     static constexpr u32 MAX_BONES_PER_VERTEX = 4;
     static constexpr u32 MAX_BONES = 256;
 

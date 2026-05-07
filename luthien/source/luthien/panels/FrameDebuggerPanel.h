@@ -10,9 +10,8 @@ namespace Luth
 {
     // FrameDebugger pass tree, archive previews, and per-draw replay all run against
     // descriptor sets allocated on the main thread (ImGui_ImplVulkan_AddTexture is not
-    // MT-safe). Snapshot is a placeholder for v2.9.0; the bulk of OnDraw remains inline
-    // because moving descriptor management requires the bind-queue pattern from
-    // editor-thumbnails (v2.9.5).
+    // MT-safe). Snapshot is a placeholder; the bulk of OnDraw remains inline because
+    // moving descriptor management would require ThumbnailCache's bind-queue pattern.
     struct FrameDebuggerSnapshot { /* placeholder */ };
 
     class FrameDebuggerPanel : public Panel

@@ -74,8 +74,8 @@ namespace Luth
     void ProfilerPanel::OnGather(EditorSnapshotBuilder& builder)
     {
         // Stat aggregation (FPS history rotate, MemoryTracker::GetSnapshot,
-        // JobSystem::GetStats, GPU memory) reads globals — all candidate for OnGather
-        // moves. v2.9.0 keeps it inline; future polish epic shifts it.
+        // JobSystem::GetStats, GPU memory) reads globals — candidates for OnGather
+        // moves later. Stays inline today.
         builder.Add<ProfilerSnapshot>();
     }
 

@@ -7,7 +7,14 @@
 #include <functional>
 #include <cassert>
 
-// V<n> markers in this file refer to JobSystem hazards — see docs/development/arch/version-glossary.md
+// invariant: V<n> markers in this file refer to JobSystem hazards.
+// See docs/development/arch/fiber-system.md for the hazard catalog and version-glossary.md for V<n> labels.
+//
+// The job scheduler. Naughty-Dog-style fibers on top of Win32 FLS, per-worker Chase-Lev work-
+// stealing deques for normal-priority jobs, and a global lock-free MPMC queue for high-priority
+// dispatches. The main thread (worker 0) is V2-isolated: it pumps OS events and busy-spins on
+// frame counters without entering the steal loop. WaitForCounter cooperates with V5 inline
+// execution up to depth 4 before falling back to a fiber switch through the AllocateFiber pool.
 
 namespace Luth
 {

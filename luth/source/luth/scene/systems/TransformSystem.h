@@ -7,6 +7,11 @@
 
 namespace Luth
 {
+    // Propagates local-to-world transforms each game tick. invariant: parent levels finish
+    // before child levels dispatch (level-parallel BFS, one Counter per level), so any child
+    // reading its parent's WorldTransform sees an up-to-date value without a barrier. The
+    // hierarchy version counter drives the BFS rebuild; per-entity recompute is gated by
+    // Transform::IsDirty for early-out.
     class TransformSystem : public ISystem
     {
     public:

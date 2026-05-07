@@ -14,10 +14,10 @@ namespace Luth
 {
     class Scene;
 
-    // v2.9.0 lifecycle migration. Scene panel is dominantly ImGui-driven (gizmo
-    // input, viewport image, drag-drop), so the snapshot is intentionally tiny —
-    // most work belongs in OnDraw. Future polish can capture EditorCamera matrices
-    // into the snapshot for the EditorViewportState handoff to live in gather.
+    // Scene panel is dominantly ImGui-driven (gizmo input, viewport image, drag-drop),
+    // so the snapshot is intentionally tiny — most work belongs in OnDraw. Future polish
+    // can capture EditorCamera matrices here so the EditorViewportState handoff happens
+    // in gather instead.
     struct SceneViewportSnapshot
     {
         u32 selectionVersion = 0;

@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // Vertex and index buffer pair, owned by a Model. Each importer mesh primitive becomes one
+    // Mesh. Sharing the same Mesh across MeshRenderer components avoids duplicating GPU buffers
+    // for identical geometry.
     class Mesh
     {
     public:

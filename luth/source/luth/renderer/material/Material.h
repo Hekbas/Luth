@@ -15,6 +15,9 @@
 
 namespace Luth
 {
+    // PBR-shading asset. Holds the map UUIDs (resolved to bindless texture slots at runtime),
+    // GPU-uploaded factors (color, metalness, roughness), and the render-mode plus cull-mode
+    // selectors that drive PipelineManager combo lookups.
     enum class MapType {
         Diffuse     = 0,
         Alpha       = 1,

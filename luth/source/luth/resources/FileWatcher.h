@@ -11,6 +11,10 @@ namespace fs = std::filesystem;
 
 namespace Luth
 {
+    // Polling watcher on a directory tree. Runs on its own dedicated OS thread with std::mutex
+    // and sleeps; it is intentionally NOT paced through the fiber system because the polling
+    // semantics tolerate blocking. AssetDatabase uses it to detect external edits and then
+    // forward AssetChangedSignal events into the editor.
     class FileWatcher
     {
     public:

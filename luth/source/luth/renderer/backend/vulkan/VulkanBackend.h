@@ -11,6 +11,10 @@
 
 namespace Luth
 {
+    // Concrete RenderBackend implementation. Owns the swapchain, the per-frame ring of
+    // CommandAllocatorPools (MAX_FRAMES_IN_FLIGHT), the timeline semaphore that drives the V6
+    // FreeTag(N-2) heap reclaim, and the primary command buffer for each frame's submit.
+    // Polled non-blocking by the Game(N) | Render(N-1) | GPU(N-2) loop in App::Run.
     class VulkanBackend : public RenderBackend
     {
     public:

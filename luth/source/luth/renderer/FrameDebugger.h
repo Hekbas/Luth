@@ -17,10 +17,14 @@ typedef struct VmaAllocator_T* VmaAllocator;
 
 namespace Luth
 {
+    // Capture-and-replay state for the editor's Frame Debugger panel. Implements RG::IArchiveSink so
+    // the render graph copies tracked render-targets into owned VkImages post-pass. The panel can
+    // then preview each pass's output and re-record individual draws via ImmediateSubmit while the
+    // live graph stays paused in DebuggerState::Frozen. One instance lives on RenderingSystem.
     enum class DebuggerState : u8 { Inactive, CaptureRequested, Frozen };
 
-    // Which view the user has chosen to capture next (and to overlay during
-    // Frozen). The corresponding viewport's RG installs the archive sink.
+    // Which view the user has chosen to capture next (and to overlay during Frozen).
+    // The corresponding viewport's RG installs the archive sink.
     enum class CaptureSource : u8 { Scene, Game };
 
     struct FrameDebugger : public RG::IArchiveSink
@@ -41,11 +45,10 @@ namespace Luth
         // GPU copy bandwidth doesn't saturate mid-tier GPUs).
         u64 lastRecaptureFrameIndex = 0;
 
-        // Phase 14C — drawLimit / replayDrawCounter / captured*Draws removed.
-        // Live re-replay is gone; per-draw stepping (Phase 14E) reads frozen UBOs/
-        // SSBOs/indirect and re-records the owning pass via ImmediateSubmit.
+        // Per-draw stepping reads the frozen UBOs/SSBOs/indirect buffers and
+        // re-records the owning pass via ImmediateSubmit; live re-replay is gone.
 
-        // Debug blit resources (still used by Phase 14D for depth->color preview)
+        // Debug blit resources (depth -> color preview composition)
         std::unique_ptr<VKPipeline>  blitPipeline;
         std::unique_ptr<VKPipeline>  depthPipeline;
         std::vector<u32>             blitFragSpv;
@@ -55,7 +58,7 @@ namespace Luth
         VkDescriptorSet              descSet       = VK_NULL_HANDLE;
         VkSampler                    sampler       = VK_NULL_HANDLE;
 
-        // Phase 14B — Archive sink configuration. Names match RG::TextureDesc::name.
+        // Archive sink configuration. Names match RG::TextureDesc::name.
         // Set by RegisterTrackedRT before each capture.
         std::unordered_set<std::string> trackedRTs;
 
@@ -94,7 +97,7 @@ namespace Luth
         void CaptureComputeDispatch(const std::string& passName, const std::string& shaderName,
                                     u32 groupCountX, u32 groupCountY, u32 groupCountZ);
 
-        // Phase 14B — Archive lifecycle (called from RenderingSystem around capture frame)
+        // Archive lifecycle (called from RenderingSystem around the capture frame).
         void BeginCapture(VkDevice device, VmaAllocator allocator);
         void RegisterTrackedRT(const std::string& name);
         void FinalizeCapture(const Mat4& viewProj);

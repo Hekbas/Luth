@@ -1,5 +1,8 @@
 #pragma once
 
+// Single-include main() forwarder. A runtime executable (Luthien.exe, future game runtimes) includes
+// this header exactly once and provides Luth::CreateApp; the engine owns everything in between.
+
 #include "luth/core/App.h"
 #include "luth/core/diagnostics/Log.h"
 

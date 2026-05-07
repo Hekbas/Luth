@@ -10,6 +10,9 @@ namespace Luth
 {
     class Scene;
 
+    // Typed-handle table for ECS systems. Registration order is update order. Get<T>() is
+    // O(N) across slots, but N is small (~6 systems) and the lookup is rare. Holds the bound
+    // Scene pointer so Update() doesn't have to re-thread it through every callsite.
     class SystemRegistry
     {
     public:

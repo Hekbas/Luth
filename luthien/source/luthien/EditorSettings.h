@@ -8,6 +8,9 @@
 
 namespace Luth
 {
+    // Per-project editor preferences. Persists to <project>/.luth/EditorSettings.json so user-
+    // facing knobs (style, layout, camera, IBL intensity, panel-specific toggles) survive
+    // project reloads. Editor::SaveSettings flushes on shutdown and on explicit user save.
     struct EditorSettings
     {
         // Style

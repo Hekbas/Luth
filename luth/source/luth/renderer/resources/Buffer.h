@@ -10,6 +10,10 @@
 
 namespace Luth
 {
+    // Vertex / Index / Uniform buffer abstractions plus the BufferLayout description used when
+    // building pipelines. BufferLayout describes the CPU-side vertex format and emits the matching
+    // VkVertexInput* descriptions for pipeline construction. Concrete backend types
+    // (VKVertexBuffer / VKIndexBuffer / VKUniformBuffer) live in backend/vulkan/.
     enum class ShaderDataType
     {
         None = 0,

@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // RAII graphics pipeline wrapper. PipelineConfig is the build-time recipe (color / depth
+    // formats, blend, depth state, vertex input layout); the constructor compiles the VkPipeline
+    // and caches it through PipelineCache so material and render-mode combos can reuse the result.
     struct PipelineConfig
     {
         std::vector<VkFormat> colorFormats;

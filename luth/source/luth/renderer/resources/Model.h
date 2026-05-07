@@ -14,6 +14,10 @@
 
 namespace Luth
 {
+    // Model asset and the in-memory CPU mesh data structs (Vertex, SkinnedVertex, MeshData).
+    // ModelImporter (Assimp) reads source files and splits the result into GPU Mesh, Skeleton,
+    // and AnimationClip resources. The CPU MeshData lives only long enough to upload through
+    // UploadContext; the loaded Model holds GPU handles after that.
     struct Vertex {
         Vec3 Position;
         Vec3 Normal;

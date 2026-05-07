@@ -6,6 +6,10 @@
 
 namespace Luth::RG
 {
+    // Render-graph handle types and the resource-state enum. ResourceHandle and BufferHandle
+    // are versioned indices: versioning lets resource aliasing track distinct logical writes
+    // to the same physical resource. ResourceState drives the barrier solver via the
+    // GetStateInfo lookup in RenderGraph.cpp.
     struct ResourceHandle
     {
         u32 index = 0;

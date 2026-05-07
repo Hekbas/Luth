@@ -5,11 +5,12 @@
 
 namespace Luth
 {
-    // Number of shadow cascades for directional-light CSM (Phase 13)
+    // Cascaded shadow maps for directional lights. Cascade count and per-cascade resolution
+    // must stay in sync with the GLSL counterparts in pbr.frag and shadowDepth.* shaders.
     inline constexpr u32 k_ShadowCascadeCount = 4;
     inline constexpr u32 k_ShadowResolution   = 2048;
 
-    // ---- Light data structs (mirrored in pbr.frag Set 3) ----
+    // ── Light data structs (mirrored in pbr.frag Set 3) ──
 
     struct DirectionalLightData {
         Vec3 direction;   // 12

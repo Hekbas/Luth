@@ -6,6 +6,9 @@ namespace Luth
 {
     class Texture;
 
+    // Inspector pane for Texture assets. Shows a preview plus sampler settings (wrap, filter,
+    // mip generation); changes flush back through the import pipeline on Apply, which produces
+    // a fresh artifact and reloads it through AssetManager.
     class TextureEditor
     {
     public:

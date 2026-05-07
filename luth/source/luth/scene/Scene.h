@@ -11,6 +11,10 @@ namespace Luth
 {
     class Entity;
 
+    // Owns the EnTT registry, the root-entity list, the hierarchy version counter, and the
+    // HoldAsset shared_ptr cache that keeps in-use assets pinned across AssetManager Trim cycles.
+    // Mutations land on the main thread between frames; ECS systems read it on game / render
+    // fibers without taking a lock — the frame fence orders writer and readers.
     class Scene
     {
     public:

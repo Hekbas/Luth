@@ -10,15 +10,15 @@ namespace Luth
 {
     class RenderPipeline;
 
-    // Owns the render-side frame-debugger infrastructure that lives next to
-    // RenderPipeline — per-draw + depth preview textures, the debug-blit
-    // render-graph pass, and the replay-then-copy path. Distinct from
-    // RenderingSystem::m_FrameDebugger, which holds the archive / state
-    // machine / capture metadata.
+    // Render-side frame-debugger infrastructure that lives next to RenderPipeline. Owns the
+    // per-draw and depth preview textures, the debug-blit render-graph pass, and the replay-
+    // then-copy path. Distinct from RenderingSystem::m_FrameDebugger, which holds the archive,
+    // state machine, and capture metadata; this context only deals with the render-side preview
+    // surface that the editor's Frame Debugger panel samples.
     //
-    // Constructed by RenderPipeline::Initialize; owns 12 preview-texture
-    // fields (image/view/alloc/width/height/key per preview) and delegates
-    // pipeline-level access via a RenderPipeline& friend.
+    // Constructed by RenderPipeline::Initialize. Holds 12 preview-texture fields (image, view,
+    // alloc, width, height, key per preview) and reaches back into RenderPipeline through its
+    // public accessors.
     class FrameDebuggerContext
     {
     public:
@@ -39,17 +39,15 @@ namespace Luth
         // the HDR SceneColor (or depth ShadowMap) would never reach ImGui.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
 
-        // Phase 14E — per-draw replay-then-copy. Re-executes the captured
-        // pass up to draw `localDrawIdx` (inclusive) into a per-draw preview
-        // texture for ImGui sampling. Dispatches by pass name to per-pass
-        // replay helpers (Geometry, Shadow, DepthPrepass, SelectionMask).
-        // Unsupported passes leave m_PerDrawPreviewKey at its prior value; a
-        // caller checking GetPerDrawPreviewKey() against the requested key
-        // detects mismatch and falls back to the pass archive.
+        // Per-draw replay then copy. Re-executes the captured pass up to draw `localDrawIdx`
+        // (inclusive) into a per-draw preview texture for ImGui sampling. Dispatches by pass name
+        // to per-pass replay helpers (Geometry, Shadow, DepthPrepass, SelectionMask). Unsupported
+        // passes leave m_PerDrawPreviewKey at its prior value; callers compare the returned key
+        // against the requested one and fall back to the pass archive on mismatch.
         void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
 
-        // Phase 14F — blit a cascade slice (or full depth archive) through the
-        // tonemapping depth shader into the depth preview texture.
+        // Blit a cascade slice (or full depth archive) through the tonemapping depth shader into
+        // the depth preview texture for ImGui display.
         void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
 
         // Editor/debug accessors (forwarded by RenderPipeline).

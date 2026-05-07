@@ -10,6 +10,12 @@
 
 namespace Luth
 {
+    // Static undo/redo stack for the editor. Every user-visible mutation (entity create/destroy,
+    // component add/remove, property change) flows through Execute(unique_ptr<ICommand>) and is
+    // replayable via Undo/Redo. Compound mode (BeginCompound/EndCompound) groups multiple edits
+    // under a single history entry — used for things like "paste prefab" where the user expects
+    // one undo to back out the whole operation. PlayModeController calls SetBlocked(true) during
+    // Play so gizmo and inspector edits don't dirty the snapshot-restored scene.
 
     class CommandHistory
     {

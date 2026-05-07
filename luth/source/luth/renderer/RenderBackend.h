@@ -5,6 +5,10 @@
 
 namespace Luth
 {
+    // Abstract GPU API surface owned by Renderer. The concrete VulkanBackend handles swapchain
+    // acquire, the primary command buffer for each frame, and queue submit. AcquireImage can
+    // legitimately fail on resize or a suboptimal swapchain — the caller yields the fiber and
+    // retries the same frameIndex on the next pipeline tick.
     class RenderBackend
     {
     public:

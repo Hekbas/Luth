@@ -6,9 +6,10 @@
 
 namespace Luth::Memory
 {
-    // Tagged Page Allocator — 2 MB pages (VirtualAlloc) for frame-lifetime allocations.
-    // Tag-based bulk free (FreeTag) releases all pages for a frame at once.
-    // Thread-safe via per-thread ThreadCache. See docs/development/arch/memory.md.
+    // Page-based bump allocator for frame-lifetime data. Each page is 2 MB from VirtualAlloc;
+    // pages carry a u32 tag, and FreeTag(tag) bulk-releases every page sharing that tag back to
+    // the free pool. Thread-safe via a per-fiber ThreadCache that holds the active page without
+    // touching the global lock on the hot path. See docs/development/arch/memory.md.
 
     class TaggedPageAllocator
     {

@@ -15,6 +15,8 @@ namespace Luth
     namespace {
         std::queue<MainThreadPump::Callback> s_Queue;
         std::mutex                           s_Lock;
+        // Advisory counter for PendingCount diagnostics. The queue itself is mutex-protected,
+        // so the relaxed atomic updates around the lock carry no synchronization burden.
         std::atomic<u32>                     s_Pending{ 0 };
     }
 

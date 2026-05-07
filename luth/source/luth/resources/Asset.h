@@ -6,6 +6,9 @@
 
 namespace Luth
 {
+    // Base type for every UUID-addressable resource (Texture, Model, Material, Shader, Font, Scene,
+    // AnimationClip). Loaded through AssetManager and tracked in AssetDatabase. AssetType enum
+    // order is on-disk-stable; new types must be appended, never inserted mid-enum.
     enum class AssetType
     {
         None = 0,

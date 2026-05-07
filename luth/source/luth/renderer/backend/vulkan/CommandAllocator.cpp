@@ -11,11 +11,8 @@ namespace Luth
 
     CommandAllocator::~CommandAllocator()
     {
-        // We don't destroy the pool here because it's owned by CommandAllocatorPool.
-        // We just clear our cache.
-        // Actually, if we allocated buffers, we should free them?
-        // No, destroying the pool frees the buffers.
-        // But since we don't own the pool, we assume the pool owner handles destruction.
+        // Pool ownership lives in CommandAllocatorPool; destroying it frees all buffers
+        // allocated from it, so this destructor has nothing to free explicitly.
     }
 
     VkCommandBuffer CommandAllocator::GetBuffer(VkCommandBufferLevel level)

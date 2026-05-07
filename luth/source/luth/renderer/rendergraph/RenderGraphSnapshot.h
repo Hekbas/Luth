@@ -8,6 +8,9 @@
 
 namespace Luth::RG
 {
+    // Read-only view of last frame's compiled graph. RenderGraph::Execute populates it; the
+    // Frame Debugger panel and the ProfilerPanel pass-time chart consume it. Decoupled from the
+    // live RenderGraph so the editor can read across frame boundaries without grabbing any lock.
     struct PassSnapshotResource
     {
         u32   index = 0;    // ResourceHandle.index (1-based)

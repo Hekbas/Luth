@@ -11,9 +11,9 @@
 namespace Luth
 {
     // Real opportunity site: stat aggregation (frame-time history rotate, MemoryTracker
-    // snapshot, JobSystem stats, GPU memory stats) all read globals — all safe in OnGather
-    // on a worker fiber. v2.9.0 ships the structural migration; the stat-gather move is a
-    // follow-on polish target.
+    // snapshot, JobSystem stats, GPU memory stats) all read globals and would be safe
+    // on a worker fiber. The structural migration ships first; the stat-gather move
+    // is future polish.
     struct ProfilerSnapshot { /* populated by future polish */ };
 
     class ProfilerPanel : public Panel

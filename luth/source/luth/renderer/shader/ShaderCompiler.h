@@ -7,6 +7,10 @@
 
 namespace Luth
 {
+    // GLSL-to-SPIR-V compiler shim. Wraps shaderc; AssetManager calls Compile during shader import
+    // (pipeline-line) and ShaderWatcher calls it again on hot reload. Compile runs synchronously
+    // — the caller dispatches it from a worker fiber, so the glslangValidator backend doesn't
+    // block the main thread.
     class ShaderCompiler
     {
     public:

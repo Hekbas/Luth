@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // Caches VKPipeline instances keyed by (shader UUID, render mode, cull mode, polygon mode).
+    // First lookup triggers a lazy compile. On shader reload, DeferredInvalidateShader marks
+    // affected entries so the next frame rebuilds fresh pipelines without stalling the live one.
     struct PipelineKey
     {
         UUID shaderUUID;

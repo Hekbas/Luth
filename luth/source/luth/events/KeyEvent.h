@@ -4,6 +4,8 @@
 
 namespace Luth
 {
+    // Keyboard events posted from GLFW key callbacks. Subscribers gate by EventCategoryKeyboard.
+    // Press / Release / Typed mirror GLFW's action distinctions.
     class KeyEvent : public Event
     {
     public:

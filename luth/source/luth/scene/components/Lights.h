@@ -11,7 +11,7 @@ namespace Luth::Component
         float ShadowOrthoSize = 200.0f;
         float ShadowDistance = 200.0f;
 
-        // CSM (Phase 13)
+        // Cascaded Shadow Map tunables.
         float SplitLambda = 0.5f;                                        // 0 = uniform, 1 = logarithmic (practical split)
         float ShadowBias[4]       = { 0.005f, 0.008f, 0.012f, 0.02f };   // per-cascade constant depth bias (NDC)
         float ShadowNormalBias[4] = { 1.0f, 1.0f, 1.0f, 1.0f };          // per-cascade normal offset (shader scales by texel size)

@@ -102,10 +102,10 @@ namespace Luth
 
         // Forward AssetDatabase file-watch flushes onto the EventBus as typed
         // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
-        // can react via subscriptions instead of polling. The current AssetDatabase
-        // callback API only exposes the dirty-UUID list, not per-asset op — for
-        // v2.9.1 we publish Modified for everything; subscribers that need to
-        // distinguish import-vs-delete query AssetDatabase::Exists(uuid) themselves.
+        // can react via subscriptions instead of polling. The dirty-UUID list is
+        // all the AssetDatabase callback API exposes, so we publish Modified for
+        // everything; subscribers that need to distinguish import-vs-delete query
+        // AssetDatabase::Exists(uuid) themselves.
         AssetDatabase::AddChangeCallback([]() {
             for (const UUID& uuid : AssetDatabase::GetDirtyAssets()) {
                 EventBus::Enqueue<AssetChangedSignal>(BusType::MainThread,
@@ -113,12 +113,10 @@ namespace Luth
             }
         });
 
-        // Replace v2.8.x hierarchy-version polling with reactive dirty-marking.
-        // Every EntityCommand publishes HierarchyChangedSignal; this handler
-        // bumps the dirty flag exactly when user edits land. Scene LOAD does
-        // not fire signals (deserialization bypasses commands), so the dirty
-        // flag stays clean across scene open/close — no need for the prior
-        // s_LastHierarchyVersion stamp dance.
+        // Reactive dirty-marking driven by signals (replaces a previous polling
+        // scheme). Every EntityCommand publishes HierarchyChangedSignal; this
+        // handler bumps the dirty flag exactly when user edits land. Scene LOAD
+        // bypasses commands, so the dirty flag stays clean across open/close.
         EventBus::Subscribe<HierarchyChangedSignal>(BusType::MainThread,
             [](Event&) { Editor::MarkDirty(); });
 
@@ -515,8 +513,7 @@ namespace Luth
         // Keyboard shortcuts
         ProcessShortcuts();
 
-        // Dirty bumps now arrive via HierarchyChangedSignal subscription
-        // installed in Init (sub-task F of v2.9.1 editor-signal-bus).
+        // Dirty bumps arrive via the HierarchyChangedSignal subscription installed in Init.
 
         // Update window title
         UpdateWindowTitle();

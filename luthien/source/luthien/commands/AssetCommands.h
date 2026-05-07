@@ -8,6 +8,9 @@
 
 namespace Luth
 {
+    // ICommand implementations for asset-level edits (material snapshot edits, model
+    // instantiation). Each gets pushed onto CommandHistory and is keyed by UUID, so undo / redo
+    // still works even if the asset has been unloaded and reloaded between operations.
     class MaterialSnapshotCommand : public ICommand
     {
     public:

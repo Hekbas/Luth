@@ -8,6 +8,9 @@ namespace Luth
 {
     class Model;
 
+    // Inspector pane for Model assets. Surfaces the ModelImportSettings (axis, scaling,
+    // skinning, clip extraction) and renders a small orbit preview through ThumbnailPreviewScene
+    // so the user can spin the model without leaving the inspector.
     class ModelViewer
     {
     public:

@@ -32,10 +32,9 @@ namespace Luth
     void HierarchyPanel::OnGather(EditorSnapshotBuilder& builder)
     {
         // Worker fiber. No ImGui, no Vulkan recording (V3). Only safe ECS reads.
-        // For v2.9.0 the snapshot just carries change-detection versions so the
-        // panel can later short-circuit gather when nothing changed. The actual
-        // tree pre-walk lives in OnDraw inline against the live Scene — moving it
-        // here is a follow-on polish commit (see editor-foundation history).
+        // The snapshot carries change-detection versions so the panel can later
+        // short-circuit gather when nothing changed. The actual tree pre-walk
+        // still runs inline in OnDraw against the live Scene.
         auto* snap = builder.Add<HierarchySnapshot>();
         if (m_Context) snap->hierarchyVersion = m_Context->GetHierarchyVersion();
         snap->selectionVersion = EditorSelection::GetVersion();

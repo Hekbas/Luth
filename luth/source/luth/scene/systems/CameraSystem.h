@@ -6,6 +6,9 @@
 
 namespace Luth
 {
+    // Refreshes the Projection matrix (when Camera::IsDirty) and the View matrix for every
+    // Camera + WorldTransform entity each frame. The Vulkan Y-flip is baked into the projection
+    // matrix here, so downstream shaders consume Vulkan-convention NDC without re-flipping.
     class CameraSystem : public ISystem
     {
     public:

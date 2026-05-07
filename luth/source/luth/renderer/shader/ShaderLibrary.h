@@ -9,6 +9,10 @@
 
 namespace Luth
 {
+    // Global shader registry keyed by filename. Engine shaders auto-load from luth/assets/shaders
+    // on first reference; project shaders register explicitly. Hooked into ShaderWatcher so file
+    // edits trigger Reload, which then notifies subsystems through the registered Reload callback
+    // so they can rebuild their pipelines without stalling the live frame.
     class ShaderLibrary
     {
     public:

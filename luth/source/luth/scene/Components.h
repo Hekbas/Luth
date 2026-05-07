@@ -1,5 +1,8 @@
 #pragma once
 
+// Convenience aggregator that pulls every Luth::Component header. Gameplay and scene
+// serialization include this single path instead of six individual ones.
+
 #include "luth/scene/components/Common.h"
 #include "luth/scene/components/Transform.h"
 #include "luth/scene/components/Camera.h"

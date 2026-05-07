@@ -353,7 +353,7 @@ namespace Luth
         capturedFrame.drawCalls.push_back(std::move(cdc));
     }
 
-    // ---- Phase 14B — Archive lifecycle ----
+    // ── Archive lifecycle ──
 
     void FrameDebugger::BeginCapture(VkDevice device, VmaAllocator allocator)
     {
@@ -381,11 +381,10 @@ namespace Luth
     {
         capturedFrame.captureViewProj = viewProj;
 
-        // Phase 1 records graphics secondaries (graphics lambdas push into
-        // capturedFrame.passes here) before Phase 2 runs compute lambdas
-        // inline — so passes arrive in graphics-first-then-compute order
-        // rather than graph order. Sort by graphPassIndex; remap drawCall
-        // back-references through the inverse permutation.
+        // RenderGraph::Execute records graphics secondaries first (lambdas push into
+        // capturedFrame.passes here), then runs compute lambdas inline — so passes arrive
+        // in graphics-first-then-compute order rather than graph order. Sort by graphPassIndex
+        // and remap drawCall back-references through the inverse permutation.
         const u32 passCount = (u32)capturedFrame.passes.size();
         if (passCount > 1)
         {

@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // The .meta sidecar that pairs with each source asset to pin its UUID, type, per-type import
+    // settings, and dependency list. AssetDatabase reads or creates one for every registered
+    // asset; importers consult m_TypeSettings to drive things like texture wrap / filter modes.
     class MetaFile
     {
     public:

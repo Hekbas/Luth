@@ -7,6 +7,8 @@
 
 namespace Luth
 {
+    // Abstract OS window interface. The concrete WinWindow implementation wraps GLFW and posts
+    // input, resize, and close events to the EventBus from inside the GLFW callbacks.
     struct WindowSpec
     {
         std::string Title = "Luth Engine";

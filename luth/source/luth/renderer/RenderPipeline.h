@@ -117,16 +117,11 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
     };
 
-    // Owns the per-frame render-graph assembly and execution. Created by
-    // RenderingSystem in its ctor and invoked once per frame from Update
-    // after BuildGPUObjectBuffer / DrawListBuilder::Build have populated
-    // the inputs.
-    //
-    // RenderPipeline is tightly coupled to RenderingSystem in v1 of this
-    // split (sub-task D of epic arch-renderer-split): it reads rendering
-    // resources (pipelines, descriptor sets, SPIR-V, samplers) through a
-    // RenderingSystem& reference. Sub-task E migrates those resources
-    // onto RenderPipeline itself.
+    // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
+    // invoked once per frame after the DrawList and GPUObjectBuffer have been populated. Owns six
+    // per-domain subsystems (Global, Lighting, Geometry, GTAO, PostProcess, EditorOverlays); each
+    // subsystem contributes its render-graph passes and manages the descriptor lifecycle for the
+    // Sets it owns. See arch/rendering-pipeline.md.
     class RenderPipeline
     {
     public:

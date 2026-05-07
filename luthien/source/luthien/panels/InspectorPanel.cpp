@@ -30,10 +30,9 @@ namespace Luth
 
     void InspectorPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // v2.9.0: structural migration — fragment carries change-detection state.
-        // Component-drawer property reads (and, importantly, MaterialEditor's shader-combo
-        // enumeration that dominated the pre-rework Tracy capture) remain inline in OnDraw.
-        // Moving the asset-DB lookups + property reads into gather is a future polish epic.
+        // Fragment carries change-detection state only. Component-drawer property reads
+        // (and MaterialEditor's shader-combo enumeration, the dominant Tracy hotspot)
+        // remain inline in OnDraw — moving them into gather is future polish.
         auto* snap = builder.Add<InspectorSnapshot>();
         snap->selectionVersion = EditorSelection::GetVersion();
         snap->locked = m_IsLocked;

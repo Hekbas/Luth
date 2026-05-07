@@ -24,8 +24,8 @@ namespace Luth
     };
 
     // Placeholder snapshot — real opportunity: move BuildDirectoryTree + UpdateSearchResults
-    // into OnGather (both heavy CPU work spotted in pre-rework Tracy). v2.9.0 only does
-    // the structural lifecycle migration; a follow-on polish epic can shift that work.
+    // into OnGather (both heavy CPU work in Tracy captures). The lifecycle migration ships
+    // first; a follow-on polish commit can shift that work onto the gather fiber.
     struct ProjectSnapshot { /* placeholder; populated by future polish */ };
 
     class ProjectPanel : public Panel

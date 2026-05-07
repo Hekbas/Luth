@@ -16,6 +16,10 @@ typedef struct VmaAllocator_T* VmaAllocator;
 
 namespace Luth
 {
+    // Singleton context holding the VkInstance, VkDevice, queues, VMA allocator, surface, the
+    // global bindless descriptor set, the RenderGraph resource cache, and the deletion queues
+    // that subsystems push retired GPU resources into. Created by VulkanBackend::Init; shared
+    // across every backend module that needs raw Vulkan handles.
     class VulkanContext
     {
     public:

@@ -6,6 +6,10 @@
 
 namespace Luth
 {
+    // Thin wrapper around VkSwapchainKHR. Owns the surface, swapchain handle, image views, and
+    // the deferred-rebuild flag that Present sets on OUT_OF_DATE. AcquireNextImage returns
+    // UINT32_MAX when the caller should skip this frame (rebuild handled internally), giving
+    // App::Run a clean retry path that doesn't break the pipelined frame counter.
     class VulkanSwapchain
     {
     public:

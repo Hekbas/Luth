@@ -8,6 +8,9 @@
 
 namespace Luth::Component
 {
+    // Identity and hierarchy components attached to every Entity. ID and Tag form the
+    // serialization key; Parent and Children build the scene graph; Disabled is a sparse
+    // tag whose presence excludes the entity from system update loops.
     struct ID {
         UUID Value;
 

@@ -10,6 +10,9 @@ typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Luth::RG
 {
+    // Pool of transient images and buffers reused across frames. The render-graph allocates from
+    // here during Compile; resources unused for k_StaleFrameThreshold frames are garbage-collected.
+    // Avoids per-frame VMA churn on the dozens of intermediate render-targets the graph needs.
     struct PooledResource
     {
         VkImage image = VK_NULL_HANDLE;

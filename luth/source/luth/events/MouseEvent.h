@@ -5,6 +5,8 @@
 
 namespace Luth
 {
+    // Mouse events posted from GLFW cursor / scroll / button callbacks. Subscribers gate by
+    // EventCategoryMouse for movement + scroll, EventCategoryMouseButton for click distinctions.
     class MouseMovedEvent : public Event
     {
     public:

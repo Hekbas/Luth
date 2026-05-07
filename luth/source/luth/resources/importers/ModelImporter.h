@@ -10,6 +10,10 @@
 
 namespace Luth
 {
+    // Imports source mesh files (.fbx, .obj, .gltf) into Library/-resident ModelAssetData
+    // artifacts. Splits skinning into its own ModelAssetData::Skeleton and extracts each
+    // animation channel into its own .anim sibling asset (when ExtractClipsAsSeparateAssets is
+    // on). Decode + processing happens on a worker fiber via JobSystem.
     struct ModelImportSettings
     {
         // Geometry

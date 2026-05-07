@@ -5,6 +5,12 @@
 
 namespace Luth::Memory
 {
+    // Runtime stats counter for engine-categorized allocations. Each Category holds a set of
+    // lock-free atomic counters; the editor's memory panel reads coherent snapshots without
+    // locking. invariant: STL and third-party heap traffic is intentionally NOT tracked here —
+    // that coverage gap is described in arch/memory.md (the Tracy global new/delete hook closes
+    // it for capture-time analysis).
+
     // ── Memory Category — tag each allocation with its subsystem ──
 
     enum class Category : u8

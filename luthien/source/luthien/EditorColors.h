@@ -4,8 +4,9 @@
 
 namespace Luth
 {
-    /// Centralized semantic editor colors.
-    /// All panels should reference these instead of hardcoding RGB values.
+    // Centralized semantic editor colors. All panels reference these constants instead of
+    // hardcoding RGB literals — a single source of truth for axis tints, status colors, gizmo
+    // overlays, profiler-panel category colors, and so on.
     struct EditorColors
     {
         // Axis colors (XYZ/W buttons in vector widgets)

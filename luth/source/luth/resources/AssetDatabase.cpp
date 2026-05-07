@@ -23,9 +23,7 @@ namespace Luth
 
     std::unordered_map<UUID, u64, UUIDHash> AssetDatabase::s_ArtifactHashes;
 
-    // ================================================================
-    // Phase 1: Engine-only init (register shaders, fonts)
-    // ================================================================
+    // ── Phase 1: Engine-only init (register shaders, fonts) ──
 
     void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
     {
@@ -96,9 +94,7 @@ namespace Luth
         LH_CORE_INFO("AssetDatabase: Registered {} engine assets", engineAssetCount);
     }
 
-    // ================================================================
-    // Phase 2: Load project assets (called when user selects a project)
-    // ================================================================
+    // ── Phase 2: Load project assets (called when user selects a project) ──
 
     void AssetDatabase::LoadProject(const std::filesystem::path& projectAssetsRoot)
     {
@@ -198,9 +194,7 @@ namespace Luth
         SaveLibraryState_Unlocked();
     }
 
-    // ================================================================
-    // Unload project assets (keeps engine assets intact)
-    // ================================================================
+    // ── Unload project assets (keeps engine assets intact) ──
 
     void AssetDatabase::UnloadProject()
     {
@@ -232,9 +226,7 @@ namespace Luth
         LH_CORE_INFO("AssetDatabase: Project unloaded, {} engine assets remain", s_Assets.size());
     }
 
-    // ================================================================
-    // Shutdown
-    // ================================================================
+    // ── Shutdown ──
 
     void AssetDatabase::Shutdown()
     {
@@ -255,9 +247,7 @@ namespace Luth
         s_DirtyAssets.clear();
     }
 
-    // ================================================================
-    // Queries & Registration
-    // ================================================================
+    // ── Queries & Registration ──
 
     const AssetMetadata& AssetDatabase::GetMetadata(UUID uuid)
     {
@@ -320,9 +310,7 @@ namespace Luth
         }
     }
 
-    // ================================================================
-    // Library State Persistence
-    // ================================================================
+    // ── Library State Persistence ──
 
     void AssetDatabase::LoadLibraryState_Unlocked()  // caller must hold s_Mutex
     {
@@ -386,9 +374,7 @@ namespace Luth
         return hash;
     }
 
-    // ================================================================
-    // File Ingestion (drag-and-drop, external import)
-    // ================================================================
+    // ── File Ingestion (drag-and-drop, external import) ──
 
     static bool IsImageExtension(const fs::path& ext)
     {
@@ -472,9 +458,7 @@ namespace Luth
         }
     }
 
-    // ================================================================
-    // File System Watching
-    // ================================================================
+    // ── File System Watching ──
 
     void AssetDatabase::StartWatching()
     {

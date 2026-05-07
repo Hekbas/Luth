@@ -72,9 +72,9 @@ namespace Luth::RG
                 dn.kind               = EventNodeKind::Draw;
                 dn.passIndex          = passIdx;
                 dn.drawIndex          = globalIdx;
-                // Phase 14D — Draw nodes inherit the pass's primary archive
-                // (i.e. show "the pass output" while inside the pass). Phase 14E
-                // overrides this with a per-draw preview from replay-then-copy.
+                // Draw nodes inherit the pass's primary archive — i.e. show "the pass output"
+                // while inside the pass. Per-draw replay overrides this with a per-draw preview
+                // produced by replay-then-copy when the user steps inside a draw.
                 dn.archivedImageIndex = node.archivedImageIndex;
                 dn.label              = DrawLabel(frame.drawCalls[globalIdx], globalIdx);
                 node.children.push_back(std::move(dn));

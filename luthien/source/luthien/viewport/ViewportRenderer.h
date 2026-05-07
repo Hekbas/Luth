@@ -13,6 +13,10 @@ namespace Luth
     class RenderingSystem;
     class Texture;
 
+    // ImGui::Image wrapper for displaying RenderingSystem's scene color target inside an editor
+    // panel. Owns the ImGui descriptor set used for the bind, detects panel resize (which drives
+    // RenderingSystem::Resize), and captures bounds / focus / hover state so ScenePanel and
+    // GamePanel can correctly gate input handling.
     class ViewportRenderer
     {
     public:

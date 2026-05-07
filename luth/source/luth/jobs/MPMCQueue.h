@@ -11,10 +11,10 @@
 
 namespace Luth
 {
-    // MPMCQueue — Lock-Free Bounded Multi-Producer Multi-Consumer Queue.
-    // Used for the Global High-Priority Job Queue. V4 (job hazard — see arch/version-glossary.md):
-    // all insertions pair with WakeByAddressSingle to prevent lost wakeups.
-    // Based on Dmitry Vyukov's bounded MPMC queue. Capacity MUST be a power of 2.
+    // Lock-free bounded multi-producer / multi-consumer queue, used for the global high-priority
+    // job queue. V4 (see arch/version-glossary.md): every insertion pairs with WakeByAddressSingle
+    // so a worker that called WaitOnAddress between empty-check and sleep won't miss the producer.
+    // Based on Dmitry Vyukov's bounded MPMC queue; capacity must be a power of 2.
 
     template<typename T, u32 Capacity>
     class MPMCQueue

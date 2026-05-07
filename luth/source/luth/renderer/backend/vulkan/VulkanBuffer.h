@@ -5,6 +5,10 @@
 
 namespace Luth
 {
+    // Vulkan-backed Vertex / Index / Uniform buffer wrappers. VMA-allocated; the VkBuffer is
+    // owned for the full lifetime of the wrapper. Vertex and index data is staged through
+    // UploadContext (see VulkanBuffer.cpp::SetData for the queue-ordering rationale). Uniform
+    // buffers are persistently mapped, so writes can land at any time without a fence.
     class VKVertexBuffer : public VertexBuffer
     {
     public:

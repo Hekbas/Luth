@@ -6,6 +6,9 @@
 
 namespace Luth
 {
+    // Converts source images (.png, .jpg, .tga, .hdr, ...) into Library/-resident
+    // TextureAssetData artifacts that AssetManager loads at runtime. Decode and mipmap generation
+    // run on worker fibers through JobSystem so import doesn't stall the editor frame.
     struct TextureAssetData : public AssetData
     {
         std::vector<unsigned char> Pixels;

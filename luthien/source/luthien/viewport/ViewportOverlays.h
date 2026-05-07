@@ -13,6 +13,9 @@ namespace Luth
     class ViewportRenderer;
     class GizmoController;
 
+    // ImGui-DrawList overlays projected into the Scene viewport: light icons, camera frustums,
+    // bone debug lines, world-space AABBs. Each overlay is gated by a flag in EditorSettings.
+    // World-space line segments are clipped against the camera near-plane before being drawn.
     class ViewportOverlays
     {
     public:

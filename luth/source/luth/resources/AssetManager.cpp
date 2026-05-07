@@ -186,9 +186,7 @@ namespace Luth
         JobSystem::WaitForCounter(&importCounter);
     }
 
-    // ================================================================
-    // Shared helpers
-    // ================================================================
+    // ── Shared helpers ──
 
     std::unique_ptr<AssetData> AssetManager::DeserializeArtifact(AssetType type, const fs::path& artifactPath)
     {
@@ -245,9 +243,7 @@ namespace Luth
         return nullptr;
     }
 
-    // ================================================================
-    // Async loading
-    // ================================================================
+    // ── Async loading ──
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)
     {

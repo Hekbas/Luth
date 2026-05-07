@@ -14,8 +14,8 @@ namespace Luth
         int64_t     LastOpened;  // Unix timestamp (seconds since epoch)
     };
 
-    /// Startup project launcher — shows when no project is auto-discovered.
-    /// Also accessible from File > Open Project / New Project.
+    // Startup project launcher. Shows when no project is auto-discovered from CLI args or CWD,
+    // and is also reachable from File > Open Project / New Project once the editor is up.
     class ProjectLauncher
     {
     public:
@@ -25,17 +25,17 @@ namespace Luth
         static void Hide();
         static bool IsVisible();
 
-        /// Render the launcher UI. Call from Editor::Render().
+        // Render the launcher UI. Call from Editor::Render().
         static void Render();
 
-        /// Check if the user selected a project (consumed by App).
+        // True if the user picked a project; consume it from App on the next frame.
         static bool HasPendingProject();
         static std::filesystem::path ConsumePendingProject();
 
-        /// Track recently opened projects.
+        // Track recently opened projects (persisted to the launcher config file).
         static void AddRecent(const std::string& name, const std::filesystem::path& luthprojPath);
 
-        /// Directly signal a project switch (used by File > Open Project menu).
+        // Directly queue a project switch (used by File > Open Project menu).
         static void SetPendingProject(const std::filesystem::path& luthprojPath);
 
     private:

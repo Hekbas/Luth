@@ -12,9 +12,7 @@
 
 namespace Luth
 {
-    // =========================================================================
-    // Internal helpers
-    // =========================================================================
+    // ── Internal helpers ──
 
     static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
         VkAccessFlags srcAccess, VkAccessFlags dstAccess,
@@ -68,9 +66,7 @@ namespace Luth
     }
 
 
-    // =========================================================================
-    // IBL::Precompute
-    // =========================================================================
+    // ── IBL::Precompute ──
 
     namespace IBL
     {

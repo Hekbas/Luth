@@ -13,6 +13,10 @@
 
 namespace Luth
 {
+    // UUID-to-path index for engine and project assets. Two-phase lifecycle: InitEngine registers
+    // built-ins (engine shaders, fonts) at startup, then LoadProject scans the user's .luthproj
+    // assets directory once selected. File-watching invalidates entries on external edits;
+    // subscribers see batched dirty-UUID lists through ChangeCallback.
     struct AssetMetadata
     {
         std::filesystem::path Path;
@@ -23,13 +27,16 @@ namespace Luth
     class AssetDatabase
     {
     public:
-        /// Phase 1: Register engine-internal assets (shaders, fonts). No project needed.
+        // Engine-only init: register engine-internal assets (shaders, fonts). No project needed.
+        // Call at startup before any project is loaded.
         static void InitEngine(const std::filesystem::path& engineAssetsRoot);
 
-        /// Phase 2: Scan a project's assets directory. Can be called multiple times (project switching).
+        // Scan a project's assets directory and register everything found. Safe to call multiple
+        // times (project switching) — UnloadProject is the matching teardown.
         static void LoadProject(const std::filesystem::path& projectAssetsRoot);
 
-        /// Clear project-specific assets (keeps engine assets). Used during project switching.
+        // Clear project-specific assets while keeping the engine built-ins intact. Used during
+        // project switching to preserve shader/font state across the swap.
         static void UnloadProject();
 
         static void Shutdown();
@@ -48,9 +55,9 @@ namespace Luth
         static const std::vector<UUID>& GetDirtyAssets() { return s_DirtyAssets; }
         static void ClearDirtyAssets();
 
-        /// Copy a source file into the project assets directory, create .meta,
-        /// register in DB, and import if an importer exists. For model assets,
-        /// also discovers and copies adjacent textures.
+        // Copy a source file into the project assets directory, create the .meta sidecar, register
+        // in the database, and run import if a matching importer exists. For model assets this
+        // also discovers and copies adjacent textures so the import lands self-contained.
         static void IngestFile(const std::filesystem::path& sourcePath, const std::filesystem::path& destDir);
 
         // Hot reload — file system watching

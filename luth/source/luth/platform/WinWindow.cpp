@@ -86,10 +86,8 @@ namespace Luth
             EventBus::Enqueue<FileDropEvent>(BusType::MainThread, std::move(files));
         });
 
-        // ---------------------------------------------------------
-        // Centralized Input Callbacks
-        // ---------------------------------------------------------
-        
+        // ── Centralized Input Callbacks ──
+
         glfwSetKeyCallback(m_GLFWwindow, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
             // 1. Forward to ImGui
             ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);

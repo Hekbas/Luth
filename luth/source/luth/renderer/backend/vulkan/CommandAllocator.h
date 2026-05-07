@@ -6,13 +6,10 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // Command Allocator (Thread-Local Command Buffer Cache)
-    // ===================================================================================
-    // Wraps a VkCommandPool and manages a cache of VkCommandBuffers.
-    // Owned by a Fiber during recording.
-    // Not thread-safe (intended for single-thread use).
-    
+    // Wraps a VkCommandPool and caches the VkCommandBuffers it has handed out so they can be
+    // reused next frame after pool reset. Owned by a single Fiber during recording — not
+    // thread-safe by design (V3 forbids fiber yield while recording, so single-thread is fine).
+
     class CommandAllocator
     {
     public:

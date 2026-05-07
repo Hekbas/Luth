@@ -14,6 +14,10 @@ namespace Luth
 {
     class Model;
 
+    // Game-stage system that samples each Animation / AnimationController, blends layer poses in
+    // SQT space, propagates bind-space-to-bone-space matrices through the Skeleton hierarchy, and
+    // uploads the resulting bone matrices to BoneMatrixBuffer for GPU skinning. Pauses when the
+    // Frame Debugger is Frozen so per-draw replay sees a stable pose. See arch/animation-system.md.
     class AnimationSystem : public ISystem
     {
     public:
@@ -36,7 +40,7 @@ namespace Luth
         static Quat SampleRotation(const BoneTrack& track, f32 time);
         static Vec3 SampleScale(const BoneTrack& track, f32 time);
 
-        // SQT blending helpers (Phase 7D)
+        // SQT blending helpers
         using BonePose = Component::BonePose;
 
         static void SampleClipSQT(

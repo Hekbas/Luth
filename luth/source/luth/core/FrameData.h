@@ -13,6 +13,10 @@ namespace Luth
 {
     class CommandAllocatorPool;
 
+    // Triple-buffered frame state for the Game(N) | Render(N-1) | GPU(N-2) pipeline. FrameData
+    // owns the ring of FrameContext slots; each frame consumes one slot for game-stage scratch,
+    // one for render-stage state, and one for the GPU's still-in-flight resources. Slot N gets
+    // recycled only after the GPU fence for frame N-2 retires. See arch/frame-pipeline.md.
     static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
 
     // ── Frame Params — read-only data packet for the frame ──

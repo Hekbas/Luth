@@ -27,6 +27,11 @@
 
 namespace Luth
 {
+    // spdlog wrapper plus the LH_CORE_* macros every subsystem uses. ILogSink lets the editor's
+    // ConsolePanel observe the log stream; OnLogEntry fires from worker / IO / main threads, so
+    // implementations must be re-entrant. Sinks must NOT call LH_CORE_* from OnLogEntry (the
+    // spdlog base_sink isn't recursive and would deadlock); ConsolePanel routes through EventBus
+    // to drain on the main thread.
     enum class LogLevel : u8 {
         Trace, Debug, Info, Warn, Error, Critical, Off
     };

@@ -6,6 +6,9 @@
 
 namespace Luth
 {
+    // Posted when the OS reports paths dropped onto the window. App handles asset-import for
+    // *.luthproj and recognized texture extensions; the editor's ProjectPanel + ResourcePanel
+    // may also subscribe for in-panel drop targets.
     class FileDropEvent : public Event
     {
     public:

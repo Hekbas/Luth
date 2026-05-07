@@ -8,6 +8,9 @@
 
 namespace Luth::Component
 {
+    // Animation state machine for skeletal entities. Layers blend additively, ActiveTransition
+    // cross-fades between clips, and AnimationSystem writes the resolved per-bone pose into
+    // BoneMatrixBuffer each game-stage tick. See arch/animation-system.md.
     struct BonePose {
         Vec3 Position = Vec3(0.0f);
         Quat Rotation = Quat(1.0f, 0.0f, 0.0f, 0.0f);

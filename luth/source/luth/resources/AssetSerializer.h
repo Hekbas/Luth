@@ -11,7 +11,11 @@
 
 namespace Luth
 {
-    // Header for all binary assets
+    // Binary artifact format that AssetImporter writes to <project>/Library/ and AssetManager
+    // reads at load. AssetHeader is the universal magic + version + type prefix; per-type
+    // headers (Texture, Mesh, Model, Shader) follow with their specific fields. Format-version
+    // bumps are additive: keep the V<n>+ annotations on fields that were added in later versions
+    // so deserialize paths know what to expect from older artifacts.
     struct AssetHeader
     {
         char Magic[4] = { 'L', 'U', 'T', 'H' };

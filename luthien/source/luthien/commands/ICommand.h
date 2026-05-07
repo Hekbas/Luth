@@ -5,6 +5,10 @@
 
 namespace Luth
 {
+    // Editor command base. Every user mutation that should be undoable subclasses this and is
+    // pushed onto CommandHistory. CanMerge / MergeWith let continuous edits (gizmo drags,
+    // slider scrubs) coalesce into a single history entry instead of producing dozens.
+    // CompoundCommand bundles multiple commands so one undo backs out a logical group.
     class ICommand
     {
     public:

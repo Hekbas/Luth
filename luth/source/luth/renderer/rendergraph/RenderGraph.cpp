@@ -13,9 +13,7 @@
 
 namespace Luth::RG
 {
-    // ===================================================================================
-    // Builder (unchanged)
-    // ===================================================================================
+    // ── Builder ──
 
     ResourceHandle RenderPassBuilder::Read(ResourceHandle resource)
     {
@@ -81,9 +79,7 @@ namespace Luth::RG
         return buffer;
     }
 
-    // ===================================================================================
-    // RenderGraph — Construction & Registration
-    // ===================================================================================
+    // ── RenderGraph — Construction & Registration ──
 
     RenderGraph::RenderGraph(Memory::LinearAllocator& allocator)
         : m_Allocator(allocator)
@@ -224,9 +220,7 @@ namespace Luth::RG
         return newHandle;
     }
 
-    // ===================================================================================
-    // Compile — Cull → Lifetimes → Barriers
-    // ===================================================================================
+    // ── Compile — Cull → Lifetimes → Barriers ──
 
     void RenderGraph::Compile()
     {
@@ -439,9 +433,7 @@ namespace Luth::RG
         }
     }
 
-    // ===================================================================================
-    // State → Vulkan Mapping
-    // ===================================================================================
+    // ── State → Vulkan Mapping ──
 
     static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state)
     {
@@ -507,9 +499,7 @@ namespace Luth::RG
         }
     }
 
-    // ===================================================================================
-    // Execute — Two-phase: parallel secondary recording, serial primary emission
-    // ===================================================================================
+    // ── Execute — two-phase: parallel secondary recording, serial primary emission ──
     //
     // Phase 1: dispatch one RenderPassJob per graphics pass against a single
     //          counter; render fiber yields once per frame regardless of pass
@@ -796,9 +786,7 @@ namespace Luth::RG
         CleanupPhysicalResources();
     }
 
-    // ===================================================================================
-    // Physical Resource Management
-    // ===================================================================================
+    // ── Physical Resource Management ──
 
     void RenderGraph::AllocatePhysicalResources()
     {

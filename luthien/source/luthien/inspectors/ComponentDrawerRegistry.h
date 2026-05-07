@@ -16,6 +16,10 @@
 
 namespace Luth
 {
+    // Global registry of per-component-type ImGui drawers for the InspectorPanel.
+    // Register<T>(name, drawFn) at editor init wires up the inspector row plus its context-menu
+    // actions (copy / paste / reset / remove). Each context-menu action is backed by an ICommand
+    // wrapper, so every component edit routes through CommandHistory and is undoable.
     struct ComponentDrawerOptions
     {
         bool Removable     = true;

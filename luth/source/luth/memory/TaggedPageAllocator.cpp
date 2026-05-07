@@ -76,28 +76,17 @@ namespace Luth::Memory
             }
         }
 
-        // 2. Page full or no page. Get a new one.
-        // If we had a page, it remains in the used list (managed by the allocator), 
-        // we just stop writing to it.
-        
-        // Note: The old page is already in m_UsedPages (added when allocated).
-        // We just need a new one.
-        
-        // IMPORTANT: The tag comes from the cache. The user sets the tag on the cache before allocating.
-        // Wait, the API says Allocate(cache, size). Where is the tag set?
-        // The cache has 'CurrentTag'.
-        
+        // Active page is full (or none). Old page stays in m_UsedPages tagged with the
+        // current frame; FreeTag(N-2) reaps it once the GPU retires that frame.
         Page* newPage = AllocatePage(cache.CurrentTag);
         if (!newPage) return nullptr;
 
         cache.ActivePage = newPage;
-        
-        // Retry allocation on new page
-        // New page starts at offset 0
+
         void* alignedAddress = (void*)((reinterpret_cast<u64>(newPage->Base) + (alignment - 1)) & ~(alignment - 1));
         u64 adjustment = (u64)alignedAddress - (u64)newPage->Base;
         newPage->Used = size + adjustment;
-        
+
         return alignedAddress;
     }
 

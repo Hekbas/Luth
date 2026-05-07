@@ -33,13 +33,11 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        // Phase 14 — Frame Debugger requires the scene to be visually frozen
-        // so per-draw replay (Phase 14E) sees the same bone matrices the live
-        // capture wrote into BoneMatrixBuffer. Without this guard, Animation
-        // would tick between consecutive replay clicks and each draw would
-        // sample a different pose. Mirrors Unity Frame Debugger's pause-while-
-        // inspecting behavior. Future: extend to a scene-level pause flag once
-        // PhysicsSystem / Audio / scripted systems land.
+        // Frame Debugger needs the scene visually frozen so per-draw replay sees the
+        // same bone matrices the live capture wrote into BoneMatrixBuffer. Without
+        // this guard, Animation would tick between replay clicks and each draw would
+        // sample a different pose. Mirrors Unity Frame Debugger's pause-while-inspect
+        // behavior; extend to a scene-level pause flag once Physics / Audio land.
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
         {
             if (rs->GetDebuggerState() == DebuggerState::Frozen) return;
@@ -479,7 +477,7 @@ namespace Luth
         BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, skinMatrices.data(), boneCount);
     }
 
-    // --- SQT blending helpers (Phase 7D) ---
+    // ── SQT blending helpers ──
 
     void AnimationSystem::SampleClipSQT(
         const AnimationClip& clip,

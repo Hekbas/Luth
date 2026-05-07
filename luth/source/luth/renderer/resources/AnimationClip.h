@@ -8,6 +8,9 @@
 
 namespace Luth
 {
+    // Animation keyframe data. BoneTrack carries per-bone position / rotation / scale keys;
+    // AnimationClip is the UUID-addressable asset imported from Assimp's animation channels.
+    // AnimationSystem samples it each game-stage tick to produce the current pose.
     struct VectorKey {
         f32  Time;
         Vec3 Value;

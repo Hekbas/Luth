@@ -1,12 +1,12 @@
 #pragma once
 
-// RenderSnapshot — frame-coherent snapshot of game-stage state, consumed by the render stage.
-// Captured at end of game stage (after Transform / Animation / Material update), before
-// FrameContext::GameReady signals. Frame N's snapshot is read by frame N+1's render stage,
-// then released two frames later when the FrameContext ring slot resets.
+// Frame-coherent snapshot of game-stage state, consumed by the render stage. Captured at the end
+// of the game stage (after Transform / Animation / Material updates) and before
+// FrameContext::GameReady signals. Frame N's snapshot is read by frame N+1's render stage, then
+// released two frames later when the FrameContext ring slot resets.
 //
-// Lives in core/ alongside FrameData; renderer modules depend on core, not the other way.
-// Implementation in luth/core/RenderSnapshot.cpp (added in S2).
+// Lives in core/ alongside FrameData so renderer modules depend on core, not the reverse.
+// Implementation in luth/core/RenderSnapshot.cpp.
 
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/types/LuthTypes.h"

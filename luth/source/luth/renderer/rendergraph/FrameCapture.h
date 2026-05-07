@@ -19,6 +19,9 @@ namespace Luth
 
 namespace Luth::RG
 {
+    // Record types for the Frame Debugger. CapturedPipelineState, CapturedDrawCall, and
+    // CapturedFrame mirror what live recording emitted so the editor can scroll through passes
+    // and draws and replay individual ones from frozen state.
     // Pipeline state captured at draw time (not hardcoded)
     struct CapturedPipelineState
     {
@@ -114,20 +117,17 @@ namespace Luth::RG
         float totalGpuTimeMs = 0.0f;
         bool  valid          = false;
 
-        // Phase 14B — Per-pass archives + capture-time camera state.
+        // Per-pass archives plus capture-time camera state. invariant: ArchivedImage destruction
+        // is the OWNER's responsibility (FrameDebugger). Clear() does NOT free GPU resources —
+        // call FrameDebugger::DestroyArchives first.
         //
-        // archivedImages owns the staging copies of tracked render targets, captured
-        // post-pass during Execute by the FrameDebugger sink. passArchives is indexed
-        // by RenderGraph pass index and holds the indices into archivedImages of all
-        // archives produced by that pass (typically 0–4 per pass).
+        // archivedImages owns the staging copies of tracked render targets, captured post-pass
+        // during Execute by the FrameDebugger sink. passArchives is indexed by RenderGraph pass
+        // index and holds the indices into archivedImages of all archives produced by that pass
+        // (typically 0-4 per pass).
         //
-        // captureViewProj is the camera viewProj at the moment of capture; the Frozen
-        // path compares against the live viewProj to trigger auto-recapture on camera
-        // movement (Phase 14C).
-        //
-        // ArchivedImage destruction is the OWNER's responsibility (FrameDebugger).
-        // Clear() does NOT free GPU resources — call FrameDebugger::DestroyArchives
-        // first.
+        // captureViewProj is the camera viewProj at the moment of capture; the Frozen path
+        // compares it against the live viewProj to trigger auto-recapture on camera movement.
         std::vector<ArchivedImage>     archivedImages;
         std::vector<std::vector<u32>>  passArchives;
         Mat4                       captureViewProj = Mat4(1.0f);
@@ -148,14 +148,13 @@ namespace Luth::RG
         // and gone by the time the user scrubs.
         std::vector<entt::entity> capturedSelectionHandles;
 
-        // Phase 14D — Hierarchical event tree built at capture finalize from
-        // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
+        // Hierarchical event tree built at capture finalize from passes / drawCalls plus the
+        // prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
 
-        // Phase 14F — CSM cascade snapshot. Stamped from the RenderingSystem's
-        // m_Cached* values at FinalizeCapture so the cascade detail panel
-        // shows GPU-true values from the captured frame, not whatever the
-        // editor has currently dialled in. Indices 0..3 = cascade index.
+        // CSM cascade snapshot. Stamped from the RenderingSystem's m_Cached* values at
+        // FinalizeCapture so the cascade detail panel shows GPU-true values from the captured
+        // frame, not whatever the editor has currently dialled in. Indices 0..3 = cascade index.
         Vec4 cascadeSplitsViewZ = Vec4(0.0f);  // Per-cascade far view-Z (absolute)
         Vec4 shadowBias         = Vec4(0.0f);  // Per-cascade depth bias
         Vec4 shadowNormalBias   = Vec4(0.0f);  // Per-cascade normal bias (texels)

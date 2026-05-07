@@ -15,6 +15,9 @@ namespace Luth
         std::string      SourcePath; // Original source path for debug/reload
     };
 
+    // Compiles GLSL shader sources to SPIR-V via ShaderCompiler and writes the result into a
+    // Library/-resident ShaderAssetData artifact. One source file produces one artifact for one
+    // pipeline stage; multi-stage shaders use multiple .vert/.frag/.comp source files.
     class ShaderImporter : public AssetImporter
     {
     public:

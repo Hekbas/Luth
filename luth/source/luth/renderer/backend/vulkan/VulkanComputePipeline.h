@@ -6,6 +6,9 @@
 
 namespace Luth
 {
+    // RAII compute-pipeline wrapper. Owns the VkPipeline and its layout, built from SPIR-V plus
+    // descriptor-set layouts and push-constant ranges. Used by GTAO, gpu_cull, IBL prefilter,
+    // and every other subsystem that dispatches compute work.
     class VKComputePipeline
     {
     public:

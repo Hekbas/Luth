@@ -7,6 +7,10 @@
 
 namespace Luth
 {
+    // Thin handle wrapping an entt::entity together with its owning Scene*. All component
+    // operations route through Scene::Registry. Cheap to copy by value. The raw entt handle
+    // is exposed via implicit conversion only for ECS-internal call sites; gameplay code
+    // should always hold Entity values, never entt::entity.
     class Entity
     {
     public:

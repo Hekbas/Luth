@@ -9,6 +9,12 @@ namespace Luth::Image
 {
     namespace fs = std::filesystem;
 
+    // Centralized image decode / encode / flip / resize helpers, wrapping stb_image and
+    // stb_image_write. invariant: every Image::Load* path returns top-left origin (Vulkan +
+    // ImGui native). The one site in the engine that touches stb's global flip flag is Init,
+    // and it pins the flag to 0 at App boot — callers needing bottom-left origin (legacy OpenGL
+    // or IBL convention) call FlipVertical after the load.
+
     // 8-bit-per-channel decoded image. RGBA8, top-left origin.
     struct LoadResult8
     {

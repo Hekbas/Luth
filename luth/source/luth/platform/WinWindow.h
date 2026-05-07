@@ -9,6 +9,9 @@
 
 namespace Luth
 {
+    // Windows GLFW backend for the Window abstraction. Owns the GLFWwindow* and the input-callback
+    // wiring for key, mouse, scroll, and drop events. Each callback feeds ImGui first, then dispatches
+    // to the EventBus so engine subscribers see the same input ImGui consumed.
     class WinWindow : public Window
     {
     public:

@@ -4,6 +4,8 @@
 
 namespace Luth
 {
+    // Undo / redo stack viewer. Reads CommandHistory directly; clicking an entry jumps the history
+    // pointer to that point, replaying redo or undo as needed to land on the selection.
     struct HistorySnapshot { /* placeholder */ };
 
     class HistoryPanel : public Panel

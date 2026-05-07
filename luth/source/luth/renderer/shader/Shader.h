@@ -48,6 +48,9 @@ namespace Luth
 		u32 ArraySize = 1;
 	};
 
+	// Abstract shader asset — one ShaderStage per asset, plus the introspected uniform / sampler
+	// metadata that PipelineManager reads to build descriptor-set layouts. The concrete
+	// VulkanShader holds the SPIR-V blob and the reflected layout. ShaderLibrary owns lifetime.
 	class Shader : public Asset
 	{
 	public:

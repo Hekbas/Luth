@@ -8,6 +8,10 @@
 
 namespace Luth
 {
+    // Abstract GPU image asset. The concrete VKTexture implementation handles the
+    // VkImage / VkImageView / VkSampler trio plus bindless-slot registration. Bind sites query
+    // GetBindlessIndex() and shaders index into the global descriptor array; legacy Bind(slot)
+    // remains as a no-op for shape compatibility with non-Vulkan call sites.
     enum class TextureFormat {
         None = 0,
         R8, RGB8, RGBA8, RGBA16F, RGBA32F,

@@ -51,6 +51,7 @@ namespace Luth
             BufferLayout layout = { { ShaderDataType::Float3, "a_Position" } };
             auto bindings = layout.GetBindingDescriptions();
             auto attribs  = layout.GetAttributeDescriptions();
+            // Stride mirrors MakePBRVertexLayout: Position3 + Normal3 + TexCoord0_2 + TexCoord1_2 + Tangent3.
             if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3);
             return { std::move(bindings), std::move(attribs) };
         }

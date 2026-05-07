@@ -6,6 +6,8 @@
 
 namespace Luth
 {
+    // Global wall clock for the engine. App::Run calls Update() once per frame on the main thread;
+    // any fiber that reads DeltaTime / GetTime mid-frame sees a coherent snapshot for that frame.
     class Time
     {
         using Clock = std::chrono::steady_clock;

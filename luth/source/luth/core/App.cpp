@@ -31,9 +31,7 @@
 
 namespace Luth
 {
-    // ================================================================
-    // Engine Root Discovery
-    // ================================================================
+    // ── Engine Root Discovery ──
 
     static fs::path DiscoverEngineRoot()
     {
@@ -56,9 +54,7 @@ namespace Luth
         return fs::current_path();
     }
 
-    // ================================================================
-    // Phase 1: Engine Boot (no project needed)
-    // ================================================================
+    // ── Phase 1: Engine Boot — no project needed ──
 
     App::App(int argc, char** argv)
     {
@@ -149,20 +145,16 @@ namespace Luth
 
     App::~App() {}
 
-    // ===============================================================================
-    // Pipelined Engine Loop — Game(N) | Render(N-1) | GPU(N-2)
-    // ===============================================================================
-    // Main thread is isolated (V2): pumps OS events, drives editor ImGui,
-    // dispatches the two stage fibers, and busy-spins on their counters
-    // (no work-stealing into main).
+    // ── Pipelined Engine Loop — Game(N) | Render(N-1) | GPU(N-2) ──
+    // invariant: see arch/frame-pipeline.md for the full pipeline diagram and ring-slot ownership.
+    // Main thread is V2-isolated: it pumps OS events, drives editor ImGui, dispatches the two
+    // stage fibers, and busy-spins on their counters — never steals worker jobs.
     //
-    // Frames 0/1 run synchronously (game then render against Current()) to
-    // seed the pipeline. From frame 2 onward, Render of Previous() is
-    // dispatched before the GameReady wait, so Game(N) and Render(N-1)
-    // overlap on separate worker fibers. The frame boundary is the
-    // RenderSnapshot captured at end of game stage; render reads it from
-    // a different FrameContext slot, so the two stages never race on
-    // the same data.
+    // Frames 0/1 run synchronously (game then render against Current()) to seed the pipeline.
+    // From frame 2 onward, Render of Previous() is dispatched before the GameReady wait, so
+    // Game(N) and Render(N-1) overlap on separate worker fibers.
+    // The frame boundary is the RenderSnapshot captured at end of game stage; render reads it
+    // from a different FrameContext slot, so the two stages never race on the same data.
 
     void App::Run()
     {
@@ -372,9 +364,7 @@ namespace Luth
         JobSystem::RecordStageTime(JobSystem::Stage::Render, stageTimer.ElapsedMillis());
     }
 
-    // ================================================================
-    // Shutdown
-    // ================================================================
+    // ── Shutdown ──
 
     void App::Close()
     {
@@ -407,9 +397,7 @@ namespace Luth
         Memory::MemoryTracker::Shutdown();
     }
 
-    // ================================================================
-    // Project Loading
-    // ================================================================
+    // ── Project Loading ──
 
     void App::LoadProject(const fs::path& luthprojPath)
     {
@@ -470,9 +458,7 @@ namespace Luth
         LH_CORE_INFO("Project loaded: '{}'", project.Name);
     }
 
-    // ================================================================
-    // Utility
-    // ================================================================
+    // ── Utility ──
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
@@ -504,9 +490,7 @@ namespace Luth
         m_Running = false;
     }
 
-    // ================================================================
-    // File Drop Handling
-    // ================================================================
+    // ── File Drop Handling ──
 
     void App::OnFileDrop(FileDropEvent& e)
     {

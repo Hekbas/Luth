@@ -11,9 +11,7 @@ namespace Luth
     fs::path FileSystem::s_AssetsRoot;
     bool     FileSystem::s_HasProject = false;
 
-    // ================================================================
-    // Phase 1: Engine-only init (called at startup)
-    // ================================================================
+    // ── Phase 1: Engine-only init (called at startup) ──
 
     void FileSystem::InitEngine(const fs::path& engineRoot)
     {
@@ -28,9 +26,7 @@ namespace Luth
         LH_CORE_INFO("FileSystem: Engine root = {}", s_EngineRoot.string());
     }
 
-    // ================================================================
-    // Phase 2: Set project root (called when user selects a project)
-    // ================================================================
+    // ── Phase 2: Set project root (called when user selects a project) ──
 
     void FileSystem::SetProjectRoot(const fs::path& projectRoot)
     {
@@ -56,9 +52,7 @@ namespace Luth
         return s_HasProject;
     }
 
-    // ================================================================
-    // Path Operations
-    // ================================================================
+    // ── Path Operations ──
 
     fs::path FileSystem::GetPath(AssetType type, const fs::path& name, bool addExtension)
     {
@@ -131,9 +125,7 @@ namespace Luth
         return enginePath.lexically_normal();
     }
 
-    // ================================================================
-    // Platform / Utility
-    // ================================================================
+    // ── Platform / Utility ──
 
     fs::path FileSystem::PlatformAssetsPath()
     {

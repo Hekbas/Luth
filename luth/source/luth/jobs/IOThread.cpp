@@ -89,6 +89,7 @@ namespace Luth
 
     static IOCallbackSlot* AcquireSlot()
     {
+        // s_NextSlot is just a probe hint — relaxed is fine; the CAS on InUse is the gate.
         for (u32 attempt = 0; attempt < MAX_IO_CALLBACKS; ++attempt)
         {
             u32 idx = s_NextSlot.fetch_add(1, std::memory_order_relaxed) % MAX_IO_CALLBACKS;
@@ -107,6 +108,8 @@ namespace Luth
         slot->Callback(std::move(slot->Data));
         slot->Callback = nullptr;
         slot->Data.clear();
+        // Release pairs with the acquire implicit in AcquireSlot's CAS — ensures
+        // the next acquirer sees the cleared Callback/Data, not stale state.
         slot->InUse.store(false, std::memory_order_release);
     }
 

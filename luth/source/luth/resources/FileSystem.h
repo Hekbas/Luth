@@ -10,6 +10,10 @@ namespace Luth
 {
     class MetaFile;
 
+    // Engine-and-project root manager. Two-phase init: InitEngine pins the engine-assets root at
+    // startup, then SetProjectRoot binds the active .luthproj root once the user selects one.
+    // ResolveAsset searches project-first then falls back to engine, so projects can shadow engine
+    // assets by relative path without recompiling the engine.
     class FileSystem
     {
     public:
@@ -20,16 +24,17 @@ namespace Luth
             Vec4 color;
         };
 
-        /// Phase 1: Initialize engine root only. Call at startup before any project is loaded.
+        // Engine-only init: pin the engine root. Call at startup before any project is loaded.
         static void InitEngine(const fs::path& engineRoot);
 
-        /// Phase 2: Set the project root. Called when a project is selected.
+        // Bind the project root. Called when a project is selected, either at startup from a CLI
+        // arg or later through the project launcher.
         static void SetProjectRoot(const fs::path& projectRoot);
 
-        /// Clear project root (when switching away from a project before loading a new one).
+        // Clear the project root when switching away from a project, before loading a new one.
         static void ClearProject();
 
-        /// Returns true if a project is currently loaded.
+        // True if a project is currently loaded.
         static bool HasProject();
 
         // Path operations
@@ -38,10 +43,11 @@ namespace Luth
         static fs::path ProjectPath(const fs::path& relative = "");
         static fs::path AssetsPath(const fs::path& relative = "");
 
-        /// Returns the engine's internal assets directory (luth/assets/).
+        // Engine-internal assets directory (luth/assets/), with optional relative subpath.
         static fs::path EngineAssetsPath(const fs::path& relative = "");
 
-        /// Search project assets first, then engine assets.
+        // Search project assets first, then fall back to engine assets. The lookup that lets a
+        // project shadow an engine-shipped asset by relative path.
         static fs::path ResolveAsset(const fs::path& relative);
 
         // Platform paths

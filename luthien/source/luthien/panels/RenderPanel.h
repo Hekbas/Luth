@@ -10,6 +10,9 @@
 
 namespace Luth
 {
+    // Renderer settings panel: debug attachment toggles, post-process tunables, model preview.
+    // Reads and writes RenderingSystem state directly. The settings UI is dominantly ImGui-driven,
+    // so the snapshot is intentionally empty — there's nothing useful to gather on a worker fiber.
     struct RenderSettingsSnapshot { /* placeholder; settings UI is fully ImGui-driven */ };
 
     class RenderPanel : public Panel

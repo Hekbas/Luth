@@ -13,9 +13,7 @@
 namespace Luth
 {
 
-    // =========================================================================
-    // Construction / Destruction
-    // =========================================================================
+    // ── Construction / Destruction ──
 
     RenderingSystem::RenderingSystem(u32 viewportWidth, u32 viewportHeight)
     {
@@ -60,8 +58,8 @@ namespace Luth
         m_FrameDebugger.DestroyArchives();
         m_FrameDebugger.state = DebuggerState::Inactive;
         m_FrameDebugger.capturedFrame.Clear();
-        // Phase 14E — drop the per-draw replay cache key so the next capture
-        // starts clean (preview texture itself is reused across captures).
+        // Drop the per-draw replay cache key so the next capture starts clean —
+        // the preview texture itself is reused across captures.
         m_Pipeline->ResetPreviewCacheKeys();
     }
 
@@ -73,9 +71,7 @@ namespace Luth
     u32         RenderingSystem::GetDepthPreviewWidth()    const { return m_Pipeline->GetDepthPreviewWidth(); }
     u32         RenderingSystem::GetDepthPreviewHeight()   const { return m_Pipeline->GetDepthPreviewHeight(); }
 
-    // =========================================================================
-    // Project lifecycle
-    // =========================================================================
+    // ── Project lifecycle ──
 
     void RenderingSystem::OnProjectLoaded()
     {
@@ -88,9 +84,7 @@ namespace Luth
         m_Pipeline->GetShaderWatcher().RemoveProjectDir();
     }
 
-    // =========================================================================
-    // Per-frame dispatcher
-    // =========================================================================
+    // ── Per-frame dispatcher ──
 
     void RenderingSystem::Update(Scene* scene)
     {
@@ -104,8 +98,8 @@ namespace Luth
         // and ran twice per frame when both Scene + Game viewports were open.
         m_Pipeline->GetShaderWatcher().Poll();
 
-        // --- Frame Debugger: Frozen state ---
-        // Phase 14C — strict snapshot model with auto-recapture on camera move.
+        // ── Frame Debugger: Frozen state ──
+        // Strict snapshot model with auto-recapture on camera move.
         //
         // While Frozen, the live render graph is NOT rebuilt or re-executed.
         // The LDR output target retains the LAST CAPTURED image (no other code
@@ -249,9 +243,7 @@ namespace Luth
         Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
     }
 
-    // =========================================================================
-    // Per-view record
-    // =========================================================================
+    // ── Per-view record ──
 
     void RenderingSystem::RecordView(const RenderView& view, void* primaryCmd)
     {
@@ -296,9 +288,7 @@ namespace Luth
         vkCmdPipelineBarrier2(static_cast<VkCommandBuffer>(primaryCmd), &dep);
     }
 
-    // =========================================================================
-    // Resize
-    // =========================================================================
+    // ── Resize ──
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {

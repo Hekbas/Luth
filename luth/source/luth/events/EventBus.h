@@ -16,11 +16,16 @@
 
 namespace Luth
 {
-    // Polymorphic deleter that records the per-type free amount on the
-    // engine's MemoryTracker. Constructed at Enqueue time when the concrete
-    // type is still known (sizeof(T)), then captured into the unique_ptr so
-    // the dispatch loop can drop events by static type without losing the
-    // category-bucketed accounting.
+    // Buffered event dispatch with named buses (MainThread, RenderThread). Producers Enqueue
+    // events from any fiber; consumers Subscribe<EventType> and drain via ProcessEvents on the
+    // owning thread. invariant: every dispatch happens between frames, so no handler runs
+    // concurrent with OnGather or OnDraw and panel-state mutations land race-free.
+    // Edge-frequency by design — hot per-frame data flows through RenderSnapshot, not the bus.
+
+    // Polymorphic deleter that records the per-type free amount on the engine's MemoryTracker.
+    // Constructed at Enqueue time while the concrete type is still known (sizeof(T)), then
+    // captured into the unique_ptr so the dispatch loop can drop events by static type without
+    // losing the category-bucketed accounting.
     struct EventDeleter {
         Memory::Category category = Memory::Category::General;
         size_t size = 0;

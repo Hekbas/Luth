@@ -6,5 +6,7 @@
 
 namespace Luth::UI
 {
+    // Drag-drop-accepting asset slot for inspector property rows. The drop target is filtered
+    // against the dragged payload's AssetType; clicking the slot opens the project picker.
     EditState PropertyAsset(const char* label, UUID& assetHandle, AssetType type);
 }

@@ -12,12 +12,10 @@ typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Luth
 {
-    // ===================================================================================
-    // Upload Context (Async Transfer Queue)
-    // ===================================================================================
-    // Handles asynchronous data uploads to the GPU using a dedicated Transfer Queue.
-    // Uses a Ring Buffer for staging memory to avoid frequent allocations.
-    
+    // Async data uploads on a dedicated transfer queue, backed by a staging ring buffer that avoids
+    // per-call VMA allocations. UploadBuffer / UploadImage / UploadImageMipped return a fence value
+    // the caller can poll if they need to gate texture binding on completion.
+
     class UploadContext
     {
     public:

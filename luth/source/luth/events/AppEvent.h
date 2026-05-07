@@ -4,6 +4,8 @@
 
 namespace Luth
 {
+    // Application-lifecycle events. The platform Window posts these from GLFW callbacks; App
+    // drains them on the main thread between frames. Visible to EventCategoryApplication subscribers.
     class WindowResizeEvent : public Event
     {
     public:

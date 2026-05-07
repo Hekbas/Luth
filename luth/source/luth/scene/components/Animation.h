@@ -12,6 +12,9 @@
 
 namespace Luth::Component
 {
+    // Per-entity animation playback state plus the bone-buffer slot assignment used by GPU skinning.
+    // BoneAttachment lets a child entity follow a specific bone of an animated parent. AnimationSystem
+    // drives playback on the game stage; the renderer reads each entity's resolved BoneMatrixBuffer slot.
     enum class AnimationLoopMode { Off = 0, One = 1, All = 2 };
 
     struct Animation {

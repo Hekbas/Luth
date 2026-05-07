@@ -25,15 +25,14 @@ namespace Luth::JobSystem
 
 namespace Luth
 {
-    // Forward decls for the new Gather/Draw lifecycle. Defined in EditorSnapshot.h
-    // and events/EditorSignals.h (added in sub-tasks B and the editor-signal-bus epic
-    // respectively). Panel's hooks take these by reference; full definitions only
-    // needed in panel .cpp files that override OnGather/OnDraw/OnEvent.
+    // Forward decls for the Gather/Draw lifecycle. Defined in EditorSnapshot.h and
+    // events/EditorSignals.h. Panel's hooks take these by reference; full definitions
+    // only needed in panel .cpp files that override OnGather/OnDraw/OnEvent.
     class EditorSnapshot;
     class EditorSnapshotBuilder;
     struct EditorSignal;
 
-    // Editor panel base. Gather/Draw lifecycle (since v2.9.0 editor-foundation):
+    // Editor panel base. Gather/Draw lifecycle:
     //   OnInit       — once after construction; subscribe to signals here.
     //   OnGather     — worker fiber, no ImGui, no Vk; fills m_SnapshotFragment.
     //   OnDraw       — main thread, the only place ImGui calls are legal; reads frozen snapshot.
@@ -107,6 +106,10 @@ namespace Luth
         std::type_index m_FragmentType{ typeid(void) };
     };
 
+    // Top-level editor singleton. Owns the panel registry, the global Gather/Draw pump
+    // (worker-fiber gather, main-thread draw, EventBus drain), the active Workspace, and the
+    // dirty-tracking flag. Wires into the engine through IEditorHooks; engine code never
+    // includes luthien headers directly. See arch/editor.md.
     class Editor
     {
     public:

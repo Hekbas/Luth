@@ -8,13 +8,11 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // Command Allocator Pool (Thread-Safe Global Pool)
-    // ===================================================================================
-    // Manages a pool of CommandAllocator objects.
-    // Fibers acquire an allocator to record commands and release it when done.
-    // Released allocators are NOT reset immediately; they are reset when the frame they were used for is recycled.
-    
+    // Thread-safe pool of CommandAllocator instances. Fibers Acquire one to record commands and
+    // Release it when done. Released allocators are not reset at Release time — they're reset only
+    // when the owning frame is recycled past the GPU fence, so V3 thread-affinity rules stay safe
+    // for any in-flight command buffers the GPU is still consuming.
+
     class CommandAllocatorPool
     {
     public:

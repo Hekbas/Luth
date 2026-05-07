@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // 128-bit identity used for assets and entities. Generated from a Win32 entropy source on
+    // construction; stable across save/load and across destroy-undo cycles, which is why every
+    // command is keyed by UUID rather than entt::entity. Invalid() returns the all-zero sentinel.
     class UUID
     {
     public:

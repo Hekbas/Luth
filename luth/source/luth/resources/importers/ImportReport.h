@@ -9,6 +9,9 @@
 
 namespace Luth
 {
+    // Side-channel result from ModelImporter for textures Assimp couldn't resolve. The editor's
+    // TextureRemapDialog reads ImportReport, lets the user point at the missing files, then
+    // re-runs the import with the resolved paths bound to UserProvidedPath.
     struct UnresolvedTexture
     {
         std::string MaterialName;

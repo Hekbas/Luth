@@ -7,6 +7,8 @@
 
 namespace Luth
 {
+    // Thin wrapper over VK_KHR_dynamic_rendering. Every pass calls BeginRendering / EndRendering
+    // directly — Luth has no VkRenderPass or VkFramebuffer anywhere in the codebase.
     struct AttachmentInfo
     {
         VkImageView ImageView = VK_NULL_HANDLE;

@@ -1,11 +1,5 @@
-// =================================================================
-// Important Notes ~hekbas
-// =================================================================
-// 1. Requires C++20 or later
-// 2. Compiler must support the formatted type specializations
-// 3. Link with -lfmt if using standalone fmt library
-// 4. Include this header before any logging statements
-
+// fmt formatter specializations for STL + GLM + Vulkan types so spdlog can format them
+// directly. Include before any logging statement that touches these types. Requires C++20.
 
 #pragma once
 
@@ -27,9 +21,7 @@
 #include <ostream>
 
 
-// =================================================================
-// Standard Library Types
-// =================================================================
+// ── Standard Library Types ──
 namespace fmt
 {
     // std::unique_ptr
@@ -127,9 +119,7 @@ namespace fmt
     };
 }
 
-// =================================================================
-// Third-party Types
-// =================================================================
+// ── Third-party Types ──
 namespace fmt
 {
     // Vulkan VkResult
@@ -177,9 +167,7 @@ namespace fmt
     };
 }
 
-// =================================================================
-// Luth Types
-// =================================================================
+// ── Luth Types ──
 namespace Luth
 {
     // ostream<< adapters used by spdlog/fmt's ostream formatter

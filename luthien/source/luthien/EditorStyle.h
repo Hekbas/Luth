@@ -10,6 +10,9 @@ struct ImFont;
 
 namespace Luth
 {
+    // ImGui style and font preset. Serialized as JSON under luth/assets/styles/ for engine
+    // built-ins and as project-local overrides under the user's project. Applied at editor
+    // init and again whenever the user picks a different style in EditorSettings.
     struct FontConfig {
         std::string MainFontName;       // e.g. "Roboto-Regular.ttf"
         float       MainFontSize;       // e.g. 15.0f

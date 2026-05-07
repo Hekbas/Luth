@@ -6,9 +6,10 @@
 
 namespace Luth
 {
-    // WorkStealingDeque — Chase-Lev Work-Stealing Deque (Chase & Lev SPAA 2005, Lê et al. PPoPP 2013).
-    // Per-worker deque for normal-priority jobs. Owner pushes/pops from bottom (LIFO — cache locality).
-    // Thieves steal from top (FIFO — load balancing). Capacity grows by doubling from initial size.
+    // Per-worker Chase-Lev work-stealing deque for normal-priority jobs (Chase & Lev SPAA 2005,
+    // Lê et al. PPoPP 2013). The owner pushes and pops at the bottom in LIFO order for cache
+    // locality; thieves steal from the top in FIFO order for load balancing. Capacity doubles
+    // on growth.
 
     template<typename T>
     class WorkStealingDeque

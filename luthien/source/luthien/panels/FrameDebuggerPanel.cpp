@@ -221,7 +221,7 @@ namespace Luth
     void FrameDebuggerPanel::OnGather(EditorSnapshotBuilder& builder)
     {
         // Pass tree + archive previews + per-draw replay all need ImGui descriptor
-        // allocations on main thread; snapshot stays a placeholder for v2.9.0.
+        // allocations on the main thread, so the snapshot stays a placeholder.
         builder.Add<FrameDebuggerSnapshot>();
     }
 
@@ -238,10 +238,9 @@ namespace Luth
         auto debuggerState = m_RS->GetDebuggerState();
         const bool inCaptureView = (debuggerState == DebuggerState::Frozen && m_RS->GetCapturedFrame().valid);
 
-        // Phase 14D/E — release cached ImGui descriptors as soon as we leave
-        // the capture view. The underlying ArchivedImage / per-draw-preview
-        // views can be destroyed on ExitCapture / Resize, so stale cached
-        // descriptors would point at freed GPU memory next frame.
+        // Release cached ImGui descriptors as soon as we leave the capture view. The underlying
+        // ArchivedImage and per-draw-preview views can be destroyed on ExitCapture or Resize, so
+        // stale cached descriptors would point at freed GPU memory next frame.
         if (!inCaptureView)
         {
             auto dropDesc = [](VkDescriptorSet& set) {
@@ -315,9 +314,9 @@ namespace Luth
 
     void FrameDebuggerPanel::DrawLiveControlBar(const RG::RenderGraphSnapshot& snapshot, int nonCulledCount)
     {
-        // Enable button — triggers capture. Phase 14D — capture-mode selection
-        // state is reset lazily on entering Frozen view (OnRender top-of-frame
-        // guard); no explicit slider/draw-index reset needed here anymore.
+        // Enable button — triggers capture. Capture-mode selection state is reset lazily on
+        // entering the Frozen view (handled by the OnRender top-of-frame guard), so there's no
+        // explicit slider/draw-index reset needed here.
         if (ImGui::Button("Enable"))
             m_RS->RequestCapture();
 
@@ -551,7 +550,7 @@ namespace Luth
         }
     }
 
-    // 25002500  Capture Mode (Phase 14D — hierarchical EventNode tree) 25002500
+    // ── Capture mode — hierarchical EventNode tree ──
 
     void FrameDebuggerPanel::DrawCaptureView(const RG::CapturedFrame& capture)
     {
@@ -859,13 +858,10 @@ namespace Luth
 
         VkSampler sampler = m_RS->GetDebugSampler();
 
-        // -------------------------------------------------------------------
-        // Phase 14E — per-draw replay preview.
-        //
-        // Triggered only when a Draw node is selected AND its owning pass is
-        // one we know how to replay (GeometryPass for v1). Other selections
-        // fall through to the pass-output archive path below.
-        // -------------------------------------------------------------------
+        // ── Per-draw replay preview ──
+        // Triggered only when a Draw node is selected AND its owning pass is one we know how to
+        // replay (GeometryPass currently). Other selections fall through to the pass-output
+        // archive path below.
         bool tryPerDrawReplay = false;
         u32  perDrawPassIdx   = 0;
         u32  perDrawLocalIdx  = 0;
@@ -947,9 +943,7 @@ namespace Luth
             }
         }
 
-        // -------------------------------------------------------------------
-        // Pass-output archive path (Phase 14D fallback).
-        // -------------------------------------------------------------------
+        // ── Pass-output archive path (fallback) ──
         if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size())
         {
             ImGui::TextDisabled("(no output preview for this event)");
@@ -970,15 +964,11 @@ namespace Luth
 
         if (archive.isDepth)
         {
-            // ---------------------------------------------------------------
-            // Phase 14F — Depth archive visualization.
-            //
-            // For cascade slices (m_SelArchiveLayer >= 0) we use the matching
-            // cascade's far view-Z so each slice gets a sensible contrast
-            // range instead of clipping against the camera's full draw distance.
-            // For non-array depth archives we fall back to a generic 0.1..200 m
-            // window matching the existing AddDebugBlitPass default.
-            // ---------------------------------------------------------------
+            // ── Depth archive visualization ──
+            // For cascade slices (m_SelArchiveLayer >= 0) we use the matching cascade's far
+            // view-Z so each slice gets a sensible contrast range instead of clipping against
+            // the camera's full draw distance. For non-array depth archives we fall back to a
+            // generic 0.1..200 m window matching the existing AddDebugBlitPass default.
             if (sampler == VK_NULL_HANDLE)
             {
                 ImGui::TextDisabled("(debug sampler not initialized)");
@@ -1143,13 +1133,11 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // ----------------------------------------------------------------
-            // Phase 14F — CSM cascade detail block. Surfaces GPU-true values
-            // captured at the time of the snapshot (cascadeSplitsViewZ, biases,
-            // per-cascade texel footprint, light-space matrix). All values come
-            // from CapturedFrame, NOT live RenderingSystem state, so editing
-            // light parameters while frozen doesn't desync the readout.
-            // ----------------------------------------------------------------
+            // ── CSM cascade detail block ──
+            // Surfaces GPU-true values captured at the snapshot (cascadeSplitsViewZ, biases,
+            // per-cascade texel footprint, light-space matrix). All values are read from
+            // CapturedFrame, NOT live RenderingSystem state, so editing light parameters while
+            // frozen doesn't desync the readout.
             if (m_SelKind == RG::EventNodeKind::Cascade &&
                 m_SelArchiveLayer >= 0 && m_SelArchiveLayer < 4 &&
                 UI::BeginCollapsingHeader("Cascade", true))

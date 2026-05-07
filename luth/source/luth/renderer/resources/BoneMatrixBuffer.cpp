@@ -92,8 +92,8 @@ namespace Luth
         if (!m_CpuScratch) return;
         if (baseIndex + count > TOTAL_MATRICES) return;
 
-        // Per-entity baseIndex is unique → concurrent fiber writes hit disjoint ranges.
-        // No lock needed (same property as the v2.8.9 mapped-buffer write).
+        // Per-entity baseIndex is unique → concurrent fiber writes hit disjoint ranges,
+        // so no lock is needed against other UploadBones callers on the same frame.
         memcpy(m_CpuScratch + baseIndex * MATRIX_SIZE, matrices, count * MATRIX_SIZE);
     }
 

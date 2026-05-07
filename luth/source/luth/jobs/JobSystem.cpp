@@ -107,7 +107,8 @@ namespace Luth::JobSystem
         std::atomic<WorkerState> WorkerStates[MAX_WORKER_THREADS]{};
         std::atomic<WorkerState> WorkerPeakStates[MAX_WORKER_THREADS]{};
 
-        // Per-frame counters (reset by ResetFrameStats)
+        // Per-frame stats counters (reset by ResetFrameStats). Read by ProfilerPanel
+        // only — relaxed loads/stores throughout; no synchronization with workers.
         std::atomic<u32> FrameJobsExecuted = 0;
         std::atomic<u32> FrameStealAttempts = 0;
         std::atomic<u32> FrameStealSuccesses = 0;
@@ -143,11 +144,12 @@ namespace Luth::JobSystem
         }
     }
 
+    // State + peak are observed only by the profiler panel — relaxed throughout.
     static void SetWorkerState(u32 index, WorkerState state)
     {
         s_Data.WorkerStates[index].store(state, std::memory_order_relaxed);
 
-        // Update peak: only overwrite if new state has higher priority
+        // Peak holds the busiest state seen this frame; only overwrite if new state outranks current.
         WorkerState current = s_Data.WorkerPeakStates[index].load(std::memory_order_relaxed);
         while (WorkerStatePriority(state) > WorkerStatePriority(current))
         {
@@ -253,8 +255,9 @@ namespace Luth::JobSystem
                     s_Data.ReadyFibers[s_Data.ReadyFiberCount++] = waitingFiber;
                 }
 
-                // V4: Wake a sleeping worker
-                s_Data.HighQueue.GetGeneration(); // Touch to trigger wake
+                // V4: wake a sleeping worker. WakeByAddressSingle pairs with
+                // the WaitOnAddress in WorkerThreadLoop's idle path.
+                s_Data.HighQueue.GetGeneration();
                 u32 gen = s_Data.HighQueue.GetGeneration();
 #ifdef _WIN32
                 WakeByAddressSingle(s_Data.HighQueue.GetGenerationPtr());
@@ -278,7 +281,9 @@ namespace Luth::JobSystem
         Fiber* self = s_Data.Workers[t_WorkerIndex].CurrentFiber;
         JobContext* ctx = GetFiberContext(self);
 
-        // Propagate global state
+        // Propagate global state. GlobalCommandPool is set once per frame by the
+        // main thread before any worker dispatch — relaxed is safe; the frame
+        // fence orders the publish.
         ctx->CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
         ctx->ThreadIndex = t_WorkerIndex;
         ctx->FiberID = (u32)(self - s_Data.FiberPool);
@@ -835,7 +840,7 @@ namespace Luth::JobSystem
         s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
     }
 
-    // ── S9: Stage tag accessors ──
+    // ── Stage tag accessors ──
 
     Stage GetCurrentStage()
     {

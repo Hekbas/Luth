@@ -15,6 +15,10 @@
 
 namespace Luth
 {
+    // UUID-keyed cache of loaded asset shared_ptrs. Async loads dispatch onto worker fibers; the
+    // resulting GPU uploads land in a queue that the main thread drains each frame, where Vulkan
+    // handles and bindless-slot binds actually happen. Trim() evicts unreferenced assets, but
+    // Scene::HoldAsset keeps live entries pinned across the cycle.
     class AssetManager
     {
     public:

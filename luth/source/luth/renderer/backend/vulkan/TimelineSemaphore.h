@@ -5,6 +5,10 @@
 
 namespace Luth
 {
+    // RAII wrapper around VkSemaphore configured with VK_SEMAPHORE_TYPE_TIMELINE. Used by
+    // VulkanBackend (for the per-frame fence that drives V6 FreeTag(N-2)) and by UploadContext
+    // (for ring-slot completion). Default-constructed handles deliberately don't allocate so a
+    // class can hold a TimelineSemaphore as a member and Init it later.
     class TimelineSemaphore
     {
     public:

@@ -5,6 +5,9 @@
 
 namespace Luth
 {
+    // Lightweight scoped stopwatch. The constructor starts the clock; Elapsed / ElapsedMillis sample on
+    // demand. Independent of Time's global clock so callers can measure sub-frame intervals without
+    // coupling to the frame-loop tick.
     class Timer
     {
     public:

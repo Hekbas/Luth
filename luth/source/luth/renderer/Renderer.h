@@ -11,6 +11,10 @@ namespace Luth
     namespace RG { class RenderGraph; }
     class GPUTimerPool;
 
+    // Static facade over the active RenderBackend. Holds the global FrameData pointer (owned by
+    // App), forwards BeginFrame / EndFrame / GetCommandBuffer through to the backend, and exposes
+    // the deletion queues that subsystems push retired GPU resources into. Renderer never owns
+    // GPU lifetimes itself — those live on RenderPipeline + the various subsystems.
     class Renderer
     {
     public:

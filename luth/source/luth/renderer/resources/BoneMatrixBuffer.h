@@ -10,9 +10,7 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // Bone Matrix Buffer (Global Bone SSBO for GPU Skinning)
-    // ===================================================================================
+    // ── Bone Matrix Buffer — global bone SSBO for GPU skinning ──
     // Slot-based block allocator (per-entity stable offsets baked into obj.boneOffset).
     // Bone data accumulates into a CPU staging buffer during the game stage; Update()
     // copies the staging into a fresh per-frame GPU region (GPUTaggedPageAllocator) and

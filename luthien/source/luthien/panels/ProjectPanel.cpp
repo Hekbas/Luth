@@ -66,11 +66,10 @@ namespace Luth
 
     void ProjectPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Real opportunity site for follow-on polish: BuildDirectoryTree (recursive
-        // filesystem walk on Refresh) + UpdateSearchResults (lowercase + substring on
-        // every keystroke) both run today inside OnDraw and dominated the pre-rework
-        // Tracy capture. v2.9.0 ships the structural migration; the actual work move
-        // is a separate epic (editor-project-async-index).
+        // Real polish opportunity: BuildDirectoryTree (recursive filesystem walk on
+        // Refresh) + UpdateSearchResults (lowercase + substring on every keystroke)
+        // both run inside OnDraw today and dominate Tracy captures. The structural
+        // migration ships first; the actual work move is a future async-index pass.
         builder.Add<ProjectSnapshot>();
     }
 

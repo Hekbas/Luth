@@ -13,10 +13,10 @@ namespace Luth
     class Window;
     class Scene;
 
-    /// Editor-owned simulation state. Engine queries this via IEditorHooks to
-    /// decide whether game systems (Animation, future Physics / Scripting)
-    /// should tick on the current frame. A headless runtime leaves the hook
-    /// registry empty and the engine defaults to "always tick".
+    // Editor-owned simulation state. The engine queries this via IEditorHooks to decide whether
+    // game systems (Animation, future Physics, Scripting) should tick on the current frame.
+    // A headless runtime leaves the hook registry empty, in which case the engine defaults to
+    // "always tick".
     enum class PlayState
     {
         Editing,
@@ -24,9 +24,9 @@ namespace Luth
         Paused,
     };
 
-    /// Per-frame snapshot of editor-owned state the engine feeds into
-    /// RenderingSystem. When no editor is registered, stays default-constructed
-    /// and the engine uses identity camera + empty selection.
+    // Per-frame snapshot of editor-owned state that the engine feeds into RenderingSystem. When
+    // no editor is registered the struct stays default-constructed, so the runtime build sees an
+    // identity camera and empty selection.
     struct EditorViewportState
     {
         bool      hasCamera        = false;
@@ -59,11 +59,10 @@ namespace Luth
         bool      previewAnimationInEditor = true;
     };
 
-    /// Interface the engine uses to drive the editor without depending on
-    /// luthien/ headers. The editor library (Luthien.lib) provides a concrete
-    /// implementation and registers it via EditorHooks::Register before App
-    /// construction. A headless/runtime-only build leaves the registry empty
-    /// and the engine skips editor-specific behavior.
+    // Interface the engine uses to drive the editor without ever depending on luthien/ headers.
+    // Luthien.lib provides the concrete implementation and registers it via EditorHooks::Register
+    // before App is constructed. A headless or runtime-only build leaves the registry empty and
+    // the engine quietly skips editor-specific behavior. See arch/editor.md for the contract.
     struct IEditorHooks
     {
         virtual ~IEditorHooks() = default;
@@ -116,13 +115,12 @@ namespace Luth
 
     namespace EditorHooks
     {
-        /// Registered by Luthien.lib's bootstrap before App is constructed.
-        /// Passing nullptr clears the registration (rarely useful).
+        // Registered by Luthien.lib's bootstrap before App is constructed. Passing nullptr clears
+        // the registration (rarely useful in practice — exists for symmetry).
         void Register(IEditorHooks* hooks);
 
-        /// Returns the registered hook, or nullptr if no editor is linked
-        /// (runtime-only build) or hooks haven't been registered yet.
-        /// Call sites must nullptr-check.
+        // Returns the registered hook, or nullptr if no editor is linked (runtime-only build) or
+        // if hooks haven't been registered yet. All call sites must nullptr-check.
         IEditorHooks* Get();
     }
 }

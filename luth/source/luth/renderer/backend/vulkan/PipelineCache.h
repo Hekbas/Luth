@@ -4,6 +4,10 @@
 
 namespace Luth
 {
+    // VkPipelineCache wrapper plus the project-side persistence. The cache is reused across
+    // VKPipeline construction so material and render-mode combos compile faster on second open;
+    // LoadFromProject reads <project>/Library/PipelineCache.bin into the live cache and
+    // SaveToProject writes it back.
     class PipelineCache
     {
     public:

@@ -6,6 +6,10 @@
 
 namespace Luth
 {
+    // Concrete Vulkan-backed Texture. Owns the VkImage / VkImageView / VkSampler trio plus the
+    // VMA allocation and the bindless descriptor slot the texture is registered into. Three
+    // constructors cover the common shapes: (data, default sampler), (data, custom sampler
+    // settings), and (storage / cubemap, no upload — filled by compute or blit later).
     class VKTexture : public Texture
     {
     public:

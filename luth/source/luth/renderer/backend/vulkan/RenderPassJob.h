@@ -9,13 +9,9 @@
 
 namespace Luth
 {
-    // ===================================================================================
-    // Render Pass Job
-    // ===================================================================================
-    // Records commands into a secondary command buffer on a worker thread.
-    // Used by RenderGraph::Execute() — the executor collects the CommandBuffer
-    // after WaitForCounter, so no TargetFrame push is needed.
-    
+    // Records commands into a secondary command buffer on a worker fiber. RenderGraph::Execute
+    // collects CommandBuffer back after WaitForCounter, so there's no TargetFrame push needed.
+
     struct RenderPassJob
     {
         // Attachment metadata for inheritance info

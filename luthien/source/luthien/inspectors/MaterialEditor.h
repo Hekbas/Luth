@@ -9,6 +9,9 @@ namespace Luth
 {
     class Material;
 
+    // Inspector pane for Material assets. Snapshots the JSON before edits begin so a single
+    // MaterialSnapshotCommand can be pushed onto CommandHistory once editing pauses (debounced
+    // by m_SaveTimer). Embedded in InspectorPanel; previews render through ThumbnailPreviewScene.
     class MaterialEditor
     {
     public:

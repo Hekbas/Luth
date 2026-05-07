@@ -7,6 +7,9 @@
 
 namespace Luth
 {
+    // Read-only inspector pane for Scene assets — shows entity count, file size, and a button
+    // to open the scene. Cheaper than the full HierarchyPanel because it doesn't load the scene;
+    // it just parses the metadata and caches by (uuid, mtime).
     class SceneViewer
     {
     public:

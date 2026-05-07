@@ -1,6 +1,10 @@
 #pragma once
 
-// Enable Tracy in Debug/Release, disable in Dist
+// LH_PROFILE_* macros that compile to Tracy zones (Debug, Release builds with TRACY_ENABLE) or
+// to no-ops (Dist). LH_PROFILE_FRAME / FUNCTION / SCOPE are the common entry points; allocator
+// macros plumb LH_NEW / LH_ALLOC sites into Tracy's memory tab. Fiber macros depend on the
+// optional TRACY_FIBERS define so call sites can stay clean either way.
+
 #if defined(TRACY_ENABLE)
     #include <tracy/Tracy.hpp>
 
