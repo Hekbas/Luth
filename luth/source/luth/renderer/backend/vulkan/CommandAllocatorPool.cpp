@@ -69,7 +69,7 @@ namespace Luth
 
     CommandAllocator* CommandAllocatorPool::CreateAllocator()
     {
-        LH_CORE_WARN("Creating new Command Allocator. Total: {0}", m_AllAllocators.size() + 1);
+        LH_CORE_TRACE("Creating new Command Allocator. Total: {0}", m_AllAllocators.size() + 1);
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
