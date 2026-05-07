@@ -369,6 +369,7 @@ namespace Luth
         capturedFrame.Clear();   // metadata-only reset; preserves archivedImages
         capturedFrame.capturedRenderFrameIndex = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         trackedRTs.clear();
+        m_ArchiveSlotInUseThisCapture.clear();
     }
 
     void FrameDebugger::RegisterTrackedRT(const std::string& name)
@@ -416,6 +417,27 @@ namespace Luth
         // Pure CPU work; safe to run after ExecuteGraph returned and all the
         // per-pass / per-draw metadata has been appended to capturedFrame.
         capturedFrame.rootEvent = RG::BuildEventTree(capturedFrame);
+
+        // Free archive slots not touched this capture (e.g. SelectionMaskPass
+        // entries left over after the user disabled drawSelectionOutline).
+        // Defer GPU destruction so any in-flight ImGui frame still sampling
+        // the old view completes first.
+        if (archiveDevice != VK_NULL_HANDLE && !m_ArchiveSlotMap.empty())
+        {
+            for (auto it = m_ArchiveSlotMap.begin(); it != m_ArchiveSlotMap.end(); )
+            {
+                if (m_ArchiveSlotInUseThisCapture.find(it->first) == m_ArchiveSlotInUseThisCapture.end())
+                {
+                    if (it->second < capturedFrame.archivedImages.size())
+                        PushArchiveDeletion(archiveDevice, capturedFrame.archivedImages[it->second]);
+                    it = m_ArchiveSlotMap.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
     }
 
     void FrameDebugger::DestroyArchives()
@@ -445,6 +467,7 @@ namespace Luth
         capturedFrame.archivedImages.clear();
         capturedFrame.passArchives.clear();
         m_ArchiveSlotMap.clear();
+        m_ArchiveSlotInUseThisCapture.clear();
     }
 
     // IArchiveSink — called by RenderGraph::Execute after each non-culled pass.
@@ -509,6 +532,7 @@ namespace Luth
                 m_ArchiveSlotMap[slotKey] = archiveIdx;
             }
 
+            m_ArchiveSlotInUseThisCapture.insert(slotKey);
             EmitArchiveCopy(cmd, res, pass.writeStates[i], capturedFrame.archivedImages[archiveIdx]);
             capturedFrame.passArchives[passIdx].push_back(archiveIdx);
         }

@@ -65,6 +65,10 @@ namespace Luth
         // panel and viewport descriptor caches keyed by view-pointer stay
         // valid frame-to-frame. Cleared only by DestroyArchives.
         std::unordered_map<std::string, u32> m_ArchiveSlotMap;
+        // Slots written this capture; FinalizeCapture frees stragglers (e.g.
+        // an entry from a prior capture's SelectionMaskPass after the user
+        // toggled drawSelectionOutline off). Reset at BeginCapture.
+        std::unordered_set<std::string>      m_ArchiveSlotInUseThisCapture;
 
         // Cached device/allocator for archive ownership. Populated by BeginCapture.
         VkDevice     archiveDevice    = VK_NULL_HANDLE;
