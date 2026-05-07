@@ -411,6 +411,27 @@ namespace Luth
             for (auto& dc : capturedFrame.drawCalls)
                 if (dc.passIndex < passCount)
                     dc.passIndex = inv[dc.passIndex];
+
+            // invariant: cf.drawCalls is contiguous in graph-execution order so
+            // panel slider scrubs sequentially. firstDrawIndex / globalIndex updated.
+            std::vector<RG::CapturedDrawCall> sortedDraws;
+            sortedDraws.reserve(capturedFrame.drawCalls.size());
+            for (u32 newPassIdx = 0; newPassIdx < passCount; ++newPassIdx)
+            {
+                auto& pass = capturedFrame.passes[newPassIdx];
+                const u32 oldFirst = pass.firstDrawIndex;
+                const u32 count    = pass.drawCallCount;
+                pass.firstDrawIndex = (u32)sortedDraws.size();
+                for (u32 i = 0; i < count; ++i)
+                {
+                    if (oldFirst + i >= capturedFrame.drawCalls.size()) break;
+                    auto dc = std::move(capturedFrame.drawCalls[oldFirst + i]);
+                    dc.globalIndex = (u32)sortedDraws.size();
+                    dc.passIndex   = newPassIdx;
+                    sortedDraws.push_back(std::move(dc));
+                }
+            }
+            capturedFrame.drawCalls = std::move(sortedDraws);
         }
 
         // Build the hierarchical event tree from the just-finished capture.

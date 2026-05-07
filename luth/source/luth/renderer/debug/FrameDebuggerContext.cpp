@@ -1470,12 +1470,15 @@ namespace Luth
         ci.mipLevels     = 1;
         ci.arrayLayers   = 1;
         // RGBA8 — depth blit shader writes a tonemapped grayscale that ImGui
-        // can sample directly without HDR clipping concerns.
+        // can sample directly without HDR clipping concerns. TRANSFER_SRC for
+        // ReplayShadow / ReplayDepthPrepass: tonemap here then blit to the
+        // shared RGBA16F per-draw preview with format conversion.
         ci.format        = VK_FORMAT_R8G8B8A8_UNORM;
         ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         ci.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                         | VK_IMAGE_USAGE_SAMPLED_BIT;
+                         | VK_IMAGE_USAGE_SAMPLED_BIT
+                         | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         ci.samples       = VK_SAMPLE_COUNT_1_BIT;
         ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
