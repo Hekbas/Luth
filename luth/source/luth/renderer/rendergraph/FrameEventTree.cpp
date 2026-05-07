@@ -167,8 +167,14 @@ namespace Luth::RG
                     entries[shadowsEntryIdx].sortKey = graphIdx;
                 }
                 passNode.kind         = EventNodeKind::Cascade;
-                passNode.label        = "Cascade " + std::to_string(cascadeIdx);
                 passNode.archiveLayer = cascadeIdx;
+                // "Cascade N (a-b m)" — splits cover [prev_split..this_split].
+                // First cascade starts at the camera's near plane (~0.1 m).
+                const float prevSplit = (cascadeIdx == 0) ? 0.1f : frame.cascadeSplitsViewZ[cascadeIdx - 1];
+                const float thisSplit = frame.cascadeSplitsViewZ[cascadeIdx];
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Cascade %d  (%.1f-%.1f m)", cascadeIdx, prevSplit, thisSplit);
+                passNode.label = buf;
                 entries[shadowsEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
