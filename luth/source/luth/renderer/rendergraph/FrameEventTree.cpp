@@ -39,6 +39,13 @@ namespace Luth::RG
                 label += dc.pipelineState.shaderName;
                 label += ")";
             }
+            // Render-mode tag — only useful on PBR draws (Material::RenderMode 0/1/2/3).
+            if (dc.kind != DispatchKind::Compute && dc.pipelineState.shaderName == "pbr")
+            {
+                static const char* k_ModeTags[] = { " [Op]", " [Cu]", " [Tr]", " [Fa]" };
+                if (dc.pipelineState.renderMode < 4)
+                    label += k_ModeTags[dc.pipelineState.renderMode];
+            }
             return label;
         }
 
