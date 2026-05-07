@@ -68,6 +68,12 @@ namespace Luth
         void EnsureDepthPreviewTexture(u32 width, u32 height);
         void DestroyDepthPreviewTexture();
 
+        // Validate the captured view's FrameTargets is still alive (panel not closed)
+        // and matches the identity stamped at FinalizeCapture. On mismatch, auto-exits
+        // capture (state→Inactive, archives freed) and surfaces a notice via EditorHooks.
+        // Returns true if the captured view is still usable.
+        bool ValidateCapturedView();
+
         // Per-pass replay helpers. Each renders draws[0..localDrawIdx] into a
         // pass-appropriate target then blits/copies into m_PerDrawPreviewImage
         // and updates m_PerDrawPreviewKey on success. Unsupported pass names

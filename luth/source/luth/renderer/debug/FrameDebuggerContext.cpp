@@ -20,6 +20,7 @@
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/core/FrameData.h"
+#include "luth/core/EditorHooks.h"
 
 namespace Luth
 {
@@ -273,6 +274,22 @@ namespace Luth
         }
     }
 
+    bool FrameDebuggerContext::ValidateCapturedView()
+    {
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        if (m_Pipeline.HasViewResources(cf.capturedView.targets, cf.capturedView.viewResourcesId))
+            return true;
+
+        // Captured view's panel was closed mid-Freeze — clear the capture so
+        // the panel returns to live mode rather than serving stale archives
+        // against a missing view.
+        sys.ExitCapture();
+        if (auto* hooks = EditorHooks::Get())
+            hooks->OnFrameDebuggerNotice("Captured view closed; capture cleared.");
+        return false;
+    }
+
     void FrameDebuggerContext::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
     {
         auto& sys = m_Pipeline.GetSystem();
@@ -280,6 +297,7 @@ namespace Luth
         if (sys.GetFrameDebugger().state != DebuggerState::Frozen) return;
         if (!sys.GetFrameDebugger().capturedFrame.valid) return;
         if (passIdx >= sys.GetFrameDebugger().capturedFrame.passes.size()) return;
+        if (!ValidateCapturedView()) return;
 
         const auto& pass = sys.GetFrameDebugger().capturedFrame.passes[passIdx];
 
@@ -306,17 +324,13 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
     {
+        // invariant: ReplayPassUpToDraw already validated cf.capturedView via
+        // ValidateCapturedView — replay must render against THIS view's targets,
+        // not m_CurrentViewResources (which points at whichever view ran last).
         auto& sys = m_Pipeline.GetSystem();
         auto& cf  = sys.GetFrameDebugger().capturedFrame;
-
-        // invariant: replay must run against the captured view's targets, not the
-        // editor scene's. When capturedSource == Game, m_CurrentViewResources points
-        // at whatever view ran last (often the scene view) — using it would render
-        // game-camera draws against scene-camera UBO into scene's SceneColor.
         FrameTargets* targets = cf.capturedView.targets;
-        if (!targets || !m_Pipeline.HasViewResources(targets, cf.capturedView.viewResourcesId))
-            return;
-        if (!targets->GetSceneColor() || !targets->GetSceneDepth() || !targets->GetEntityIDBuffer()) return;
+        if (!targets || !targets->GetSceneColor() || !targets->GetSceneDepth() || !targets->GetEntityIDBuffer()) return;
 
         ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
         if (!capturedVr) return;
