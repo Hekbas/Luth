@@ -50,6 +50,8 @@ namespace Luth
         VkSampler             GetShadowSampler() const      { return m_ShadowSampler; }
         const std::shared_ptr<Texture>& GetShadowMap() const { return m_ShadowMap; }
         VkImageView           GetShadowLayerView(u32 i) const { return m_ShadowLayerViews[i]; }
+        VKPipeline*           GetShadowPipeline() const     { return m_ShadowPipeline.get(); }
+        VKPipeline*           GetShadowSkinnedPipeline() const { return m_ShadowSkinnedPipeline.get(); }
 
         // Depth-prepass + selection pipelines reuse this null-fragment SPV.
         // Temp accessor — folds away once those pipelines move into Geometry/EditorOverlays.

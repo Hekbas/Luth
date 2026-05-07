@@ -87,6 +87,11 @@ namespace Luth
 
         m_CachedViewProj = ubo.viewProjection;
 
+        // Cache GPU-true bytes for the frame debugger's per-view UBO snapshot.
+        // FinalizeCapture pulls these out via GetLastUboBytes for replay.
+        m_LastUboBytes.resize(sizeof(GlobalUniforms));
+        std::memcpy(m_LastUboBytes.data(), &ubo, sizeof(GlobalUniforms));
+
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 

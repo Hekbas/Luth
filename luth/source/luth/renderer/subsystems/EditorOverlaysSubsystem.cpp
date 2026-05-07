@@ -489,6 +489,20 @@ namespace Luth
                         vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
                         vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+
+                        if (sys.GetFrameDebugger().state == DebuggerState::CaptureRequested)
+                        {
+                            std::string entName = "Entity";
+                            const auto& tags = sys.GetActiveSnapshot().tagsByEntity;
+                            u32 idx = entt::to_entity(dc.entity);
+                            if (idx < tags.size() && tags[idx])
+                                entName = tags[idx];
+                            sys.GetFrameDebugger().CaptureDrawCall("SelectionMaskPass",
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(), pc,
+                                { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL,
+                                  currentSkinned, true, true, false });
+                        }
                     }
                 };
 

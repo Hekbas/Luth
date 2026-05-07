@@ -74,6 +74,8 @@ namespace Luth
         const std::vector<u32>& GetPBRVertSpv()        const { return m_PBRVertSpv; }
         const std::vector<u32>& GetPBRFragSpv()        const { return m_PBRFragSpv; }
         const std::vector<u32>& GetPBRSkinnedVertSpv() const { return m_PBRSkinnedVertSpv; }
+        VKPipeline*             GetDepthPrepassPipeline()        const { return m_DepthPrepassPipeline.get(); }
+        VKPipeline*             GetDepthPrepassSkinnedPipeline() const { return m_DepthPrepassSkinnedPipeline.get(); }
 
     private:
         void InitObjectSSBO();

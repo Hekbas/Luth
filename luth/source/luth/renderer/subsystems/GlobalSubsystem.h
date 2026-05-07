@@ -54,6 +54,11 @@ namespace Luth
         const CascadeData&                     GetCascades()        const { return m_FrameCascades; }
         const DirectionalLightShadowParams&    GetShadowParams()    const { return m_FrameShadowParams; }
 
+        // Copies the most-recent UpdateUBO call's GPU-true GlobalUniforms bytes
+        // into `out`. Used by the frame debugger to snapshot the captured view's
+        // camera UBO at FinalizeCapture time so replay can re-bind it.
+        void GetLastUboBytes(std::vector<u8>& out) const { out = m_LastUboBytes; }
+
     private:
         RenderPipeline*       m_Pipeline         = nullptr;
         VkDescriptorSetLayout m_GlobalSetLayout  = VK_NULL_HANDLE;
@@ -62,5 +67,6 @@ namespace Luth
         CascadeData                        m_FrameCascades{};
         DirectionalLightShadowParams       m_FrameShadowParams{};
         Mat4                               m_CachedViewProj{ 1.0f };
+        std::vector<u8>                    m_LastUboBytes;   // serialized GlobalUniforms, last UpdateUBO
     };
 }

@@ -2,6 +2,7 @@
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/FrameTargets.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
@@ -16,6 +17,10 @@
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Buffer.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/jobs/JobSystem.h"
+#include "luth/core/FrameData.h"
+#include "luth/core/EditorHooks.h"
 
 namespace Luth
 {
@@ -269,6 +274,22 @@ namespace Luth
         }
     }
 
+    bool FrameDebuggerContext::ValidateCapturedView()
+    {
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        if (m_Pipeline.HasViewResources(cf.capturedView.targets, cf.capturedView.viewResourcesId))
+            return true;
+
+        // Captured view's panel was closed mid-Freeze — clear the capture so
+        // the panel returns to live mode rather than serving stale archives
+        // against a missing view.
+        sys.ExitCapture();
+        if (auto* hooks = EditorHooks::Get())
+            hooks->OnFrameDebuggerNotice("Captured view closed; capture cleared.");
+        return false;
+    }
+
     void FrameDebuggerContext::ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx)
     {
         auto& sys = m_Pipeline.GetSystem();
@@ -276,6 +297,7 @@ namespace Luth
         if (sys.GetFrameDebugger().state != DebuggerState::Frozen) return;
         if (!sys.GetFrameDebugger().capturedFrame.valid) return;
         if (passIdx >= sys.GetFrameDebugger().capturedFrame.passes.size()) return;
+        if (!ValidateCapturedView()) return;
 
         const auto& pass = sys.GetFrameDebugger().capturedFrame.passes[passIdx];
 
@@ -302,21 +324,29 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
     {
+        // invariant: ReplayPassUpToDraw already validated cf.capturedView via
+        // ValidateCapturedView — replay must render against THIS view's targets,
+        // not m_CurrentViewResources (which points at whichever view ran last).
         auto& sys = m_Pipeline.GetSystem();
-        if (!sys.GetSceneTargets().GetSceneColor() || !sys.GetSceneTargets().GetSceneDepth() || !sys.GetSceneTargets().GetEntityIDBuffer()) return;
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        FrameTargets* targets = cf.capturedView.targets;
+        if (!targets || !targets->GetSceneColor() || !targets->GetSceneDepth() || !targets->GetEntityIDBuffer()) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
+        if (!capturedVr) return;
 
         // Cache hit — same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
-        const u32 width  = sys.GetSceneTargets().GetSceneColor()->GetWidth();
-        const u32 height = sys.GetSceneTargets().GetSceneColor()->GetHeight();
+        const u32 width  = targets->GetSceneColor()->GetWidth();
+        const u32 height = targets->GetSceneColor()->GetHeight();
         EnsurePerDrawPreviewTexture(width, height);
         if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        auto vkSceneColor = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneColor());
-        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetSceneDepth());
-        auto vkEntityID   = std::static_pointer_cast<VKTexture>(sys.GetSceneTargets().GetEntityIDBuffer());
+        auto vkSceneColor = std::static_pointer_cast<VKTexture>(targets->GetSceneColor());
+        auto vkSceneDepth = std::static_pointer_cast<VKTexture>(targets->GetSceneDepth());
+        auto vkEntityID   = std::static_pointer_cast<VKTexture>(targets->GetEntityIDBuffer());
         VkImage     sceneColorImg  = vkSceneColor->GetImage();
         VkImageView sceneColorView = vkSceneColor->GetImageView();
         VkImage     sceneDepthImg  = vkSceneDepth->GetImage();
@@ -424,10 +454,15 @@ namespace Luth
 
             // Use captured slot — Frozen state pins descriptor data; live
             // GetRenderFrameIndex() would index a slot the live loop has rotated past.
-            const u32 slot = sys.GetFrameDebugger().capturedFrame.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            // invariant: do NOT rewrite Set 0 binding 0 here — the set may be in
+            // use by a still-pending cmd buffer from before Frozen engaged (no
+            // UAB flag set on Set 0). Captured-time region stays alive across
+            // Frozen because the live RG isn't running to advance FreeTag.
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             VkDescriptorSet sets[] = {
-                rp.GetCurrentViewResources()->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
+                capturedVr->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
                 rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(slot), rp.GetGeometry().GetObjectSSBODescSet(slot)
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -477,11 +512,9 @@ namespace Luth
                     vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-                    // Replay reads from the live indirect region (cull just ran for
-                    // this frame). Camera region within the heap region is at offset
-                    // (gpuObjectIndex * sizeof(...)), mirroring GeometryPass with
-                    // viewBaseRegion=0 (replay is scene-view only).
-                    const u32 cmdIndex = dc.gpuObjectIndex;
+                    // invariant: cmdIndex must match the camera-region layout the live cull wrote into.
+                    const u32 viewBaseRegion = cf.capturedView.viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                    const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
                     VkDeviceSize indirectOffset = rp.GetGeometry().GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cmd, rp.GetGeometry().GetIndirectRegion().buffer, indirectOffset, 1,
                         sizeof(VkDrawIndexedIndirectCommand));
@@ -581,23 +614,831 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayShadow(u32 passIdx, u32 localDrawIdx, int cascadeIdx)
     {
-        // TODO(I2-Shadow): replay shadow draws[0..localDrawIdx] into the
-        // cascade slice's depth target, then tonemap into m_PerDrawPreviewImage.
-        (void)passIdx; (void)localDrawIdx; (void)cascadeIdx;
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        if (cascadeIdx < 0 || cascadeIdx >= (int)k_ShadowCascadeCount) return;
+
+        const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
+        if (key == m_PerDrawPreviewKey) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(cf.capturedView.targets);
+        if (!capturedVr) return;
+
+        auto& lighting = m_Pipeline.GetLighting();
+        VkImageView shadowLayerView = lighting.GetShadowLayerView((u32)cascadeIdx);
+        auto vkShadowMap = std::static_pointer_cast<VKTexture>(lighting.GetShadowMap());
+        VKPipeline* shadowPipeline = lighting.GetShadowPipeline();
+        VKPipeline* shadowSkinnedPipeline = lighting.GetShadowSkinnedPipeline();
+        if (!shadowPipeline || !vkShadowMap || shadowLayerView == VK_NULL_HANDLE) return;
+
+        VkImage shadowImg = vkShadowMap->GetImage();
+
+        // invariant: live RG halts in Frozen, so writing through the cascade-layer
+        // view into m_ShadowMap doesn't race the renderer. Next ExitCapture → live
+        // frame fully clears+rewrites this cascade.
+        InitDebugBlitResources();
+        if (!sys.GetFrameDebugger().depthPipeline) return;
+
+        EnsureDepthPreviewTexture(k_ShadowResolution, k_ShadowResolution);
+        EnsurePerDrawPreviewTexture(k_ShadowResolution, k_ShadowResolution);
+        if (m_DepthPreviewImage == VK_NULL_HANDLE || m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+
+        // Update fd.descSet to sample the shadow cascade view. Pre-existing UAB
+        // hazard noted in spawned task; ImmediateSubmit's fence makes back-to-back
+        // calls safe in practice.
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler     = sys.GetFrameDebugger().sampler;
+        imgInfo.imageView   = shadowLayerView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = sys.GetFrameDebugger().descSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &imgInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+
+        const u32 cascade = (u32)cascadeIdx;
+        const u32 maxDraws = localDrawIdx + 1;
+
+        VulkanContext::Get().ImmediateSubmit([&, this, cascade, maxDraws](VkCommandBuffer cmd)
+        {
+            auto& rp = m_Pipeline;
+
+            // Shadow cascade slice → DEPTH_ATTACHMENT (UNDEFINED to discard prior).
+            VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep.dstStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            prep.dstAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            prep.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep.newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            prep.image               = shadowImg;
+            prep.subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, cascade, 1 };
+            prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 1;
+            depPrep.pImageMemoryBarriers    = &prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo depthAtt{};
+            depthAtt.ImageView  = shadowLayerView;
+            depthAtt.Format     = VK_FORMAT_D32_SFLOAT;
+            depthAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAtt.ClearValue.depthStencil = { 1.0f, 0 };
+            depthAtt.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.DepthAttachment = &depthAtt;
+            rpInfo.RenderArea      = { {0, 0}, { k_ShadowResolution, k_ShadowResolution } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+            VkDescriptorSet sets[] = {
+                capturedVr->globalDescriptorSet[slot],
+                bindlessSet,
+                MaterialSystem::GetDescriptorSet(slot),
+                rp.GetLighting().GetLightDescSet(slot),
+                BoneMatrixBuffer::GetDescriptorSet(slot),
+                rp.GetGeometry().GetObjectSSBODescSet(slot)
+            };
+
+            shadowPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                shadowPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+            vkCmdPushConstants(cmd, shadowPipeline->GetLayout(),
+                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascade);
+
+            VkViewport vp{}; vp.width = (float)k_ShadowResolution; vp.height = (float)k_ShadowResolution; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D sc{}; sc.extent = { k_ShadowResolution, k_ShadowResolution };
+            vkCmdSetScissor(cmd, 0, 1, &sc);
+
+            u32 drawsRemaining = maxDraws;
+            bool currentSkinned = false;
+
+            auto ReplayBatch = [&](const std::vector<DrawCommand>& draws)
+            {
+                if (drawsRemaining == 0) return;
+                for (const auto& dc : draws)
+                {
+                    if (drawsRemaining == 0) return;
+                    if (dc.isSkinned != currentSkinned)
+                    {
+                        currentSkinned = dc.isSkinned;
+                        VKPipeline* p = currentSkinned ? shadowSkinnedPipeline : shadowPipeline;
+                        if (!p) { drawsRemaining--; continue; }
+                        p->Bind(cmd);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            p->GetLayout(), 0, 6, sets, 0, nullptr);
+                        vkCmdPushConstants(cmd, p->GetLayout(),
+                            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(u32), &cascade);
+                    }
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
+                    if (!mesh) { drawsRemaining--; continue; }
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                    if (!vb || !ib) { drawsRemaining--; continue; }
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                    const u32 viewBaseRegion = cf.capturedView.viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                    const u32 cmdIndex = (viewBaseRegion + cascade + 1) * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                    VkDeviceSize indirectOffset = rp.GetGeometry().GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cmd, rp.GetGeometry().GetIndirectRegion().buffer, indirectOffset, 1,
+                        sizeof(VkDrawIndexedIndirectCommand));
+                    --drawsRemaining;
+                }
+            };
+
+            ReplayBatch(sys.GetDrawList().opaque);
+            ReplayBatch(sys.GetDrawList().cutout);
+            ReplayBatch(sys.GetDrawList().transparent);
+
+            DynamicRendering::EndRendering(cmd);
+
+            // Cascade slice DEPTH_WRITE → SHADER_READ for the tonemap pass.
+            VkImageMemoryBarrier2 toRead{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            toRead.srcStageMask        = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            toRead.srcAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            toRead.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toRead.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toRead.oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            toRead.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            toRead.image               = shadowImg;
+            toRead.subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, cascade, 1 };
+            toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            // m_DepthPreviewImage UNDEFINED → COLOR_ATTACHMENT for tonemap output.
+            VkImageMemoryBarrier2 dpPrep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            dpPrep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            dpPrep.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dpPrep.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            dpPrep.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            dpPrep.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            dpPrep.image               = m_DepthPreviewImage;
+            dpPrep.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            dpPrep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            dpPrep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkImageMemoryBarrier2 mid[2] = { toRead, dpPrep };
+            VkDependencyInfo depMid{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depMid.imageMemoryBarrierCount = 2;
+            depMid.pImageMemoryBarriers    = mid;
+            vkCmdPipelineBarrier2(cmd, &depMid);
+
+            // Tonemap shadow depth → m_DepthPreviewImage (RGBA8).
+            AttachmentInfo dpAtt{};
+            dpAtt.ImageView  = m_DepthPreviewView;
+            dpAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            dpAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            dpAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            dpAtt.ClearValue = { { {0.f, 0.f, 0.f, 1.f} } };
+            dpAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo dpRp{};
+            dpRp.ColorAttachments = std::span<AttachmentInfo>(&dpAtt, 1);
+            dpRp.RenderArea       = { {0, 0}, { k_ShadowResolution, k_ShadowResolution } };
+
+            DynamicRendering::BeginRendering(cmd, dpRp);
+            VkViewport dpVp{}; dpVp.width = (float)k_ShadowResolution; dpVp.height = (float)k_ShadowResolution; dpVp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &dpVp);
+            VkRect2D dpSc{}; dpSc.extent = { k_ShadowResolution, k_ShadowResolution };
+            vkCmdSetScissor(cmd, 0, 1, &dpSc);
+
+            sys.GetFrameDebugger().depthPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                sys.GetFrameDebugger().depthPipeline->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
+
+            const u32 prevSplitIdx = (cascade == 0) ? 0 : (cascade - 1);
+            const float nearZ = (cascade == 0) ? 0.1f : cf.cascadeSplitsViewZ[prevSplitIdx];
+            const float farZ  = cf.cascadeSplitsViewZ[cascade];
+            float pc[2] = { nearZ, farZ <= nearZ ? nearZ + 1.0f : farZ };
+            vkCmdPushConstants(cmd, sys.GetFrameDebugger().depthPipeline->GetLayout(),
+                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            DynamicRendering::EndRendering(cmd);
+
+            // Blit m_DepthPreviewImage (RGBA8) → m_PerDrawPreviewImage (RGBA16F)
+            // so the panel reads progressive shadow depth via GetPerDrawPreviewView.
+            VkImageMemoryBarrier2 toBlit[2]{};
+            toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toBlit[0].srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toBlit[0].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[0].dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            toBlit[0].oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toBlit[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toBlit[0].image               = m_DepthPreviewImage;
+            toBlit[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            toBlit[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[1].srcStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toBlit[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toBlit[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toBlit[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            toBlit[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toBlit[1].image               = m_PerDrawPreviewImage;
+            toBlit[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depBlit{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depBlit.imageMemoryBarrierCount = 2;
+            depBlit.pImageMemoryBarriers    = toBlit;
+            vkCmdPipelineBarrier2(cmd, &depBlit);
+
+            VkImageBlit2 blit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { (i32)k_ShadowResolution, (i32)k_ShadowResolution, 1 };
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (i32)m_PerDrawPreviewWidth, (i32)m_PerDrawPreviewHeight, 1 };
+
+            VkBlitImageInfo2 blitInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+            blitInfo.srcImage       = m_DepthPreviewImage;
+            blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitInfo.dstImage       = m_PerDrawPreviewImage;
+            blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitInfo.regionCount    = 1;
+            blitInfo.pRegions       = &blit;
+            blitInfo.filter         = VK_FILTER_LINEAR;
+            vkCmdBlitImage2(cmd, &blitInfo);
+
+            // Final transitions: previews → SHADER_READ; shadow stays SHADER_READ
+            // (next live frame's ShadowPass clear-load resets it).
+            VkImageMemoryBarrier2 fin[2]{};
+            fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[0].srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            fin[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[0].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            fin[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[0].image               = m_DepthPreviewImage;
+            fin[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            fin[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fin[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[1].image               = m_PerDrawPreviewImage;
+            fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 2;
+            depFin.pImageMemoryBarriers    = fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_PerDrawPreviewKey = key;
+        m_DepthPreviewKey   = UINT64_MAX;  // archive depth blit cache invalid
     }
 
     void FrameDebuggerContext::ReplayDepthPrepass(u32 passIdx, u32 localDrawIdx)
     {
-        // TODO(I2-DepthPrepass): replay depth-only draws[0..localDrawIdx] into
-        // SceneDepth, then tonemap into m_PerDrawPreviewImage.
-        (void)passIdx; (void)localDrawIdx;
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        FrameTargets* targets = cf.capturedView.targets;
+        if (!targets || !targets->GetSceneDepth()) return;
+
+        const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
+        if (key == m_PerDrawPreviewKey) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
+        if (!capturedVr) return;
+
+        VKPipeline* depthPrepass = m_Pipeline.GetGeometry().GetDepthPrepassPipeline();
+        VKPipeline* depthSkinned = m_Pipeline.GetGeometry().GetDepthPrepassSkinnedPipeline();
+        if (!depthPrepass) return;
+
+        InitDebugBlitResources();
+        if (!sys.GetFrameDebugger().depthPipeline) return;
+
+        auto vkDepth = std::static_pointer_cast<VKTexture>(targets->GetSceneDepth());
+        VkImage     depthImg  = vkDepth->GetImage();
+        VkImageView depthView = vkDepth->GetImageView();
+        const u32 width  = targets->GetSceneDepth()->GetWidth();
+        const u32 height = targets->GetSceneDepth()->GetHeight();
+
+        EnsureDepthPreviewTexture(width, height);
+        EnsurePerDrawPreviewTexture(width, height);
+        if (m_DepthPreviewImage == VK_NULL_HANDLE || m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler     = sys.GetFrameDebugger().sampler;
+        imgInfo.imageView   = depthView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = sys.GetFrameDebugger().descSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &imgInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+
+        const u32 maxDraws = localDrawIdx + 1;
+
+        VulkanContext::Get().ImmediateSubmit([&, this, maxDraws, width, height](VkCommandBuffer cmd)
+        {
+            auto& rp = m_Pipeline;
+
+            VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep.dstStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            prep.dstAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            prep.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep.newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            prep.image               = depthImg;
+            prep.subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+            prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 1;
+            depPrep.pImageMemoryBarriers    = &prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo depthAtt{};
+            depthAtt.ImageView  = depthView;
+            depthAtt.Format     = VK_FORMAT_D32_SFLOAT;
+            depthAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAtt.ClearValue.depthStencil = { 1.0f, 0 };
+            depthAtt.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.DepthAttachment = &depthAtt;
+            rpInfo.RenderArea      = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+            VkDescriptorSet sets[] = {
+                capturedVr->globalDescriptorSet[slot],
+                bindlessSet,
+                MaterialSystem::GetDescriptorSet(slot),
+                rp.GetLighting().GetLightDescSet(slot),
+                BoneMatrixBuffer::GetDescriptorSet(slot),
+                rp.GetGeometry().GetObjectSSBODescSet(slot)
+            };
+
+            depthPrepass->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                depthPrepass->GetLayout(), 0, 6, sets, 0, nullptr);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D sc{}; sc.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &sc);
+
+            u32 drawsRemaining = maxDraws;
+            bool currentSkinned = false;
+
+            // Opaque-only — DepthPrepass mirrors live behavior at GeometrySubsystem.cpp:642.
+            for (const auto& dc : sys.GetDrawList().opaque)
+            {
+                if (drawsRemaining == 0) break;
+                if (dc.isSkinned != currentSkinned)
+                {
+                    currentSkinned = dc.isSkinned;
+                    VKPipeline* p = currentSkinned ? depthSkinned : depthPrepass;
+                    if (!p) { drawsRemaining--; continue; }
+                    p->Bind(cmd);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        p->GetLayout(), 0, 6, sets, 0, nullptr);
+                }
+                auto mesh = dc.model->GetMesh(dc.meshIndex);
+                if (!mesh) { drawsRemaining--; continue; }
+                auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                if (!vb || !ib) { drawsRemaining--; continue; }
+
+                VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                VkDeviceSize offsets[] = { 0 };
+                vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                const u32 viewBaseRegion = cf.capturedView.viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                VkDeviceSize indirectOffset = rp.GetGeometry().GetIndirectRegion().offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                vkCmdDrawIndexedIndirect(cmd, rp.GetGeometry().GetIndirectRegion().buffer, indirectOffset, 1,
+                    sizeof(VkDrawIndexedIndirectCommand));
+                --drawsRemaining;
+            }
+
+            DynamicRendering::EndRendering(cmd);
+
+            // SceneDepth → SHADER_READ for tonemap; m_DepthPreviewImage UNDEFINED → COLOR.
+            VkImageMemoryBarrier2 mid[2]{};
+            mid[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            mid[0].srcStageMask        = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            mid[0].srcAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            mid[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            mid[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            mid[0].oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            mid[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            mid[0].image               = depthImg;
+            mid[0].subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+            mid[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            mid[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            mid[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            mid[1].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            mid[1].dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            mid[1].dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            mid[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            mid[1].newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            mid[1].image               = m_DepthPreviewImage;
+            mid[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            mid[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            mid[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depMid{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depMid.imageMemoryBarrierCount = 2;
+            depMid.pImageMemoryBarriers    = mid;
+            vkCmdPipelineBarrier2(cmd, &depMid);
+
+            // Tonemap depth → m_DepthPreviewImage.
+            AttachmentInfo dpAtt{};
+            dpAtt.ImageView  = m_DepthPreviewView;
+            dpAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            dpAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            dpAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            dpAtt.ClearValue = { { {0.f, 0.f, 0.f, 1.f} } };
+            dpAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo dpRp{};
+            dpRp.ColorAttachments = std::span<AttachmentInfo>(&dpAtt, 1);
+            dpRp.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, dpRp);
+            VkViewport dpVp{}; dpVp.width = (float)width; dpVp.height = (float)height; dpVp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &dpVp);
+            VkRect2D dpSc{}; dpSc.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &dpSc);
+
+            sys.GetFrameDebugger().depthPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                sys.GetFrameDebugger().depthPipeline->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
+
+            float pc[2] = { 0.1f, 1000.0f };  // main camera near/far range
+            vkCmdPushConstants(cmd, sys.GetFrameDebugger().depthPipeline->GetLayout(),
+                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), pc);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            DynamicRendering::EndRendering(cmd);
+
+            // Blit RGBA8 depth preview → RGBA16F per-draw preview.
+            VkImageMemoryBarrier2 toBlit[2]{};
+            toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toBlit[0].srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toBlit[0].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[0].dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            toBlit[0].oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toBlit[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toBlit[0].image               = m_DepthPreviewImage;
+            toBlit[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            toBlit[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[1].srcStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toBlit[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toBlit[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toBlit[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            toBlit[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toBlit[1].image               = m_PerDrawPreviewImage;
+            toBlit[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depBlit{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depBlit.imageMemoryBarrierCount = 2;
+            depBlit.pImageMemoryBarriers    = toBlit;
+            vkCmdPipelineBarrier2(cmd, &depBlit);
+
+            VkImageBlit2 blit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { (i32)width, (i32)height, 1 };
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (i32)m_PerDrawPreviewWidth, (i32)m_PerDrawPreviewHeight, 1 };
+
+            VkBlitImageInfo2 blitInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+            blitInfo.srcImage       = m_DepthPreviewImage;
+            blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitInfo.dstImage       = m_PerDrawPreviewImage;
+            blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitInfo.regionCount    = 1;
+            blitInfo.pRegions       = &blit;
+            blitInfo.filter         = VK_FILTER_LINEAR;
+            vkCmdBlitImage2(cmd, &blitInfo);
+
+            VkImageMemoryBarrier2 fin[2]{};
+            fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[0].srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            fin[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[0].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            fin[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[0].image               = m_DepthPreviewImage;
+            fin[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            fin[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fin[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[1].image               = m_PerDrawPreviewImage;
+            fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 2;
+            depFin.pImageMemoryBarriers    = fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_PerDrawPreviewKey = key;
+        m_DepthPreviewKey   = UINT64_MAX;
     }
 
     void FrameDebuggerContext::ReplaySelectionMask(u32 passIdx, u32 localDrawIdx)
     {
-        // TODO(I2-SelectionMask): replay selection draws[0..localDrawIdx] into
-        // the selection mask buffer, then copy into m_PerDrawPreviewImage.
-        (void)passIdx; (void)localDrawIdx;
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        FrameTargets* targets = cf.capturedView.targets;
+        if (!targets || !targets->GetSelectionMask() || !targets->GetSelectionDepth()) return;
+
+        const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
+        if (key == m_PerDrawPreviewKey) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
+        if (!capturedVr) return;
+
+        VKPipeline* maskPipeline    = m_Pipeline.GetEditorOverlays().GetSelectionMaskPipeline();
+        VKPipeline* maskSkinned     = m_Pipeline.GetEditorOverlays().GetSelectionMaskSkinnedPipeline();
+        if (!maskPipeline) return;
+
+        // Resolved-at-capture selection set — m_CurrentView's RenderView is
+        // stack-allocated and gone by the time the user scrubs in Frozen.
+        std::unordered_set<entt::entity> selectedSet(
+            cf.capturedSelectionHandles.begin(), cf.capturedSelectionHandles.end());
+        if (selectedSet.empty()) return;
+
+        auto vkMask  = std::static_pointer_cast<VKTexture>(targets->GetSelectionMask());
+        auto vkDepth = std::static_pointer_cast<VKTexture>(targets->GetSelectionDepth());
+        VkImage     maskImg   = vkMask->GetImage();
+        VkImageView maskView  = vkMask->GetImageView();
+        VkImage     depthImg  = vkDepth->GetImage();
+        VkImageView depthView = vkDepth->GetImageView();
+        const u32 width  = targets->GetSelectionMask()->GetWidth();
+        const u32 height = targets->GetSelectionMask()->GetHeight();
+
+        EnsurePerDrawPreviewTexture(width, height);
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+
+        const u32 maxDraws = localDrawIdx + 1;
+
+        VulkanContext::Get().ImmediateSubmit([&, this, maxDraws, width, height](VkCommandBuffer cmd)
+        {
+            auto& rp = m_Pipeline;
+
+            VkImageMemoryBarrier2 prep[2]{};
+            prep[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            prep[0].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep[0].dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            prep[0].dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            prep[0].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep[0].newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            prep[0].image               = maskImg;
+            prep[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            prep[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            prep[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            prep[1].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep[1].dstStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            prep[1].dstAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            prep[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep[1].newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            prep[1].image               = depthImg;
+            prep[1].subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+            prep[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 2;
+            depPrep.pImageMemoryBarriers    = prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo colorAtt{};
+            colorAtt.ImageView  = maskView;
+            colorAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            colorAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt.ClearValue = { { {0.f, 0.f, 0.f, 0.f} } };
+            colorAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            AttachmentInfo depthAtt{};
+            depthAtt.ImageView  = depthView;
+            depthAtt.Format     = VK_FORMAT_D32_SFLOAT;
+            depthAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAtt.ClearValue.depthStencil = { 1.0f, 0 };
+            depthAtt.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.ColorAttachments = std::span<AttachmentInfo>(&colorAtt, 1);
+            rpInfo.DepthAttachment  = &depthAtt;
+            rpInfo.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+            VkDescriptorSet sets[] = {
+                capturedVr->globalDescriptorSet[slot],
+                bindlessSet,
+                MaterialSystem::GetDescriptorSet(slot),
+                rp.GetLighting().GetLightDescSet(slot),
+                BoneMatrixBuffer::GetDescriptorSet(slot)
+            };
+
+            maskPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                maskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D sc{}; sc.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &sc);
+
+            u32 drawsRemaining = maxDraws;
+            bool currentSkinned = false;
+
+            auto ReplayBatch = [&](const std::vector<DrawCommand>& draws)
+            {
+                if (drawsRemaining == 0) return;
+                for (const auto& dc : draws)
+                {
+                    if (drawsRemaining == 0) return;
+                    if (selectedSet.find(dc.entity) == selectedSet.end()) continue;
+
+                    if (dc.isSkinned != currentSkinned)
+                    {
+                        currentSkinned = dc.isSkinned;
+                        VKPipeline* p = currentSkinned ? maskSkinned : maskPipeline;
+                        if (!p) { drawsRemaining--; continue; }
+                        p->Bind(cmd);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            p->GetLayout(), 0, 5, sets, 0, nullptr);
+                    }
+
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
+                    if (!mesh) { drawsRemaining--; continue; }
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                    if (!vb || !ib) { drawsRemaining--; continue; }
+
+                    VkPipelineLayout activeLayout = (currentSkinned && maskSkinned)
+                        ? maskSkinned->GetLayout() : maskPipeline->GetLayout();
+
+                    ObjectPushConstants pc{};
+                    pc.modelMatrix   = dc.modelMatrix;
+                    pc.materialIndex = 0;
+                    pc.boneOffset    = dc.boneOffset;
+
+                    vkCmdPushConstants(cmd, activeLayout,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, sizeof(ObjectPushConstants), &pc);
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                    --drawsRemaining;
+                }
+            };
+
+            ReplayBatch(sys.GetDrawList().opaque);
+            ReplayBatch(sys.GetDrawList().cutout);
+            ReplayBatch(sys.GetDrawList().transparent);
+
+            DynamicRendering::EndRendering(cmd);
+
+            // Mask → TRANSFER_SRC, preview → TRANSFER_DST for the format-converting blit.
+            VkImageMemoryBarrier2 toBlit[2]{};
+            toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toBlit[0].srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toBlit[0].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[0].dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            toBlit[0].oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toBlit[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toBlit[0].image               = maskImg;
+            toBlit[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            toBlit[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[1].srcStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toBlit[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toBlit[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toBlit[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            toBlit[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toBlit[1].image               = m_PerDrawPreviewImage;
+            toBlit[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depBlit{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depBlit.imageMemoryBarrierCount = 2;
+            depBlit.pImageMemoryBarriers    = toBlit;
+            vkCmdPipelineBarrier2(cmd, &depBlit);
+
+            VkImageBlit2 blit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { (i32)width, (i32)height, 1 };
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (i32)m_PerDrawPreviewWidth, (i32)m_PerDrawPreviewHeight, 1 };
+
+            VkBlitImageInfo2 blitInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+            blitInfo.srcImage       = maskImg;
+            blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitInfo.dstImage       = m_PerDrawPreviewImage;
+            blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitInfo.regionCount    = 1;
+            blitInfo.pRegions       = &blit;
+            blitInfo.filter         = VK_FILTER_NEAREST;  // mask is opaque — preserve hard edges
+            vkCmdBlitImage2(cmd, &blitInfo);
+
+            // Mask → SHADER_READ for next live frame's OutlinePass; preview → SHADER_READ for ImGui.
+            VkImageMemoryBarrier2 fin[2]{};
+            fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[0].srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            fin[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[0].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            fin[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[0].image               = maskImg;
+            fin[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            fin[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fin[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[1].image               = m_PerDrawPreviewImage;
+            fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 2;
+            depFin.pImageMemoryBarriers    = fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_PerDrawPreviewKey = key;
     }
 
     void FrameDebuggerContext::EnsureDepthPreviewTexture(u32 width, u32 height)
@@ -627,12 +1468,15 @@ namespace Luth
         ci.mipLevels     = 1;
         ci.arrayLayers   = 1;
         // RGBA8 — depth blit shader writes a tonemapped grayscale that ImGui
-        // can sample directly without HDR clipping concerns.
+        // can sample directly without HDR clipping concerns. TRANSFER_SRC for
+        // ReplayShadow / ReplayDepthPrepass: tonemap here then blit to the
+        // shared RGBA16F per-draw preview with format conversion.
         ci.format        = VK_FORMAT_R8G8B8A8_UNORM;
         ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         ci.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                         | VK_IMAGE_USAGE_SAMPLED_BIT;
+                         | VK_IMAGE_USAGE_SAMPLED_BIT
+                         | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         ci.samples       = VK_SAMPLE_COUNT_1_BIT;
         ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 

@@ -408,14 +408,42 @@ namespace Luth
             // Phase 14F — stamp CSM state into the captured frame so the
             // cascade detail panel can show GPU-true values from the moment
             // of capture, even if the user later twiddles light settings.
-            m_System.GetFrameDebugger().capturedFrame.cascadeSplitsViewZ = m_Global.GetCascades().splitsViewZ;
-            m_System.GetFrameDebugger().capturedFrame.shadowBias         = m_Global.GetShadowParams().shadowBias;
-            m_System.GetFrameDebugger().capturedFrame.shadowNormalBias   = m_Global.GetShadowParams().shadowNormalBias;
-            m_System.GetFrameDebugger().capturedFrame.cascadeTexelSize   = m_Global.GetCascades().texelSize;
+            auto& cf = m_System.GetFrameDebugger().capturedFrame;
+            cf.cascadeSplitsViewZ = m_Global.GetCascades().splitsViewZ;
+            cf.shadowBias         = m_Global.GetShadowParams().shadowBias;
+            cf.shadowNormalBias   = m_Global.GetShadowParams().shadowNormalBias;
+            cf.cascadeTexelSize   = m_Global.GetCascades().texelSize;
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                m_System.GetFrameDebugger().capturedFrame.lightSpaceMatrix[i] = m_Global.GetCascades().lightSpaceMatrix[i];
+                cf.lightSpaceMatrix[i] = m_Global.GetCascades().lightSpaceMatrix[i];
 
-            m_System.GetFrameDebugger().capturedFrame.valid = true;
+            // Snapshot captured-view metadata + Set 0 binding sources for replay.
+            // invariant: replay reads these instead of m_CurrentViewResources / live IBL
+            // textures, since the live state reflects whichever view ran last and IBL
+            // can change mid-Freeze.
+            cf.capturedView.targets         = view.targets;
+            cf.capturedView.viewResourcesId = m_CurrentViewResources ? m_CurrentViewResources->id : 0;
+            cf.capturedView.viewIndex       = view.viewIndex;
+            if (view.targets && view.targets->GetSceneColor())
+            {
+                cf.capturedView.width  = view.targets->GetSceneColor()->GetWidth();
+                cf.capturedView.height = view.targets->GetSceneColor()->GetHeight();
+            }
+            m_Global.GetLastUboBytes(cf.capturedGlobalUboBytes);
+            cf.capturedIrradiance     = m_Lighting.GetIrradianceMap();
+            cf.capturedPrefiltered    = m_Lighting.GetPrefilteredMap();
+            cf.capturedBRDF           = m_Lighting.GetBRDFLut();
+            cf.capturedGTAOFinal      = m_CurrentViewResources ? m_CurrentViewResources->gtaoFinal : nullptr;
+            cf.capturedIblIntensity   = view.camera.iblIntensity;
+            cf.capturedSkyboxIntensity = view.camera.skyboxIntensity;
+            // Resolve descendants once at capture; replay reads this without
+            // touching m_CurrentView (stack-allocated, dangles in Frozen).
+            {
+                std::unordered_set<entt::entity> resolved;
+                m_EditorOverlays.CollectSelectedHandles(view.camera.selectedEntities, resolved);
+                cf.capturedSelectionHandles.assign(resolved.begin(), resolved.end());
+            }
+
+            cf.valid = true;
             // Snapshot which source produced this capture so viewport overlays
             // survive the user toggling requestedSource between captures.
             m_System.GetFrameDebugger().capturedSource = m_System.GetFrameDebugger().requestedSource;

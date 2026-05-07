@@ -136,9 +136,26 @@ namespace Luth
                 currentProj[1][1] *= -1.0f;
                 Mat4 currentViewProj = currentProj * m_CameraParams.view;
 
-                cameraMoved = std::memcmp(&currentViewProj,
-                                          &m_FrameDebugger.capturedFrame.captureViewProj,
-                                          sizeof(Mat4)) != 0;
+                // Pack viewProj + IBL intensities into one struct for a single
+                // memcmp. Catches user inspector tweaks to Sun/Sky settings
+                // mid-Freeze. Cascade splits / shadow bias would need the
+                // lighting system to recompute during Frozen — out of scope.
+                struct CompareKey
+                {
+                    Mat4  viewProj;
+                    float iblIntensity;
+                    float skyboxIntensity;
+                    float _pad[2] = { 0.0f, 0.0f };
+                };
+                CompareKey live{};
+                live.viewProj        = currentViewProj;
+                live.iblIntensity    = m_CameraParams.iblIntensity;
+                live.skyboxIntensity = m_CameraParams.skyboxIntensity;
+                CompareKey captured{};
+                captured.viewProj        = m_FrameDebugger.capturedFrame.captureViewProj;
+                captured.iblIntensity    = m_FrameDebugger.capturedFrame.capturedIblIntensity;
+                captured.skyboxIntensity = m_FrameDebugger.capturedFrame.capturedSkyboxIntensity;
+                cameraMoved = std::memcmp(&live, &captured, sizeof(CompareKey)) != 0;
 
                 // Throttle to ~10 Hz at 60 fps. Per-recapture GPU work
                 // (~10 vkCmdCopyImage + barriers, mostly cascade depth)

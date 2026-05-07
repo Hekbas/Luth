@@ -99,6 +99,12 @@ namespace Luth
         // Returns empty path if no panel is available.
         virtual std::filesystem::path GetProjectCurrentDir() = 0;
 
+        // Engine-side notice surfaced to the editor UI (e.g. status bar, log).
+        // Default no-op so runtime-only builds (no editor) can ignore it.
+        // Currently used by FrameDebuggerContext when a captured view is closed
+        // mid-Freeze and capture is auto-cleared.
+        virtual void OnFrameDebuggerNotice(const std::string& /*message*/) {}
+
         // Project launcher
         virtual void ShowProjectLauncher() = 0;
         virtual bool HasPendingProject() = 0;

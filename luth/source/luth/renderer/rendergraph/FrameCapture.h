@@ -5,9 +5,17 @@
 #include "luth/renderer/rendergraph/ArchivedImage.h"
 #include "luth/renderer/rendergraph/FrameEventTree.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
+#include <entt/entt.hpp>
+
+namespace Luth
+{
+    class FrameTargets;
+    class Texture;
+}
 
 namespace Luth::RG
 {
@@ -64,6 +72,18 @@ namespace Luth::RG
         u32 groupCountZ = 0;
     };
 
+    // invariant: every Replay* entry calls HasViewResources(targets, viewResourcesId)
+    // before reading these — FrameTargets pointer alone isn't safe (panel close +
+    // re-allocation can hand back the same address with different content).
+    struct CapturedViewState
+    {
+        FrameTargets* targets         = nullptr;
+        u64           viewResourcesId = 0;
+        u32           viewIndex       = 0;
+        u32           width           = 0;
+        u32           height          = 0;
+    };
+
     // Aggregated info per render pass
     struct CapturedPass
     {
@@ -116,6 +136,18 @@ namespace Luth::RG
         // Frozen replay (per-frame cycling — see arch/rendering-pipeline.md).
         u32 capturedRenderFrameIndex = 0;
 
+        // Editor IBL intensities at capture time. Compared each Frozen tick
+        // alongside captureViewProj to trigger recapture when the user edits
+        // Sun/Sky settings while inspecting.
+        float capturedIblIntensity    = 1.0f;
+        float capturedSkyboxIntensity = 1.0f;
+
+        // Resolved selection set at capture (root + descendants), populated by
+        // EditorOverlaysSubsystem::CollectSelectedHandles. ReplaySelectionMask
+        // reads this directly — m_CurrentView's RenderView is stack-allocated
+        // and gone by the time the user scrubs.
+        std::vector<entt::entity> capturedSelectionHandles;
+
         // Phase 14D — Hierarchical event tree built at capture finalize from
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
@@ -129,6 +161,17 @@ namespace Luth::RG
         Vec4 shadowNormalBias   = Vec4(0.0f);  // Per-cascade normal bias (texels)
         Vec4 cascadeTexelSize   = Vec4(0.0f);  // World-space texel footprint
         Mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
+
+        // Captured-view metadata + GPU-true Set 0 binding sources for replay.
+        // invariant: replay must render against these, not live state — when
+        // capturedSource == Game and the live scene view runs after capture,
+        // m_CurrentViewResources points at the scene view, not the captured one.
+        CapturedViewState        capturedView;
+        std::vector<u8>          capturedGlobalUboBytes;   // GlobalUniforms snapshot
+        std::shared_ptr<Texture> capturedIrradiance;
+        std::shared_ptr<Texture> capturedPrefiltered;
+        std::shared_ptr<Texture> capturedBRDF;
+        std::shared_ptr<Texture> capturedGTAOFinal;
 
         // Metadata-only reset. GPU-owned archives are NOT touched; the owner
         // (FrameDebugger) must call DestroyArchives separately to free them.
@@ -146,6 +189,13 @@ namespace Luth::RG
             cascadeTexelSize    = Vec4(0.0f);
             for (auto& m : lightSpaceMatrix) m = Mat4(0.0f);
             capturedRenderFrameIndex = 0;
+            capturedView        = {};
+            capturedGlobalUboBytes.clear();
+            capturedIrradiance.reset();
+            capturedPrefiltered.reset();
+            capturedBRDF.reset();
+            capturedGTAOFinal.reset();
+            capturedSelectionHandles.clear();
             totalGpuTimeMs      = 0.0f;
             valid               = false;
         }

@@ -26,13 +26,11 @@ namespace Luth::RG
             return firstDepth;
         }
 
-        // Build a kindPrefix for draw labels that mirrors the legacy panel
-        // formatting so the user-visible naming stays familiar.
+        // [C] marks compute dispatches; indirect draws (the dominant case in PBR)
+        // get no prefix — every Geometry/Shadow draw row would otherwise carry [I].
         std::string DrawLabel(const CapturedDrawCall& dc, u32 globalIdx)
         {
-            const char* prefix =
-                (dc.kind == DispatchKind::Compute)         ? "[C] " :
-                (dc.kind == DispatchKind::IndexedIndirect) ? "[I] " : "";
+            const char* prefix = (dc.kind == DispatchKind::Compute) ? "[C] " : "";
 
             std::string label = prefix + std::string("Draw ") + std::to_string(globalIdx) + ": " + dc.meshName;
             if (!dc.pipelineState.shaderName.empty())
@@ -40,6 +38,13 @@ namespace Luth::RG
                 label += " (";
                 label += dc.pipelineState.shaderName;
                 label += ")";
+            }
+            // Render-mode tag — only useful on PBR draws (Material::RenderMode 0/1/2/3).
+            if (dc.kind != DispatchKind::Compute && dc.pipelineState.shaderName == "pbr")
+            {
+                static const char* k_ModeTags[] = { " [Op]", " [Cu]", " [Tr]", " [Fa]" };
+                if (dc.pipelineState.renderMode < 4)
+                    label += k_ModeTags[dc.pipelineState.renderMode];
             }
             return label;
         }
@@ -97,6 +102,14 @@ namespace Luth::RG
                     maxDraw = childLast;
             }
             node.lastDrawIndex = maxDraw;
+            // Surface a badge on empty Pass/Cascade nodes so users can tell
+            // "no models in scene" from "click for output." Skip on the root
+            // ("Frame") and on Group nodes that contain only empty children.
+            if (maxDraw == UINT32_MAX &&
+                (node.kind == EventNodeKind::Pass || node.kind == EventNodeKind::Cascade))
+            {
+                node.label += "  (no draws)";
+            }
             return maxDraw;
         }
 
@@ -126,49 +139,99 @@ namespace Luth::RG
         root.kind  = EventNodeKind::Group;
         root.label = "Frame";
 
-        int shadowsGroupIdx = -1;
-        int cullGroupIdx    = -1;
+        // invariant: root order matches graph-execution order regardless of group encounter order.
+        struct Entry
+        {
+            EventNode node;       // pass / cascade / group
+            u32       sortKey;    // for groups, min graphPassIndex across members
+        };
+        std::vector<Entry> entries;
+        entries.reserve(frame.passes.size());
+
+        int shadowsEntryIdx = -1;
+        int cullEntryIdx    = -1;
+        int gtaoEntryIdx    = -1;
 
         for (u32 pi = 0; pi < frame.passes.size(); ++pi)
         {
             const auto& pass = frame.passes[pi];
+            const u32 graphIdx = pass.graphPassIndex;
             EventNode passNode = BuildPassNode(frame, pi);
 
             // --- Group routing (explicit prefix registry, not split-on-dot) ---
             int cascadeIdx = CascadeIndexFromName(pass.name);
             if (cascadeIdx >= 0)
             {
-                if (shadowsGroupIdx < 0)
+                if (shadowsEntryIdx < 0)
                 {
                     EventNode g;
                     g.kind  = EventNodeKind::Group;
                     g.label = "Shadows";
-                    root.children.push_back(std::move(g));
-                    shadowsGroupIdx = (int)root.children.size() - 1;
+                    entries.push_back({ std::move(g), graphIdx });
+                    shadowsEntryIdx = (int)entries.size() - 1;
+                }
+                else if (graphIdx < entries[shadowsEntryIdx].sortKey)
+                {
+                    entries[shadowsEntryIdx].sortKey = graphIdx;
                 }
                 passNode.kind         = EventNodeKind::Cascade;
-                passNode.label        = "Cascade " + std::to_string(cascadeIdx);
                 passNode.archiveLayer = cascadeIdx;
-                root.children[shadowsGroupIdx].children.push_back(std::move(passNode));
+                // "Cascade N (a-b m)" — splits cover [prev_split..this_split].
+                // First cascade starts at the camera's near plane (~0.1 m).
+                const float prevSplit = (cascadeIdx == 0) ? 0.1f : frame.cascadeSplitsViewZ[cascadeIdx - 1];
+                const float thisSplit = frame.cascadeSplitsViewZ[cascadeIdx];
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Cascade %d  (%.1f-%.1f m)", cascadeIdx, prevSplit, thisSplit);
+                passNode.label = buf;
+                entries[shadowsEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
 
             if (pass.name.compare(0, 12, "FrustumCull.") == 0)
             {
-                if (cullGroupIdx < 0)
+                if (cullEntryIdx < 0)
                 {
                     EventNode g;
                     g.kind  = EventNodeKind::Group;
                     g.label = "Frustum Culling";
-                    root.children.push_back(std::move(g));
-                    cullGroupIdx = (int)root.children.size() - 1;
+                    entries.push_back({ std::move(g), graphIdx });
+                    cullEntryIdx = (int)entries.size() - 1;
                 }
-                root.children[cullGroupIdx].children.push_back(std::move(passNode));
+                else if (graphIdx < entries[cullEntryIdx].sortKey)
+                {
+                    entries[cullEntryIdx].sortKey = graphIdx;
+                }
+                entries[cullEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
 
-            root.children.push_back(std::move(passNode));
+            if (pass.name.compare(0, 4, "GTAO") == 0)
+            {
+                if (gtaoEntryIdx < 0)
+                {
+                    EventNode g;
+                    g.kind  = EventNodeKind::Group;
+                    g.label = "GTAO";
+                    entries.push_back({ std::move(g), graphIdx });
+                    gtaoEntryIdx = (int)entries.size() - 1;
+                }
+                else if (graphIdx < entries[gtaoEntryIdx].sortKey)
+                {
+                    entries[gtaoEntryIdx].sortKey = graphIdx;
+                }
+                entries[gtaoEntryIdx].node.children.push_back(std::move(passNode));
+                continue;
+            }
+
+            entries.push_back({ std::move(passNode), graphIdx });
         }
+
+        std::stable_sort(entries.begin(), entries.end(),
+            [](const Entry& a, const Entry& b) { return a.sortKey < b.sortKey; });
+
+        root.children.reserve(entries.size());
+        for (auto& e : entries)
+            root.children.push_back(std::move(e.node));
 
         PopulateLastDrawIndex(root);
         return root;
