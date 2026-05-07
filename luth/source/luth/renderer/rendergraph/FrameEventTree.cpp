@@ -102,6 +102,14 @@ namespace Luth::RG
                     maxDraw = childLast;
             }
             node.lastDrawIndex = maxDraw;
+            // Surface a badge on empty Pass/Cascade nodes so users can tell
+            // "no models in scene" from "click for output." Skip on the root
+            // ("Frame") and on Group nodes that contain only empty children.
+            if (maxDraw == UINT32_MAX &&
+                (node.kind == EventNodeKind::Pass || node.kind == EventNodeKind::Cascade))
+            {
+                node.label += "  (no draws)";
+            }
             return maxDraw;
         }
 
