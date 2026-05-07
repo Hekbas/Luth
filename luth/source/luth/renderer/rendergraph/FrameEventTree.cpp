@@ -142,6 +142,7 @@ namespace Luth::RG
 
         int shadowsEntryIdx = -1;
         int cullEntryIdx    = -1;
+        int gtaoEntryIdx    = -1;
 
         for (u32 pi = 0; pi < frame.passes.size(); ++pi)
         {
@@ -187,6 +188,24 @@ namespace Luth::RG
                     entries[cullEntryIdx].sortKey = graphIdx;
                 }
                 entries[cullEntryIdx].node.children.push_back(std::move(passNode));
+                continue;
+            }
+
+            if (pass.name.compare(0, 4, "GTAO") == 0)
+            {
+                if (gtaoEntryIdx < 0)
+                {
+                    EventNode g;
+                    g.kind  = EventNodeKind::Group;
+                    g.label = "GTAO";
+                    entries.push_back({ std::move(g), graphIdx });
+                    gtaoEntryIdx = (int)entries.size() - 1;
+                }
+                else if (graphIdx < entries[gtaoEntryIdx].sortKey)
+                {
+                    entries[gtaoEntryIdx].sortKey = graphIdx;
+                }
+                entries[gtaoEntryIdx].node.children.push_back(std::move(passNode));
                 continue;
             }
 
