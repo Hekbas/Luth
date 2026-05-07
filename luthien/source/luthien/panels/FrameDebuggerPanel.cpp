@@ -1099,6 +1099,16 @@ namespace Luth
                     ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 130.0f);
                     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
                     ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Name");        ImGui::TableNextColumn(); ImGui::Text("%s", pass.name.c_str());
+                    if (!pass.activeRenderTarget.empty()) {
+                        const u32 archiveKey2 = pass.graphPassIndex;
+                        const u32 outputCount = (archiveKey2 < capture.passArchives.size())
+                            ? (u32)capture.passArchives[archiveKey2].size() : 0u;
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Primary Output"); ImGui::TableNextColumn();
+                        if (outputCount > 1)
+                            ImGui::Text("%s%s  (+%u)", pass.activeRenderTarget.c_str(), pass.isDepthTarget ? " [D]" : "", outputCount - 1);
+                        else
+                            ImGui::Text("%s%s", pass.activeRenderTarget.c_str(), pass.isDepthTarget ? " [D]" : "");
+                    }
                     ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("Draw Calls");  ImGui::TableNextColumn(); ImGui::Text("%u", pass.drawCallCount);
                     ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("First Draw");  ImGui::TableNextColumn(); ImGui::Text("%u", pass.firstDrawIndex);
                     if (pass.gpuTimeMs >= 0.0f) {
