@@ -26,13 +26,11 @@ namespace Luth::RG
             return firstDepth;
         }
 
-        // Build a kindPrefix for draw labels that mirrors the legacy panel
-        // formatting so the user-visible naming stays familiar.
+        // [C] marks compute dispatches; indirect draws (the dominant case in PBR)
+        // get no prefix — every Geometry/Shadow draw row would otherwise carry [I].
         std::string DrawLabel(const CapturedDrawCall& dc, u32 globalIdx)
         {
-            const char* prefix =
-                (dc.kind == DispatchKind::Compute)         ? "[C] " :
-                (dc.kind == DispatchKind::IndexedIndirect) ? "[I] " : "";
+            const char* prefix = (dc.kind == DispatchKind::Compute) ? "[C] " : "";
 
             std::string label = prefix + std::string("Draw ") + std::to_string(globalIdx) + ": " + dc.meshName;
             if (!dc.pipelineState.shaderName.empty())
