@@ -1209,12 +1209,10 @@ namespace Luth
         VKPipeline* maskSkinned     = m_Pipeline.GetEditorOverlays().GetSelectionMaskSkinnedPipeline();
         if (!maskPipeline) return;
 
-        // Live selection set — captured selection-set isn't snapshotted; replays
-        // reflect current editor selection, which is fine for the per-draw scrub.
-        std::unordered_set<entt::entity> selectedSet;
-        const RenderView* currView = m_Pipeline.GetCurrentView();
-        if (currView)
-            m_Pipeline.GetEditorOverlays().CollectSelectedHandles(currView->camera.selectedEntities, selectedSet);
+        // Resolved-at-capture selection set — m_CurrentView's RenderView is
+        // stack-allocated and gone by the time the user scrubs in Frozen.
+        std::unordered_set<entt::entity> selectedSet(
+            cf.capturedSelectionHandles.begin(), cf.capturedSelectionHandles.end());
         if (selectedSet.empty()) return;
 
         auto vkMask  = std::static_pointer_cast<VKTexture>(targets->GetSelectionMask());

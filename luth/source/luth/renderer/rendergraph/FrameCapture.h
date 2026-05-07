@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
+#include <entt/entt.hpp>
 
 namespace Luth
 {
@@ -141,6 +142,12 @@ namespace Luth::RG
         float capturedIblIntensity    = 1.0f;
         float capturedSkyboxIntensity = 1.0f;
 
+        // Resolved selection set at capture (root + descendants), populated by
+        // EditorOverlaysSubsystem::CollectSelectedHandles. ReplaySelectionMask
+        // reads this directly — m_CurrentView's RenderView is stack-allocated
+        // and gone by the time the user scrubs.
+        std::vector<entt::entity> capturedSelectionHandles;
+
         // Phase 14D — Hierarchical event tree built at capture finalize from
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
@@ -188,6 +195,7 @@ namespace Luth::RG
             capturedPrefiltered.reset();
             capturedBRDF.reset();
             capturedGTAOFinal.reset();
+            capturedSelectionHandles.clear();
             totalGpuTimeMs      = 0.0f;
             valid               = false;
         }

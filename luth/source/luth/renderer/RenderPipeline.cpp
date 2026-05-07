@@ -435,6 +435,13 @@ namespace Luth
             cf.capturedGTAOFinal      = m_CurrentViewResources ? m_CurrentViewResources->gtaoFinal : nullptr;
             cf.capturedIblIntensity   = view.camera.iblIntensity;
             cf.capturedSkyboxIntensity = view.camera.skyboxIntensity;
+            // Resolve descendants once at capture; replay reads this without
+            // touching m_CurrentView (stack-allocated, dangles in Frozen).
+            {
+                std::unordered_set<entt::entity> resolved;
+                m_EditorOverlays.CollectSelectedHandles(view.camera.selectedEntities, resolved);
+                cf.capturedSelectionHandles.assign(resolved.begin(), resolved.end());
+            }
 
             cf.valid = true;
             // Snapshot which source produced this capture so viewport overlays
