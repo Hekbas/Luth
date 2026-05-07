@@ -65,27 +65,38 @@ namespace Luth
         samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         vkCreateSampler(device, &samplerCI, nullptr, &fd.sampler);
 
-        // Descriptor set layout: binding 0 = combined image sampler
+        // Descriptor set layout: binding 0 = combined image sampler.
+        // invariant: UAB flags so BlitArchivedDepthToPreview / Replay* can rewrite
+        // binding 0 between back-to-back ImmediateSubmits without racing a still-
+        // pending cmd buffer that bound the prior view.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         binding.descriptorCount = 1;
         binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 1;
+        bindingFlagsCI.pBindingFlags = &bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutCI{};
         layoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutCI.pNext        = &bindingFlagsCI;
+        layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutCI.bindingCount = 1;
         layoutCI.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &fd.descSetLayout);
 
-        // Descriptor pool
+        // Descriptor pool — UPDATE_AFTER_BIND_BIT pairs with the layout flag.
         VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
         VkDescriptorPoolCreateInfo poolCI{};
         poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolCI.maxSets       = 1;
         poolCI.poolSizeCount = 1;
         poolCI.pPoolSizes    = &poolSize;
-        poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
+                             | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         vkCreateDescriptorPool(device, &poolCI, nullptr, &fd.descPool);
 
         // Allocate descriptor set
