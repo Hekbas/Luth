@@ -135,6 +135,12 @@ namespace Luth::RG
         // Frozen replay (per-frame cycling — see arch/rendering-pipeline.md).
         u32 capturedRenderFrameIndex = 0;
 
+        // Editor IBL intensities at capture time. Compared each Frozen tick
+        // alongside captureViewProj to trigger recapture when the user edits
+        // Sun/Sky settings while inspecting.
+        float capturedIblIntensity    = 1.0f;
+        float capturedSkyboxIntensity = 1.0f;
+
         // Phase 14D — Hierarchical event tree built at capture finalize from
         // passes/drawCalls + the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;

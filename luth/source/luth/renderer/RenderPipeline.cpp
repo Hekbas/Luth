@@ -429,10 +429,12 @@ namespace Luth
                 cf.capturedView.height = view.targets->GetSceneColor()->GetHeight();
             }
             m_Global.GetLastUboBytes(cf.capturedGlobalUboBytes);
-            cf.capturedIrradiance  = m_Lighting.GetIrradianceMap();
-            cf.capturedPrefiltered = m_Lighting.GetPrefilteredMap();
-            cf.capturedBRDF        = m_Lighting.GetBRDFLut();
-            cf.capturedGTAOFinal   = m_CurrentViewResources ? m_CurrentViewResources->gtaoFinal : nullptr;
+            cf.capturedIrradiance     = m_Lighting.GetIrradianceMap();
+            cf.capturedPrefiltered    = m_Lighting.GetPrefilteredMap();
+            cf.capturedBRDF           = m_Lighting.GetBRDFLut();
+            cf.capturedGTAOFinal      = m_CurrentViewResources ? m_CurrentViewResources->gtaoFinal : nullptr;
+            cf.capturedIblIntensity   = view.camera.iblIntensity;
+            cf.capturedSkyboxIntensity = view.camera.skyboxIntensity;
 
             cf.valid = true;
             // Snapshot which source produced this capture so viewport overlays
