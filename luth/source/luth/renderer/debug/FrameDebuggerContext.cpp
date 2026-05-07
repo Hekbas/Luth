@@ -1194,9 +1194,253 @@ namespace Luth
 
     void FrameDebuggerContext::ReplaySelectionMask(u32 passIdx, u32 localDrawIdx)
     {
-        // TODO(I2-SelectionMask): replay selection draws[0..localDrawIdx] into
-        // the selection mask buffer, then copy into m_PerDrawPreviewImage.
-        (void)passIdx; (void)localDrawIdx;
+        auto& sys = m_Pipeline.GetSystem();
+        auto& cf  = sys.GetFrameDebugger().capturedFrame;
+        FrameTargets* targets = cf.capturedView.targets;
+        if (!targets || !targets->GetSelectionMask() || !targets->GetSelectionDepth()) return;
+
+        const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
+        if (key == m_PerDrawPreviewKey) return;
+
+        ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
+        if (!capturedVr) return;
+
+        VKPipeline* maskPipeline    = m_Pipeline.GetEditorOverlays().GetSelectionMaskPipeline();
+        VKPipeline* maskSkinned     = m_Pipeline.GetEditorOverlays().GetSelectionMaskSkinnedPipeline();
+        if (!maskPipeline) return;
+
+        // Live selection set — captured selection-set isn't snapshotted; replays
+        // reflect current editor selection, which is fine for the per-draw scrub.
+        std::unordered_set<entt::entity> selectedSet;
+        const RenderView* currView = m_Pipeline.GetCurrentView();
+        if (currView)
+            m_Pipeline.GetEditorOverlays().CollectSelectedHandles(currView->camera.selectedEntities, selectedSet);
+        if (selectedSet.empty()) return;
+
+        auto vkMask  = std::static_pointer_cast<VKTexture>(targets->GetSelectionMask());
+        auto vkDepth = std::static_pointer_cast<VKTexture>(targets->GetSelectionDepth());
+        VkImage     maskImg   = vkMask->GetImage();
+        VkImageView maskView  = vkMask->GetImageView();
+        VkImage     depthImg  = vkDepth->GetImage();
+        VkImageView depthView = vkDepth->GetImageView();
+        const u32 width  = targets->GetSelectionMask()->GetWidth();
+        const u32 height = targets->GetSelectionMask()->GetHeight();
+
+        EnsurePerDrawPreviewTexture(width, height);
+        if (m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
+
+        const u32 maxDraws = localDrawIdx + 1;
+
+        VulkanContext::Get().ImmediateSubmit([&, this, maxDraws, width, height](VkCommandBuffer cmd)
+        {
+            auto& rp = m_Pipeline;
+
+            VkImageMemoryBarrier2 prep[2]{};
+            prep[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            prep[0].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep[0].dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            prep[0].dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            prep[0].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep[0].newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            prep[0].image               = maskImg;
+            prep[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            prep[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            prep[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            prep[1].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep[1].dstStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            prep[1].dstAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            prep[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep[1].newLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            prep[1].image               = depthImg;
+            prep[1].subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+            prep[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 2;
+            depPrep.pImageMemoryBarriers    = prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo colorAtt{};
+            colorAtt.ImageView  = maskView;
+            colorAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            colorAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt.ClearValue = { { {0.f, 0.f, 0.f, 0.f} } };
+            colorAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            AttachmentInfo depthAtt{};
+            depthAtt.ImageView  = depthView;
+            depthAtt.Format     = VK_FORMAT_D32_SFLOAT;
+            depthAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAtt.ClearValue.depthStencil = { 1.0f, 0 };
+            depthAtt.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.ColorAttachments = std::span<AttachmentInfo>(&colorAtt, 1);
+            rpInfo.DepthAttachment  = &depthAtt;
+            rpInfo.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+            VkDescriptorSet sets[] = {
+                capturedVr->globalDescriptorSet[slot],
+                bindlessSet,
+                MaterialSystem::GetDescriptorSet(slot),
+                rp.GetLighting().GetLightDescSet(slot),
+                BoneMatrixBuffer::GetDescriptorSet(slot)
+            };
+
+            maskPipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                maskPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D sc{}; sc.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &sc);
+
+            u32 drawsRemaining = maxDraws;
+            bool currentSkinned = false;
+
+            auto ReplayBatch = [&](const std::vector<DrawCommand>& draws)
+            {
+                if (drawsRemaining == 0) return;
+                for (const auto& dc : draws)
+                {
+                    if (drawsRemaining == 0) return;
+                    if (selectedSet.find(dc.entity) == selectedSet.end()) continue;
+
+                    if (dc.isSkinned != currentSkinned)
+                    {
+                        currentSkinned = dc.isSkinned;
+                        VKPipeline* p = currentSkinned ? maskSkinned : maskPipeline;
+                        if (!p) { drawsRemaining--; continue; }
+                        p->Bind(cmd);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            p->GetLayout(), 0, 5, sets, 0, nullptr);
+                    }
+
+                    auto mesh = dc.model->GetMesh(dc.meshIndex);
+                    if (!mesh) { drawsRemaining--; continue; }
+                    auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                    auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                    if (!vb || !ib) { drawsRemaining--; continue; }
+
+                    VkPipelineLayout activeLayout = (currentSkinned && maskSkinned)
+                        ? maskSkinned->GetLayout() : maskPipeline->GetLayout();
+
+                    ObjectPushConstants pc{};
+                    pc.modelMatrix   = dc.modelMatrix;
+                    pc.materialIndex = 0;
+                    pc.boneOffset    = dc.boneOffset;
+
+                    vkCmdPushConstants(cmd, activeLayout,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, sizeof(ObjectPushConstants), &pc);
+
+                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, 0);
+                    --drawsRemaining;
+                }
+            };
+
+            ReplayBatch(sys.GetDrawList().opaque);
+            ReplayBatch(sys.GetDrawList().cutout);
+            ReplayBatch(sys.GetDrawList().transparent);
+
+            DynamicRendering::EndRendering(cmd);
+
+            // Mask → TRANSFER_SRC, preview → TRANSFER_DST for the format-converting blit.
+            VkImageMemoryBarrier2 toBlit[2]{};
+            toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toBlit[0].srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toBlit[0].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[0].dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            toBlit[0].oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toBlit[0].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toBlit[0].image               = maskImg;
+            toBlit[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            toBlit[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toBlit[1].srcStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            toBlit[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            toBlit[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            toBlit[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toBlit[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            toBlit[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toBlit[1].image               = m_PerDrawPreviewImage;
+            toBlit[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            toBlit[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toBlit[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depBlit{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depBlit.imageMemoryBarrierCount = 2;
+            depBlit.pImageMemoryBarriers    = toBlit;
+            vkCmdPipelineBarrier2(cmd, &depBlit);
+
+            VkImageBlit2 blit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            blit.srcOffsets[0] = { 0, 0, 0 };
+            blit.srcOffsets[1] = { (i32)width, (i32)height, 1 };
+            blit.dstOffsets[0] = { 0, 0, 0 };
+            blit.dstOffsets[1] = { (i32)m_PerDrawPreviewWidth, (i32)m_PerDrawPreviewHeight, 1 };
+
+            VkBlitImageInfo2 blitInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+            blitInfo.srcImage       = maskImg;
+            blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitInfo.dstImage       = m_PerDrawPreviewImage;
+            blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitInfo.regionCount    = 1;
+            blitInfo.pRegions       = &blit;
+            blitInfo.filter         = VK_FILTER_NEAREST;  // mask is opaque — preserve hard edges
+            vkCmdBlitImage2(cmd, &blitInfo);
+
+            // Mask → SHADER_READ for next live frame's OutlinePass; preview → SHADER_READ for ImGui.
+            VkImageMemoryBarrier2 fin[2]{};
+            fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[0].srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+            fin[0].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[0].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[0].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            fin[0].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[0].image               = maskImg;
+            fin[0].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            fin[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            fin[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            fin[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fin[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            fin[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin[1].image               = m_PerDrawPreviewImage;
+            fin[1].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 2;
+            depFin.pImageMemoryBarriers    = fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_PerDrawPreviewKey = key;
     }
 
     void FrameDebuggerContext::EnsureDepthPreviewTexture(u32 width, u32 height)

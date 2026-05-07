@@ -47,6 +47,8 @@ namespace Luth
 
         VkDescriptorSetLayout GetOutlineLayout() const { return m_OutlineDescSetLayout; }
         VkDescriptorSetLayout GetGridLayout()    const { return m_GridDescSetLayout; }
+        VKPipeline*           GetSelectionMaskPipeline()        const { return m_SelectionMaskPipeline.get(); }
+        VKPipeline*           GetSelectionMaskSkinnedPipeline() const { return m_SelectionMaskSkinnedPipeline.get(); }
 
     private:
         void CreateLayouts();
