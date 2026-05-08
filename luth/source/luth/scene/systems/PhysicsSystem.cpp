@@ -15,6 +15,7 @@
 
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyManager.h>
 #include <Jolt/Physics/Body/MotionType.h>
 #include <Jolt/Physics/EActivation.h>
 
@@ -86,6 +87,10 @@ namespace Luth
         EnsureSignalsConnected(scene);
         DrainPendingDestroys();
 
+        // Debug-draw runs unconditionally so colliders are visible while authoring (Editing) too.
+        // Reads body state from JPH::PhysicsSystem; safe between Step calls.
+        DrawDebugBodies();
+
         // Editor gate. When no editor is registered (runtime-only build) Get() is null and the sim ticks
         // unconditionally. Paused + ConsumeStepRequest() to advance one step lands alongside body
         // lifecycle, when there is something visible to step.
@@ -131,6 +136,18 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         m_System.Update(dt, collisionSteps, &m_TempAlloc, &m_JobAdapter);
+    }
+
+    void PhysicsSystem::DrawDebugBodies()
+    {
+#ifdef JPH_DEBUG_RENDERER
+        LH_PROFILE_FUNCTION();
+        JPH::BodyManager::DrawSettings ds;
+        ds.mDrawShape          = true;
+        ds.mDrawShapeWireframe = true;
+        ds.mDrawShapeColor     = JPH::BodyManager::EShapeColor::MotionTypeColor;
+        m_System.DrawBodies(ds, &m_DebugRenderer);
+#endif
     }
 
     // ── Signals ──

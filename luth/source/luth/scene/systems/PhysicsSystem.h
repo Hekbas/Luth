@@ -3,6 +3,7 @@
 #include "luth/scene/systems/ISystem.h"
 #include "luth/physics/PhysicsLayers.h"
 #include "luth/physics/LuthJobSystemForJolt.h"
+#include "luth/physics/PhysicsDebugRenderer.h"
 
 #include <Jolt/Jolt.h>
 
@@ -58,6 +59,11 @@ namespace Luth
         void SyncBodiesToTransforms(Scene* scene);
         void Step(f32 fixedDt, int collisionSteps);
 
+        // Walks the body manager and pushes wireframe lines into DebugDraw. Runs every frame
+        // regardless of PlayState so colliders are visible while authoring (Editing) and during
+        // simulation (Playing).
+        void DrawDebugBodies();
+
         // Order matters: m_TempAlloc and m_JobAdapter are referenced by m_System.Update() each step,
         // and member destruction is reverse-declaration order. Putting m_System last ensures it tears
         // down before its dependencies — and m_BodyMap before m_System so any leftover BodyID lookups
@@ -72,6 +78,10 @@ namespace Luth
         std::unordered_map<entt::entity, JPH::BodyID> m_BodyMap;
         std::vector<PendingDestroy>                   m_PendingDestroy;
         entt::registry*                               m_AttachedRegistry = nullptr;
+
+#ifdef JPH_DEBUG_RENDERER
+        Physics::PhysicsDebugRenderer                 m_DebugRenderer;
+#endif
 
         f32 m_Accumulator = 0.0f;
 

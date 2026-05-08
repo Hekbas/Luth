@@ -9,6 +9,7 @@
 #include "luth/core/RenderSnapshot.h"
 #include "luth/core/Version.h"
 #include "luth/core/EditorHooks.h"
+#include "luth/core/DebugDraw.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/Image.h"
 #include "luth/scene/systems/SystemRegistry.h"
@@ -77,6 +78,7 @@ namespace Luth
 
         IOThread::Init();
         m_FrameData.Init();
+        DebugDraw::Init();
         Image::Init();   // sets stb's global flip flag to 0; no other site touches it
 
         // 2. Engine root + engine assets
@@ -300,6 +302,11 @@ namespace Luth
             // wait so it overlaps with Game(N) on separate worker fibers.
             const bool isSteady = (frameIndex >= 2);
 
+            // Cycle DebugDraw's producer slot before the Game stage spawns. Slot = frameIndex mod 2;
+            // Render(N-1) reads the previous slot, which was filled by Game(N-1) and is stable until
+            // BeginGameFrame is called for that index again two frames out.
+            DebugDraw::BeginGameFrame(frameIndex);
+
             JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
 
             FrameContext* renderFrame = nullptr;
@@ -410,6 +417,7 @@ namespace Luth
             m_Window->Shutdown();
         }
 
+        DebugDraw::Shutdown();
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
