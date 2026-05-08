@@ -191,12 +191,12 @@ namespace Luth
     bool PhysicsSystem::TryCreateBody(entt::registry& reg, entt::entity entity)
     {
         if (m_BodyMap.contains(entity)) return false;
-        if (!reg.all_of<Component::Collider, Component::RigidBody, Component::WorldTransform>(entity))
+        if (!reg.all_of<Component::Collider, Component::RigidBody, Component::Transform>(entity))
             return false;
 
-        const auto& collider = reg.get<Component::Collider>(entity);
-        const auto& rb       = reg.get<Component::RigidBody>(entity);
-        const auto& world    = reg.get<Component::WorldTransform>(entity);
+        const auto& collider  = reg.get<Component::Collider>(entity);
+        const auto& rb        = reg.get<Component::RigidBody>(entity);
+        const auto& transform = reg.get<Component::Transform>(entity);
 
         // Mesh / heightfield shapes are static-only in Jolt. Refuse the pairing rather than crash later.
         if ((collider.type == Component::Collider::Type::MeshRef) &&
@@ -215,13 +215,14 @@ namespace Luth
             return false;
         }
 
-        Vec3 pos, scale;
-        Quat rot;
-        DecomposeTransform(world.Matrix, pos, rot, scale);
+        // Source the initial body pose from Transform (local) rather than WorldTransform: signals fire
+        // during scene-load AddComponent calls, before TransformSystem has had a chance to propagate
+        // local-to-world. Tier 0 contract is that physics-driven entities sit at the scene root, so
+        // local == world here. Parented entities are warned below; their initial pose will be wrong
+        // until TransformSystem catches up next frame.
+        const Vec3 pos = transform.Position;
+        const Quat rot = Quat(Math::Radians(transform.Rotation));
 
-        // Parent + physics is supported but the post-step sync writes Transform.Position as if the
-        // entity were at the root, which is only correct for non-parented entities. Warn so the user
-        // notices the drift at body-creation time rather than chasing a sim bug.
         if (reg.any_of<Component::Parent>(entity))
         {
             LH_CORE_WARN("PhysicsSystem: entity {} has a Parent — physics-driven Transform sync ignores"

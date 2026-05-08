@@ -27,6 +27,59 @@ namespace Luth
         return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };
     }
 
+    // Quat serialization order is (w, x, y, z) to match glm::quat's constructor — readable by humans
+    // and consistent with how the engine writes identity rotations.
+    static json SerializeQuat(const Quat& q)
+    {
+        return { q.w, q.x, q.y, q.z };
+    }
+
+    static Quat DeserializeQuat(const json& j, const Quat& fallback = Quat(1.0f, 0.0f, 0.0f, 0.0f))
+    {
+        if (!j.is_array() || j.size() < 4) return fallback;
+        return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() };
+    }
+
+    static const char* ColliderTypeToString(Collider::Type t)
+    {
+        switch (t)
+        {
+            case Collider::Type::Box:           return "Box";
+            case Collider::Type::Sphere:        return "Sphere";
+            case Collider::Type::Capsule:       return "Capsule";
+            case Collider::Type::ConvexHullRef: return "ConvexHullRef";
+            case Collider::Type::MeshRef:       return "MeshRef";
+        }
+        return "Box";
+    }
+
+    static Collider::Type ColliderTypeFromString(const std::string& s)
+    {
+        if (s == "Sphere")        return Collider::Type::Sphere;
+        if (s == "Capsule")       return Collider::Type::Capsule;
+        if (s == "ConvexHullRef") return Collider::Type::ConvexHullRef;
+        if (s == "MeshRef")       return Collider::Type::MeshRef;
+        return Collider::Type::Box;
+    }
+
+    static const char* MotionToString(RigidBody::Motion m)
+    {
+        switch (m)
+        {
+            case RigidBody::Motion::Static:    return "Static";
+            case RigidBody::Motion::Kinematic: return "Kinematic";
+            case RigidBody::Motion::Dynamic:   return "Dynamic";
+        }
+        return "Dynamic";
+    }
+
+    static RigidBody::Motion MotionFromString(const std::string& s)
+    {
+        if (s == "Static")    return RigidBody::Motion::Static;
+        if (s == "Kinematic") return RigidBody::Motion::Kinematic;
+        return RigidBody::Motion::Dynamic;
+    }
+
     // ── Serialize a single entity ───────────────────────────────
 
     static json SerializeEntity(Entity entity)
@@ -154,6 +207,59 @@ namespace Luth
             pj["intensity"] = pl.Intensity;
             pj["range"]     = pl.Range;
             j["pointLight"] = pj;
+        }
+
+        if (entity.HasComponent<Collider>()) {
+            const auto& c = entity.GetComponent<Collider>();
+            json cj;
+            cj["type"]          = ColliderTypeToString(c.type);
+            cj["localOffset"]   = SerializeVec3(c.localOffset);
+            cj["localRotation"] = SerializeQuat(c.localRotation);
+
+            // Only the active union member is serialized; loader picks the right field by `type`.
+            switch (c.type)
+            {
+                case Collider::Type::Box:
+                    cj["box"] = json{ {"halfExtents", SerializeVec3(c.boxHalfExtents)} };
+                    break;
+                case Collider::Type::Sphere:
+                    cj["sphere"] = json{ {"radius", c.sphereRadius} };
+                    break;
+                case Collider::Type::Capsule:
+                    cj["capsule"] = json{
+                        {"radius",     c.capsule.radius},
+                        {"halfHeight", c.capsule.halfHeight}
+                    };
+                    break;
+                case Collider::Type::ConvexHullRef:
+                case Collider::Type::MeshRef:
+                {
+                    UUID model(c.meshRef.modelHi, c.meshRef.modelLo);
+                    cj["meshRef"] = json{
+                        {"modelUUID", model.ToString()},
+                        {"meshIndex", c.meshRef.meshIndex}
+                    };
+                    break;
+                }
+            }
+            j["collider"] = cj;
+        }
+
+        if (entity.HasComponent<RigidBody>()) {
+            const auto& rb = entity.GetComponent<RigidBody>();
+            json rj;
+            rj["motion"]          = MotionToString(rb.motion);
+            rj["layer"]           = rb.layer;
+            rj["isSensor"]        = rb.isSensor;
+            rj["startActive"]     = rb.startActive;
+            rj["mass"]            = rb.mass;
+            rj["linearVelocity"]  = SerializeVec3(rb.linearVelocity);
+            rj["angularVelocity"] = SerializeVec3(rb.angularVelocity);
+            rj["gravityFactor"]   = rb.gravityFactor;
+            rj["linearDamping"]   = rb.linearDamping;
+            rj["angularDamping"]  = rb.angularDamping;
+            rj["materialUUID"]    = rb.materialUUID.ToString();
+            j["rigidBody"]        = rj;
         }
 
         return j;
@@ -449,6 +555,64 @@ namespace Luth
                 pl.Color     = DeserializeVec3(pj.value("color", json::array()), { 1, 1, 1 });
                 pl.Intensity = pj.value("intensity", 1.0f);
                 pl.Range     = pj.value("range", 350.0f);
+            }
+
+            // Collider — Add fires PhysicsSystem's on_construct signal; the body is built once the
+            // partner RigidBody is added (or right away if RigidBody comes first in the JSON).
+            if (ej.contains("collider")) {
+                const auto& cj = ej["collider"];
+                auto& c = entity.AddComponent<Collider>();
+                c.type           = ColliderTypeFromString(cj.value("type", "Box"));
+                c.localOffset    = DeserializeVec3(cj.value("localOffset",   json::array()), Vec3(0.0f));
+                c.localRotation  = DeserializeQuat(cj.value("localRotation", json::array()));
+
+                switch (c.type)
+                {
+                    case Collider::Type::Box:
+                        if (cj.contains("box"))
+                            c.boxHalfExtents = DeserializeVec3(cj["box"].value("halfExtents", json::array()),
+                                                               Vec3(0.5f));
+                        break;
+                    case Collider::Type::Sphere:
+                        if (cj.contains("sphere"))
+                            c.sphereRadius = cj["sphere"].value("radius", 0.5f);
+                        break;
+                    case Collider::Type::Capsule:
+                        if (cj.contains("capsule"))
+                        {
+                            c.capsule.radius     = cj["capsule"].value("radius",     0.5f);
+                            c.capsule.halfHeight = cj["capsule"].value("halfHeight", 0.5f);
+                        }
+                        break;
+                    case Collider::Type::ConvexHullRef:
+                    case Collider::Type::MeshRef:
+                        if (cj.contains("meshRef"))
+                        {
+                            UUID model = UUID::FromString(cj["meshRef"].value("modelUUID", ""));
+                            c.meshRef.modelHi   = model.GetHalf0();
+                            c.meshRef.modelLo   = model.GetHalf1();
+                            c.meshRef.meshIndex = cj["meshRef"].value("meshIndex", 0u);
+                        }
+                        break;
+                }
+            }
+
+            // RigidBody — adding this completes the (Collider + RigidBody) pair if Collider already
+            // landed. PhysicsSystem builds the body in its on_construct handler.
+            if (ej.contains("rigidBody")) {
+                const auto& rj = ej["rigidBody"];
+                auto& rb = entity.AddComponent<RigidBody>();
+                rb.motion          = MotionFromString(rj.value("motion", "Dynamic"));
+                rb.layer           = rj.value("layer", static_cast<u8>(1));
+                rb.isSensor        = rj.value("isSensor", false);
+                rb.startActive     = rj.value("startActive", true);
+                rb.mass            = rj.value("mass", 0.0f);
+                rb.linearVelocity  = DeserializeVec3(rj.value("linearVelocity",  json::array()), Vec3(0.0f));
+                rb.angularVelocity = DeserializeVec3(rj.value("angularVelocity", json::array()), Vec3(0.0f));
+                rb.gravityFactor   = rj.value("gravityFactor",  1.0f);
+                rb.linearDamping   = rj.value("linearDamping",  0.05f);
+                rb.angularDamping  = rj.value("angularDamping", 0.05f);
+                rb.materialUUID    = UUID::FromString(rj.value("materialUUID", ""));
             }
 
             // Store for hierarchy reconstruction

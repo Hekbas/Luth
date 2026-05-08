@@ -1,0 +1,552 @@
+{
+    "entities": [
+        {
+            "active": true,
+            "directionalLight": {
+                "cascadeBlendWidth": 0.20000000298023224,
+                "castShadows": true,
+                "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "debugVisualizeCascades": false,
+                "intensity": 1.0,
+                "shadowBias": [
+                    0.004999999888241291,
+                    0.00800000037997961,
+                    0.012000000104308128,
+                    0.019999999552965164
+                ],
+                "shadowDistance": 200.0,
+                "shadowNormalBias": [
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shadowOrthoSize": 200.0,
+                "splitLambda": 0.5,
+                "stabilizeCascades": true
+            },
+            "parent": "",
+            "tag": "Directional Light",
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    -45.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "uuid": "0d48eaa5-4c4b-4042-ace4-deac9a0758d4"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        100.0,
+                        1.0,
+                        100.0
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "049c5927-0d12-4c7b-b892-6194ccf00014",
+                "meshIndex": 0,
+                "modelUUID": "d9399440-9110-4ed9-af43-d9ea2f98fdd3"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 0,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 0.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Static",
+                "startActive": true
+            },
+            "tag": "Floor",
+            "transform": {
+                "position": [
+                    0.0,
+                    -10.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    0.009999999776482582,
+                    1.0
+                ]
+            },
+            "uuid": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox",
+            "transform": {
+                "position": [
+                    1.1717689037322998,
+                    100.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "00000000-0000-0000-0000-000000000002"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox (1)",
+            "transform": {
+                "position": [
+                    0.0,
+                    100.67980194091797,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "e33f6fef-b30b-4c7c-af07-25671014aa43"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox (2)",
+            "transform": {
+                "position": [
+                    0.0,
+                    99.13158416748047,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "d5e17370-e070-46bb-9dba-4c220da07d66"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox (3)",
+            "transform": {
+                "position": [
+                    -1.1181092262268066,
+                    100.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "6f3cce55-93bc-4042-91ad-877b5f37911e"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox (4)",
+            "transform": {
+                "position": [
+                    0.0,
+                    100.0,
+                    0.8615078926086426
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "d6a356ba-8bbe-4fd0-b35a-b35cfac94cdb"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "materialUUID": "00000000-0000-0000-0000-000000000000",
+                "motion": "Dynamic",
+                "startActive": true
+            },
+            "tag": "DropBox (5)",
+            "transform": {
+                "position": [
+                    0.17607390880584717,
+                    100.0,
+                    -0.9331508874893188
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "da299d9a-7a01-4dc1-af04-8b3661fde651"
+        }
+    ],
+    "version": 1
+}
