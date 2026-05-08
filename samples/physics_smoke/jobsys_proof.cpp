@@ -1,9 +1,7 @@
-// Phase-A gate proof for Tier 0 of the Jolt physics integration.
-//
-// Drops 1000 dynamic spheres onto a static floor and steps a JPH::PhysicsSystem
-// configured with our LuthJobSystemForJolt adapter. The point isn't physical
-// correctness — it's putting enough parallel work through the adapter to make
-// Tracy's fiber view show worker fibers yielding through Luth's V5 wait path.
+// Standalone harness for validating LuthJobSystemForJolt against a real JPH::PhysicsSystem workload.
+// Drops 1000 dynamic spheres onto a static floor and steps the simulation through the adapter; the point
+// isn't physical correctness — it's putting enough parallel work through the adapter for Tracy's fiber view
+// to show worker fibers yielding through Luth's V5 wait path under contention.
 //
 // Usage:
 //   jobsys_proof.exe                # 600 frames after ENTER prompt
@@ -123,12 +121,12 @@ int main(int argc, char** argv)
 
     const Args args = ParseArgs(argc, argv);
 
-    std::cout << "Luth JobSystem + Jolt adapter — Phase-A proof\n";
+    std::cout << "Luth JobSystem + Jolt adapter proof\n";
     std::cout << "  frames:    " << args.frames    << "\n";
     std::cout << "  bodies:    " << args.numBodies << "\n";
 
-    // Logger must come up before anything that calls LH_CORE_* macros — the
-    // JobSystem and TaggedPageAllocator both log during Init.
+    // Logger must come up before anything that calls LH_CORE_* macros — the JobSystem and
+    // TaggedPageAllocator both log during Init.
     Luth::Log::Init();
 
     std::cout << "[1] Init Luth JobSystem...\n" << std::flush;
@@ -173,8 +171,8 @@ int main(int argc, char** argv)
                                       EMotionType::Static, Layers::NON_MOVING);
         BodyID floorId = bi.CreateAndAddBody(floorBcs, EActivation::DontActivate);
 
-        // Dynamic spheres on a 10×10×N grid above the floor — guaranteed contact
-        // workload as the column collapses onto itself.
+        // Dynamic spheres on a 10×10×N grid above the floor — guaranteed contact workload as the column
+        // collapses onto itself.
         SphereShapeSettings sphereSettings(0.5f);
         sphereSettings.SetEmbedded();
         ShapeRefC sphereShape = sphereSettings.Create().Get();

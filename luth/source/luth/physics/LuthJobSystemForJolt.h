@@ -12,16 +12,15 @@
 
 namespace Luth::Physics
 {
-    // JPH::JobSystem adapter that runs Jolt's parallel work through Luth's
-    // fiber-based scheduler. WaitForJobs routes through WaitForCounter so
-    // barrier waits exercise the V5 inline-execution + fiber-yield path
-    // (the whole reason for picking direct JPH::JobSystem over the built-in
-    // semaphore-backed JobSystemWithBarrier).
+    // JPH::JobSystem adapter that runs Jolt's parallel work through Luth's fiber-based scheduler.
+    // WaitForJobs routes through WaitForCounter so barrier waits exercise the V5 inline-execution +
+    // fiber-yield path — the whole reason for picking direct JPH::JobSystem over the built-in
+    // semaphore-backed JobSystemWithBarrier.
     class LuthJobSystemForJolt final : public JPH::JobSystem
     {
     public:
-        // maxJobs caps concurrent Jolt jobs in flight; maxBarriers is a soft
-        // hint for vector reserve (barriers can grow beyond it).
+        // maxJobs caps concurrent Jolt jobs in flight; maxBarriers is a soft hint for vector reserve
+        // (barriers can grow beyond it).
         explicit LuthJobSystemForJolt(JPH::uint maxJobs = 2048, JPH::uint maxBarriers = 8);
         ~LuthJobSystemForJolt() override;
 
@@ -50,9 +49,8 @@ namespace Luth::Physics
             void AddJob (const JobHandle&  handle)                    override;
             void AddJobs(const JobHandle*  handles, JPH::uint num)    override;
 
-            // Counter tracks pending jobs added to this barrier. Increment
-            // on AddJob (only when SetBarrier succeeds — see .cpp), decrement
-            // on OnJobFinished. WaitForJobs routes here.
+            // Counter tracks pending jobs added to this barrier. Increment on AddJob (only when SetBarrier
+            // succeeds — see .cpp), decrement on OnJobFinished. WaitForJobs routes here.
             Luth::JobSystem::AtomicCounter Counter;
 
         protected:
