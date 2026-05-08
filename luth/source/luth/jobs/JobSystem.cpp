@@ -271,6 +271,19 @@ namespace Luth::JobSystem
         }
     }
 
+    // ── Public counter primitives (declared in AtomicCounter.h) ──
+
+    void AtomicCounter::Increment(u32 n)
+    {
+        Value.fetch_add(n << 1);
+    }
+
+    void AtomicCounter::Decrement(u32 n)
+    {
+        for (u32 i = 0; i < n; ++i)
+            DecrementCounter(this);
+    }
+
     // ── Fiber Entry Point ──
 
     static void WINAPI FiberEntryPoint(void* args)
