@@ -557,11 +557,15 @@ namespace Luth
                 pl.Range     = pj.value("range", 350.0f);
             }
 
-            // Collider — Add fires PhysicsSystem's on_construct signal; the body is built once the
-            // partner RigidBody is added (or right away if RigidBody comes first in the JSON).
+            // Collider / RigidBody — both populate a local first, then AddComponent copy-emplaces the
+            // populated value. EnTT's on_construct fires synchronously inside AddComponent, so the
+            // "AddComponent + then assign fields" pattern used by other components above leaves the
+            // signal handler reading defaults. PhysicsSystem's TryCreateBody runs in that signal,
+            // and reading defaults instead of the loaded values means a Static body in JSON ends up
+            // built as Dynamic (the default Motion).
             if (ej.contains("collider")) {
                 const auto& cj = ej["collider"];
-                auto& c = entity.AddComponent<Collider>();
+                Collider c;
                 c.type           = ColliderTypeFromString(cj.value("type", "Box"));
                 c.localOffset    = DeserializeVec3(cj.value("localOffset",   json::array()), Vec3(0.0f));
                 c.localRotation  = DeserializeQuat(cj.value("localRotation", json::array()));
@@ -595,13 +599,12 @@ namespace Luth
                         }
                         break;
                 }
+                entity.AddComponent<Collider>(c);
             }
 
-            // RigidBody — adding this completes the (Collider + RigidBody) pair if Collider already
-            // landed. PhysicsSystem builds the body in its on_construct handler.
             if (ej.contains("rigidBody")) {
                 const auto& rj = ej["rigidBody"];
-                auto& rb = entity.AddComponent<RigidBody>();
+                RigidBody rb;
                 rb.motion          = MotionFromString(rj.value("motion", "Dynamic"));
                 rb.layer           = rj.value("layer", static_cast<u8>(1));
                 rb.isSensor        = rj.value("isSensor", false);
@@ -613,6 +616,7 @@ namespace Luth
                 rb.linearDamping   = rj.value("linearDamping",  0.05f);
                 rb.angularDamping  = rj.value("angularDamping", 0.05f);
                 rb.materialUUID    = UUID::FromString(rj.value("materialUUID", ""));
+                entity.AddComponent<RigidBody>(rb);
             }
 
             // Store for hierarchy reconstruction
