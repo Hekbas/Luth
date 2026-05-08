@@ -15,7 +15,17 @@ project "Luth"
    {
       "GLFW_INCLUDE_NONE",
       "FMT_HEADER_ONLY=1",
-      "SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS"
+      "SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS",
+      -- Jolt instruction-set defines (must mirror luth/extern/premake5-jolt.lua so
+      -- Jolt headers compile consistently across the lib and its consumers)
+      "JPH_USE_AVX2",
+      "JPH_USE_AVX",
+      "JPH_USE_SSE4_1",
+      "JPH_USE_SSE4_2",
+      "JPH_USE_FMADD",
+      "JPH_USE_F16C",
+      "JPH_USE_LZCNT",
+      "JPH_USE_TZCNT"
    }
 
    files
@@ -37,7 +47,8 @@ project "Luth"
       IncludeDir["spdlog"],
       IncludeDir["tracy"],
       IncludeDir["vulkan"],
-      IncludeDir["spirv_cross"]
+      IncludeDir["spirv_cross"],
+      IncludeDir["jolt"]
    }
 
    libdirs
@@ -61,17 +72,20 @@ project "Luth"
       "vulkan-1",
       "shaderc_shared",
       "spirv-cross",
+      "Jolt",
       "ws2_32",
       "dbghelp"
    }
 
    filter "configurations:Debug"
-      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
+      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND",
+                "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
       runtime "Debug"
       symbols "on"
 
    filter "configurations:Release"
-      defines { "LUTH_BUILD_RELEASE", "TRACY_ENABLE", "TRACY_ON_DEMAND" }
+      defines { "LUTH_BUILD_RELEASE", "TRACY_ENABLE", "TRACY_ON_DEMAND",
+                "JPH_DEBUG_RENDERER" }
       runtime "Release"
       optimize "on"
 

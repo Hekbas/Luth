@@ -32,6 +32,7 @@ group "Luth/Extern"
       include "luth/extern/premake5-imguizmo"
       include "luth/extern/premake5-tracy"
       include "luth/extern/premake5-spirv-cross"
+      include "luth/extern/premake5-jolt"
 group ""
 
 group "Luthien"
