@@ -67,10 +67,12 @@ namespace Luth
         void SyncBodiesToTransforms(Scene* scene);
         void Step(f32 fixedDt, int collisionSteps);
 
-        // Walks the body manager and pushes wireframe lines into DebugDraw. Runs every frame
-        // regardless of PlayState so colliders are visible while authoring (Editing) and during
-        // simulation (Playing).
-        void DrawDebugBodies();
+        // Walks the EnTT registry and emits wire primitives for each body's collider, AABB, and
+        // centre-of-mass via the shared DebugDraw facility. Three independent passes (Shapes /
+        // AABBs / CoM); each gated by a (Selected / All) pair from EditorViewportState. Runs every
+        // frame regardless of PlayState so colliders stay visible while authoring (Editing).
+        // Skipped entirely when no editor hook is registered (runtime build).
+        void DrawDebugBodies(Scene* scene);
 
         // Order matters: m_TempAlloc and m_JobAdapter are referenced by m_System.Update() each step,
         // and member destruction is reverse-declaration order. Putting m_System last ensures it tears
