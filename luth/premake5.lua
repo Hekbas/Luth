@@ -85,12 +85,12 @@ project "Luth"
 
    filter "configurations:Release"
       defines { "LUTH_BUILD_RELEASE", "TRACY_ENABLE", "TRACY_ON_DEMAND",
-                "JPH_DEBUG_RENDERER" }
+                "JPH_DEBUG_RENDERER", "NDEBUG" }
       runtime "Release"
       optimize "on"
 
    filter "configurations:Dist"
-      defines { "LUTH_BUILD_DIST" }
+      defines { "LUTH_BUILD_DIST", "NDEBUG" }
       runtime "Release"
       optimize "on"
       

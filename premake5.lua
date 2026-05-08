@@ -40,6 +40,10 @@ group "Luthien"
    include "runtime"
 group ""
 
+group "Samples"
+   include "samples/physics_smoke"
+group ""
+
 
 group "Tools"
    include "extern/premake"
