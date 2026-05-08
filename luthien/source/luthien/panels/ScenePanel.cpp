@@ -262,12 +262,22 @@ namespace Luth
                 // Gizmo visibility split — icon toggles all gizmos on/off; chevron lists
                 // per-gizmo flags + the tri-indicator overlay (Grid lives in its own split now).
                 {
-                    static struct { bool transform; bool bone; bool light; bool camera; bool aabb; bool valid; }
-                        s_savedGizmoFlags{};
+                    // Saved-flags snapshot covers both the legacy gizmo bools and the new physics
+                    // Selected/All pairs so the icon toggle restores everything at once.
+                    static struct {
+                        bool transform; bool bone; bool light; bool camera; bool aabb;
+                        bool physShapesSel, physShapesAll;
+                        bool physAABBsSel,  physAABBsAll;
+                        bool physCoMSel,    physCoMAll;
+                        bool valid;
+                    } s_savedGizmoFlags{};
                     bool* xformVisRef = m_Gizmo->GetTransformGizmoVisibleRef();
                     bool gizState = (*xformVisRef) || settings.showBoneDebug
                                   || settings.showLightGizmos || settings.showCameraGizmos
-                                  || settings.showAABBGizmos;
+                                  || settings.showAABBGizmos
+                                  || settings.physicsShapesSelected || settings.physicsShapesAll
+                                  || settings.physicsAABBsSelected  || settings.physicsAABBsAll
+                                  || settings.physicsCoMSelected    || settings.physicsCoMAll;
                     if (UI::SplitToggleButton("GizmoVis", ICON_FA_EYE, "Gizmos", &gizState,
                         [this, &settings, xformVisRef]() {
                             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
@@ -278,20 +288,59 @@ namespace Luth
                             ImGui::Checkbox("Camera Gizmos",   &settings.showCameraGizmos);
                             ImGui::Checkbox("AABB Gizmos",     &settings.showAABBGizmos);
                             ImGui::Checkbox("Tri Indicator",   &settings.showTriIndicatorOverlay);
+
+                            ImGui::Separator();
+                            ImGui::TextUnformatted("Physics");
+                            if (ImGui::BeginTable("##ScenePhysicsGizmos", 3,
+                                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody))
+                            {
+                                ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("Selected");
+                                ImGui::TableSetupColumn("All");
+                                ImGui::TableHeadersRow();
+
+                                auto Row = [](const char* label, const char* idSel, const char* idAll,
+                                              bool& sel, bool& all) {
+                                    ImGui::TableNextRow();
+                                    ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+                                    ImGui::TableNextColumn(); ImGui::Checkbox(idSel, &sel);
+                                    ImGui::TableNextColumn(); ImGui::Checkbox(idAll, &all);
+                                };
+                                Row("Colliders",      "##physShapesSel", "##physShapesAll",
+                                    settings.physicsShapesSelected, settings.physicsShapesAll);
+                                Row("AABBs",          "##physAABBsSel",  "##physAABBsAll",
+                                    settings.physicsAABBsSelected,  settings.physicsAABBsAll);
+                                Row("Center of Mass", "##physCoMSel",    "##physCoMAll",
+                                    settings.physicsCoMSelected,    settings.physicsCoMAll);
+                                ImGui::EndTable();
+                            }
+
                             ImGui::PopFont();
                             ImGui::PopStyleVar();
                         }))
                     {
                         if (!gizState) {
                             // Toggling OFF: snapshot per-flag state so the next ON can restore it.
-                            s_savedGizmoFlags = { *xformVisRef, settings.showBoneDebug,
-                                                  settings.showLightGizmos, settings.showCameraGizmos,
-                                                  settings.showAABBGizmos, true };
+                            s_savedGizmoFlags = {
+                                *xformVisRef, settings.showBoneDebug,
+                                settings.showLightGizmos, settings.showCameraGizmos,
+                                settings.showAABBGizmos,
+                                settings.physicsShapesSelected, settings.physicsShapesAll,
+                                settings.physicsAABBsSelected,  settings.physicsAABBsAll,
+                                settings.physicsCoMSelected,    settings.physicsCoMAll,
+                                true
+                            };
                             *xformVisRef = false;
                             settings.showBoneDebug = false;
                             settings.showLightGizmos = false;
                             settings.showCameraGizmos = false;
                             settings.showAABBGizmos = false;
+                            settings.physicsShapesSelected = false;
+                            settings.physicsShapesAll      = false;
+                            settings.physicsAABBsSelected  = false;
+                            settings.physicsAABBsAll       = false;
+                            settings.physicsCoMSelected    = false;
+                            settings.physicsCoMAll         = false;
                         }
                         else if (s_savedGizmoFlags.valid) {
                             *xformVisRef = s_savedGizmoFlags.transform;
@@ -299,11 +348,18 @@ namespace Luth
                             settings.showLightGizmos = s_savedGizmoFlags.light;
                             settings.showCameraGizmos= s_savedGizmoFlags.camera;
                             settings.showAABBGizmos  = s_savedGizmoFlags.aabb;
+                            settings.physicsShapesSelected = s_savedGizmoFlags.physShapesSel;
+                            settings.physicsShapesAll      = s_savedGizmoFlags.physShapesAll;
+                            settings.physicsAABBsSelected  = s_savedGizmoFlags.physAABBsSel;
+                            settings.physicsAABBsAll       = s_savedGizmoFlags.physAABBsAll;
+                            settings.physicsCoMSelected    = s_savedGizmoFlags.physCoMSel;
+                            settings.physicsCoMAll         = s_savedGizmoFlags.physCoMAll;
                         }
                         else {
                             *xformVisRef = true;
                             settings.showLightGizmos = true;
                             settings.showCameraGizmos = true;
+                            settings.physicsShapesSelected = true;
                         }
                     }
                 }

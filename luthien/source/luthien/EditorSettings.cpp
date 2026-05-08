@@ -78,6 +78,19 @@ namespace Luth
 
             settings.previewAnimationInEditor = j.value("previewAnimationInEditor", settings.previewAnimationInEditor);
 
+            settings.physicsShapesSelected = j.value("physicsShapesSelected", settings.physicsShapesSelected);
+            settings.physicsShapesAll      = j.value("physicsShapesAll",      settings.physicsShapesAll);
+            settings.physicsAABBsSelected  = j.value("physicsAABBsSelected",  settings.physicsAABBsSelected);
+            settings.physicsAABBsAll       = j.value("physicsAABBsAll",       settings.physicsAABBsAll);
+            settings.physicsCoMSelected    = j.value("physicsCoMSelected",    settings.physicsCoMSelected);
+            settings.physicsCoMAll         = j.value("physicsCoMAll",         settings.physicsCoMAll);
+            settings.physicsColorMode      = static_cast<PhysicsDebugColorMode>(
+                                                 j.value("physicsColorMode",
+                                                         static_cast<int>(settings.physicsColorMode)));
+            LoadVec4(j, "physicsUniformColor", settings.physicsUniformColor);
+            settings.physicsDebugSegments  = j.value("physicsDebugSegments",  settings.physicsDebugSegments);
+            settings.physicsAlphaUnselected = j.value("physicsAlphaUnselected", settings.physicsAlphaUnselected);
+
             settings.autoSaveEnabled     = j.value("autoSaveEnabled", settings.autoSaveEnabled);
             settings.autoSaveIntervalSec = j.value("autoSaveIntervalSec", settings.autoSaveIntervalSec);
             settings.autoSaveKeepN       = j.value("autoSaveKeepN", settings.autoSaveKeepN);
@@ -147,6 +160,17 @@ namespace Luth
             j["gridLineThickness"] = settings.gridLineThickness;
 
             j["previewAnimationInEditor"] = settings.previewAnimationInEditor;
+
+            j["physicsShapesSelected"]  = settings.physicsShapesSelected;
+            j["physicsShapesAll"]       = settings.physicsShapesAll;
+            j["physicsAABBsSelected"]   = settings.physicsAABBsSelected;
+            j["physicsAABBsAll"]        = settings.physicsAABBsAll;
+            j["physicsCoMSelected"]     = settings.physicsCoMSelected;
+            j["physicsCoMAll"]          = settings.physicsCoMAll;
+            j["physicsColorMode"]       = static_cast<int>(settings.physicsColorMode);
+            j["physicsUniformColor"]    = ToJson(settings.physicsUniformColor);
+            j["physicsDebugSegments"]   = settings.physicsDebugSegments;
+            j["physicsAlphaUnselected"] = settings.physicsAlphaUnselected;
 
             j["autoSaveEnabled"]     = settings.autoSaveEnabled;
             j["autoSaveIntervalSec"] = settings.autoSaveIntervalSec;

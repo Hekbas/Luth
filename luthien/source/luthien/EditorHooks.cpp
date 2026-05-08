@@ -73,6 +73,17 @@ namespace
             out.gridLineThickness = s.gridLineThickness;
 
             out.previewAnimationInEditor = s.previewAnimationInEditor;
+
+            out.physicsShapesSelected   = s.physicsShapesSelected;
+            out.physicsShapesAll        = s.physicsShapesAll;
+            out.physicsAABBsSelected    = s.physicsAABBsSelected;
+            out.physicsAABBsAll         = s.physicsAABBsAll;
+            out.physicsCoMSelected      = s.physicsCoMSelected;
+            out.physicsCoMAll           = s.physicsCoMAll;
+            out.physicsColorMode        = s.physicsColorMode;
+            out.physicsUniformColor     = s.physicsUniformColor;
+            out.physicsDebugSegments    = s.physicsDebugSegments;
+            out.physicsAlphaUnselected  = s.physicsAlphaUnselected;
         }
 
         // Play-mode state forwarded from PlayModeController

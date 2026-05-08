@@ -17,7 +17,7 @@ namespace Luth
         // Section list lives in one place so both panes stay in sync.
         constexpr const char* kSections[] = {
             "General", "Camera", "Viewport", "Grid", "Gizmos",
-            "IBL & Skybox", "Animation", "Autosave", "Thumbnails"
+            "IBL & Skybox", "Animation", "Autosave", "Thumbnails", "Physics"
         };
 
         bool ContainsCI(const char* haystack, const char* needle)
@@ -214,6 +214,74 @@ namespace Luth
                         }
                         ++rowsRendered;
                     }
+                    UI::EndProperties();
+                }
+                break;
+            }
+            case 9: { // Physics
+                Header("Physics Debug");
+
+                // Table-format paired toggles. Lives outside BeginProperties (which is a 2-col
+                // layout); the simple knobs below use the standard 2-col property layout.
+                const bool tableMatch = !filter
+                    || ContainsCI("Physics", filter)
+                    || ContainsCI("Colliders", filter)
+                    || ContainsCI("AABB", filter)
+                    || ContainsCI("Center of Mass", filter);
+                if (tableMatch) {
+                    if (ImGui::BeginTable("##PrefsPhysicsTable", 3,
+                        ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody))
+                    {
+                        ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Selected");
+                        ImGui::TableSetupColumn("All");
+                        ImGui::TableHeadersRow();
+
+                        auto Row = [&](const char* label, const char* idSel, const char* idAll,
+                                       bool& sel, bool& all) {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+                            ImGui::TableNextColumn();
+                            if (ImGui::Checkbox(idSel, &sel)) committedAny = true;
+                            ImGui::TableNextColumn();
+                            if (ImGui::Checkbox(idAll, &all)) committedAny = true;
+                            ++rowsRendered;
+                        };
+                        Row("Colliders",      "##physShapesSel", "##physShapesAll",
+                            s.physicsShapesSelected, s.physicsShapesAll);
+                        Row("AABBs",          "##physAABBsSel",  "##physAABBsAll",
+                            s.physicsAABBsSelected,  s.physicsAABBsAll);
+                        Row("Center of Mass", "##physCoMSel",    "##physCoMAll",
+                            s.physicsCoMSelected,    s.physicsCoMAll);
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::Spacing();
+                }
+
+                if (UI::BeginProperties("PrefsPhysics")) {
+                    if (Match("Color Mode")) {
+                        const char* kModes[] = { "Uniform", "By Motion Type", "By Sleep State" };
+                        int current = static_cast<int>(s.physicsColorMode);
+                        auto state = UI::PropertyCombo("Color Mode", current, kModes, 3);
+                        if (state.committed) {
+                            s.physicsColorMode = static_cast<PhysicsDebugColorMode>(current);
+                            committedAny = true;
+                        }
+                        ++rowsRendered;
+                    }
+                    if (Match("Uniform Color"))
+                        { committedAny |= UI::PropertyColor("Uniform Color", s.physicsUniformColor).committed; ++rowsRendered; }
+                    if (Match("Segments")) {
+                        int segs = static_cast<int>(s.physicsDebugSegments);
+                        if (UI::Property("Segments", segs, 8, 128).committed) {
+                            s.physicsDebugSegments = static_cast<u32>(segs);
+                            committedAny = true;
+                        }
+                        ++rowsRendered;
+                    }
+                    if (Match("Unselected Alpha"))
+                        { committedAny |= UI::Property("Unselected Alpha", s.physicsAlphaUnselected, 0.01f, 0.0f, 1.0f).committed; ++rowsRendered; }
                     UI::EndProperties();
                 }
                 break;

@@ -24,6 +24,13 @@ namespace Luth
         Paused,
     };
 
+    // Physics debug-visualization colour scheme. Used by PhysicsSystem's debug-draw passes; the
+    // editor selects the mode via Preferences and forwards it through EditorViewportState. Uniform
+    // applies physicsUniformColor to every body. ByMotionType uses fixed greys/blues/greens.
+    // BySleepState matches Jolt's SleepColor (static grey, kinematic green, dynamic-active yellow,
+    // sleeping red) and queries JPH::BodyInterface::IsActive per body.
+    enum class PhysicsDebugColorMode : u8 { Uniform, ByMotionType, BySleepState };
+
     // Per-frame snapshot of editor-owned state that the engine feeds into RenderingSystem. When
     // no editor is registered the struct stays default-constructed, so the runtime build sees an
     // identity camera and empty selection.
@@ -57,6 +64,21 @@ namespace Luth
         // characters animate in the scene view. Flip off for strict
         // "game systems only run during Play" behavior.
         bool      previewAnimationInEditor = true;
+
+        // Physics debug visualization. Paired toggles per pass: render bodies of selected entities,
+        // and render bodies of all entities (overrides selected when on). Colour scheme + segment
+        // count + uniform colour shape what each pass looks like; alpha-unselected dims non-selected
+        // bodies when "All" is on so the selected one still pops.
+        bool                  physicsShapesSelected  = true;
+        bool                  physicsShapesAll       = false;
+        bool                  physicsAABBsSelected   = false;
+        bool                  physicsAABBsAll        = false;
+        bool                  physicsCoMSelected     = false;
+        bool                  physicsCoMAll          = false;
+        PhysicsDebugColorMode physicsColorMode       = PhysicsDebugColorMode::Uniform;
+        Vec4                  physicsUniformColor    = { 0.40f, 0.86f, 0.37f, 1.0f };
+        u32                   physicsDebugSegments   = 32;
+        float                 physicsAlphaUnselected = 0.6f;
     };
 
     // Interface the engine uses to drive the editor without ever depending on luthien/ headers.

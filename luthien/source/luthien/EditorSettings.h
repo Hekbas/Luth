@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/EditorHooks.h"
 
 #include <string>
 #include <filesystem>
@@ -66,6 +67,20 @@ namespace Luth
 
         // Play mode
         bool  previewAnimationInEditor = true;   // Animations tick in Editing state
+
+        // Physics debug visualization. Two checkboxes per pass: render for selected entities,
+        // render for all entities (overrides selected). Defaults: Shapes-on for selected only,
+        // AABBs and Center-of-Mass off. Tunable colour scheme + segments shape the wireframe.
+        bool                  physicsShapesSelected   = true;
+        bool                  physicsShapesAll        = false;
+        bool                  physicsAABBsSelected    = false;
+        bool                  physicsAABBsAll         = false;
+        bool                  physicsCoMSelected      = false;
+        bool                  physicsCoMAll           = false;
+        PhysicsDebugColorMode physicsColorMode        = PhysicsDebugColorMode::Uniform;
+        Vec4                  physicsUniformColor     = { 0.40f, 0.86f, 0.37f, 1.0f };
+        u32                   physicsDebugSegments    = 32;
+        float                 physicsAlphaUnselected  = 0.6f;
 
         // Autosave (side-channel backup; never overwrites canonical scene)
         bool  autoSaveEnabled     = true;
