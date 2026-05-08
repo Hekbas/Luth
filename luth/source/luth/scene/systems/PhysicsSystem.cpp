@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyManager.h>
+#include <Jolt/Physics/Body/MotionQuality.h>
 #include <Jolt/Physics/Body/MotionType.h>
 #include <Jolt/Physics/EActivation.h>
 
@@ -34,6 +35,16 @@ namespace Luth
                 case Component::RigidBody::Motion::Dynamic:   return JPH::EMotionType::Dynamic;
             }
             return JPH::EMotionType::Static;
+        }
+
+        JPH::EMotionQuality ToJoltMotionQuality(Component::RigidBody::Quality q)
+        {
+            switch (q)
+            {
+                case Component::RigidBody::Quality::Discrete:   return JPH::EMotionQuality::Discrete;
+                case Component::RigidBody::Quality::LinearCast: return JPH::EMotionQuality::LinearCast;
+            }
+            return JPH::EMotionQuality::Discrete;
         }
 
         JPH::ObjectLayer PickLayer(const Component::RigidBody& rb)
@@ -253,6 +264,7 @@ namespace Luth
         JPH::BodyCreationSettings bcs(shape, Physics::ToJolt(pos), Physics::ToJolt(rot),
                                       ToJoltMotion(rb.motion), PickLayer(rb));
         bcs.mIsSensor        = rb.isSensor;
+        bcs.mMotionQuality   = ToJoltMotionQuality(rb.motionQuality);
         bcs.mLinearVelocity  = Physics::ToJolt(rb.linearVelocity);
         bcs.mAngularVelocity = Physics::ToJolt(rb.angularVelocity);
         bcs.mGravityFactor   = rb.gravityFactor;

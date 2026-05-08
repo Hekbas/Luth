@@ -45,19 +45,23 @@ namespace Luth::Component
     // material is a Tier 0 simplification — once compound shapes land, material moves per-shape.
     struct RigidBody
     {
-        enum class Motion : u8 { Static, Kinematic, Dynamic };
+        enum class Motion  : u8 { Static, Kinematic, Dynamic };
+        // Discrete: cheap, but fast bodies tunnel through thin geometry. LinearCast: cast the shape
+        // along its velocity each step, opt-in for projectiles or fast-fall objects.
+        enum class Quality : u8 { Discrete, LinearCast };
 
-        Motion motion = Motion::Dynamic;
-        u8     layer  = 1;
-        bool   isSensor    = false;
-        bool   startActive = true;
-        f32    mass = 0.0f;
-        Vec3   linearVelocity{0.0f};
-        Vec3   angularVelocity{0.0f};
-        f32    gravityFactor   = 1.0f;
-        f32    linearDamping   = 0.05f;
-        f32    angularDamping  = 0.05f;
-        UUID   materialUUID;
+        Motion  motion        = Motion::Dynamic;
+        Quality motionQuality = Quality::Discrete;
+        u8      layer         = 1;
+        bool    isSensor      = false;
+        bool    startActive   = true;
+        f32     mass          = 0.0f;
+        Vec3    linearVelocity{0.0f};
+        Vec3    angularVelocity{0.0f};
+        f32     gravityFactor   = 1.0f;
+        f32     linearDamping   = 0.05f;
+        f32     angularDamping  = 0.05f;
+        UUID    materialUUID;
     };
 
     // Runtime-only handle into PhysicsSystem's body table. PhysicsSystem attaches this when it creates a

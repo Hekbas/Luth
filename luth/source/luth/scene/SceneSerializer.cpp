@@ -80,6 +80,22 @@ namespace Luth
         return RigidBody::Motion::Dynamic;
     }
 
+    static const char* MotionQualityToString(RigidBody::Quality q)
+    {
+        switch (q)
+        {
+            case RigidBody::Quality::Discrete:   return "Discrete";
+            case RigidBody::Quality::LinearCast: return "LinearCast";
+        }
+        return "Discrete";
+    }
+
+    static RigidBody::Quality MotionQualityFromString(const std::string& s)
+    {
+        if (s == "LinearCast") return RigidBody::Quality::LinearCast;
+        return RigidBody::Quality::Discrete;
+    }
+
     // ── Serialize a single entity ───────────────────────────────
 
     static json SerializeEntity(Entity entity)
@@ -249,6 +265,7 @@ namespace Luth
             const auto& rb = entity.GetComponent<RigidBody>();
             json rj;
             rj["motion"]          = MotionToString(rb.motion);
+            rj["motionQuality"]   = MotionQualityToString(rb.motionQuality);
             rj["layer"]           = rb.layer;
             rj["isSensor"]        = rb.isSensor;
             rj["startActive"]     = rb.startActive;
@@ -606,6 +623,7 @@ namespace Luth
                 const auto& rj = ej["rigidBody"];
                 RigidBody rb;
                 rb.motion          = MotionFromString(rj.value("motion", "Dynamic"));
+                rb.motionQuality   = MotionQualityFromString(rj.value("motionQuality", "Discrete"));
                 rb.layer           = rj.value("layer", static_cast<u8>(1));
                 rb.isSensor        = rj.value("isSensor", false);
                 rb.startActive     = rj.value("startActive", true);
