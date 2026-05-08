@@ -79,6 +79,13 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
+        // Signal plumbing and the deferred-destroy drain run regardless of PlayState. Bailing under
+        // the Editing gate before connecting signals leaves component additions during scene load with
+        // no listener — bodies never get built and the first Play has an empty world to step. Drain
+        // also has to run so a destroy queued during Editing doesn't leak its Jolt body.
+        EnsureSignalsConnected(scene);
+        DrainPendingDestroys();
+
         // Editor gate. When no editor is registered (runtime-only build) Get() is null and the sim ticks
         // unconditionally. Paused + ConsumeStepRequest() to advance one step lands alongside body
         // lifecycle, when there is something visible to step.
@@ -88,9 +95,6 @@ namespace Luth
             m_Accumulator = 0.0f;
             return;
         }
-
-        EnsureSignalsConnected(scene);
-        DrainPendingDestroys();
 
         m_Accumulator += Time::DeltaTime();
 
