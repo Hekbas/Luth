@@ -17,6 +17,8 @@ namespace Luth::ComponentDrawers
     void RegisterAnimationController();
     void RegisterDirectionalLight();
     void RegisterPointLight();
+    void RegisterCollider();
+    void RegisterRigidBody();
 
     // Umbrella — calls each Register* in canonical order. Called once from
     // Editor::InitPanels.
