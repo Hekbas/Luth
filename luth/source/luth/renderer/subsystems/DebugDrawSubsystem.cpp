@@ -138,9 +138,11 @@ namespace Luth
 
                 // Allocate a transient VB from the GPU heap. Tag-released two frames out by the
                 // VulkanBackend's GPU-N-2 wait, so the buffer outlives this command buffer's GPU
-                // execution.
+                // execution. CurrentTag must be set per-frame: VulkanBackend retires by absolute
+                // render-frame index, so a stale/zero tag here means the page is never freed.
                 auto* jctx = Luth::JobSystem::GetCurrentJobContext();
                 auto& cache = jctx->GpuCache;
+                cache.CurrentTag = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
                 const u64 vbBytes = lines.size_bytes();
                 auto region = Memory::GPUTaggedPageAllocator::Get().Allocate(cache, vbBytes, /*alignment*/16);
                 std::memcpy(region.mappedPtr, lines.data(), vbBytes);
