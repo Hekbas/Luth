@@ -211,6 +211,7 @@ namespace Luth
         sceneView.viewIndex            = 0;
         sceneView.drawGrid             = m_GridVisible;
         sceneView.drawSelectionOutline = true;
+        sceneView.drawDebugShapes      = true;
         sceneView.emitImGuiPass        = true;
         // Capture-source gate: only the scene view installs the archive sink
         // when the user has chosen Scene as the source. Game capture lives on
