@@ -7,8 +7,14 @@
 #include "luth/jobs/JobSystem.h"
 #include "luth/jobs/AtomicCounter.h"
 
-#include <vector>
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace Luth::Physics
 {
@@ -40,6 +46,15 @@ namespace Luth::Physics
     private:
         static void TrampolineFn(Luth::JobSystem::JobArgs args);
 
+        // PendingJob records a job currently tracked by a barrier — populated by AddJob, removed
+        // by OnJobFinished, snapshotted by the watchdog when a wait gets stuck. Name is captured
+        // from the side-table populated in CreateJob.
+        struct PendingJob
+        {
+            Job*        job;
+            std::string name;
+        };
+
         class LuthBarrier final : public Barrier
         {
         public:
@@ -53,12 +68,39 @@ namespace Luth::Physics
             // succeeds — see .cpp), decrement on OnJobFinished. WaitForJobs routes here.
             Luth::JobSystem::AtomicCounter Counter;
 
+            // Watchdog tracking. Pending mutates only under m_PendingMutex; IsWaiting + WaitStart
+            // are read by the watchdog thread without locking against the wait fast-path.
+            std::mutex                            m_PendingMutex;
+            std::vector<PendingJob>               m_Pending;
+            std::atomic<bool>                     m_IsWaiting { false };
+            std::atomic<bool>                     m_HasLogged { false };
+            std::chrono::steady_clock::time_point m_WaitStart;
+
+            // Set by CreateBarrier so AddJob can resolve job names from the parent's side-table.
+            LuthJobSystemForJolt*                 m_Parent = nullptr;
+
         protected:
             void OnJobFinished(Job* job) override;
         };
 
         JPH::FixedSizeFreeList<Job>               m_Jobs;
         std::vector<std::unique_ptr<LuthBarrier>> m_Barriers;
+        std::mutex                                m_BarriersMutex;
         int                                       m_MaxConcurrency = 1;
+
+        // Job-name side-table — keyed by Job*. CreateJob inserts; FreeJob removes; LuthBarrier::AddJob
+        // looks up. Lets the watchdog name stuck jobs without forcing JPH_PROFILE_ENABLED on Jolt itself.
+        std::unordered_map<Job*, std::string>     m_JobNames;
+        std::mutex                                m_NameMapMutex;
+
+        // Background diagnostic thread. Polls active barriers; logs detail when any has been waiting
+        // beyond the threshold. Each barrier logs once per stuck-period (HasLogged latch), reset on
+        // the next WaitForJobs entry.
+        std::atomic<bool>                         m_WatchdogRunning { false };
+        std::thread                               m_WatchdogThread;
+        void WatchdogLoop();
+
+        static constexpr auto kWatchdogThreshold  = std::chrono::milliseconds(1000);
+        static constexpr auto kWatchdogPollPeriod = std::chrono::milliseconds(250);
     };
 }
