@@ -13,12 +13,21 @@ namespace Luth::Physics
 {
     // ── LuthBarrier ──
 
+    // Counter must be incremented BEFORE SetBarrier opens the gate. If we incremented after, a
+    // worker running the job concurrently could swap mBarrier into cBarrierDoneState and call
+    // OnJobFinished's Decrement on a counter that's still at zero — and AtomicCounter::Decrement
+    // clamps at zero (its DecrementCounter has `if (old < 2) break;`). The decrement is then
+    // silently swallowed and the subsequent Increment leaves the counter permanently +1, deadlocking
+    // any WaitForJobs on this barrier.
+    //
+    // Jolt's reference JobSystemWithBarrier doesn't have this problem because its counter is a
+    // semaphore — releases stack up and are never lost. AtomicCounter doesn't, so the order matters.
+
     void LuthJobSystemForJolt::LuthBarrier::AddJob(const JobHandle& handle)
     {
         Job* job = handle.GetPtr();
-        // SetBarrier returns false if the job has already completed (mBarrier was atomically set to
-        // cBarrierDoneState). In that case OnJobFinished will never fire for this barrier, so we must not
-        // increment the counter — it would leak as a permanent +1 wait.
+
+        Counter.Increment(1);                            // claim before opening the gate
         if (job->SetBarrier(this))
         {
             std::string name;
@@ -29,17 +38,23 @@ namespace Luth::Physics
                 if (it != m_Parent->m_JobNames.end())
                     name = it->second;
             }
-            {
-                std::lock_guard<std::mutex> lk(m_PendingMutex);
-                m_Pending.push_back({ job, std::move(name) });
-            }
-            Counter.Increment(1);
+            std::lock_guard<std::mutex> lk(m_PendingMutex);
+            m_Pending.push_back({ job, std::move(name) });
+        }
+        else
+        {
+            // Job already done; OnJobFinished won't fire for it. Roll back the optimistic increment.
+            Counter.Decrement(1);
         }
     }
 
     void LuthJobSystemForJolt::LuthBarrier::AddJobs(const JobHandle* handles, JPH::uint num)
     {
-        u32 added = 0;
+        if (num == 0) return;
+
+        Counter.Increment(num);
+        u32 failed = 0;
+
         for (JPH::uint i = 0; i < num; ++i)
         {
             Job* job = handles[i].GetPtr();
@@ -53,15 +68,17 @@ namespace Luth::Physics
                     if (it != m_Parent->m_JobNames.end())
                         name = it->second;
                 }
-                {
-                    std::lock_guard<std::mutex> lk(m_PendingMutex);
-                    m_Pending.push_back({ job, std::move(name) });
-                }
-                ++added;
+                std::lock_guard<std::mutex> lk(m_PendingMutex);
+                m_Pending.push_back({ job, std::move(name) });
+            }
+            else
+            {
+                ++failed;
             }
         }
-        if (added > 0)
-            Counter.Increment(added);
+
+        if (failed > 0)
+            Counter.Decrement(failed);
     }
 
     void LuthJobSystemForJolt::LuthBarrier::OnJobFinished(Job* job)
