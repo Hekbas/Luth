@@ -83,6 +83,7 @@ namespace Luth
             m_BodyMap.clear();
         }
         m_PendingDestroy.clear();
+        m_PendingBuild.clear();
     }
 
     // ── Update ──
@@ -91,12 +92,15 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        // Signal plumbing and the deferred-destroy drain run regardless of PlayState. Bailing under
-        // the Editing gate before connecting signals leaves component additions during scene load with
-        // no listener — bodies never get built and the first Play has an empty world to step. Drain
-        // also has to run so a destroy queued during Editing doesn't leak its Jolt body.
+        // Signal plumbing, deferred-destroy drain, and deferred-build drain all run regardless of
+        // PlayState. Bailing under the Editing gate before signal connect leaves AddComponent calls
+        // during scene load with no listener; deferring destroys/builds across frames means we'd
+        // otherwise leak/skip them during authoring. Order matters: DrainPendingDestroys before
+        // DrainPendingBuilds so a destroy + re-add of the same entity in one frame produces one
+        // fresh body, not a destroyed dangling one.
         EnsureSignalsConnected(scene);
         DrainPendingDestroys();
+        DrainPendingBuilds(scene->Registry());
 
         // Debug-draw runs unconditionally so colliders are visible while authoring (Editing) too.
         // Reads body state from JPH::PhysicsSystem; safe between Step calls.
@@ -184,11 +188,14 @@ namespace Luth
                 m_BodyMap.clear();
             }
             m_PendingDestroy.clear();
+            m_PendingBuild.clear();
         }
 
         m_AttachedRegistry = reg;
         reg->on_construct<Component::Collider>().connect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_construct<Component::RigidBody>().connect<&PhysicsSystem::OnComponentConstructed>(this);
+        reg->on_update<Component::Collider>().connect<&PhysicsSystem::OnComponentUpdated>(this);
+        reg->on_update<Component::RigidBody>().connect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_destroy<Component::Collider>().connect<&PhysicsSystem::OnComponentDestroyed>(this);
         reg->on_destroy<Component::RigidBody>().connect<&PhysicsSystem::OnComponentDestroyed>(this);
     }
@@ -199,16 +206,30 @@ namespace Luth
         auto* reg = m_AttachedRegistry;
         reg->on_construct<Component::Collider>().disconnect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_construct<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentConstructed>(this);
+        reg->on_update<Component::Collider>().disconnect<&PhysicsSystem::OnComponentUpdated>(this);
+        reg->on_update<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_destroy<Component::Collider>().disconnect<&PhysicsSystem::OnComponentDestroyed>(this);
         reg->on_destroy<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentDestroyed>(this);
         m_AttachedRegistry = nullptr;
     }
 
-    void PhysicsSystem::OnComponentConstructed(entt::registry& reg, entt::entity entity)
+    void PhysicsSystem::OnComponentConstructed(entt::registry& /*reg*/, entt::entity entity)
     {
-        // Either component arriving may complete a (Collider + RigidBody) pair. TryCreateBody is
-        // idempotent — it bails if a body already exists or either component is still missing.
-        TryCreateBody(reg, entity);
+        // Defer the build to Update start. Inline TryCreateBody here would race with the Inspector's
+        // "Add Component → user edits fields" pattern: on_construct fires synchronously inside
+        // AddComponent before the user can write any field, so the body would be built with default
+        // values and the later edits would no-op against an already-built body. Queueing means the
+        // build picks up whatever the component looks like at next Update — and on_update edits
+        // also queue, so a body always reflects the latest fields after one frame.
+        QueueBuild(entity);
+    }
+
+    void PhysicsSystem::OnComponentUpdated(entt::registry& /*reg*/, entt::entity entity)
+    {
+        // patch<>() on either Collider or RigidBody routes here. Queue a rebuild — DrainPendingBuilds
+        // tears down the existing body before reissuing TryCreateBody so shape, mass, layer, motion
+        // type, and motion quality are all picked up from the latest component state.
+        QueueBuild(entity);
     }
 
     void PhysicsSystem::OnComponentDestroyed(entt::registry& reg, entt::entity entity)
@@ -326,6 +347,41 @@ namespace Luth
             }
         }
         m_PendingDestroy.clear();
+    }
+
+    void PhysicsSystem::QueueBuild(entt::entity entity)
+    {
+        // Cheap append. Dedup runs once at drain time — sort+unique scales better than per-insert
+        // std::find when many entities are queued in one frame (e.g. scene load).
+        m_PendingBuild.push_back(entity);
+    }
+
+    void PhysicsSystem::DrainPendingBuilds(entt::registry& reg)
+    {
+        if (m_PendingBuild.empty()) return;
+
+        std::sort(m_PendingBuild.begin(), m_PendingBuild.end());
+        m_PendingBuild.erase(std::unique(m_PendingBuild.begin(), m_PendingBuild.end()),
+                             m_PendingBuild.end());
+
+        auto& bi = m_System.GetBodyInterface();
+        for (auto entity : m_PendingBuild)
+        {
+            // Tear down the existing body before rebuild. Safe to do synchronously here — drain runs
+            // at Update start, before any Step, so no in-flight simulation depends on the body.
+            if (auto it = m_BodyMap.find(entity); it != m_BodyMap.end())
+            {
+                bi.RemoveBody(it->second);
+                bi.DestroyBody(it->second);
+                m_BodyMap.erase(it);
+            }
+
+            // TryCreateBody re-emplaces PhysicsBodyRuntime with the new bodyId on success and bails
+            // quietly if either component or Transform is missing (entity may have lost a component
+            // between the queue push and now).
+            TryCreateBody(reg, entity);
+        }
+        m_PendingBuild.clear();
     }
 
     // ── Transform <-> Body sync ──

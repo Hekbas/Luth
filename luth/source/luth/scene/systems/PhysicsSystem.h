@@ -45,15 +45,23 @@ namespace Luth
         void EnsureSignalsConnected(Scene* scene);
         void DetachSignals();
 
-        // EnTT signal targets. on_construct on either Collider or RigidBody routes here; the body is
-        // built only when both components plus a WorldTransform are present and no body exists yet.
-        // on_destroy routes to DestroyBodyForEntity; either component leaving invalidates the pair.
+        // EnTT signal targets. on_construct + on_update on either Collider or RigidBody route to
+        // OnComponentConstructed / OnComponentUpdated, both of which queue the entity for a deferred
+        // body (re)build drained at the start of the next Update — that way Inspector add-then-edit
+        // and shape changes during Play both produce a body that matches the latest fields. on_destroy
+        // routes to DestroyBodyForEntity; either component leaving invalidates the pair.
         void OnComponentConstructed(entt::registry& reg, entt::entity entity);
+        void OnComponentUpdated(entt::registry& reg, entt::entity entity);
         void OnComponentDestroyed(entt::registry& reg, entt::entity entity);
 
         bool TryCreateBody(entt::registry& reg, entt::entity entity);
         void DestroyBodyForEntity(entt::registry& reg, entt::entity entity);
         void DrainPendingDestroys();
+
+        // Dedup-push to m_PendingBuild. Inline scan keeps cost negligible for the small queue sizes
+        // expected (one entry per edited entity per frame).
+        void QueueBuild(entt::entity entity);
+        void DrainPendingBuilds(entt::registry& reg);
 
         void SyncTransformsToBodies(Scene* scene);
         void SyncBodiesToTransforms(Scene* scene);
@@ -77,6 +85,7 @@ namespace Luth
 
         std::unordered_map<entt::entity, JPH::BodyID> m_BodyMap;
         std::vector<PendingDestroy>                   m_PendingDestroy;
+        std::vector<entt::entity>                     m_PendingBuild;
         entt::registry*                               m_AttachedRegistry = nullptr;
 
 #ifdef JPH_DEBUG_RENDERER
