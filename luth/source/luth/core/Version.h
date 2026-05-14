@@ -6,8 +6,8 @@ namespace Luth
 {
     // ---- Single source of truth: edit ONLY these three values ----
     inline constexpr uint32_t VERSION_MAJOR = 2;
-    inline constexpr uint32_t VERSION_MINOR = 9;
-    inline constexpr uint32_t VERSION_PATCH = 15;
+    inline constexpr uint32_t VERSION_MINOR = 10;
+    inline constexpr uint32_t VERSION_PATCH = 0;
 
     // Optional: pre-release suffix (empty string for releases)
     inline constexpr const char* VERSION_SUFFIX = "";  // e.g., "-dev", "-rc1"
