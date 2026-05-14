@@ -16,3 +16,6 @@
 [submodule "luth/extern/source/spirv-cross"]
 	path = luth/extern/source/spirv-cross
 	url = https://github.com/KhronosGroup/SPIRV-Cross.git
+[submodule "luth/extern/source/jolt"]
+	path = luth/extern/source/jolt
+	url = https://github.com/jrouwe/JoltPhysics.git

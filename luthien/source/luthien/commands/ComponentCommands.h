@@ -153,4 +153,40 @@ namespace Luth
         T m_SavedValue{};
         T m_NewValue{};
     };
+
+    // Two-snapshot replace. Caller supplies both pre- and post-edit values explicitly. Useful when
+    // ComponentPropertyCommand can't be used (e.g. union members with no stable pointer-to-member)
+    // and ComponentReplaceCommand can't either (caller has already mutated the live component, so
+    // the "save current at Execute time" pattern would capture the new value).
+    template<typename T>
+    class ComponentSnapshotCommand : public ICommand
+    {
+    public:
+        ComponentSnapshotCommand(const char* name, Scene* scene, entt::entity entity,
+                                 T oldValue, T newValue)
+            : m_Name(name), m_Scene(scene),
+              m_Old(std::move(oldValue)), m_New(std::move(newValue))
+        {
+            Entity e{ entity, scene };
+            m_EntityUUID = e.GetComponent<Component::ID>().Value;
+        }
+
+        void Execute() override { Apply(m_New); }
+        void Undo()    override { Apply(m_Old); }
+        void Redo()    override { Apply(m_New); }
+        const char* GetName() const override { return m_Name; }
+
+    private:
+        void Apply(const T& v) {
+            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
+            if (!e.IsValid() || !e.HasComponent<T>()) return;
+            e.GetComponent<T>() = v;
+        }
+
+        const char* m_Name;
+        Scene* m_Scene;
+        UUID m_EntityUUID;
+        T m_Old{};
+        T m_New{};
+    };
 }

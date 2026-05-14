@@ -19,6 +19,7 @@
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
+#include "luth/renderer/subsystems/DebugDrawSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -55,6 +56,7 @@ namespace Luth
         u32           viewIndex            = 0;
         bool          drawGrid             = true;
         bool          drawSelectionOutline = true;
+        bool          drawDebugShapes      = false;  // off by default; scene view enables explicitly
         bool          emitImGuiPass        = true;
         // Set by the view's owner when the user has requested a Frame Debugger
         // capture and selected this view (Scene or Game) as the source. Drives
@@ -281,6 +283,7 @@ namespace Luth
         GTAOSubsystem           m_GTAO;
         PostProcessSubsystem    m_PostProcess;
         EditorOverlaysSubsystem m_EditorOverlays;
+        DebugDrawSubsystem      m_DebugDraw;
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }

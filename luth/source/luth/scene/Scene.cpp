@@ -16,6 +16,10 @@ namespace Luth
 
     Scene::~Scene()
     {
+        // Iterate-destroy first so EnTT destroy signals fire and any system listening on component
+        // lifecycle (PhysicsSystem, future Audio sources, etc.) can release backing resources before
+        // the registry tears down. The trailing m_Registry.clear() then resets sparse-set buckets.
+        ClearPreservingAssets();
         m_Registry.clear();
         LH_CORE_INFO("Destroyed scene");
     }
@@ -106,6 +110,10 @@ namespace Luth
         original.CopyComponentIfExists<Animation>(duplicate);
         original.CopyComponentIfExists<DirectionalLight>(duplicate);
         original.CopyComponentIfExists<PointLight>(duplicate);
+        original.CopyComponentIfExists<Collider>(duplicate);
+        original.CopyComponentIfExists<RigidBody>(duplicate);
+        // PhysicsBodyRuntime is intentionally not copied — PhysicsSystem's on_construct signal will
+        // create a fresh body for the duplicate when its (Collider + RigidBody) pair completes.
 
         // Resolve final parent. Recursive-children case (skipParentAddition)
         // hands off to the caller, which assigns Parent on the next line.

@@ -125,7 +125,8 @@ namespace Luth::Memory
         info.size  = size;
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-                   | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                   | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VkBuffer buf  = VK_NULL_HANDLE;
@@ -296,7 +297,8 @@ namespace Luth::Memory
         info.size  = BACKING_SIZE;
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-                   | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                   | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         BackingBuffer bb;

@@ -271,6 +271,19 @@ namespace Luth::JobSystem
         }
     }
 
+    // ── Public counter primitives (declared in AtomicCounter.h) ──
+
+    void AtomicCounter::Increment(u32 n)
+    {
+        Value.fetch_add(n << 1);
+    }
+
+    void AtomicCounter::Decrement(u32 n)
+    {
+        for (u32 i = 0; i < n; ++i)
+            DecrementCounter(this);
+    }
+
     // ── Fiber Entry Point ──
 
     static void WINAPI FiberEntryPoint(void* args)
@@ -763,7 +776,9 @@ namespace Luth::JobSystem
             LH_PROFILE_FIBER_LEAVE;
             Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
             LH_PROFILE_FIBER_ENTER(GetMyTracyName());
-            return;
+
+            // invariant: DecrementCounter wakes us BEFORE its final fetch_sub(1) clears the busy bit; returning would UAF
+            // caller's stack-local counter. Loop back; the busy-bit spin path blocks until fetch_sub(1) completes.
         }
     }
 

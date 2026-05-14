@@ -9,12 +9,14 @@
 #include "luth/core/RenderSnapshot.h"
 #include "luth/core/Version.h"
 #include "luth/core/EditorHooks.h"
+#include "luth/core/DebugDraw.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/Image.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/scene/systems/TransformSystem.h"
+#include "luth/scene/systems/PhysicsSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/jobs/JobSystem.h"
@@ -28,6 +30,10 @@
 #include "luth/memory/TaggedPageAllocator.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/core/time/Timer.h"
+
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/RegisterTypes.h>
 
 namespace Luth
 {
@@ -62,8 +68,17 @@ namespace Luth
         Memory::MemoryTracker::Init();
         Memory::TaggedPageAllocator::Get().Init();
         JobSystem::Init();
+
+        // Jolt global state must come up before SystemRegistry::Init constructs PhysicsSystem (which
+        // builds a JPH::PhysicsSystem in its ctor). Factory + RegisterTypes register Jolt's serializable
+        // types and collision dispatch tables — required before any body creation.
+        JPH::RegisterDefaultAllocator();
+        JPH::Factory::sInstance = new JPH::Factory();
+        JPH::RegisterTypes();
+
         IOThread::Init();
         m_FrameData.Init();
+        DebugDraw::Init();
         Image::Init();   // sets stb's global flip flag to 0; no other site touches it
 
         // 2. Engine root + engine assets
@@ -287,6 +302,11 @@ namespace Luth
             // wait so it overlaps with Game(N) on separate worker fibers.
             const bool isSteady = (frameIndex >= 2);
 
+            // Cycle DebugDraw's producer slot before the Game stage spawns. Slot = frameIndex mod 2;
+            // Render(N-1) reads the previous slot, which was filled by Game(N-1) and is stable until
+            // BeginGameFrame is called for that index again two frames out.
+            DebugDraw::BeginGameFrame(frameIndex);
+
             JobSystem::Execute(GameStageFn, this, &currentFrame.GameReady, "GameStage");
 
             FrameContext* renderFrame = nullptr;
@@ -342,6 +362,7 @@ namespace Luth
         auto* app = static_cast<App*>(args.data);
 
         SystemRegistry::Update<TransformSystem>();
+        SystemRegistry::Update<PhysicsSystem>();
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();
 
@@ -377,6 +398,12 @@ namespace Luth
         if (auto* h = EditorHooks::Get()) h->Shutdown();
         SystemRegistry::Shutdown();
 
+        // Jolt global teardown — must come after SystemRegistry::Shutdown so PhysicsSystem's destructor
+        // (which holds a JPH::PhysicsSystem) finishes while Jolt globals are still alive.
+        JPH::UnregisterTypes();
+        delete JPH::Factory::sInstance;
+        JPH::Factory::sInstance = nullptr;
+
         AssetManager::Shutdown();
         AssetDatabase::Shutdown();
         ShaderLibrary::Shutdown();
@@ -390,6 +417,7 @@ namespace Luth
             m_Window->Shutdown();
         }
 
+        DebugDraw::Shutdown();
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();

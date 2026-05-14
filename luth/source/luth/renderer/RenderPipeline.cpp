@@ -57,6 +57,7 @@ namespace Luth
 
         BoneMatrixBuffer::Init();
         m_EditorOverlays.Init(*this);
+        m_DebugDraw.Init(*this);
         m_PostProcess.Init(*this);
 
         // Lighting owns Set 3 + shadow map + IBL + skybox VB/SPVs. Engine ships no HDR;
@@ -82,6 +83,7 @@ namespace Luth
         m_Lighting.BuildPipelines(geoLayouts);
         m_Geometry.BuildPipelines(geoLayouts);
         m_EditorOverlays.BuildPipelines(geoLayouts);
+        m_DebugDraw.BuildPipelines();
 
         m_GTAO.Init(*this);
 
@@ -120,7 +122,8 @@ namespace Luth
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
             const bool overlaysHandled = m_EditorOverlays.OnShaderReloaded(name, spv, geoLayouts);
-            if (handled || ppHandled || overlaysHandled)
+            const bool debugHandled    = m_DebugDraw.OnShaderReloaded(name, spv);
+            if (handled || ppHandled || overlaysHandled || debugHandled)
             {
                 if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
                 else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
@@ -167,6 +170,7 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
         m_PostProcess.Shutdown();
         m_GTAO.Shutdown();
@@ -265,6 +269,8 @@ namespace Luth
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
+        if (view.drawDebugShapes)
+            finalOutput = m_DebugDraw.AddDebugDrawPass(rg, finalOutput);
         if (view.emitImGuiPass)
             AddImGuiPass(rg, finalOutput);
 

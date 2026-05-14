@@ -1,6 +1,7 @@
 #include "luthpch.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/TransformSystem.h"
+#include "luth/scene/systems/PhysicsSystem.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/scene/systems/CameraSystem.h"
 #include "luth/scene/systems/LightingSystem.h"
@@ -16,6 +17,7 @@ namespace Luth
     void SystemRegistry::Init() {
         LH_CORE_INFO("Initializing Systems...");
         AddSystem<TransformSystem>();
+        AddSystem<PhysicsSystem>();
         AddSystem<AnimationSystem>();
         AddSystem<CameraSystem>();
         AddSystem<LightingSystem>();
