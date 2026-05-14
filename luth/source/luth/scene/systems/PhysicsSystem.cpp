@@ -404,6 +404,29 @@ namespace Luth
         // Dynamic bodies write their post-step pose back to Transform / WorldTransform. Marking the
         // Transform dirty queues TransformSystem to rebuild LocalMatrix next frame.
         SyncBodiesToTransforms(scene);
+
+        // Phase-D smoke: drain physics events post-Step and log each. Gameplay will own this drain
+        // when a script layer lands; until then this lets trigger_test.luth verify Enter+Exit
+        // end-to-end and surfaces ContactAdded/Removed on drop_test.luth. Buffer sized 64: well
+        // above per-frame counts on Tier-0 scenes; overflow drops are still tracked + warned
+        // inside DrainEvents itself.
+        {
+            Physics::PhysicsEvent evBuf[64];
+            const u32 evCount = DrainEvents(std::span<Physics::PhysicsEvent>(evBuf, 64));
+            for (u32 i = 0; i < evCount; ++i)
+            {
+                const char* kind = "?";
+                switch (evBuf[i].type)
+                {
+                    case Physics::PhysicsEventType::ContactAdded:   kind = "ContactAdded";   break;
+                    case Physics::PhysicsEventType::ContactRemoved: kind = "ContactRemoved"; break;
+                    case Physics::PhysicsEventType::TriggerEnter:   kind = "TriggerEnter";   break;
+                    case Physics::PhysicsEventType::TriggerExit:    kind = "TriggerExit";    break;
+                }
+                LH_CORE_INFO("[Physics] {} entities=({}, {})",
+                             kind, (u32)evBuf[i].entityA, (u32)evBuf[i].entityB);
+            }
+        }
     }
 
     void PhysicsSystem::Step(f32 dt, int collisionSteps)
