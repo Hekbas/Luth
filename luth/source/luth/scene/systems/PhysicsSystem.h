@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace JPH { class Shape; }
+
 namespace Luth
 {
     class Scene;
@@ -45,7 +47,25 @@ namespace Luth
         bool Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
                      u32 layerMask, Physics::RaycastHit& outHit) const;
 
+        // Find every body whose shape overlaps the given primitive. Hits are written into outHits
+        // up to its size; the return value is the actual count (so callers can detect "clamped"
+        // by comparing return == span.size()). Order is broadphase-walk order, not sorted by
+        // distance. rot for Sphere is meaningless (still in the signature for symmetry — pass
+        // identity).
+        u32 OverlapBox    (const Vec3& center, const Vec3& halfExtents, const Quat& rot,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+        u32 OverlapSphere (const Vec3& center, f32 radius,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+        u32 OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight, const Quat& rot,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+
     private:
+        // Shared core for the three overlap overloads. Caller hands over an already-built JPH
+        // shape (Ref so it lives until the call returns) plus the world COM transform; we wire
+        // up the layer-mask filters, run CollideShape, and write hits into outHits clamped.
+        u32 OverlapShape(const JPH::Shape* shape, const Vec3& center, const Quat& rot,
+                         u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+
         struct PendingDestroy
         {
             entt::entity entity;

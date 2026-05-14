@@ -23,8 +23,13 @@
 #include <Jolt/Physics/Body/MotionQuality.h>
 #include <Jolt/Physics/Body/MotionType.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/EActivation.h>
 
 #include <algorithm>
@@ -869,5 +874,101 @@ namespace Luth
         outHit.fraction    = hit.mFraction;
         outHit.distance    = hit.mFraction * maxDist;
         return true;
+    }
+
+    namespace
+    {
+        // CollideShape collector that funnels hits into a caller-provided span and clamps when full.
+        // ForceEarlyOut terminates the broadphase walk; further AddHit calls would be unbounded work
+        // we'd just throw away. Body lookup uses the no-lock body interface — query is single-threaded
+        // and outside Step, so the broadphase isn't mutating concurrently.
+        class SpanOverlapCollector final : public JPH::CollideShapeCollector
+        {
+        public:
+            SpanOverlapCollector(std::span<Physics::OverlapHit> out, const JPH::BodyLockInterface& bli)
+                : m_Out(out), m_Bli(bli) {}
+
+            void AddHit(const JPH::CollideShapeResult& result) override
+            {
+                if (m_Count >= m_Out.size())
+                {
+                    ForceEarlyOut();
+                    return;
+                }
+
+                entt::entity entity = entt::null;
+                JPH::BodyLockRead lock(m_Bli, result.mBodyID2);
+                if (lock.SucceededAndIsInBroadPhase())
+                    entity = static_cast<entt::entity>(lock.GetBody().GetUserData());
+
+                m_Out[m_Count++] = { entity, result.mBodyID2 };
+                if (m_Count >= m_Out.size())
+                    ForceEarlyOut();
+            }
+
+            u32 Count() const { return m_Count; }
+
+        private:
+            std::span<Physics::OverlapHit> m_Out;
+            const JPH::BodyLockInterface&  m_Bli;
+            u32                             m_Count = 0;
+        };
+    }
+
+    u32 PhysicsSystem::OverlapShape(const JPH::Shape* shape, const Vec3& center, const Quat& rot,
+                                    u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        LH_PROFILE_FUNCTION();
+        LH_CORE_ASSERT(!m_StepInFlight.load(std::memory_order_acquire),
+                       "PhysicsSystem::Overlap* called during Step");
+        if (!shape || outHits.empty()) return 0;
+
+        // baseOffset == center: returns hit points relative to center for better float precision
+        // when the query lives far from the world origin. Doesn't affect entity/BodyID resolution.
+        const JPH::Vec3   joltCenter = Physics::ToJolt(center);
+        const JPH::Quat   joltRot    = Physics::ToJolt(rot);
+        const JPH::RMat44 com        = JPH::RMat44::sRotationTranslation(joltRot, joltCenter);
+
+        JPH::CollideShapeSettings settings;
+        Physics::LayerMaskBroadPhaseFilter bpFilter(layerMask);
+        Physics::LayerMaskObjectFilter     objFilter(layerMask);
+
+        SpanOverlapCollector collector(outHits, m_System.GetBodyLockInterface());
+        m_System.GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sOne(), com, settings,
+                                                    joltCenter, collector, bpFilter, objFilter);
+        return collector.Count();
+    }
+
+    u32 PhysicsSystem::OverlapBox(const Vec3& center, const Vec3& halfExtents, const Quat& rot,
+                                  u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        if (halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f) return 0;
+        JPH::BoxShapeSettings settings(Physics::ToJolt(halfExtents));
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
+    }
+
+    u32 PhysicsSystem::OverlapSphere(const Vec3& center, f32 radius,
+                                     u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        if (radius <= 0.0f) return 0;
+        JPH::SphereShapeSettings settings(radius);
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        // Sphere rotation has no geometric effect; pass identity through OverlapShape.
+        return OverlapShape(result.Get().GetPtr(), center, Quat(1.0f, 0.0f, 0.0f, 0.0f),
+                            layerMask, outHits);
+    }
+
+    u32 PhysicsSystem::OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight,
+                                      const Quat& rot, u32 layerMask,
+                                      std::span<Physics::OverlapHit> outHits) const
+    {
+        if (radius <= 0.0f || halfHeight <= 0.0f) return 0;
+        JPH::CapsuleShapeSettings settings(halfHeight, radius);
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
     }
 }
