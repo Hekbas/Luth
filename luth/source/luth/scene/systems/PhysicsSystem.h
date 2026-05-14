@@ -1,7 +1,9 @@
 #pragma once
 
 #include "luth/scene/systems/ISystem.h"
+#include "luth/physics/PhysicsEvents.h"
 #include "luth/physics/PhysicsLayers.h"
+#include "luth/physics/PhysicsListeners.h"
 #include "luth/physics/PhysicsQuery.h"
 #include "luth/physics/LuthJobSystemForJolt.h"
 #include "luth/physics/PhysicsDebugRenderer.h"
@@ -58,6 +60,11 @@ namespace Luth
                            u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
         u32 OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight, const Quat& rot,
                            u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+
+        // Drain physics events generated during the most recent Step into the caller's span.
+        // Returns the count written (clamped to outEvents.size()). Pumping events without a buffer
+        // (outEvents.empty()) is a no-op. Call once per frame after PhysicsSystem::Update returns.
+        u32 DrainEvents(std::span<Physics::PhysicsEvent> outEvents);
 
     private:
         // Shared core for the three overlap overloads. Caller hands over an already-built JPH
@@ -121,6 +128,20 @@ namespace Luth
         std::vector<PendingDestroy>                   m_PendingDestroy;
         std::vector<entt::entity>                     m_PendingBuild;
         entt::registry*                               m_AttachedRegistry = nullptr;
+
+        // Body-index reverse table for OnContactRemoved (where Jolt forbids body access). Sized
+        // kMaxBodies at ctor; entries set at TryCreateBody alongside SetUserData, cleared at body
+        // destroy. Slot reuse is safe across frames — BodyID's sequence number (8-bit) makes the
+        // packed cache key unique per allocation. The Listener reads this lock-free; main-thread
+        // writes are paired with body lifecycle events that don't race against contact callbacks.
+        std::vector<entt::entity>            m_EntityByBodyIndex;
+
+        // Event queue + listener. Listener writes from worker fibers under SpinLock for the trigger
+        // cache; gameplay drains via DrainEvents on the main fiber. Order in declaration matters:
+        // m_Queue and m_EntityByBodyIndex must outlive m_ContactListener so its constructor refs
+        // are valid through teardown.
+        Physics::LuthContactListener::EventQueue m_Queue;
+        Physics::LuthContactListener             m_ContactListener;
 
 #ifdef JPH_DEBUG_RENDERER
         Physics::PhysicsDebugRenderer                 m_DebugRenderer;

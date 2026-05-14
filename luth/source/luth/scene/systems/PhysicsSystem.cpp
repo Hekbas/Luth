@@ -309,15 +309,26 @@ namespace Luth
     PhysicsSystem::PhysicsSystem()
         : m_TempAlloc(kTempAllocatorBytes)
         , m_JobAdapter(kAdapterMaxJobs, kAdapterMaxBarriers)
+        // entt::null is a templated null_t with a conversion operator to any entity-like type —
+        // passed bare into vector's (size_type, const T&) it ambiguates with (size_type, Allocator&).
+        // Materialise as entt::entity to pin the overload.
+        , m_EntityByBodyIndex(kMaxBodies, entt::entity{entt::null})
+        , m_ContactListener(m_Queue, std::span<entt::entity>(m_EntityByBodyIndex))
     {
         m_System.Init(kMaxBodies, kNumBodyMutexes, kMaxBodyPairs, kMaxContactConstraints,
                       m_BPLayers, m_OvBpFilter, m_LayerPairFilter);
+        m_System.SetContactListener(&m_ContactListener);
+
         LH_CORE_INFO("PhysicsSystem initialized: {} max bodies, {} pairs, {} contacts",
                      kMaxBodies, kMaxBodyPairs, kMaxContactConstraints);
     }
 
     PhysicsSystem::~PhysicsSystem()
     {
+        // Unhook the listener before draining bodies — any in-flight callback would access a
+        // member that's about to be destroyed. The job system is already drained by the time we
+        // get here (App teardown order), but the belt-and-suspenders unhook is cheap.
+        m_System.SetContactListener(nullptr);
         DetachSignals();
 
         // Destroy any remaining bodies before m_System tears down. Skipping this leaks the body
@@ -682,8 +693,16 @@ namespace Luth
             return false;
         }
 
-        // Pack entity into user data for reverse lookup from contact callbacks (when those land).
+        // Pack entity into user data for reverse lookup from contact callbacks. OnContactAdded /
+        // OnContactPersisted read it via Body::GetUserData; OnContactRemoved can't access bodies
+        // (ContactListener.h:127), so we also fill m_EntityByBodyIndex below for that path.
         bi.SetUserData(id, static_cast<JPH::uint64>(entity));
+
+        // Side table for OnContactRemoved. Index is BodyID's 23-bit slot index — bounded by
+        // kMaxBodies, so an array indexed by GetIndex() is O(1) and bounded ~64 KB.
+        const u32 bodyIdx = id.GetIndex();
+        if (bodyIdx < m_EntityByBodyIndex.size())
+            m_EntityByBodyIndex[bodyIdx] = entity;
 
         m_BodyMap[entity] = id;
         auto& runtime = reg.get_or_emplace<Component::PhysicsBodyRuntime>(entity);
@@ -712,6 +731,12 @@ namespace Luth
         {
             bi.RemoveBody(pd.bodyId);
             bi.DestroyBody(pd.bodyId);
+
+            // Clear the side-table slot. A subsequent body creation may land on the same index
+            // with a new sequence number; the entry just gets re-populated at TryCreateBody.
+            const u32 bodyIdx = pd.bodyId.GetIndex();
+            if (bodyIdx < m_EntityByBodyIndex.size())
+                m_EntityByBodyIndex[bodyIdx] = entt::null;
 
             if (m_AttachedRegistry && m_AttachedRegistry->valid(pd.entity)
                 && m_AttachedRegistry->any_of<Component::PhysicsBodyRuntime>(pd.entity))
@@ -970,5 +995,27 @@ namespace Luth
         auto result = settings.Create();
         if (!result.IsValid()) return 0;
         return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
+    }
+
+    // ── Event drain ──
+
+    u32 PhysicsSystem::DrainEvents(std::span<Physics::PhysicsEvent> outEvents)
+    {
+        LH_PROFILE_FUNCTION();
+        if (outEvents.empty()) return 0;
+
+        u32 written = 0;
+        Physics::PhysicsEvent ev;
+        while (written < outEvents.size() && m_Queue.TryPop(ev))
+            outEvents[written++] = ev;
+
+        // Overflow warning is once-per-frame: the queue rejected N events because gameplay didn't
+        // drain fast enough or the scene's contact rate exceeded MPMCQueue capacity. Bumping 4096
+        // is cheap; reaching it consistently means gameplay needs a per-frame DrainEvents call
+        // sized to the scene.
+        if (const u32 lost = m_ContactListener.ConsumeOverflowCount(); lost > 0)
+            LH_CORE_WARN("PhysicsSystem: dropped {} contact event(s) - queue saturated", lost);
+
+        return written;
     }
 }
