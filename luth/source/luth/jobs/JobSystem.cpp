@@ -776,7 +776,9 @@ namespace Luth::JobSystem
             LH_PROFILE_FIBER_LEAVE;
             Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
             LH_PROFILE_FIBER_ENTER(GetMyTracyName());
-            return;
+
+            // invariant: DecrementCounter wakes us BEFORE its final fetch_sub(1) clears the busy bit; returning would UAF
+            // caller's stack-local counter. Loop back; the busy-bit spin path blocks until fetch_sub(1) completes.
         }
     }
 

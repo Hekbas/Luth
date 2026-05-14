@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <span>
 #include <unordered_set>
 
@@ -361,10 +362,7 @@ namespace Luth
         // an unbounded catch-up loop that makes a stall worse.
         const f32 maxAccum = kMaxSubSteps * kFixedDt;
         if (m_Accumulator > maxAccum)
-        {
-            LH_CORE_WARN("PhysicsSystem: accumulator overflow ({} ms), clamping", m_Accumulator * 1000.0f);
             m_Accumulator = maxAccum;
-        }
 
         const int substeps = static_cast<int>(m_Accumulator / kFixedDt);
         if (substeps <= 0)
