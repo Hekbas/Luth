@@ -1,0 +1,261 @@
+{
+    "entities": [
+        {
+            "active": true,
+            "directionalLight": {
+                "cascadeBlendWidth": 0.20000000298023224,
+                "castShadows": true,
+                "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "debugVisualizeCascades": false,
+                "intensity": 1.0,
+                "shadowBias": [
+                    0.004999999888241291,
+                    0.00800000037997961,
+                    0.012000000104308128,
+                    0.019999999552965164
+                ],
+                "shadowDistance": 200.0,
+                "shadowNormalBias": [
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shadowOrthoSize": 200.0,
+                "splitLambda": 0.5,
+                "stabilizeCascades": true
+            },
+            "parent": "",
+            "tag": "Directional Light",
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    -45.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "uuid": "0d48eaa5-4c4b-4042-ace4-deac9a0758d4"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        100.0,
+                        1.0,
+                        100.0
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 0.0,
+                "materialUUID": "07f65ac0-ef16-46e1-ab13-be244981173d",
+                "motion": "Static",
+                "motionQuality": "Discrete",
+                "startActive": true
+            },
+            "tag": "Plane",
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "uuid": "a8aba211-0cf5-4bed-af38-cdc810114e77"
+        },
+        {
+            "active": true,
+            "collider": {
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "sphere": {
+                    "radius": 1.0
+                },
+                "type": "Sphere"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "307481d1-7fd0-4b64-a9db-ebf1bb39b4f1",
+                "meshIndex": 0,
+                "modelUUID": "4c5ad301-7125-475e-954d-80c64c38a552"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": false,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 5.0,
+                "materialUUID": "00dee202-6059-491a-b6ae-78f857b3707a",
+                "motion": "Dynamic",
+                "motionQuality": "Discrete",
+                "startActive": true
+            },
+            "tag": "Sphere",
+            "transform": {
+                "position": [
+                    0.0,
+                    20.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009999999776482582,
+                    0.009999999776482582,
+                    0.009999999776482582
+                ]
+            },
+            "uuid": "dd34a877-e400-46fb-affe-81c66b9854fb"
+        },
+        {
+            "active": true,
+            "collider": {
+                "box": {
+                    "halfExtents": [
+                        1.0,
+                        0.5,
+                        1.0
+                    ]
+                },
+                "localOffset": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "localRotation": [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "type": "Box"
+            },
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "b6587418-9ae9-4f0b-9b64-cefa4e84e92c",
+                "meshIndex": 0,
+                "modelUUID": "fd7f6b5d-9d15-4112-9a9f-b682bf62ca40"
+            },
+            "parent": "",
+            "rigidBody": {
+                "angularDamping": 0.05000000074505806,
+                "angularVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "gravityFactor": 1.0,
+                "isSensor": true,
+                "layer": 1,
+                "linearDamping": 0.05000000074505806,
+                "linearVelocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 0.0,
+                "materialUUID": "e8c86716-66e6-4500-a5f0-50bdb988965c",
+                "motion": "Static",
+                "motionQuality": "Discrete",
+                "startActive": true
+            },
+            "tag": "Cube",
+            "transform": {
+                "position": [
+                    0.0,
+                    9.451360702514648,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.05000000074505806,
+                    0.029999999329447746,
+                    0.05000000074505806
+                ]
+            },
+            "uuid": "3335a28a-6daa-45cf-b8c6-6bfa939fe360"
+        }
+    ],
+    "version": 1
+}

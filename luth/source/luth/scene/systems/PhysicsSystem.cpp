@@ -7,6 +7,7 @@
 #include "luth/scene/components/Transform.h"
 #include "luth/scene/components/Physics.h"
 #include "luth/physics/JoltMath.h"
+#include "luth/physics/LayerMaskFilter.h"
 #include "luth/physics/ShapeBuilder.h"
 #include "luth/core/DebugDraw.h"
 #include "luth/core/EditorHooks.h"
@@ -16,9 +17,19 @@
 
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockInterface.h>
 #include <Jolt/Physics/Body/BodyManager.h>
 #include <Jolt/Physics/Body/MotionQuality.h>
 #include <Jolt/Physics/Body/MotionType.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/EActivation.h>
 
 #include <algorithm>
@@ -298,15 +309,26 @@ namespace Luth
     PhysicsSystem::PhysicsSystem()
         : m_TempAlloc(kTempAllocatorBytes)
         , m_JobAdapter(kAdapterMaxJobs, kAdapterMaxBarriers)
+        // entt::null is a templated null_t with a conversion operator to any entity-like type —
+        // passed bare into vector's (size_type, const T&) it ambiguates with (size_type, Allocator&).
+        // Materialise as entt::entity to pin the overload.
+        , m_EntityByBodyIndex(kMaxBodies, entt::entity{entt::null})
+        , m_ContactListener(m_Queue, std::span<entt::entity>(m_EntityByBodyIndex))
     {
         m_System.Init(kMaxBodies, kNumBodyMutexes, kMaxBodyPairs, kMaxContactConstraints,
                       m_BPLayers, m_OvBpFilter, m_LayerPairFilter);
+        m_System.SetContactListener(&m_ContactListener);
+
         LH_CORE_INFO("PhysicsSystem initialized: {} max bodies, {} pairs, {} contacts",
                      kMaxBodies, kMaxBodyPairs, kMaxContactConstraints);
     }
 
     PhysicsSystem::~PhysicsSystem()
     {
+        // Unhook the listener before draining bodies — any in-flight callback would access a
+        // member that's about to be destroyed. The job system is already drained by the time we
+        // get here (App teardown order), but the belt-and-suspenders unhook is cheap.
+        m_System.SetContactListener(nullptr);
         DetachSignals();
 
         // Destroy any remaining bodies before m_System tears down. Skipping this leaks the body
@@ -387,7 +409,13 @@ namespace Luth
     void PhysicsSystem::Step(f32 dt, int collisionSteps)
     {
         LH_PROFILE_FUNCTION();
+
+        // Query re-entry guard. Set across the entire Jolt update — including the listener-callback
+        // window — so any nested Raycast/Overlap from gameplay code reachable through a callback
+        // trips the assert instead of deadlocking on body locks.
+        m_StepInFlight.store(true, std::memory_order_release);
         m_System.Update(dt, collisionSteps, &m_TempAlloc, &m_JobAdapter);
+        m_StepInFlight.store(false, std::memory_order_release);
     }
 
     void PhysicsSystem::DrawDebugBodies(Scene* scene)
@@ -665,8 +693,16 @@ namespace Luth
             return false;
         }
 
-        // Pack entity into user data for reverse lookup from contact callbacks (when those land).
+        // Pack entity into user data for reverse lookup from contact callbacks. OnContactAdded /
+        // OnContactPersisted read it via Body::GetUserData; OnContactRemoved can't access bodies
+        // (ContactListener.h:127), so we also fill m_EntityByBodyIndex below for that path.
         bi.SetUserData(id, static_cast<JPH::uint64>(entity));
+
+        // Side table for OnContactRemoved. Index is BodyID's 23-bit slot index — bounded by
+        // kMaxBodies, so an array indexed by GetIndex() is O(1) and bounded ~64 KB.
+        const u32 bodyIdx = id.GetIndex();
+        if (bodyIdx < m_EntityByBodyIndex.size())
+            m_EntityByBodyIndex[bodyIdx] = entity;
 
         m_BodyMap[entity] = id;
         auto& runtime = reg.get_or_emplace<Component::PhysicsBodyRuntime>(entity);
@@ -695,6 +731,12 @@ namespace Luth
         {
             bi.RemoveBody(pd.bodyId);
             bi.DestroyBody(pd.bodyId);
+
+            // Clear the side-table slot. A subsequent body creation may land on the same index
+            // with a new sequence number; the entry just gets re-populated at TryCreateBody.
+            const u32 bodyIdx = pd.bodyId.GetIndex();
+            if (bodyIdx < m_EntityByBodyIndex.size())
+                m_EntityByBodyIndex[bodyIdx] = entt::null;
 
             if (m_AttachedRegistry && m_AttachedRegistry->valid(pd.entity)
                 && m_AttachedRegistry->any_of<Component::PhysicsBodyRuntime>(pd.entity))
@@ -811,5 +853,169 @@ namespace Luth
             rbMut.linearVelocity  = Physics::FromJolt(lvel);
             rbMut.angularVelocity = Physics::FromJolt(avel);
         }
+    }
+
+    // ── Queries ──
+
+    bool PhysicsSystem::Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
+                                u32 layerMask, Physics::RaycastHit& outHit) const
+    {
+        LH_PROFILE_FUNCTION();
+        LH_CORE_ASSERT(!m_StepInFlight.load(std::memory_order_acquire),
+                       "PhysicsSystem::Raycast called during Step — NarrowPhaseQuery is not safe "
+                       "to call from a contact callback or any code reachable from m_System.Update");
+
+        // Jolt's CastRay takes (origin, direction*length) — anything past mDirection's length is
+        // not reported. Encoding maxDist into the direction keeps the public API split (caller
+        // passes a unit-ish direction + a distance) without forcing them to normalise.
+        const JPH::RRayCast ray(Physics::ToJolt(origin), Physics::ToJolt(dir * maxDist));
+
+        Physics::LayerMaskBroadPhaseFilter bpFilter(layerMask);
+        Physics::LayerMaskObjectFilter     objFilter(layerMask);
+
+        JPH::RayCastResult hit;
+        auto& npq = m_System.GetNarrowPhaseQuery();
+        if (!npq.CastRay(ray, hit, bpFilter, objFilter))
+            return false;
+
+        // Resolve normal + entity. The body lock interface is the read-only path — safe outside
+        // Step. SucceededAndIsInBroadPhase confirms the body still exists between hit detection
+        // and our follow-up read (a body destroyed in between is a non-issue at Tier-0 since
+        // queries are called from gameplay code on the main fiber, not from contact callbacks).
+        const auto& bli = m_System.GetBodyLockInterface();
+        JPH::BodyLockRead lock(bli, hit.mBodyID);
+        if (!lock.SucceededAndIsInBroadPhase())
+            return false;
+
+        const JPH::Body& body = lock.GetBody();
+        const JPH::Vec3  worldPoint = ray.GetPointOnRay(hit.mFraction);
+        const JPH::Vec3  worldNormal = body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, worldPoint);
+        const auto       entity = static_cast<entt::entity>(body.GetUserData());
+
+        outHit.entity      = entity;
+        outHit.bodyId      = hit.mBodyID;
+        outHit.worldPoint  = Physics::FromJolt(worldPoint);
+        outHit.worldNormal = Physics::FromJolt(worldNormal);
+        outHit.fraction    = hit.mFraction;
+        outHit.distance    = hit.mFraction * maxDist;
+        return true;
+    }
+
+    namespace
+    {
+        // CollideShape collector that funnels hits into a caller-provided span and clamps when full.
+        // ForceEarlyOut terminates the broadphase walk; further AddHit calls would be unbounded work
+        // we'd just throw away. Body lookup uses the no-lock body interface — query is single-threaded
+        // and outside Step, so the broadphase isn't mutating concurrently.
+        class SpanOverlapCollector final : public JPH::CollideShapeCollector
+        {
+        public:
+            SpanOverlapCollector(std::span<Physics::OverlapHit> out, const JPH::BodyLockInterface& bli)
+                : m_Out(out), m_Bli(bli) {}
+
+            void AddHit(const JPH::CollideShapeResult& result) override
+            {
+                if (m_Count >= m_Out.size())
+                {
+                    ForceEarlyOut();
+                    return;
+                }
+
+                entt::entity entity = entt::null;
+                JPH::BodyLockRead lock(m_Bli, result.mBodyID2);
+                if (lock.SucceededAndIsInBroadPhase())
+                    entity = static_cast<entt::entity>(lock.GetBody().GetUserData());
+
+                m_Out[m_Count++] = { entity, result.mBodyID2 };
+                if (m_Count >= m_Out.size())
+                    ForceEarlyOut();
+            }
+
+            u32 Count() const { return m_Count; }
+
+        private:
+            std::span<Physics::OverlapHit> m_Out;
+            const JPH::BodyLockInterface&  m_Bli;
+            u32                             m_Count = 0;
+        };
+    }
+
+    u32 PhysicsSystem::OverlapShape(const JPH::Shape* shape, const Vec3& center, const Quat& rot,
+                                    u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        LH_PROFILE_FUNCTION();
+        LH_CORE_ASSERT(!m_StepInFlight.load(std::memory_order_acquire),
+                       "PhysicsSystem::Overlap* called during Step");
+        if (!shape || outHits.empty()) return 0;
+
+        // baseOffset == center: returns hit points relative to center for better float precision
+        // when the query lives far from the world origin. Doesn't affect entity/BodyID resolution.
+        const JPH::Vec3   joltCenter = Physics::ToJolt(center);
+        const JPH::Quat   joltRot    = Physics::ToJolt(rot);
+        const JPH::RMat44 com        = JPH::RMat44::sRotationTranslation(joltRot, joltCenter);
+
+        JPH::CollideShapeSettings settings;
+        Physics::LayerMaskBroadPhaseFilter bpFilter(layerMask);
+        Physics::LayerMaskObjectFilter     objFilter(layerMask);
+
+        SpanOverlapCollector collector(outHits, m_System.GetBodyLockInterface());
+        m_System.GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sOne(), com, settings,
+                                                    joltCenter, collector, bpFilter, objFilter);
+        return collector.Count();
+    }
+
+    u32 PhysicsSystem::OverlapBox(const Vec3& center, const Vec3& halfExtents, const Quat& rot,
+                                  u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        if (halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f) return 0;
+        JPH::BoxShapeSettings settings(Physics::ToJolt(halfExtents));
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
+    }
+
+    u32 PhysicsSystem::OverlapSphere(const Vec3& center, f32 radius,
+                                     u32 layerMask, std::span<Physics::OverlapHit> outHits) const
+    {
+        if (radius <= 0.0f) return 0;
+        JPH::SphereShapeSettings settings(radius);
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        // Sphere rotation has no geometric effect; pass identity through OverlapShape.
+        return OverlapShape(result.Get().GetPtr(), center, Quat(1.0f, 0.0f, 0.0f, 0.0f),
+                            layerMask, outHits);
+    }
+
+    u32 PhysicsSystem::OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight,
+                                      const Quat& rot, u32 layerMask,
+                                      std::span<Physics::OverlapHit> outHits) const
+    {
+        if (radius <= 0.0f || halfHeight <= 0.0f) return 0;
+        JPH::CapsuleShapeSettings settings(halfHeight, radius);
+        auto result = settings.Create();
+        if (!result.IsValid()) return 0;
+        return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
+    }
+
+    // ── Event drain ──
+
+    u32 PhysicsSystem::DrainEvents(std::span<Physics::PhysicsEvent> outEvents)
+    {
+        LH_PROFILE_FUNCTION();
+        if (outEvents.empty()) return 0;
+
+        u32 written = 0;
+        Physics::PhysicsEvent ev;
+        while (written < outEvents.size() && m_Queue.TryPop(ev))
+            outEvents[written++] = ev;
+
+        // Overflow warning is once-per-frame: the queue rejected N events because gameplay didn't
+        // drain fast enough or the scene's contact rate exceeded MPMCQueue capacity. Bumping 4096
+        // is cheap; reaching it consistently means gameplay needs a per-frame DrainEvents call
+        // sized to the scene.
+        if (const u32 lost = m_ContactListener.ConsumeOverflowCount(); lost > 0)
+            LH_CORE_WARN("PhysicsSystem: dropped {} contact event(s) - queue saturated", lost);
+
+        return written;
     }
 }

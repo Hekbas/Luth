@@ -1,7 +1,10 @@
 #pragma once
 
 #include "luth/scene/systems/ISystem.h"
+#include "luth/physics/PhysicsEvents.h"
 #include "luth/physics/PhysicsLayers.h"
+#include "luth/physics/PhysicsListeners.h"
+#include "luth/physics/PhysicsQuery.h"
 #include "luth/physics/LuthJobSystemForJolt.h"
 #include "luth/physics/PhysicsDebugRenderer.h"
 
@@ -12,8 +15,12 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include <entt/entt.hpp>
+#include <atomic>
+#include <span>
 #include <unordered_map>
 #include <vector>
+
+namespace JPH { class Shape; }
 
 namespace Luth
 {
@@ -33,7 +40,39 @@ namespace Luth
 
         void Update(Scene* scene) override;
 
+        // Collision queries. Safe to call between Update()s — NOT during Step() (Jolt's
+        // NarrowPhaseQuery holds body locks while the broadphase mutates). Re-entry asserts.
+        //
+        // layerMask is a bitmask of (1u << Layers::X) values; pass 0 to skip layer filtering.
+        // Raycast returns false on miss with outHit untouched; on hit, fraction is [0, 1] along
+        // the directed segment origin + dir*maxDist, distance is fraction * maxDist.
+        bool Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
+                     u32 layerMask, Physics::RaycastHit& outHit) const;
+
+        // Find every body whose shape overlaps the given primitive. Hits are written into outHits
+        // up to its size; the return value is the actual count (so callers can detect "clamped"
+        // by comparing return == span.size()). Order is broadphase-walk order, not sorted by
+        // distance. rot for Sphere is meaningless (still in the signature for symmetry — pass
+        // identity).
+        u32 OverlapBox    (const Vec3& center, const Vec3& halfExtents, const Quat& rot,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+        u32 OverlapSphere (const Vec3& center, f32 radius,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+        u32 OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight, const Quat& rot,
+                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+
+        // Drain physics events generated during the most recent Step into the caller's span.
+        // Returns the count written (clamped to outEvents.size()). Pumping events without a buffer
+        // (outEvents.empty()) is a no-op. Call once per frame after PhysicsSystem::Update returns.
+        u32 DrainEvents(std::span<Physics::PhysicsEvent> outEvents);
+
     private:
+        // Shared core for the three overlap overloads. Caller hands over an already-built JPH
+        // shape (Ref so it lives until the call returns) plus the world COM transform; we wire
+        // up the layer-mask filters, run CollideShape, and write hits into outHits clamped.
+        u32 OverlapShape(const JPH::Shape* shape, const Vec3& center, const Quat& rot,
+                         u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+
         struct PendingDestroy
         {
             entt::entity entity;
@@ -90,9 +129,28 @@ namespace Luth
         std::vector<entt::entity>                     m_PendingBuild;
         entt::registry*                               m_AttachedRegistry = nullptr;
 
+        // Body-index reverse table for OnContactRemoved (where Jolt forbids body access). Sized
+        // kMaxBodies at ctor; entries set at TryCreateBody alongside SetUserData, cleared at body
+        // destroy. Slot reuse is safe across frames — BodyID's sequence number (8-bit) makes the
+        // packed cache key unique per allocation. The Listener reads this lock-free; main-thread
+        // writes are paired with body lifecycle events that don't race against contact callbacks.
+        std::vector<entt::entity>            m_EntityByBodyIndex;
+
+        // Event queue + listener. Listener writes from worker fibers under SpinLock for the trigger
+        // cache; gameplay drains via DrainEvents on the main fiber. Order in declaration matters:
+        // m_Queue and m_EntityByBodyIndex must outlive m_ContactListener so its constructor refs
+        // are valid through teardown.
+        Physics::LuthContactListener::EventQueue m_Queue;
+        Physics::LuthContactListener             m_ContactListener;
+
 #ifdef JPH_DEBUG_RENDERER
         Physics::PhysicsDebugRenderer                 m_DebugRenderer;
 #endif
+
+        // Set inside Step() around m_System.Update so queries can assert against re-entry.
+        // acquire/release on both ends gives the assertion its happens-before edge against the
+        // simulation's body-lock acquisitions.
+        std::atomic<bool> m_StepInFlight{false};
 
         f32 m_Accumulator = 0.0f;
 
