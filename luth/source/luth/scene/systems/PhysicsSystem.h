@@ -2,6 +2,7 @@
 
 #include "luth/scene/systems/ISystem.h"
 #include "luth/physics/PhysicsLayers.h"
+#include "luth/physics/PhysicsQuery.h"
 #include "luth/physics/LuthJobSystemForJolt.h"
 #include "luth/physics/PhysicsDebugRenderer.h"
 
@@ -12,6 +13,8 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include <entt/entt.hpp>
+#include <atomic>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -32,6 +35,15 @@ namespace Luth
         ~PhysicsSystem() override;
 
         void Update(Scene* scene) override;
+
+        // Collision queries. Safe to call between Update()s — NOT during Step() (Jolt's
+        // NarrowPhaseQuery holds body locks while the broadphase mutates). Re-entry asserts.
+        //
+        // layerMask is a bitmask of (1u << Layers::X) values; pass 0 to skip layer filtering.
+        // Raycast returns false on miss with outHit untouched; on hit, fraction is [0, 1] along
+        // the directed segment origin + dir*maxDist, distance is fraction * maxDist.
+        bool Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
+                     u32 layerMask, Physics::RaycastHit& outHit) const;
 
     private:
         struct PendingDestroy
@@ -93,6 +105,11 @@ namespace Luth
 #ifdef JPH_DEBUG_RENDERER
         Physics::PhysicsDebugRenderer                 m_DebugRenderer;
 #endif
+
+        // Set inside Step() around m_System.Update so queries can assert against re-entry.
+        // acquire/release on both ends gives the assertion its happens-before edge against the
+        // simulation's body-lock acquisitions.
+        std::atomic<bool> m_StepInFlight{false};
 
         f32 m_Accumulator = 0.0f;
 

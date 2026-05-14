@@ -7,6 +7,7 @@
 #include "luth/scene/components/Transform.h"
 #include "luth/scene/components/Physics.h"
 #include "luth/physics/JoltMath.h"
+#include "luth/physics/LayerMaskFilter.h"
 #include "luth/physics/ShapeBuilder.h"
 #include "luth/core/DebugDraw.h"
 #include "luth/core/EditorHooks.h"
@@ -16,9 +17,14 @@
 
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockInterface.h>
 #include <Jolt/Physics/Body/BodyManager.h>
 #include <Jolt/Physics/Body/MotionQuality.h>
 #include <Jolt/Physics/Body/MotionType.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/EActivation.h>
 
 #include <algorithm>
@@ -387,7 +393,13 @@ namespace Luth
     void PhysicsSystem::Step(f32 dt, int collisionSteps)
     {
         LH_PROFILE_FUNCTION();
+
+        // Query re-entry guard. Set across the entire Jolt update — including the listener-callback
+        // window — so any nested Raycast/Overlap from gameplay code reachable through a callback
+        // trips the assert instead of deadlocking on body locks.
+        m_StepInFlight.store(true, std::memory_order_release);
         m_System.Update(dt, collisionSteps, &m_TempAlloc, &m_JobAdapter);
+        m_StepInFlight.store(false, std::memory_order_release);
     }
 
     void PhysicsSystem::DrawDebugBodies(Scene* scene)
@@ -811,5 +823,51 @@ namespace Luth
             rbMut.linearVelocity  = Physics::FromJolt(lvel);
             rbMut.angularVelocity = Physics::FromJolt(avel);
         }
+    }
+
+    // ── Queries ──
+
+    bool PhysicsSystem::Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
+                                u32 layerMask, Physics::RaycastHit& outHit) const
+    {
+        LH_PROFILE_FUNCTION();
+        LH_CORE_ASSERT(!m_StepInFlight.load(std::memory_order_acquire),
+                       "PhysicsSystem::Raycast called during Step — NarrowPhaseQuery is not safe "
+                       "to call from a contact callback or any code reachable from m_System.Update");
+
+        // Jolt's CastRay takes (origin, direction*length) — anything past mDirection's length is
+        // not reported. Encoding maxDist into the direction keeps the public API split (caller
+        // passes a unit-ish direction + a distance) without forcing them to normalise.
+        const JPH::RRayCast ray(Physics::ToJolt(origin), Physics::ToJolt(dir * maxDist));
+
+        Physics::LayerMaskBroadPhaseFilter bpFilter(layerMask);
+        Physics::LayerMaskObjectFilter     objFilter(layerMask);
+
+        JPH::RayCastResult hit;
+        auto& npq = m_System.GetNarrowPhaseQuery();
+        if (!npq.CastRay(ray, hit, bpFilter, objFilter))
+            return false;
+
+        // Resolve normal + entity. The body lock interface is the read-only path — safe outside
+        // Step. SucceededAndIsInBroadPhase confirms the body still exists between hit detection
+        // and our follow-up read (a body destroyed in between is a non-issue at Tier-0 since
+        // queries are called from gameplay code on the main fiber, not from contact callbacks).
+        const auto& bli = m_System.GetBodyLockInterface();
+        JPH::BodyLockRead lock(bli, hit.mBodyID);
+        if (!lock.SucceededAndIsInBroadPhase())
+            return false;
+
+        const JPH::Body& body = lock.GetBody();
+        const JPH::Vec3  worldPoint = ray.GetPointOnRay(hit.mFraction);
+        const JPH::Vec3  worldNormal = body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, worldPoint);
+        const auto       entity = static_cast<entt::entity>(body.GetUserData());
+
+        outHit.entity      = entity;
+        outHit.bodyId      = hit.mBodyID;
+        outHit.worldPoint  = Physics::FromJolt(worldPoint);
+        outHit.worldNormal = Physics::FromJolt(worldNormal);
+        outHit.fraction    = hit.mFraction;
+        outHit.distance    = hit.mFraction * maxDist;
+        return true;
     }
 }
