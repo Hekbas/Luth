@@ -5,8 +5,10 @@
 #include "luth/resources/importers/TextureImporter.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
+#include "luth/resources/importers/PhysicsMaterialImporter.h"
 #include "luth/resources/importers/ShaderImporter.h"
 #include "luth/resources/importers/AnimationClipImporter.h"
+#include "luth/physics/PhysicsMaterial.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/AnimationClip.h"
@@ -34,6 +36,7 @@ namespace Luth
         s_Importers[AssetType::Material] = std::make_unique<MaterialImporter>();
         s_Importers[AssetType::Shader] = std::make_unique<ShaderImporter>();
         s_Importers[AssetType::Animation] = std::make_unique<AnimationClipImporter>();
+        s_Importers[AssetType::PhysicsMaterial] = std::make_unique<PhysicsMaterialImporter>();
     }
 
     void AssetManager::Shutdown()
@@ -210,6 +213,10 @@ namespace Luth
             auto d = std::make_unique<AnimationAssetData>();
             if (AssetSerializer::DeserializeAnimation(artifactPath, *d)) return d;
         }
+        else if (type == AssetType::PhysicsMaterial) {
+            auto d = std::make_unique<PhysicsMaterialAssetData>();
+            if (AssetSerializer::DeserializePhysicsMaterial(artifactPath, *d)) return d;
+        }
         return nullptr;
     }
 
@@ -239,6 +246,12 @@ namespace Luth
         else if (type == AssetType::Animation) {
             auto* d = static_cast<AnimationAssetData*>(data);
             return std::make_shared<AnimationClip>(d->Clip);
+        }
+        else if (type == AssetType::PhysicsMaterial) {
+            auto* d = static_cast<PhysicsMaterialAssetData*>(data);
+            auto mat = std::make_shared<PhysicsMaterial>();
+            mat->Deserialize(d->JsonData);
+            return mat;
         }
         return nullptr;
     }

@@ -3,6 +3,7 @@
 #include "luth/resources/importers/TextureImporter.h"
 #include "luth/resources/importers/ModelImporter.h"
 #include "luth/resources/importers/MaterialImporter.h"
+#include "luth/resources/importers/PhysicsMaterialImporter.h"
 #include "luth/resources/importers/ShaderImporter.h"
 #include "luth/resources/importers/AnimationClipImporter.h"
 #include <fstream>
@@ -335,6 +336,43 @@ namespace Luth
         AssetHeader header;
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Material) return false;
+
+        u32 size;
+        in.read((char*)&size, sizeof(u32));
+        std::string jsonStr(size, '\0');
+        in.read(jsonStr.data(), size);
+
+        outData.JsonData = nlohmann::json::parse(jsonStr);
+        return true;
+    }
+
+    bool AssetSerializer::SerializePhysicsMaterial(const fs::path& path,
+                                                    const PhysicsMaterialAssetData& data)
+    {
+        std::ofstream out(path, std::ios::binary);
+        if (!out.is_open()) return false;
+
+        AssetHeader header;
+        header.Type = AssetType::PhysicsMaterial;
+        out.write((char*)&header, sizeof(AssetHeader));
+
+        std::string jsonStr = data.JsonData.dump();
+        u32 size = (u32)jsonStr.size();
+        out.write((char*)&size, sizeof(u32));
+        out.write(jsonStr.data(), size);
+
+        return true;
+    }
+
+    bool AssetSerializer::DeserializePhysicsMaterial(const fs::path& path,
+                                                      PhysicsMaterialAssetData& outData)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) return false;
+
+        AssetHeader header;
+        in.read((char*)&header, sizeof(AssetHeader));
+        if (header.Type != AssetType::PhysicsMaterial) return false;
 
         u32 size;
         in.read((char*)&size, sizeof(u32));

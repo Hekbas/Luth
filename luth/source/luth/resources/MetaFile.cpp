@@ -47,6 +47,11 @@ namespace Luth
                 settings["blend_mode"] = "Opaque";
                 break;
 
+            case AssetType::PhysicsMaterial:
+                // No type-specific knobs at the .meta layer — friction/restitution/density live
+                // inside the .physmat JSON itself.
+                break;
+
             case AssetType::Shader:
                 settings["hot_reload"] = true;
                 settings["optimization_level"] = 3;

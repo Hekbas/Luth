@@ -18,7 +18,8 @@ namespace Luth
         Shader,
         Font,
         Scene,
-        Animation  // appended — inserting mid-enum would shift on-disk AssetHeader.Type ints
+        Animation,       // appended — inserting mid-enum would shift on-disk AssetHeader.Type ints
+        PhysicsMaterial  // appended — see comment above
     };
 
     enum class AssetFlag { None = 0, Missing = 1, Invalid = 2, Loading = 4 };
