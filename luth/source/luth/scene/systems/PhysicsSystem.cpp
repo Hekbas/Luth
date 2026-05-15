@@ -8,6 +8,7 @@
 #include "luth/scene/components/Physics.h"
 #include "luth/physics/JoltMath.h"
 #include "luth/physics/LayerMaskFilter.h"
+#include "luth/physics/PhysicsMaterial.h"
 #include "luth/physics/ShapeBuilder.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetDatabase.h"
@@ -691,6 +692,19 @@ namespace Luth
                          " hierarchy and may drift", (u32)entity);
         }
 
+        // Resolve PhysicsMaterial. UUID::Invalid (or not-yet-loaded) → engine baseline. Pin the
+        // asset on success so AssetManager::Trim can't evict it while a body holds its values.
+        const PhysicsMaterial* matPtr = &PhysicsMaterial::Default();
+        if (rb.materialUUID.IsValid())
+        {
+            if (auto matAsset = AssetManager::GetAsset<PhysicsMaterial>(rb.materialUUID))
+            {
+                matPtr = matAsset.get();
+                scene->HoldAsset(rb.materialUUID, matAsset);
+            }
+        }
+        const auto& mat = *matPtr;
+
         JPH::BodyCreationSettings bcs(shape, Physics::ToJolt(pos), Physics::ToJolt(rot),
                                       ToJoltMotion(rb.motion), PickLayer(rb));
         bcs.mIsSensor        = rb.isSensor;
@@ -700,11 +714,26 @@ namespace Luth
         bcs.mGravityFactor   = rb.gravityFactor;
         bcs.mLinearDamping   = rb.linearDamping;
         bcs.mAngularDamping  = rb.angularDamping;
+        bcs.mFriction        = mat.friction;
+        bcs.mRestitution     = mat.restitution;
 
         if (rb.mass > 0.0f)
         {
+            // User-set mass wins. Inertia is computed from shape + this mass.
             bcs.mOverrideMassProperties        = JPH::EOverrideMassProperties::CalculateInertia;
             bcs.mMassPropertiesOverride.mMass  = rb.mass;
+        }
+        else if (mat.density > 0.0f)
+        {
+            // Density × shape volume. MeshShape::GetVolume returns 0 (no well-defined volume) and
+            // is gated to Static where mass is irrelevant — fall through to Jolt's default in
+            // that case. Same applies to any other shape that returns 0.
+            const float volume = shape->GetVolume();
+            if (volume > 0.0f)
+            {
+                bcs.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+                bcs.mMassPropertiesOverride.mMass = mat.density * volume;
+            }
         }
 
         const auto activation = (rb.startActive && rb.motion != Component::RigidBody::Motion::Static)
@@ -872,16 +901,29 @@ namespace Luth
         // Rebuild bodies whose Collider references one of the dirty UUIDs. Linear scan over the
         // dirty list per collider is fine — dirty lists from FileWatcher are typically 1-3 UUIDs.
         auto& reg = scene->Registry();
-        auto view = reg.view<Component::Collider>();
-        for (auto entity : view)
+        auto colliderView = reg.view<Component::Collider>();
+        for (auto entity : colliderView)
         {
-            const auto& c = view.get<Component::Collider>(entity);
+            const auto& c = colliderView.get<Component::Collider>(entity);
             if (c.type != Component::Collider::Type::ConvexHullRef
                 && c.type != Component::Collider::Type::MeshRef) continue;
             const UUID model(c.meshRef.modelHi, c.meshRef.modelLo);
             for (const UUID& d : dirty)
             {
                 if (d == model) { QueueBuild(entity); break; }
+            }
+        }
+
+        // Same pattern for PhysicsMaterial reimports — friction/restitution/density edits in
+        // an external editor land here. Re-queue any body that references the dirty material UUID.
+        auto rbView = reg.view<Component::RigidBody>();
+        for (auto entity : rbView)
+        {
+            const auto& rb = rbView.get<Component::RigidBody>(entity);
+            if (!rb.materialUUID.IsValid()) continue;
+            for (const UUID& d : dirty)
+            {
+                if (d == rb.materialUUID) { QueueBuild(entity); break; }
             }
         }
     }
