@@ -26,7 +26,9 @@ The architectural fork that shaped the design: do we bake separate physics blobs
 | D | **`PhysicsMaterial` asset type.** `AssetType::PhysicsMaterial` enum entry (appended), `.physmat` extension + GetTypeInfo entry (orange swatch), `Luth::PhysicsMaterial : public Asset` (friction/restitution/density + `Default()` constexpr fallback), `PhysicsMaterialImporter` mirror of `MaterialImporter`, `AssetSerializer::Serialize/DeserializePhysicsMaterial`, three `AssetManager` dispatch entries (Init + DeserializeArtifact + FinalizeAsset). `luth/assets/physics_materials/Default.physmat` shipped as engine-default reference. | [`9eed75e`](../../../../commit/9eed75e) |
 | E | **Apply `PhysicsMaterial` at body creation.** `TryCreateBody` resolves `rb.materialUUID` via `AssetManager::GetAsset<PhysicsMaterial>`; falls back to `PhysicsMaterial::Default()` on miss or invalid UUID. Sets `bcs.mFriction`/`mRestitution`. Density × `shape->GetVolume()` drives mass when `rb.mass <= 0` (skipped on `MeshShape::GetVolume() == 0` — gated to Static where mass is irrelevant). `HoldAsset` pins the material so live bodies aren't undermined by `AssetManager::Trim`. `DrainDirtyAssets` walks the RigidBody view too — material reimport re-queues affected entities. | [`f4ac5ec`](../../../../commit/f4ac5ec) |
 | F | **Editor + project surfaces + importer flag.** `PhysicsMaterialEditor` (3 sliders + debounced auto-save mirroring MaterialEditor), wired into `InspectorPanel`. ProjectPanel: `BOWLING_BALL` icon + "Create Physics Material" context-menu entry + `CreateNewPhysicsMaterial` template. ResourcePanel: filter checkbox + Type-color/Type-icon entries. `ModelImportSettings::PhysicsBakeMode { None, Auto }` field + JSON round-trip; `ModelViewer` dropdown surfaces it. `ShapeCache::GetOrBuild` reads `MetaFile::GetTypeSettings` for the model's `physics_bake` flag — on `None` it warns once per UUID and returns null (the entity is dropped from the build queue). | [`addd5ae`](../../../../commit/addd5ae) |
-| W | **Wrap-up.** `Version.h` patch bump to v2.10.2. History file. CLAUDE.md Current Progress + Next. BACKLOG.md strike-through Phase E + Tier 1+ deferral list. | this commit |
+| W | **Wrap-up.** `Version.h` patch bump to v2.10.2. History file. CLAUDE.md Current Progress + Next. BACKLOG.md strike-through Phase E + Tier 1+ deferral list. | [`b5deb56`](../../../../commit/b5deb56) |
+| H1 | **Hotfix — rebuild bodies on asset reimport.** Pre-merge audit caught a silent correctness bug in the fingerprint fast path: model + material reimports went through `DrainDirtyAssets` correctly but `DrainPendingBuilds` short-circuited to `ApplyRigidBodyTuning` because no field hashed into `shapeFingerprint` shifts under a content-only change. Fix: `ComputeFingerprint` now hashes `rb.materialUUID` (catches inspector-driven UUID swap) and `DrainDirtyAssets` clears `runtime.shapeFingerprint = 0` for entities it pushes (forces rebuild branch on asset content reimport, same UUID). | [`241514f`](../../../../commit/241514f) |
+| H2 | **Hotfix — RigidBody material slot + Default.physmat.meta.** Same audit caught the missing inspector wiring: `RigidBodyDrawer` had no `PropertyAsset` slot for `materialUUID` (couldn't drag-drop a `.physmat`), and OnCopy/OnPaste lambdas dropped the field. Added the slot with `ComponentPropertyCommand<RigidBody, UUID>` + Poke. Also tracked `Default.physmat.meta` so the engine-default UUID stays stable across machines (sibling fonts/shaders convention). | [`e663555`](../../../../commit/e663555) |
 
 ---
 
@@ -67,6 +69,8 @@ The user's Phase E spec mentioned "ModelImporter opt-in shape generation cached 
 | Build error: `usize` undefined in `ShapeCache.h` | The codebase uses `size_t` directly (LuthTypes.h has no `usize` alias). I assumed Rust-style nomenclature. | Replaced `usize` with `size_t` in `ShapeKeyHash::operator()`. |
 | Build error: `nlohmann/json_fwd.hpp` not found | The vendored nlohmann/json doesn't ship the forward-declaration header; the codebase uses `<nlohmann/json.hpp>` directly. | Switched include in `PhysicsMaterial.h`. Matches `Material.h` precedent. |
 | Build error: `ImTextureID` cannot convert from `nullptr` | `ImTextureID` is `ImU64` (unsigned int) since ImGui v1.91.4, no longer a void*. | Pass `static_cast<ImTextureID>(0)` for the no-thumbnail case in `PhysicsMaterialEditor::Draw`. |
+| Asset content reimport (model `.fbx` touch / `.physmat` edit) silently no-op — body kept old shape/material despite the dirty-UUID push reaching `DrainPendingBuilds` | `shapeFingerprint` hashed only Collider + RigidBody field state. Asset content changes don't shift any of those fields, so the fingerprint matched and the fast-path `ApplyRigidBodyTuning` branch ran, skipping shape/material apply | Hotfix H1: include `rb.materialUUID` in the hash + clear `runtime.shapeFingerprint = 0` for entities pushed by `DrainDirtyAssets` |
+| `RigidBody.materialUUID` had no inspector control — only assignable by editing the `.luth` JSON; copy-paste lost the field | `RigidBodyDrawer` was authored at Tier 0 before `materialUUID` was meaningful (no `PhysicsMaterial` asset existed); Phase E added the engine wiring + apply path but didn't surface the field to the user | Hotfix H2: `UI::PropertyAsset("Physics Material", ..., AssetType::PhysicsMaterial)` slot + extend OnCopy/OnPaste lambdas |
 
 ---
 
@@ -78,7 +82,7 @@ The user's Phase E spec mentioned "ModelImporter opt-in shape generation cached 
 - `luth/source/luth/resources/importers/PhysicsMaterialImporter.h` / `.cpp` — JSON copy-validate importer
 
 **New (assets)**
-- `luth/assets/physics_materials/Default.physmat` — engine-default reference
+- `luth/assets/physics_materials/Default.physmat` (+ `.meta`) — engine-default reference, stable UUID checked in
 
 **New (editor)**
 - `luthien/source/luthien/inspectors/PhysicsMaterialEditor.h` / `.cpp` — three sliders + debounced auto-save
@@ -102,6 +106,7 @@ The user's Phase E spec mentioned "ModelImporter opt-in shape generation cached 
 - `luthien/source/luthien/panels/ProjectPanel.h` / `.cpp` — icon, Create New entry, template JSON
 - `luthien/source/luthien/panels/ResourcePanel.h` / `.cpp` — filter checkbox + Type-color/icon entries
 - `luthien/source/luthien/inspectors/ModelViewer.cpp` — `Bake Mode` dropdown in Import Settings
+- `luthien/source/luthien/inspectors/component_drawers/RigidBodyDrawer.cpp` — `Physics Material` PropertyAsset slot + OnCopy/OnPaste round-trip (hotfix H2)
 
 **Modified (docs)**
 - `CLAUDE.md` — Current Progress (latest shipped + next)
