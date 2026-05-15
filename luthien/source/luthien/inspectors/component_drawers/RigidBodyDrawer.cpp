@@ -41,6 +41,7 @@ namespace Luth::ComponentDrawers
             j["gravityFactor"]  = rb.gravityFactor;
             j["linearDamping"]  = rb.linearDamping;
             j["angularDamping"] = rb.angularDamping;
+            j["materialUUID"]   = rb.materialUUID.ToString();
             return j.dump();
         };
         opts.OnPaste = [](Entity e, const std::string& data) -> bool {
@@ -56,6 +57,7 @@ namespace Luth::ComponentDrawers
                 newRb.gravityFactor  = j.value("gravityFactor", 1.0f);
                 newRb.linearDamping  = j.value("linearDamping", 0.05f);
                 newRb.angularDamping = j.value("angularDamping", 0.05f);
+                newRb.materialUUID   = UUID::FromString(j.value("materialUUID", ""));
                 CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<RigidBody>>(
                     "Paste RigidBody", e.GetScene(), (entt::entity)e, std::move(newRb)));
                 return true;
@@ -162,6 +164,19 @@ namespace Luth::ComponentDrawers
                             f32 oldVal = UI::ConsumeItemPreEdit<float>(state.itemId);
                             CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<RigidBody, float>>(
                                 "Change Angular Damping", scene, ent, &RigidBody::angularDamping, oldVal, rb.angularDamping));
+                        }
+                    }
+
+                    {
+                        // Drag-drop a .physmat from the Project panel onto this slot. UUID::Invalid
+                        // (slot empty) falls back to PhysicsMaterial::Default() at body create.
+                        auto state = UI::PropertyAsset("Physics Material", rb.materialUUID, AssetType::PhysicsMaterial);
+                        if (state.changed) {
+                            UUID oldVal = UI::ConsumeItemPreEdit<UUID>(state.itemId);
+                            CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<RigidBody, UUID>>(
+                                "Change Physics Material", scene, ent,
+                                &RigidBody::materialUUID, oldVal, rb.materialUUID));
+                            Poke(entity);
                         }
                     }
 
