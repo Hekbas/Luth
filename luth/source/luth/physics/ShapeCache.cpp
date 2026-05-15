@@ -219,10 +219,48 @@ namespace Luth::Physics
         m_Map.clear();
     }
 
-    u64 ShapeCache::ComputeFingerprint(const Component::Collider& /*c*/)
+    u64 ShapeCache::ComputeFingerprint(const Component::Collider& c, const Component::RigidBody& rb)
     {
-        // Populated in the fingerprint sub-task. Returning 0 here matches the legacy code path
-        // (PhysicsBodyRuntime::shapeFingerprint was always 0) so behaviour is unchanged.
-        return 0;
+        u64 h = 1469598103934665603ull;
+        auto mix64 = [&h](u64 v) {
+            for (int i = 0; i < 8; ++i) { h ^= (v >> (i * 8)) & 0xff; h *= 1099511628211ull; }
+        };
+        auto mixf = [&mix64](f32 f) {
+            u32 u = 0;
+            std::memcpy(&u, &f, sizeof u);
+            mix64(static_cast<u64>(u));
+        };
+
+        mix64(static_cast<u64>(c.type));
+        mixf(c.localOffset.x); mixf(c.localOffset.y); mixf(c.localOffset.z);
+        mixf(c.localRotation.x); mixf(c.localRotation.y);
+        mixf(c.localRotation.z); mixf(c.localRotation.w);
+
+        using Type = Component::Collider::Type;
+        switch (c.type)
+        {
+            case Type::Box:
+                mixf(c.boxHalfExtents.x); mixf(c.boxHalfExtents.y); mixf(c.boxHalfExtents.z);
+                break;
+            case Type::Sphere:
+                mixf(c.sphereRadius);
+                break;
+            case Type::Capsule:
+                mixf(c.capsule.radius); mixf(c.capsule.halfHeight);
+                break;
+            case Type::ConvexHullRef:
+            case Type::MeshRef:
+                mix64(c.meshRef.modelHi);
+                mix64(c.meshRef.modelLo);
+                mix64(static_cast<u64>(c.meshRef.meshIndex));
+                break;
+        }
+
+        mix64(static_cast<u64>(rb.motion));
+        mix64(static_cast<u64>(rb.layer));
+        mix64(rb.isSensor ? 1ull : 0ull);
+        mix64(static_cast<u64>(rb.motionQuality));
+        mixf(rb.mass);
+        return h;
     }
 }

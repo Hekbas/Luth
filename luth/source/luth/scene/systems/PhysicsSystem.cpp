@@ -732,7 +732,7 @@ namespace Luth
         m_BodyMap[entity] = id;
         auto& runtime = reg.get_or_emplace<Component::PhysicsBodyRuntime>(entity);
         runtime.bodyId = id.GetIndexAndSequenceNumber();
-        runtime.shapeFingerprint = 0;
+        runtime.shapeFingerprint = Physics::ShapeCache::ComputeFingerprint(collider, rb);
         return BuildResult::Created;
     }
 
@@ -788,6 +788,7 @@ namespace Luth
                              m_PendingBuild.end());
 
         auto& bi = m_System.GetBodyInterface();
+        auto& reg = scene->Registry();
 
         // Shadow vector for retries — entities whose source asset hasn't loaded yet stay queued
         // for next Update. Bounded by the count of asset-backed bodies in the scene; per-frame
@@ -796,13 +797,33 @@ namespace Luth
 
         for (auto entity : m_PendingBuild)
         {
+            auto bodyIt = m_BodyMap.find(entity);
+
+            // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply
+            // damping / gravity / velocity in place and skip the (expensive for asset shapes)
+            // shape rebuild + body recreate.
+            if (bodyIt != m_BodyMap.end()
+                && reg.all_of<Component::Collider, Component::RigidBody,
+                              Component::PhysicsBodyRuntime>(entity))
+            {
+                const auto& collider = reg.get<Component::Collider>(entity);
+                const auto& rb       = reg.get<Component::RigidBody>(entity);
+                const auto& runtime  = reg.get<Component::PhysicsBodyRuntime>(entity);
+
+                if (runtime.shapeFingerprint == Physics::ShapeCache::ComputeFingerprint(collider, rb))
+                {
+                    ApplyRigidBodyTuning(bodyIt->second, rb);
+                    continue;
+                }
+            }
+
             // Tear down the existing body before rebuild. Safe to do synchronously here — drain runs
             // at Update start, before any Step, so no in-flight simulation depends on the body.
-            if (auto it = m_BodyMap.find(entity); it != m_BodyMap.end())
+            if (bodyIt != m_BodyMap.end())
             {
-                bi.RemoveBody(it->second);
-                bi.DestroyBody(it->second);
-                m_BodyMap.erase(it);
+                bi.RemoveBody(bodyIt->second);
+                bi.DestroyBody(bodyIt->second);
+                m_BodyMap.erase(bodyIt);
             }
 
             // TryCreateBody re-emplaces PhysicsBodyRuntime with the new bodyId on success, returns
@@ -812,6 +833,26 @@ namespace Luth
                 retry.push_back(entity);
         }
         m_PendingBuild.swap(retry);
+    }
+
+    void PhysicsSystem::ApplyRigidBodyTuning(JPH::BodyID id, const Component::RigidBody& rb)
+    {
+        auto& bi = m_System.GetBodyInterface();
+        bi.SetLinearVelocity (id, Physics::ToJolt(rb.linearVelocity));
+        bi.SetAngularVelocity(id, Physics::ToJolt(rb.angularVelocity));
+        bi.SetGravityFactor  (id, rb.gravityFactor);
+
+        // Damping setters live on MotionProperties; reach them via a brief BodyLockWrite. The drain
+        // runs outside Step so the lock is uncontended in practice (single-writer, fiber-aligned).
+        JPH::BodyLockWrite lock(m_System.GetBodyLockInterface(), id);
+        if (lock.SucceededAndIsInBroadPhase())
+        {
+            if (auto* mp = lock.GetBody().GetMotionProperties())
+            {
+                mp->SetLinearDamping (rb.linearDamping);
+                mp->SetAngularDamping(rb.angularDamping);
+            }
+        }
     }
 
     void PhysicsSystem::DrainDirtyAssets(Scene* scene)

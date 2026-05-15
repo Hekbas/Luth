@@ -10,7 +10,7 @@
 #include <span>
 #include <unordered_map>
 
-namespace Luth::Component { struct Collider; }
+namespace Luth::Component { struct Collider; struct RigidBody; }
 
 namespace Luth::Physics
 {
@@ -87,10 +87,15 @@ namespace Luth::Physics
         // shapes — model UUIDs may collide across projects after UnloadProject + LoadProject.
         void Clear();
 
-        // Stable hash of a collider's shape-defining fields. Used by PhysicsBodyRuntime so the
-        // deferred-build queue can skip rebuild when only tunable RigidBody fields changed. Includes
-        // type byte + offset + rotation so the wrap layer is part of the identity.
-        static u64 ComputeFingerprint(const Component::Collider& collider);
+        // Stable hash of the structural fields that drive body construction. Stored on
+        // PhysicsBodyRuntime so the deferred-build queue can skip rebuild when only tunable
+        // RigidBody fields changed (damping, gravityFactor, velocity). Inputs:
+        //   - Collider type + active union member + localOffset + localRotation
+        //   - RigidBody motion + layer + isSensor + motionQuality + mass
+        // Damping/gravity/velocity are intentionally NOT in the hash — those route through the
+        // ApplyRigidBodyTuning fast path instead.
+        static u64 ComputeFingerprint(const Component::Collider& collider,
+                                      const Component::RigidBody& rb);
 
     private:
         SpinLock m_Lock;

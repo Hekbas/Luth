@@ -124,6 +124,12 @@ namespace Luth
         // by AssetDatabase today).
         void EnsureChangeCallbackRegistered();
 
+        // Fast-path field tuning when DrainPendingBuilds detects a fingerprint match — only
+        // damping / gravity factor / linear-angular velocity are applied here. Mass and structural
+        // fields (motion, layer, sensor, motionQuality, shape) live in the fingerprint and force
+        // a full rebuild when they change.
+        void ApplyRigidBodyTuning(JPH::BodyID id, const Component::RigidBody& rb);
+
         void SyncTransformsToBodies(Scene* scene);
         void SyncBodiesToTransforms(Scene* scene);
         void Step(f32 fixedDt, int collisionSteps);
