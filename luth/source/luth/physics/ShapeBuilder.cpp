@@ -62,9 +62,9 @@ namespace Luth::Physics
 
                 case Type::ConvexHullRef:
                 case Type::MeshRef:
-                    // Asset-backed shapes route through a separate builder that consumes baked vertex /
-                    // triangle blobs from the Model asset. Not yet wired; bodies referencing these
-                    // collider types are skipped at create time.
+                    // Asset-backed shapes route through Physics::ShapeCache (UUID-keyed lazy build
+                    // + reimport invalidation). This builder only knows about primitives; callers
+                    // reaching the asset cases here get nullptr and fall through to the cache path.
                     return nullptr;
             }
             return nullptr;
