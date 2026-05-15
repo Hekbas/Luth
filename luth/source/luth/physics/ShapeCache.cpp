@@ -298,6 +298,12 @@ namespace Luth::Physics
         mix64(rb.isSensor ? 1ull : 0ull);
         mix64(static_cast<u64>(rb.motionQuality));
         mixf(rb.mass);
+        // materialUUID drives bcs.mFriction / mRestitution / density-from-mass at body create —
+        // a UUID swap requires rebuild because Jolt sets those at construction. Asset *content*
+        // changes (same UUID, edited friction/restitution) leave the hash stable; those route
+        // through the explicit force-rebuild path in PhysicsSystem::DrainDirtyAssets.
+        mix64(rb.materialUUID.GetHalf0());
+        mix64(rb.materialUUID.GetHalf1());
         return h;
     }
 }

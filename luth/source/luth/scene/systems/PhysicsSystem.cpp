@@ -898,9 +898,18 @@ namespace Luth
 
         m_ShapeCache.OnAssetReimported(dirty);
 
+        // Asset content changed under a stable UUID — none of the fields hashed into shapeFingerprint
+        // shift, so the DrainPendingBuilds fast path would silently skip the rebuild. Clear the
+        // stored fingerprint to force a mismatch and the rebuild branch.
+        auto& reg = scene->Registry();
+        auto pushReimport = [&reg, this](entt::entity e) {
+            if (auto* rt = reg.try_get<Component::PhysicsBodyRuntime>(e))
+                rt->shapeFingerprint = 0;
+            QueueBuild(e);
+        };
+
         // Rebuild bodies whose Collider references one of the dirty UUIDs. Linear scan over the
         // dirty list per collider is fine — dirty lists from FileWatcher are typically 1-3 UUIDs.
-        auto& reg = scene->Registry();
         auto colliderView = reg.view<Component::Collider>();
         for (auto entity : colliderView)
         {
@@ -910,7 +919,7 @@ namespace Luth
             const UUID model(c.meshRef.modelHi, c.meshRef.modelLo);
             for (const UUID& d : dirty)
             {
-                if (d == model) { QueueBuild(entity); break; }
+                if (d == model) { pushReimport(entity); break; }
             }
         }
 
@@ -923,7 +932,7 @@ namespace Luth
             if (!rb.materialUUID.IsValid()) continue;
             for (const UUID& d : dirty)
             {
-                if (d == rb.materialUUID) { QueueBuild(entity); break; }
+                if (d == rb.materialUUID) { pushReimport(entity); break; }
             }
         }
     }
