@@ -10,6 +10,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/material/Material.h"
+#include "luth/physics/PhysicsMaterial.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/Shader.h"
 #include "luth/resources/FileSystem.h"
@@ -203,6 +204,8 @@ namespace Luth
             if (auto model = AssetManager::GetAsset<Model>(m_SelectedResource)) m_ModelViewer.Draw(*model);
         } else if (type == AssetType::Material) {
             if (auto mat = AssetManager::GetAsset<Material>(m_SelectedResource)) m_MaterialEditor.Draw(*mat);
+        } else if (type == AssetType::PhysicsMaterial) {
+            if (auto mat = AssetManager::GetAsset<PhysicsMaterial>(m_SelectedResource)) m_PhysicsMaterialEditor.Draw(*mat);
         } else if (type == AssetType::Texture) {
             if (auto tex = AssetManager::GetAsset<Texture>(m_SelectedResource)) m_TextureEditor.Draw(*tex);
         } else if (type == AssetType::Shader) {

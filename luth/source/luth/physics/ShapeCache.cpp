@@ -6,7 +6,10 @@
 #include "luth/physics/JoltMath.h"
 #include "luth/scene/components/Physics.h"
 #include "luth/renderer/resources/Model.h"
+#include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
+#include "luth/resources/MetaFile.h"
+#include "luth/resources/importers/ModelImporter.h"
 #include "luth/core/diagnostics/Log.h"
 
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
@@ -162,6 +165,36 @@ namespace Luth::Physics
 
         if (!inner)
         {
+            // Importer opt-in gate. Models with PhysicsBake = None get skipped with a once-per-UUID
+            // warning so the user knows to flip the flag in the Model importer. Lookup goes through
+            // MetaFile (cheap; .meta is small JSON sitting next to the source).
+            const auto& meta = AssetDatabase::GetMetadata(modelUUID);
+            if (!meta.Path.empty())
+            {
+                fs::path metaPath = meta.Path.string() + ".meta";
+                MetaFile mf(modelUUID);
+                if (mf.Load(metaPath))
+                {
+                    auto settings = ModelImportSettings::FromJson(mf.GetTypeSettings());
+                    if (settings.PhysicsBake == ModelImportSettings::PhysicsBakeMode::None)
+                    {
+                        bool firstTime = false;
+                        {
+                            SpinLockGuard guard(m_Lock);
+                            firstTime = m_WarnedOptOut.insert(modelUUID).second;
+                        }
+                        if (firstTime)
+                        {
+                            LH_CORE_WARN("ShapeCache: model '{}' has PhysicsBake = None — body "
+                                         "skipped. Set 'Bake Mode' to Auto in the Model importer "
+                                         "and reimport to enable.",
+                                         meta.Path.filename().string());
+                        }
+                        return { nullptr, false };
+                    }
+                }
+            }
+
             // Cache miss. Resolve the model — if it hasn't loaded yet (in flight on a worker fiber)
             // the caller should retry next frame rather than dropping the body request.
             auto model = AssetManager::GetAsset<Model>(modelUUID);
@@ -205,6 +238,9 @@ namespace Luth::Physics
             if (match) it = m_Map.erase(it);
             else       ++it;
         }
+        // Drop the once-per-UUID warn gate too — flipping PhysicsBake None→Auto→None should
+        // produce a fresh warning the next time the user accidentally opts out.
+        for (const UUID& d : dirtyUUIDs) m_WarnedOptOut.erase(d);
     }
 
     void ShapeCache::Invalidate(UUID uuid)
@@ -217,6 +253,7 @@ namespace Luth::Physics
     {
         SpinLockGuard guard(m_Lock);
         m_Map.clear();
+        m_WarnedOptOut.clear();
     }
 
     u64 ShapeCache::ComputeFingerprint(const Component::Collider& c, const Component::RigidBody& rb)

@@ -9,6 +9,7 @@
 
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Luth::Component { struct Collider; struct RigidBody; }
 
@@ -100,5 +101,10 @@ namespace Luth::Physics
     private:
         SpinLock m_Lock;
         std::unordered_map<ShapeKey, JPH::RefConst<JPH::Shape>, ShapeKeyHash> m_Map;
+
+        // Once-per-UUID gate so the "PhysicsBake = None — skipped" warning fires once per model
+        // rather than per-frame retry. Cleared on Clear() and on a UUID's reimport (so flipping
+        // PhysicsBake from None to Auto then back yields a fresh warning).
+        std::unordered_set<UUID, UUIDHash> m_WarnedOptOut;
     };
 }

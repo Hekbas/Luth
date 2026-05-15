@@ -62,6 +62,7 @@ namespace Luth
 
         void CreateNewFolder();
         void CreateNewMaterial();
+        void CreateNewPhysicsMaterial();
         void DeleteItem(DirectoryNode* node);
         void RenameItem(DirectoryNode* node, const std::string& newName);
 

@@ -39,6 +39,13 @@ namespace Luth
         // skip clip extraction entirely.
         bool ExtractClipsAsSeparateAssets = true;
 
+        // Physics shape sourcing. None (default) → ShapeCache returns null for asset-backed
+        // colliders referencing this model and warns once per UUID. Auto → ShapeCache builds
+        // JPH::ConvexHullShape / JPH::MeshShape on demand from Model::m_MeshesData. Per-mesh
+        // override + actual on-disk cooking are deferred to a future jolt-cooked-shapes effort.
+        enum class PhysicsBakeMode : int { None = 0, Auto = 1 };
+        PhysicsBakeMode PhysicsBake = PhysicsBakeMode::None;
+
         static ModelImportSettings FromJson(const nlohmann::json& j);
         nlohmann::json ToJson() const;
     };

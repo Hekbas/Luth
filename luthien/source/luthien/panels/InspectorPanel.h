@@ -4,6 +4,7 @@
 #include "luthien/EditorSelection.h"
 #include "luthien/inspectors/ModelViewer.h"
 #include "luthien/inspectors/MaterialEditor.h"
+#include "luthien/inspectors/PhysicsMaterialEditor.h"
 #include "luthien/inspectors/TextureEditor.h"
 #include "luthien/inspectors/ShaderEditor.h"
 #include "luthien/inspectors/SceneViewer.h"
@@ -47,11 +48,12 @@ namespace Luth
         // DrawEntityComponents call.
         UUID m_ActiveMaterialUUID;
 
-        ModelViewer    m_ModelViewer;
-        MaterialEditor m_MaterialEditor;
-        TextureEditor  m_TextureEditor;
-        ShaderEditor   m_ShaderEditor;
-        SceneViewer    m_SceneViewer;
-        FontViewer     m_FontViewer;
+        ModelViewer           m_ModelViewer;
+        MaterialEditor        m_MaterialEditor;
+        PhysicsMaterialEditor m_PhysicsMaterialEditor;
+        TextureEditor         m_TextureEditor;
+        ShaderEditor          m_ShaderEditor;
+        SceneViewer           m_SceneViewer;
+        FontViewer            m_FontViewer;
     };
 }
