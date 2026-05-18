@@ -26,6 +26,7 @@
 #include <Jolt/Physics/Body/BodyManager.h>
 #include <Jolt/Physics/Body/MotionQuality.h>
 #include <Jolt/Physics/Body/MotionType.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
@@ -39,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <unordered_set>
 
@@ -308,6 +310,49 @@ namespace Luth
             m[3] = Vec4(origin, 1.0f);
             return m;
         }
+
+        // ── Character helpers ──
+
+        // Fingerprint inputs for CharacterController. Structural fields force a full rebuild on change:
+        // capsule shape, local offset/rotation, character padding, predictive contact distance. Tunables
+        // with JPH setters (mass, maxStrength, maxSlopeAngle, penetrationRecoverySpeed) live in the fast
+        // path and are intentionally NOT in the hash.
+        u64 ComputeCharacterFingerprint(const Component::Collider& collider,
+                                        const Component::CharacterController& cc)
+        {
+            u64 h = 1469598103934665603ull;
+            auto mix64 = [&h](u64 v) {
+                for (int i = 0; i < 8; ++i) { h ^= (v >> (i * 8)) & 0xff; h *= 1099511628211ull; }
+            };
+            auto mixf = [&mix64](f32 f) {
+                u32 u = 0;
+                std::memcpy(&u, &f, sizeof u);
+                mix64(static_cast<u64>(u));
+            };
+            mix64(static_cast<u64>(collider.type));
+            if (collider.type == Component::Collider::Type::Capsule) {
+                mixf(collider.capsule.radius);
+                mixf(collider.capsule.halfHeight);
+            }
+            mixf(collider.localOffset.x); mixf(collider.localOffset.y); mixf(collider.localOffset.z);
+            mixf(collider.localRotation.x); mixf(collider.localRotation.y);
+            mixf(collider.localRotation.z); mixf(collider.localRotation.w);
+            mixf(cc.characterPadding);
+            mixf(cc.predictiveContactDistance);
+            return h;
+        }
+
+        Component::GroundState ToGroundState(JPH::CharacterBase::EGroundState s)
+        {
+            switch (s)
+            {
+                case JPH::CharacterBase::EGroundState::OnGround:      return Component::GroundState::OnGround;
+                case JPH::CharacterBase::EGroundState::OnSteepGround: return Component::GroundState::OnSteepGround;
+                case JPH::CharacterBase::EGroundState::NotSupported:  return Component::GroundState::NotSupported;
+                case JPH::CharacterBase::EGroundState::InAir:         return Component::GroundState::InAir;
+            }
+            return Component::GroundState::InAir;
+        }
     }
 
     PhysicsSystem::PhysicsSystem()
@@ -350,6 +395,13 @@ namespace Luth
         }
         m_PendingDestroy.clear();
         m_PendingBuild.clear();
+
+        // Same for characters — owned heap allocations, must release before m_System (CharacterVirtual
+        // holds a back-pointer to the system used at Update time).
+        for (auto& [_, ch] : m_CharacterMap) delete ch;
+        m_CharacterMap.clear();
+        for (auto& pcd : m_PendingCharacterDestroy) delete pcd.character;
+        m_PendingCharacterDestroy.clear();
     }
 
     // ── Update ──
@@ -368,6 +420,7 @@ namespace Luth
         EnsureChangeCallbackRegistered();
         DrainDirtyAssets(scene);
         DrainPendingDestroys();
+        DrainPendingCharacterDestroys();
         DrainPendingBuilds(scene);
 
         // Debug-draw runs unconditionally so colliders are visible while authoring (Editing) too.
@@ -403,25 +456,28 @@ namespace Luth
 
         for (int i = 0; i < substeps; ++i)
         {
+            // Query re-entry guard covers BOTH the character sweep and the JPH world step — either
+            // path holds body locks. Set/cleared here (not inside Step) so UpdateCharacters runs under
+            // the same guard. Same memory ordering as before.
+            m_StepInFlight.store(true, std::memory_order_release);
+            UpdateCharacters(scene, kFixedDt);
             Step(kFixedDt, /*collisionSteps*/1);
+            m_StepInFlight.store(false, std::memory_order_release);
             m_Accumulator -= kFixedDt;
         }
 
         // Dynamic bodies write their post-step pose back to Transform / WorldTransform. Marking the
         // Transform dirty queues TransformSystem to rebuild LocalMatrix next frame.
         SyncBodiesToTransforms(scene);
+        SyncCharactersToTransforms(scene);
     }
 
     void PhysicsSystem::Step(f32 dt, int collisionSteps)
     {
         LH_PROFILE_FUNCTION();
-
-        // Query re-entry guard. Set across the entire Jolt update — including the listener-callback
-        // window — so any nested Raycast/Overlap from gameplay code reachable through a callback
-        // trips the assert instead of deadlocking on body locks.
-        m_StepInFlight.store(true, std::memory_order_release);
+        // Caller (Update's substep loop) owns the m_StepInFlight guard so it can wrap both this and
+        // UpdateCharacters under the same window.
         m_System.Update(dt, collisionSteps, &m_TempAlloc, &m_JobAdapter);
-        m_StepInFlight.store(false, std::memory_order_release);
     }
 
     void PhysicsSystem::DrawDebugBodies(Scene* scene)
@@ -553,6 +609,43 @@ namespace Luth
                 Luth::DebugDraw::Line(origin, origin + Vec3(0, 0, axisLen), blueA);
             }
         }
+
+        // Character pass — wire capsule colored by groundState. Gated by the same physicsShapes*
+        // toggles as bodies. Position is one frame behind during play (WorldTransform refresh lands
+        // post-step), same as the body path above.
+        if (wantShapes)
+        {
+            auto chView = reg.view<Component::CharacterController, Component::Collider,
+                                   Component::WorldTransform, Component::CharacterControllerRuntime>();
+            for (auto entity : chView)
+            {
+                const auto& collider = chView.get<Component::Collider>(entity);
+                if (collider.type != Component::Collider::Type::Capsule) continue;
+
+                const auto& cc    = chView.get<Component::CharacterController>(entity);
+                const auto& world = chView.get<Component::WorldTransform>(entity);
+
+                const bool isSelected = selected.contains(entity);
+                if (!vs.physicsShapesAll && !(isSelected && vs.physicsShapesSelected)) continue;
+
+                // Color by ground state: green / yellow / red / grey. Mirrors typical character
+                // debug-vis conventions (Godot, Bevy character samples).
+                u32 color = 0xff909090u;
+                switch (cc.groundState)
+                {
+                    case Component::GroundState::OnGround:      color = 0xff5fdc5fu; break;  // green
+                    case Component::GroundState::OnSteepGround: color = 0xff5fdcdcu; break;  // yellow
+                    case Component::GroundState::InAir:         color = 0xff5f5fdcu; break;  // red
+                    case Component::GroundState::NotSupported:  color = 0xff909090u; break;  // grey
+                }
+                if (!isSelected) color = SetAlpha(color, vs.physicsAlphaUnselected);
+
+                const Mat4 localT = glm::translate(Mat4(1.0f), collider.localOffset);
+                const Mat4 localR = glm::mat4_cast(collider.localRotation);
+                const Mat4 colMat = world.Matrix * localT * localR;
+                DrawWireCapsule(colMat, collider.capsule.halfHeight, collider.capsule.radius, color, unit);
+            }
+        }
     }
 
     // ── Signals ──
@@ -579,6 +672,16 @@ namespace Luth
             }
             m_PendingDestroy.clear();
             m_PendingBuild.clear();
+
+            // Same dance for characters — owned heap allocations, no broadphase to remove from
+            // since CharacterVirtual is query-driven (not a body).
+            for (auto& [_, ch] : m_CharacterMap) delete ch;
+            m_CharacterMap.clear();
+            for (auto& pcd : m_PendingCharacterDestroy) delete pcd.character;
+            m_PendingCharacterDestroy.clear();
+            m_WarnedNonCapsule.clear();
+            m_WarnedBothComponents.clear();
+
             // Drop cached asset shapes — model UUIDs may collide across projects after
             // UnloadProject + LoadProject. Worst case is a fresh build per shape on first body
             // create in the new scene; serving stale geometry to a different project would be
@@ -590,10 +693,13 @@ namespace Luth
         m_AttachedScene = scene;
         reg->on_construct<Component::Collider>().connect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_construct<Component::RigidBody>().connect<&PhysicsSystem::OnComponentConstructed>(this);
+        reg->on_construct<Component::CharacterController>().connect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_update<Component::Collider>().connect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_update<Component::RigidBody>().connect<&PhysicsSystem::OnComponentUpdated>(this);
+        reg->on_update<Component::CharacterController>().connect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_destroy<Component::Collider>().connect<&PhysicsSystem::OnComponentDestroyed>(this);
         reg->on_destroy<Component::RigidBody>().connect<&PhysicsSystem::OnComponentDestroyed>(this);
+        reg->on_destroy<Component::CharacterController>().connect<&PhysicsSystem::OnComponentDestroyed>(this);
     }
 
     void PhysicsSystem::DetachSignals()
@@ -602,10 +708,13 @@ namespace Luth
         auto* reg = m_AttachedRegistry;
         reg->on_construct<Component::Collider>().disconnect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_construct<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentConstructed>(this);
+        reg->on_construct<Component::CharacterController>().disconnect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_update<Component::Collider>().disconnect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_update<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentUpdated>(this);
+        reg->on_update<Component::CharacterController>().disconnect<&PhysicsSystem::OnComponentUpdated>(this);
         reg->on_destroy<Component::Collider>().disconnect<&PhysicsSystem::OnComponentDestroyed>(this);
         reg->on_destroy<Component::RigidBody>().disconnect<&PhysicsSystem::OnComponentDestroyed>(this);
+        reg->on_destroy<Component::CharacterController>().disconnect<&PhysicsSystem::OnComponentDestroyed>(this);
         m_AttachedRegistry = nullptr;
     }
 
@@ -630,9 +739,11 @@ namespace Luth
 
     void PhysicsSystem::OnComponentDestroyed(entt::registry& reg, entt::entity entity)
     {
-        // Either component leaving invalidates the pair; queue the body for deferred destruction so we
-        // don't mutate Jolt state from inside an entity-destroy signal.
+        // Either component leaving invalidates whichever pair the entity participated in. RigidBody and
+        // CharacterController are mutually exclusive so at most one map holds this entity; the other
+        // call early-returns on a find miss. Cheap and avoids needing a discriminator here.
         DestroyBodyForEntity(reg, entity);
+        DestroyCharacterForEntity(reg, entity);
     }
 
     // ── Body lifecycle ──
@@ -826,6 +937,53 @@ namespace Luth
 
         for (auto entity : m_PendingBuild)
         {
+            const bool hasRB = reg.all_of<Component::RigidBody>(entity);
+            const bool hasCC = reg.all_of<Component::CharacterController>(entity);
+
+            // Mutual exclusion — a single entity can't simulate as both rigid body and character.
+            // Warn once per entity so an authoring slip doesn't spam the log.
+            if (hasRB && hasCC)
+            {
+                if (m_WarnedBothComponents.insert(entity).second)
+                    LH_CORE_WARN("PhysicsSystem: entity {} has both RigidBody and CharacterController — drop",
+                                 (u32)entity);
+                continue;
+            }
+
+            if (hasCC)
+            {
+                auto chIt = m_CharacterMap.find(entity);
+
+                // Fast path: character exists, fingerprint matches → only tunable fields changed.
+                // Apply mass / max-strength / max-slope / penetration-recovery in place.
+                if (chIt != m_CharacterMap.end()
+                    && reg.all_of<Component::Collider, Component::CharacterController,
+                                  Component::CharacterControllerRuntime>(entity))
+                {
+                    const auto& collider = reg.get<Component::Collider>(entity);
+                    const auto& cc       = reg.get<Component::CharacterController>(entity);
+                    const auto& runtime  = reg.get<Component::CharacterControllerRuntime>(entity);
+                    if (runtime.fingerprint == ComputeCharacterFingerprint(collider, cc))
+                    {
+                        ApplyCharacterTuning(chIt->second, cc);
+                        continue;
+                    }
+                }
+
+                // Structural change → tear down then rebuild.
+                if (chIt != m_CharacterMap.end())
+                {
+                    delete chIt->second;
+                    m_CharacterMap.erase(chIt);
+                }
+                if (TryCreateCharacter(scene, entity) == BuildResult::RetryLater)
+                    retry.push_back(entity);
+                continue;
+            }
+
+            // Body path (default). Entities with only Collider (no RB, no CC) reach here and
+            // return Failed from TryCreateBody, which drops them from the queue — same behaviour
+            // as before the dispatch was added.
             auto bodyIt = m_BodyMap.find(entity);
 
             // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply
@@ -881,6 +1039,179 @@ namespace Luth
                 mp->SetLinearDamping (rb.linearDamping);
                 mp->SetAngularDamping(rb.angularDamping);
             }
+        }
+    }
+
+    // ── Character lifecycle ──
+
+    PhysicsSystem::BuildResult PhysicsSystem::TryCreateCharacter(Scene* scene, entt::entity entity)
+    {
+        auto& reg = scene->Registry();
+        if (m_CharacterMap.contains(entity)) return BuildResult::Failed;
+        if (!reg.all_of<Component::Collider, Component::CharacterController, Component::Transform>(entity))
+            return BuildResult::Failed;
+
+        const auto& collider  = reg.get<Component::Collider>(entity);
+        const auto& cc        = reg.get<Component::CharacterController>(entity);
+        const auto& transform = reg.get<Component::Transform>(entity);
+
+        // Path B contract: character requires a Capsule collider. Other shapes are an authoring error
+        // — warn once per entity rather than spamming each rebuild trigger.
+        if (collider.type != Component::Collider::Type::Capsule)
+        {
+            if (m_WarnedNonCapsule.insert(entity).second)
+                LH_CORE_WARN("PhysicsSystem: CharacterController on entity {} needs a Capsule Collider "
+                             "— got type {} — skipping", (u32)entity, (int)collider.type);
+            return BuildResult::Failed;
+        }
+
+        // Reuse ShapeCache for primitives — it routes Capsule through ShapeBuilder and wraps with
+        // RotatedTranslatedShape when localOffset/localRotation are non-identity. No asset path is
+        // involved for a capsule, so RetryLater is impossible here today; the branch exists for the
+        // future "asset-backed character shape" extension.
+        auto outcome = m_ShapeCache.GetOrBuild(collider);
+        if (!outcome.shape)
+            return outcome.retryLater ? BuildResult::RetryLater : BuildResult::Failed;
+
+        const Vec3 pos = transform.Position;
+        const Quat rot = Quat(Math::Radians(transform.Rotation));
+        if (reg.any_of<Component::Parent>(entity))
+        {
+            LH_CORE_WARN("PhysicsSystem: character entity {} has a Parent — pose sync ignores hierarchy "
+                         "and may drift", (u32)entity);
+        }
+
+        // CharacterVirtualSettings. mCharacterPadding and mPredictiveContactDistance are construction-
+        // only (no JPH setters) — both live in the fingerprint, so a change forces tear-down + rebuild.
+        JPH::CharacterVirtualSettings settings;
+        settings.mShape                     = outcome.shape;
+        settings.mUp                        = JPH::Vec3::sAxisY();
+        settings.mMass                      = cc.mass;
+        settings.mMaxStrength               = cc.maxStrength;
+        settings.mCharacterPadding          = cc.characterPadding;
+        settings.mPredictiveContactDistance = cc.predictiveContactDistance;
+        settings.mPenetrationRecoverySpeed  = cc.penetrationRecoverySpeed;
+        settings.mMaxSlopeAngle             = Math::Radians(cc.maxSlopeAngleDeg);
+
+        // Jolt-internal heap allocation via JPH_OVERRIDE_NEW_DELETE on CharacterVirtualSettings
+        // (CharacterVirtual.h:25) — documented exception to the LH_NEW cornerstone.
+        auto* ch = new JPH::CharacterVirtual(&settings, Physics::ToJolt(pos), Physics::ToJolt(rot),
+                                             static_cast<JPH::uint64>(entity), &m_System);
+
+        m_CharacterMap[entity] = ch;
+        auto& runtime = reg.get_or_emplace<Component::CharacterControllerRuntime>(entity);
+        runtime.character   = ch;
+        runtime.fingerprint = ComputeCharacterFingerprint(collider, cc);
+        // CharacterController's currentVelocity / groundState default to {0, InAir} at construction;
+        // a rebuild from fingerprint-mismatch preserves the previous values, which is correct (the
+        // character logically continues from where it was, not from rest).
+        return BuildResult::Created;
+    }
+
+    void PhysicsSystem::DestroyCharacterForEntity(entt::registry& /*reg*/, entt::entity entity)
+    {
+        auto it = m_CharacterMap.find(entity);
+        if (it == m_CharacterMap.end()) return;
+
+        // Queue + erase from m_CharacterMap immediately so a paired on_destroy (CharacterController
+        // after Collider or vice versa) on the same entity finds nothing to double-queue. Actual
+        // delete happens in DrainPendingCharacterDestroys at the top of next Update.
+        m_PendingCharacterDestroy.push_back({entity, it->second});
+        m_CharacterMap.erase(it);
+    }
+
+    void PhysicsSystem::DrainPendingCharacterDestroys()
+    {
+        if (m_PendingCharacterDestroy.empty()) return;
+        for (auto& pcd : m_PendingCharacterDestroy)
+        {
+            delete pcd.character;
+            if (m_AttachedRegistry && m_AttachedRegistry->valid(pcd.entity)
+                && m_AttachedRegistry->any_of<Component::CharacterControllerRuntime>(pcd.entity))
+            {
+                m_AttachedRegistry->remove<Component::CharacterControllerRuntime>(pcd.entity);
+            }
+        }
+        m_PendingCharacterDestroy.clear();
+    }
+
+    void PhysicsSystem::ApplyCharacterTuning(JPH::CharacterVirtual* ch,
+                                             const Component::CharacterController& cc)
+    {
+        // Only the fields with public setters on CharacterVirtual / CharacterBase. mCharacterPadding
+        // and mPredictiveContactDistance are construction-only and live in the fingerprint — a change
+        // there forces a tear-down + rebuild instead of reaching this path.
+        ch->SetMass(cc.mass);
+        ch->SetMaxStrength(cc.maxStrength);
+        ch->SetMaxSlopeAngle(Math::Radians(cc.maxSlopeAngleDeg));
+        ch->SetPenetrationRecoverySpeed(cc.penetrationRecoverySpeed);
+    }
+
+    void PhysicsSystem::UpdateCharacters(Scene* scene, f32 dt)
+    {
+        LH_PROFILE_FUNCTION();
+        if (!scene) return;
+
+        auto& reg = scene->Registry();
+        const Vec3 gravity = Physics::FromJolt(m_System.GetGravity());
+
+        auto view = reg.view<Component::CharacterController, Component::CharacterControllerRuntime>();
+        for (auto entity : view)
+        {
+            auto& cc      = view.get<Component::CharacterController>(entity);
+            auto& runtime = view.get<Component::CharacterControllerRuntime>(entity);
+            auto* ch      = runtime.character;
+            if (!ch) continue;
+
+            // Compose velocity: horizontal from desiredVelocity (PlayerControllerSystem feeds this);
+            // vertical = previous-frame vertical + gravity*dt, or jumpSpeed if the user queued a jump
+            // and we're standing on something. CharacterVirtual::Update does NOT integrate gravity
+            // (CharacterVirtual.h:322), so the caller owns it.
+            Vec3 v;
+            v.x = cc.desiredVelocity.x;
+            v.z = cc.desiredVelocity.z;
+            v.y = cc.currentVelocity.y + gravity.y * cc.gravityFactor * dt;
+            if (cc.jumpQueued && cc.IsGrounded())
+                v.y = cc.jumpSpeed;
+            cc.jumpQueued = false;  // consume regardless — a queued jump that misses the grounded
+                                    // window is intentionally lost (no buffering at Tier 1)
+
+            ch->SetLinearVelocity(Physics::ToJolt(v));
+
+            // ExtendedUpdate adds default StickToFloor + WalkStairs on top of plain Update — gives us
+            // Tier 1's "JPH defaults" stair/slope handling for free. Empty filters mean the character
+            // collides per the existing BPLayerInterface rules (MOVING vs STATIC/TRIGGER).
+            JPH::CharacterVirtual::ExtendedUpdateSettings extSettings{};
+            ch->ExtendedUpdate(dt, Physics::ToJolt(gravity * cc.gravityFactor), extSettings,
+                               JPH::BroadPhaseLayerFilter{}, JPH::ObjectLayerFilter{},
+                               JPH::BodyFilter{}, JPH::ShapeFilter{}, m_TempAlloc);
+
+            cc.currentVelocity = Physics::FromJolt(ch->GetLinearVelocity());
+            cc.groundState     = ToGroundState(ch->GetGroundState());
+        }
+    }
+
+    void PhysicsSystem::SyncCharactersToTransforms(Scene* scene)
+    {
+        LH_PROFILE_FUNCTION();
+        if (!scene) return;
+
+        auto& reg = scene->Registry();
+        auto view = reg.view<Component::CharacterControllerRuntime,
+                             Component::Transform, Component::WorldTransform>();
+        for (auto entity : view)
+        {
+            const auto* ch = view.get<Component::CharacterControllerRuntime>(entity).character;
+            if (!ch) continue;
+
+            // CharacterVirtual position only — rotation is not driven by the sweep (the character is
+            // an upright capsule). Preserve whatever rotation the user authored on Transform.
+            auto& transform = view.get<Component::Transform>(entity);
+            auto& world     = view.get<Component::WorldTransform>(entity);
+            transform.Position = Physics::FromJolt(ch->GetPosition());
+            transform.IsDirty  = true;
+            const Quat rot = Quat(Math::Radians(transform.Rotation));
+            world.Matrix = ComposeTransform(transform.Position, rot, transform.Scale);
         }
     }
 
