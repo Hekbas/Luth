@@ -279,6 +279,25 @@ namespace Luth
             j["rigidBody"]        = rj;
         }
 
+        // CharacterController: authoring fields only. desiredVelocity / jumpQueued (per-frame inputs)
+        // and groundState / currentVelocity (read-back) are skipped — they're refreshed each frame by
+        // PlayerControllerSystem and PhysicsSystem respectively.
+        if (entity.HasComponent<CharacterController>()) {
+            const auto& cc = entity.GetComponent<CharacterController>();
+            json chj;
+            chj["maxSlopeAngleDeg"]          = cc.maxSlopeAngleDeg;
+            chj["mass"]                      = cc.mass;
+            chj["maxStrength"]               = cc.maxStrength;
+            chj["characterPadding"]          = cc.characterPadding;
+            chj["predictiveContactDistance"] = cc.predictiveContactDistance;
+            chj["penetrationRecoverySpeed"]  = cc.penetrationRecoverySpeed;
+            chj["layer"]                     = cc.layer;
+            chj["gravityFactor"]             = cc.gravityFactor;
+            chj["moveSpeed"]                 = cc.moveSpeed;
+            chj["jumpSpeed"]                 = cc.jumpSpeed;
+            j["characterController"]         = chj;
+        }
+
         return j;
     }
 
@@ -635,6 +654,24 @@ namespace Luth
                 rb.angularDamping  = rj.value("angularDamping", 0.05f);
                 rb.materialUUID    = UUID::FromString(rj.value("materialUUID", ""));
                 entity.AddComponent<RigidBody>(rb);
+            }
+
+            // Populate local CC, then AddComponent — EnTT on_construct must see deserialized values,
+            // not defaults, or PhysicsSystem's first build would queue with stale fields.
+            if (ej.contains("characterController")) {
+                const auto& chj = ej["characterController"];
+                CharacterController cc;
+                cc.maxSlopeAngleDeg          = chj.value("maxSlopeAngleDeg",          45.0f);
+                cc.mass                      = chj.value("mass",                      70.0f);
+                cc.maxStrength               = chj.value("maxStrength",               100.0f);
+                cc.characterPadding          = chj.value("characterPadding",          0.02f);
+                cc.predictiveContactDistance = chj.value("predictiveContactDistance", 0.1f);
+                cc.penetrationRecoverySpeed  = chj.value("penetrationRecoverySpeed",  1.0f);
+                cc.layer                     = chj.value("layer", static_cast<u8>(1));
+                cc.gravityFactor             = chj.value("gravityFactor",             1.0f);
+                cc.moveSpeed                 = chj.value("moveSpeed",                 5.0f);
+                cc.jumpSpeed                 = chj.value("jumpSpeed",                 6.0f);
+                entity.AddComponent<CharacterController>(cc);
             }
 
             // Store for hierarchy reconstruction
