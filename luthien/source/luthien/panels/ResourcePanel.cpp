@@ -69,12 +69,13 @@ namespace Luth
         ButtonDropdown(ICON_FA_FILTER, "type_filter", [this]() {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
             bool changed = false;
-            changed |= ImGui::Checkbox("Models",    &m_ShowModels);
-            changed |= ImGui::Checkbox("Textures",  &m_ShowTextures);
-            changed |= ImGui::Checkbox("Materials", &m_ShowMaterials);
-            changed |= ImGui::Checkbox("Shaders",   &m_ShowShaders);
-            changed |= ImGui::Checkbox("Fonts",     &m_ShowFonts);
-            changed |= ImGui::Checkbox("Scenes",    &m_ShowScenes);
+            changed |= ImGui::Checkbox("Models",            &m_ShowModels);
+            changed |= ImGui::Checkbox("Textures",          &m_ShowTextures);
+            changed |= ImGui::Checkbox("Materials",         &m_ShowMaterials);
+            changed |= ImGui::Checkbox("Physics Materials", &m_ShowPhysicsMaterials);
+            changed |= ImGui::Checkbox("Shaders",           &m_ShowShaders);
+            changed |= ImGui::Checkbox("Fonts",             &m_ShowFonts);
+            changed |= ImGui::Checkbox("Scenes",            &m_ShowScenes);
             if (changed) m_NeedsRebuild = true;
             ImGui::PopStyleVar();
         });
@@ -105,12 +106,13 @@ namespace Luth
         for (const auto& [uuid, metadata] : registry)
         {
             // Filter by type
-            if (metadata.Type == AssetType::Model    && !m_ShowModels)    continue;
-            if (metadata.Type == AssetType::Material && !m_ShowMaterials) continue;
-            if (metadata.Type == AssetType::Texture  && !m_ShowTextures)  continue;
-            if (metadata.Type == AssetType::Shader   && !m_ShowShaders)   continue;
-            if (metadata.Type == AssetType::Font     && !m_ShowFonts)     continue;
-            if (metadata.Type == AssetType::Scene    && !m_ShowScenes)    continue;
+            if (metadata.Type == AssetType::Model           && !m_ShowModels)           continue;
+            if (metadata.Type == AssetType::Material        && !m_ShowMaterials)        continue;
+            if (metadata.Type == AssetType::PhysicsMaterial && !m_ShowPhysicsMaterials) continue;
+            if (metadata.Type == AssetType::Texture         && !m_ShowTextures)         continue;
+            if (metadata.Type == AssetType::Shader          && !m_ShowShaders)          continue;
+            if (metadata.Type == AssetType::Font            && !m_ShowFonts)            continue;
+            if (metadata.Type == AssetType::Scene           && !m_ShowScenes)           continue;
 
             ResourceEntry entry;
             entry.Name = metadata.Path.filename().string();
@@ -118,13 +120,14 @@ namespace Luth
 
             switch (metadata.Type)
             {
-            case AssetType::Model:    entry.Type = "Model";    break;
-            case AssetType::Material: entry.Type = "Material"; break;
-            case AssetType::Texture:  entry.Type = "Texture";  break;
-            case AssetType::Shader:   entry.Type = "Shader";   break;
-            case AssetType::Font:     entry.Type = "Font";     break;
-            case AssetType::Scene:    entry.Type = "Scene";    break;
-            default:                  entry.Type = "Unknown";  break;
+            case AssetType::Model:           entry.Type = "Model";           break;
+            case AssetType::Material:        entry.Type = "Material";        break;
+            case AssetType::PhysicsMaterial: entry.Type = "PhysicsMaterial"; break;
+            case AssetType::Texture:         entry.Type = "Texture";         break;
+            case AssetType::Shader:          entry.Type = "Shader";          break;
+            case AssetType::Font:            entry.Type = "Font";            break;
+            case AssetType::Scene:           entry.Type = "Scene";           break;
+            default:                         entry.Type = "Unknown";         break;
             }
 
             if (auto asset = AssetManager::GetAsset<Asset>(uuid))
@@ -285,12 +288,13 @@ namespace Luth
     ImVec4 ResourcePanel::GetTypeColor(const std::string& type) const
     {
         static const std::unordered_map<std::string, ImVec4> colors = {
-            {"Model",    ImVec4(0.4f, 0.8f, 1.0f, 1.0f)},
-            {"Texture",  ImVec4(0.8f, 0.6f, 0.2f, 1.0f)},
-            {"Material", ImVec4(0.2f, 0.9f, 0.4f, 1.0f)},
-            {"Shader",   ImVec4(0.9f, 0.3f, 0.3f, 1.0f)},
-            {"Font",     ImVec4(0.7f, 0.7f, 0.7f, 1.0f)},
-            {"Scene",    ImVec4(0.7f, 0.4f, 0.9f, 1.0f)},
+            {"Model",           ImVec4(0.4f,  0.8f,  1.0f, 1.0f)},
+            {"Texture",         ImVec4(0.8f,  0.6f,  0.2f, 1.0f)},
+            {"Material",        ImVec4(0.2f,  0.9f,  0.4f, 1.0f)},
+            {"PhysicsMaterial", ImVec4(0.95f, 0.55f, 0.2f, 1.0f)},
+            {"Shader",          ImVec4(0.9f,  0.3f,  0.3f, 1.0f)},
+            {"Font",            ImVec4(0.7f,  0.7f,  0.7f, 1.0f)},
+            {"Scene",           ImVec4(0.7f,  0.4f,  0.9f, 1.0f)},
         };
         auto it = colors.find(type);
         return (it != colors.end()) ? it->second : ImVec4(1, 1, 1, 1);
@@ -298,12 +302,13 @@ namespace Luth
 
     const char* ResourcePanel::GetTypeIcon(const std::string& type) const
     {
-        if (type == "Model")    return ICON_FA_CUBE;
-        if (type == "Texture")  return ICON_FA_IMAGE;
-        if (type == "Material") return ICON_FA_CIRCLE_HALF_STROKE;
-        if (type == "Shader")   return ICON_FA_FILE_CODE;
-        if (type == "Font")     return ICON_FA_FONT;
-        if (type == "Scene")    return ICON_FA_FILM;
+        if (type == "Model")           return ICON_FA_CUBE;
+        if (type == "Texture")         return ICON_FA_IMAGE;
+        if (type == "Material")        return ICON_FA_CIRCLE_HALF_STROKE;
+        if (type == "PhysicsMaterial") return ICON_FA_BOWLING_BALL;
+        if (type == "Shader")          return ICON_FA_FILE_CODE;
+        if (type == "Font")            return ICON_FA_FONT;
+        if (type == "Scene")           return ICON_FA_FILM;
         return ICON_FA_FILE;
     }
 }

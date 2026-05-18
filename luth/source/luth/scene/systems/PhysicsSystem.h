@@ -1,12 +1,15 @@
 #pragma once
 
 #include "luth/scene/systems/ISystem.h"
+#include "luth/core/UUID.h"
+#include "luth/jobs/SpinLock.h"
 #include "luth/physics/PhysicsEvents.h"
 #include "luth/physics/PhysicsLayers.h"
 #include "luth/physics/PhysicsListeners.h"
 #include "luth/physics/PhysicsQuery.h"
 #include "luth/physics/LuthJobSystemForJolt.h"
 #include "luth/physics/PhysicsDebugRenderer.h"
+#include "luth/physics/ShapeCache.h"
 
 #include <Jolt/Jolt.h>
 
@@ -79,6 +82,12 @@ namespace Luth
             JPH::BodyID  bodyId;
         };
 
+        // Result of a single TryCreateBody attempt. RetryLater means a transient miss (asset not
+        // loaded yet) — DrainPendingBuilds collects these into a shadow vector and re-queues them
+        // for next Update. Failed is permanent (missing components, invalid shape, opt-out): the
+        // entity is dropped from the queue. Created is the success path.
+        enum class BuildResult { Created, RetryLater, Failed };
+
         // Lazily attaches signal handlers to the scene's registry on the first Update with a non-null
         // scene, and on every subsequent scene change. Detach happens in the destructor.
         void EnsureSignalsConnected(Scene* scene);
@@ -93,14 +102,33 @@ namespace Luth
         void OnComponentUpdated(entt::registry& reg, entt::entity entity);
         void OnComponentDestroyed(entt::registry& reg, entt::entity entity);
 
-        bool TryCreateBody(entt::registry& reg, entt::entity entity);
+        BuildResult TryCreateBody(Scene* scene, entt::entity entity);
         void DestroyBodyForEntity(entt::registry& reg, entt::entity entity);
         void DrainPendingDestroys();
 
         // Dedup-push to m_PendingBuild. Inline scan keeps cost negligible for the small queue sizes
         // expected (one entry per edited entity per frame).
         void QueueBuild(entt::entity entity);
-        void DrainPendingBuilds(entt::registry& reg);
+        void DrainPendingBuilds(Scene* scene);
+
+        // Snapshot the dirty-UUID scratch under SpinLock, invalidate matching cache entries, then
+        // walk the registry to push entities whose colliders reference the dirty UUIDs onto
+        // m_PendingBuild. Runs on the game-stage fiber at the top of Update so callbacks staged
+        // from the App-loop thread reach the build queue without crossing the SpinLock for the
+        // expensive registry walk.
+        void DrainDirtyAssets(Scene* scene);
+
+        // Subscribe once to AssetDatabase::AddChangeCallback. The callback is bound to `this` and
+        // only pushes UUIDs into m_DirtyAssetsScratch — registry walks happen on the game-stage
+        // fiber. PhysicsSystem outlives the App loop so unregister is unnecessary (and unsupported
+        // by AssetDatabase today).
+        void EnsureChangeCallbackRegistered();
+
+        // Fast-path field tuning when DrainPendingBuilds detects a fingerprint match — only
+        // damping / gravity factor / linear-angular velocity are applied here. Mass and structural
+        // fields (motion, layer, sensor, motionQuality, shape) live in the fingerprint and force
+        // a full rebuild when they change.
+        void ApplyRigidBodyTuning(JPH::BodyID id, const Component::RigidBody& rb);
 
         void SyncTransformsToBodies(Scene* scene);
         void SyncBodiesToTransforms(Scene* scene);
@@ -128,6 +156,19 @@ namespace Luth
         std::vector<PendingDestroy>                   m_PendingDestroy;
         std::vector<entt::entity>                     m_PendingBuild;
         entt::registry*                               m_AttachedRegistry = nullptr;
+        Scene*                                        m_AttachedScene    = nullptr;
+
+        // Asset-backed shape cache. Cleared on scene change; entries invalidated on reimport via
+        // OnAssetReimported (driven from DrainDirtyAssets).
+        Physics::ShapeCache                           m_ShapeCache;
+
+        // Hot-reload plumbing. The change callback (App-loop thread) pushes UUIDs into the scratch
+        // under SpinLock; the game-stage fiber drains it at Update start. Lock contention is rare
+        // (FileWatcher polls at 1 Hz) and the critical section is a vector::insert, so SpinLock fits
+        // V1 (sub-microsecond hold time, no fiber yield inside).
+        SpinLock                                      m_DirtyAssetsLock;
+        std::vector<UUID>                             m_DirtyAssetsScratch;
+        bool                                          m_ChangeCallbackRegistered = false;
 
         // Body-index reverse table for OnContactRemoved (where Jolt forbids body access). Sized
         // kMaxBodies at ctor; entries set at TryCreateBody alongside SetUserData, cleared at body

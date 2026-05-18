@@ -92,6 +92,14 @@ namespace Luth
                 if (UI::PropertyCombo("Mesh Transform", meshTransformInt, meshTransformModes, IM_ARRAYSIZE(meshTransformModes)))
                     m_Settings.SkinMeshTransform = static_cast<ModelImportSettings::MeshTransformMode>(meshTransformInt);
 
+                ImGui::Separator();
+                ImGui::TextDisabled("Physics");
+
+                static const char* physicsBakeModes[] = { "None", "Auto" };
+                int physicsBakeInt = static_cast<int>(m_Settings.PhysicsBake);
+                if (UI::PropertyCombo("Bake Mode", physicsBakeInt, physicsBakeModes, IM_ARRAYSIZE(physicsBakeModes)))
+                    m_Settings.PhysicsBake = static_cast<ModelImportSettings::PhysicsBakeMode>(physicsBakeInt);
+
                 UI::EndProperties();
             }
 

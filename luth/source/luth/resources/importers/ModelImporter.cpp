@@ -42,6 +42,7 @@ namespace Luth
         s.BakeAxisConversion           = j.value("bake_axis_conversion", true);
         s.SkinMeshTransform            = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
         s.ExtractClipsAsSeparateAssets = j.value("extract_clips_as_separate_assets", true);
+        s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
         return s;
     }
 
@@ -55,7 +56,8 @@ namespace Luth
             { "up_axis",                         UpAxis },
             { "bake_axis_conversion",            BakeAxisConversion },
             { "skin_mesh_transform",             static_cast<int>(SkinMeshTransform) },
-            { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets }
+            { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets },
+            { "physics_bake",                    static_cast<int>(PhysicsBake) }
         };
     }
 

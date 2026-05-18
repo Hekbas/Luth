@@ -40,11 +40,17 @@ namespace Luth
                 settings["up_axis"] = -1;              // -1 = auto-detect
                 settings["bake_axis_conversion"] = true;
                 settings["skin_mesh_transform"] = 0;   // Auto
+                settings["physics_bake"] = 0;          // None — opt-in per model
                 break;
 
             case AssetType::Material:
                 settings["shader"] = "Lit";
                 settings["blend_mode"] = "Opaque";
+                break;
+
+            case AssetType::PhysicsMaterial:
+                // No type-specific knobs at the .meta layer — friction/restitution/density live
+                // inside the .physmat JSON itself.
                 break;
 
             case AssetType::Shader:

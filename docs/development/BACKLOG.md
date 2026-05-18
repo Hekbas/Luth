@@ -155,9 +155,29 @@ Finishes the texture half of `vulkan-polish` S4 (deferred mid-epic). New `Upload
 
 ---
 
-## Epic: `jolt-physics` — v2.9.0
+## Epic: `jolt-physics` — v2.10.x series
 
 > **Rigid body physics.** Makes Luth a game engine, not just a renderer.
+
+> **Tier 0 status: Shipped across v2.10.0–v2.10.2.**
+>
+> - v2.10.0 [`jolt-rigid-bodies`](history/v2.x/rigid-bodies.md) — vendor + `LuthJobSystemForJolt` adapter, `Collider`/`RigidBody`/`PhysicsBodyRuntime` components, body lifecycle, kinematic/dynamic transform sync, debug-draw subsystem, Inspector + scene serialization, CCD `motionQuality`. `WaitForCounter` UAF fix along the way.
+> - v2.10.1 [`jolt-physics-queries`](history/v2.x/jolt-physics-queries.md) — Phase D: `Raycast`, `OverlapBox`/`Sphere`/`Capsule`, `LuthContactListener` (Godot-pattern trigger cache under SpinLock), 4-kind event surface (`ContactAdded`/`Removed` + `TriggerEnter`/`Exit`), per-frame `DrainEvents`.
+> - v2.10.2 [`jolt-physics-assets`](history/v2.x/jolt-physics-assets.md) — Phase E: `Physics::ShapeCache` (lazy build of `JPH::ConvexHullShape` + `JPH::MeshShape` from `Model::m_MeshesData`), `PhysicsMaterial` UUID-keyed asset (friction/restitution/density), `ModelImportSettings::PhysicsBakeMode { None, Auto }` opt-in gate, hot-reload via `AssetDatabase::AddChangeCallback`, `shapeFingerprint` populated + skip-rebuild fast path.
+>
+> **Tier 1+ deferrals** (separate efforts when project data demands them):
+> - `feat/jolt-cooked-shapes` — on-disk persistence via `JPH::Shape::SaveBinaryState` sidecar/appended chunk keyed by `(modelUUID, meshIndex, shapeKind)`. Cache key already content-addressable; migration is a `ShapeCache` "load-from-blob" branch.
+> - `feat/jolt-character-controller` — Tier 1 character controller via `JPH::CharacterVirtual`.
+> - Per-mesh `PhysicsBakeMode` override + `ConvexHullPerMesh`/`MeshShapePerMesh` enum modes.
+> - `JPH::MutableCompoundShape` composition (multiple Colliders per entity, child-entity composition).
+> - ConvexDecomposition (V-HACD) for non-convex shapes.
+> - PhysicsMaterial cook parameters (active-edge angle, double-sided, per-triangle user data) — add when on-disk cook lands.
+> - PhysicsMaterial-per-shape (currently per-body via `RigidBody.materialUUID`).
+> - Heightfield / terrain shapes.
+> - Dynamic mesh updates (skinned mesh as physics, deformable shapes).
+> - `JPH::Shape` LOD / decimation.
+>
+> The original Tier 0 spec follows for archaeology.
 
 ### Architecture: Jolt on CPU via Fiber Job System
 

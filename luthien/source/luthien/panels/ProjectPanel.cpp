@@ -350,6 +350,7 @@ namespace Luth
         if (ImGui::BeginPopupContextWindow("ProjectContextMenu")) {
             if (ImGui::MenuItem("Create Folder")) CreateNewFolder();
             if (ImGui::MenuItem("Create Material")) CreateNewMaterial();
+            if (ImGui::MenuItem("Create Physics Material")) CreateNewPhysicsMaterial();
             ImGui::EndPopup();
         }
 
@@ -607,13 +608,14 @@ namespace Luth
         if (isDirectory) return ICON_FA_FOLDER;
 
         static const std::unordered_map<AssetType, const char*> icons = {
-            { AssetType::Model,    ICON_FA_CUBE                  },
-            { AssetType::Texture,  ICON_FA_IMAGE                 },
-            { AssetType::Material, ICON_FA_CIRCLE_HALF_STROKE    },
-			{ AssetType::Shader,   ICON_FA_FILE_CODE             },
-			{ AssetType::Font,     ICON_FA_FONT                  },
-			{ AssetType::Scene,   ICON_FA_FILM                  },
-			{ AssetType::None,  ICON_FA_FILE_CIRCLE_QUESTION  }
+            { AssetType::Model,           ICON_FA_CUBE                  },
+            { AssetType::Texture,         ICON_FA_IMAGE                 },
+            { AssetType::Material,        ICON_FA_CIRCLE_HALF_STROKE    },
+            { AssetType::PhysicsMaterial, ICON_FA_BOWLING_BALL          },
+            { AssetType::Shader,          ICON_FA_FILE_CODE             },
+            { AssetType::Font,            ICON_FA_FONT                  },
+            { AssetType::Scene,           ICON_FA_FILM                  },
+            { AssetType::None,            ICON_FA_FILE_CIRCLE_QUESTION  }
         };
         return icons.count(type) ? icons.at(type) : ICON_FILE;
     }
@@ -710,6 +712,30 @@ namespace Luth
         // Register
         UUID uuid = MetaFile::Create(path, AssetType::Material);
         AssetDatabase::RegisterAsset(path, uuid, AssetType::Material);
+
+        Refresh();
+    }
+
+    void ProjectPanel::CreateNewPhysicsMaterial()
+    {
+        fs::path path = m_CurrentDirNode->Path / "New Physics Material.physmat";
+        int counter = 1;
+        while (fs::exists(path)) {
+            path = m_CurrentDirNode->Path
+                / ("New Physics Material " + std::to_string(counter++) + ".physmat");
+        }
+
+        nlohmann::json data;
+        data["friction"]    = 0.5;
+        data["restitution"] = 0.0;
+        data["density"]     = 1000.0;
+
+        std::ofstream file(path);
+        file << data.dump(4);
+        file.close();
+
+        UUID uuid = MetaFile::Create(path, AssetType::PhysicsMaterial);
+        AssetDatabase::RegisterAsset(path, uuid, AssetType::PhysicsMaterial);
 
         Refresh();
     }

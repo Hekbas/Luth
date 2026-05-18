@@ -49,12 +49,13 @@ namespace Luth
 
     private:
         char m_SearchBuffer[256] = "";
-        bool m_ShowModels    = true;
-        bool m_ShowTextures  = true;
-        bool m_ShowMaterials = true;
-        bool m_ShowShaders   = true;
-        bool m_ShowFonts     = true;
-        bool m_ShowScenes    = true;
+        bool m_ShowModels           = true;
+        bool m_ShowTextures         = true;
+        bool m_ShowMaterials        = true;
+        bool m_ShowPhysicsMaterials = true;
+        bool m_ShowShaders          = true;
+        bool m_ShowFonts            = true;
+        bool m_ShowScenes           = true;
 
         UUID m_SelectedUUID = UUID::Invalid();
 

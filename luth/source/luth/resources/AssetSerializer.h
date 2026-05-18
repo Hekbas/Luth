@@ -86,5 +86,8 @@ namespace Luth
 
         static bool SerializeAnimation(const fs::path& path, const struct AnimationAssetData& data);
         static bool DeserializeAnimation(const fs::path& path, struct AnimationAssetData& outData);
+
+        static bool SerializePhysicsMaterial  (const fs::path& path, const struct PhysicsMaterialAssetData& data);
+        static bool DeserializePhysicsMaterial(const fs::path& path,       struct PhysicsMaterialAssetData& outData);
     };
 }

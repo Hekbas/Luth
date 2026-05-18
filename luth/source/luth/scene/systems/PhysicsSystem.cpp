@@ -8,7 +8,11 @@
 #include "luth/scene/components/Physics.h"
 #include "luth/physics/JoltMath.h"
 #include "luth/physics/LayerMaskFilter.h"
+#include "luth/physics/PhysicsMaterial.h"
 #include "luth/physics/ShapeBuilder.h"
+#include "luth/renderer/resources/Model.h"
+#include "luth/resources/AssetDatabase.h"
+#include "luth/resources/AssetManager.h"
 #include "luth/core/DebugDraw.h"
 #include "luth/core/EditorHooks.h"
 #include "luth/core/diagnostics/Log.h"
@@ -361,8 +365,10 @@ namespace Luth
         // DrainPendingBuilds so a destroy + re-add of the same entity in one frame produces one
         // fresh body, not a destroyed dangling one.
         EnsureSignalsConnected(scene);
+        EnsureChangeCallbackRegistered();
+        DrainDirtyAssets(scene);
         DrainPendingDestroys();
-        DrainPendingBuilds(scene->Registry());
+        DrainPendingBuilds(scene);
 
         // Debug-draw runs unconditionally so colliders are visible while authoring (Editing) too.
         // Reads body state from JPH::PhysicsSystem; safe between Step calls.
@@ -573,9 +579,15 @@ namespace Luth
             }
             m_PendingDestroy.clear();
             m_PendingBuild.clear();
+            // Drop cached asset shapes — model UUIDs may collide across projects after
+            // UnloadProject + LoadProject. Worst case is a fresh build per shape on first body
+            // create in the new scene; serving stale geometry to a different project would be
+            // a correctness bug.
+            m_ShapeCache.Clear();
         }
 
         m_AttachedRegistry = reg;
+        m_AttachedScene = scene;
         reg->on_construct<Component::Collider>().connect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_construct<Component::RigidBody>().connect<&PhysicsSystem::OnComponentConstructed>(this);
         reg->on_update<Component::Collider>().connect<&PhysicsSystem::OnComponentUpdated>(this);
@@ -625,11 +637,12 @@ namespace Luth
 
     // ── Body lifecycle ──
 
-    bool PhysicsSystem::TryCreateBody(entt::registry& reg, entt::entity entity)
+    PhysicsSystem::BuildResult PhysicsSystem::TryCreateBody(Scene* scene, entt::entity entity)
     {
-        if (m_BodyMap.contains(entity)) return false;
+        auto& reg = scene->Registry();
+        if (m_BodyMap.contains(entity)) return BuildResult::Failed;
         if (!reg.all_of<Component::Collider, Component::RigidBody, Component::Transform>(entity))
-            return false;
+            return BuildResult::Failed;
 
         const auto& collider  = reg.get<Component::Collider>(entity);
         const auto& rb        = reg.get<Component::RigidBody>(entity);
@@ -641,15 +654,28 @@ namespace Luth
         {
             LH_CORE_WARN("PhysicsSystem: MeshRef requires Static body — skipping entity {}",
                          (u32)entity);
-            return false;
+            return BuildResult::Failed;
         }
 
-        auto shape = Physics::BuildShape(collider);
-        if (!shape)
+        auto outcome = m_ShapeCache.GetOrBuild(collider);
+        if (!outcome.shape)
         {
-            // ConvexHullRef and MeshRef return null until the asset-shape cache lands; primitives
-            // return null only on invalid params (already warned by ShapeBuilder).
-            return false;
+            // RetryLater is set by the cache when the source asset hasn't loaded yet. Permanent
+            // failures (invalid primitive params, opt-out, missing UUID) drop with retryLater=false
+            // so the caller stops cycling them through the queue.
+            return outcome.retryLater ? BuildResult::RetryLater : BuildResult::Failed;
+        }
+        auto shape = outcome.shape;
+
+        // Pin the source Model so AssetManager::Trim can't evict it while a body still references
+        // its vertex data. Mirrors the RenderSnapshot/MeshRenderer pattern; HoldAsset is idempotent
+        // on the same UUID. Materials follow in the PhysicsMaterial sub-task.
+        if (collider.type == Component::Collider::Type::ConvexHullRef
+            || collider.type == Component::Collider::Type::MeshRef)
+        {
+            const UUID modelUUID(collider.meshRef.modelHi, collider.meshRef.modelLo);
+            if (auto model = AssetManager::GetAsset<Model>(modelUUID))
+                scene->HoldAsset(modelUUID, model);
         }
 
         // Source the initial body pose from Transform (local) rather than WorldTransform: signals fire
@@ -666,6 +692,19 @@ namespace Luth
                          " hierarchy and may drift", (u32)entity);
         }
 
+        // Resolve PhysicsMaterial. UUID::Invalid (or not-yet-loaded) → engine baseline. Pin the
+        // asset on success so AssetManager::Trim can't evict it while a body holds its values.
+        const PhysicsMaterial* matPtr = &PhysicsMaterial::Default();
+        if (rb.materialUUID.IsValid())
+        {
+            if (auto matAsset = AssetManager::GetAsset<PhysicsMaterial>(rb.materialUUID))
+            {
+                matPtr = matAsset.get();
+                scene->HoldAsset(rb.materialUUID, matAsset);
+            }
+        }
+        const auto& mat = *matPtr;
+
         JPH::BodyCreationSettings bcs(shape, Physics::ToJolt(pos), Physics::ToJolt(rot),
                                       ToJoltMotion(rb.motion), PickLayer(rb));
         bcs.mIsSensor        = rb.isSensor;
@@ -675,11 +714,26 @@ namespace Luth
         bcs.mGravityFactor   = rb.gravityFactor;
         bcs.mLinearDamping   = rb.linearDamping;
         bcs.mAngularDamping  = rb.angularDamping;
+        bcs.mFriction        = mat.friction;
+        bcs.mRestitution     = mat.restitution;
 
         if (rb.mass > 0.0f)
         {
+            // User-set mass wins. Inertia is computed from shape + this mass.
             bcs.mOverrideMassProperties        = JPH::EOverrideMassProperties::CalculateInertia;
             bcs.mMassPropertiesOverride.mMass  = rb.mass;
+        }
+        else if (mat.density > 0.0f)
+        {
+            // Density × shape volume. MeshShape::GetVolume returns 0 (no well-defined volume) and
+            // is gated to Static where mass is irrelevant — fall through to Jolt's default in
+            // that case. Same applies to any other shape that returns 0.
+            const float volume = shape->GetVolume();
+            if (volume > 0.0f)
+            {
+                bcs.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+                bcs.mMassPropertiesOverride.mMass = mat.density * volume;
+            }
         }
 
         const auto activation = (rb.startActive && rb.motion != Component::RigidBody::Motion::Static)
@@ -690,7 +744,7 @@ namespace Luth
         if (id.IsInvalid())
         {
             LH_CORE_WARN("PhysicsSystem: CreateAndAddBody failed for entity {}", (u32)entity);
-            return false;
+            return BuildResult::Failed;
         }
 
         // Pack entity into user data for reverse lookup from contact callbacks. OnContactAdded /
@@ -707,8 +761,8 @@ namespace Luth
         m_BodyMap[entity] = id;
         auto& runtime = reg.get_or_emplace<Component::PhysicsBodyRuntime>(entity);
         runtime.bodyId = id.GetIndexAndSequenceNumber();
-        runtime.shapeFingerprint = 0;
-        return true;
+        runtime.shapeFingerprint = Physics::ShapeCache::ComputeFingerprint(collider, rb);
+        return BuildResult::Created;
     }
 
     void PhysicsSystem::DestroyBodyForEntity(entt::registry& /*reg*/, entt::entity entity)
@@ -754,32 +808,150 @@ namespace Luth
         m_PendingBuild.push_back(entity);
     }
 
-    void PhysicsSystem::DrainPendingBuilds(entt::registry& reg)
+    void PhysicsSystem::DrainPendingBuilds(Scene* scene)
     {
-        if (m_PendingBuild.empty()) return;
+        if (m_PendingBuild.empty() || !scene) return;
 
         std::sort(m_PendingBuild.begin(), m_PendingBuild.end());
         m_PendingBuild.erase(std::unique(m_PendingBuild.begin(), m_PendingBuild.end()),
                              m_PendingBuild.end());
 
         auto& bi = m_System.GetBodyInterface();
+        auto& reg = scene->Registry();
+
+        // Shadow vector for retries — entities whose source asset hasn't loaded yet stay queued
+        // for next Update. Bounded by the count of asset-backed bodies in the scene; per-frame
+        // work is ~one BodyMap lookup per pending entity until the asset arrives.
+        std::vector<entt::entity> retry;
+
         for (auto entity : m_PendingBuild)
         {
-            // Tear down the existing body before rebuild. Safe to do synchronously here — drain runs
-            // at Update start, before any Step, so no in-flight simulation depends on the body.
-            if (auto it = m_BodyMap.find(entity); it != m_BodyMap.end())
+            auto bodyIt = m_BodyMap.find(entity);
+
+            // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply
+            // damping / gravity / velocity in place and skip the (expensive for asset shapes)
+            // shape rebuild + body recreate.
+            if (bodyIt != m_BodyMap.end()
+                && reg.all_of<Component::Collider, Component::RigidBody,
+                              Component::PhysicsBodyRuntime>(entity))
             {
-                bi.RemoveBody(it->second);
-                bi.DestroyBody(it->second);
-                m_BodyMap.erase(it);
+                const auto& collider = reg.get<Component::Collider>(entity);
+                const auto& rb       = reg.get<Component::RigidBody>(entity);
+                const auto& runtime  = reg.get<Component::PhysicsBodyRuntime>(entity);
+
+                if (runtime.shapeFingerprint == Physics::ShapeCache::ComputeFingerprint(collider, rb))
+                {
+                    ApplyRigidBodyTuning(bodyIt->second, rb);
+                    continue;
+                }
             }
 
-            // TryCreateBody re-emplaces PhysicsBodyRuntime with the new bodyId on success and bails
-            // quietly if either component or Transform is missing (entity may have lost a component
-            // between the queue push and now).
-            TryCreateBody(reg, entity);
+            // Tear down the existing body before rebuild. Safe to do synchronously here — drain runs
+            // at Update start, before any Step, so no in-flight simulation depends on the body.
+            if (bodyIt != m_BodyMap.end())
+            {
+                bi.RemoveBody(bodyIt->second);
+                bi.DestroyBody(bodyIt->second);
+                m_BodyMap.erase(bodyIt);
+            }
+
+            // TryCreateBody re-emplaces PhysicsBodyRuntime with the new bodyId on success, returns
+            // RetryLater if the source asset isn't loaded yet (re-queue), and Failed for everything
+            // else — bad components, opt-out, invalid params (drop).
+            if (TryCreateBody(scene, entity) == BuildResult::RetryLater)
+                retry.push_back(entity);
         }
-        m_PendingBuild.clear();
+        m_PendingBuild.swap(retry);
+    }
+
+    void PhysicsSystem::ApplyRigidBodyTuning(JPH::BodyID id, const Component::RigidBody& rb)
+    {
+        auto& bi = m_System.GetBodyInterface();
+        bi.SetLinearVelocity (id, Physics::ToJolt(rb.linearVelocity));
+        bi.SetAngularVelocity(id, Physics::ToJolt(rb.angularVelocity));
+        bi.SetGravityFactor  (id, rb.gravityFactor);
+
+        // Damping setters live on MotionProperties; reach them via a brief BodyLockWrite. The drain
+        // runs outside Step so the lock is uncontended in practice (single-writer, fiber-aligned).
+        JPH::BodyLockWrite lock(m_System.GetBodyLockInterface(), id);
+        if (lock.SucceededAndIsInBroadPhase())
+        {
+            if (auto* mp = lock.GetBody().GetMotionProperties())
+            {
+                mp->SetLinearDamping (rb.linearDamping);
+                mp->SetAngularDamping(rb.angularDamping);
+            }
+        }
+    }
+
+    void PhysicsSystem::DrainDirtyAssets(Scene* scene)
+    {
+        if (!scene) return;
+
+        // Snapshot under lock so the callback can keep pushing while we walk the registry.
+        std::vector<UUID> dirty;
+        {
+            SpinLockGuard guard(m_DirtyAssetsLock);
+            if (m_DirtyAssetsScratch.empty()) return;
+            dirty.swap(m_DirtyAssetsScratch);
+        }
+
+        m_ShapeCache.OnAssetReimported(dirty);
+
+        // Asset content changed under a stable UUID — none of the fields hashed into shapeFingerprint
+        // shift, so the DrainPendingBuilds fast path would silently skip the rebuild. Clear the
+        // stored fingerprint to force a mismatch and the rebuild branch.
+        auto& reg = scene->Registry();
+        auto pushReimport = [&reg, this](entt::entity e) {
+            if (auto* rt = reg.try_get<Component::PhysicsBodyRuntime>(e))
+                rt->shapeFingerprint = 0;
+            QueueBuild(e);
+        };
+
+        // Rebuild bodies whose Collider references one of the dirty UUIDs. Linear scan over the
+        // dirty list per collider is fine — dirty lists from FileWatcher are typically 1-3 UUIDs.
+        auto colliderView = reg.view<Component::Collider>();
+        for (auto entity : colliderView)
+        {
+            const auto& c = colliderView.get<Component::Collider>(entity);
+            if (c.type != Component::Collider::Type::ConvexHullRef
+                && c.type != Component::Collider::Type::MeshRef) continue;
+            const UUID model(c.meshRef.modelHi, c.meshRef.modelLo);
+            for (const UUID& d : dirty)
+            {
+                if (d == model) { pushReimport(entity); break; }
+            }
+        }
+
+        // Same pattern for PhysicsMaterial reimports — friction/restitution/density edits in
+        // an external editor land here. Re-queue any body that references the dirty material UUID.
+        auto rbView = reg.view<Component::RigidBody>();
+        for (auto entity : rbView)
+        {
+            const auto& rb = rbView.get<Component::RigidBody>(entity);
+            if (!rb.materialUUID.IsValid()) continue;
+            for (const UUID& d : dirty)
+            {
+                if (d == rb.materialUUID) { pushReimport(entity); break; }
+            }
+        }
+    }
+
+    void PhysicsSystem::EnsureChangeCallbackRegistered()
+    {
+        if (m_ChangeCallbackRegistered) return;
+
+        // Bound to `this` for the lifetime of the App. AssetDatabase has no unregister API today;
+        // PhysicsSystem outlives the App loop so the dangling-callback hazard is theoretical, not
+        // observable. The callback only stages UUIDs — registry walks happen on the game-stage
+        // fiber via DrainDirtyAssets.
+        AssetDatabase::AddChangeCallback([this]() {
+            const auto& dirty = AssetDatabase::GetDirtyAssets();
+            if (dirty.empty()) return;
+            SpinLockGuard guard(m_DirtyAssetsLock);
+            m_DirtyAssetsScratch.insert(m_DirtyAssetsScratch.end(), dirty.begin(), dirty.end());
+        });
+        m_ChangeCallbackRegistered = true;
     }
 
     // ── Transform <-> Body sync ──
