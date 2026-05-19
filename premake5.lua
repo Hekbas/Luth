@@ -9,6 +9,7 @@ workspace "Luth"
    configurations
    {
       "Debug",
+      "DebugASan",  -- ASan-instrumented Debug. Requires MSVC 16.9+. Release CRT mandatory.
       "Release",
       "Dist"
    }
@@ -17,6 +18,15 @@ workspace "Luth"
 	{
 		"MultiProcessorCompile"
 	}
+
+   -- MSVC ASan emits container-annotation symbols into every TU that uses std::string/vector.
+   -- Mixed ASan/non-ASan static libs trip LNK2038 annotate_string/vector mismatches; defining
+   -- _DISABLE_*_ANNOTATION workspace-wide for DebugASan unifies the symbols across all TUs.
+   -- Heap/stack UAF detection (the actual point) is preserved; only container bounds-checking
+   -- is forfeited.
+   filter "configurations:DebugASan"
+      defines { "_DISABLE_VECTOR_ANNOTATION", "_DISABLE_STRING_ANNOTATION" }
+   filter {}
 
 outputdir = "%{cfg.system}-%{cfg.architecture}/%{cfg.buildcfg}"
 

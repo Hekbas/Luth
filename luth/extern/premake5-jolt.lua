@@ -69,4 +69,12 @@ project "Jolt"
       runtime "Release"
       optimize "on"
 
+   -- DebugASan: same defines + CRT as Release so Jolt.lib's CRT matches Luth.lib's
+   -- DebugASan (Release CRT). JPH_DEBUG_RENDERER kept for debug overlay. Not
+   -- /fsanitize=address (only Luth + its consumers are instrumented).
+   filter "configurations:DebugASan"
+      defines { "JPH_DEBUG_RENDERER", "JPH_ENABLE_ASSERTS" }
+      runtime "Release"
+      symbols "on"
+
    filter {}

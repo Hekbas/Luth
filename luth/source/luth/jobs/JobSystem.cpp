@@ -46,13 +46,12 @@ namespace Luth::JobSystem
         Stage StageTag = Stage::Main;
     };
 
-    // ── Fiber Local Storage (FLS) — replaces thread_local ──
-
-    static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
+    // Per-fiber JobContext lookup via TIB ArbitraryUserPointer at gs:[0x28], swapped
+    // per switch by FiberPrimitive.asm's jump_fcontext save/restore of NT_TIB fields.
 
     static void SetCurrentContext(JobContext* ctx)
     {
-        FlsSetValue(s_FlsIndex, ctx);
+        __writegsqword(0x28, reinterpret_cast<uintptr_t>(ctx));
     }
 
     // Forward-declare; body needs s_Data which is defined below.
@@ -124,7 +123,7 @@ namespace Luth::JobSystem
 
     static const char* GetMyTracyName()
     {
-        JobContext* ctx = (JobContext*)FlsGetValue(s_FlsIndex);
+        JobContext* ctx = GetCurrentJobContext();
         if (!ctx) return "Unknown";
         // Pool-fiber contexts live in FiberContexts[]; worker schedulers in WorkerData::Context.
         JobContext* poolBase = &s_Data.FiberContexts[0];
@@ -328,7 +327,7 @@ namespace Luth::JobSystem
 
         self->IsFinished = true;
         LH_PROFILE_FIBER_LEAVE;
-        Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+        Fiber::SwitchTo(*self, s_Data.Workers[t_WorkerIndex].SchedulerFiber);
     }
 
     // ── Worker Thread Loop ──
@@ -343,8 +342,9 @@ namespace Luth::JobSystem
         WorkerData& worker = s_Data.Workers[workerIndex];
         worker.ThreadIndex = workerIndex;
 
-        // Convert OS thread to fiber (so we can switch away from it)
-        worker.SchedulerFiber = Fiber::ConvertThreadToFiber(nullptr);
+        // Wrap OS thread as a Fiber (so we can switch away). Seeds gs:[0x28] / FLS
+        // with worker.Context on the custom / Win32 backends respectively.
+        worker.SchedulerFiber = Fiber::CaptureCurrentThreadAsFiber(&worker.Context);
         worker.CurrentFiber = &worker.SchedulerFiber;
 
         // Set up initial context for the scheduler fiber
@@ -384,7 +384,7 @@ namespace Luth::JobSystem
                 worker.CurrentFiber = readyFiber;
 
                 LH_PROFILE_FIBER_LEAVE;
-                Fiber::SwitchTo(*readyFiber);
+                Fiber::SwitchTo(worker.SchedulerFiber, *readyFiber);
                 LH_PROFILE_FIBER_ENTER(s_SchedulerNames[workerIndex]);
 
                 worker.CurrentFiber = &worker.SchedulerFiber;
@@ -442,17 +442,20 @@ namespace Luth::JobSystem
                     continue;
                 }
 
-                // Destroy old fiber handle to reset stack
-                if (fiber->Handle) Fiber::Destroy(*fiber);
+                // Destroy old fiber + reset stack. Destroy is idempotent on both backends.
+                Fiber::Destroy(*fiber);
 
                 // Store job in per-fiber storage (NOT thread_local — survives fiber yield)
                 u32 fiberIndex = (u32)(fiber - s_Data.FiberPool);
                 s_Data.FiberJobs[fiberIndex] = job;
 
-                *fiber = Fiber::Create(FiberEntryPoint, &s_Data.FiberJobs[fiberIndex]);
+                // Pre-compute fiber's owning JobContext so Create can patch gs:[0x28]
+                // save slot — first resume of this fiber restores it into TIB.
+                JobContext* fiberCtx = GetFiberContext(fiber);
+                *fiber = Fiber::Create(FiberEntryPoint, &s_Data.FiberJobs[fiberIndex],
+                                        fiberCtx);
 
                 // Reset fiber context
-                JobContext* fiberCtx = GetFiberContext(fiber);
                 *fiberCtx = {};
                 fiberCtx->ThreadIndex = workerIndex;
                 SetCurrentContext(fiberCtx);
@@ -460,7 +463,7 @@ namespace Luth::JobSystem
                 worker.CurrentFiber = fiber;
 
                 LH_PROFILE_FIBER_LEAVE;
-                Fiber::SwitchTo(*fiber);
+                Fiber::SwitchTo(worker.SchedulerFiber, *fiber);
                 LH_PROFILE_FIBER_ENTER(s_SchedulerNames[workerIndex]);
 
                 worker.CurrentFiber = &worker.SchedulerFiber;
@@ -509,14 +512,6 @@ namespace Luth::JobSystem
 
     void Init(u32 numThreads)
     {
-        // Allocate FLS index
-        s_FlsIndex = FlsAlloc(nullptr);
-        if (s_FlsIndex == FLS_OUT_OF_INDEXES)
-        {
-            LH_CORE_CRITICAL("Failed to allocate FLS index!");
-            return;
-        }
-
         if (numThreads == 0) numThreads = std::thread::hardware_concurrency() - 1;
         if (numThreads < 1) numThreads = 1;
 
@@ -550,7 +545,8 @@ namespace Luth::JobSystem
         t_WorkerIndex = 0;
         t_IsMainThread = true;
         s_Data.Workers[0].ThreadIndex = 0;
-        s_Data.Workers[0].SchedulerFiber = Fiber::ConvertThreadToFiber(nullptr);
+        s_Data.Workers[0].SchedulerFiber =
+            Fiber::CaptureCurrentThreadAsFiber(&s_Data.Workers[0].Context);
         s_Data.Workers[0].CurrentFiber = &s_Data.Workers[0].SchedulerFiber;
         s_Data.Workers[0].Context.ThreadIndex = 0;
         SetCurrentContext(&s_Data.Workers[0].Context);
@@ -586,13 +582,6 @@ namespace Luth::JobSystem
         // Destroy fiber pool
         for (u32 i = 0; i < MAX_FIBERS; ++i)
             Fiber::Destroy(s_Data.FiberPool[i]);
-
-        // Free FLS
-        if (s_FlsIndex != FLS_OUT_OF_INDEXES)
-        {
-            FlsFree(s_FlsIndex);
-            s_FlsIndex = FLS_OUT_OF_INDEXES;
-        }
 
         s_Data.Workers.clear();
         LH_CORE_INFO("JobSystem shut down.");
@@ -774,7 +763,7 @@ namespace Luth::JobSystem
             currentFiber->WaitTarget = targetValue;
 
             LH_PROFILE_FIBER_LEAVE;
-            Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+            Fiber::SwitchTo(*currentFiber, s_Data.Workers[t_WorkerIndex].SchedulerFiber);
             LH_PROFILE_FIBER_ENTER(GetMyTracyName());
 
             // invariant: DecrementCounter wakes us BEFORE its final fetch_sub(1) clears the busy bit; returning would UAF
@@ -804,7 +793,7 @@ namespace Luth::JobSystem
         }
 
         LH_PROFILE_FIBER_LEAVE;
-        Fiber::SwitchTo(s_Data.Workers[t_WorkerIndex].SchedulerFiber);
+        Fiber::SwitchTo(*currentFiber, s_Data.Workers[t_WorkerIndex].SchedulerFiber);
         LH_PROFILE_FIBER_ENTER(GetMyTracyName());
     }
 
@@ -846,8 +835,7 @@ namespace Luth::JobSystem
 
     JobContext* GetCurrentJobContext()
     {
-        if (s_FlsIndex == FLS_OUT_OF_INDEXES) return nullptr;
-        return (JobContext*)FlsGetValue(s_FlsIndex);
+        return reinterpret_cast<JobContext*>(__readgsqword(0x28));
     }
 
     void SetGlobalCommandPool(CommandAllocatorPool* pool)

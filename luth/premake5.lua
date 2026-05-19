@@ -32,6 +32,7 @@ project "Luth"
    {
       "source/**.h",
       "source/**.cpp",
+      "source/**.asm",
    }
    
    includedirs
@@ -93,4 +94,13 @@ project "Luth"
       defines { "LUTH_BUILD_DIST", "NDEBUG" }
       runtime "Release"
       optimize "on"
-      
+
+   -- DebugASan: debug-style defines + Release CRT + /fsanitize=address. MSVC's Debug CRT
+   -- is incompatible with ASan; Release CRT is mandatory. Requires MSVC 16.9+.
+   filter "configurations:DebugASan"
+      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND",
+                "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
+      runtime "Release"
+      symbols "on"
+      editandcontinue "Off"
+      buildoptions { "/fsanitize=address" }

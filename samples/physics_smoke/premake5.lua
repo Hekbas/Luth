@@ -69,4 +69,14 @@ project "JobSysProof"
       runtime "Release"
       optimize "on"
 
+   -- DebugASan: matches Luth's filter shape. /fsanitize=address so the exe has
+   -- ASan-instrumented code (Tracy stays uninstrumented but Release-CRT compatible).
+   filter "configurations:DebugASan"
+      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_FIBERS", "TRACY_ON_DEMAND",
+                "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
+      runtime "Release"
+      symbols "on"
+      editandcontinue "Off"
+      buildoptions { "/fsanitize=address" }
+
    filter {}

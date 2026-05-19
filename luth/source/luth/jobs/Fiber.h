@@ -2,53 +2,66 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/FiberPrimitive.h"
+#include "luth/jobs/FiberStackAllocator.h"
+
 #include <atomic>
 #include <cassert>
+#include <cstddef>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+// ASan fiber-switch annotations. Paired around each jump_fcontext switch so the
+// sanitizer can keep its stack-tracking accurate across fiber boundaries. Compiled
+// out when ASan is not in the build.
+#if defined(__SANITIZE_ADDRESS__)
+extern "C" {
+    void __sanitizer_start_switch_fiber(void** fake_stack_save,
+                                         const void* bottom, size_t size);
+    void __sanitizer_finish_switch_fiber(void* fake_stack_save,
+                                          const void** bottom_old, size_t* size_old);
+}
+#endif
+
 namespace Luth::JobSystem
 {
-    // Forward declared — implemented in JobSystem.cpp via FLS.
     struct JobContext;
     JobContext* GetCurrentJobContext();
 
-    // Win32 fiber wrapper used by the worker scheduler. Each Fiber owns a 2 MB stack (sized for
-    // heavy importers like Assimp), an FLS-backed JobContext for per-fiber state, and an intrusive
-    // NextWaiting pointer so the counter wait list can stay lock-free. The State atomic guards the
-    // Free / Running / Suspended transitions during sub-job and yield races.
-    // See arch/fiber-system.md for the V1-V6 hazard model.
+    // Worker scheduler fiber wrapper. Stack lives in a VirtualAlloc'd region that we own
+    // — bottom/size are known pre-first-switch, which lets ASan track per-fiber bounds
+    // (Win32 fibers can't satisfy this). See arch/fiber-system.md for the V1-V6 hazard
+    // model and the rationale for the custom backend.
     struct Fiber
     {
-        void* Handle = nullptr;
-        void* Args = nullptr; // User data passed to the fiber function
-
-        // Intrusive Linked List for Waiting (Lock-Free Stack Node)
+        // ── State ──
+        void* Args = nullptr;
         Fiber* NextWaiting = nullptr;
-
-        // Pinning Support
-        u32 PinnedThreadIndex = ~0u; // Default: No affinity
-
-        // Status
+        u32 PinnedThreadIndex = ~0u;
         bool IsFinished = false;
-
-        // State for Race Condition Prevention
-        // 0 = Free, 1 = Running, 2 = Suspended
-        std::atomic<u8> State;
-
-        // Wait Request (Passed to Scheduler)
+        std::atomic<u8> State{0};
         void* WaitCounter = nullptr;
         u32 WaitTarget = 0;
 
-        // Default Constructor
+        // ASan tracking: AsanFakeStack is the per-fiber save slot; StackBottom/StackSize
+        // are the bounds passed to start_switch_fiber. Populated by Create or
+        // CaptureCurrentThreadAsFiber; inert under non-ASan builds.
+        void* AsanFakeStack = nullptr;
+        void* StackBottom = nullptr;
+        size_t StackSize = 0;
+
+        // Saved RSP (initial value from make_fcontext, updated by each jump_fcontext).
+        // Stack region owned by Stack — its Region is null for fibers wrapping an existing
+        // OS-thread stack via CaptureCurrentThreadAsFiber (we don't own that stack).
+        void* Context = nullptr;
+        FiberStack Stack{};
+
         Fiber() : State(0) {}
 
-        // Move Constructor
         Fiber(Fiber&& other) noexcept
         {
-            Handle = other.Handle;
             Args = other.Args;
             NextWaiting = other.NextWaiting;
             PinnedThreadIndex = other.PinnedThreadIndex;
@@ -56,16 +69,19 @@ namespace Luth::JobSystem
             State.store(other.State.load());
             WaitCounter = other.WaitCounter;
             WaitTarget = other.WaitTarget;
-
-            other.Handle = nullptr;
+            AsanFakeStack = other.AsanFakeStack;
+            StackBottom = other.StackBottom;
+            StackSize = other.StackSize;
+            Context = other.Context;
+            Stack = other.Stack;
+            other.Context = nullptr;
+            other.Stack = FiberStack{};
         }
 
-        // Move Assignment
         Fiber& operator=(Fiber&& other) noexcept
         {
             if (this != &other)
             {
-                Handle = other.Handle;
                 Args = other.Args;
                 NextWaiting = other.NextWaiting;
                 PinnedThreadIndex = other.PinnedThreadIndex;
@@ -73,58 +89,66 @@ namespace Luth::JobSystem
                 State.store(other.State.load());
                 WaitCounter = other.WaitCounter;
                 WaitTarget = other.WaitTarget;
-
-                other.Handle = nullptr;
+                AsanFakeStack = other.AsanFakeStack;
+                StackBottom = other.StackBottom;
+                StackSize = other.StackSize;
+                Context = other.Context;
+                Stack = other.Stack;
+                other.Context = nullptr;
+                other.Stack = FiberStack{};
             }
             return *this;
         }
 
-        // Deleted Copy Constructor & Assignment
         Fiber(const Fiber&) = delete;
         Fiber& operator=(const Fiber&) = delete;
 
         bool IsPinned() const { return PinnedThreadIndex != ~0u; }
 
-        // Function pointer for the fiber entry point
         using EntryPoint = void(*)(void*);
 
-        // 2MB stack — handles heavy asset importers (Assimp)
-        static Fiber Create(EntryPoint entry, void* args, u32 stackSize = 2 * 1024 * 1024)
+        // 2 MB stack — sized for heavy importers (Assimp). ownerCtx is patched into the
+        // new fiber's TIB ArbitraryUserPointer save slot so its first resume restores the
+        // correct JobContext pointer into gs:[0x28].
+        static Fiber Create(EntryPoint entry, void* args, JobContext* ownerCtx,
+                             size_t stackSize = 2 * 1024 * 1024)
         {
             Fiber f;
             f.Args = args;
-            f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
             f.IsFinished = false;
             f.State = 0;
             f.WaitCounter = nullptr;
             f.WaitTarget = 0;
 
-            #ifdef _WIN32
-            // FIBER_FLAG_FLOAT_SWITCH: preserve x87/MMX/XMM state across fiber switches.
-            f.Handle = CreateFiberEx(64 * 1024, stackSize, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)entry, args);
-            if (!f.Handle)
+            f.Stack = AllocateFiberStack(stackSize);
+            if (!f.Stack.UsableBottom)
             {
-                LH_CORE_CRITICAL("Failed to create fiber! Error: {0}", GetLastError());
+                LH_CORE_CRITICAL("FiberStack allocation failed; aborting Fiber::Create");
+                return f;
             }
-            #endif
+            f.StackBottom = f.Stack.UsableBottom;
+            f.StackSize = f.Stack.UsableSize;
+            f.Context = make_fcontext(f.Stack.StackTop, f.Stack.UsableSize, entry, args);
+            // Patch the save area so first jump_fcontext restores ownerCtx into gs:[0x28].
+            fcontext_set_owner(f.Context, ownerCtx);
 
             return f;
         }
 
         static void Destroy(Fiber& f)
         {
-            #ifdef _WIN32
-            if (f.Handle) DeleteFiber(f.Handle);
-            #endif
-            f.Handle = nullptr;
+            FreeFiberStack(f.Stack);
+            f.Context = nullptr;
+            f.StackBottom = nullptr;
+            f.StackSize = 0;
         }
 
         // V3 ENFORCEMENT: Assert that we are NOT inside a RecordingScope.
-        // If this assertion fires, someone is yielding while recording a VkCommandBuffer.
-        // That violates Contract 4 (VkCommandPool is thread-local, fiber may resume
-        // on a different OS thread after yield).
-        static void SwitchTo(Fiber& f)
+        // ASan: paired start/finish_switch_fiber tells the sanitizer about the stack
+        // swap so it doesn't flag the destination fiber's first stack access as
+        // use-after-scope against `from`'s redzones.
+        static void SwitchTo(Fiber& from, Fiber& to)
         {
             #ifndef NDEBUG
             {
@@ -139,28 +163,49 @@ namespace Luth::JobSystem
             }
             #endif
 
-            #ifdef _WIN32
-            SwitchToFiber(f.Handle);
+            #if defined(__SANITIZE_ADDRESS__)
+            __sanitizer_start_switch_fiber(&from.AsanFakeStack,
+                                            to.StackBottom, to.StackSize);
+            #endif
+
+            jump_fcontext(&from.Context, to.Context);
+
+            #if defined(__SANITIZE_ADDRESS__)
+            __sanitizer_finish_switch_fiber(from.AsanFakeStack, nullptr, nullptr);
             #endif
         }
 
-        static Fiber ConvertThreadToFiber(void* args)
+        // Wrap the calling OS thread's existing stack as a Fiber: record bounds (TIB read)
+        // and seed gs:[0x28] = ownerCtx so subsequent jump_fcontext save cycles capture
+        // the correct per-fiber JobContext pointer.
+        static Fiber CaptureCurrentThreadAsFiber(JobContext* ownerCtx)
         {
             Fiber f;
-            f.Args = args;
-            f.NextWaiting = nullptr;
             f.PinnedThreadIndex = ~0u;
             f.IsFinished = false;
-            f.State = 1; // Running
+            f.State = 1;
             f.WaitCounter = nullptr;
             f.WaitTarget = 0;
+            f.CaptureCurrentStackBounds();
+
             #ifdef _WIN32
-            if (IsThreadAFiber())
-                f.Handle = GetCurrentFiber();
-            else
-                f.Handle = ::ConvertThreadToFiberEx(args, FIBER_FLAG_FLOAT_SWITCH);
+            __writegsqword(0x28, reinterpret_cast<uintptr_t>(ownerCtx));
             #endif
+
             return f;
+        }
+
+        // Capture the current OS-thread's stack range. TIB is per-fiber (our MASM swaps
+        // StackBase/StackLimit on every jump_fcontext), so GetCurrentThreadStackLimits
+        // returns the active fiber's bounds.
+        void CaptureCurrentStackBounds()
+        {
+            #ifdef _WIN32
+            ULONG_PTR low = 0, high = 0;
+            ::GetCurrentThreadStackLimits(&low, &high);
+            StackBottom = reinterpret_cast<void*>(low);
+            StackSize = static_cast<size_t>(high - low);
+            #endif
         }
     };
 }
