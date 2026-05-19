@@ -23,6 +23,7 @@
 
 PUBLIC make_fcontext
 PUBLIC jump_fcontext
+EXTERN fiber_entry_helper:PROC
 
 ; ──── jump_fcontext(out_from_sp: rcx, to_sp: rdx) ───────────────────────────
 
@@ -180,11 +181,18 @@ make_fcontext ENDP
 ; RSP is 16n+8 here (Win64 ABI). Reserve shadow space (32 B) before calling
 ; entry. If entry ever returns, the fiber is abandoned — trap.
 
+; Reached via ret from jump_fcontext on the first switch into a freshly-made fiber.
+; R12 = entry function, R13 = args (placed by make_fcontext, restored by jump_fcontext).
+; RSP is 16n+8 (Win64 ABI). 40 = 32 shadow + 8 to re-align RSP to 16n before call.
+; fiber_entry_helper wraps entry(args) with the ASan finish_switch_fiber hook so the
+; sanitizer reorients its stack tracking onto this fiber's stack.
+
 fiber_entry_trampoline PROC
-    sub rsp, 32                        ; Win64 shadow space for call
-    mov rcx, r13                       ; arg 1 = args
-    call r12                           ; entry(args)
-    int 3                              ; entry must SwitchTo before returning
+    sub rsp, 40
+    mov rcx, r12                       ; arg 1 = entry
+    mov rdx, r13                       ; arg 2 = args
+    call fiber_entry_helper
+    int 3                              ; helper must not return (entry SwitchTos away)
 fiber_entry_trampoline ENDP
 
 END

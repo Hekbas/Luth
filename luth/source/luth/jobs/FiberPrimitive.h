@@ -34,4 +34,17 @@ namespace Luth::JobSystem
         // when some other fiber later switches back to the caller.
         void jump_fcontext(void** out_from_sp, void* to_sp);
     }
+
+    // Offset of the ArbitraryUserPointer (TIB+0x28) save slot inside the save area
+    // laid down by make_fcontext. Keep in sync with FiberPrimitive.asm.
+    inline constexpr size_t kFcontextArbitraryUserPointerSlot = 264;
+
+    // Patch a fresh context's save area so the first jump_fcontext to it restores
+    // `owner` into gs:[0x28]. Call after make_fcontext, before the first switch.
+    inline void fcontext_set_owner(void* context, void* owner)
+    {
+        auto* p = reinterpret_cast<void**>(
+            static_cast<u8*>(context) + kFcontextArbitraryUserPointerSlot);
+        *p = owner;
+    }
 }
