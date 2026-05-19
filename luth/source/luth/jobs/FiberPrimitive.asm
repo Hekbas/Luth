@@ -118,12 +118,13 @@ jump_fcontext ENDP
 ; context resumes at fiber_entry_trampoline, which then calls entry(args).
 
 make_fcontext PROC
-    ; Round stack_top down to 16-aligned, then leave the topmost 16 bytes free
-    ; so the return-address slot lands on a 16-aligned address (X). After the
-    ; trampoline is reached via ret, RSP = X + 8 = 16n + 8 (Win64 ABI).
+    ; Layout: place the trampoline return-address slot 8 bytes below aligned_top,
+    ; then the 280-byte save area below that. initial_rsp ends up 16-aligned which
+    ; jump_fcontext's restore-side movaps reads require. After ret, trampoline
+    ; entry RSP = aligned_top (16-aligned; trampoline is NOT entered via `call`).
     mov rax, rcx
     and rax, NOT 0Fh
-    sub rax, 16
+    sub rax, 8                        ; X = aligned_top - 8 (return-addr slot)
 
     ; Plant trampoline address at [X]
     lea r10, fiber_entry_trampoline
@@ -183,12 +184,12 @@ make_fcontext ENDP
 
 ; Reached via ret from jump_fcontext on the first switch into a freshly-made fiber.
 ; R12 = entry function, R13 = args (placed by make_fcontext, restored by jump_fcontext).
-; RSP is 16n+8 (Win64 ABI). 40 = 32 shadow + 8 to re-align RSP to 16n before call.
-; fiber_entry_helper wraps entry(args) with the ASan finish_switch_fiber hook so the
-; sanitizer reorients its stack tracking onto this fiber's stack.
+; RSP at entry is 16-aligned (trampoline is reached via ret, not call). 32 = shadow
+; space; preserves 16-alignment so `call` lands helper at the correct 16n+8 form.
+; fiber_entry_helper wraps entry(args) with the ASan finish_switch_fiber hook.
 
 fiber_entry_trampoline PROC
-    sub rsp, 40
+    sub rsp, 32
     mov rcx, r12                       ; arg 1 = entry
     mov rdx, r13                       ; arg 2 = args
     call fiber_entry_helper
