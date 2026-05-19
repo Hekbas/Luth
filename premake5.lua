@@ -54,6 +54,10 @@ group "Samples"
    include "samples/physics_smoke"
 group ""
 
+group "Tests"
+   include "tests"
+group ""
+
 
 group "Tools"
    include "extern/premake"

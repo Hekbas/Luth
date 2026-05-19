@@ -1,4 +1,4 @@
-project "JobSysProof"
+project "LuthTests"
    kind "ConsoleApp"
    language "C++"
    cppdialect "C++20"
@@ -24,8 +24,13 @@ project "JobSysProof"
 
    files { "**.cpp", "**.h" }
 
+   -- doctest is vendored as a single header; do not compile it as a TU.
+   removefiles { "extern/**" }
+
    includedirs
    {
+      ".",                                        -- so #include "support/..." resolves
+      "extern",                                   -- so #include <doctest/doctest.h> resolves
       "%{wks.location}/luth/source",
       "%{wks.location}/luth/extern/source",
       "%{wks.location}/luth/extern/config-headers",
@@ -36,10 +41,7 @@ project "JobSysProof"
       IncludeDir["jolt"]
    }
 
-   libdirs
-   {
-      LibraryDir["vulkan"]
-   }
+   libdirs { LibraryDir["vulkan"] }
 
    links
    {
@@ -69,8 +71,11 @@ project "JobSysProof"
       runtime "Release"
       optimize "on"
 
-   -- DebugASan: matches Luth's filter shape. TRACY_ENABLE omitted to avoid the dbghelp
-   -- static-init flake under ASan (see luth/extern/premake5-tracy.lua).
+   -- DebugASan — debug-style defines + Release CRT + /fsanitize=address.
+   -- MSVC requires Release CRT for ASan; Debug CRT is incompatible.
+   -- Symbols on for stack-frame symbolization; edit-and-continue off (ASan rejects).
+   -- TRACY_ENABLE omitted; Tracy's dbghelp init trips an ASan strlen false positive
+   -- (see luth/extern/premake5-tracy.lua). Requires MSVC 16.9+.
    filter "configurations:DebugASan"
       defines { "LUTH_BUILD_DEBUG", "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
       runtime "Release"
