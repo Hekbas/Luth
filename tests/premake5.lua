@@ -74,10 +74,10 @@ project "LuthTests"
    -- DebugASan — debug-style defines + Release CRT + /fsanitize=address.
    -- MSVC requires Release CRT for ASan; Debug CRT is incompatible.
    -- Symbols on for stack-frame symbolization; edit-and-continue off (ASan rejects).
-   -- Requires MSVC 16.9+.
+   -- TRACY_ENABLE omitted; Tracy's dbghelp init trips an ASan strlen false positive
+   -- (see luth/extern/premake5-tracy.lua). Requires MSVC 16.9+.
    filter "configurations:DebugASan"
-      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_FIBERS", "TRACY_ON_DEMAND",
-                "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
+      defines { "LUTH_BUILD_DEBUG", "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
       runtime "Release"
       symbols "on"
       editandcontinue "Off"

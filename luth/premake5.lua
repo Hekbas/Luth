@@ -95,11 +95,12 @@ project "Luth"
       runtime "Release"
       optimize "on"
 
-   -- DebugASan: debug-style defines + Release CRT + /fsanitize=address. MSVC's Debug CRT
-   -- is incompatible with ASan; Release CRT is mandatory. Requires MSVC 16.9+.
+   -- DebugASan: debug-style defines + Release CRT + /fsanitize=address. MSVC's Debug
+   -- CRT is incompatible with ASan; Release CRT is mandatory. Requires MSVC 16.9+.
+   -- TRACY_ENABLE intentionally omitted — Tracy's static-init dbghelp thread trips an
+   -- ASan strlen false positive (see premake5-tracy.lua).
    filter "configurations:DebugASan"
-      defines { "LUTH_BUILD_DEBUG", "TRACY_ENABLE", "TRACY_ON_DEMAND",
-                "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
+      defines { "LUTH_BUILD_DEBUG", "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }
       runtime "Release"
       symbols "on"
       editandcontinue "Off"
