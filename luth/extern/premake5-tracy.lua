@@ -24,5 +24,14 @@ project "Tracy"
       runtime "Release"
       optimize "on"
       -- Tracy is disabled in Dist, effectively compiling an empty lib
+
+   -- DebugASan: Tracy must define TRACY_ENABLE/FIBERS/ON_DEMAND so Luth's tracy:: callsites
+   -- resolve. Release CRT (matches Luth.lib's DebugASan); not /fsanitize=address (only
+   -- Luth + downstream consumers are instrumented).
+   filter "configurations:DebugASan"
+      defines { "TRACY_ENABLE", "TRACY_FIBERS", "TRACY_ON_DEMAND" }
+      runtime "Release"
+      symbols "on"
+
    filter {}
    
