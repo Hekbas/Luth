@@ -32,6 +32,7 @@ project "Luth"
    {
       "source/**.h",
       "source/**.cpp",
+      "source/**.asm",
    }
    
    includedirs
