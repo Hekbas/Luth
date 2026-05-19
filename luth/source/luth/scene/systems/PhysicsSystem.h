@@ -21,13 +21,15 @@
 #include <atomic>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
-namespace JPH { class Shape; }
+namespace JPH { class Shape; class CharacterVirtual; }
 
 namespace Luth
 {
     class Scene;
+    namespace Component { struct CharacterController; }
 
     // Drives the JPH::PhysicsSystem instance for the active scene. Owns the broadphase / object layer
     // filters, the LuthJobSystemForJolt adapter, and the temp allocator. Connects EnTT signals on the
@@ -82,6 +84,15 @@ namespace Luth
             JPH::BodyID  bodyId;
         };
 
+        // Character lifetime is owned here (heap-allocated JPH::CharacterVirtual) so the destroy queue
+        // carries the pointer directly — by the time we drain we may have lost the entity from the
+        // registry. Mirror of PendingDestroy for the character path.
+        struct PendingCharacterDestroy
+        {
+            entt::entity           entity;
+            JPH::CharacterVirtual* character;
+        };
+
         // Result of a single TryCreateBody attempt. RetryLater means a transient miss (asset not
         // loaded yet) — DrainPendingBuilds collects these into a shadow vector and re-queues them
         // for next Update. Failed is permanent (missing components, invalid shape, opt-out): the
@@ -105,6 +116,15 @@ namespace Luth
         BuildResult TryCreateBody(Scene* scene, entt::entity entity);
         void DestroyBodyForEntity(entt::registry& reg, entt::entity entity);
         void DrainPendingDestroys();
+
+        // Character lifecycle. Mirrors the body path: TryCreateCharacter validates the (Collider Capsule
+        // + CharacterController + Transform) tuple, builds a CharacterVirtual, attaches the runtime
+        // component. Destroy is two-phase to keep deletions off the signal-callback thread, same as
+        // bodies. ApplyCharacterTuning is the fast path for fingerprint-match drains.
+        BuildResult TryCreateCharacter(Scene* scene, entt::entity entity);
+        void DestroyCharacterForEntity(entt::registry& reg, entt::entity entity);
+        void DrainPendingCharacterDestroys();
+        void ApplyCharacterTuning(JPH::CharacterVirtual* ch, const Component::CharacterController& cc);
 
         // Dedup-push to m_PendingBuild. Inline scan keeps cost negligible for the small queue sizes
         // expected (one entry per edited entity per frame).
@@ -132,6 +152,17 @@ namespace Luth
 
         void SyncTransformsToBodies(Scene* scene);
         void SyncBodiesToTransforms(Scene* scene);
+
+        // Substep character update. Runs inside the m_StepInFlight guard between body sync and the
+        // JPH world step. Integrates gravity into velocity (JPH does not — see CharacterVirtual.h:322),
+        // consumes jumpQueued on grounded frames, calls ExtendedUpdate (default StickToFloor /
+        // WalkStairs settings), then writes groundState + currentVelocity back to the component.
+        void UpdateCharacters(Scene* scene, f32 dt);
+
+        // Post-step pose write-back. Character::GetPosition is authoritative; flip Transform.IsDirty
+        // so TransformSystem rebuilds the local + world matrices next frame.
+        void SyncCharactersToTransforms(Scene* scene);
+
         void Step(f32 fixedDt, int collisionSteps);
 
         // Walks the EnTT registry and emits wire primitives for each body's collider, AABB, and
@@ -155,6 +186,15 @@ namespace Luth
         std::unordered_map<entt::entity, JPH::BodyID> m_BodyMap;
         std::vector<PendingDestroy>                   m_PendingDestroy;
         std::vector<entt::entity>                     m_PendingBuild;
+
+        // Character bookkeeping. m_CharacterMap owns the heap-allocated CharacterVirtual; the entity's
+        // CharacterControllerRuntime holds a non-owning observer pointer + fingerprint. PendingCharacter-
+        // Destroy carries both because the entity may be gone by drain time. m_WarnedNonCapsule guards
+        // the one-shot warning when a CharacterController is paired with a non-capsule Collider.
+        std::unordered_map<entt::entity, JPH::CharacterVirtual*> m_CharacterMap;
+        std::vector<PendingCharacterDestroy>                     m_PendingCharacterDestroy;
+        std::unordered_set<entt::entity>                         m_WarnedNonCapsule;
+        std::unordered_set<entt::entity>                         m_WarnedBothComponents;
         entt::registry*                               m_AttachedRegistry = nullptr;
         Scene*                                        m_AttachedScene    = nullptr;
 

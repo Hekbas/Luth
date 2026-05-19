@@ -3,6 +3,10 @@
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
 
+// Forward declaration so CharacterControllerRuntime can name JPH::CharacterVirtual without
+// pulling in the Jolt header. PhysicsSystem owns the heap allocation; this is a non-owning observer.
+namespace JPH { class CharacterVirtual; }
+
 namespace Luth::Component
 {
     // Shape attached to an entity. Inline parametric data for primitives; mesh/convex shapes reference a
@@ -74,5 +78,58 @@ namespace Luth::Component
 
         u32 bodyId            = cInvalidBodyId;
         u64 shapeFingerprint  = 0;
+    };
+
+    // Ground state mirrors JPH::CharacterBase::EGroundState. Returned by CharacterVirtual after each
+    // ExtendedUpdate and written back into CharacterController so gameplay can branch on it without
+    // touching the JPH object.
+    enum class GroundState : u8
+    {
+        OnGround,        // standing on a slope <= maxSlopeAngle
+        OnSteepGround,   // contact, but slope > maxSlopeAngle (will slide)
+        NotSupported,    // contact, but normal doesn't match Up axis (e.g. wall)
+        InAir            // no ground contact
+    };
+
+    // Kinematic, query-driven character. Pairs with a Collider whose Type::Capsule supplies the swept
+    // shape — TryCreateCharacter refuses non-capsule colliders (Failed + warn). Movement is fed via
+    // desiredVelocity each frame (horizontal); PhysicsSystem integrates gravity into the y component
+    // and consumes jumpQueued on grounded frames. groundState + currentVelocity are read-back fields
+    // refreshed post-step. Mutually exclusive with RigidBody on the same entity.
+    struct CharacterController
+    {
+        // Authoring (serialized). Defaults match JPH::CharacterVirtualSettings where applicable.
+        f32 maxSlopeAngleDeg          = 45.0f;
+        f32 mass                      = 70.0f;     // soft-body push at Tier 2 (currently informational)
+        f32 maxStrength               = 100.0f;
+        f32 characterPadding          = 0.02f;
+        f32 predictiveContactDistance = 0.1f;
+        f32 penetrationRecoverySpeed  = 1.0f;
+        u8  layer                     = 1;         // Physics::Layers::MOVING (matches RigidBody convention)
+        f32 gravityFactor             = 1.0f;
+        f32 moveSpeed                 = 5.0f;      // consumed by PlayerControllerSystem stub
+        f32 jumpSpeed                 = 6.0f;      // vertical kick on Jump() when grounded
+
+        // Per-frame inputs (NOT serialized).
+        Vec3 desiredVelocity {0.0f};
+        bool jumpQueued      = false;
+
+        // Read-back (NOT serialized; written by PhysicsSystem::UpdateCharacters each substep).
+        GroundState groundState     = GroundState::InAir;
+        Vec3        currentVelocity {0.0f};
+
+        // API. Methods write to fields; PhysicsSystem reads them in the next Update.
+        void SetDesiredVelocity(const Vec3& v) { desiredVelocity = v; }
+        void Jump()                            { jumpQueued = true; }
+        bool IsGrounded() const                { return groundState == GroundState::OnGround; }
+    };
+
+    // Non-owning observer into PhysicsSystem's character table. PhysicsSystem owns the heap-allocated
+    // JPH::CharacterVirtual; this struct just exposes the pointer for debug-draw + queries and carries
+    // a fingerprint so the slow-path rebuild can short-circuit when only tunable fields change.
+    struct CharacterControllerRuntime
+    {
+        JPH::CharacterVirtual* character   = nullptr;
+        u64                    fingerprint = 0;
     };
 }

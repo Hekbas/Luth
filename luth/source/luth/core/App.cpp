@@ -16,6 +16,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/scene/systems/TransformSystem.h"
+#include "luth/scene/systems/PlayerControllerSystem.h"
 #include "luth/scene/systems/PhysicsSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/PickingSystem.h"
@@ -362,6 +363,11 @@ namespace Luth
         auto* app = static_cast<App*>(args.data);
 
         SystemRegistry::Update<TransformSystem>();
+        // Stub player input → CharacterController.desiredVelocity. Gated so authoring (Editing) mode
+        // doesn't drive characters from WASD; PhysicsSystem still runs unconditionally so falling
+        // bodies keep falling in editor preview.
+        if (app->m_RunGameSystems)
+            SystemRegistry::Update<PlayerControllerSystem>();
         SystemRegistry::Update<PhysicsSystem>();
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();

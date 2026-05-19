@@ -25,5 +25,6 @@ namespace Luth::ComponentDrawers
         RegisterPointLight();
         RegisterCollider();
         RegisterRigidBody();
+        RegisterCharacterController();
     }
 }
