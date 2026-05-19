@@ -94,7 +94,11 @@ namespace Luth::Memory
 
         u64 GetTotalSize() const
         {
-            return static_cast<u64>(m_Pages.size()) * m_DefaultPageSize;
+            // Sum actual per-page sizes; oversized pages (size > defaultPageSize) would
+            // be undercounted by `pages * defaultSize`.
+            u64 total = 0;
+            for (size_t s : m_PageSizes) total += s;
+            return total;
         }
 
     private:
