@@ -46,22 +46,12 @@ namespace Luth::JobSystem
         Stage StageTag = Stage::Main;
     };
 
-    // ── Per-fiber JobContext lookup ──
-    // Win32 backend: FLS (Win32 swaps per-fiber on SwitchToFiber).
-    // Custom backend: TIB ArbitraryUserPointer at gs:[0x28], swapped per switch by
-    //   FiberPrimitive.asm's jump_fcontext save/restore of NT_TIB fields.
-
-#if defined(LUTH_USE_WIN32_FIBERS)
-    static DWORD s_FlsIndex = FLS_OUT_OF_INDEXES;
-#endif
+    // Per-fiber JobContext lookup via TIB ArbitraryUserPointer at gs:[0x28], swapped
+    // per switch by FiberPrimitive.asm's jump_fcontext save/restore of NT_TIB fields.
 
     static void SetCurrentContext(JobContext* ctx)
     {
-#if defined(LUTH_USE_WIN32_FIBERS)
-        FlsSetValue(s_FlsIndex, ctx);
-#else
         __writegsqword(0x28, reinterpret_cast<uintptr_t>(ctx));
-#endif
     }
 
     // Forward-declare; body needs s_Data which is defined below.
@@ -522,17 +512,6 @@ namespace Luth::JobSystem
 
     void Init(u32 numThreads)
     {
-#if defined(LUTH_USE_WIN32_FIBERS)
-        // Win32 backend: allocate the FLS slot used by SetCurrentContext/GetCurrentJobContext.
-        // Custom backend stores the JobContext pointer in TIB gs:[0x28] instead.
-        s_FlsIndex = FlsAlloc(nullptr);
-        if (s_FlsIndex == FLS_OUT_OF_INDEXES)
-        {
-            LH_CORE_CRITICAL("Failed to allocate FLS index!");
-            return;
-        }
-#endif
-
         if (numThreads == 0) numThreads = std::thread::hardware_concurrency() - 1;
         if (numThreads < 1) numThreads = 1;
 
@@ -603,14 +582,6 @@ namespace Luth::JobSystem
         // Destroy fiber pool
         for (u32 i = 0; i < MAX_FIBERS; ++i)
             Fiber::Destroy(s_Data.FiberPool[i]);
-
-#if defined(LUTH_USE_WIN32_FIBERS)
-        if (s_FlsIndex != FLS_OUT_OF_INDEXES)
-        {
-            FlsFree(s_FlsIndex);
-            s_FlsIndex = FLS_OUT_OF_INDEXES;
-        }
-#endif
 
         s_Data.Workers.clear();
         LH_CORE_INFO("JobSystem shut down.");
@@ -864,12 +835,7 @@ namespace Luth::JobSystem
 
     JobContext* GetCurrentJobContext()
     {
-#if defined(LUTH_USE_WIN32_FIBERS)
-        if (s_FlsIndex == FLS_OUT_OF_INDEXES) return nullptr;
-        return (JobContext*)FlsGetValue(s_FlsIndex);
-#else
         return reinterpret_cast<JobContext*>(__readgsqword(0x28));
-#endif
     }
 
     void SetGlobalCommandPool(CommandAllocatorPool* pool)
