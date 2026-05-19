@@ -4,7 +4,7 @@
 
 ---
 
-## Architecture Snapshot (v2.8.2)
+## Architecture Snapshot (v2.10.3)
 
 What exists today — directly shapes sequencing for remaining work.
 
@@ -14,18 +14,24 @@ What exists today — directly shapes sequencing for remaining work.
 | Compute shaders | ✅ Formal pipeline, render-graph integrated | `VulkanComputePipeline` + pipeline cache |
 | Draw submission | ✅ `vkCmdDrawIndexedIndirect` everywhere | GPU frustum cull |
 | Buffer resources | ✅ SSBO tracked in render graph | `ResourceState::ComputeRead/Write`, `StorageBuffer` |
-| Queue | ✅ Single graphics queue (compute on same) | Async compute = future |
+| Queue | ✅ Single graphics queue (compute on same) | Async compute = future (`async-compute-queue`) |
 | Forward PBR | ✅ 3 render modes, 6 descriptor sets | Forward+ extends Set 3 |
 | Shadows | ✅ 4-cascade PSSM, per-cascade GPU cull | Shipped in `csm` (v1.3.0) |
 | GTAO | ✅ Half-res compute, Jimenez 2016 | Shipped (v1.5.0) |
 | Animation | ✅ Sampling, blending, root motion, GPU skinning | Jiggle bones slot in after sampling |
 | Play mode | ✅ Editor state machine + scene snapshot | Shipped (v2.8.0) |
 | Game panel | ✅ Letterbox + first-Camera entity | Shipped (v2.8.1) |
+| Editor workspaces | ✅ Named ImGui layouts + per-panel visibility sidecar | Shipped in `editor-workspaces` (v2.9.7) |
+| Physics — rigid bodies | ✅ Box/Sphere/Capsule + Convex/Mesh from Model assets | Shipped in `jolt-physics` v2.10.0–v2.10.2. See [arch/physics.md](arch/physics.md) |
+| Physics — queries | ✅ Raycast + OverlapBox/Sphere/Capsule + contact/trigger events | Shipped in `jolt-physics-queries` (v2.10.1) |
+| Physics — materials | ✅ UUID-keyed `PhysicsMaterial` asset (friction/restitution/density) | Shipped in `jolt-physics-assets` (v2.10.2) |
+| Physics — character controller | ✅ `JPH::CharacterVirtual` with `ExtendedUpdate` defaults | Shipped in `jolt-character-controller` (v2.10.3) |
 | Profiling | ✅ Tracy CPU + GPUTimerPool | See [arch/profiling.md](arch/profiling.md) |
 | Memory tracking | ✅ Categorized engine + Tracy STL hooks | See [arch/memory.md](arch/memory.md) |
 | Undo/redo | ✅ 14 command types | New components need new command types |
 | Scene serialization | ✅ JSON `.luth` | New components need serializer entries |
 | Frame debugger | ✅ Per-draw archive + replay-then-copy, frozen-state | Shipped in `frame-debugger-sync` (v1.4.0) |
+| Foundation testing | ❌ No JobSystem / allocator / lock-free stress tests yet | Top-priority next effort — see `foundation-testing` below |
 
 ---
 
@@ -42,14 +48,19 @@ graph TD
     sas["slot-alloc-spinlock"]
     sra["shader-reload-async"]
     vp["vulkan-polish"]
-    jolt["jolt-physics"]
-    jiggle["jiggle-bones"]
+    jolt["jolt-physics (v2.10.0-.3)"]
+    ft["foundation-testing"]
     acq["async-compute-queue"]
-    rga["rg-aliasing"]
     forward["forward-plus"]
-    fxaa["fxaa-taa"]
-    av2["animation-controller-v2"]
     particles["gpu-particles"]
+    scripting["scripting"]
+    prefab["prefab-system"]
+    av2["animation-controller-v2"]
+    ragdoll["ragdoll"]
+    jiggle["jiggle-bones"]
+    rga["rg-aliasing"]
+    psky["procedural-sky"]
+    fxaa["fxaa-taa"]
     future["future"]
 
     vc --> pbr
@@ -61,9 +72,10 @@ graph TD
     aqp --> av2
     acq --> forward
     forward --> particles
-    jolt --> jiggle
+    scripting --> prefab
+    jolt --> ragdoll
+    av2 --> ragdoll
     fxaa --> future
-    av2 --> future
 
     style consol fill:#2563eb,color:#fff
     style fdp fill:#2563eb,color:#fff
@@ -74,28 +86,31 @@ graph TD
     style sas fill:#2563eb,color:#fff
     style sra fill:#2563eb,color:#fff
     style vp fill:#2563eb,color:#fff
-    style jolt fill:#7c3aed,color:#fff
-    style jiggle fill:#7c3aed,color:#fff
+    style jolt fill:#2563eb,color:#fff
+    style ft fill:#7c3aed,color:#fff
     style acq fill:#7c3aed,color:#fff
-    style rga fill:#7c3aed,color:#fff
     style forward fill:#7c3aed,color:#fff
-    style fxaa fill:#7c3aed,color:#fff
+    style scripting fill:#7c3aed,color:#fff
+    style prefab fill:#7c3aed,color:#fff
     style av2 fill:#7c3aed,color:#fff
-    style particles fill:#dc2626,color:#fff
+    style particles fill:#7c3aed,color:#fff
+    style ragdoll fill:#dc2626,color:#fff
+    style jiggle fill:#525252,color:#fff
+    style rga fill:#525252,color:#fff
+    style psky fill:#525252,color:#fff
+    style fxaa fill:#525252,color:#fff
     style future fill:#525252,color:#fff
 ```
 
-> 🔵 Near-term · 🟣 Mid-term · 🔴 Advanced · ⚫ Future
+> 🔵 Shipped · 🟣 Scheduled · 🔴 Advanced (depends on multiple scheduled) · ⚫ Polish / opportunistic (no fixed slot)
 
 ---
 
 ## Epic: `engine-consolidation` — v2.8.2
 
-> **Audit-driven housekeeping pass before resuming feature work.**
+> **Status: Shipped v2.8.2** — see [`history/v2.x/engine-consolidation.md`](history/v2.x/engine-consolidation.md).
 
-Roadmap restructure (Effort scale, terse summaries), four new arch sub-docs (memory / profiling / validation-layers / version-glossary), comment-banner sanitization, V1-V6 cross-ref standardization, Tracy memory hooks for STL/heap, Tracy CPU coverage expansion across editor panels and RG passes.
-
-**Effort:** M
+Audit-driven housekeeping pass: roadmap restructure, four new arch sub-docs (memory / profiling / validation-layers / version-glossary), comment-banner sanitization, V1-V6 cross-ref standardization, Tracy memory hooks for STL/heap, Tracy CPU coverage expansion across editor panels and RG passes.
 
 ---
 
@@ -157,78 +172,65 @@ Finishes the texture half of `vulkan-polish` S4 (deferred mid-epic). New `Upload
 
 ## Epic: `jolt-physics` — v2.10.x series
 
-> **Rigid body physics.** Makes Luth a game engine, not just a renderer.
+> **Status: Shipped across v2.10.0–v2.10.3.** Architecture reference in [`arch/physics.md`](arch/physics.md).
 
-> **Tier 0 status: Shipped across v2.10.0–v2.10.2.**
->
-> - v2.10.0 [`jolt-rigid-bodies`](history/v2.x/rigid-bodies.md) — vendor + `LuthJobSystemForJolt` adapter, `Collider`/`RigidBody`/`PhysicsBodyRuntime` components, body lifecycle, kinematic/dynamic transform sync, debug-draw subsystem, Inspector + scene serialization, CCD `motionQuality`. `WaitForCounter` UAF fix along the way.
-> - v2.10.1 [`jolt-physics-queries`](history/v2.x/jolt-physics-queries.md) — Phase D: `Raycast`, `OverlapBox`/`Sphere`/`Capsule`, `LuthContactListener` (Godot-pattern trigger cache under SpinLock), 4-kind event surface (`ContactAdded`/`Removed` + `TriggerEnter`/`Exit`), per-frame `DrainEvents`.
-> - v2.10.2 [`jolt-physics-assets`](history/v2.x/jolt-physics-assets.md) — Phase E: `Physics::ShapeCache` (lazy build of `JPH::ConvexHullShape` + `JPH::MeshShape` from `Model::m_MeshesData`), `PhysicsMaterial` UUID-keyed asset (friction/restitution/density), `ModelImportSettings::PhysicsBakeMode { None, Auto }` opt-in gate, hot-reload via `AssetDatabase::AddChangeCallback`, `shapeFingerprint` populated + skip-rebuild fast path.
->
-> **Tier 1+ deferrals** (separate efforts when project data demands them):
-> - `feat/jolt-cooked-shapes` — on-disk persistence via `JPH::Shape::SaveBinaryState` sidecar/appended chunk keyed by `(modelUUID, meshIndex, shapeKind)`. Cache key already content-addressable; migration is a `ShapeCache` "load-from-blob" branch.
-> - `feat/jolt-character-controller` — Tier 1 character controller via `JPH::CharacterVirtual`.
-> - Per-mesh `PhysicsBakeMode` override + `ConvexHullPerMesh`/`MeshShapePerMesh` enum modes.
-> - `JPH::MutableCompoundShape` composition (multiple Colliders per entity, child-entity composition).
-> - ConvexDecomposition (V-HACD) for non-convex shapes.
-> - PhysicsMaterial cook parameters (active-edge angle, double-sided, per-triangle user data) — add when on-disk cook lands.
-> - PhysicsMaterial-per-shape (currently per-body via `RigidBody.materialUUID`).
-> - Heightfield / terrain shapes.
-> - Dynamic mesh updates (skinned mesh as physics, deformable shapes).
-> - `JPH::Shape` LOD / decimation.
->
-> The original Tier 0 spec follows for archaeology.
+- v2.10.0 [`jolt-rigid-bodies`](history/v2.x/rigid-bodies.md) — vendor + `LuthJobSystemForJolt` adapter, `Collider`/`RigidBody`/`PhysicsBodyRuntime` components, body lifecycle, kinematic/dynamic transform sync, debug-draw subsystem, Inspector + scene serialization, CCD `motionQuality`. `WaitForCounter` UAF fix along the way.
+- v2.10.1 [`jolt-physics-queries`](history/v2.x/jolt-physics-queries.md) — `Raycast`, `OverlapBox`/`Sphere`/`Capsule`, `LuthContactListener` (Godot-pattern trigger cache under SpinLock), 4-kind event surface, per-frame `DrainEvents`.
+- v2.10.2 [`jolt-physics-assets`](history/v2.x/jolt-physics-assets.md) — `Physics::ShapeCache` (lazy build of `JPH::ConvexHullShape` + `JPH::MeshShape` from `Model::m_MeshesData`), `PhysicsMaterial` UUID-keyed asset, `ModelImportSettings::PhysicsBakeMode` opt-in gate, hot-reload via `AssetDatabase::AddChangeCallback`, `shapeFingerprint` + skip-rebuild fast path.
+- v2.10.3 [`jolt-character-controller`](history/v2.x/jolt-character-controller.md) — Tier 1 `JPH::CharacterVirtual` (paired `Collider Type::Capsule`), `ExtendedUpdate` with default stair/stick-to-floor, debug-draw colored by `GroundState`, stub `PlayerControllerSystem` until scripting lands.
 
-### Architecture: Jolt on CPU via Fiber Job System
+### Tier 1+ deferrals (unscheduled — land when project data demands them)
 
-Jolt exposes a `JPH::JobSystem` interface. Implement to dispatch onto our fiber scheduler:
-
-```cpp
-class LuthJoltJobSystem : public JPH::JobSystem {
-    // Map Jolt jobs → Luth::JobSystem::Execute()
-    // Map Jolt barriers → Luth::AtomicCounter
-};
-```
-
-### Key Changes
-
-| Area | Detail |
-|------|--------|
-| **New components** | `RigidBody` (mass, restitution, friction, body type), `Collider` (box/sphere/capsule/mesh shape) |
-| **PhysicsSystem** | New ECS system: `Init()` creates Jolt world, `Update()` steps simulation, syncs transforms |
-| **Transform sync** | After Jolt step: `JPH::BodyInterface::GetWorldTransform()` → `Component::Transform` |
-| **Debug draw** | Wireframe collider visualization in editor |
-| **Raycasting** | `PhysicsSystem::Raycast()` for mouse picking, gameplay queries |
-| **Editor integration** | Inspector for RigidBody/Collider, play-mode-only simulation |
-| **Serialization** | RigidBody + Collider component serialization in `.luth` scenes |
-
-**Dependencies:** `play-mode` ✅
-**Effort:** XL
+| Effort | What it adds | Trigger |
+|---|---|---|
+| `feat/jolt-cooked-shapes` | On-disk persistence via `JPH::Shape::SaveBinaryState` sidecar/appended chunk keyed by `(modelUUID, meshIndex, shapeKind)`. Cache key already content-addressable; migration is a `ShapeCache` "load-from-blob" branch with no engine API changes. | Startup time / RAM from in-memory shape rebuild becomes a complaint |
+| `jolt-character-tier-2` | `CharacterContactListener`, dynamic-body push, crouch, swim | First project that needs character ↔ dynamic-body interaction |
+| Per-mesh `PhysicsBakeMode` override + `ConvexHullPerMesh`/`MeshShapePerMesh` enum modes | Currently per-model; per-mesh is the natural next refinement | Project authoring asks for it |
+| `JPH::MutableCompoundShape` composition | Multiple Colliders per entity, child-entity composition | First model that needs multi-part collision (vehicle chassis, articulated prop) |
+| ConvexDecomposition (V-HACD) | Non-convex dynamic shapes that can't be a single ConvexHull | First non-convex dynamic object that can't be hand-decomposed |
+| `PhysicsMaterial` cook parameters | Active-edge angle, double-sided, per-triangle user data | Add when on-disk cook lands |
+| `PhysicsMaterial`-per-shape | Currently per-body via `RigidBody.materialUUID`; future home for character materials | Per-body feels coarse for surfaces (different friction on different sides of one body) |
+| Heightfield / terrain shapes | `JPH::HeightFieldShape` for streamed terrain | Terrain system arrives |
+| Dynamic mesh updates | Skinned mesh as physics, deformable shapes | Cloth / soft-body system arrives |
+| `JPH::Shape` LOD / decimation | Distance-based collider LODs | Profiler flags it |
 
 ---
 
-## Epic: `jiggle-bones` — Secondary Physics
+## Epic: `foundation-testing` — v2.11.0 (NEXT)
 
-> **Custom Verlet spring simulation.** ~200 lines, not Jolt.
+> **Highest-priority post-Jolt effort.** Stress-test infrastructure for the foundational systems that bite hardest when they break.
 
-Runs after animation sampling, before bone matrix SSBO upload. Per-bone Verlet integration + distance constraints + optional sphere collider push-out.
+The v2.10.0 `WaitForCounter` UAF (see [`history/v2.x/rigid-bodies.md`](history/v2.x/rigid-bodies.md) Bug H + [`jobsystem-waitforcounter-uaf.md`](history/v2.x/jobsystem-waitforcounter-uaf.md)) cost ~15 hours to diagnose with trap-based debugging. A 200-LOC stress test under ASan would have caught it in seconds. The foundation systems carry multipliers — every future low-level bug pays the same tax until tests exist.
 
-### Key Changes
+Scope is the *foundation*, not "test everything" — AAA pattern (Naughty Dog Lemming tests, Frostbite, Unreal): heavy stress on race-prone primitives, unit tests on math/utilities, smoke on rendering/asset pipelines, almost nothing on gameplay.
 
-| Area | Detail |
-|------|--------|
-| **New component** | `JiggleBone { BoneName, Stiffness, Damping, Gravity, [runtime: CurrentPos, PreviousPos] }` |
-| **Chain support** | `JiggleChain { RootBoneName, ChainLength, Stiffness, Damping }` for ponytails/capes |
-| **AnimationSystem** | Add jiggle simulation step after global transform computation |
-| **Inspector** | Stiffness/damping sliders, gravity vector, visualization gizmo |
-| **Serialization** | New component in scene format |
+### Sub-tasks (~3-5 days total)
 
-**Dependencies:** Benefits from `jolt-physics` for collider sources; not strictly required
-**Effort:** M
+| # | What lands | Effort |
+|---|---|---|
+| 1 | **Test infrastructure setup.** Pick framework (Catch2 header-only preferred; GoogleTest if more harness needed); add `tests/` directory + `Tests` premake target; ASan-instrumented build config; CI hook (optional, can defer). | ~4-8h |
+| 2 | **JobSystem stress tests.** Reproduce the WaitForCounter UAF pattern; pinning; V5 inline execution; V3 IsRecording; nested dispatches; yield-while-waiting; concurrent enqueue from many fibers. | ~12-16h |
+| 3 | **Memory allocator stress tests.** `TaggedPageAllocator` (V6 wiring) + `GPUTaggedPageAllocator` (tag-bulk-free on GPU completion) + `LinearAllocator` reset semantics. Concurrent tag interleaving. | ~8-12h |
+| 4 | **Lock-free primitives + smaller utilities.** `MPMCQueue`, `WorkStealingDeque`, `SpinLock`, `AtomicCounter` Increment/Decrement protocol; LuthMath edge cases; UUID parse/collision. | ~6-10h |
+| 5 | **CI integration (optional, eventual).** Tests on push; ASan/TSan in pipelines. | future |
+
+**Critical systems ranked (would catch class of bugs Luth has historically hit):**
+1. `JobSystem` — schedulers, fibers, `WaitForCounter`, V1-V6 hazards
+2. `AtomicCounter` — Increment/Decrement protocol
+3. `MPMCQueue` / `WorkStealingDeque` — lock-free, notoriously buggy
+4. `SpinLock` — used everywhere
+5. `TaggedPageAllocator` + `GPUTaggedPageAllocator` — Naughty Dog Onion/Garlic, race-prone
+6. `LinearAllocator` — pervasive
+7. Render graph DAG resolve / asset hot-reload / `LuthMath` edge cases — important but less race-prone
+
+**What tests DON'T catch** (worth stating up front): architectural mistakes (need design review), perf regressions (need benchmarks), bugs in untested paths (need coverage), bugs in external library interaction (would not have caught a real Jolt bug, if H had been one).
+
+**Dependencies:** —
+**Effort:** L (3-5 days, one-time cost, multiplier payback)
 
 ---
 
-## Epic: `async-compute-queue` — v2.9.2
+## Epic: `async-compute-queue` — v2.11.1
 
 > **Run cull + GTAO on a dedicated compute queue so they overlap shadow rasterization on the graphics queue.**
 
@@ -249,22 +251,43 @@ Plan-mode this one before touching code — queue ownership transfers and timeli
 
 ---
 
-## Epic: `rg-aliasing` (optional) — v2.9.3
+## Epic: `jiggle-bones` — Planned (no fixed slot)
 
-> **Use the lifetime data the RG already computes to alias transient memory.**
+> **Custom Verlet spring simulation.** ~200 lines, not Jolt. Originally targeted v2.10.1, displaced by Jolt series.
+
+Runs after animation sampling, before bone matrix SSBO upload. Per-bone Verlet integration + distance constraints + optional sphere collider push-out.
+
+### Key Changes
+
+| Area | Detail |
+|------|--------|
+| **New component** | `JiggleBone { BoneName, Stiffness, Damping, Gravity, [runtime: CurrentPos, PreviousPos] }` |
+| **Chain support** | `JiggleChain { RootBoneName, ChainLength, Stiffness, Damping }` for ponytails/capes |
+| **AnimationSystem** | Add jiggle simulation step after global transform computation |
+| **Inspector** | Stiffness/damping sliders, gravity vector, visualization gizmo |
+| **Serialization** | New component in scene format |
+
+**Dependencies:** Benefits from `jolt-physics` ✅ for collider sources; not strictly required.
+**Effort:** M
+
+---
+
+## Epic: `rg-aliasing` — Planned (optional)
+
+> **Use the lifetime data the RG already computes to alias transient memory.** Defer if `forward-plus` doesn't push transient memory pressure.
 
 `ResourceNode::firstPass`/`lastPass` are populated in `ComputeLifetimes` but never consumed for memory aliasing. Two transient resources with disjoint lifetimes can share VkImage/VmaAllocation; on a dense post-fx chain (bloom mip pyramid + GTAO half-res + selection mask) peak transient VRAM drops 30–50%.
 
-Optional — defer if `forward-plus` doesn't push transient memory pressure on the target hardware. The `RenderResourceCache` rework in `vulkan-polish` already trims the steady-state churn; aliasing is the next step beyond that.
+The `RenderResourceCache` rework in `vulkan-polish` already trims the steady-state churn; aliasing is the next step beyond that.
 
 **Dependencies:** —
 **Effort:** M
 
 ---
 
-## Epic: `procedural-sky` — v2.9.x
+## Epic: `procedural-sky` — Planned (any quiet renderer slot)
 
-> **Default no-HDR experience.** Hosek-Wilkie or Preetham analytical sky, not stub-cubemap fallback.
+> **Default no-HDR experience.** Hosek-Wilkie or Preetham analytical sky, not stub-cubemap fallback. Independent of all other planned work.
 
 Runtime-evaluated atmospheric scattering as the default skybox when no HDR environment is loaded. Replaces today's dummy-cubemap fallback (introduced as a side-effect of `vulkan-polish` F1 `ibl-skip-pre-project`). Drives IBL inputs (irradiance + prefiltered env) when no HDR present, regenerated on sun-direction or turbidity change. Compute-shader implementation — full-resolution cubemap regen on parameter change is fine, this runs once-per-edit, not per-frame.
 
@@ -276,7 +299,7 @@ Runtime-evaluated atmospheric scattering as the default skybox when no HDR envir
 | Editor | RenderPanel block: sky-model toggle, sun-coupled-to-DirLight checkbox, turbidity/albedo sliders |
 | Fallback chain | HDR if loaded → procedural sky if no HDR → existing dummy-cubemap as last resort |
 
-**Dependencies:** `jolt-physics` (post-Jolt scheduling slot, not technical)
+**Dependencies:** — (the prior `jolt-physics` line was a scheduling artifact, not a technical dep)
 **Effort:** M
 
 ---
@@ -359,23 +382,52 @@ Successor to v1.0 `animation-system`. New asset format for the controller graph;
 
 ## Future (Not Scoped)
 
-Beyond planned epics, ordered roughly by value:
+Beyond planned epics. Organized by area; ROADMAP's Future Ideas is a one-line pointer here (this is the single source of truth).
 
-| Feature | Depends On | Notes |
-|---------|-----------|-------|
-| **Shadow frustum-union fit** | `game-panel` ✅ | CSM refits per view (2× shadow cost with game panel open); one union fit covers all active views |
-| **Frame Debugger per-view capture** | `game-panel` ✅ | Capture currently scene-view-only; extend tracked RTs + archive slots to tag by view |
-| **Auto-wire `GPUTimerPool` into RenderGraph** | — | Currently per-pass insertion is manual |
-| **Scene-panel post-process toggle** | — | Unity-style toggle to disable bloom/tonemap/vignette for lookdev |
-| **Tracked STL allocators (`LH::Vector<T>`)** | — | Closes the STL gap on `MemoryTracker` (currently covered only by Tracy hooks) |
-| **HZB Occlusion Culling** | `compute-gpu-culling` ✅ | Two-phase cull pipeline; depth pyramid as compute |
-| **Prefab System** | `play-mode` ✅, `jolt-physics` | Entity templates with override tracking |
-| **Scripting (C# or Lua)** | `play-mode` ✅, `jolt-physics` | Requires play mode + physics for meaningful scripts |
-| **Asset Streaming** | `compute-gpu-culling` ✅ | Async GPU upload via transfer queue |
+### Gameplay enablement
+
+| Item | Depends on | Notes |
+|---|---|---|
+| **Scripting (C# via Mono, or Lua)** | `play-mode` ✅, `jolt-physics` ✅ | Top priority of this category — deletes the `PlayerControllerSystem` stub. Big design surface (language pick, embedding, hot-reload, ECS bindings). |
+| **Prefab System** | `play-mode` ✅, scripting (recommended) | Entity templates with override tracking |
+| **Ragdoll** | `jolt-physics` ✅, `animation-controller-v2` | Bone driven by Jolt body during ragdoll state |
+
+### Rendering (beyond planned-epic deps)
+
+| Item | Depends on | Notes |
+|---|---|---|
 | **Deferred GBuffer** | `forward-plus` | If Forward+ hits limits; unlocks SSR, decals |
 | **SSR (Screen-Space Reflections)** | GBuffer or depth | Hi-Z traced reflection |
 | **Volumetric Fog** | `compute-gpu-culling` ✅, `forward-plus` | Froxel-based, compute-driven |
-| **3D Spatial Audio** | `play-mode` ✅ | Orthogonal; integrate when demo needs it |
-| **Ragdoll** | `jolt-physics`, `animation-controller-v2` | Bone driven by Jolt body during ragdoll state |
+| **Global Illumination** | `forward-plus` | Screen-space or probe-based |
+| **HZB Occlusion Culling** | `compute-gpu-culling` ✅ | Two-phase cull pipeline; depth pyramid as compute |
+| **Shadow frustum-union fit** | `game-panel` ✅ | CSM refits per view (2× shadow cost with game panel open); one union fit covers all active views |
+
+### Animation maturity (post `animation-controller-v2`)
+
+| Item | Depends on | Notes |
+|---|---|---|
 | **Animation v3 (DQS, IK, morph targets)** | `animation-controller-v2` | Beyond state machine + blend trees |
+
+### Audio
+
+| Item | Depends on | Notes |
+|---|---|---|
+| **3D Spatial Audio** | `play-mode` ✅ | Orthogonal; integrate when demo needs it |
+| **Audio asset pipeline** | — | `.wav` / `.ogg` importer + AssetManager dispatch |
+
+### Editor & Tools
+
+| Item | Depends on | Notes |
+|---|---|---|
+| **Asset Streaming** | `compute-gpu-culling` ✅ | Async GPU upload via transfer queue |
 | **Visual Shader Editor** | — | Editor luxury, low priority |
+| **Frame Debugger per-view capture** | `game-panel` ✅ | Capture currently scene-view-only; extend tracked RTs + archive slots to tag by view |
+| **Scene-panel post-process toggle** | — | Unity-style toggle to disable bloom/tonemap/vignette for lookdev |
+| **Auto-wire `GPUTimerPool` into RenderGraph** | — | Currently per-pass insertion is manual |
+
+### Profiling / Memory
+
+| Item | Depends on | Notes |
+|---|---|---|
+| **Tracked STL allocators (`LH::Vector<T>`)** | — | Closes the STL gap on `MemoryTracker` (currently covered only by Tracy hooks) |

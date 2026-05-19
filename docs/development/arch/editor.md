@@ -17,11 +17,43 @@ namespace Luth::EditorHooks {
 }
 ```
 
-`IEditorHooks` exposes the editor-driven lifecycle, per-frame, project, input-capture, and viewport-snapshot calls the engine needs (Init / BeginFrame / Render / EndFrame / Shutdown / WantCaptureKeyboard / WantCaptureMouse / GetViewportState / OnProjectChanged / etc.).
+### Hook surface
+
+| Method | Called from | Purpose |
+|---|---|---|
+| `Init(Window*)` / `Shutdown()` | `App::Init` / `App::~App` | Editor lifecycle |
+| `BeginFrame()` / `Render()` / `EndFrame()` | `App::Run` | Per-frame ImGui pump |
+| `WantCaptureKeyboard()` / `WantCaptureMouse()` | `Input::IsKeyPressed` / mouse polling | Gates input when ImGui has focus |
+| `GetPlayState() → PlayState` | `PhysicsSystem::Update`, `App::Run` | Read editor's transport state |
+| `ConsumeStepRequest() → bool` | `App::Run` | Frame-step in Paused mode (one-shot) |
+| `GetViewportState(EditorViewportState&)` | `App::Run` (game-stage prep) | Snapshot debug toggles + selected entities |
+| `OnProjectChanged()` | `App::LoadProject` | Reload panels, refresh project-aware state |
+| `OnFrameDebuggerNotice(string)` | RenderPipeline | Surface frame-debugger banner to ConsolePanel |
 
 `LuthienEditorHooks` in `luthien/source/luthien/EditorHooks.cpp` implements the interface by forwarding each call to the corresponding `Editor::` / `ProjectLauncher::` / `EditorSelection::` static API. Registration happens in `runtime/source/LuthienApp.cpp::CreateApp` via `InstallLuthienEditorHooks()` *before* `App::App()` runs — so the hook is live from the first engine call onward.
 
 A runtime-only build that skips linking `Luthien.lib` leaves the registry empty and every engine-side `if (auto* h = EditorHooks::Get())` short-circuits cleanly.
+
+### `PlayState` (since v2.8.0)
+
+```cpp
+enum class PlayState { Editing, Playing, Paused };
+```
+
+The engine reads this per-frame and computes `m_RunGameSystems` — gameplay systems (`AnimationSystem`, `PlayerControllerSystem`) only tick when the result is true:
+
+```
+m_RunGameSystems = !haveEditor
+                || (playState == Playing)
+                || (playState == Paused && stepThisFrame)
+                || (playState == Editing && viewState.previewAnimationInEditor);
+```
+
+`PhysicsSystem` runs unconditionally but early-returns from its substep loop in Editing mode — bodies still exist, debug-draw still renders, lifecycle queues still drain (so the user can author colliders without entering Play), but no `JPH::PhysicsSystem::Update` call.
+
+### `EditorViewportState`
+
+Per-frame snapshot of editor toggles the engine needs to read. Populated by `GetViewportState`. Fields cover: selected entities (for outline + gizmo), preview-animation-in-editor flag, physics debug toggles (shapes/AABBs/CoM per Selected/All scope + color mode + alpha + segment count), frame-debugger capture state.
 
 ## Core (Editor.h/.cpp)
 
@@ -74,6 +106,18 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 **14 command types:** ComponentPropertyCommand (pointer-to-member), ComponentAddCommand, ComponentRemoveCommand, GizmoTransformCommand, EntityCreateCommand, EntityDestroyCommand (JSON subtree snapshot), EntityRenameCommand, EntityReparentCommand, EntityReorderCommand, EntityDuplicateCommand, ModelInstantiateCommand, MaterialSnapshotCommand, CompoundCommand.
 
 **Shortcuts:** Ctrl+Z (undo), Ctrl+Y / Ctrl+Shift+Z (redo).
+
+## Workspaces (since v2.9.7)
+
+Named editor layouts. Each workspace pairs an ImGui dock-state file (`<name>.ini`) with a per-panel visibility set (sidecar `<name>.workspace.json`). User-created workspaces live at `<project>/.luth/layouts/`; the built-in `Default` ships at `luth/assets/workspaces/Default.{ini,workspace.json}` (read-only — built-in shadows user copy of same name).
+
+**API (static on `Editor`):** `LoadWorkspace(name)` · `SaveWorkspaceAs(name)` · `RenameWorkspace(old, new)` · `DeleteWorkspace(name)` · `ResetWorkspaceToBuiltin(name)` · `GetWorkspaces() → vector<string>` · `SaveActiveWorkspaceSidecar()`.
+
+**Persistence flow:** `Editor::Shutdown` calls `SaveActiveWorkspaceSidecar` after `SaveSettings` so live `panel->m_Open` flips persist into the sidecar (built-in active = no-op; built-ins are read-only). Active workspace name persists in `EditorSettings`; `s_NeedActiveWorkspaceLoad` defers the first apply to end of Render so panels + ImGui dock state exist before reload.
+
+**UI surfaces:** `Window > Workspaces` lists workspaces with Switch / Save As / Rename / Delete / Reset to Builtin (Rename + Delete disabled when active is built-in). `Window > <panel name>` toggles `m_Open` per panel (separate from per-frame `m_Visible`). `Window > Reset Layout` loads `layouts/Default.ini`.
+
+**Signals:** `WorkspaceChangedSignal` on `BusType::MainThread` (no in-tree subscribers yet — future-proof hook).
 
 ## Panels
 
@@ -140,4 +184,27 @@ Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
 ### HistoryPanel — Undo/Redo Debug
 - Timeline-style visualization of undo/redo stacks
 - Per-command type icons, expandable compound commands
+- Undo/Redo/Clear buttons with stack size counters
+
+### ConsolePanel — Log Viewer (since v2.9.2)
+- Implements `ILogSink`: sink callback (any thread) enqueues `LogEntrySignal` on the main `EventBus`; handler appends to a capped deque (1024)
+- Level filter (trace/info/warn/error) + case-insensitive search + auto-scroll
+- `ImGuiListClipper` row loop for log-explosion resilience
+- Per-panel error boundary on `OnDraw` (3-strike crash gate, then placeholder window with manual Reset)
+
+### GamePanel — Runtime View (since v2.8.1)
+- Dedicated camera-driven viewport rendering the scene's first `Component::Camera` entity
+- Letterbox + no overlays (no gizmo, no outline) — matches what a built runtime would show
+- Uses `RenderView` + `ViewResources` cache; per-instance resize callback replaces the old global `RenderResizeEvent`
+
+### EditorSettingsWindow — Preferences (since v2.9.7, NOT a `Panel`)
+- Standalone window opened from `Edit > Preferences`, centered on engine window
+- Unity-style two-pane: left section list with resizable splitter, right scrollable body
+- Top-right search filters rows across all sections
+- Commits trigger `SaveSettings` + `ApplyPersistence` so camera/skybox propagate live
+
+### TextureRemapDialog — Asset Import Helper (since `smart-import-hot-reload` v1.0.0)
+- Modal triggered by `ImportReport` when texture discovery finds ambiguous candidates
+- Per-texture combo of detected candidates + browse fallback
+- Commits write to the model's `.meta` and trigger a reimport
 - Undo/Redo/Clear buttons with stack size counters

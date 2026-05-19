@@ -60,11 +60,22 @@ Lightweight handle wrapper: `entt::entity` handle + `Scene*` back-reference. Cop
 | **Camera** | `ProjectionType` (Perspective/Ortho), `FOV`, `Near/Far`, `AspectRatio`, `ViewMatrix`, `ProjectionMatrix`, `IsDirty` |
 | **Animation** | `ModelUUID`, `AnimationIndex` |
 
+### Physics
+| Component | Fields |
+|-----------|--------|
+| **Collider** | `type` (Box/Sphere/Capsule/ConvexHullRef/MeshRef tagged union), `localOffset`, `localRotation` |
+| **RigidBody** | `motion` (Static/Kinematic/Dynamic), `motionQuality`, `layer`, `isSensor`, `mass`, `linearVelocity`, `angularVelocity`, `gravityFactor`, `linearDamping`, `angularDamping`, `materialUUID` |
+| **CharacterController** | `maxSlopeAngleDeg`, `mass`, `maxStrength`, `characterPadding`, `predictiveContactDistance`, `penetrationRecoverySpeed`, `layer`, `gravityFactor`, `moveSpeed`, `jumpSpeed`; per-frame `desiredVelocity`/`jumpQueued`; read-back `groundState`/`currentVelocity` |
+| **PhysicsBodyRuntime** (runtime-only) | `bodyId` (opaque), `shapeFingerprint` — managed by PhysicsSystem |
+| **CharacterControllerRuntime** (runtime-only) | `character` (`JPH::CharacterVirtual*` observer), `fingerprint` — managed by PhysicsSystem |
+
+Detailed coverage in `arch/physics.md`. RigidBody and CharacterController are mutually exclusive on the same entity.
+
 ## Systems
 
 Static `SystemRegistry` class (renamed from `Systems` in arch-cleanup v1.6.0) holds a `vector<unique_ptr<ISystem>>`. Per-system dispatch via `SystemRegistry::Update<T>()` (called explicitly from `App::Run` for each registered system).
 
-**Update order:** TransformSystem → AnimationSystem → RenderingSystem → PickingSystem (camera state fed directly into RenderingSystem from App via `CameraParams`; `LightingSystem` is registered for lookup but its `Update` is a no-op — `RenderingSystem::Update` drives it inline via `UpdateFor`)
+**Update order:** TransformSystem → (gated by `m_RunGameSystems`) PlayerControllerSystem → PhysicsSystem → (gated) AnimationSystem → CameraSystem → LightingSystem → RenderingSystem → PickingSystem. (PhysicsSystem itself runs unconditionally but early-returns in Editing mode after draining queued lifecycle events and emitting debug-draw. Camera state feeds RenderingSystem from App via `CameraParams`; `LightingSystem` is registered for lookup but its `Update` is a no-op — `RenderingSystem::Update` drives it inline via `UpdateFor`.)
 
 ### TransformSystem — Parallel Level-Based Hierarchy
 1. If hierarchy version changed, rebuild level arrays via BFS from roots
@@ -72,6 +83,14 @@ Static `SystemRegistry` class (renamed from `Systems` in arch-cleanup v1.6.0) ho
 3. Within each level, dispatch parallel jobs (group size 64)
 4. Each job: recompute `LocalMatrix` if dirty → `WorldTransform = ParentWorld × Local`
 5. Parents are guaranteed finalized before children (serial level ordering)
+
+### PlayerControllerSystem (stub since v2.10.3)
+
+Placeholder until a scripting layer lands. Walks `(CharacterController, WorldTransform)` views; extracts forward/right from world-matrix columns; polls raw GLFW keycodes (`Input::IsKeyPressed`) for WASD/Space; calls `cc.SetDesiredVelocity()` + `cc.Jump()`. Gated by `App::m_RunGameSystems` so Editing mode stays inert. Deletes when scripts can call `SetDesiredVelocity` directly.
+
+### PhysicsSystem (since v2.10.0)
+
+Drives `JPH::PhysicsSystem` for the active scene. EnTT signal-driven body + character lifecycle (`(Collider, RigidBody)` pairs → bodies; `(Collider Type::Capsule, CharacterController)` pairs → characters), deferred build/destroy queues, fingerprint fast-path, fixed-dt accumulator, query re-entry guard. Runs unconditionally (drains + debug-draw stay live in Editing) but early-returns before the substep loop when `PlayState == Editing`. Detailed coverage in `arch/physics.md`.
 
 ### CameraSystem
 - Computes `ViewMatrix = inverse(WorldTransform.Matrix)`

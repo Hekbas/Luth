@@ -173,6 +173,18 @@ Passes execute in topological order; command-buffer recording inside each pass p
 | **Root Motion** | Automatic extraction and application to entity transform |
 | **Debug** | Bone overlay visualization in editor viewport |
 
+### Physics
+
+| | |
+|---|---|
+| **Backend** | Jolt Physics 5.5.0, jobified onto the fiber scheduler |
+| **Rigid Bodies** | Static / Kinematic / Dynamic with CCD, primitive + ConvexHull + Mesh shapes |
+| **Materials** | UUID-keyed friction / restitution / density with hot-reload |
+| **Character Controller** | Kinematic capsule via `JPH::CharacterVirtual`, default stair + stick-to-floor |
+| **Queries** | Raycast + Overlap (box / sphere / capsule), layer-mask filtered |
+| **Events** | Contact + trigger Add / Remove, drained per frame |
+| **Debug Draw** | Wire colliders colored by motion state or character ground state |
+
 ### Asset Pipeline
 
 | | |
@@ -206,9 +218,9 @@ See the full [development roadmap](docs/development/ROADMAP.md) for completed ph
 
 ### Future Ideas
 
-**Rendering** — Deferred GBuffer, Forward+ clustered lighting, FXAA/TAA, global illumination, volumetric fog, SSR
+**Rendering** — Forward+ clustered lighting, FXAA/TAA, deferred GBuffer, global illumination, volumetric fog, SSR
 
-**Gameplay** — Physics (Jolt, jobified), GPU particle system, animation blend trees & IK, prefab system, scripting (C#/Lua)
+**Gameplay** — Scripting (C#/Lua), prefab system, ragdoll, GPU particle system, animation blend trees & IK
 
 **Editor** — Asset streaming, visual shader editor
 
@@ -234,9 +246,7 @@ LUTH Engine is built on the shoulders of giants:
 | [**assimp**](https://github.com/assimp/assimp) | Model importing |
 | [**stb_image**](https://github.com/nothings/stb) | Image loading |
 | [**nlohmann/json**](https://github.com/nlohmann/json) | JSON serialization |
-
-**Planned integrations:**
-* [**Jolt Physics**](https://github.com/jrouwe/JoltPhysics) — rigid body physics, jobified onto the fiber scheduler
+| [**Jolt Physics**](https://github.com/jrouwe/JoltPhysics) | Rigid body physics, jobified onto the fiber scheduler |
 
 ---
 
