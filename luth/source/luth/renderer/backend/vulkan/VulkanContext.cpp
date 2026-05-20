@@ -330,6 +330,7 @@ namespace Luth
                      && avail12.descriptorBindingPartiallyBound
                      && avail12.descriptorBindingSampledImageUpdateAfterBind
                      && avail12.descriptorBindingStorageBufferUpdateAfterBind
+                     && avail12.descriptorBindingStorageImageUpdateAfterBind
                      && avail12.descriptorBindingUniformBufferUpdateAfterBind
                      && avail12.runtimeDescriptorArray
                      && avail12.shaderSampledImageArrayNonUniformIndexing
@@ -341,13 +342,14 @@ namespace Luth
             LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 features missing on selected device — "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
-                "descriptorBindingUniformBufferUpdateAfterBind={} "
+                "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
                 "dynamicRendering={} synchronization2={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
                 (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
                 (bool)avail12.descriptorBindingStorageBufferUpdateAfterBind,
+                (bool)avail12.descriptorBindingStorageImageUpdateAfterBind,
                 (bool)avail12.descriptorBindingUniformBufferUpdateAfterBind,
                 (bool)avail12.runtimeDescriptorArray,
                 (bool)avail12.shaderSampledImageArrayNonUniformIndexing,
@@ -394,10 +396,12 @@ namespace Luth
         features12.pNext = &features11;
         features12.descriptorBindingPartiallyBound = VK_TRUE;
         features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-        // Required for tagged-heap consumers whose descriptors are rewritten each frame
-        // to point at fresh allocator regions: SSBOs (Set 2 Material / Set 4 Bones / Set 5 Object)
-        // and UBOs (Set 0 Global+GTAO / Set 3 Light / PostProcess / Grid).
+        // Required for tagged-heap consumers whose descriptors are rewritten each frame to point at fresh allocator
+        // regions: SSBOs (Set 2 Material / Set 4 Bones / Set 5 Object) and UBOs (Set 0 Global+GTAO / Set 3 Light /
+        // PostProcess / Grid). Storage-image variant required by GTAOMain layout (per-render-stage rewrites of the
+        // output image binding under VUID 03047 race — see GTAOSubsystem.cpp's invariant comment).
         features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        features12.descriptorBindingStorageImageUpdateAfterBind  = VK_TRUE;
         features12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
         features12.runtimeDescriptorArray = VK_TRUE;
         features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
