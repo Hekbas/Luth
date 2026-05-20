@@ -1,8 +1,7 @@
-// MPMCQueue — Vyukov bounded lock-free MPMC. Capacity must be power of 2.
-// V4 (see arch/version-glossary.md): every push pairs with WakeByAddressSingle;
-// JobSystem workers WaitOnAddress on the gen counter and never miss a wakeup.
-// This file isolates the queue itself; the JobSystem-level V4 test
-// (test_v4_wakeup.cpp) covers the engine-level integration.
+// MPMCQueue — Vyukov bounded lock-free MPMC. Capacity must be power of 2. V4 (see
+// arch/version-glossary.md): every push pairs with WakeByAddressSingle; JobSystem workers WaitOnAddress
+// on the gen counter and never miss a wakeup. This file isolates the queue itself; the JobSystem-level
+// V4 test (test_v4_wakeup.cpp) covers the engine-level integration.
 
 #include <doctest/doctest.h>
 
@@ -41,10 +40,9 @@ TEST_CASE("MPMCQueue: TryPush returns false when full [smoke]")
 
 TEST_CASE("MPMCQueue: N producers + M consumers preserve every item [stress]")
 {
-    // Frostbite-style property test. Each producer pushes a unique tag range;
-    // consumers pop and accumulate. After all done, total count must match and
-    // the sum must equal the expected arithmetic-series sum (no losses, no
-    // duplicates — every value popped exactly once).
+    // Frostbite-style property test. Each producer pushes a unique tag range; consumers pop and
+    // accumulate. After all done, total count must match and the sum must equal the expected
+    // arithmetic-series sum (no losses, no duplicates — every value popped exactly once).
     constexpr Luth::u32 kProducers = 4;
     constexpr Luth::u32 kConsumers = 4;
     constexpr Luth::u32 kItemsPerProducer = 25'000;
@@ -95,8 +93,7 @@ TEST_CASE("MPMCQueue: N producers + M consumers preserve every item [stress]")
     for (Luth::u32 i = kProducers; i < threads.size(); ++i) threads[i].join();
 
     // Sum of [0, kTotal) = kTotal * (kTotal - 1) / 2
-    const Luth::u64 expectedSum =
-        static_cast<Luth::u64>(kTotal) * (kTotal - 1) / 2;
+    const Luth::u64 expectedSum = static_cast<Luth::u64>(kTotal) * (kTotal - 1) / 2;
     CHECK(popCount.load() == kTotal);
     CHECK(popSum.load() == expectedSum);
 }

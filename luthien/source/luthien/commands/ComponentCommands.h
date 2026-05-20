@@ -162,10 +162,8 @@ namespace Luth
     class ComponentSnapshotCommand : public ICommand
     {
     public:
-        ComponentSnapshotCommand(const char* name, Scene* scene, entt::entity entity,
-                                 T oldValue, T newValue)
-            : m_Name(name), m_Scene(scene),
-              m_Old(std::move(oldValue)), m_New(std::move(newValue))
+        ComponentSnapshotCommand(const char* name, Scene* scene, entt::entity entity, T oldValue, T newValue)
+            : m_Name(name), m_Scene(scene), m_Old(std::move(oldValue)), m_New(std::move(newValue))
         {
             Entity e{ entity, scene };
             m_EntityUUID = e.GetComponent<Component::ID>().Value;

@@ -30,11 +30,10 @@ namespace Luth::Physics
             return q.w == 1.0f && q.x == 0.0f && q.y == 0.0f && q.z == 0.0f;
         }
 
-        // Wrap an inner shape if either offset or rotation is non-identity. Returns the inner shape
-        // directly when both are identity so the dispatch path stays one indirection shallower.
-        // Mirrors ShapeBuilder.cpp's tail; duplicated here to keep ShapeBuilder primitive-only.
-        JPH::RefConst<JPH::Shape> WrapWithOffset(JPH::RefConst<JPH::Shape> inner,
-                                                 const Vec3& off, const Quat& rot)
+        // Wrap an inner shape if either offset or rotation is non-identity. Returns the inner shape directly when both
+        // are identity so the dispatch path stays one indirection shallower. Mirrors ShapeBuilder.cpp's tail;
+        // duplicated here to keep ShapeBuilder primitive-only.
+        JPH::RefConst<JPH::Shape> WrapWithOffset(JPH::RefConst<JPH::Shape> inner, const Vec3& off, const Quat& rot)
         {
             if (IsZero(off) && IsIdentity(rot)) return inner;
             JPH::RotatedTranslatedShapeSettings wrap(Physics::ToJolt(off), Physics::ToJolt(rot), inner);
@@ -42,11 +41,10 @@ namespace Luth::Physics
             return result.IsValid() ? result.Get() : inner;
         }
 
-        // Build the un-wrapped inner shape from one mesh's vertex/index data. ConvexHull only needs
-        // positions; MeshShape needs positions + indices. Skinned-vertex meshes use SkinnedVertices
-        // (positions are at the same field offset but the strides differ — branch and copy).
-        JPH::RefConst<JPH::Shape> BuildAssetShape(Component::Collider::Type kind,
-                                                  const MeshData& mesh)
+        // Build the un-wrapped inner shape from one mesh's vertex/index data. ConvexHull only needs positions;
+        // MeshShape needs positions + indices. Skinned-vertex meshes use SkinnedVertices (positions are at the same
+        // field offset but the strides differ — branch and copy).
+        JPH::RefConst<JPH::Shape> BuildAssetShape(Component::Collider::Type kind, const MeshData& mesh)
         {
             using Type = Component::Collider::Type;
             if (kind == Type::ConvexHullRef)
@@ -204,14 +202,13 @@ namespace Luth::Physics
             auto& meshes = model->GetMeshesData();
             if (c.meshRef.meshIndex >= meshes.size())
             {
-                LH_CORE_WARN("ShapeCache: meshIndex {} out of range ({} meshes in model)",
-                             c.meshRef.meshIndex, meshes.size());
+                LH_CORE_WARN("ShapeCache: meshIndex {} out of range ({} meshes in model)", c.meshRef.meshIndex, meshes.size());
                 return { nullptr, false };
             }
 
-            // invariant: Model::m_MeshesData persists post-upload — Model.cpp's ProcessMeshData
-            // intentionally keeps CPU vertex/index data alive for queries. The future on-disk
-            // physics-blob bake (`feat/jolt-cooked-shapes`) breaks this dependency.
+            // invariant: Model::m_MeshesData persists post-upload — Model.cpp's ProcessMeshData intentionally keeps
+            // CPU vertex/index data alive for queries. A future on-disk physics-blob bake would replace this
+            // build-from-vertices path with a load-from-blob branch and let MeshesData be dropped after upload.
             inner = BuildAssetShape(c.type, meshes[c.meshRef.meshIndex]);
             if (!inner)
                 return { nullptr, false };

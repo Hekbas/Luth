@@ -31,8 +31,7 @@ namespace Luth::Physics
         ~LuthJobSystemForJolt() override;
 
         int       GetMaxConcurrency() const override;
-        JobHandle CreateJob(const char* name, JPH::ColorArg color,
-                            const JobFunction& fn, JPH::uint32 numDeps = 0) override;
+        JobHandle CreateJob(const char* name, JPH::ColorArg color, const JobFunction& fn, JPH::uint32 numDeps = 0) override;
 
         Barrier*  CreateBarrier() override;
         void      DestroyBarrier(Barrier* barrier) override;

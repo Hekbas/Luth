@@ -1,6 +1,5 @@
-// LinearAllocator — per-fiber bump allocator. Pages grow on overflow; Reset()
-// rewinds to first page without freeing storage so pages get reused across
-// frames. See docs/development/arch/memory.md.
+// LinearAllocator — per-fiber bump allocator. Pages grow on overflow; Reset() rewinds to first page
+// without freeing storage so pages get reused across frames. See docs/development/arch/memory.md.
 
 #include <doctest/doctest.h>
 
@@ -39,9 +38,8 @@ TEST_CASE("LinearAllocator: oversized request grows page beyond default [smoke]"
     void* p = alloc.Allocate(kBig, 8);
     REQUIRE(p != nullptr);
 
-    // Direct functional check — writing the full requested size must not crash
-    // or trip ASan, confirming the allocator returned a valid backing of at
-    // least kBig bytes.
+    // Direct functional check — writing the full requested size must not crash or trip ASan,
+    // confirming the allocator returned a valid backing of at least kBig bytes.
     std::memset(p, 0xAB, kBig);
 
     // Accounting agrees: total grew to accommodate the oversize page.

@@ -85,8 +85,7 @@ namespace Luth
             settings.physicsCoMSelected    = j.value("physicsCoMSelected",    settings.physicsCoMSelected);
             settings.physicsCoMAll         = j.value("physicsCoMAll",         settings.physicsCoMAll);
             settings.physicsColorMode      = static_cast<PhysicsDebugColorMode>(
-                                                 j.value("physicsColorMode",
-                                                         static_cast<int>(settings.physicsColorMode)));
+                                                 j.value("physicsColorMode", static_cast<int>(settings.physicsColorMode)));
             LoadVec4(j, "physicsUniformColor", settings.physicsUniformColor);
             settings.physicsDebugSegments  = j.value("physicsDebugSegments",  settings.physicsDebugSegments);
             settings.physicsAlphaUnselected = j.value("physicsAlphaUnselected", settings.physicsAlphaUnselected);

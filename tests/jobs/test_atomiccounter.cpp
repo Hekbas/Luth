@@ -1,8 +1,7 @@
 // AtomicCounter — Increment/Decrement protocol + busy bit serialization.
 //
-// Value layout: Bit 0 = busy flag, Bits 1-31 = count. Increment shifts by 1 to
-// keep the busy bit clear. Decrement routes through the same wake path as a
-// completing job, including the busy-bit serialization at count 0.
+// Value layout: Bit 0 = busy flag, Bits 1-31 = count. Increment shifts by 1 to keep the busy bit clear.
+// Decrement routes through the same wake path as a completing job, with busy-bit serialization at count 0.
 
 #include <doctest/doctest.h>
 
@@ -29,8 +28,7 @@ TEST_CASE("AtomicCounter: explicit-init shifts count into bits 1+ [smoke]")
     CHECK((c.Value.load() >> 1) == 5);
 }
 
-TEST_CASE_FIXTURE(LuthTests::JobSystemFixture,
-                  "AtomicCounter: Increment(N) + N Decrements lands at 0 [smoke]")
+TEST_CASE_FIXTURE(LuthTests::JobSystemFixture, "AtomicCounter: Increment(N) + N Decrements lands at 0 [smoke]")
 {
     AtomicCounter c;
     constexpr Luth::u32 N = 1000;
@@ -41,8 +39,7 @@ TEST_CASE_FIXTURE(LuthTests::JobSystemFixture,
     CHECK(c.Value.load() == 0);
 }
 
-TEST_CASE_FIXTURE(LuthTests::JobSystemFixture,
-                  "AtomicCounter: concurrent Increment/Decrement balance [stress]")
+TEST_CASE_FIXTURE(LuthTests::JobSystemFixture, "AtomicCounter: concurrent Increment/Decrement balance [stress]")
 {
     AtomicCounter c;
     constexpr Luth::u32 kThreads = 8;

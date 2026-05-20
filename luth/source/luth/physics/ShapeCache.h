@@ -95,8 +95,7 @@ namespace Luth::Physics
         //   - RigidBody motion + layer + isSensor + motionQuality + mass
         // Damping/gravity/velocity are intentionally NOT in the hash — those route through the
         // ApplyRigidBodyTuning fast path instead.
-        static u64 ComputeFingerprint(const Component::Collider& collider,
-                                      const Component::RigidBody& rb);
+        static u64 ComputeFingerprint(const Component::Collider& collider, const Component::RigidBody& rb);
 
     private:
         SpinLock m_Lock;

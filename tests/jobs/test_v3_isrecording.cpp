@@ -1,12 +1,10 @@
 // V3 — VkCommandBuffer Thread Violation hazard.
 //
-// Invariant: RecordingScope sets JobContext::IsRecording = true for its lifetime;
-// Fiber::SwitchTo asserts !IsRecording so yielding during a Vulkan command-buffer
-// recording aborts in debug. We can't catch the abort from doctest (it's an
-// assert() → process abort, not a C++ throw), so this test validates the
-// PREDICATE STATE TRANSITIONS that the assertion gates on. If the assertion ever
-// fires in production, the state machine is broken — but our job here is to
-// verify the state machine itself works correctly.
+// Invariant: RecordingScope sets JobContext::IsRecording = true for its lifetime; Fiber::SwitchTo asserts
+// !IsRecording so yielding during a Vulkan command-buffer recording aborts in debug. We can't catch the
+// abort from doctest (it's an assert() → process abort, not a C++ throw), so this test validates the
+// PREDICATE STATE TRANSITIONS that the assertion gates on. If the assertion ever fires in production, the
+// state machine is broken — but our job here is to verify the state machine itself works correctly.
 
 #include <doctest/doctest.h>
 
@@ -39,13 +37,11 @@ namespace
     }
 }
 
-TEST_CASE_FIXTURE(LuthTests::JobSystemFixture,
-                  "V3 RecordingScope predicate transitions [smoke]")
+TEST_CASE_FIXTURE(LuthTests::JobSystemFixture, "V3 RecordingScope predicate transitions [smoke]")
 {
     V3Data data;
     Luth::JobSystem::Counter c;
-    Luth::JobSystem::Execute(V3Job, &data, &c, "V3Record",
-                              Luth::JobSystem::Priority::Normal);
+    Luth::JobSystem::Execute(V3Job, &data, &c, "V3Record", Luth::JobSystem::Priority::Normal);
     Luth::JobSystem::WaitForCounter(&c, 0);
 
     CHECK(data.outsideOk.load());

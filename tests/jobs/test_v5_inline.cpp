@@ -41,35 +41,30 @@ namespace
 
         // Track max depth observed.
         Luth::u32 cur = shared->maxDepthObserved.load(std::memory_order_relaxed);
-        while (me > cur && !shared->maxDepthObserved.compare_exchange_weak(
-                   cur, me, std::memory_order_relaxed)) {}
+        while (me > cur && !shared->maxDepthObserved.compare_exchange_weak(cur, me, std::memory_order_relaxed)) {}
 
         if (me >= shared->targetDepth) return;
 
         // Dispatch one child at depth+1; wait for it.
         V5Frame child{ shared, me + 1 };
         Luth::JobSystem::Counter c;
-        Luth::JobSystem::Dispatch(1, 1, V5Recurse, &child, &c, "V5Recurse",
-                                   Luth::JobSystem::Priority::Normal);
+        Luth::JobSystem::Dispatch(1, 1, V5Recurse, &child, &c, "V5Recurse", Luth::JobSystem::Priority::Normal);
         Luth::JobSystem::WaitForCounter(&c, 0);
     }
 }
 
-TEST_CASE_FIXTURE(LuthTests::JobSystemFixture,
-                  "V5 recursive WaitForCounter bounded by fiber switch [smoke]")
+TEST_CASE_FIXTURE(LuthTests::JobSystemFixture, "V5 recursive WaitForCounter bounded by fiber switch [smoke]")
 {
-    // Target depth far exceeds MAX_INLINE_DEPTH (4). If V5 inlines without
-    // bound, the OS stack overflows around depth 50K-100K. With the depth limit,
-    // each chain of 4 inlines triggers a fiber switch which resets the C++
-    // stack depth, so 1000 levels complete easily.
+    // Target depth far exceeds MAX_INLINE_DEPTH (4). If V5 inlines without bound, the OS stack overflows
+    // around depth 50K-100K. With the depth limit, each chain of 4 inlines triggers a fiber switch which
+    // resets the C++ stack depth, so 1000 levels complete easily.
     V5Args shared;
     shared.maxDepthObserved.store(0);
     shared.targetDepth = 1000;
 
     V5Frame root{ &shared, 0 };
     Luth::JobSystem::Counter c;
-    Luth::JobSystem::Dispatch(1, 1, V5Recurse, &root, &c, "V5Root",
-                               Luth::JobSystem::Priority::Normal);
+    Luth::JobSystem::Dispatch(1, 1, V5Recurse, &root, &c, "V5Root", Luth::JobSystem::Priority::Normal);
     Luth::JobSystem::WaitForCounter(&c, 0);
 
     // We reached the target — V5 didn't let the C++ stack run away.

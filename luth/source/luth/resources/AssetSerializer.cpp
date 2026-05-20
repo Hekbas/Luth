@@ -346,8 +346,7 @@ namespace Luth
         return true;
     }
 
-    bool AssetSerializer::SerializePhysicsMaterial(const fs::path& path,
-                                                    const PhysicsMaterialAssetData& data)
+    bool AssetSerializer::SerializePhysicsMaterial(const fs::path& path, const PhysicsMaterialAssetData& data)
     {
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
@@ -364,8 +363,7 @@ namespace Luth
         return true;
     }
 
-    bool AssetSerializer::DeserializePhysicsMaterial(const fs::path& path,
-                                                      PhysicsMaterialAssetData& outData)
+    bool AssetSerializer::DeserializePhysicsMaterial(const fs::path& path, PhysicsMaterialAssetData& outData)
     {
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;

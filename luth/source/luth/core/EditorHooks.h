@@ -46,8 +46,8 @@ namespace Luth
         float     skyboxIntensity  = 1.0f;
         std::vector<Entity> selectedEntities;
 
-        // Selection-outline + editor-grid params. Defaults match the literals used
-        // before vulkan-polish so a runtime build (no editor) still renders sanely.
+        // Selection-outline + editor-grid params.
+        // Defaults keep a runtime build (no editor) rendering sanely without an EditorViewportState producer.
         Vec4 outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };
         float outlineWidth          = 1.5f;
         float outlineOccludedAlpha  = 0.65f;

@@ -200,11 +200,10 @@ namespace Luth
             Luth::DebugDraw::Line(c[2], c[6], color); Luth::DebugDraw::Line(c[3], c[7], color);
         }
 
-        // Wire capsule along local Y axis (Jolt convention). Two equator circles at the cylinder
-        // ends, two side seams along the cylinder, and one half-circle per hemisphere in each of
-        // the XY/ZY planes — readable silhouette without going full icosphere.
-        void DrawWireCapsule(const Mat4& m, float halfHeight, float radius, u32 color,
-                             std::span<const Vec2> unit)
+        // Wire capsule along local Y axis (Jolt convention). Two equator circles at the cylinder ends, two side
+        // seams along the cylinder, and one half-circle per hemisphere in each of the XY/ZY planes — readable
+        // silhouette without going full icosphere.
+        void DrawWireCapsule(const Mat4& m, float halfHeight, float radius, u32 color, std::span<const Vec2> unit)
         {
             const Vec3 origin(m[3]);
             const Mat3 rot(m);
@@ -236,12 +235,10 @@ namespace Luth
             Luth::DebugDraw::Line(topCenter + axisZ * radius, bottomCenter + axisZ * radius, color);
             Luth::DebugDraw::Line(topCenter - axisZ * radius, bottomCenter - axisZ * radius, color);
 
-            // Hemisphere arcs: half a great circle in each of the XY and ZY planes per cap.
-            // Iterate the unit table but only emit segments whose endpoints lie on the correct
-            // hemisphere (top: y >= 0; bottom: y <= 0). Arc plane uses (xAxis, yAxis) for one and
-            // (zAxis, yAxis) for the other, capturing the four cardinal arc seams.
-            auto HemiArc = [&](const Vec3& centre, const Vec3& planeU, const Vec3& planeV,
-                               bool topHalf) {
+            // Hemisphere arcs: half a great circle in each of the XY and ZY planes per cap. Iterate the unit table but
+            // only emit segments whose endpoints lie on the correct hemisphere (top: y >= 0; bottom: y <= 0). Arc plane
+            // uses (xAxis, yAxis) for one and (zAxis, yAxis) for the other, capturing the four cardinal arc seams.
+            auto HemiArc = [&](const Vec3& centre, const Vec3& planeU, const Vec3& planeV, bool topHalf) {
                 for (u32 i = 0; i < n; ++i)
                 {
                     const Vec2& a = unit[i];
@@ -313,12 +310,10 @@ namespace Luth
 
         // ── Character helpers ──
 
-        // Fingerprint inputs for CharacterController. Structural fields force a full rebuild on change:
-        // capsule shape, local offset/rotation, character padding, predictive contact distance. Tunables
-        // with JPH setters (mass, maxStrength, maxSlopeAngle, penetrationRecoverySpeed) live in the fast
-        // path and are intentionally NOT in the hash.
-        u64 ComputeCharacterFingerprint(const Component::Collider& collider,
-                                        const Component::CharacterController& cc)
+        // Fingerprint inputs for CharacterController. Structural fields force a full rebuild on change: capsule shape,
+        // local offset/rotation, character padding, predictive contact distance. Tunables with JPH setters (mass,
+        // maxStrength, maxSlopeAngle, penetrationRecoverySpeed) live in the fast path and are intentionally NOT in the hash.
+        u64 ComputeCharacterFingerprint(const Component::Collider& collider, const Component::CharacterController& cc)
         {
             u64 h = 1469598103934665603ull;
             auto mix64 = [&h](u64 v) {
@@ -554,14 +549,13 @@ namespace Luth
                         DrawWireSphere(colMat, collider.sphereRadius, color, unit);
                         break;
                     case Type::Capsule:
-                        DrawWireCapsule(colMat, collider.capsule.halfHeight,
-                                        collider.capsule.radius, color, unit);
+                        DrawWireCapsule(colMat, collider.capsule.halfHeight, collider.capsule.radius, color, unit);
                         break;
                     case Type::ConvexHullRef:
                     case Type::MeshRef: {
-                        // Shape baking lands later (Phase E). Render the local AABB as a placeholder
-                        // so the entity is still visible — keeps the debug view honest about "this
-                        // body has no real shape yet".
+                        // Asset-backed shape baking is owned by ShapeCache. Until the shape is available, render
+                        // the local AABB so the entity stays visible and the debug view stays honest about
+                        // "this body has no real shape yet".
                         Vec3 mn, mx;
                         if (ColliderLocalAABB(collider, mn, mx))
                             DrawWireBox(colMat, (mx - mn) * 0.5f, color);
@@ -924,8 +918,7 @@ namespace Luth
         if (m_PendingBuild.empty() || !scene) return;
 
         std::sort(m_PendingBuild.begin(), m_PendingBuild.end());
-        m_PendingBuild.erase(std::unique(m_PendingBuild.begin(), m_PendingBuild.end()),
-                             m_PendingBuild.end());
+        m_PendingBuild.erase(std::unique(m_PendingBuild.begin(), m_PendingBuild.end()), m_PendingBuild.end());
 
         auto& bi = m_System.GetBodyInterface();
         auto& reg = scene->Registry();
@@ -954,11 +947,10 @@ namespace Luth
             {
                 auto chIt = m_CharacterMap.find(entity);
 
-                // Fast path: character exists, fingerprint matches → only tunable fields changed.
-                // Apply mass / max-strength / max-slope / penetration-recovery in place.
+                // Fast path: character exists, fingerprint matches → only tunable fields changed. Apply mass /
+                // max-strength / max-slope / penetration-recovery in place.
                 if (chIt != m_CharacterMap.end()
-                    && reg.all_of<Component::Collider, Component::CharacterController,
-                                  Component::CharacterControllerRuntime>(entity))
+                    && reg.all_of<Component::Collider, Component::CharacterController, Component::CharacterControllerRuntime>(entity))
                 {
                     const auto& collider = reg.get<Component::Collider>(entity);
                     const auto& cc       = reg.get<Component::CharacterController>(entity);
@@ -986,12 +978,10 @@ namespace Luth
             // as before the dispatch was added.
             auto bodyIt = m_BodyMap.find(entity);
 
-            // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply
-            // damping / gravity / velocity in place and skip the (expensive for asset shapes)
-            // shape rebuild + body recreate.
+            // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply damping / gravity /
+            // velocity in place and skip the (expensive for asset shapes) shape rebuild + body recreate.
             if (bodyIt != m_BodyMap.end()
-                && reg.all_of<Component::Collider, Component::RigidBody,
-                              Component::PhysicsBodyRuntime>(entity))
+                && reg.all_of<Component::Collider, Component::RigidBody, Component::PhysicsBodyRuntime>(entity))
             {
                 const auto& collider = reg.get<Component::Collider>(entity);
                 const auto& rb       = reg.get<Component::RigidBody>(entity);
@@ -1135,8 +1125,7 @@ namespace Luth
         m_PendingCharacterDestroy.clear();
     }
 
-    void PhysicsSystem::ApplyCharacterTuning(JPH::CharacterVirtual* ch,
-                                             const Component::CharacterController& cc)
+    void PhysicsSystem::ApplyCharacterTuning(JPH::CharacterVirtual* ch, const Component::CharacterController& cc)
     {
         // Only the fields with public setters on CharacterVirtual / CharacterBase. mCharacterPadding
         // and mPredictiveContactDistance are construction-only and live in the fingerprint — a change
@@ -1197,8 +1186,7 @@ namespace Luth
         if (!scene) return;
 
         auto& reg = scene->Registry();
-        auto view = reg.view<Component::CharacterControllerRuntime,
-                             Component::Transform, Component::WorldTransform>();
+        auto view = reg.view<Component::CharacterControllerRuntime, Component::Transform, Component::WorldTransform>();
         for (auto entity : view)
         {
             const auto* ch = view.get<Component::CharacterControllerRuntime>(entity).character;
@@ -1310,8 +1298,7 @@ namespace Luth
             Quat rot;
             DecomposeTransform(world.Matrix, pos, rot, scale);
 
-            bi.MoveKinematic(JPH::BodyID(runtime.bodyId),
-                             Physics::ToJolt(pos), Physics::ToJolt(rot), dt);
+            bi.MoveKinematic(JPH::BodyID(runtime.bodyId), Physics::ToJolt(pos), Physics::ToJolt(rot), dt);
         }
     }
 
@@ -1485,8 +1472,7 @@ namespace Luth
         auto result = settings.Create();
         if (!result.IsValid()) return 0;
         // Sphere rotation has no geometric effect; pass identity through OverlapShape.
-        return OverlapShape(result.Get().GetPtr(), center, Quat(1.0f, 0.0f, 0.0f, 0.0f),
-                            layerMask, outHits);
+        return OverlapShape(result.Get().GetPtr(), center, Quat(1.0f, 0.0f, 0.0f, 0.0f), layerMask, outHits);
     }
 
     u32 PhysicsSystem::OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight,

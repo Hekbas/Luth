@@ -69,8 +69,7 @@ namespace Luth::Physics
 
         entt::entity ResolveEntity(JPH::BodyID id) const;
 
-        void EmitContactAdded  (const JPH::Body& b1, const JPH::Body& b2,
-                                const JPH::ContactManifold& m);
+        void EmitContactAdded  (const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m);
         void EmitContactRemoved(JPH::BodyID a, JPH::BodyID b);
         void EmitTriggerEnter  (JPH::BodyID a, JPH::BodyID b);
         void EmitTriggerExit   (JPH::BodyID a, JPH::BodyID b);

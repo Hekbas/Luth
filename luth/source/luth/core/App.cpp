@@ -348,9 +348,7 @@ namespace Luth
         Close();
     }
 
-    // ────────────────────────────────────────────────────────────────────
-    // Stage entry points
-    // ────────────────────────────────────────────────────────────────────
+    // ── Stage entry points ──
 
     void App::GameStageFn(JobSystem::JobArgs args)
     {

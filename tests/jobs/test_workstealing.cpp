@@ -1,7 +1,6 @@
-// WorkStealingDeque — Chase-Lev (SPAA 2005). Single-owner: only its owning thread
-// may call Push/TryPop (LIFO from bottom). Any thread may TrySteal (FIFO from top).
-// Resize doubles capacity in the owner's Push path; old buffers are intentionally
-// leaked because thieves may still hold pointers to them (frame-lifetime, moot).
+// WorkStealingDeque — Chase-Lev (SPAA 2005). Single-owner: only its owning thread may call Push/TryPop (LIFO
+// from bottom). Any thread may TrySteal (FIFO from top). Resize doubles capacity in the owner's Push path;
+// old buffers are intentionally leaked because thieves may still hold pointers to them (frame-lifetime, moot).
 
 #include <doctest/doctest.h>
 
@@ -51,9 +50,9 @@ TEST_CASE("WorkStealingDeque: owner Push triggers resize past initial capacity [
 
 TEST_CASE("WorkStealingDeque: owner Pop racing N thieves Steal preserves every item [stress]")
 {
-    // Property: each pushed item is observed by exactly one of (owner-Pop, any-Steal).
-    // Owner runs in main thread; thieves are worker threads. Owner pushes a batch,
-    // drains via TryPop, while thieves drain via TrySteal in parallel.
+    // Property: each pushed item is observed by exactly one of (owner-Pop, any-Steal). Owner runs in
+    // the main thread; thieves are worker threads. Owner pushes a batch, drains via TryPop, while
+    // thieves drain via TrySteal in parallel.
     WorkStealingDeque<Luth::u32> d;
     constexpr Luth::u32 kThieves = 4;
     constexpr Luth::u32 kItems = 50'000;

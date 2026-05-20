@@ -1,7 +1,6 @@
-// TaggedPageAllocator — 2 MB pages from VirtualAlloc, pooled in m_FreePages.
-// Each page carries a u32 tag; FreeTag(t) bulk-releases every page tagged t.
-// Driven by VulkanBackend after the GPU N-2 timeline wait (V6). See
-// docs/development/arch/memory.md.
+// TaggedPageAllocator — 2 MB pages from VirtualAlloc, pooled in m_FreePages. Each page carries a u32
+// tag; FreeTag(t) bulk-releases every page tagged t. Driven by VulkanBackend after the GPU N-2 timeline
+// wait (V6). See docs/development/arch/memory.md.
 
 #include <doctest/doctest.h>
 
@@ -51,8 +50,7 @@ TEST_CASE("TaggedPageAllocator: FreeTag returns pages to the free pool [smoke]")
 
     tpa.FreeTag(1);
 
-    // After FreeTag the cache's ActivePage is stale; clear it so the next
-    // alloc claims a fresh (or recycled) page from the pool.
+    // After FreeTag the cache's ActivePage is stale; clear it so the next alloc claims a fresh (or recycled) page.
     cache1.ActivePage = nullptr;
     cache1.CurrentTag = 2;
 
@@ -67,10 +65,9 @@ TEST_CASE("TaggedPageAllocator: V6 overflow — never FreeTag, page count grows 
     TpaScope scope;
     auto& tpa = TaggedPageAllocator::Get();
 
-    // V6: when the GPU stalls on N-2, FreeTag(N-2) never fires, so the allocator
-    // must grow via repeated AllocatePage rather than reuse. We never call FreeTag
-    // here; the allocator should claim fresh 2 MB pages each time the active
-    // page fills. Cap at ~128 MB to avoid pressuring the dev machine.
+    // V6: when the GPU stalls on N-2, FreeTag(N-2) never fires, so the allocator must grow via repeated
+    // AllocatePage rather than reuse. We never call FreeTag here; the allocator should claim fresh 2 MB
+    // pages each time the active page fills. Cap at ~128 MB to avoid pressuring the dev machine.
     TaggedPageAllocator::ThreadCache cache;
     cache.CurrentTag = 99;
 

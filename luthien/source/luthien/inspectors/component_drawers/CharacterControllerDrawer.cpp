@@ -91,12 +91,9 @@ namespace Luth::ComponentDrawers
                 initCol.capsule.halfHeight = 0.9f;
 
                 std::vector<std::unique_ptr<ICommand>> cmds;
-                cmds.push_back(std::make_unique<ComponentAddCommand<Collider>>(
-                    "Add Capsule Collider", scene, ent, std::move(initCol)));
-                cmds.push_back(std::make_unique<ComponentAddCommand<CharacterController>>(
-                    "Add Character Controller", scene, ent));
-                CommandHistory::Execute(std::make_unique<CompoundCommand>(
-                    "Add Character Controller", std::move(cmds)));
+                cmds.push_back(std::make_unique<ComponentAddCommand<Collider>>("Add Capsule Collider", scene, ent, std::move(initCol)));
+                cmds.push_back(std::make_unique<ComponentAddCommand<CharacterController>>("Add Character Controller", scene, ent));
+                CommandHistory::Execute(std::make_unique<CompoundCommand>("Add Character Controller", std::move(cmds)));
             }
         };
 

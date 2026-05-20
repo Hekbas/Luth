@@ -51,8 +51,7 @@ namespace Luth
         // layerMask is a bitmask of (1u << Layers::X) values; pass 0 to skip layer filtering.
         // Raycast returns false on miss with outHit untouched; on hit, fraction is [0, 1] along
         // the directed segment origin + dir*maxDist, distance is fraction * maxDist.
-        bool Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
-                     u32 layerMask, Physics::RaycastHit& outHit) const;
+        bool Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist, u32 layerMask, Physics::RaycastHit& outHit) const;
 
         // Find every body whose shape overlaps the given primitive. Hits are written into outHits
         // up to its size; the return value is the actual count (so callers can detect "clamped"
@@ -61,8 +60,7 @@ namespace Luth
         // identity).
         u32 OverlapBox    (const Vec3& center, const Vec3& halfExtents, const Quat& rot,
                            u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
-        u32 OverlapSphere (const Vec3& center, f32 radius,
-                           u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
+        u32 OverlapSphere (const Vec3& center, f32 radius, u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
         u32 OverlapCapsule(const Vec3& center, f32 radius, f32 halfHeight, const Quat& rot,
                            u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
 

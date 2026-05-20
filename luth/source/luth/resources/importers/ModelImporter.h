@@ -10,10 +10,10 @@
 
 namespace Luth
 {
-    // Imports source mesh files (.fbx, .obj, .gltf) into Library/-resident ModelAssetData
-    // artifacts. Splits skinning into its own ModelAssetData::Skeleton and extracts each
-    // animation channel into its own .anim sibling asset (when ExtractClipsAsSeparateAssets is
-    // on). Decode + processing happens on a worker fiber via JobSystem.
+    // Imports source mesh files (.fbx, .obj, .gltf) into Library/-resident ModelAssetData artifacts.
+    // Splits skinning into its own ModelAssetData::Skeleton and extracts each animation channel into
+    // its own .anim sibling asset (when ExtractClipsAsSeparateAssets is on).
+    // Decode + processing happens on a worker fiber via JobSystem.
     struct ModelImportSettings
     {
         // Geometry
@@ -34,15 +34,13 @@ namespace Luth
         };
         MeshTransformMode SkinMeshTransform = MeshTransformMode::Auto;
 
-        // When true, each animation clip from the source becomes its own .anim
-        // sibling asset (UUID-addressable, shareable across rigs). Disable to
-        // skip clip extraction entirely.
+        // When true, each animation clip from the source becomes its own .anim sibling asset (UUID-addressable, shareable across rigs).
+        // Disable to kip clip extraction entirely.
         bool ExtractClipsAsSeparateAssets = true;
 
-        // Physics shape sourcing. None (default) → ShapeCache returns null for asset-backed
-        // colliders referencing this model and warns once per UUID. Auto → ShapeCache builds
-        // JPH::ConvexHullShape / JPH::MeshShape on demand from Model::m_MeshesData. Per-mesh
-        // override + actual on-disk cooking are deferred to a future jolt-cooked-shapes effort.
+        // Physics shape sourcing. None (default) → ShapeCache returns null for asset-backed colliders referencing
+        // this model and warns once per UUID. Auto → ShapeCache builds JPH::ConvexHullShape / JPH::MeshShape on
+        // demand from Model::m_MeshesData. Per-mesh override + actual on-disk shape cooking are deferred to a future effort.
         enum class PhysicsBakeMode : int { None = 0, Auto = 1 };
         PhysicsBakeMode PhysicsBake = PhysicsBakeMode::None;
 

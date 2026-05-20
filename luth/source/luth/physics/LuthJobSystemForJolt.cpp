@@ -85,8 +85,7 @@ namespace Luth::Physics
     {
         {
             std::lock_guard<std::mutex> lk(m_PendingMutex);
-            auto it = std::find_if(m_Pending.begin(), m_Pending.end(),
-                [job](const PendingJob& p) { return p.job == job; });
+            auto it = std::find_if(m_Pending.begin(), m_Pending.end(), [job](const PendingJob& p) { return p.job == job; });
             if (it != m_Pending.end())
                 m_Pending.erase(it);
         }
@@ -199,16 +198,11 @@ namespace Luth::Physics
 
     void LuthJobSystemForJolt::QueueJob(Job* job)
     {
-        // We're storing the job for async execution — take a ref so it survives until the trampoline runs.
-        // The trampoline Releases after Execute. (Jolt's JobSystem.h: "If you store the job in your own
-        // data structure you need to call AddRef().")
+        // We're storing the job for async execution — take a ref so it survives until the trampoline runs. The
+        // trampoline Releases after Execute. (Jolt's JobSystem.h: "If you store the job in your own data
+        // structure you need to call AddRef().")
         job->AddRef();
-        Luth::JobSystem::Execute(
-            TrampolineFn,
-            job,
-            /*counter*/nullptr,
-            "JoltJob",
-            Luth::JobSystem::Priority::High);
+        Luth::JobSystem::Execute(TrampolineFn, job, /*counter*/nullptr, "JoltJob", Luth::JobSystem::Priority::High);
     }
 
     void LuthJobSystemForJolt::QueueJobs(Job** jobs, JPH::uint numJobs)
@@ -271,8 +265,7 @@ namespace Luth::Physics
                     if (elapsed < kWatchdogThreshold) continue;
 
                     bool expected = false;
-                    if (!bp->m_HasLogged.compare_exchange_strong(expected, true,
-                                                                  std::memory_order_acq_rel))
+                    if (!bp->m_HasLogged.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                         continue; // Already logged for this stuck period.
 
                     StuckSnapshot snap;
@@ -292,13 +285,10 @@ namespace Luth::Physics
                 LH_CORE_WARN("[JoltAdapter Watchdog] WaitForJobs stuck on barrier {} for {} ms; "
                              "counter raw=0x{:x} (busy={}, count={}); {} job(s) outstanding:",
                              s.barrierPtr, s.elapsed.count(), s.counterRaw,
-                             (s.counterRaw & 1u), (s.counterRaw >> 1),
-                             s.pending.size());
+                             (s.counterRaw & 1u), (s.counterRaw >> 1), s.pending.size());
                 for (size_t i = 0; i < s.pending.size(); ++i)
                 {
-                    LH_CORE_WARN("  [{}] Job {} '{}'",
-                                 i,
-                                 static_cast<void*>(s.pending[i].job),
+                    LH_CORE_WARN("  [{}] Job {} '{}'", i, static_cast<void*>(s.pending[i].job),
                                  s.pending[i].name.empty() ? "<unnamed>" : s.pending[i].name.c_str());
                 }
             }

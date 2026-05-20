@@ -1,5 +1,5 @@
-// SpinLock — V1: pure spin, no yield, < 100-cycle critical sections only.
-// TTAS pattern (test-and-test-and-set) + _mm_pause to reduce cache thrash.
+// SpinLock — V1: pure spin, no yield, < 100-cycle critical sections only. TTAS pattern
+// (test-and-test-and-set) + _mm_pause to reduce cache thrash.
 
 #include <doctest/doctest.h>
 
@@ -30,8 +30,8 @@ TEST_CASE("SpinLock: contention preserves critical-section count [stress]")
     constexpr Luth::u32 kThreads = 8;
     constexpr Luth::u32 kIncrementsPerThread = 50'000;
 
-    // Plain int (not atomic) — every increment MUST happen under lock for
-    // the final value to be correct. Any lost update = SpinLock contract violation.
+    // Plain int (not atomic) — every increment MUST happen under lock for the final value to be
+    // correct. Any lost update = SpinLock contract violation.
     Luth::u64 counter = 0;
 
     std::vector<std::thread> threads;

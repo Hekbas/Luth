@@ -4,15 +4,15 @@
 
 namespace Luth
 {
-    // ---- Single source of truth: edit ONLY these three values ----
+    // ── Source of truth: edit ONLY these three values ──
     inline constexpr uint32_t VERSION_MAJOR = 2;
     inline constexpr uint32_t VERSION_MINOR = 11;
     inline constexpr uint32_t VERSION_PATCH = 1;
 
-    // Optional: pre-release suffix (empty string for releases)
-    inline constexpr const char* VERSION_SUFFIX = "";  // e.g., "-dev", "-rc1"
+    // Empty for releases; otherwise "-dev", "-rc1", etc.
+    inline constexpr const char* VERSION_SUFFIX = "";
 
-    // ---- Derived constants (do not edit) ----
+    // ── Derived ──
     inline constexpr uint32_t VERSION_PACKED =
         (VERSION_MAJOR << 22) | (VERSION_MINOR << 12) | VERSION_PATCH;
 

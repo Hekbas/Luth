@@ -4,9 +4,9 @@
 
 namespace Luth
 {
-    // stub: drives CharacterController.desiredVelocity from raw WASD/Space input until a scripting
-    // layer lands. Walks every entity with a CharacterController — fine for Tier 1 single-player
-    // scenes; multi-character filtering is a marker-component away when needed.
+    // Drives CharacterController.desiredVelocity from raw WASD/Space input — stub stand-in until a scripting layer
+    // lands. Walks every entity with a CharacterController, which is fine for Tier 1 single-player scenes;
+    // multi-character filtering is a marker-component away when needed.
     //
     // Runs on the game-stage fiber from App::GameStageFn AFTER TransformSystem (so WorldTransform's
     // forward/right basis is fresh) and BEFORE PhysicsSystem (so desiredVelocity is set when

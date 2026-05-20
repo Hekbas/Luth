@@ -113,8 +113,7 @@ namespace Luth::Physics
 
     // ── Emit helpers ──
 
-    void LuthContactListener::EmitContactAdded(const JPH::Body& b1, const JPH::Body& b2,
-                                               const JPH::ContactManifold& m)
+    void LuthContactListener::EmitContactAdded(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m)
     {
         PhysicsEvent ev{};
         ev.type    = PhysicsEventType::ContactAdded;

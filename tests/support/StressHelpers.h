@@ -1,7 +1,7 @@
 #pragma once
 
-// Lemming-pattern + DAG-fuzz helpers for foundation stress tests.
-// Implementations land alongside the JobSystem stress sub-task.
+// Lemming-pattern + DAG-fuzz helpers for stress tests. Currently empty — kept as the home for shared
+// helpers once a second stress test needs the same scaffolding.
 
 namespace LuthTests
 {
