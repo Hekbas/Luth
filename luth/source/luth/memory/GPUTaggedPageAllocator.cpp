@@ -127,7 +127,11 @@ namespace Luth::Memory
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                    | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Universal CPU→GPU data path — Material / Bone / Object / Indirect / per-frame UBOs all sub-allocate from
+        // these large-one-shot allocations. Async-compute passes may read SSBOs allocated here in a future effort
+        // (forward-plus cluster build). CONCURRENT carries no overhead on NVIDIA per Khronos guidance; AMD DCC
+        // concerns are color-RT specific and don't apply to buffers.
+        VulkanContext::Get().ApplyConcurrentSharing(info);
 
         VkBuffer buf  = VK_NULL_HANDLE;
         void*    map  = nullptr;
@@ -299,7 +303,10 @@ namespace Luth::Memory
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                    | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Backings carve into 2 MB pages distributed across all per-frame SSBO / UBO consumers; once forward-plus /
+        // gpu-particles route their compute work to AsyncCompute, the buffer regions cross queue families. Apply
+        // CONCURRENT across the whole pool — uniform with the large-one-shot path.
+        VulkanContext::Get().ApplyConcurrentSharing(info);
 
         BackingBuffer bb;
         bb.alloc = VulkanAllocator::AllocateMappedSequentialBuffer(info, bb.buffer, &bb.mappedPtr);

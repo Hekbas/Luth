@@ -154,7 +154,9 @@ namespace Luth::RG
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.usage = resolved.usage;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Transient images may end up as compute-pass outputs sampled by a later graphics pass — CONCURRENT keeps
+        // those cross-queue cases legal without per-resource opt-in. Single-family GPUs collapse back to EXCLUSIVE.
+        VulkanContext::Get().ApplyConcurrentSharing(imageInfo);
 
         res.allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, res.image);
 
@@ -211,7 +213,9 @@ namespace Luth::RG
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size  = desc.size;
         bufferInfo.usage = desc.usage;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Transient buffers (cluster light lists, particle SSBOs, etc.) may be written on compute and read on
+        // graphics in the same frame. CONCURRENT covers the cross-queue case; single-family collapses to EXCLUSIVE.
+        VulkanContext::Get().ApplyConcurrentSharing(bufferInfo);
 
         buf.allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, buf.buffer);
         return buf;
