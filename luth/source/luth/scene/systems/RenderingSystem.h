@@ -166,7 +166,7 @@ namespace Luth
     private:
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO
         // uploads) and record the subgraph into primaryCmd.
-        void RecordView(const RenderView& view, void* primaryCmd);
+        void RecordView(const RenderView& view, QueueRecorders recorders);
 
         // Cross-view RAW barrier on primaryCmd between consecutive view subgraphs.
         // Synchronizes shared m_ShadowMap (FRAGMENT_SHADER_READ → EARLY_FRAGMENT_TESTS_DEPTH_WRITE).

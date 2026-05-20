@@ -219,11 +219,12 @@ namespace Luth
         sceneView.captureRequested     = (m_FrameDebugger.state == DebuggerState::CaptureRequested
                                           && m_FrameDebugger.requestedSource == CaptureSource::Scene);
 
-        // One primary cmd buffer for the whole frame. Queued views record
-        // first (their LDRs are sampled by the scene view's ImGui pass),
-        // then the scene view closes with the ImGui pass + present barrier.
+        // Per-frame QueueRecorders triplet (gA / compute / gB primary cmd buffers). Queued views record first
+        // (their LDRs are sampled by the scene view's ImGui pass), then the scene view closes with the ImGui pass +
+        // present barrier. Inter-view barriers live on gA today; the per-view 3-submit refactor will replace them
+        // with timeline-semaphore waits on each view's gA submit. See arch/multi-queue.md.
         const u64 frameIndex = Renderer::GetFrameData()->GetFrameIndex();
-        void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
+        QueueRecorders recorders = Renderer::BeginPrimaryCmd(frameIndex);
 
         // invariant: m_ShadowMap is shared across view subgraphs. Each view's RG imports it
         // as Undefined, which produces no cross-view RAW execution dependency between View1's
@@ -232,21 +233,21 @@ namespace Luth
         bool needsInterViewBarrier = false;
         for (const RenderView& v : m_QueuedViews)
         {
-            if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
-            RecordView(v, primaryCmd);
+            if (needsInterViewBarrier) InsertInterViewBarrier(recorders.gA);
+            RecordView(v, recorders);
             needsInterViewBarrier = true;
         }
         m_QueuedViews.clear();
 
-        if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
-        RecordView(sceneView, primaryCmd);
+        if (needsInterViewBarrier) InsertInterViewBarrier(recorders.gA);
+        RecordView(sceneView, recorders);
 
-        Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
+        Renderer::EndPrimaryCmdAndSubmit(recorders, frameIndex);
     }
 
     // ── Per-view record ──
 
-    void RenderingSystem::RecordView(const RenderView& view, void* primaryCmd)
+    void RenderingSystem::RecordView(const RenderView& view, QueueRecorders recorders)
     {
         LH_PROFILE_FUNCTION();
 
@@ -272,7 +273,7 @@ namespace Luth
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
-        m_Pipeline->Execute(view, primaryCmd);
+        m_Pipeline->Execute(view, recorders);
     }
 
     void RenderingSystem::InsertInterViewBarrier(void* primaryCmd)

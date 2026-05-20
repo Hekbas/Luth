@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/RenderBackend.h"
+#include "luth/renderer/QueueRecorders.h"
 #include "luth/core/FrameData.h"
 
 #include <memory>
@@ -35,14 +36,16 @@ namespace Luth
         // Single-graph convenience: Begin + Record + End in one call.
         static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers = nullptr);
 
-        // Multi-graph path. Record N graphs into one primary command buffer;
-        // one submit + present per frame. Pattern:
-        //     auto cmd = Renderer::BeginPrimaryCmd(frameIndex);
-        //     for (view : views) Renderer::RecordGraph(cmd, rg, timers);
-        //     Renderer::EndPrimaryCmdAndSubmit(cmd, frameIndex);
-        static void* BeginPrimaryCmd(u64 frameIndex);
-        static void  RecordGraph(void* cmd, RG::RenderGraph& graph, GPUTimerPool* timers = nullptr);
-        static void  EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex);
+        // Multi-graph path. Record N graphs into the per-view QueueRecorders triplet; one submit per primary per
+        // view + one present per frame. Pattern:
+        //     auto recorders = Renderer::BeginPrimaryCmd(frameIndex);
+        //     for (view : views) Renderer::RecordGraph(recorders, rg, timers);
+        //     Renderer::EndPrimaryCmdAndSubmit(recorders, frameIndex);
+        // RecordGraph returns true if the graph routed any pass to the async-compute primary — caller forwards
+        // this to the backend's per-view submit logic.
+        static QueueRecorders BeginPrimaryCmd(u64 frameIndex);
+        static bool RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers = nullptr);
+        static void EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex);
 
         static void OnResize(u32 width, u32 height);
 

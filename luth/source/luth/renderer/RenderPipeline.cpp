@@ -204,8 +204,9 @@ namespace Luth
         Renderer::ExecuteGraph(rg, Renderer::GetFrameData()->GetFrameIndex(), nullptr);
     }
 
-    void RenderPipeline::Execute(const RenderView& view, void* primaryCmd)
+    bool RenderPipeline::Execute(const RenderView& view, QueueRecorders recorders)
     {
+        VkCommandBuffer primaryCmd = recorders.gA;
         auto& s = m_System;
         m_CurrentView          = &view;
         m_CurrentViewResources = view.targets ? &EnsureViewResources(*view.targets) : nullptr;
@@ -354,7 +355,7 @@ namespace Luth
         if (suppressDebuggerMetadata)
             m_System.GetFrameDebugger().state = DebuggerState::Inactive;
 
-        Renderer::RecordGraph(primaryCmd, rg, &m_GPUTimers);
+        const bool hasComputeWork = Renderer::RecordGraph(recorders, rg, &m_GPUTimers);
 
         if (suppressDebuggerMetadata)
             m_System.GetFrameDebugger().state = savedDbgState;
@@ -451,6 +452,8 @@ namespace Luth
             m_System.GetFrameDebugger().capturedSource = m_System.GetFrameDebugger().requestedSource;
             m_System.GetFrameDebugger().state          = DebuggerState::Frozen;
         }
+
+        return hasComputeWork;
     }
 
     RG::RenderGraphSnapshot RenderPipeline::CaptureSnapshot(const RG::RenderGraph& rg)

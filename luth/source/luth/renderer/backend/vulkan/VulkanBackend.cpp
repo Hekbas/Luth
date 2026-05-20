@@ -17,12 +17,18 @@ namespace Luth
         m_Swapchain->Init();
         CreateSyncObjects();
         CreateFrameCommandBuffers();
+        CreateComputeFrameCommandBuffers();
 
-        // Init Command Allocator Pools
+        // Command allocator pools — one ring per queue family. Compute pool feeds future fiber-recorded compute
+        // secondaries; today's compute passes record inline so the pool sits idle. CommandAllocatorPool's ctor is
+        // already parameterized by queueFamilyIndex — single-family GPUs alias compute family to graphics family
+        // and the second pool becomes a duplicate over the same family (no Vulkan rule against this).
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             m_CommandAllocatorPools[i] = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetGraphicsFamily());
             m_CommandAllocatorPools[i]->Init();
+            m_ComputeCommandAllocatorPools[i] = std::make_unique<CommandAllocatorPool>(VulkanContext::Get().GetComputeFamily());
+            m_ComputeCommandAllocatorPools[i]->Init();
         }
 
         // GPU half of the Onion/Garlic split — depends on VulkanContext + VulkanAllocator being live.
@@ -39,10 +45,13 @@ namespace Luth
         DestroySyncObjects();
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             m_CommandAllocatorPools[i]->Shutdown();
+            m_ComputeCommandAllocatorPools[i]->Shutdown();
         }
 
         vkDestroyCommandPool(VulkanContext::Get().GetDevice(), m_PrimaryCommandPool, nullptr);
+        vkDestroyCommandPool(VulkanContext::Get().GetDevice(), m_ComputePrimaryCommandPool, nullptr);
 
+        m_ComputeTimeline.Shutdown();
         m_FrameTimeline.Shutdown();
         m_Swapchain.reset();
         PipelineCache::Shutdown();
@@ -81,11 +90,15 @@ namespace Luth
         // Flush deletions AFTER we know the GPU is done with this frame's resources
         VulkanContext::Get().FlushDeletionQueue();
 
-        // Reset Command Allocator Pool for THIS frame
+        // Reset Command Allocator Pools for THIS frame — both queue families.
         m_CommandAllocatorPools[m_CurrentFrameIndex]->ResetAll();
+        m_ComputeCommandAllocatorPools[m_CurrentFrameIndex]->ResetAll();
 
-        // Reset Primary Command Buffer for THIS frame
-        vkResetCommandBuffer(m_PrimaryCommandBuffers[m_CurrentFrameIndex], 0);
+        // Reset primary command buffers for THIS frame across all three queue streams. Compute and graphics-B
+        // are reset every frame even when no pass routes there; recording empty is valid Vulkan.
+        vkResetCommandBuffer(m_PrimaryCommandBuffers          [m_CurrentFrameIndex], 0);
+        vkResetCommandBuffer(m_ComputePrimaryCommandBuffers   [m_CurrentFrameIndex], 0);
+        vkResetCommandBuffer(m_GraphicsBPrimaryCommandBuffers [m_CurrentFrameIndex], 0);
 
         // Update JobSystem Context
         JobSystem::SetGlobalCommandPool(m_CommandAllocatorPools[m_CurrentFrameIndex].get());
@@ -186,6 +199,7 @@ namespace Luth
         m_RenderFinishedSemaphores.resize(m_RenderFinishedSemCount);
 
         m_FrameTimeline.Init(0);
+        m_ComputeTimeline.Init(0);
         m_NextAcquireSemIndex = 0;
 
         VkSemaphoreCreateInfo semaphoreInfo{};
@@ -223,17 +237,45 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create primary command pool!");
         }
 
-        m_PrimaryCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        // Allocate both gA and gB ring buffers from the same graphics pool — they share queue family and submission
+        // model, only their position in the per-view submit topology differs.
+        m_PrimaryCommandBuffers          .resize(MAX_FRAMES_IN_FLIGHT);
+        m_GraphicsBPrimaryCommandBuffers .resize(MAX_FRAMES_IN_FLIGHT);
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_PrimaryCommandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = (uint32_t)m_PrimaryCommandBuffers.size();
-
         if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, m_PrimaryCommandBuffers.data()) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to allocate primary command buffers!");
+            LH_CORE_CRITICAL("Failed to allocate graphics-A primary command buffers!");
+        }
+        if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, m_GraphicsBPrimaryCommandBuffers.data()) != VK_SUCCESS) {
+            LH_CORE_CRITICAL("Failed to allocate graphics-B primary command buffers!");
         }
     }
+
+    void VulkanBackend::CreateComputeFrameCommandBuffers()
+    {
+        VkCommandPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = VulkanContext::Get().GetComputeFamily();
+
+        if (vkCreateCommandPool(VulkanContext::Get().GetDevice(), &poolInfo, nullptr, &m_ComputePrimaryCommandPool) != VK_SUCCESS) {
+            LH_CORE_CRITICAL("Failed to create compute primary command pool!");
+        }
+
+        m_ComputePrimaryCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = m_ComputePrimaryCommandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = (uint32_t)m_ComputePrimaryCommandBuffers.size();
+        if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, m_ComputePrimaryCommandBuffers.data()) != VK_SUCCESS) {
+            LH_CORE_CRITICAL("Failed to allocate compute primary command buffers!");
+        }
+    }
+
     bool VulkanBackend::IsFrameComplete(u64 frameIndex)
     {
         // Non-blocking check: has GPU finished this frame?
