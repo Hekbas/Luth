@@ -103,8 +103,10 @@ namespace Luth
         void FinalizeCapture(const Mat4& viewProj);
         void DestroyArchives();
 
-        // IArchiveSink — invoked post-pass during RenderGraph::Execute
-        void OnPassExecuted(u32 passIndex, RG::RenderGraph& graph, VkCommandBuffer primaryCmd) override;
+        // IArchiveSink — invoked post-pass during RenderGraph::Execute. queueFamily reflects which queue's primary
+        // primaryCmd was recorded on; the sink substitutes compute-compatible stage masks when on the compute primary.
+        void OnPassExecuted(u32 passIndex, RG::RenderGraph& graph, VkCommandBuffer primaryCmd,
+                            RG::QueueFamily queueFamily) override;
 
         void Shutdown(VkDevice device);
     };

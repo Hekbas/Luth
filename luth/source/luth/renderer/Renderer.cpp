@@ -80,10 +80,10 @@ namespace Luth
 
     bool Renderer::RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers)
     {
-        // Today the graph records everything on the graphics-A primary; per-pass dispatch to compute / gB will be
-        // wired by the RG queue-routing change. Returning false keeps SubmitView on the no-compute-submit path.
-        graph.Execute(recorders.gA, timers);
-        return false;
+        // RG::Execute routes per pass: AsyncCompute → recorders.compute; Graphics → recorders.gA (before first
+        // AsyncCompute pass) or recorders.gB (after). Returns true iff any pass routed to compute, so SubmitView
+        // can skip the compute submit when the graph stayed graphics-only.
+        return graph.Execute(recorders, timers);
     }
 
     void Renderer::EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex, u32 viewSlot,

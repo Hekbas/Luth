@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/renderer/rendergraph/RenderGraphResources.h"
+#include "luth/renderer/QueueRecorders.h"
 #include "luth/memory/Memory.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/renderer/backend/vulkan/DynamicRendering.h"
@@ -94,6 +95,7 @@ namespace Luth::RG
             std::string name;
             std::function<void(RenderPassContext&)> execute;
             bool isCompute = false;  // Compute passes skip BeginRendering and secondary cmd
+            QueueFamily queueFamily = QueueFamily::Graphics;  // AsyncCompute routes to the compute primary in Phase 2.
 
             // Image resource dependencies
             std::vector<ResourceHandle> reads;
@@ -197,17 +199,26 @@ namespace Luth::RG
             };
         }
 
-        // Compute passes: execute directly on primary cmd, no BeginRendering/secondary cmd
+        // Compute passes: execute directly on primary cmd, no BeginRendering/secondary cmd. 3-arg overload keeps
+        // back-compat (defaults to graphics queue — Cull and pre-existing compute passes stay on the graphics
+        // primary unless they opt into AsyncCompute via the 4-arg overload below).
         template<typename Data, typename SetupFunc, typename ExecuteFunc>
         void AddComputePass(const std::string& name, SetupFunc&& setup, ExecuteFunc&& execute)
+        {
+            AddComputePass<Data>(name, QueueFamily::Graphics, std::forward<SetupFunc>(setup), std::forward<ExecuteFunc>(execute));
+        }
+
+        template<typename Data, typename SetupFunc, typename ExecuteFunc>
+        void AddComputePass(const std::string& name, QueueFamily queueFamily, SetupFunc&& setup, ExecuteFunc&& execute)
         {
             Data* data = m_Allocator.New<Data>();
 
             u32 passIndex = (u32)m_Passes.size();
             m_Passes.emplace_back();
             PassNode& node = m_Passes.back();
-            node.name = name;
-            node.isCompute = true;
+            node.name        = name;
+            node.isCompute   = true;
+            node.queueFamily = queueFamily;
 
             RenderPassBuilder builder(*this, passIndex);
             setup(*data, builder);
@@ -220,8 +231,13 @@ namespace Luth::RG
         // Compile: Cull → Barrier Solve (topo sort is implicit — passes added in order)
         void Compile();
 
-        // Execute: Serial pass iteration with parallel inner recording
-        void Execute(VkCommandBuffer primaryCmd, Luth::GPUTimerPool* timers = nullptr);
+        // Execute the graph against the per-view QueueRecorders triplet. Each pass routes by PassNode::queueFamily:
+        //   AsyncCompute → recorders.compute
+        //   Graphics     → recorders.gA (until the first AsyncCompute pass is seen) then recorders.gB
+        // Returns true iff at least one AsyncCompute pass executed (forwarded to SubmitView so the compute submit
+        // can be skipped when the graph routed nothing). Graphics-only graphs collapse to gA alone — gB and compute
+        // primaries get empty-submitted by the caller.
+        bool Execute(QueueRecorders recorders, Luth::GPUTimerPool* timers = nullptr);
 
         // Internal API for Builder — Image resources
         ResourceHandle RegisterResource(const TextureDesc& desc);

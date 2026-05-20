@@ -44,6 +44,16 @@ namespace Luth::RG
         IndirectRead,           // Indirect draw/dispatch command read
     };
 
+    // Which queue family a pass executes on. Default Graphics — opt into AsyncCompute via the 4-arg
+    // AddComputePass overload. SolveBarriers detects cross-queue handoffs and substitutes TOP_OF_PIPE for the
+    // cross-family src stage on the reader's pre-barrier (cross-queue semaphore at submit covers the actual
+    // memory dependency per Vulkan spec). See docs/development/arch/multi-queue.md.
+    enum class QueueFamily : u8
+    {
+        Graphics     = 0,
+        AsyncCompute = 1,
+    };
+
     enum class TextureFormat
     {
         RGBA8_Unorm,
@@ -79,6 +89,12 @@ namespace Luth::RG
         ResourceHandle resource;
         ResourceState before;
         ResourceState after;
+        // True iff the previous writer ran on a different queue family than this barrier's pass. Drives the
+        // cross-queue rule in RenderGraph::Execute: src stage / access are forced to TOP_OF_PIPE / NONE because
+        // the cross-queue semaphore at submit time carries the actual memory dependency (per Vulkan spec).
+        // Without this, a barrier emitted on the compute primary with a graphics-only src stage like
+        // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT would violate VUID-vkCmdPipelineBarrier2-srcStageMask-*.
+        bool crossQueueSrc = false;
     };
 
     struct BufferBarrier
@@ -86,5 +102,6 @@ namespace Luth::RG
         BufferHandle resource;
         ResourceState before;
         ResourceState after;
+        bool crossQueueSrc = false;
     };
 }
