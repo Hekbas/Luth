@@ -402,7 +402,7 @@ namespace Luth
         };
         RG::ResourceHandle outputHandle;
 
-        rg.AddComputePass<GTAOPrefilterData>("GTAODepthPrefilter",
+        rg.AddComputePass<GTAOPrefilterData>("GTAODepthPrefilter", RG::QueueFamily::AsyncCompute,
             [&](GTAOPrefilterData& data, RG::RenderPassBuilder& builder)
             {
                 // ReadStorageImage despite the name gives ComputeRead → SHADER_READ_ONLY layout.
@@ -474,7 +474,7 @@ namespace Luth
         };
         RG::ResourceHandle outputHandle;
 
-        rg.AddComputePass<GTAOMainData>("GTAOMain",
+        rg.AddComputePass<GTAOMainData>("GTAOMain", RG::QueueFamily::AsyncCompute,
             [&](GTAOMainData& data, RG::RenderPassBuilder& builder)
             {
                 data.linearDepth = builder.ReadStorageImage(linearDepth);
@@ -547,7 +547,7 @@ namespace Luth
         };
         RG::ResourceHandle outputHandle;
 
-        rg.AddComputePass<GTAODenoiseData>("GTAODenoise",
+        rg.AddComputePass<GTAODenoiseData>("GTAODenoise", RG::QueueFamily::AsyncCompute,
             [&](GTAODenoiseData& data, RG::RenderPassBuilder& builder)
             {
                 data.rawAO       = builder.ReadStorageImage(rawAO);
