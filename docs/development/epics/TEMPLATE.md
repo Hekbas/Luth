@@ -52,15 +52,16 @@
 
 ## Architecture Notes
 
-<!-- Extract only the relevant sections from BACKLOG.md, TECHNICAL_DEEPDIVE.md, and arch/ files.
-     Include: key data structures, shader layouts, API patterns, descriptor set changes. -->
+<!-- Extract only the relevant sections from arch/ files. Include: key data
+     structures, shader layouts, API patterns, descriptor set changes. -->
 
 ---
 
 ## References
 
-- `docs/development/BACKLOG.md` — [epic-slug] section
-- `docs/development/arch/[relevant-file].md`
+- `docs/development/ROADMAP.md` — planned epics + tier ordering
+- `docs/development/FUTURE.md` — wishlist if this slug is unscheduled
+- `docs/development/arch/[relevant-file].md` — canonical system reference
 - Prior art: `[existing code path]`
 
 ---

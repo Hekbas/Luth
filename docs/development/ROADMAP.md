@@ -82,6 +82,8 @@
 | v2.10.1 | `jolt-physics-queries` | `Raycast` + `OverlapBox`/`Sphere`/`Capsule`; `LuthContactListener` (Godot-pattern trigger cache under SpinLock); 4-kind event surface + per-frame `DrainEvents` | 2026-05-15 |
 | v2.10.2 | `jolt-physics-assets` | `Physics::ShapeCache` (UUID + meshIndex + shapeKind keyed) for `ConvexHullShape` + `MeshShape` from Model data; `PhysicsMaterial` UUID-keyed asset; `ModelImportSettings::PhysicsBakeMode { None, Auto }` opt-in; hot-reload via AssetDatabase callback | 2026-05-15 |
 | v2.10.3 | `jolt-character-controller` | Tier 1 `JPH::CharacterVirtual` (requires paired `Collider Type::Capsule`); `ExtendedUpdate` defaults for stair/stick-to-floor; debug-draw colored by `GroundState`; stub `PlayerControllerSystem` until scripting lands | 2026-05-18 |
+| v2.11.0 | `custom-fibers` | Custom x86_64 MASM context switch + `VirtualAlloc` stacks replaces Win32 fibers so ASan can track per-fiber stack bounds. TIB ArbitraryUserPointer (`gs:[0x28]`) replaces Win32 FLS. ~5× faster switch (secondary win) | 2026-05-19 |
+| v2.11.1 | `foundation-testing` | 28-case stress harness (V1–V6, AtomicCounter, LinearAllocator, TaggedPageAllocator, SpinLock, MPMCQueue, WorkStealingDeque) under DebugASan; caught two engine bugs inline | 2026-05-20 |
 
 ---
 
@@ -89,36 +91,28 @@
 
 Effort scale (scope/difficulty, not calendar time): **S** = small, contained · **M** = some design decisions · **L** = significant refactor or new system · **XL** = full new subsystem.
 
-### Tier 1 — Foundation (do next, high multiplier)
+### Renderer pipeline (linear dependency chain)
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 1 | `foundation-testing` | NEW | v2.11.0 | L | — |
+| 1 | `async-compute-queue` | NEW | v2.12.0 | L | `vulkan-correctness` ✅ |
+| 2 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.13.0 | L | `async-compute-queue` |
+| 3 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.14.0 | L | `forward-plus` |
 
-The v2.10.0 `WaitForCounter` UAF cost ~15 hours to diagnose; a 200-LOC stress test under ASan would catch the class in seconds. Multipliers — every future low-level bug pays the same tax until tests exist. Top priority.
-
-### Tier 2 — Renderer pipeline (linear dependency chain)
-
-| Pri | Epic | Issue | Target | Effort | Deps |
-|---|---|---|---|---|---|
-| 2 | `async-compute-queue` | NEW | v2.11.1 | L | `vulkan-correctness` ✅ |
-| 3 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.12.0 | L | `async-compute-queue` |
-| 4 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.13.0 | L | `forward-plus` |
-
-### Tier 3 — Gameplay enablement
+### Gameplay enablement
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 5 | `scripting` (C# or Lua) | NEW | v2.14.0 | XL | — |
-| 6 | `prefab-system` | NEW | v2.14.x | M | `scripting` |
+| 4 | `scripting` (C# or Lua) | NEW | v2.15.0 | XL | — |
+| 5 | `prefab-system` | NEW | v2.15.x | M | `scripting` |
 
 Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequisite for most gameplay-side future ideas.
 
-### Tier 4 — Animation maturity
+### Animation maturity
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 7 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.15.0 | XL | `animation-quick-pass` ✅ |
+| 6 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.16.0 | XL | `animation-quick-pass` ✅ |
 
 ### Polish (no fixed slot — opportunistic)
 
@@ -129,7 +123,7 @@ Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequ
 | `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | M | TAA pairs with GTAO temporal accumulation |
 | `rg-aliasing` (optional) | NEW | M | Defer unless `forward-plus` pressures transient VRAM |
 
-> Full specs and dependency graph: [`BACKLOG.md`](BACKLOG.md)
+> Detailed design lives in `docs/development/epics/<slug>.md` (local, never committed) once an epic enters plan-mode. The arch docs ([`arch/`](arch/)) are the canonical reference for system invariants.
 
 ---
 
@@ -146,4 +140,4 @@ Version is centralized in `luth/source/luth/core/Version.h`.
 
 ## Future Ideas
 
-Future-ideas list lives in [`BACKLOG.md`](BACKLOG.md#future-not-scoped) (single source of truth). Categories covered there: gameplay enablement, rendering (beyond planned-epic deps), animation maturity, audio, editor & tools, profiling / memory.
+Long-tail wishlist of unscheduled work lives in [`FUTURE.md`](FUTURE.md). Categories: physics maturity, gameplay enablement, rendering (beyond planned-epic deps), animation maturity, audio, editor & tools, profiling / memory.

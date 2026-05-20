@@ -36,3 +36,7 @@ samples/cache/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local plan-mode working specs — only TEMPLATE.md is tracked.
+docs/development/epics/*.md
+!docs/development/epics/TEMPLATE.md

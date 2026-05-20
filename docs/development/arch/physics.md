@@ -229,7 +229,7 @@ BuildOutcome { shape: JPH::RefConst<JPH::Shape>, retryLater: bool }
 
 UUID-keyed asset class (`luth/source/luth/physics/PhysicsMaterial.{h,cpp}`). Three fields: `friction`, `restitution`, `density`. `Default()` constexpr fallback for invalid UUIDs. Source `.physmat` JSON, binary artifact via standard `AssetSerializer` path, Inspector via `PhysicsMaterialEditor` (three sliders + debounced auto-save).
 
-Currently per-body via `RigidBody.materialUUID`. Future migration is per-shape on `Collider` (see BACKLOG); the character entity will inherit the material via its Collider at that point.
+Currently per-body via `RigidBody.materialUUID`. Future migration is per-shape on `Collider` (see [`FUTURE.md` → Physics maturity](../FUTURE.md#physics-maturity)); the character entity will inherit the material via its Collider at that point.
 
 ---
 
