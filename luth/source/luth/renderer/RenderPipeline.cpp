@@ -360,9 +360,11 @@ namespace Luth
         if (suppressDebuggerMetadata)
             m_System.GetFrameDebugger().state = savedDbgState;
 
-        // Non-primary views: transition LDR → SHADER_READ so the scene
-        // view's ImGui pass can sample it. (The scene view's RG already
-        // does this via ImGuiPass's builder.Read(sceneColor).)
+        // Non-primary views: transition LDR → SHADER_READ so the scene view's ImGui pass can sample it (scene
+        // view's RG already does this via ImGuiPass's builder.Read(sceneColor)).
+        // Recorded into recorders.gB because the LDR is written by PBR / post-process in the gB segment — gA runs
+        // first on the GPU timeline, so recording the transition there would precede the write and the next-frame
+        // PBR would see the image in SHADER_READ_ONLY_OPTIMAL instead of the expected COLOR_ATTACHMENT_OPTIMAL.
         if (!view.emitImGuiPass && view.targets && view.targets->GetLDROutput())
         {
             auto vkLdr = std::static_pointer_cast<VKTexture>(view.targets->GetLDROutput());
@@ -376,7 +378,7 @@ namespace Luth
             barrier.image = vkLdr->GetImage();
             barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-            vkCmdPipelineBarrier((VkCommandBuffer)primaryCmd,
+            vkCmdPipelineBarrier(recorders.gB,
                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                 0, 0, nullptr, 0, nullptr, 1, &barrier);
