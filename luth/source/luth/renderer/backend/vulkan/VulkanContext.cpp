@@ -232,22 +232,89 @@ namespace Luth
 
     void VulkanContext::CreateLogicalDevice()
     {
-        // Find Queue Families
+        // Priority-order queue family discovery. Graphics is the baseline (asserted in PickPhysicalDevice).
+        // Compute prefers a family with COMPUTE_BIT but no GRAPHICS_BIT (true async compute on discrete GPUs).
+        // Transfer prefers a DMA-style family (TRANSFER_BIT, no GRAPHICS, no COMPUTE) so uploads run on a copy
+        // engine in parallel with frame work. Fallbacks alias to graphics — single-family GPUs (Intel iGPU, etc.)
+        // collapse to a single VkDeviceQueueCreateInfo and submit wrappers become no-cost dispatch.
         uint32_t queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, nullptr);
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, queueFamilies.data());
 
-        int i = 0;
-        for (const auto& queueFamily : queueFamilies) {
-            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+        constexpr u32 kInvalid = (u32)-1;
+        m_GraphicsFamily = kInvalid;
+        m_ComputeFamily  = kInvalid;
+        m_TransferFamily = kInvalid;
+
+        for (u32 i = 0; i < queueFamilyCount; ++i)
+        {
+            const VkQueueFlags f = queueFamilies[i].queueFlags;
+            if (m_GraphicsFamily == kInvalid && (f & VK_QUEUE_GRAPHICS_BIT))
                 m_GraphicsFamily = i;
+        }
+        if (m_GraphicsFamily == kInvalid) LH_CORE_CRITICAL("Failed to find Graphics Queue Family!");
+
+        // Async-compute pass: COMPUTE_BIT without GRAPHICS_BIT.
+        for (u32 i = 0; i < queueFamilyCount; ++i)
+        {
+            const VkQueueFlags f = queueFamilies[i].queueFlags;
+            if ((f & VK_QUEUE_COMPUTE_BIT) && !(f & VK_QUEUE_GRAPHICS_BIT))
+            {
+                m_ComputeFamily   = i;
+                m_ComputeIsAsync  = true;
                 break;
             }
-            i++;
         }
+        if (m_ComputeFamily == kInvalid) m_ComputeFamily = m_GraphicsFamily;
 
-        if (m_GraphicsFamily == -1) LH_CORE_CRITICAL("Failed to find Graphics Queue Family!");
+        // DMA-style transfer: TRANSFER_BIT without GRAPHICS or COMPUTE. Then loosen to TRANSFER without GRAPHICS.
+        for (u32 i = 0; i < queueFamilyCount; ++i)
+        {
+            const VkQueueFlags f = queueFamilies[i].queueFlags;
+            if ((f & VK_QUEUE_TRANSFER_BIT) && !(f & VK_QUEUE_GRAPHICS_BIT) && !(f & VK_QUEUE_COMPUTE_BIT))
+            {
+                m_TransferFamily   = i;
+                m_TransferIsAsync  = true;
+                break;
+            }
+        }
+        if (m_TransferFamily == kInvalid)
+        {
+            for (u32 i = 0; i < queueFamilyCount; ++i)
+            {
+                const VkQueueFlags f = queueFamilies[i].queueFlags;
+                if ((f & VK_QUEUE_TRANSFER_BIT) && !(f & VK_QUEUE_GRAPHICS_BIT))
+                {
+                    m_TransferFamily   = i;
+                    m_TransferIsAsync  = true;
+                    break;
+                }
+            }
+        }
+        if (m_TransferFamily == kInvalid) m_TransferFamily = m_GraphicsFamily;
+
+        // timestampValidBits compatibility: GPUTimerPool writes one shared query pool across all families using a
+        // single device-level timestampPeriod. If valid bits diverge between families we use, conversion math is
+        // wrong on the diverging queue. Rare on consumer hardware but the assertion catches it loudly.
+        // See docs/development/arch/multi-queue.md (GPUTimerPool section) for the per-family-period future-polish path.
+        const u32 graphicsBits = queueFamilies[m_GraphicsFamily].timestampValidBits;
+        if (m_ComputeIsAsync)
+        {
+            const u32 b = queueFamilies[m_ComputeFamily].timestampValidBits;
+            if (b != 0 && graphicsBits != 0 && b != graphicsBits)
+                LH_CORE_CRITICAL("Compute family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                                 "math would corrupt on the compute stream; per-family period support not implemented.",
+                                 b, graphicsBits);
+        }
+        if (m_TransferIsAsync)
+        {
+            const u32 b = queueFamilies[m_TransferFamily].timestampValidBits;
+            if (b != 0 && graphicsBits != 0 && b != graphicsBits)
+                LH_CORE_CRITICAL("Transfer family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                                 "math would corrupt on the transfer stream; per-family period support not implemented.",
+                                 b, graphicsBits);
+        }
 
         // Verify required 1.1/1.2/1.3 features before enabling them in vkCreateDevice.
         VkPhysicalDeviceVulkan11Features avail11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
@@ -289,12 +356,26 @@ namespace Luth
                 (bool)avail13.synchronization2);
         }
 
-        float queuePriority = 1.0f;
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = m_GraphicsFamily;
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+        // One VkDeviceQueueCreateInfo per distinct family. Up to 3 (graphics + async-compute + async-transfer);
+        // collapses to 1 on single-family GPUs. Queue priorities are equal — Khronos sample-style priority inversion
+        // is a tuning-pass future item (see arch/multi-queue.md).
+        const float queuePriority = 1.0f;
+        std::vector<u32> distinctFamilies;
+        distinctFamilies.push_back(m_GraphicsFamily);
+        if (m_ComputeIsAsync)  distinctFamilies.push_back(m_ComputeFamily);
+        if (m_TransferIsAsync) distinctFamilies.push_back(m_TransferFamily);
+
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        queueCreateInfos.reserve(distinctFamilies.size());
+        for (u32 family : distinctFamilies)
+        {
+            VkDeviceQueueCreateInfo qci{};
+            qci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            qci.queueFamilyIndex = family;
+            qci.queueCount       = 1;
+            qci.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(qci);
+        }
 
         // Features
         VkPhysicalDeviceFeatures deviceFeatures{};
@@ -334,8 +415,8 @@ namespace Luth
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.pNext = &features13; // Chain 1.3 features
-        createInfo.pQueueCreateInfos = &queueCreateInfo;
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos    = queueCreateInfos.data();
+        createInfo.queueCreateInfoCount = (u32)queueCreateInfos.size();
         createInfo.pEnabledFeatures = &deviceFeatures;
 
         std::vector<const char*> deviceExtensions = {
@@ -350,14 +431,29 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create logical device!");
         }
 
+        // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle —
+        // call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
         vkGetDeviceQueue(m_Device, m_GraphicsFamily, 0, &m_GraphicsQueue);
+        m_ComputeQueue  = m_ComputeIsAsync  ? VK_NULL_HANDLE : m_GraphicsQueue;
+        m_TransferQueue = m_TransferIsAsync ? VK_NULL_HANDLE : m_GraphicsQueue;
+        if (m_ComputeIsAsync)  vkGetDeviceQueue(m_Device, m_ComputeFamily,  0, &m_ComputeQueue);
+        if (m_TransferIsAsync) vkGetDeviceQueue(m_Device, m_TransferFamily, 0, &m_TransferQueue);
 
-        // Create Command Pool for Immediate Submits
+        // Deduped family list backs CONCURRENT-sharing resource creation. Already in canonical order: graphics first,
+        // then async-compute (if distinct), then async-transfer (if distinct) — distinctFamilies was built that way.
+        m_ConcurrentFamilyIndices = distinctFamilies;
+
+        LH_CORE_INFO("Queue layout — graphics={}, compute={} ({}), transfer={} ({})",
+            m_GraphicsFamily,
+            m_ComputeFamily,  m_ComputeIsAsync  ? "async" : "aliased",
+            m_TransferFamily, m_TransferIsAsync ? "async" : "aliased");
+
+        // Command pool for ImmediateSubmit (graphics family — init-time IBL precompute, frame-debugger archive ops).
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.queueFamilyIndex = m_GraphicsFamily;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        
+
         vkCreateCommandPool(m_Device, &poolInfo, nullptr, &m_CommandPool);
     }
 
@@ -463,10 +559,39 @@ namespace Luth
 
     bool VulkanContext::Submit2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
+        return SubmitGraphics2(submitInfo, fence);
+    }
+
+    bool VulkanContext::SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence)
+    {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
         if (vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Queue Submit2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 Failed!");
+            return false;
+        }
+        return true;
+    }
+
+    bool VulkanContext::SubmitCompute2(const VkSubmitInfo2& submitInfo, VkFence fence)
+    {
+        // Aliased compute queue still locks its own mutex — vkQueueSubmit2 is not re-entrant on the same VkQueue
+        // even when handles match. Per-mutex prevents contention with concurrent graphics submits.
+        std::lock_guard<std::mutex> lock(m_ComputeQueueMutex);
+        if (vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        {
+            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 Failed!");
+            return false;
+        }
+        return true;
+    }
+
+    bool VulkanContext::SubmitTransfer2(const VkSubmitInfo2& submitInfo, VkFence fence)
+    {
+        std::lock_guard<std::mutex> lock(m_TransferQueueMutex);
+        if (vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        {
+            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 Failed!");
             return false;
         }
         return true;
@@ -476,6 +601,24 @@ namespace Luth
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
         return vkQueuePresentKHR(m_GraphicsQueue, &presentInfo);
+    }
+
+    void VulkanContext::ApplyConcurrentSharing(VkBufferCreateInfo& info) const
+    {
+        // Single-family layouts: leave EXCLUSIVE. CONCURRENT with one family index is implementation-defined
+        // and validation-noisy; callers expect a graceful fallback on iGPU / single-queue hardware.
+        if (m_ConcurrentFamilyIndices.size() <= 1) return;
+        info.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+        info.queueFamilyIndexCount = (u32)m_ConcurrentFamilyIndices.size();
+        info.pQueueFamilyIndices   = m_ConcurrentFamilyIndices.data();
+    }
+
+    void VulkanContext::ApplyConcurrentSharing(VkImageCreateInfo& info) const
+    {
+        if (m_ConcurrentFamilyIndices.size() <= 1) return;
+        info.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+        info.queueFamilyIndexCount = (u32)m_ConcurrentFamilyIndices.size();
+        info.pQueueFamilyIndices   = m_ConcurrentFamilyIndices.data();
     }
 
     void VulkanContext::PushDeletion(std::function<void()>&& function)
