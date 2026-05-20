@@ -84,6 +84,7 @@
 | v2.10.3 | `jolt-character-controller` | Tier 1 `JPH::CharacterVirtual` (requires paired `Collider Type::Capsule`); `ExtendedUpdate` defaults for stair/stick-to-floor; debug-draw colored by `GroundState`; stub `PlayerControllerSystem` until scripting lands | 2026-05-18 |
 | v2.11.0 | `custom-fibers` | Custom x86_64 MASM context switch + `VirtualAlloc` stacks replaces Win32 fibers so ASan can track per-fiber stack bounds. TIB ArbitraryUserPointer (`gs:[0x28]`) replaces Win32 FLS. ~5× faster switch (secondary win) | 2026-05-19 |
 | v2.11.1 | `foundation-testing` | 28-case stress harness (V1–V6, AtomicCounter, LinearAllocator, TaggedPageAllocator, SpinLock, MPMCQueue, WorkStealingDeque) under DebugASan; caught two engine bugs inline | 2026-05-20 |
+| v2.12.0 | `async-compute-queue` | Three-queue Vulkan foundation (graphics + async-compute + transfer) with per-view 3-submit topology, RG queue routing + cross-queue barrier rule (TOP_OF_PIPE substitution on the reader's pre-barrier), CONCURRENT sharing opt-in per cross-queue resource, GTAO chain routed to async compute, UploadContext routed to dedicated transfer queue (DMA engine on discrete GPUs) | 2026-05-20 |
 
 ---
 
@@ -95,9 +96,8 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 1 | `async-compute-queue` | NEW | v2.12.0 | L | `vulkan-correctness` ✅ |
-| 2 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.13.0 | L | `async-compute-queue` |
-| 3 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.14.0 | L | `forward-plus` |
+| 1 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.13.0 | L | `async-compute-queue` ✅ |
+| 2 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.14.0 | L | `forward-plus` |
 
 ### Gameplay enablement
 
