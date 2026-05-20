@@ -62,13 +62,13 @@ namespace Luth
         s_Backend->OnResize(width, height);
     }
 
-    QueueRecorders Renderer::BeginPrimaryCmd(u64 frameIndex)
+    QueueRecorders Renderer::BeginPrimaryCmd(u64 frameIndex, u32 viewSlot)
     {
         auto* vk = static_cast<VulkanBackend*>(s_Backend.get());
         QueueRecorders recorders {
-            vk->GetGraphicsAFrameCommandBuffer(frameIndex),
-            vk->GetComputeFrameCommandBuffer  (frameIndex),
-            vk->GetGraphicsBFrameCommandBuffer(frameIndex),
+            vk->GetGraphicsAPrimary(frameIndex, viewSlot),
+            vk->GetComputePrimary  (frameIndex, viewSlot),
+            vk->GetGraphicsBPrimary(frameIndex, viewSlot),
         };
         VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -80,28 +80,28 @@ namespace Luth
 
     bool Renderer::RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers)
     {
-        // Today the graph records everything on the graphics-A primary; per-pass dispatch to compute / graphics-B
-        // is wired by the RG queue-routing change. Returning false keeps the backend on the single-graphics-submit
-        // path until then.
+        // Today the graph records everything on the graphics-A primary; per-pass dispatch to compute / gB will be
+        // wired by the RG queue-routing change. Returning false keeps SubmitView on the no-compute-submit path.
         graph.Execute(recorders.gA, timers);
         return false;
     }
 
-    void Renderer::EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex)
+    void Renderer::EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex, u32 viewSlot,
+                                          bool hasComputeWork, bool isLastView)
     {
         // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present. End all
-        // three primaries (empty compute/gB are valid no-op submits) and forward to the backend's per-view
-        // submit path, which currently collapses to a single graphics submit on the gA cmd buffer.
+        // three primaries (empty compute/gB are valid no-op submits) and forward to the backend's per-view 3-submit
+        // topology. SubmitView skips the compute submit when hasComputeWork is false; gB always submits.
         vkEndCommandBuffer(recorders.gA);
         vkEndCommandBuffer(recorders.compute);
         vkEndCommandBuffer(recorders.gB);
-        s_Backend->SubmitFrame(frameIndex, recorders.gA);
+        s_Backend->SubmitView(frameIndex, viewSlot, recorders, hasComputeWork, isLastView);
     }
 
     void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers)
     {
-        QueueRecorders recorders = BeginPrimaryCmd(frameIndex);
-        RecordGraph(recorders, graph, timers);
-        EndPrimaryCmdAndSubmit(recorders, frameIndex);
+        QueueRecorders recorders = BeginPrimaryCmd(frameIndex, /*viewSlot=*/0);
+        const bool hasComputeWork = RecordGraph(recorders, graph, timers);
+        EndPrimaryCmdAndSubmit(recorders, frameIndex, /*viewSlot=*/0, hasComputeWork, /*isLastView=*/true);
     }
 }

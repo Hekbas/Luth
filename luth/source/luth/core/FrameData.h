@@ -19,6 +19,13 @@ namespace Luth
     // recycled only after the GPU fence for frame N-2 retires. See arch/frame-pipeline.md.
     static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
 
+    // Hard cap on visible views per frame (Scene + Game panels today; reserves room for future PIP / reflection
+    // views / cubemap captures). Drives the per-view × per-frame primary cmd buffer ring sized in VulkanBackend:
+    // each view needs its own gA / compute / gB primaries so cross-queue semaphores can sequence
+    // (view K writes shared resource → view K+1 reads it) — single-primary-per-type-per-frame would race.
+    // See docs/development/arch/multi-queue.md.
+    static constexpr u32 MAX_VIEWS_PER_FRAME = 4;
+
     // ── Frame Params — read-only data packet for the frame ──
     // Written by Game(N). Read by Render(N-1). Immutable after GameReady signals.
 

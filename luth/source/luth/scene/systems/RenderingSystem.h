@@ -164,13 +164,12 @@ namespace Luth
         u32         GetDepthPreviewHeight() const;
 
     private:
-        // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO
-        // uploads) and record the subgraph into primaryCmd.
-        void RecordView(const RenderView& view, QueueRecorders recorders);
-
-        // Cross-view RAW barrier on primaryCmd between consecutive view subgraphs.
-        // Synchronizes shared m_ShadowMap (FRAGMENT_SHADER_READ → EARLY_FRAGMENT_TESTS_DEPTH_WRITE).
-        void InsertInterViewBarrier(void* primaryCmd);
+        // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO uploads) and record the subgraph
+        // into the view's QueueRecorders triplet. Returns true iff the graph routed any pass to async-compute —
+        // forwarded to Renderer::EndPrimaryCmdAndSubmit so SubmitView knows whether to issue the compute submit.
+        // Cross-view RAW sync for shared resources (m_ShadowMap) is enforced by the per-view 3-submit topology's
+        // timeline waits at submit boundaries (replaces the legacy InsertInterViewBarrier). See arch/multi-queue.md.
+        bool RecordView(const RenderView& view, QueueRecorders recorders);
 
         // Camera / editor state set each frame by App.
         CameraParams m_CameraParams;
