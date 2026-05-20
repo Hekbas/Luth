@@ -129,11 +129,20 @@ namespace Luth
         void EmitArchiveCopy(VkCommandBuffer cmd,
                               const RG::RenderGraph::ResourceNode& src,
                               RG::ResourceState srcState,
-                              RG::ArchivedImage& dst)
+                              RG::ArchivedImage& dst,
+                              RG::QueueFamily queueFamily)
         {
             VkImageAspectFlags aspect = dst.isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
             VkImageLayout srcLayout = StateToLayout(srcState);
             StageAccess srcSA = StateToStageAccess(srcState);
+
+            // When the pass executed on the compute primary, the post-copy barrier's dstStageMask (which targets
+            // the next consumer's read — typically ImGui's fragment-shader sample) must be substituted to a
+            // compute-compatible stage. The cross-queue semaphore at the next submit boundary supplies the
+            // actual graphics-visible memory dependency; this stage mask is just bookkeeping inside the cmd buffer.
+            const VkPipelineStageFlags2 postDstStage = (queueFamily == RG::QueueFamily::AsyncCompute)
+                ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 
             VkImageMemoryBarrier2 pre[2]{};
             pre[0].sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -196,7 +205,7 @@ namespace Luth
             post[1].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             post[1].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
             post[1].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            post[1].dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            post[1].dstStageMask        = postDstStage;
             post[1].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
             post[1].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             post[1].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -494,7 +503,8 @@ namespace Luth
     // Find-or-allocate via m_ArchiveSlotMap: reuse the existing ArchivedImage
     // when (passName, rtName) hits with matching dims/format, allocate fresh
     // only on first sight or viewport resize.
-    void FrameDebugger::OnPassExecuted(u32 passIdx, RG::RenderGraph& graph, VkCommandBuffer cmd)
+    void FrameDebugger::OnPassExecuted(u32 passIdx, RG::RenderGraph& graph, VkCommandBuffer cmd,
+                                       RG::QueueFamily queueFamily)
     {
         if (state != DebuggerState::CaptureRequested) return;
         if (archiveDevice == VK_NULL_HANDLE) return;
@@ -553,7 +563,7 @@ namespace Luth
             }
 
             m_ArchiveSlotInUseThisCapture.insert(slotKey);
-            EmitArchiveCopy(cmd, res, pass.writeStates[i], capturedFrame.archivedImages[archiveIdx]);
+            EmitArchiveCopy(cmd, res, pass.writeStates[i], capturedFrame.archivedImages[archiveIdx], queueFamily);
             capturedFrame.passArchives[passIdx].push_back(archiveIdx);
         }
     }

@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/UUID.h"
 #include "luth/renderer/CameraParams.h"
+#include "luth/renderer/QueueRecorders.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/lighting/LightTypes.h"
@@ -139,12 +140,12 @@ namespace Luth
         // Tear down all Vulkan resources. Called from RenderingSystem::dtor.
         void Shutdown();
 
-        // Build and record the render graph for one view into primaryCmd.
-        // The cmd's begin/end/submit is owned by RenderingSystem::Update so
-        // all visible views share one submission per frame. Caches the
-        // active RenderView + ViewResources on the pipeline for passes to
-        // read without a per-pass parameter.
-        void Execute(const RenderView& view, void* primaryCmd);
+        // Build and record the render graph for one view into the per-view QueueRecorders triplet (gA / compute /
+        // gB primary command buffers). Begin/end/submit is owned by RenderingSystem::Update — all visible views
+        // share the per-frame ring of recorders. Caches the active RenderView + ViewResources on the pipeline so
+        // passes can read them without a per-pass parameter. Returns true iff any pass routed to async-compute,
+        // for the backend's per-view submit topology to decide whether to issue the compute submit at all.
+        bool Execute(const RenderView& view, QueueRecorders recorders);
 
         // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
         // when the camera hasn't moved — the LDR output still holds the last

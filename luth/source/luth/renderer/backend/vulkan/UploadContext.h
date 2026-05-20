@@ -12,9 +12,12 @@ typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Luth
 {
-    // Async data uploads on a dedicated transfer queue, backed by a staging ring buffer that avoids
-    // per-call VMA allocations. UploadBuffer / UploadImage / UploadImageMipped return a fence value
-    // the caller can poll if they need to gate texture binding on completion.
+    // Async data uploads on a dedicated transfer queue, backed by a staging ring buffer that avoids per-call VMA
+    // allocations. UploadBuffer / UploadImage submit on the DMA-capable transfer queue (truly concurrent with
+    // frame rendering on discrete GPUs); UploadImageMipped stays on the graphics queue because vkCmdBlitImage
+    // requires VK_QUEUE_GRAPHICS_BIT per spec. Both share m_UploadTimeline — timeline semaphores accept multi-queue
+    // signal, so DrainPendingBinds polls one value regardless of which queue signaled. See arch/multi-queue.md.
+    // All three uploaders return a fence value the caller can poll if they need to gate texture binding on completion.
 
     class UploadContext
     {
@@ -56,18 +59,33 @@ namespace Luth
         // If full, it waits for the GPU to catch up.
         u64 AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset);
 
-        // BeginRingSlot/RecordRingSlotFence pair must be called together inside m_Lock around the submit.
-        VkCommandBuffer BeginRingSlot();
-        void RecordRingSlotFence(u64 fenceValue);
+        // BeginRingSlot/RecordRingSlotFence pair must be called together inside m_Lock around the submit. The two
+        // rings are independent (transfer-family pool feeds UploadBuffer/UploadImage on the transfer queue;
+        // graphics-family pool feeds UploadImageMipped's blit chain on the graphics queue), but both signal the
+        // same shared m_UploadTimeline so DrainPendingBinds doesn't care which queue retired the fence.
+        VkCommandBuffer BeginTransferRingSlot();
+        void RecordTransferRingSlotFence(u64 fenceValue);
+        VkCommandBuffer BeginBlitRingSlot();
+        void RecordBlitRingSlotFence(u64 fenceValue);
 
         // Submission-driven ring (not frame-scoped) — uploads aren't frame-bounded.
         static constexpr u32 RING_SIZE = 4;
 
+        // Transfer-queue ring: UploadBuffer + UploadImage (no blits). DMA-capable on discrete GPUs; aliases to
+        // graphics on single-family hardware (Intel iGPU etc.) via VulkanContext queue discovery.
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::array<VkCommandBuffer, RING_SIZE> m_CmdRing{};
         std::array<u64, RING_SIZE> m_RingFenceValues{};
         u32 m_SubmitIndex = 0;
+
+        // Graphics-queue ring: UploadImageMipped only — vkCmdBlitImage requires VK_QUEUE_GRAPHICS_BIT per spec
+        // (VUID-vkCmdBlitImage-commandBuffer-cmdpool), so the mip-chain path can't run on the transfer queue.
+        VkQueue m_GraphicsBlitQueue = VK_NULL_HANDLE;
+        VkCommandPool m_GraphicsBlitPool = VK_NULL_HANDLE;
+        std::array<VkCommandBuffer, RING_SIZE> m_BlitCmdRing{};
+        std::array<u64, RING_SIZE> m_BlitRingFenceValues{};
+        u32 m_BlitSubmitIndex = 0;
 
         // Synchronization
         TimelineSemaphore m_UploadTimeline;

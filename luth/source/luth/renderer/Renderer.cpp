@@ -62,32 +62,46 @@ namespace Luth
         s_Backend->OnResize(width, height);
     }
 
-    void* Renderer::BeginPrimaryCmd(u64 frameIndex)
+    QueueRecorders Renderer::BeginPrimaryCmd(u64 frameIndex, u32 viewSlot)
     {
-        VkCommandBuffer primaryCmd = (VkCommandBuffer)s_Backend->GetFrameCommandBuffer(frameIndex);
+        auto* vk = static_cast<VulkanBackend*>(s_Backend.get());
+        QueueRecorders recorders {
+            vk->GetGraphicsAPrimary(frameIndex, viewSlot),
+            vk->GetComputePrimary  (frameIndex, viewSlot),
+            vk->GetGraphicsBPrimary(frameIndex, viewSlot),
+        };
         VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(primaryCmd, &beginInfo);
-        return primaryCmd;
+        vkBeginCommandBuffer(recorders.gA,      &beginInfo);
+        vkBeginCommandBuffer(recorders.compute, &beginInfo);
+        vkBeginCommandBuffer(recorders.gB,      &beginInfo);
+        return recorders;
     }
 
-    void Renderer::RecordGraph(void* cmd, RG::RenderGraph& graph, GPUTimerPool* timers)
+    bool Renderer::RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers)
     {
-        graph.Execute((VkCommandBuffer)cmd, timers);
+        // RG::Execute routes per pass: AsyncCompute → recorders.compute; Graphics → recorders.gA (before first
+        // AsyncCompute pass) or recorders.gB (after). Returns true iff any pass routed to compute, so SubmitView
+        // can skip the compute submit when the graph stayed graphics-only.
+        return graph.Execute(recorders, timers);
     }
 
-    void Renderer::EndPrimaryCmdAndSubmit(void* cmd, u64 frameIndex)
+    void Renderer::EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex, u32 viewSlot,
+                                          bool hasComputeWork, bool isLastView)
     {
-        // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present.
-        VkCommandBuffer primaryCmd = (VkCommandBuffer)cmd;
-        vkEndCommandBuffer(primaryCmd);
-        s_Backend->SubmitFrame(frameIndex, primaryCmd);
+        // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present. End all
+        // three primaries (empty compute/gB are valid no-op submits) and forward to the backend's per-view 3-submit
+        // topology. SubmitView skips the compute submit when hasComputeWork is false; gB always submits.
+        vkEndCommandBuffer(recorders.gA);
+        vkEndCommandBuffer(recorders.compute);
+        vkEndCommandBuffer(recorders.gB);
+        s_Backend->SubmitView(frameIndex, viewSlot, recorders, hasComputeWork, isLastView);
     }
 
     void Renderer::ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers)
     {
-        void* cmd = BeginPrimaryCmd(frameIndex);
-        RecordGraph(cmd, graph, timers);
-        EndPrimaryCmdAndSubmit(cmd, frameIndex);
+        QueueRecorders recorders = BeginPrimaryCmd(frameIndex, /*viewSlot=*/0);
+        const bool hasComputeWork = RecordGraph(recorders, graph, timers);
+        EndPrimaryCmdAndSubmit(recorders, frameIndex, /*viewSlot=*/0, hasComputeWork, /*isLastView=*/true);
     }
 }

@@ -355,6 +355,14 @@ namespace Luth::RG
             auto& pass = m_Passes[passIdx];
             if (pass.culled) continue;
 
+            // Cross-queue handoff detection — the cross-queue semaphore at submit time provides the actual memory
+            // dependency, so the reader's pre-barrier needs TOP_OF_PIPE / NONE on the src side (the writer's stage
+            // mask would be graphics-only when emitted on the compute primary). Drives Execute's emission.
+            auto isCrossQueue = [&](u32 lastWriter) -> bool {
+                if (lastWriter == UINT32_MAX) return false;
+                return m_Passes[lastWriter].queueFamily != pass.queueFamily;
+            };
+
             // Image read barriers
             for (size_t i = 0; i < pass.reads.size(); ++i)
             {
@@ -364,7 +372,7 @@ namespace Luth::RG
 
                 if (res.currentState != targetState)
                 {
-                    pass.preBarriers.push_back({ handle, res.currentState, targetState });
+                    pass.preBarriers.push_back({ handle, res.currentState, targetState, isCrossQueue(res.lastWriter) });
                     res.currentState = targetState;
                 }
             }
@@ -380,7 +388,7 @@ namespace Luth::RG
                                 || (res.lastWriter != UINT32_MAX && res.lastWriter != (u32)passIdx);
                 if (needBarrier)
                 {
-                    pass.preBarriers.push_back({ handle, res.currentState, targetState });
+                    pass.preBarriers.push_back({ handle, res.currentState, targetState, isCrossQueue(res.lastWriter) });
                     res.currentState = targetState;
                 }
                 res.lastWriter = (u32)passIdx;
@@ -395,7 +403,7 @@ namespace Luth::RG
 
                 if (buf.currentState != targetState)
                 {
-                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
+                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState, isCrossQueue(buf.lastWriter) });
                     buf.currentState = targetState;
                 }
             }
@@ -411,7 +419,7 @@ namespace Luth::RG
                                 || (buf.lastWriter != UINT32_MAX && buf.lastWriter != (u32)passIdx);
                 if (needBarrier)
                 {
-                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState });
+                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState, isCrossQueue(buf.lastWriter) });
                     buf.currentState = targetState;
                 }
                 buf.lastWriter = (u32)passIdx;
@@ -525,12 +533,20 @@ namespace Luth::RG
         };
     }
 
-    void RenderGraph::Execute(VkCommandBuffer primaryCmd, Luth::GPUTimerPool* timers)
+    bool RenderGraph::Execute(QueueRecorders recorders, Luth::GPUTimerPool* timers)
     {
         LH_PROFILE_FUNCTION();
         AllocatePhysicalResources();
 
-        if (timers) timers->ResetForFrame(primaryCmd);
+        // Timer query pool is shared across queues per arch/multi-queue.md (timestampValidBits compatibility
+        // asserted at startup). Reset is fine on either queue — using gA keeps the cmd ordering predictable.
+        if (timers) timers->ResetForFrame(recorders.gA);
+
+        // hasComputeWork = "did any pass route to compute"; returned to SubmitView so it can skip the compute
+        // submit when the graph stays graphics-only. seenAsyncCompute drives the graphics-A→graphics-B split:
+        // graphics passes before the first AsyncCompute pass go to gA; after, gB. Inter-frame the split resets.
+        bool hasComputeWork  = false;
+        bool seenAsyncCompute = false;
 
         // Indexed by m_Passes index; slots for culled / compute passes stay
         // default-constructed and unused.
@@ -629,7 +645,24 @@ namespace Luth::RG
 
             LH_PROFILE_SCOPE_DYNAMIC(pass.name);
 
-            // Batched pre-barriers (image + buffer combined into one call)
+            // Per-pass primary selection: AsyncCompute → compute; Graphics → gA before first AsyncCompute, gB after.
+            // First AsyncCompute encountered also flips hasComputeWork (returned to SubmitView) and seenAsyncCompute
+            // (drives the gA/gB split for subsequent graphics passes).
+            VkCommandBuffer primaryCmd;
+            if (pass.queueFamily == QueueFamily::AsyncCompute)
+            {
+                primaryCmd       = recorders.compute;
+                hasComputeWork   = true;
+                seenAsyncCompute = true;
+            }
+            else
+            {
+                primaryCmd = seenAsyncCompute ? recorders.gB : recorders.gA;
+            }
+
+            // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during
+            // SolveBarriers carry b.crossQueueSrc — in that case the src stage / access become TOP_OF_PIPE / NONE
+            // since the cross-queue semaphore at submit time already supplies the memory dependency per spec.
             static constexpr u32 k_MaxBarriers = 16;
             LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many image barriers per pass!");
             LH_CORE_ASSERT(pass.bufferPreBarriers.size() <= k_MaxBarriers, "Too many buffer barriers per pass!");
@@ -644,6 +677,7 @@ namespace Luth::RG
                 ResourceNode& res = m_Resources[b.resource.index - 1];
                 auto [srcStage, srcAccess] = GetStateInfo(b.before);
                 auto [dstStage, dstAccess] = GetStateInfo(b.after);
+                if (b.crossQueueSrc) { srcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT; srcAccess = 0; }
 
                 VkImageMemoryBarrier2& vkBarrier = imgBarriers[imgBarrierCount++];
                 vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -662,6 +696,7 @@ namespace Luth::RG
                 BufferNode& buf = m_Buffers[b.resource.index - 1];
                 auto [srcStage, srcAccess] = GetStateInfo(b.before);
                 auto [dstStage, dstAccess] = GetStateInfo(b.after);
+                if (b.crossQueueSrc) { srcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT; srcAccess = 0; }
 
                 VkBufferMemoryBarrier2& vkBarrier = bufBarriers[bufBarrierCount++];
                 vkBarrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
@@ -701,6 +736,7 @@ namespace Luth::RG
                     ResourceNode& res = m_Resources[b.resource.index - 1];
                     auto [srcStage, srcAccess] = GetStateInfo(b.before);
                     auto [dstStage, dstAccess] = GetStateInfo(b.after);
+                    if (b.crossQueueSrc) { srcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT; srcAccess = 0; }
 
                     VkImageMemoryBarrier2& vkBarrier = imgBarriers[imgBarrierCount++];
                     vkBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -739,7 +775,7 @@ namespace Luth::RG
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
-                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd, pass.queueFamily);
 
                 emitPostBarriers();
 
@@ -775,7 +811,7 @@ namespace Luth::RG
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
-                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd);
+                if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd, pass.queueFamily);
 
                 emitPostBarriers();
             }
@@ -784,6 +820,7 @@ namespace Luth::RG
         }
 
         CleanupPhysicalResources();
+        return hasComputeWork;
     }
 
     // ── Physical Resource Management ──

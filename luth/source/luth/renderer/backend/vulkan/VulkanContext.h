@@ -37,9 +37,25 @@ namespace Luth
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
         RG::RenderResourceCache& GetResourceCache() { return m_ResourceCache; } // Getter
 
-        // Queue Access
+        // Queue Access — graphics is always present; compute/transfer alias to graphics on single-family GPUs.
         VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+        VkQueue GetComputeQueue()  const { return m_ComputeQueue;  }
+        VkQueue GetTransferQueue() const { return m_TransferQueue; }
         u32 GetGraphicsFamily() const { return m_GraphicsFamily; }
+        u32 GetComputeFamily()  const { return m_ComputeFamily;  }
+        u32 GetTransferFamily() const { return m_TransferFamily; }
+        bool IsAsyncCompute()   const { return m_ComputeIsAsync;  }
+        bool IsAsyncTransfer()  const { return m_TransferIsAsync; }
+
+        // Deduped {graphics, compute, transfer} family list for VK_SHARING_MODE_CONCURRENT resource creation.
+        // Single-family layouts collapse to size 1 — callers should fall back to EXCLUSIVE in that case.
+        const std::vector<u32>& GetConcurrentFamilyIndices() const { return m_ConcurrentFamilyIndices; }
+
+        // Apply CONCURRENT sharing across all in-use queue families. When the deduped set is size 1, leaves the
+        // create-info at the caller's default (typically EXCLUSIVE) — CONCURRENT with one family is spec UB.
+        // See docs/development/arch/multi-queue.md for the per-resource opt-in policy.
+        void ApplyConcurrentSharing(VkBufferCreateInfo& info) const;
+        void ApplyConcurrentSharing(VkImageCreateInfo&  info) const;
 
         // Helper to find memory types (if not using VMA for some reason)
         u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
@@ -47,9 +63,13 @@ namespace Luth
         // Submit a command immediately and wait for it to finish (used for resource uploads)
         void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
-        // Thread-safe queue submission
+        // Thread-safe queue submission. Per-queue mutex guards the kernel syscall (vkQueueSubmit*) — this is the
+        // documented case where std::mutex is correct on a hot path per arch/memory.md (exceeds SpinLock contract).
         bool Submit(const VkSubmitInfo& submitInfo, VkFence fence);
-        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);
+        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);          // Alias of SubmitGraphics2 — back-compat.
+        bool SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence);
+        bool SubmitCompute2 (const VkSubmitInfo2& submitInfo, VkFence fence);
+        bool SubmitTransfer2(const VkSubmitInfo2& submitInfo, VkFence fence);
         VkResult Present(const VkPresentInfoKHR& presentInfo);
 
         // Safe Resource Deletion
@@ -83,9 +103,21 @@ namespace Luth
         VkPhysicalDeviceProperties m_PhysicalDeviceProperties;
         VkDevice m_Device = VK_NULL_HANDLE;
         
+        // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
+        // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its
+        // own mutex (vkQueueSubmit2 is a kernel syscall — std::mutex is the right primitive here, see arch/memory.md).
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+        VkQueue m_ComputeQueue  = VK_NULL_HANDLE;
+        VkQueue m_TransferQueue = VK_NULL_HANDLE;
         std::mutex m_QueueMutex;
-        u32 m_GraphicsFamily = -1;
+        std::mutex m_ComputeQueueMutex;
+        std::mutex m_TransferQueueMutex;
+        u32 m_GraphicsFamily = (u32)-1;
+        u32 m_ComputeFamily  = (u32)-1;
+        u32 m_TransferFamily = (u32)-1;
+        bool m_ComputeIsAsync  = false;  // true iff compute family distinct from graphics
+        bool m_TransferIsAsync = false;  // true iff transfer family distinct from graphics
+        std::vector<u32> m_ConcurrentFamilyIndices;  // Deduped list — used for CONCURRENT sharing-mode resources.
         std::mutex m_CommandPoolMutex;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         BindlessDescriptorSet m_BindlessSet;

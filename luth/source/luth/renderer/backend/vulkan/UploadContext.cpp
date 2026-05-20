@@ -25,13 +25,14 @@ namespace Luth
         if (!s_Instance) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
-        
-        // Wait for all uploads
+
+        // Wait for all uploads — m_CurrentValue is the highest fence value signaled by either ring.
         s_Instance->m_UploadTimeline.Wait(s_Instance->m_CurrentValue);
 
         s_Instance->m_UploadTimeline.Shutdown();
         vkDestroyCommandPool(device, s_Instance->m_CommandPool, nullptr);
-        
+        vkDestroyCommandPool(device, s_Instance->m_GraphicsBlitPool, nullptr);
+
         VulkanAllocator::Unmap(s_Instance->m_StagingAllocation);
         VulkanAllocator::FreeBuffer(s_Instance->m_StagingBuffer, s_Instance->m_StagingAllocation);
 
@@ -47,19 +48,18 @@ namespace Luth
     void UploadContext::CreateResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        
-        // 1. Get Transfer Queue
-        m_TransferQueue = VulkanContext::Get().GetGraphicsQueue(); 
-        u32 queueFamily = VulkanContext::Get().GetGraphicsFamily();
 
-        // 2. Command Pool
+        // Transfer ring on the DMA-capable family (aliased to graphics on single-family GPUs). UploadBuffer +
+        // UploadImage submit here so plain copies run concurrently with frame rendering on discrete hardware.
+        m_TransferQueue = VulkanContext::Get().GetTransferQueue();
+        const u32 transferFamily = VulkanContext::Get().GetTransferFamily();
+
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex = queueFamily;
+        poolInfo.queueFamilyIndex = transferFamily;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         vkCreateCommandPool(device, &poolInfo, nullptr, &m_CommandPool);
 
-        // 3. Command Buffer Ring (RING_SIZE buffers reused round-robin, gated by per-slot fence values)
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_CommandPool;
@@ -67,25 +67,43 @@ namespace Luth
         allocInfo.commandBufferCount = RING_SIZE;
         vkAllocateCommandBuffers(device, &allocInfo, m_CmdRing.data());
 
-        // 4. Timeline Semaphore
+        // Graphics-blit ring on the graphics family — vkCmdBlitImage requires VK_QUEUE_GRAPHICS_BIT per spec, so
+        // UploadImageMipped's mip-chain path can't share the transfer ring. Even on single-family GPUs the second
+        // pool is harmless duplication; with a distinct transfer family it runs concurrently with frame work.
+        m_GraphicsBlitQueue = VulkanContext::Get().GetGraphicsQueue();
+        VkCommandPoolCreateInfo blitPoolInfo{};
+        blitPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        blitPoolInfo.queueFamilyIndex = VulkanContext::Get().GetGraphicsFamily();
+        blitPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        vkCreateCommandPool(device, &blitPoolInfo, nullptr, &m_GraphicsBlitPool);
+
+        VkCommandBufferAllocateInfo blitAllocInfo{};
+        blitAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        blitAllocInfo.commandPool = m_GraphicsBlitPool;
+        blitAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        blitAllocInfo.commandBufferCount = RING_SIZE;
+        vkAllocateCommandBuffers(device, &blitAllocInfo, m_BlitCmdRing.data());
+
+        // Shared timeline — both rings signal monotonically increasing values; pump polls GetValue() agnostic of
+        // which queue retired. Vulkan timeline semaphores explicitly support multi-queue signal.
         m_UploadTimeline.Init(0);
 
-        // 5. Staging Buffer
         VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         bufferInfo.size = STAGING_SIZE;
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        
+        // Staging is read by transfer queue only; CONCURRENT not required (and would broaden the family list
+        // unnecessarily). Stays EXCLUSIVE per the per-resource opt-in policy.
         m_StagingAllocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_CPU_ONLY, m_StagingBuffer);
         m_StagingMapped = VulkanAllocator::Map(m_StagingAllocation);
     }
 
-    VkCommandBuffer UploadContext::BeginRingSlot()
+    VkCommandBuffer UploadContext::BeginTransferRingSlot()
     {
         const u32 slot = m_SubmitIndex % RING_SIZE;
         const u64 oldFence = m_RingFenceValues[slot];
 
-        // Wait only if this slot's previous submission is still in flight — submits on different
-        // slots overlap on the GPU. The staging ring typically saturates first in practice.
+        // Wait only if this slot's previous submission is still in flight — submits on different slots overlap on
+        // the GPU. The staging ring typically saturates first in practice.
         if (oldFence > 0 && m_UploadTimeline.GetValue() < oldFence)
             m_UploadTimeline.Wait(oldFence);
 
@@ -94,11 +112,29 @@ namespace Luth
         return cmd;
     }
 
-    void UploadContext::RecordRingSlotFence(u64 fenceValue)
+    void UploadContext::RecordTransferRingSlotFence(u64 fenceValue)
     {
         const u32 slot = m_SubmitIndex % RING_SIZE;
         m_RingFenceValues[slot] = fenceValue;
         m_SubmitIndex++;
+    }
+
+    VkCommandBuffer UploadContext::BeginBlitRingSlot()
+    {
+        const u32 slot = m_BlitSubmitIndex % RING_SIZE;
+        const u64 oldFence = m_BlitRingFenceValues[slot];
+        if (oldFence > 0 && m_UploadTimeline.GetValue() < oldFence)
+            m_UploadTimeline.Wait(oldFence);
+        VkCommandBuffer cmd = m_BlitCmdRing[slot];
+        vkResetCommandBuffer(cmd, 0);
+        return cmd;
+    }
+
+    void UploadContext::RecordBlitRingSlotFence(u64 fenceValue)
+    {
+        const u32 slot = m_BlitSubmitIndex % RING_SIZE;
+        m_BlitRingFenceValues[slot] = fenceValue;
+        m_BlitSubmitIndex++;
     }
 
     u64 UploadContext::AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset)
@@ -176,7 +212,7 @@ namespace Luth
 
         memcpy(stagingPtr, data, size);
 
-        VkCommandBuffer cmd = BeginRingSlot();
+        VkCommandBuffer cmd = BeginTransferRingSlot();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -191,26 +227,22 @@ namespace Luth
 
         vkEndCommandBuffer(cmd);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-
-        VkTimelineSemaphoreSubmitInfo timelineInfo{};
-        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.signalSemaphoreValueCount = 1;
-        timelineInfo.pSignalSemaphoreValues = &fenceValue;
-
-        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
-        submitInfo.pSignalSemaphores = &signalSemaphore;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pNext = &timelineInfo;
-
-        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        VkSemaphoreSubmitInfo signalInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        signalInfo.semaphore = m_UploadTimeline.GetHandle();
+        signalInfo.value     = fenceValue;
+        signalInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        cmdInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &cmdInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = &signalInfo;
+        VulkanContext::Get().SubmitTransfer2(submitInfo, VK_NULL_HANDLE);
 
         m_CurrentValue = fenceValue;
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
-        RecordRingSlotFence(fenceValue);
+        RecordTransferRingSlotFence(fenceValue);
 
         return fenceValue;
     }
@@ -231,66 +263,70 @@ namespace Luth
         // Adjust copy region buffer offset
         copyRegion.bufferOffset += stagingOffset;
 
-        VkCommandBuffer cmd = BeginRingSlot();
+        VkCommandBuffer cmd = BeginTransferRingSlot();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmd, &beginInfo);
 
-        // Transition to Transfer Dst
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = dstImage;
-
-        // Manually copy subresource fields because VkImageSubresourceLayers != VkImageSubresourceRange
-        barrier.subresourceRange.aspectMask = copyRegion.imageSubresource.aspectMask;
-        barrier.subresourceRange.baseMipLevel = copyRegion.imageSubresource.mipLevel;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = copyRegion.imageSubresource.baseArrayLayer;
-        barrier.subresourceRange.layerCount = copyRegion.imageSubresource.layerCount;
-
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        // Pre-barrier: UNDEFINED → TRANSFER_DST. Sync2 + transfer-queue-compatible stages only.
+        VkImageMemoryBarrier2 pre{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        pre.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        pre.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        pre.image               = dstImage;
+        pre.subresourceRange.aspectMask     = copyRegion.imageSubresource.aspectMask;
+        pre.subresourceRange.baseMipLevel   = copyRegion.imageSubresource.mipLevel;
+        pre.subresourceRange.levelCount     = 1;
+        pre.subresourceRange.baseArrayLayer = copyRegion.imageSubresource.baseArrayLayer;
+        pre.subresourceRange.layerCount     = copyRegion.imageSubresource.layerCount;
+        pre.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        pre.srcAccessMask = VK_ACCESS_2_NONE;
+        pre.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        VkDependencyInfo preDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        preDep.imageMemoryBarrierCount = 1;
+        preDep.pImageMemoryBarriers    = &pre;
+        vkCmdPipelineBarrier2(cmd, &preDep);
 
         vkCmdCopyBufferToImage(cmd, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-        // Transition to Shader Read
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        // Post-barrier: TRANSFER_DST → SHADER_READ_ONLY. dst stage is BOTTOM_OF_PIPE (transfer-queue-compatible);
+        // the cross-queue dependency to a fragment-shader read on graphics is supplied by the upload-fence wait
+        // chain (DrainPendingBinds gates BindlessDescriptorSet::BindTexture on the fence), so no FRAGMENT_SHADER
+        // stage mask is needed inside this transfer-queue barrier.
+        VkImageMemoryBarrier2 post = pre;
+        post.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        post.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        post.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        post.dstStageMask  = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        post.dstAccessMask = VK_ACCESS_2_NONE;
+        VkDependencyInfo postDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        postDep.imageMemoryBarrierCount = 1;
+        postDep.pImageMemoryBarriers    = &post;
+        vkCmdPipelineBarrier2(cmd, &postDep);
 
         vkEndCommandBuffer(cmd);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-
-        VkTimelineSemaphoreSubmitInfo timelineInfo{};
-        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.signalSemaphoreValueCount = 1;
-        timelineInfo.pSignalSemaphoreValues = &fenceValue;
-
-        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
-        submitInfo.pSignalSemaphores = &signalSemaphore;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pNext = &timelineInfo;
-
-        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        VkSemaphoreSubmitInfo signalInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        signalInfo.semaphore = m_UploadTimeline.GetHandle();
+        signalInfo.value     = fenceValue;
+        signalInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        cmdInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &cmdInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = &signalInfo;
+        VulkanContext::Get().SubmitTransfer2(submitInfo, VK_NULL_HANDLE);
 
         m_CurrentValue = fenceValue;
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
-        RecordRingSlotFence(fenceValue);
+        RecordTransferRingSlotFence(fenceValue);
 
         return fenceValue;
     }
@@ -309,7 +345,10 @@ namespace Luth
 
         memcpy(stagingPtr, data, size);
 
-        VkCommandBuffer cmd = BeginRingSlot();
+        // Mipped path runs on the graphics queue — vkCmdBlitImage requires VK_QUEUE_GRAPHICS_BIT per spec, so it
+        // can't share the transfer ring. Inner barriers stay sync1 (legacy vkCmdPipelineBarrier) — they run on the
+        // graphics queue where FRAGMENT_SHADER_BIT is valid, and converting the blit-chain to sync2 is out of scope.
+        VkCommandBuffer cmd = BeginBlitRingSlot();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -429,26 +468,24 @@ namespace Luth
 
         vkEndCommandBuffer(cmd);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-
-        VkTimelineSemaphoreSubmitInfo timelineInfo{};
-        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.signalSemaphoreValueCount = 1;
-        timelineInfo.pSignalSemaphoreValues = &fenceValue;
-
-        VkSemaphore signalSemaphore = m_UploadTimeline.GetHandle();
-        submitInfo.pSignalSemaphores = &signalSemaphore;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pNext = &timelineInfo;
-
-        vkQueueSubmit(m_TransferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        // Submit on the graphics queue (BLIT_DST is graphics-only). Shared m_UploadTimeline — both rings signal
+        // monotonically into the same timeline so DrainPendingBinds polls one value regardless of which queue.
+        VkSemaphoreSubmitInfo signalInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        signalInfo.semaphore = m_UploadTimeline.GetHandle();
+        signalInfo.value     = fenceValue;
+        signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        cmdInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &cmdInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = &signalInfo;
+        VulkanContext::Get().SubmitGraphics2(submitInfo, VK_NULL_HANDLE);
 
         m_CurrentValue = fenceValue;
         m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
-        RecordRingSlotFence(fenceValue);
+        RecordBlitRingSlotFence(fenceValue);
 
         return fenceValue;
     }

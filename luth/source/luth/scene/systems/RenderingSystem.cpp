@@ -219,39 +219,38 @@ namespace Luth
         sceneView.captureRequested     = (m_FrameDebugger.state == DebuggerState::CaptureRequested
                                           && m_FrameDebugger.requestedSource == CaptureSource::Scene);
 
-        // One primary cmd buffer for the whole frame. Queued views record
-        // first (their LDRs are sampled by the scene view's ImGui pass),
-        // then the scene view closes with the ImGui pass + present barrier.
-        const u64 frameIndex = Renderer::GetFrameData()->GetFrameIndex();
-        void* primaryCmd = Renderer::BeginPrimaryCmd(frameIndex);
+        // Per-view 3-submit topology: each view gets its own gA / compute / gB primary cmd buffers, submitted with
+        // timeline-semaphore waits at boundaries. Queued views record first (their LDRs are sampled by the scene
+        // view's ImGui pass), then the scene view closes with the ImGui pass + present barrier. Cross-view ordering
+        // for shared resources (m_ShadowMap, IBL maps) is enforced by view K+1's gA submit waiting on view K's gB
+        // signal at EARLY_FRAGMENT_TESTS_BIT — same stage relationship as the legacy inline pipeline barrier.
+        const u64 frameIndex  = Renderer::GetFrameData()->GetFrameIndex();
+        const u32 totalViews  = (u32)m_QueuedViews.size() + 1;  // queued + scene view
+        LH_CORE_ASSERT(totalViews <= MAX_VIEWS_PER_FRAME, "view count exceeds MAX_VIEWS_PER_FRAME");
+        u32 viewSlot = 0;
 
-        // invariant: m_ShadowMap is shared across view subgraphs. Each view's RG imports it
-        // as Undefined, which produces no cross-view RAW execution dependency between View1's
-        // GeometryPass shader-read and View2's ShadowPass depth-write. Insert a memory barrier
-        // between subgraphs to provide the dependency.
-        bool needsInterViewBarrier = false;
         for (const RenderView& v : m_QueuedViews)
         {
-            if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
-            RecordView(v, primaryCmd);
-            needsInterViewBarrier = true;
+            QueueRecorders r = Renderer::BeginPrimaryCmd(frameIndex, viewSlot);
+            const bool hasCompute = RecordView(v, r);
+            Renderer::EndPrimaryCmdAndSubmit(r, frameIndex, viewSlot, hasCompute, /*isLastView=*/false);
+            ++viewSlot;
         }
         m_QueuedViews.clear();
 
-        if (needsInterViewBarrier) InsertInterViewBarrier(primaryCmd);
-        RecordView(sceneView, primaryCmd);
-
-        Renderer::EndPrimaryCmdAndSubmit(primaryCmd, frameIndex);
+        QueueRecorders r = Renderer::BeginPrimaryCmd(frameIndex, viewSlot);
+        const bool hasCompute = RecordView(sceneView, r);
+        Renderer::EndPrimaryCmdAndSubmit(r, frameIndex, viewSlot, hasCompute, /*isLastView=*/true);
     }
 
     // ── Per-view record ──
 
-    void RenderingSystem::RecordView(const RenderView& view, void* primaryCmd)
+    bool RenderingSystem::RecordView(const RenderView& view, QueueRecorders recorders)
     {
         LH_PROFILE_FUNCTION();
 
         if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
-            return;
+            return false;
 
         // Cascade fit is camera-dependent so this refits per view
         // (~1 ms GPU with game panel open; frustum-union fit is backlog).
@@ -272,21 +271,7 @@ namespace Luth
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
 
-        m_Pipeline->Execute(view, primaryCmd);
-    }
-
-    void RenderingSystem::InsertInterViewBarrier(void* primaryCmd)
-    {
-        VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-        mb.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        mb.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        mb.dstStageMask  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-        mb.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers    = &mb;
-        vkCmdPipelineBarrier2(static_cast<VkCommandBuffer>(primaryCmd), &dep);
+        return m_Pipeline->Execute(view, recorders);
     }
 
     // ── Resize ──

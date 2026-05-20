@@ -170,6 +170,18 @@ namespace Luth
         }
         imageInfo.usage |= m_ExtraUsage;
 
+        // Cross-queue CONCURRENT opt-in by usage:
+        //   * STORAGE_BIT — typical compute outputs (GTAO chain, future cluster textures) read on graphics-B.
+        //   * DEPTH_STENCIL_ATTACHMENT_BIT + SAMPLED_BIT — depth textures sampled by compute (SceneDepth →
+        //     GTAODepthPrefilter). Depth has no DCC so CONCURRENT is overhead-free.
+        // Color-only RTs (RGBA16F SceneColor, LDR output) stay EXCLUSIVE — they preserve AMD DCC. Compute never
+        // reads them; only graphics post-process samples them.
+        const bool isStorage  = (imageInfo.usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
+        const bool isSampledDepth = (imageInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0
+                                 && (imageInfo.usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
+        if (isStorage || isSampledDepth)
+            VulkanContext::Get().ApplyConcurrentSharing(imageInfo);
+
         m_Allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Image);
 
         // Upload pixel data (color textures only; depth textures are never CPU-uploaded directly)

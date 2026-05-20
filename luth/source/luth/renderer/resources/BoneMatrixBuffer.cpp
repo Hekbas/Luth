@@ -115,8 +115,9 @@ namespace Luth
         memcpy(region.mappedPtr, m_CpuScratch, BUFFER_SIZE);
         heap.FlushRegion(region);
 
-        // Write the GAME-frame slot. Render stage of frame K-1 reads slot (K-1)%N
-        // while we're writing slot K%N — distinct slots, no race, no UAB needed.
+        // Write the GAME-frame slot. Render stage K-1 reads slot (K-1)%N while we write slot K%N — distinct in
+        // steady state. UAB on the binding (see CreateDescriptors) covers the pipeline-depth race where the GPU
+        // falls behind enough that an earlier frame's pending cmd buffer still references this slot.
         const u32 slot = static_cast<u32>(gameFrame) % MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorBufferInfo bi{};
@@ -149,27 +150,39 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 4 layout — non-UAB. Cycling provides write/read isolation by frame slot;
-        // each Update() writes a slot the render stage isn't currently consuming.
+        // Set 4 layout — UAB on the storage-buffer binding. Cycling provides slot isolation in steady-state
+        // (game frame K writes slot K%3, render reads (K-1)%3 — distinct slots); UAB is a safety net for
+        // cases where the GPU falls behind the CPU pipeline enough that frame K+3's game write hits a slot
+        // still referenced by frame K+1's pending cmd buffer (e.g., heavy multi-view frames under per-view
+        // 3-submit). VUID 03047 fires without it. Same pattern as GTAOMain's per-render-stage rewrites.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         binding.descriptorCount = 1;
         binding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
 
+        const VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 1;
+        bindingFlagsCI.pBindingFlags = &bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.pNext        = &bindingFlagsCI;
+        layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         layoutInfo.bindingCount = 1;
         layoutInfo.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 
-        // Pool sized for MAX_FRAMES_IN_FLIGHT sets; one storage-buffer descriptor each.
+        // Pool sized for MAX_FRAMES_IN_FLIGHT sets; one storage-buffer descriptor each. UAB pool flag pairs with
+        // the layout's UPDATE_AFTER_BIND_POOL flag — without both, vkAllocateDescriptorSets fails validation.
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
