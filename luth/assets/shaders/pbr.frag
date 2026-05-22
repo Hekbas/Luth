@@ -106,7 +106,7 @@ layout(set = 3, binding = 0) uniform LightUBO {
     int                  numPointLights;
 } lights;
 
-layout(set = 3, binding = 1) uniform sampler2DArrayShadow shadowMap;
+layout(set = 3, binding = 3) uniform sampler2DArrayShadow shadowMap;
 
 // ---------- Flag Constants ----------
 

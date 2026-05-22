@@ -139,18 +139,45 @@ namespace Luth
         memcpy(region.mappedPtr, &lights, sizeof(LightUniforms));
         heap.FlushRegion(region);
 
+        // Stub allocation for the newly-declared SSBO bindings b1 (cluster grid) + b2 (light index).
+        // Bound to a small tagged region so validation sees an initialized descriptor; pbr.frag does
+        // not read these until sub-task 3b. Same region for both — they share a single VkBuffer slice.
+        Memory::GPUSubRegion stub = heap.Allocate(jobCtx->GpuCache, 16, 16);
+        if (!stub.buffer) return;
+
         VkDescriptorBufferInfo bi{};
         bi.buffer = region.buffer;
         bi.offset = region.offset;
         bi.range  = region.size;
 
-        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet          = m_LightDescSet[slot];
-        write.dstBinding      = 0;
-        write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo     = &bi;
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+        VkDescriptorBufferInfo stubBi{};
+        stubBi.buffer = stub.buffer;
+        stubBi.offset = stub.offset;
+        stubBi.range  = stub.size;
+
+        VkWriteDescriptorSet writes[3] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = m_LightDescSet[slot];
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &bi;
+
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = m_LightDescSet[slot];
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo     = &stubBi;
+
+        writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[2].dstSet          = m_LightDescSet[slot];
+        writes[2].dstBinding      = 2;
+        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].descriptorCount = 1;
+        writes[2].pBufferInfo     = &stubBi;
+
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
     }
 
     // ---- Internal: shadow map + Set 3 layout/pool/set ----
@@ -178,34 +205,44 @@ namespace Luth
         samplerInfo.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
 
-        // Set 3 layout: binding 0 = LightUBO, binding 1 = shadow sampler.
-        VkDescriptorSetLayoutBinding bindings[2] = {};
+        // Set 3 layout: b0 = LightUBO (becomes LightSSBO in 3b), b1 = ClusterGridSSBO,
+        // b2 = LightIndexSSBO, b3 = shadow sampler. b1/b2 declared now so sub-task 3a stays a
+        // pure structural move; UploadLightUBO writes stub regions to them until 3b lands.
+        VkDescriptorSetLayoutBinding bindings[4] = {};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
         bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[1].binding = 1;
-        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[3].binding = 3;
+        bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[3].descriptorCount = 1;
+        bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // Light UBO rebound per render-stage to a fresh tagged-heap region against a
-        // per-frame slot of m_LightDescSet — no UAB needed (cycling guarantees the slot
-        // we write is not the slot the GPU is consuming).
+        // All four bindings rebound per render-stage against per-frame slots (cycling), so no UAB.
         VkDescriptorSetLayoutCreateInfo lightLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        lightLayoutInfo.bindingCount = 2;
+        lightLayoutInfo.bindingCount = 4;
         lightLayoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
-        VkDescriptorPoolSize poolSizes[2] = {};
+        VkDescriptorPoolSize poolSizes[3] = {};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-        poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;  // b1 + b2
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
-        poolInfo.poolSizeCount = 2;
+        poolInfo.poolSizeCount = 3;
         poolInfo.pPoolSizes = poolSizes;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_LightDescPool);
 
@@ -222,8 +259,8 @@ namespace Luth
             VulkanContext::SetDebugName(m_LightDescSet[i], name);
         }
 
-        // Initial write: stable shadow sampler propagated to every slot. Binding 0
-        // (Light UBO) is rewritten per-frame in UploadLightUBO against the slot's set.
+        // Initial write: stable shadow sampler at b3 propagated to every slot. b0/b1/b2 rewritten
+        // per-frame in UploadLightUBO against the slot's set.
         auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
         VkDescriptorImageInfo shadowImgInfo{};
         shadowImgInfo.sampler     = m_ShadowSampler;
@@ -235,7 +272,7 @@ namespace Luth
         {
             samplerWrites[s] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             samplerWrites[s].dstSet          = m_LightDescSet[s];
-            samplerWrites[s].dstBinding      = 1;
+            samplerWrites[s].dstBinding      = 3;
             samplerWrites[s].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             samplerWrites[s].descriptorCount = 1;
             samplerWrites[s].pImageInfo      = &shadowImgInfo;
