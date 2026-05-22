@@ -335,6 +335,7 @@ namespace Luth
                      && avail12.runtimeDescriptorArray
                      && avail12.shaderSampledImageArrayNonUniformIndexing
                      && avail12.timelineSemaphore
+                     && avail12.bufferDeviceAddress
                      && avail13.dynamicRendering
                      && avail13.synchronization2;
         if (!ok)
@@ -344,7 +345,7 @@ namespace Luth
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
-                "dynamicRendering={} synchronization2={}",
+                "bufferDeviceAddress={} dynamicRendering={} synchronization2={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
                 (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
@@ -354,6 +355,7 @@ namespace Luth
                 (bool)avail12.runtimeDescriptorArray,
                 (bool)avail12.shaderSampledImageArrayNonUniformIndexing,
                 (bool)avail12.timelineSemaphore,
+                (bool)avail12.bufferDeviceAddress,
                 (bool)avail13.dynamicRendering,
                 (bool)avail13.synchronization2);
         }
@@ -405,9 +407,13 @@ namespace Luth
         features12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
         features12.runtimeDescriptorArray = VK_TRUE;
         features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-        
+
         // Enable Timeline Semaphores (Vulkan 1.2 feature)
         features12.timelineSemaphore = VK_TRUE;
+
+        // BDA: vkGetBufferDeviceAddress + GLSL buffer_reference. VMA needs the matching
+        // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT — see VulkanAllocator::Init.
+        features12.bufferDeviceAddress = VK_TRUE;
 
         // Vulkan 1.3 Features (Dynamic Rendering, Synchronization2)
         VkPhysicalDeviceVulkan13Features features13{};

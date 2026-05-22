@@ -24,6 +24,7 @@ namespace Luth
         allocatorInfo.device = device;
         allocatorInfo.instance = instance;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+        allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
         if (vmaCreateAllocator(&allocatorInfo, &s_Data->allocator) != VK_SUCCESS) {
             LH_CORE_CRITICAL("Failed to create VMA allocator!");
