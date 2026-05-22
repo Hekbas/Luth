@@ -57,6 +57,18 @@ namespace Luth
         return fmt == RG::TextureFormat::D32_Float || fmt == RG::TextureFormat::D24_Unorm_S8_Uint;
     }
 
+    // Returns the slim G-buffer decoder mode for an archive name, or -1 if not a slim archive.
+    // Mode mapping: 0=Normal (oct-decode), 1=Motion (mag-scale), 2=Roughness, 3=MaterialID (palette).
+    // Mirrors debugSlimDecode.frag (modes 0-2) + debugSlimMatID.frag (mode 3).
+    static int SlimModeForArchive(const std::string& name)
+    {
+        if (name == "SlimNormal")     return 0;
+        if (name == "SlimMotion")     return 1;
+        if (name == "SlimRoughness")  return 2;
+        if (name == "SlimMaterialID") return 3;
+        return -1;
+    }
+
     static const char* CullModeToString(u32 mode)
     {
         switch (mode)
@@ -205,6 +217,24 @@ namespace Luth
             src.width   = dpW;
             src.height  = dpH;
             return src;
+        }
+
+        // Slim G-buffer archives route through their decoder shaders. Mode is name-keyed; scale
+        // applies only to motion (mode 1) — the panel slider lives in DrawArchivePreview below.
+        if (int slimMode = SlimModeForArchive(archive.name); slimMode >= 0)
+        {
+            m_RS->BlitArchivedSlimToPreview((u32)m_SelArchiveIdx, (u32)slimMode, m_SlimMotionScale);
+            VkImageView slimView = m_RS->GetSlimPreviewView();
+            const u32   sw       = m_RS->GetSlimPreviewWidth();
+            const u32   sh       = m_RS->GetSlimPreviewHeight();
+            if (slimView != VK_NULL_HANDLE && sw > 0 && sh > 0)
+            {
+                src.view    = slimView;
+                src.sampler = m_RS->GetDebugSampler();
+                src.width   = sw;
+                src.height  = sh;
+                return src;
+            }
         }
 
         if (archive.view == VK_NULL_HANDLE) return src;
@@ -1036,6 +1066,61 @@ namespace Luth
         if (sampler == VK_NULL_HANDLE)
         {
             ImGui::TextDisabled("(debug sampler not initialized)");
+            UI::EndCollapsingHeader();
+            return;
+        }
+
+        // ── Slim G-buffer archive visualization ──
+        // Routes through debugSlimDecode/debugSlimMatID frag shaders to produce a meaningful RGB
+        // preview (oct-normal can't be read raw; matID is integer-sampled).
+        if (int slimMode = SlimModeForArchive(archive.name); slimMode >= 0)
+        {
+            if (slimMode == 1)
+            {
+                ImGui::SetNextItemWidth(160.0f);
+                ImGui::SliderFloat("Motion scale", &m_SlimMotionScale, 1.0f, 200.0f, "%.1f",
+                                   ImGuiSliderFlags_Logarithmic);
+            }
+
+            m_RS->BlitArchivedSlimToPreview((u32)m_SelArchiveIdx, (u32)slimMode, m_SlimMotionScale);
+
+            VkImageView slimPreview = m_RS->GetSlimPreviewView();
+            u32         spW         = m_RS->GetSlimPreviewWidth();
+            u32         spH         = m_RS->GetSlimPreviewHeight();
+            if (slimPreview == VK_NULL_HANDLE || spW == 0 || spH == 0)
+            {
+                ImGui::TextDisabled("(slim preview unavailable)");
+                UI::EndCollapsingHeader();
+                return;
+            }
+
+            if (slimPreview != m_SlimPreviewViewCached)
+            {
+                if (m_SlimPreviewDescSet != VK_NULL_HANDLE)
+                {
+                    VkDescriptorSet stale = m_SlimPreviewDescSet;
+                    VulkanContext::Get().PushDeletion([stale]() {
+                        ImGui_ImplVulkan_RemoveTexture(stale);
+                    });
+                }
+                m_SlimPreviewDescSet = ImGui_ImplVulkan_AddTexture(
+                    sampler, slimPreview, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                m_SlimPreviewViewCached = slimPreview;
+            }
+
+            if (m_SlimPreviewDescSet != VK_NULL_HANDLE)
+            {
+                float panelW = ImGui::GetContentRegionAvail().x;
+                float maxH   = 320.0f;
+                float ar     = (float)spW / (float)spH;
+                float drawW  = panelW;
+                float drawH  = drawW / ar;
+                if (drawH > maxH) { drawH = maxH; drawW = drawH * ar; }
+                float offsetX = (panelW - drawW) * 0.5f;
+                if (offsetX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+                ImGui::Image((ImTextureID)m_SlimPreviewDescSet, ImVec2(drawW, drawH));
+            }
+
             UI::EndCollapsingHeader();
             return;
         }

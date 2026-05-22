@@ -27,6 +27,7 @@ namespace Luth
             case TextureFormat::D32_Float:       return VK_FORMAT_D32_SFLOAT;
             case TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             case TextureFormat::R32_Uint:        return VK_FORMAT_R32_UINT;
+            case TextureFormat::R16_Uint:        return VK_FORMAT_R16_UINT;
             default:                             return VK_FORMAT_R8G8B8A8_UNORM;
         }
     }
@@ -278,9 +279,9 @@ namespace Luth
             return;
         }
 
-        // Integer textures (e.g. R32_Uint entity ID buffer) need nearest filtering
-        // and are not registered in bindless (sampled via dedicated descriptor).
-        if (m_Format == TextureFormat::R32_Uint)
+        // Integer textures (e.g. R32_Uint entity ID buffer, R16_Uint slim G-buffer material ID)
+        // need nearest filtering and are not registered in bindless (sampled via dedicated descriptor).
+        if (m_Format == TextureFormat::R32_Uint || m_Format == TextureFormat::R16_Uint)
         {
             VkSamplerCreateInfo intSamplerInfo{};
             intSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -384,6 +385,7 @@ namespace Luth
             case TextureFormat::R32_Float: return "R32_Float";
             case TextureFormat::D32_Float: return "D32_Float";
             case TextureFormat::R32_Uint:  return "R32_Uint";
+            case TextureFormat::R16_Uint:  return "R16_Uint";
             default: return "Unknown";
         }
     }

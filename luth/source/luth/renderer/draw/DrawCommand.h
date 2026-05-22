@@ -34,9 +34,10 @@ namespace Luth
         u32 boneOffset;         // 4 bytes — base index into BoneMatrices SSBO (0 for static)
     };
 
-    // Per-object data uploaded to GPU SSBO each frame (std430 layout, 112 bytes)
+    // Per-object data uploaded to GPU SSBO each frame (std430 layout, 176 bytes)
     struct GPUObjectData {
         Mat4 model;          // 64B
+        Mat4 prevModel;      // 64B — frame N-1's worldMatrix (motion vectors)
         Vec4 boundingSphere; // 16B — xyz=center (local space), w=radius (local space)
         u32 materialIndex;        // 4B
         u32 shadeMode;            // 4B
@@ -45,6 +46,7 @@ namespace Luth
         u32 indexCount;           // 4B
         u32 firstIndex;           // 4B
         i32 vertexOffset;         // 4B
-        u32 _pad;                 // 4B
+        u32 prevBoneOffset;       // 4B — offset into BoneMatrixBuffer's prev-bones region (commit 2 wires it; 0 until then)
     };
+    static_assert(sizeof(GPUObjectData) == 176, "GPUObjectData std430 layout must stay in lockstep with the GLSL block");
 }

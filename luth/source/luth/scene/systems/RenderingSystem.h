@@ -28,6 +28,7 @@ namespace Luth
     // Per-frame global shader inputs (Set 0 UBO). Layout mirrors GLSL binding.
     struct GlobalUniforms {
         Mat4 viewProjection;
+        Mat4 prevViewProjection;  // frame N reads frame N-1's VP (motion vectors + TAA reprojection)
         Mat4 view;
         Mat4 projection;
         Vec3 cameraPos;
@@ -43,12 +44,26 @@ namespace Luth
         float     cascadeBlendWidth;
     };
 
-    enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
+    enum class ShadeMode : u8 {
+        Lit = 0, Unlit, Wireframe, Normals, EntityID,
+        // Slim G-buffer live viz — bypasses tonemap and blits the selected attachment to LDR.
+        // Implemented in PostProcessSubsystem::AddSlimVizPass via slim_viz.frag.
+        SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID
+    };
 
     struct GeometryOutput {
         RG::ResourceHandle color;
         RG::ResourceHandle depth;
         RG::ResourceHandle entityID;
+    };
+
+    // SlimGBufferPass outputs — written between DepthPrepass and GTAO Prefilter. Consumed by
+    // A.5 TAA (motion), Phase B/C RT denoisers (normal + roughness), D RT reflections (normal).
+    struct SlimGBufferOutput {
+        RG::ResourceHandle normal;     // RG16F — octahedral world-space normal
+        RG::ResourceHandle roughness;  // R8    — perceptual roughness
+        RG::ResourceHandle motion;     // RG16F — NDC delta (currNDC - prevNDC)
+        RG::ResourceHandle materialID; // R16U  — bindless material slot
     };
 
     struct SelectionMaskOutput {
@@ -162,6 +177,11 @@ namespace Luth
         VkImageView GetDepthPreviewView()   const;
         u32         GetDepthPreviewWidth()  const;
         u32         GetDepthPreviewHeight() const;
+
+        void        BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale);
+        VkImageView GetSlimPreviewView()    const;
+        u32         GetSlimPreviewWidth()   const;
+        u32         GetSlimPreviewHeight()  const;
 
     private:
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO uploads) and record the subgraph

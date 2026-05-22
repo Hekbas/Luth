@@ -118,6 +118,16 @@ namespace Luth
         // scene view (game view's subgraph skips both passes via flags).
         VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
+
+        // Slim G-buffer live viz (ShadeMode toggle). Single set, written once at AllocateViewResources
+        // time pointing at the 4 slim FrameTargets. Bindings: 0=normal, 1=roughness, 2=motion, 3=matID.
+        VkDescriptorSet slimVizDescSet = VK_NULL_HANDLE;
+
+        // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
+        // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
+        // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
+        // independent. Identity-initialized → frame 0 has nonsense motion, settles by frame 1.
+        Mat4 prevViewProj{ 1.0f };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -189,6 +199,7 @@ namespace Luth
         std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
         void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
         void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
+        void BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale);
 
         // Maps consumed by DrawListBuilder (populated by BuildGPUObjectBuffer).
         const std::unordered_map<UUID, u32, UUIDHash>& GetMaterialSlotMap() const { return m_Geometry.GetMaterialSlotMap(); }
@@ -310,6 +321,9 @@ namespace Luth
         VkImageView GetDepthPreviewView()    const;
         u32         GetDepthPreviewWidth()   const;
         u32         GetDepthPreviewHeight()  const;
+        VkImageView GetSlimPreviewView()     const;
+        u32         GetSlimPreviewWidth()    const;
+        u32         GetSlimPreviewHeight()   const;
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
 
         // Resets the per-draw preview cache key — called from RS::ExitCapture.

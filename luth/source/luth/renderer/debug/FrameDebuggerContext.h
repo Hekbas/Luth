@@ -50,6 +50,11 @@ namespace Luth
         // the depth preview texture for ImGui display.
         void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
 
+        // Blit a slim G-buffer archive through the appropriate decoder shader. Mode selects
+        // SlimNormal (0) / SlimMotion (1) / SlimRoughness (2) / SlimMaterialID (3). scale is
+        // the motion magnification (only used in mode 1; ignored otherwise).
+        void BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale);
+
         // Editor/debug accessors (forwarded by RenderPipeline).
         VkImageView GetPerDrawPreviewView()  const { return m_PerDrawPreviewView; }
         u64         GetPerDrawPreviewKey()   const { return m_PerDrawPreviewKey; }
@@ -58,13 +63,18 @@ namespace Luth
         VkImageView GetDepthPreviewView()    const { return m_DepthPreviewView; }
         u32         GetDepthPreviewWidth()   const { return m_DepthPreviewWidth; }
         u32         GetDepthPreviewHeight()  const { return m_DepthPreviewHeight; }
-        void        ResetPreviewCacheKeys() { m_PerDrawPreviewKey = UINT64_MAX; m_DepthPreviewKey = UINT64_MAX; }
+        VkImageView GetSlimPreviewView()     const { return m_SlimPreviewView; }
+        u32         GetSlimPreviewWidth()    const { return m_SlimPreviewWidth; }
+        u32         GetSlimPreviewHeight()   const { return m_SlimPreviewHeight; }
+        void        ResetPreviewCacheKeys() { m_PerDrawPreviewKey = UINT64_MAX; m_DepthPreviewKey = UINT64_MAX; m_SlimPreviewKey = UINT64_MAX; }
 
     private:
         void EnsurePerDrawPreviewTexture(u32 width, u32 height);
         void DestroyPerDrawPreviewTexture();
         void EnsureDepthPreviewTexture(u32 width, u32 height);
         void DestroyDepthPreviewTexture();
+        void EnsureSlimPreviewTexture(u32 width, u32 height);
+        void DestroySlimPreviewTexture();
 
         // Validate the captured view's FrameTargets is still alive (panel not closed)
         // and matches the identity stamped at FinalizeCapture. On mismatch, auto-exits
@@ -98,5 +108,15 @@ namespace Luth
         u32           m_DepthPreviewWidth  = 0;
         u32           m_DepthPreviewHeight = 0;
         u64           m_DepthPreviewKey    = UINT64_MAX;
+
+        // Slim G-buffer decoder preview (RGBA8 — shared by all 4 slim attachments via mode push).
+        // Cache key = (archiveIdx << 32) | (mode << 8) | scaleSlot, so flipping between modes
+        // for the same archive re-decodes lazily without churning the texture allocation.
+        VkImage       m_SlimPreviewImage  = VK_NULL_HANDLE;
+        VkImageView   m_SlimPreviewView   = VK_NULL_HANDLE;
+        VmaAllocation m_SlimPreviewAlloc  = nullptr;
+        u32           m_SlimPreviewWidth  = 0;
+        u32           m_SlimPreviewHeight = 0;
+        u64           m_SlimPreviewKey    = UINT64_MAX;
     };
 }

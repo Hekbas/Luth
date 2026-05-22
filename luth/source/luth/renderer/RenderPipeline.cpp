@@ -248,6 +248,11 @@ namespace Luth
         // graph can schedule it in parallel with the shadow cascades.
         RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
 
+        // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
+        // with EQUAL test; foundation for A.5 TAA + Phase B/C RT denoise + D RT reflections.
+        // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
+        SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -266,7 +271,19 @@ namespace Luth
         RG::ResourceHandle gridColor   = view.drawGrid
                                          ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
-        RG::ResourceHandle ldrOutput   = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
+        RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
+
+        // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.
+        // Mode index = enum offset from ShadeMode::SlimNormal (0..3). Motion scale hardcoded —
+        // the frame-debugger panel exposes a slider for per-capture tuning; live viz uses a
+        // sensible default matching the existing thumbnail UX.
+        const ShadeMode shadeMode = m_System.GetShadeMode();
+        if (shadeMode >= ShadeMode::SlimNormal && shadeMode <= ShadeMode::SlimMaterialID)
+        {
+            const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
+            ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimGB, slimMode, /*motionScale*/20.0f);
+        }
+
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
@@ -336,6 +353,11 @@ namespace Luth
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOLinearDepth");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAORawAO");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOFinal");
+            // Slim G-buffer attachments (Phase A.2). Archive sink copies all 4 after the pass.
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimNormal");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimRoughness");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimMotion");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimMaterialID");
             rg.SetArchiveSink(&m_System.GetFrameDebugger());
         }
 
@@ -622,6 +644,11 @@ namespace Luth
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();
         if (m_Lighting.GetBRDFLut())        m_NamedTextures["BRDF_LUT"]       = m_Lighting.GetBRDFLut();
+        // Slim G-buffer attachments (Phase A.2). Empty until SlimGBufferPass writes them (commit 4).
+        if (m_System.GetSceneTargets().GetSlimNormal())     m_NamedTextures["SlimNormal"]     = m_System.GetSceneTargets().GetSlimNormal();
+        if (m_System.GetSceneTargets().GetSlimRoughness())  m_NamedTextures["SlimRoughness"]  = m_System.GetSceneTargets().GetSlimRoughness();
+        if (m_System.GetSceneTargets().GetSlimMotion())     m_NamedTextures["SlimMotion"]     = m_System.GetSceneTargets().GetSlimMotion();
+        if (m_System.GetSceneTargets().GetSlimMaterialID()) m_NamedTextures["SlimMaterialID"] = m_System.GetSceneTargets().GetSlimMaterialID();
     }
 
     std::shared_ptr<Texture> RenderPipeline::GetNamedTexture(const std::string& name) const
@@ -650,6 +677,15 @@ namespace Luth
     {
         m_Debugger->BlitArchivedDepthToPreview(archiveIdx, layer, nearZ, farZ);
     }
+
+    void RenderPipeline::BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale)
+    {
+        m_Debugger->BlitArchivedSlimToPreview(archiveIdx, mode, scale);
+    }
+
+    VkImageView RenderPipeline::GetSlimPreviewView()   const { return m_Debugger->GetSlimPreviewView(); }
+    u32         RenderPipeline::GetSlimPreviewWidth()  const { return m_Debugger->GetSlimPreviewWidth(); }
+    u32         RenderPipeline::GetSlimPreviewHeight() const { return m_Debugger->GetSlimPreviewHeight(); }
 
     // ── Public-API forwarders into subsystems (preserve caller compat) ──
 

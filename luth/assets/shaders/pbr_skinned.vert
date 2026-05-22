@@ -20,6 +20,7 @@ layout(location = 9) flat out uint v_EntityID;
 // Set 0: Global Uniforms
 layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 viewProjection;
+    mat4 prevViewProjection;  // frame N-1's VP — motion vectors + TAA reprojection
     mat4 view;
     mat4 projection;
     vec3 cameraPos;
@@ -40,9 +41,10 @@ layout(std430, set = 4, binding = 0) readonly buffer BoneMatrices {
     mat4 bones[];
 };
 
-// Set 5: Per-object data SSBO (std430, 112 bytes per entry)
+// Set 5: Per-object data SSBO (std430, 176 bytes per entry)
 struct GPUObjectData {
     mat4  model;          // 64B
+    mat4  prevModel;      // 64B — frame N-1's worldMatrix
     vec4  boundingSphere; // 16B
     uint  materialIndex;  // 4B
     uint  shadeMode;      // 4B
@@ -51,7 +53,7 @@ struct GPUObjectData {
     uint  indexCount;     // 4B
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
-    uint  _pad;           // 4B
+    uint  prevBoneOffset; // 4B — wired by commit 2 (dual-buffer bones)
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {

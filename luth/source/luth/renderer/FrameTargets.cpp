@@ -12,6 +12,11 @@ namespace Luth
         m_EntityIDBuffer = Texture::Create(width, height, TextureFormat::R32_Uint);
         m_SelectionMask  = Texture::Create(width, height, TextureFormat::RGBA8);
         m_SelectionDepth = Texture::Create(width, height, TextureFormat::D32_Float);
+        // Slim G-buffer — written by SlimGBufferPass (commit 4); foundation for TAA + RT denoise.
+        m_SlimNormal     = Texture::Create(width, height, TextureFormat::RG16F);
+        m_SlimRoughness  = Texture::Create(width, height, TextureFormat::R8);
+        m_SlimMotion     = Texture::Create(width, height, TextureFormat::RG16F);
+        m_SlimMaterialID = Texture::Create(width, height, TextureFormat::R16_Uint);
     }
 
     void FrameTargets::Resize(u32 width, u32 height)

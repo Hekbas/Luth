@@ -4,6 +4,7 @@ layout(local_size_x = 256) in;
 
 struct GPUObjectData {
     mat4  model;
+    mat4  prevModel;      // frame N-1's worldMatrix (motion vectors — not consumed by cull)
     vec4  boundingSphere; // xyz=center (local space), w=radius (local space)
     uint  materialIndex;
     uint  shadeMode;
@@ -12,7 +13,7 @@ struct GPUObjectData {
     uint  indexCount;
     uint  firstIndex;
     int   vertexOffset;
-    uint  _pad;
+    uint  prevBoneOffset; // wired by commit 2 (dual-buffer bones)
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer ObjectBuffer {

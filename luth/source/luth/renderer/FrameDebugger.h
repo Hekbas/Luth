@@ -51,12 +51,17 @@ namespace Luth
         // Debug blit resources (depth -> color preview composition)
         std::unique_ptr<VKPipeline>  blitPipeline;
         std::unique_ptr<VKPipeline>  depthPipeline;
+        std::unique_ptr<VKPipeline>  slimDecodePipeline; // SlimNormal/SlimMotion/SlimRoughness (float-sampled)
+        std::unique_ptr<VKPipeline>  slimMatIDPipeline;  // SlimMaterialID (usampler2D R16U)
         std::vector<u32>             blitFragSpv;
         std::vector<u32>             depthFragSpv;
-        VkDescriptorPool             descPool      = VK_NULL_HANDLE;
-        VkDescriptorSetLayout        descSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet              descSet       = VK_NULL_HANDLE;
-        VkSampler                    sampler       = VK_NULL_HANDLE;
+        std::vector<u32>             slimDecodeFragSpv;
+        std::vector<u32>             slimMatIDFragSpv;
+        VkDescriptorPool             descPool       = VK_NULL_HANDLE;
+        VkDescriptorSetLayout        descSetLayout  = VK_NULL_HANDLE;
+        VkDescriptorSet              descSet        = VK_NULL_HANDLE;
+        VkSampler                    sampler        = VK_NULL_HANDLE;
+        VkSampler                    samplerNearest = VK_NULL_HANDLE; // for integer slim matID archive sampling
 
         // Archive sink configuration. Names match RG::TextureDesc::name.
         // Set by RegisterTrackedRT before each capture.

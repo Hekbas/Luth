@@ -79,6 +79,18 @@ namespace Luth
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
+        // Per-view prev-VP — stored on ViewResources, NOT on GlobalSubsystem. m_CachedViewProj is
+        // a single global, so multi-view rendering (e.g., Scene + Game panel) was cross-contaminating
+        // prev-VP between views and producing huge motion vectors for static geometry. Each view now
+        // tracks its own previous-frame VP independently. Frame 0: prevViewProj is Identity → motion
+        // nonsense for one frame, settles by frame 1 (matches TAA bootstrap behavior).
+        ViewResources* vrPrev = m_Pipeline->GetCurrentViewResources();
+        if (vrPrev) {
+            ubo.prevViewProjection = vrPrev->prevViewProj;
+            vrPrev->prevViewProj   = ubo.viewProjection;
+        } else {
+            ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
+        }
         ubo.cameraPos = camera.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
@@ -93,6 +105,8 @@ namespace Luth
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
+        // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
+        // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.
         m_CachedViewProj = ubo.viewProjection;
 
         // Cache GPU-true bytes for the frame debugger's per-view UBO snapshot.

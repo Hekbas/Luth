@@ -60,10 +60,12 @@ namespace Luth::RG
         BGRA8_Unorm, // Added for Swapchain
         R8_Unorm,     // Compute storage (GTAO raw/final AO, etc.)
         RGBA16_Float, // HDR render target
+        RG16_Float,   // Slim G-buffer normal (octahedral) + motion vectors
         R32_Float,    // Compute storage (GTAO linear depth, etc.)
         D32_Float,
         D24_Unorm_S8_Uint,
         R32_Uint,
+        R16_Uint,     // Slim G-buffer material ID
     };
 
     struct TextureDesc

@@ -71,6 +71,14 @@ namespace Luth
     u32         RenderingSystem::GetDepthPreviewWidth()    const { return m_Pipeline->GetDepthPreviewWidth(); }
     u32         RenderingSystem::GetDepthPreviewHeight()   const { return m_Pipeline->GetDepthPreviewHeight(); }
 
+    void RenderingSystem::BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale)
+    {
+        m_Pipeline->BlitArchivedSlimToPreview(archiveIdx, mode, scale);
+    }
+    VkImageView RenderingSystem::GetSlimPreviewView()      const { return m_Pipeline->GetSlimPreviewView(); }
+    u32         RenderingSystem::GetSlimPreviewWidth()     const { return m_Pipeline->GetSlimPreviewWidth(); }
+    u32         RenderingSystem::GetSlimPreviewHeight()    const { return m_Pipeline->GetSlimPreviewHeight(); }
+
     // ── Project lifecycle ──
 
     void RenderingSystem::OnProjectLoaded()
