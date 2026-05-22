@@ -24,10 +24,12 @@ namespace Luth
                 case RG::TextureFormat::BGRA8_Unorm:       return VK_FORMAT_B8G8R8A8_UNORM;
                 case RG::TextureFormat::R8_Unorm:          return VK_FORMAT_R8_UNORM;
                 case RG::TextureFormat::RGBA16_Float:      return VK_FORMAT_R16G16B16A16_SFLOAT;
+                case RG::TextureFormat::RG16_Float:        return VK_FORMAT_R16G16_SFLOAT;
                 case RG::TextureFormat::R32_Float:         return VK_FORMAT_R32_SFLOAT;
                 case RG::TextureFormat::D32_Float:         return VK_FORMAT_D32_SFLOAT;
                 case RG::TextureFormat::D24_Unorm_S8_Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
                 case RG::TextureFormat::R32_Uint:          return VK_FORMAT_R32_UINT;
+                case RG::TextureFormat::R16_Uint:          return VK_FORMAT_R16_UINT;
                 default:                                   return VK_FORMAT_R8G8B8A8_UNORM;
             }
         }

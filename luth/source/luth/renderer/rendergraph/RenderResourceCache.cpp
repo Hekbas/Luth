@@ -145,9 +145,11 @@ namespace Luth::RG
         else if (resolved.format == TextureFormat::BGRA8_Unorm) imageInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
         else if (resolved.format == TextureFormat::R8_Unorm) imageInfo.format = VK_FORMAT_R8_UNORM;
         else if (resolved.format == TextureFormat::RGBA16_Float) imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        else if (resolved.format == TextureFormat::RG16_Float) imageInfo.format = VK_FORMAT_R16G16_SFLOAT;
         else if (resolved.format == TextureFormat::R32_Float) imageInfo.format = VK_FORMAT_R32_SFLOAT;
         else if (resolved.format == TextureFormat::D32_Float) imageInfo.format = VK_FORMAT_D32_SFLOAT;
         else if (resolved.format == TextureFormat::D24_Unorm_S8_Uint) imageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+        else if (resolved.format == TextureFormat::R16_Uint) imageInfo.format = VK_FORMAT_R16_UINT;
         else imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // Fallback
 
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
