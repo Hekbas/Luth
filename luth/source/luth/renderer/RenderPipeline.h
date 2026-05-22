@@ -189,6 +189,7 @@ namespace Luth
         std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;
         void ReplayPassUpToDraw(u32 passIdx, u32 localDrawIdx);
         void BlitArchivedDepthToPreview(u32 archiveIdx, int layer, float nearZ, float farZ);
+        void BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale);
 
         // Maps consumed by DrawListBuilder (populated by BuildGPUObjectBuffer).
         const std::unordered_map<UUID, u32, UUIDHash>& GetMaterialSlotMap() const { return m_Geometry.GetMaterialSlotMap(); }
@@ -310,6 +311,9 @@ namespace Luth
         VkImageView GetDepthPreviewView()    const;
         u32         GetDepthPreviewWidth()   const;
         u32         GetDepthPreviewHeight()  const;
+        VkImageView GetSlimPreviewView()     const;
+        u32         GetSlimPreviewWidth()    const;
+        u32         GetSlimPreviewHeight()   const;
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
 
         // Resets the per-draw preview cache key — called from RS::ExitCapture.

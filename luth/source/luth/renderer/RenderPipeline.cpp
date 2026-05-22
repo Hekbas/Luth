@@ -666,6 +666,15 @@ namespace Luth
         m_Debugger->BlitArchivedDepthToPreview(archiveIdx, layer, nearZ, farZ);
     }
 
+    void RenderPipeline::BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale)
+    {
+        m_Debugger->BlitArchivedSlimToPreview(archiveIdx, mode, scale);
+    }
+
+    VkImageView RenderPipeline::GetSlimPreviewView()   const { return m_Debugger->GetSlimPreviewView(); }
+    u32         RenderPipeline::GetSlimPreviewWidth()  const { return m_Debugger->GetSlimPreviewWidth(); }
+    u32         RenderPipeline::GetSlimPreviewHeight() const { return m_Debugger->GetSlimPreviewHeight(); }
+
     // ── Public-API forwarders into subsystems (preserve caller compat) ──
 
     void RenderPipeline::UpdateGlobalUniforms(const CameraParams& camera,

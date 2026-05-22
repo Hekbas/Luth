@@ -35,6 +35,7 @@ namespace Luth
     {
         DestroyPerDrawPreviewTexture();
         DestroyDepthPreviewTexture();
+        DestroySlimPreviewTexture();
     }
 
     void FrameDebuggerContext::InitDebugBlitResources()
@@ -46,8 +47,14 @@ namespace Luth
             fd.blitFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
             fd.depthFragSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimDecode.frag"))
+            fd.slimDecodeFragSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimMatID.frag"))
+            fd.slimMatIDFragSpv = sh->GetSpirV();
 
-        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty() || m_Pipeline.GetPostProcess().GetFullscreenVertSpv().empty())
+        if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty()
+         || fd.slimDecodeFragSpv.empty() || fd.slimMatIDFragSpv.empty()
+         || m_Pipeline.GetPostProcess().GetFullscreenVertSpv().empty())
         {
             LH_CORE_ERROR("Failed to compile debug blit shaders");
             return;
@@ -133,6 +140,32 @@ namespace Luth
 
         fd.depthPipeline = std::make_unique<VKPipeline>(
             depthConfig, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.depthFragSpv, layouts);
+
+        // Slim G-buffer decoder pipeline (oct-normal / motion / roughness — float-sampled).
+        // Push constants: uint mode + float scale = 8B.
+        VkPushConstantRange slimPC{};
+        slimPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        slimPC.offset     = 0;
+        slimPC.size       = sizeof(u32) + sizeof(float);
+
+        PipelineConfig slimDecodeCfg;
+        slimDecodeCfg.depthTest  = false;
+        slimDecodeCfg.depthWrite = false;
+        slimDecodeCfg.cullMode         = VK_CULL_MODE_NONE;
+        slimDecodeCfg.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
+        slimDecodeCfg.pushConstantRanges = { slimPC };
+        fd.slimDecodePipeline = std::make_unique<VKPipeline>(
+            slimDecodeCfg, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.slimDecodeFragSpv, layouts);
+
+        // Slim material-ID pipeline (uint-sampled R16U). Shares descSet layout; the shader
+        // declares usampler2D so the bound view must point at the R16U image.
+        PipelineConfig slimMatIDCfg;
+        slimMatIDCfg.depthTest  = false;
+        slimMatIDCfg.depthWrite = false;
+        slimMatIDCfg.cullMode         = VK_CULL_MODE_NONE;
+        slimMatIDCfg.colorFormats     = { VK_FORMAT_R8G8B8A8_UNORM };
+        fd.slimMatIDPipeline = std::make_unique<VKPipeline>(
+            slimMatIDCfg, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.slimMatIDFragSpv, layouts);
     }
 
     RG::ResourceHandle FrameDebuggerContext::AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth)
@@ -1655,5 +1688,190 @@ namespace Luth
         });
 
         m_DepthPreviewKey = key;
+    }
+
+    void FrameDebuggerContext::EnsureSlimPreviewTexture(u32 width, u32 height)
+    {
+        if (m_SlimPreviewImage != VK_NULL_HANDLE
+            && m_SlimPreviewWidth == width
+            && m_SlimPreviewHeight == height) return;
+
+        if (m_SlimPreviewImage != VK_NULL_HANDLE)
+        {
+            VkImage       img   = m_SlimPreviewImage;
+            VkImageView   view  = m_SlimPreviewView;
+            VmaAllocation alloc = m_SlimPreviewAlloc;
+            VulkanContext::Get().PushDeletion([img, view, alloc]() {
+                auto dev = VulkanContext::Get().GetDevice();
+                vkDestroyImageView(dev, view, nullptr);
+                VulkanAllocator::FreeImage(img, alloc);
+            });
+            m_SlimPreviewImage = VK_NULL_HANDLE;
+            m_SlimPreviewView  = VK_NULL_HANDLE;
+            m_SlimPreviewAlloc = nullptr;
+        }
+
+        VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ci.imageType     = VK_IMAGE_TYPE_2D;
+        ci.extent        = { width, height, 1 };
+        ci.mipLevels     = 1;
+        ci.arrayLayers   = 1;
+        ci.format        = VK_FORMAT_R8G8B8A8_UNORM;  // decoded RGB output
+        ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+        m_SlimPreviewAlloc = VulkanAllocator::AllocateImage(ci, VMA_MEMORY_USAGE_AUTO, m_SlimPreviewImage);
+
+        VkImageViewCreateInfo vci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image            = m_SlimPreviewImage;
+        vci.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format           = ci.format;
+        vci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vci, nullptr, &m_SlimPreviewView);
+
+        m_SlimPreviewWidth  = width;
+        m_SlimPreviewHeight = height;
+        m_SlimPreviewKey    = UINT64_MAX;
+    }
+
+    void FrameDebuggerContext::DestroySlimPreviewTexture()
+    {
+        if (m_SlimPreviewImage == VK_NULL_HANDLE) return;
+        auto dev = VulkanContext::Get().GetDevice();
+        vkDestroyImageView(dev, m_SlimPreviewView, nullptr);
+        VulkanAllocator::FreeImage(m_SlimPreviewImage, m_SlimPreviewAlloc);
+        m_SlimPreviewImage  = VK_NULL_HANDLE;
+        m_SlimPreviewView   = VK_NULL_HANDLE;
+        m_SlimPreviewAlloc  = nullptr;
+        m_SlimPreviewWidth  = 0;
+        m_SlimPreviewHeight = 0;
+        m_SlimPreviewKey    = UINT64_MAX;
+    }
+
+    void FrameDebuggerContext::BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale)
+    {
+        auto& sys = m_Pipeline.GetSystem();
+
+        if (sys.GetFrameDebugger().state != DebuggerState::Frozen) return;
+        if (!sys.GetFrameDebugger().capturedFrame.valid) return;
+        if (archiveIdx >= sys.GetFrameDebugger().capturedFrame.archivedImages.size()) return;
+
+        auto& archive = sys.GetFrameDebugger().capturedFrame.archivedImages[archiveIdx];
+        if (archive.isDepth || archive.image == VK_NULL_HANDLE) return;
+
+        InitDebugBlitResources();
+        VKPipeline* pipeline = (mode == 3u) ? sys.GetFrameDebugger().slimMatIDPipeline.get()
+                                            : sys.GetFrameDebugger().slimDecodePipeline.get();
+        if (!pipeline || sys.GetFrameDebugger().descSet == VK_NULL_HANDLE) return;
+
+        // Cache key encodes (archiveIdx, mode, quantized scale). Scale-quantization buckets prevent
+        // rapid slider drag from invalidating the cache on every imperceptible step.
+        const u32 scaleBucket = static_cast<u32>(scale * 16.0f) & 0xFFFu;
+        const u64 key = ((u64)archiveIdx << 32) | ((u64)mode << 16) | (u64)scaleBucket;
+        if (key == m_SlimPreviewKey && m_SlimPreviewImage != VK_NULL_HANDLE) return;
+
+        EnsureSlimPreviewTexture(archive.width, archive.height);
+        if (m_SlimPreviewImage == VK_NULL_HANDLE) return;
+
+        VkImageView srcView = archive.view;
+        if (srcView == VK_NULL_HANDLE) return;
+
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler     = sys.GetFrameDebugger().sampler;
+        imgInfo.imageView   = srcView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = sys.GetFrameDebugger().descSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &imgInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+
+        const u32 width  = archive.width;
+        const u32 height = archive.height;
+        VkImage     dstImg  = m_SlimPreviewImage;
+        VkImageView dstView = m_SlimPreviewView;
+        VKPipeline* pipelinePtr = pipeline;
+        const bool  needsPushConstants = (mode != 3u);
+
+        VulkanContext::Get().ImmediateSubmit([this, dstImg, dstView, width, height, mode, scale, pipelinePtr, needsPushConstants](VkCommandBuffer cmd)
+        {
+            auto& sys = m_Pipeline.GetSystem();
+
+            VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            prep.srcAccessMask       = 0;
+            prep.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            prep.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            prep.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            prep.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            prep.image               = dstImg;
+            prep.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depPrep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depPrep.imageMemoryBarrierCount = 1;
+            depPrep.pImageMemoryBarriers    = &prep;
+            vkCmdPipelineBarrier2(cmd, &depPrep);
+
+            AttachmentInfo colorAtt{};
+            colorAtt.ImageView  = dstView;
+            colorAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
+            colorAtt.LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAtt.StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAtt.ClearValue = { { {0.f, 0.f, 0.f, 1.f} } };
+            colorAtt.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            RenderPassInfo rpInfo{};
+            rpInfo.ColorAttachments = std::span<AttachmentInfo>(&colorAtt, 1);
+            rpInfo.RenderArea       = { {0, 0}, { width, height } };
+
+            DynamicRendering::BeginRendering(cmd, rpInfo);
+
+            VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            VkRect2D scRect{}; scRect.extent = { width, height };
+            vkCmdSetScissor(cmd, 0, 1, &scRect);
+
+            pipelinePtr->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipelinePtr->GetLayout(), 0, 1, &sys.GetFrameDebugger().descSet, 0, nullptr);
+
+            if (needsPushConstants)
+            {
+                struct { u32 mode; float scale; } pcData{ mode, scale };
+                vkCmdPushConstants(cmd, pipelinePtr->GetLayout(), VK_SHADER_STAGE_FRAGMENT_BIT,
+                                   0, sizeof(pcData), &pcData);
+            }
+
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+
+            DynamicRendering::EndRendering(cmd);
+
+            VkImageMemoryBarrier2 fin{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            fin.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            fin.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            fin.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            fin.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            fin.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            fin.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            fin.image               = dstImg;
+            fin.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            fin.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            fin.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo depFin{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            depFin.imageMemoryBarrierCount = 1;
+            depFin.pImageMemoryBarriers    = &fin;
+            vkCmdPipelineBarrier2(cmd, &depFin);
+        });
+
+        m_SlimPreviewKey = key;
     }
 }

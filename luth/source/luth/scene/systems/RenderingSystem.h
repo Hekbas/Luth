@@ -173,6 +173,11 @@ namespace Luth
         u32         GetDepthPreviewWidth()  const;
         u32         GetDepthPreviewHeight() const;
 
+        void        BlitArchivedSlimToPreview(u32 archiveIdx, u32 mode, float scale);
+        VkImageView GetSlimPreviewView()    const;
+        u32         GetSlimPreviewWidth()   const;
+        u32         GetSlimPreviewHeight()  const;
+
     private:
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO uploads) and record the subgraph
         // into the view's QueueRecorders triplet. Returns true iff the graph routed any pass to async-compute —

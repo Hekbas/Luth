@@ -86,5 +86,10 @@ namespace Luth
         VkImageView      m_DepthPreviewViewCached   = VK_NULL_HANDLE;
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
+        // Slim G-buffer decoder preview — separate descriptor cache so it doesn't compete
+        // with the depth preview's binding.
+        VkImageView      m_SlimPreviewViewCached    = VK_NULL_HANDLE;
+        VkDescriptorSet  m_SlimPreviewDescSet       = VK_NULL_HANDLE;
+        float            m_SlimMotionScale          = 20.0f;  // user slider; mode-1 magnification
     };
 }

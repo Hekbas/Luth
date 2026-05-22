@@ -51,8 +51,12 @@ namespace Luth
         // Debug blit resources (depth -> color preview composition)
         std::unique_ptr<VKPipeline>  blitPipeline;
         std::unique_ptr<VKPipeline>  depthPipeline;
+        std::unique_ptr<VKPipeline>  slimDecodePipeline; // SlimNormal/SlimMotion/SlimRoughness (float-sampled)
+        std::unique_ptr<VKPipeline>  slimMatIDPipeline;  // SlimMaterialID (usampler2D R16U)
         std::vector<u32>             blitFragSpv;
         std::vector<u32>             depthFragSpv;
+        std::vector<u32>             slimDecodeFragSpv;
+        std::vector<u32>             slimMatIDFragSpv;
         VkDescriptorPool             descPool      = VK_NULL_HANDLE;
         VkDescriptorSetLayout        descSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet              descSet       = VK_NULL_HANDLE;
