@@ -400,11 +400,14 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "pbr.vert")                  m_PBRVertSpv                 = spv;
-        else if (name == "pbr.frag")                  m_PBRFragSpv                 = spv;
-        else if (name == "pbr_skinned.vert")          m_PBRSkinnedVertSpv          = spv;
-        else if (name == "depthPrepass.vert")         m_DepthPrepassVertSpv        = spv;
-        else if (name == "depthPrepass_skinned.vert") m_DepthPrepassSkinnedVertSpv = spv;
+        if      (name == "pbr.vert")                   m_PBRVertSpv                 = spv;
+        else if (name == "pbr.frag")                   m_PBRFragSpv                 = spv;
+        else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv          = spv;
+        else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv        = spv;
+        else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv = spv;
+        else if (name == "slim_gbuffer.vert")          m_SlimGBufferVertSpv         = spv;
+        else if (name == "slim_gbuffer.frag")          m_SlimGBufferFragSpv         = spv;
+        else if (name == "slim_gbuffer_skinned.vert")  m_SlimGBufferSkinnedVertSpv  = spv;
         else if (name != "gpu_cull.comp") return false;
 
         if (name == "gpu_cull.comp" && m_CullDescLayout)
@@ -420,6 +423,12 @@ namespace Luth
             deferGfx(m_DepthPrepassPipeline);
             deferGfx(m_DepthPrepassSkinnedPipeline);
             BuildDepthPrepassPipelines(geoLayouts);
+        }
+        else if (name == "slim_gbuffer.vert" || name == "slim_gbuffer.frag" || name == "slim_gbuffer_skinned.vert")
+        {
+            deferGfx(m_SlimGBufferPipeline);
+            deferGfx(m_SlimGBufferSkinnedPipeline);
+            BuildSlimGBufferPipelines(geoLayouts);
         }
         else
         {
