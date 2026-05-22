@@ -12,25 +12,24 @@ namespace Luth
 
     void Material::UpdateGPUData()
     {
-        // 1. Update Texture Indices
-        //    Slot 0 is the reserved null (1x1 white) texture; BindlessOrNull coerces the
-        //    "not registered" sentinel returned by VKTexture::GetBindlessIndex() back to 0
-        //    so the SSBO never carries an out-of-range value.
+        // Slot 0 is the reserved null (1x1 white) texture; BindlessOrNull coerces the
+        // "not registered" sentinel returned by VKTexture::GetBindlessIndex() back to 0
+        // so the SSBO never carries an out-of-range value.
         auto GetIndex = [&](MapType type) -> u32 {
             auto tex = GetTextureByType(type);
             return tex ? BindlessOrNull(tex->GetBindlessIndex()) : 0u;
         };
-        
-        m_GPUData.diffuseIndex = GetIndex(MapType::Diffuse);
-        m_GPUData.normalIndex = GetIndex(MapType::Normal);
-        m_GPUData.metalRoughIndex = GetIndex(MapType::Metalness); // Assuming packed or separate?
-        // If separate, we might need separate indices.
-        // Standard PBR often packs Metal/Rough/AO.
-        // For now, map Metalness slot to MetalRoughIndex.
-        
-        m_GPUData.occlusionIndex = GetIndex(MapType::Occlusion);
-        
-        // 2. Update Factors
+
+        // MapType::Metalness slot maps to metalRoughIndex (glTF packs metal+rough into one texture).
+        m_GPUData.diffuseIndex     = GetIndex(MapType::Diffuse);
+        m_GPUData.normalIndex      = GetIndex(MapType::Normal);
+        m_GPUData.metalRoughIndex  = GetIndex(MapType::Metalness);
+        m_GPUData.occlusionIndex   = GetIndex(MapType::Occlusion);
+        m_GPUData.emissiveIndex    = GetIndex(MapType::Emissive);
+        m_GPUData.alphaIndex       = GetIndex(MapType::Alpha);
+        m_GPUData.specularIndex    = GetIndex(MapType::Specular);
+        m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
+
         float uniformMetal;
         m_GPUData.metalness = GetUniformData("u_Metalness", &uniformMetal, sizeof(float))
             ? uniformMetal : m_GPUData.metalness;
@@ -38,25 +37,32 @@ namespace Luth
         m_GPUData.roughness = GetUniformData("u_Roughness", &uniformRough, sizeof(float))
             ? uniformRough : m_GPUData.roughness;
         m_GPUData.alphaCutoff = (m_RenderMode == RenderMode::Cutout) ? m_AlphaCutoff : 0.0f;
-        
-        // Flags — each bit indicates a valid texture is bound for that feature
-        m_GPUData.flags = 0;
-        if (GetTextureByType(MapType::Normal)    && IsUseMapEnabled(MapType::Normal))    m_GPUData.flags |= (1 << 0); // HAS_NORMAL
-        if (GetTextureByType(MapType::Metalness) && IsUseMapEnabled(MapType::Metalness)) m_GPUData.flags |= (1 << 1); // HAS_METALROUGH
-        if (GetTextureByType(MapType::Occlusion)  && IsUseMapEnabled(MapType::Occlusion))  m_GPUData.flags |= (1 << 2); // HAS_OCCLUSION
-        if (GetTextureByType(MapType::Diffuse)   && IsUseMapEnabled(MapType::Diffuse))   m_GPUData.flags |= (1 << 3); // HAS_DIFFUSE
-        if (GetTextureByType(MapType::Emissive)  && IsUseMapEnabled(MapType::Emissive))  m_GPUData.flags |= (1 << 4); // HAS_EMISSIVE
 
-        // Pack per-texture UV indices into flags bits 8-15 (2 bits each, values 0-3)
+        // Flags layout documented on GPUMaterialData. Existing bits 0-4 unchanged for byte-identical
+        // shader behavior; bits 5-7 land the new HAS_* signals; UV indices shift to bits 16-23.
+        m_GPUData.flags = 0;
+        auto SetHas = [&](MapType type, u32 bit) {
+            if (GetTextureByType(type) && IsUseMapEnabled(type))
+                m_GPUData.flags |= (1u << bit);
+        };
+        SetHas(MapType::Normal,    0);
+        SetHas(MapType::Metalness, 1);
+        SetHas(MapType::Occlusion, 2);
+        SetHas(MapType::Diffuse,   3);
+        SetHas(MapType::Emissive,  4);
+        SetHas(MapType::Alpha,     5);
+        SetHas(MapType::Specular,  6);
+        SetHas(MapType::Thickness, 7);
+
         auto PackUV = [&](MapType type, u32 bitOffset) {
             auto idx = GetUVIndex(type);
             if (idx.has_value())
                 m_GPUData.flags |= ((idx.value() & 0x3u) << bitOffset);
         };
-        PackUV(MapType::Diffuse,   8);
-        PackUV(MapType::Normal,    10);
-        PackUV(MapType::Metalness, 12);
-        PackUV(MapType::Occlusion, 14);
+        PackUV(MapType::Diffuse,   16);
+        PackUV(MapType::Normal,    18);
+        PackUV(MapType::Metalness, 20);
+        PackUV(MapType::Occlusion, 22);
     }
 
     void Material::Serialize(nlohmann::json& json) const

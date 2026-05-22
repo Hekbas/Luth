@@ -57,12 +57,17 @@ layout(set = 0, binding = 5, std140) uniform GTAOUBO {
 layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
 
 // Set 2: Material SSBO
+// flags layout: bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each).
 struct GPUMaterialData {
     vec4  color;
     uint  diffuseIndex;
     uint  normalIndex;
     uint  metalRoughIndex;
     uint  occlusionIndex;
+    uint  emissiveIndex;
+    uint  alphaIndex;
+    uint  specularIndex;
+    uint  thicknessIndex;
     float metalness;
     float roughness;
     float alphaCutoff;
@@ -103,12 +108,15 @@ const uint FLAG_HAS_METALROUGH = (1u << 1);
 const uint FLAG_HAS_OCCLUSION  = (1u << 2);
 const uint FLAG_HAS_DIFFUSE    = (1u << 3);
 const uint FLAG_HAS_EMISSIVE   = (1u << 4);
+const uint FLAG_HAS_ALPHA      = (1u << 5);
+const uint FLAG_HAS_SPECULAR   = (1u << 6);
+const uint FLAG_HAS_THICKNESS  = (1u << 7);
 
-// UV index bit positions within flags (2 bits each)
-const uint UV_SHIFT_DIFFUSE    = 8u;
-const uint UV_SHIFT_NORMAL     = 10u;
-const uint UV_SHIFT_METALROUGH = 12u;
-const uint UV_SHIFT_OCCLUSION  = 14u;
+// UV index bit positions within flags (2 bits each, values 0-3)
+const uint UV_SHIFT_DIFFUSE    = 16u;
+const uint UV_SHIFT_NORMAL     = 18u;
+const uint UV_SHIFT_METALROUGH = 20u;
+const uint UV_SHIFT_OCCLUSION  = 22u;
 
 vec2 selectUV(uint flags, uint shift) {
     uint idx = (flags >> shift) & 0x3u;

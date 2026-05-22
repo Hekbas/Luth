@@ -42,22 +42,34 @@ namespace Luth
     };
 
     // GPU-friendly Material Data Structure (Std140/Std430)
-    // This matches the shader struct
+    // This matches the shader struct.
+    //
+    // flags layout (u32):
+    //   bits 0-7   : HAS_* per map (NORMAL=0, METALROUGH=1, OCCLUSION=2, DIFFUSE=3,
+    //                EMISSIVE=4, ALPHA=5, SPECULAR=6, THICKNESS=7)
+    //   bits 8-15  : reserved
+    //   bits 16-23 : UV index per map (2 bits each — DIFFUSE@16, NORMAL@18,
+    //                METALROUGH@20, OCCLUSION@22)
+    //   bits 24-31 : reserved
     struct GPUMaterialData
     {
         Vec4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        
-        // Texture Indices (Bindless)
+
+        // Texture Indices (Bindless — slot 0 = reserved null/white)
         u32 diffuseIndex = 0;
         u32 normalIndex = 0;
         u32 metalRoughIndex = 0;
         u32 occlusionIndex = 0;
-        
+        u32 emissiveIndex = 0;
+        u32 alphaIndex = 0;
+        u32 specularIndex = 0;
+        u32 thicknessIndex = 0;
+
         // Factors
         f32 metalness = 0.0f;
         f32 roughness = 0.5f;
         f32 alphaCutoff = 0.5f;
-        u32 flags = 0; // Bitmask for features
+        u32 flags = 0;
     };
 
     class Material : public Asset
