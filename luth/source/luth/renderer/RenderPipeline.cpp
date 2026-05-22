@@ -248,6 +248,11 @@ namespace Luth
         // graph can schedule it in parallel with the shadow cascades.
         RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
 
+        // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
+        // with EQUAL test; foundation for A.5 TAA + Phase B/C RT denoise + D RT reflections.
+        SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
+        (void)slimGB;  // A.2 has no consumers; downstream efforts wire it.
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -336,6 +341,11 @@ namespace Luth
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOLinearDepth");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAORawAO");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOFinal");
+            // Slim G-buffer attachments (Phase A.2). Archive sink copies all 4 after the pass.
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimNormal");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimRoughness");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimMotion");
+            m_System.GetFrameDebugger().RegisterTrackedRT("SlimMaterialID");
             rg.SetArchiveSink(&m_System.GetFrameDebugger());
         }
 

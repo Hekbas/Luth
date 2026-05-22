@@ -52,6 +52,15 @@ namespace Luth
         RG::ResourceHandle entityID;
     };
 
+    // SlimGBufferPass outputs — written between DepthPrepass and GTAO Prefilter. Consumed by
+    // A.5 TAA (motion), Phase B/C RT denoisers (normal + roughness), D RT reflections (normal).
+    struct SlimGBufferOutput {
+        RG::ResourceHandle normal;     // RG16F — octahedral world-space normal
+        RG::ResourceHandle roughness;  // R8    — perceptual roughness
+        RG::ResourceHandle motion;     // RG16F — NDC delta (currNDC - prevNDC)
+        RG::ResourceHandle materialID; // R16U  — bindless material slot
+    };
+
     struct SelectionMaskOutput {
         RG::ResourceHandle mask;
         RG::ResourceHandle depth;

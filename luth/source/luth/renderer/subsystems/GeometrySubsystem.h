@@ -24,6 +24,7 @@ namespace Luth
     class RenderPipeline;
     struct RenderSnapshot;
     struct GeometryOutput;
+    struct SlimGBufferOutput;
 
     // Owns Set 5 (per-draw GPU object SSBO + indirect args), the cull compute
     // pipeline, the PBR + depth-prepass graphics pipelines, the per-frame
@@ -52,6 +53,9 @@ namespace Luth
                          const std::array<Vec4, 6>& frustumPlanes, u32 destOffset,
                          const char* passName);
         RG::ResourceHandle AddDepthPrepass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle);
+        SlimGBufferOutput  AddSlimGBufferPass(RG::RenderGraph& rg,
+                                              RG::BufferHandle indirectBufferHandle,
+                                              RG::ResourceHandle sceneDepth);
         GeometryOutput     AddGeometryPass(RG::RenderGraph& rg,
                                            const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                            RG::BufferHandle indirectBufferHandle,
@@ -76,12 +80,15 @@ namespace Luth
         const std::vector<u32>& GetPBRSkinnedVertSpv() const { return m_PBRSkinnedVertSpv; }
         VKPipeline*             GetDepthPrepassPipeline()        const { return m_DepthPrepassPipeline.get(); }
         VKPipeline*             GetDepthPrepassSkinnedPipeline() const { return m_DepthPrepassSkinnedPipeline.get(); }
+        VKPipeline*             GetSlimGBufferPipeline()         const { return m_SlimGBufferPipeline.get(); }
+        VKPipeline*             GetSlimGBufferSkinnedPipeline()  const { return m_SlimGBufferSkinnedPipeline.get(); }
 
     private:
         void InitObjectSSBO();
         void InitCullPipeline();
         void BuildPBRPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
         void BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
+        void BuildSlimGBufferPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
 
         RenderPipeline* m_Pipeline = nullptr;
 
@@ -116,6 +123,14 @@ namespace Luth
         std::unique_ptr<VKPipeline> m_DepthPrepassSkinnedPipeline;
         std::vector<u32>            m_DepthPrepassVertSpv;
         std::vector<u32>            m_DepthPrepassSkinnedVertSpv;
+
+        // Slim G-buffer pipelines + SPV (Phase A.2). Depth-EQUAL against prepass depth, no
+        // depth write, full PBR vtx stride. Opaque-only iteration; cutouts deferred.
+        std::unique_ptr<VKPipeline> m_SlimGBufferPipeline;
+        std::unique_ptr<VKPipeline> m_SlimGBufferSkinnedPipeline;
+        std::vector<u32>            m_SlimGBufferVertSpv;
+        std::vector<u32>            m_SlimGBufferSkinnedVertSpv;
+        std::vector<u32>            m_SlimGBufferFragSpv;
 
         // PBR pipeline managers (shader-mode-keyed; lazy build).
         PipelineManager  m_GeoPipelineManager;
