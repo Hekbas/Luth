@@ -123,6 +123,10 @@ namespace Luth
         // time pointing at the 4 slim FrameTargets. Bindings: 0=normal, 1=roughness, 2=motion, 3=matID.
         VkDescriptorSet slimVizDescSet = VK_NULL_HANDLE;
 
+        // Forward+ cluster compute descriptor sets. Cycled — each frame the cluster AABB + grid
+        // tagged-heap regions get rewritten into the slot's bindings before dispatch.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
+
         // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
         // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP

@@ -6,6 +6,7 @@
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/resources/Texture.h"
 
@@ -43,6 +44,13 @@ namespace Luth
         // Render-graph contributions.
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
+
+        // Forward+ cluster build. Returns the AABB + grid BufferHandles into the active view's
+        // tagged-heap regions. LightAssignPass consumes both via these handles (see arch hazard 1).
+        struct ClusterBuildOutputs { RG::BufferHandle aabb; RG::BufferHandle grid; };
+        ClusterBuildOutputs AddClusterBuildPass(RG::RenderGraph& rg);
+
+        VkDescriptorSetLayout GetClusterBuildLayout() const { return m_ClusterBuildSetLayout; }
 
         // ---- Accessors ----
         VkDescriptorSetLayout GetSetLayout() const          { return m_LightSetLayout; }
@@ -97,5 +105,11 @@ namespace Luth
         std::shared_ptr<VKVertexBuffer> m_SkyboxVB;
         std::vector<u32>                m_SkyboxVertSpv;
         std::vector<u32>                m_SkyboxFragSpv;
+
+        // Forward+ compute pipelines. Layouts shared across views; per-view descriptor sets live
+        // on ViewResources because the cluster grid + AABB buffers are per-view tagged-heap regions.
+        std::unique_ptr<VKComputePipeline> m_ClusterBuildPipeline;
+        VkDescriptorSetLayout              m_ClusterBuildSetLayout = VK_NULL_HANDLE;
+        std::vector<u32>                   m_ClusterBuildSpv;
     };
 }

@@ -41,6 +41,52 @@ namespace Luth
 
         CreateShadowResources(device);
         LoadIBL(hdrPath);
+
+        // Forward+ cluster build pipeline. Layout has 2 SSBO bindings (AABB write, Grid write).
+        // UAB matches GTAO main's pattern — per-render-stage descriptor rewrites need it to
+        // dodge validation 03047 when the previous frame's cmd buffer is still pending.
+        {
+            VkDescriptorSetLayoutBinding bindings[2] = {};
+            bindings[0].binding         = 0;
+            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            bindings[0].descriptorCount = 1;
+            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            bindings[1].binding         = 1;
+            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            bindings[1].descriptorCount = 1;
+            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorBindingFlags bindingFlags[2] = {
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 2;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            layoutCI.bindingCount = 2;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_ClusterBuildSetLayout);
+
+            // Push constant: mat4 invProjection + vec2 viewportSize + vec2 pad + float nearZ + float farZ
+            // + u32 tilesX + u32 tilesY = 64 + 8 + 8 + 4 + 4 + 4 + 4 = 96 B.
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 96 };
+
+            m_ClusterBuildSpv = loadSpv("shaders/cluster_build.comp");
+            if (m_ClusterBuildSpv.empty())
+            {
+                LH_CORE_ERROR("LightingSubsystem: failed to load cluster_build.comp!");
+                return;
+            }
+            m_ClusterBuildPipeline = std::make_unique<VKComputePipeline>(
+                m_ClusterBuildSpv,
+                std::vector<VkDescriptorSetLayout>{ m_ClusterBuildSetLayout },
+                std::vector<VkPushConstantRange>{ pcRange });
+        }
     }
 
     void LightingSubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -74,6 +120,13 @@ namespace Luth
         if (m_LightDescPool)  { vkDestroyDescriptorPool(device, m_LightDescPool, nullptr); m_LightDescPool = VK_NULL_HANDLE; }
         if (m_LightSetLayout) { vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr); m_LightSetLayout = VK_NULL_HANDLE; }
         m_LightDescSet.fill(VK_NULL_HANDLE);
+
+        m_ClusterBuildPipeline.reset();
+        if (m_ClusterBuildSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(device, m_ClusterBuildSetLayout, nullptr);
+            m_ClusterBuildSetLayout = VK_NULL_HANDLE;
+        }
     }
 
     void LightingSubsystem::ReloadSkybox(const fs::path& hdrPath, const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -98,6 +151,21 @@ namespace Luth
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
+        auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
+            if (auto* raw = p.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        };
+
+        if (name == "cluster_build.comp" && m_ClusterBuildSetLayout)
+        {
+            m_ClusterBuildSpv = spv;
+            deferComp(m_ClusterBuildPipeline);
+            VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 96 };
+            m_ClusterBuildPipeline = std::make_unique<VKComputePipeline>(m_ClusterBuildSpv,
+                std::vector<VkDescriptorSetLayout>{ m_ClusterBuildSetLayout },
+                std::vector<VkPushConstantRange>{ pc });
+            return true;
+        }
 
         if (name == "shadowDepth.vert")           m_ShadowVertSpv        = spv;
         else if (name == "shadowDepth.frag")      m_ShadowFragSpv        = spv;
@@ -592,5 +660,130 @@ namespace Luth
             }
         );
         return outputHandle;
+    }
+
+    // Forward+ cluster build. Per-view tagged-heap regions for AABB + grid; descriptor set on
+    // ViewResources cycled by frame; dispatched on the async-compute queue. Producer handles flow
+    // back through the return value so LightAssignPass + (later) GeometryPass can read them without
+    // re-ImportBuffer'ing the same VkBuffer (arch hazard 1).
+    LightingSubsystem::ClusterBuildOutputs LightingSubsystem::AddClusterBuildPass(RG::RenderGraph& rg)
+    {
+        ClusterBuildOutputs out{};
+        if (!m_ClusterBuildPipeline) return out;
+
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return out;
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        jobCtx->GpuCache.CurrentTag = frameAbs;
+
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!vr || vr->clusterBuildDescSet[slot] == VK_NULL_HANDLE) return out;
+
+        auto& heap = Memory::GPUTaggedPageAllocator::Get();
+        // ClusterAABB std430: vec4 min + vec4 max = 32 B per cluster.
+        const u64 aabbSize = static_cast<u64>(k_ClusterCount) * 32;
+        const u64 gridSize = static_cast<u64>(k_ClusterCount) * sizeof(GPUCluster);
+        Memory::GPUSubRegion aabbR = heap.Allocate(jobCtx->GpuCache, aabbSize, 16);
+        Memory::GPUSubRegion gridR = heap.Allocate(jobCtx->GpuCache, gridSize, 16);
+        if (!aabbR.buffer || !gridR.buffer) return out;
+
+        VkDescriptorBufferInfo aabbBi{ aabbR.buffer, aabbR.offset, aabbR.size };
+        VkDescriptorBufferInfo gridBi{ gridR.buffer, gridR.offset, gridR.size };
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = vr->clusterBuildDescSet[slot];
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &aabbBi;
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = vr->clusterBuildDescSet[slot];
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo     = &gridBi;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
+
+        RG::BufferDesc aabbDesc{ "ClusterAABB", aabbSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        RG::BufferDesc gridDesc{ "ClusterGrid", gridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        out.aabb = rg.ImportBuffer(aabbDesc, (void*)aabbR.buffer, RG::ResourceState::Undefined);
+        out.grid = rg.ImportBuffer(gridDesc, (void*)gridR.buffer, RG::ResourceState::Undefined);
+
+        struct ClusterBuildData {
+            RG::BufferHandle aabb;
+            RG::BufferHandle grid;
+        };
+
+        // Capture per-frame values (camera, viewport) at graph-build time. Execute lambda runs later;
+        // m_Pipeline->GetCurrentView() is still valid at execute time because the executor sets it
+        // before dispatching the recorders, but capturing now keeps the lambda body terse.
+        auto* pipeline = m_ClusterBuildPipeline.get();
+        FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
+
+        rg.AddComputePass<ClusterBuildData>("ClusterBuild", RG::QueueFamily::AsyncCompute,
+            [&](ClusterBuildData& d, RG::RenderPassBuilder& builder)
+            {
+                d.aabb = builder.WriteBuffer(out.aabb);
+                d.grid = builder.WriteBuffer(out.grid);
+            },
+            [this, pipeline, debugger](ClusterBuildData&, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                if (debugger)
+                    debugger->BeginCapturePass(ctx.passIndex, "ClusterBuild", "", false,
+                        { "cluster_build", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                const u32 slotLocal = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex())
+                                      % MAX_FRAMES_IN_FLIGHT;
+                ViewResources* vrLocal = m_Pipeline->GetCurrentViewResources();
+                if (!vrLocal || vrLocal->clusterBuildDescSet[slotLocal] == VK_NULL_HANDLE)
+                {
+                    if (debugger) debugger->EndCapturePass();
+                    return;
+                }
+
+                pipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    pipeline->GetLayout(), 0, 1, &vrLocal->clusterBuildDescSet[slotLocal], 0, nullptr);
+
+                const auto* view = m_Pipeline->GetCurrentView();
+                Mat4 proj = view->camera.projection;
+                proj[1][1] *= -1.0f;  // match the Y-flip GlobalSubsystem applies before upload
+                Mat4 invProj = Math::Inverse(proj);
+
+                struct ClusterBuildPC {
+                    Mat4  invProjection;
+                    Vec2  viewportSize;
+                    Vec2  _pad;
+                    float nearZ;
+                    float farZ;
+                    u32   tilesX;
+                    u32   tilesY;
+                } pc{};
+                pc.invProjection = invProj;
+                pc.viewportSize  = Vec2(static_cast<float>(vrLocal->width),
+                                        static_cast<float>(vrLocal->height));
+                pc.nearZ  = view->camera.nearZ;
+                pc.farZ   = view->camera.farZ;
+                pc.tilesX = k_ClusterTilesX;
+                pc.tilesY = k_ClusterTilesY;
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterBuildPC), &pc);
+
+                // (4, 3, 6) groups × (4, 4, 4) local = (16, 12, 24) invocations; bounds-clamp in shader.
+                const u32 groupX = (k_ClusterTilesX  + 3) / 4;
+                const u32 groupY = (k_ClusterTilesY  + 3) / 4;
+                const u32 groupZ = (k_ClusterSlicesZ + 3) / 4;
+                vkCmdDispatch(cmd, groupX, groupY, groupZ);
+
+                if (debugger)
+                {
+                    debugger->CaptureComputeDispatch("ClusterBuild", "cluster_build", groupX, groupY, groupZ);
+                    debugger->EndCapturePass();
+                }
+            });
+
+        return out;
     }
 }
