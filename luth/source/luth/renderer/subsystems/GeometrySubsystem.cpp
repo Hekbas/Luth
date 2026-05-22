@@ -468,7 +468,9 @@ namespace Luth
             obj.indexCount     = ib ? ib->GetCount() : 0;
             obj.firstIndex     = 0;
             obj.vertexOffset   = 0;
-            obj.prevBoneOffset = 0;  // commit 2 wires the dual-bone-buffer offset; 0 until then
+            // Address the dual-buffer SSBO's previous-bones region for skinned motion vectors.
+            // Don't-care for non-skinned draws (their shaders never read bones[]).
+            obj.prevBoneOffset = meshSnap.boneOffset + BoneMatrixBuffer::PREV_BLOCK_OFFSET;
 
             VkDrawIndexedIndirectCommand baseCmd{};
             baseCmd.indexCount    = obj.indexCount;

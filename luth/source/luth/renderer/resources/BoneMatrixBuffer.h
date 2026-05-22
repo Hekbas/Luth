@@ -45,18 +45,28 @@ namespace Luth
         static VkDescriptorSet GetDescriptorSet(u32 slot);
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
+        // Static offset added to an entity's current boneOffset to address its previous-frame block
+        // in the dual-region SSBO. Set into GPUObjectData::prevBoneOffset by the caller; the slim
+        // G-buffer skinned shader reads `bones[boneOffset + i]` for current, `bones[prevBoneOffset + i]`
+        // for previous (motion vectors).
+        static constexpr u32 PREV_BLOCK_OFFSET = 128 * MAX_BONES; // 32768
+
     private:
         static constexpr u32 MAX_SKINNED_ENTITIES = 128;
         static constexpr u32 BONES_PER_ENTITY = MAX_BONES; // 256
         static constexpr u32 TOTAL_MATRICES = MAX_SKINNED_ENTITIES * BONES_PER_ENTITY; // 32768
         static constexpr u32 MATRIX_SIZE = sizeof(Mat4);   // 64 bytes
-        static constexpr u32 BUFFER_SIZE = TOTAL_MATRICES * MATRIX_SIZE; // 2 MB
+        static constexpr u32 BUFFER_SIZE = TOTAL_MATRICES * MATRIX_SIZE; // 2 MB per half
+
+        static_assert(PREV_BLOCK_OFFSET == TOTAL_MATRICES, "PREV_BLOCK_OFFSET must equal TOTAL_MATRICES");
 
         static void CreateDescriptors();
 
-        // CPU staging — game-stage writers fill this; Update() copies it to GPU.
-        // Initialized to identity at Init so unallocated blocks render bind pose.
+        // CPU staging — game-stage writers fill m_CpuScratch; Update() copies it AND the previous
+        // frame's snapshot (m_PrevCpuScratch) to the dual-region GPU SSBO, then snapshots
+        // m_CpuScratch into m_PrevCpuScratch for next-frame use. Both identity-init at startup.
         static byte* m_CpuScratch;
+        static byte* m_PrevCpuScratch;
 
         static VkDescriptorPool      m_DescriptorPool;
         static VkDescriptorSetLayout m_DescriptorSetLayout;

@@ -10,7 +10,8 @@
 
 namespace Luth
 {
-    byte* BoneMatrixBuffer::m_CpuScratch = nullptr;
+    byte* BoneMatrixBuffer::m_CpuScratch     = nullptr;
+    byte* BoneMatrixBuffer::m_PrevCpuScratch = nullptr;
 
     VkDescriptorPool      BoneMatrixBuffer::m_DescriptorPool      = VK_NULL_HANDLE;
     VkDescriptorSetLayout BoneMatrixBuffer::m_DescriptorSetLayout = VK_NULL_HANDLE;
@@ -27,17 +28,21 @@ namespace Luth
         for (u32 i = 0; i < MAX_SKINNED_ENTITIES; ++i)
             m_FreeBlocks.push_back(i);
 
-        // Persistent CPU staging — game-stage writers fill this; Update() copies to GPU.
-        m_CpuScratch = static_cast<byte*>(LH_ALLOC(Memory::Category::Rendering, BUFFER_SIZE));
+        // Persistent CPU staging — game-stage writers fill m_CpuScratch; Update() copies it AND
+        // m_PrevCpuScratch (frame N-1 snapshot) into a dual-region GPU SSBO. Identity-fill both
+        // so unallocated blocks render bind pose for current AND zero motion for previous.
+        m_CpuScratch     = static_cast<byte*>(LH_ALLOC(Memory::Category::Rendering, BUFFER_SIZE));
+        m_PrevCpuScratch = static_cast<byte*>(LH_ALLOC(Memory::Category::Rendering, BUFFER_SIZE));
 
-        // Identity-fill so unallocated blocks render bind pose (used to be done on the
-        // mapped GPU buffer; the CPU scratch now plays that role and propagates each frame).
         Mat4 identity(1.0f);
         for (u32 i = 0; i < TOTAL_MATRICES; ++i)
-            memcpy(m_CpuScratch + i * MATRIX_SIZE, &identity, MATRIX_SIZE);
+        {
+            memcpy(m_CpuScratch     + i * MATRIX_SIZE, &identity, MATRIX_SIZE);
+            memcpy(m_PrevCpuScratch + i * MATRIX_SIZE, &identity, MATRIX_SIZE);
+        }
 
-        LH_CORE_INFO("BoneMatrixBuffer initialized ({0} entities x {1} bones = {2} KB)",
-            MAX_SKINNED_ENTITIES, BONES_PER_ENTITY, BUFFER_SIZE / 1024);
+        LH_CORE_INFO("BoneMatrixBuffer initialized ({0} entities x {1} bones x 2 halves = {2} KB)",
+            MAX_SKINNED_ENTITIES, BONES_PER_ENTITY, (2 * BUFFER_SIZE) / 1024);
     }
 
     void BoneMatrixBuffer::Shutdown()
@@ -52,6 +57,11 @@ namespace Luth
         {
             LH_FREE(Memory::Category::Rendering, m_CpuScratch, BUFFER_SIZE);
             m_CpuScratch = nullptr;
+        }
+        if (m_PrevCpuScratch)
+        {
+            LH_FREE(Memory::Category::Rendering, m_PrevCpuScratch, BUFFER_SIZE);
+            m_PrevCpuScratch = nullptr;
         }
     }
 
@@ -109,11 +119,21 @@ namespace Luth
         jobCtx->GpuCache.CurrentTag = static_cast<u32>(gameFrame);
 
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
-        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, BUFFER_SIZE, 16);
+        // Dual region: first half = current bones (m_CpuScratch), second half = previous bones
+        // (m_PrevCpuScratch, snapshotted at end of last frame's Update). Slim G-buffer skinned
+        // shader reads `bones[boneOffset + i]` and `bones[boneOffset + PREV_BLOCK_OFFSET + i]`.
+        const u64 doubleSize = static_cast<u64>(BUFFER_SIZE) * 2;
+        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, doubleSize, 16);
         if (!region.buffer) return;
 
-        memcpy(region.mappedPtr, m_CpuScratch, BUFFER_SIZE);
+        memcpy(region.mappedPtr,                          m_CpuScratch,     BUFFER_SIZE);
+        memcpy(static_cast<byte*>(region.mappedPtr) + BUFFER_SIZE, m_PrevCpuScratch, BUFFER_SIZE);
         heap.FlushRegion(region);
+
+        // Snapshot current bones into m_PrevCpuScratch for next frame's "previous" half.
+        // Done after the upload so this Update's GPU write reflects (frame N current, frame N-1 prev).
+        // Next frame's Update will read m_PrevCpuScratch = frame N's bones as its "previous".
+        memcpy(m_PrevCpuScratch, m_CpuScratch, BUFFER_SIZE);
 
         // Write the GAME-frame slot. Render stage K-1 reads slot (K-1)%N while we write slot K%N — distinct in
         // steady state. UAB on the binding (see CreateDescriptors) covers the pipeline-depth race where the GPU
