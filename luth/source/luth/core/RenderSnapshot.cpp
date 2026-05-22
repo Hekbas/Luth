@@ -109,11 +109,10 @@ namespace Luth
             }
         }
 
-        // ── Point lights (cap 64, matching LightUniforms) ──
+        // ── Point lights (unbounded — Forward+ clustered lighting iterates per-cluster) ──
         {
-            constexpr size_t k_MaxPointLights = 64;
             auto view = registry.view<Component::WorldTransform, Component::PointLight>();
-            const size_t maxCount = std::min<size_t>(view.size_hint(), k_MaxPointLights);
+            const size_t maxCount = view.size_hint();
             auto* lightRows = maxCount > 0
                 ? static_cast<PointLightSnapshot*>(
                       mem.Allocate(maxCount * sizeof(PointLightSnapshot), alignof(PointLightSnapshot)))
@@ -122,7 +121,6 @@ namespace Luth
 
             for (auto [entity, wt, pl] : view.each())
             {
-                if (count >= k_MaxPointLights) break;
                 PointLightSnapshot* dst = new (lightRows + count) PointLightSnapshot();
                 dst->position  = Vec3(wt.Matrix[3]);
                 dst->color     = pl.Color;

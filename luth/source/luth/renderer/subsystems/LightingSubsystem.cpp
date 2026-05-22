@@ -165,9 +165,7 @@ namespace Luth
         }
         m_ShadowMap.reset();
 
-        if (m_LightDescPool)  { vkDestroyDescriptorPool(device, m_LightDescPool, nullptr); m_LightDescPool = VK_NULL_HANDLE; }
         if (m_LightSetLayout) { vkDestroyDescriptorSetLayout(device, m_LightSetLayout, nullptr); m_LightSetLayout = VK_NULL_HANDLE; }
-        m_LightDescSet.fill(VK_NULL_HANDLE);
 
         m_ClusterBuildPipeline.reset();
         if (m_ClusterBuildSetLayout)
@@ -253,64 +251,98 @@ namespace Luth
         return true;
     }
 
-    void LightingSubsystem::UploadLightUBO(const LightUniforms& lights)
+    VkDescriptorSet LightingSubsystem::GetLightDescSet(u32 slot) const
     {
-        // Per-frame UBO from GPUTaggedPageAllocator. Tag = render-frame index (absolute);
-        // descriptor slot = same index modulo MAX_FRAMES_IN_FLIGHT (cycles per-frame storage).
-        // FreeTag(N-2) reclaims after the GPU retires the consuming frame.
+        // Set 3 lives on the active ViewResources after the per-view migration. Callers in
+        // GeometrySubsystem / EditorOverlaysSubsystem / FrameDebuggerContext run inside RecordView
+        // (m_CurrentViewResources set) so the dereference is safe; replay paths that walk archived
+        // pass nodes hit this with a null view and get VK_NULL_HANDLE.
+        auto* vr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        if (!vr) return VK_NULL_HANDLE;
+        return vr->lightDescSet[slot];
+    }
+
+    void LightingSubsystem::WriteShadowView(ViewResources& vr)
+    {
+        if (!m_ShadowMap || vr.lightDescSet[0] == VK_NULL_HANDLE) return;
+
+        auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
+        VkDescriptorImageInfo shadowImgInfo{};
+        shadowImgInfo.sampler     = m_ShadowSampler;
+        shadowImgInfo.imageView   = vkShadowTex->GetImageView();
+        shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writes[MAX_FRAMES_IN_FLIGHT] = {};
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            writes[s] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[s].dstSet          = vr.lightDescSet[s];
+            writes[s].dstBinding      = 3;
+            writes[s].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[s].descriptorCount = 1;
+            writes[s].pImageInfo      = &shadowImgInfo;
+        }
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), MAX_FRAMES_IN_FLIGHT, writes, 0, nullptr);
+    }
+
+    // Allocates LightSSBO from the tagged heap, copies the gathered header + point-light array.
+    // Returns the region; the BuildGraph caller threads it through WriteSet3PerView, and
+    // m_LastLightSSBORegion is cached for AddLightAssignPass's b0 binding.
+    Memory::GPUSubRegion LightingSubsystem::UploadLightSSBO(const GatheredLights& lights)
+    {
+        Memory::GPUSubRegion region{};
         auto* jobCtx = JobSystem::GetCurrentJobContext();
-        if (!jobCtx) return;
+        if (!jobCtx) return region;
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
         jobCtx->GpuCache.CurrentTag = frameAbs;
 
-        auto& heap   = Memory::GPUTaggedPageAllocator::Get();
-        const u64 al = VulkanContext::Get().GetMinUniformBufferAlignment();
-        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, sizeof(LightUniforms), al);
-        if (!region.buffer) return;
+        auto& heap = Memory::GPUTaggedPageAllocator::Get();
+        const u64 ssboSize = sizeof(LightSSBOHeader) + lights.points.size() * sizeof(PointLightData);
+        region = heap.Allocate(jobCtx->GpuCache, ssboSize, 16);
+        if (!region.buffer) return {};
 
-        memcpy(region.mappedPtr, &lights, sizeof(LightUniforms));
+        // Header at offset 0; flexible PointLightData[] follows at offset 48 (std430 alignment).
+        auto* header = static_cast<LightSSBOHeader*>(region.mappedPtr);
+        header->dirLight        = lights.dirLight;
+        header->pointLightCount = static_cast<u32>(lights.points.size());
+        header->_pad[0] = header->_pad[1] = header->_pad[2] = 0;
+        if (!lights.points.empty())
+        {
+            auto* dst = reinterpret_cast<PointLightData*>(static_cast<u8*>(region.mappedPtr) + sizeof(LightSSBOHeader));
+            std::memcpy(dst, lights.points.data(), lights.points.size() * sizeof(PointLightData));
+        }
         heap.FlushRegion(region);
-        m_LastLightUBORegion = region;  // LightAssignPass binds the same VkBuffer as STORAGE
+        m_LastLightSSBORegion = region;
+        return region;
+    }
 
-        // Stub allocation for the newly-declared SSBO bindings b1 (cluster grid) + b2 (light index).
-        // Bound to a small tagged region so validation sees an initialized descriptor; pbr.frag does
-        // not read these until sub-task 3b. Same region for both — they share a single VkBuffer slice.
-        Memory::GPUSubRegion stub = heap.Allocate(jobCtx->GpuCache, 16, 16);
-        if (!stub.buffer) return;
+    void LightingSubsystem::WriteSet3PerView(const Memory::GPUSubRegion& lightSSBORegion,
+                                             const Memory::GPUSubRegion& clusterGridRegion,
+                                             const Memory::GPUSubRegion& lightIndexRegion)
+    {
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
-        VkDescriptorBufferInfo bi{};
-        bi.buffer = region.buffer;
-        bi.offset = region.offset;
-        bi.range  = region.size;
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!vr || vr->lightDescSet[slot] == VK_NULL_HANDLE) return;
+        if (!lightSSBORegion.buffer || !clusterGridRegion.buffer || !lightIndexRegion.buffer) return;
 
-        VkDescriptorBufferInfo stubBi{};
-        stubBi.buffer = stub.buffer;
-        stubBi.offset = stub.offset;
-        stubBi.range  = stub.size;
+        VkDescriptorBufferInfo lightBi{ lightSSBORegion.buffer,   lightSSBORegion.offset,   lightSSBORegion.size   };
+        VkDescriptorBufferInfo gridBi { clusterGridRegion.buffer, clusterGridRegion.offset, clusterGridRegion.size };
+        VkDescriptorBufferInfo indexBi{ lightIndexRegion.buffer,  lightIndexRegion.offset,  lightIndexRegion.size  };
 
         VkWriteDescriptorSet writes[3] = {};
-        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = m_LightDescSet[slot];
-        writes[0].dstBinding      = 0;
-        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo     = &bi;
-
-        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[1].dstSet          = m_LightDescSet[slot];
-        writes[1].dstBinding      = 1;
-        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo     = &stubBi;
-
-        writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[2].dstSet          = m_LightDescSet[slot];
-        writes[2].dstBinding      = 2;
-        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[2].descriptorCount = 1;
-        writes[2].pBufferInfo     = &stubBi;
-
+        for (u32 i = 0; i < 3; ++i)
+        {
+            writes[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[i].dstSet          = vr->lightDescSet[slot];
+            writes[i].dstBinding      = i;
+            writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[i].descriptorCount = 1;
+        }
+        writes[0].pBufferInfo = &lightBi;
+        writes[1].pBufferInfo = &gridBi;
+        writes[2].pBufferInfo = &indexBi;
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
     }
 
@@ -339,12 +371,11 @@ namespace Luth
         samplerInfo.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
 
-        // Set 3 layout: b0 = LightUBO (becomes LightSSBO in 3b), b1 = ClusterGridSSBO,
-        // b2 = LightIndexSSBO, b3 = shadow sampler. b1/b2 declared now so sub-task 3a stays a
-        // pure structural move; UploadLightUBO writes stub regions to them until 3b lands.
+        // Set 3 layout: b0 = LightSSBO (header + flexible PointLightData[]), b1 = ClusterGridSSBO,
+        // b2 = LightIndexSSBO, b3 = shadow sampler.
         VkDescriptorSetLayoutBinding bindings[4] = {};
         bindings[0].binding = 0;
-        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[0].descriptorCount = 1;
         bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[1].binding = 1;
@@ -360,58 +391,15 @@ namespace Luth
         bindings[3].descriptorCount = 1;
         bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        // All four bindings rebound per render-stage against per-frame slots (cycling), so no UAB.
+        // b0/b1/b2 are SSBOs rebound per-frame; b3 (shadow sampler) is stable. Cycling guarantees
+        // disjoint write/read slots, so no UAB needed.
         VkDescriptorSetLayoutCreateInfo lightLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         lightLayoutInfo.bindingCount = 4;
         lightLayoutInfo.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
-        VkDescriptorPoolSize poolSizes[3] = {};
-        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-        poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;  // b1 + b2
-        poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
-        poolInfo.poolSizeCount = 3;
-        poolInfo.pPoolSizes = poolSizes;
-        vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_LightDescPool);
-
-        VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
-        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = m_LightSetLayout;
-        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        allocInfo.descriptorPool = m_LightDescPool;
-        allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-        allocInfo.pSetLayouts = layouts;
-        vkAllocateDescriptorSets(device, &allocInfo, m_LightDescSet.data());
-        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-        {
-            char name[48]; std::snprintf(name, sizeof(name), "Lighting.Light.Slot%u", i);
-            VulkanContext::SetDebugName(m_LightDescSet[i], name);
-        }
-
-        // Initial write: stable shadow sampler at b3 propagated to every slot. b0/b1/b2 rewritten
-        // per-frame in UploadLightUBO against the slot's set.
-        auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
-        VkDescriptorImageInfo shadowImgInfo{};
-        shadowImgInfo.sampler     = m_ShadowSampler;
-        shadowImgInfo.imageView   = vkShadowTex->GetImageView();
-        shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet samplerWrites[MAX_FRAMES_IN_FLIGHT] = {};
-        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
-        {
-            samplerWrites[s] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            samplerWrites[s].dstSet          = m_LightDescSet[s];
-            samplerWrites[s].dstBinding      = 3;
-            samplerWrites[s].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            samplerWrites[s].descriptorCount = 1;
-            samplerWrites[s].pImageInfo      = &shadowImgInfo;
-        }
-        vkUpdateDescriptorSets(device, MAX_FRAMES_IN_FLIGHT, samplerWrites, 0, nullptr);
+        // Descriptor sets themselves move to ViewResources (per-view × MAX_FRAMES_IN_FLIGHT slots).
+        // AllocateViewResources allocates from vr.descPool and calls WriteShadowView to populate b3.
     }
 
     // ---- Internal: IBL precompute (irradiance + prefiltered + BRDF LUT + skybox VB/SPVs) ----
@@ -564,7 +552,7 @@ namespace Luth
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(slot),
-                    m_LightDescSet[slot],
+                    m_Pipeline->GetCurrentViewResources()->lightDescSet[slot],
                     BoneMatrixBuffer::GetDescriptorSet(slot),
                     m_Pipeline->GetGeometry().GetObjectSSBODescSet(slot)
                 };
@@ -697,7 +685,7 @@ namespace Luth
                     m_Pipeline->GetCurrentViewResources()->globalDescriptorSet[slot],
                     bindlessSet,
                     MaterialSystem::GetDescriptorSet(slot),
-                    m_LightDescSet[slot],
+                    m_Pipeline->GetCurrentViewResources()->lightDescSet[slot],
                     BoneMatrixBuffer::GetDescriptorSet(slot)
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -855,14 +843,15 @@ namespace Luth
         return out;
     }
 
-    // Forward+ light-to-cluster assignment. Reads LightUBO (same VkBuffer Set 3 b0 binds, here as
-    // STORAGE_BUFFER) + Cluster AABB; atomicAdd packs per-cluster light indices into LightIndex
-    // and writes (offset, count) to Cluster Grid. Returns the LightIndex handle; the Grid handle
-    // stays the one ClusterBuild returned (RG sees both passes writing the same buffer node).
-    RG::BufferHandle LightingSubsystem::AddLightAssignPass(RG::RenderGraph& rg, ClusterBuildOutputs cb)
+    // Forward+ light-to-cluster assignment. Reads LightSSBO (cached from UploadLightingResources)
+    // + Cluster AABB; atomicAdd packs per-cluster light indices into LightIndex and writes
+    // (offset, count) to Cluster Grid. Returns the LightIndex handle + SubRegion so the caller
+    // can bind b2 of Set 3 in UploadLightingResources.
+    LightingSubsystem::LightAssignOutputs LightingSubsystem::AddLightAssignPass(RG::RenderGraph& rg,
+                                                                                ClusterBuildOutputs cb)
     {
-        RG::BufferHandle out{};
-        if (!m_LightAssignPipeline || !m_LastLightUBORegion.buffer) return out;
+        LightAssignOutputs out{};
+        if (!m_LightAssignPipeline || !m_LastLightSSBORegion.buffer) return out;
 
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return out;
@@ -885,8 +874,8 @@ namespace Luth
         heap.FlushRegion(counterR);
 
         // Reuse ClusterBuild's output buffers — same VkBuffers + offsets the producer wrote.
-        VkDescriptorBufferInfo lightBi{ m_LastLightUBORegion.buffer, m_LastLightUBORegion.offset,
-                                        m_LastLightUBORegion.size };
+        VkDescriptorBufferInfo lightBi{ m_LastLightSSBORegion.buffer, m_LastLightSSBORegion.offset,
+                                        m_LastLightSSBORegion.size };
 
         // The ClusterBuild handles point into the producer's VkBuffer slices — we resolve them via
         // the graph's BufferNode access after RegisterBufferRead, but for the descriptor write here
@@ -919,7 +908,8 @@ namespace Luth
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 5, writes, 0, nullptr);
 
         RG::BufferDesc indexDesc{ "LightIndex", indexSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        out = rg.ImportBuffer(indexDesc, (void*)indexR.buffer, RG::ResourceState::Undefined);
+        out.index       = rg.ImportBuffer(indexDesc, (void*)indexR.buffer, RG::ResourceState::Undefined);
+        out.indexRegion = indexR;
 
         struct LightAssignData {
             RG::BufferHandle aabb;
@@ -933,14 +923,14 @@ namespace Luth
         // ran LightGatherer earlier this frame, so LightingSystem::GetLights() has the final count.
         u32 capturedPointCount = 0;
         if (auto* lightingSys = SystemRegistry::GetSystem<LightingSystem>())
-            capturedPointCount = static_cast<u32>(lightingSys->GetLights().numPointLights);
+            capturedPointCount = static_cast<u32>(lightingSys->GetLights().points.size());
 
         rg.AddComputePass<LightAssignData>("LightAssign", RG::QueueFamily::AsyncCompute,
             [&](LightAssignData& d, RG::RenderPassBuilder& builder)
             {
                 d.aabb  = builder.ReadBuffer(cb.aabb);
                 d.grid  = builder.WriteBuffer(cb.grid);
-                d.index = builder.WriteBuffer(out);
+                d.index = builder.WriteBuffer(out.index);
             },
             [this, pipeline, debugger, capturedPointCount](LightAssignData&, RG::RenderPassContext& ctx)
             {

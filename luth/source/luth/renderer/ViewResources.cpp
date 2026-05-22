@@ -19,7 +19,7 @@ namespace Luth
     static constexpr u32 k_ViewPoolMaxSets              = 48;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
     static constexpr u32 k_ViewPoolStorageImageCount    = 8;
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 32;  // cluster build + light assign cycled sets
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 48;  // Set 3 + cluster build + light assign cycled sets
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
 
     namespace {
@@ -179,6 +179,7 @@ namespace Luth
         allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet,       "View.Outline");
         allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet,          "View.Grid");
         allocSingle(m_PostProcess.GetSlimVizDescSetLayout(), vr.slimVizDescSet,   "View.SlimViz");
+        allocCycled(m_Lighting.GetSetLayout(),           vr.lightDescSet,         "View.Light");
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
 
@@ -186,6 +187,7 @@ namespace Luth
         m_GTAO.WriteView(vr, targets);
         m_EditorOverlays.WriteOutlineView(vr, targets);
         m_EditorOverlays.WriteGridView(vr, targets);
+        m_Lighting.WriteShadowView(vr);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }

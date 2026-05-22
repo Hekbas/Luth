@@ -2,6 +2,8 @@
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
+#include "luth/scene/systems/LightingSystem.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
@@ -255,11 +257,15 @@ namespace Luth
 
         // Forward+ cluster AABB builder + light-to-cluster assignment. Both async-compute; the
         // assign pass consumes the build pass's AABB + grid handles directly (no re-import — see
-        // arch hazard 1). LightIndex output stays unread by pbr.frag until sub-task 3b promotes
-        // Set 3 b0; verify via frame-debugger buffer dump in the meantime.
+        // arch hazard 1). UploadLightSSBO must run BEFORE AddLightAssignPass so the assign pass
+        // can bind the same VkBuffer to its b0 read; WriteSet3PerView lands afterwards once all
+        // three per-view tagged-heap regions are known.
+        Memory::GPUSubRegion lightSSBORegion{};
+        if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+            lightSSBORegion = m_Lighting.UploadLightSSBO(lighting->GetLights());
         LightingSubsystem::ClusterBuildOutputs clusters = m_Lighting.AddClusterBuildPass(rg);
-        RG::BufferHandle lightIndexHandle               = m_Lighting.AddLightAssignPass(rg, clusters);
-        (void)lightIndexHandle;  // pbr.frag consumes in 3b
+        LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
+        m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -702,11 +708,6 @@ namespace Luth
                                               const DirectionalLightShadowParams& shadowParams)
     {
         m_Global.UpdateUBO(camera, cascades, shadowParams);
-    }
-
-    void RenderPipeline::UploadLightUBO(const LightUniforms& lights)
-    {
-        m_Lighting.UploadLightUBO(lights);
     }
 
     void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)

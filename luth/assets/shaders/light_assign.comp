@@ -28,12 +28,13 @@ struct ClusterAABB {
     vec4 maxView;
 };
 
-// std140 to mirror the existing LightUBO declaration in pbr.frag. Same memory layout —
-// tagged-heap backing happens to have both UBO and SSBO usage bits.
-layout(std140, set = 0, binding = 0) readonly buffer LightBuffer {
+// std430 LightSSBO: header (dir light + count + pad) at offset 0, flexible points[] at offset 48.
+// pbr.frag mirrors the same declaration on Set 3 binding 0.
+layout(std430, set = 0, binding = 0) readonly buffer LightBuffer {
     DirectionalLightData dirLight;
-    PointLightData       points[64];
-    int                  pointLightCount;
+    uint                 pointLightCount;
+    uint                 _pad[3];
+    PointLightData       points[];
 } lights;
 
 layout(std430, set = 0, binding = 1) readonly buffer ClusterAABBBuffer {
@@ -69,7 +70,7 @@ void main() {
     uint local[MAX_LIGHTS_PER_CLUSTER];
     uint localCount = 0u;
 
-    uint n = min(pc.pointLightCount, 64u);
+    uint n = pc.pointLightCount;
     for (uint i = 0u; i < n; ++i) {
         vec3 posVS = (pc.view * vec4(lights.points[i].position, 1.0)).xyz;
         float r = lights.points[i].range;

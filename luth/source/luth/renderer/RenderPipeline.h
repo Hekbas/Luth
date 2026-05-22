@@ -128,6 +128,11 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
+        // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
+        // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view
+        // alloc time, propagates to all slots. b0/b1/b2 rebound each frame by UploadLightingResources.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightDescSet{};
+
         // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
         // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
@@ -195,10 +200,6 @@ namespace Luth
         // GPU has retired the consuming frame.
         void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
-
-        // Uploads LightUniforms to the light UBO. Called from RenderingSystem::
-        // Update after LightingSystem populates the struct.
-        void UploadLightUBO(const LightUniforms& lights);
 
         // Editor + frame-debugger lookups (RenderingSystem forwards to these).
         std::shared_ptr<Texture> GetNamedTexture(const std::string& name) const;

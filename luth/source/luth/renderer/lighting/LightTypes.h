@@ -2,6 +2,8 @@
 
 #include "luth/core/types/LuthMath.h"
 
+#include <vector>
+
 
 namespace Luth
 {
@@ -10,7 +12,7 @@ namespace Luth
     inline constexpr u32 k_ShadowCascadeCount = 4;
     inline constexpr u32 k_ShadowResolution   = 2048;
 
-    // ── Light data structs (mirrored in pbr.frag Set 3) ──
+    // ── Light data structs (mirrored in pbr.frag Set 3 LightSSBO) ──
 
     struct DirectionalLightData {
         Vec3 direction;   // 12
@@ -26,11 +28,11 @@ namespace Luth
         float     intensity;   // 4
     };  // 32 bytes
 
-    struct LightUniforms {
-        DirectionalLightData dirLight;
-        PointLightData       pointLights[64];
-        int                  numPointLights;
-        int                  _pad[3];
+    // CPU-side aggregate produced by LightGatherer each game stage. Held on LightingSystem;
+    // points vector reuses capacity across frames so steady-state allocations stay flat.
+    struct GatheredLights {
+        DirectionalLightData        dirLight{};
+        std::vector<PointLightData> points;
     };
 
     // ── Forward+ clustered lighting ──
