@@ -92,19 +92,66 @@
 
 Effort scale (scope/difficulty, not calendar time): **S** = small, contained · **M** = some design decisions · **L** = significant refactor or new system · **XL** = full new subsystem.
 
-### Renderer pipeline (linear dependency chain)
+### Active series — `rt-renderer` (Mode A, v3.0.0)
 
-| Pri | Epic | Issue | Target | Effort | Deps |
-|---|---|---|---|---|---|
-| 1 | `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | v2.13.0 | L | `async-compute-queue` ✅ |
-| 2 | `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | v2.14.0 | L | `forward-plus` |
+RT-first renderer modernization arc. Clustered Forward+ with bindless throughout, hardware ray tracing for shadows / GI / reflections, full Wronski volumetrics, ReSTIR + SVGF denoising, path-traced reference mode. Target showcase: Bhaal Temple, fully RT-lit. RT-mandatory (raises minimum HW to RT-capable GPU — counted toward the MAJOR bump).
+
+Mode A — series start bumps `Version.h` to `3.0.0`; intermediate efforts ship as `rt-renderer.N-<slug>` checkpoint tags without bumping `Version.h`. Milestone Release at series end.
+
+Umbrella issue: [#TBD] (sub-effort issues created on demand; commits use `Part of #<umbrella>` trailer).
+
+**Phase A — Modern foundation**
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| A.1 `bindless-migration` | NEW | L | Descriptor indexing across all shaders; foundational for cluster light lookups + RT material handles |
+| A.2 `slim-gbuffer` | NEW | M | Normal + roughness + motion vectors + material ID; feeds TAA + RT denoising |
+| A.3 `forward-plus` | [#54](https://github.com/Hekbas/Luth/issues/54) | L | Clustered lighting + light assignment (existing #54 scope) |
+| A.4 `volumetric-fog` | NEW | L | Wronski frustum voxel; light injection; multi-scatter; god-ray-ready |
+| A.5 `image-quality` | NEW | M | TAA (Karis14) + specular AA (Tokuyoshi19) + ACES/AgX tone-map A/B |
+
+**Phase B — Hardware RT foundation**
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| B.1 `rt-extensions` | NEW | M | `VK_KHR_acceleration_structure` + `ray_tracing_pipeline` integration |
+| B.2 `blas-tlas` | NEW | L | Per-mesh BLAS + per-frame TLAS rebuild for dynamic objects |
+| B.3 `rt-shadows` | NEW | L | Replace raster CSM with RT shadow rays (CSM path retired) |
+
+**Phase C — RT global illumination**
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| C.1 `restir-di` | NEW | XL | Bitterli 2020 — direct lighting reservoir resampling |
+| C.2 `svgf-denoiser` | NEW | XL | Schied 2017 + A-SVGF; denoiser abstraction layer for future NRD swap |
+| C.3 `restir-gi` | NEW | XL | Ouyang 2021 — indirect bounce reservoirs |
+
+**Phase C.5 — Path-traced reference mode**
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| C.5 `path-trace-reference` | NEW | M | Ground-truth PT mode reusing C.* infrastructure; validates RT GI convergence |
+
+**Phase D — RT reflections + atmospheric polish**
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| D.1 `rt-reflections` | NEW | L | Stochastic ray reflections + denoise (supersedes planned SSR) |
+| D.2 `volumetric-rt-shadows` | NEW | M | Shadow rays from voxel volume cells |
+| D.3 `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | L | Compute sim; showcase-sized scope (fire / ember / smoke / motes in god ray) |
+
+**Out of arc (deferred to follow-up series)**
+
+- `character-shading` — skin (Jimenez15) + hair (Karis16 + Marschner03) + cloth (Estevez17). Triggered by adding a character to Bhaal Temple
+- `gpu-driven` — mesh shaders + meshlet baker + HiZ occlusion (Framework 5 alignment)
+- `virtual-geometry` — Nanite-class virtualized geometry; long-tail
 
 ### Gameplay enablement
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 4 | `scripting` (C# or Lua) | NEW | v2.15.0 | XL | — |
-| 5 | `prefab-system` | NEW | v2.15.x | M | `scripting` |
+| 4 | `scripting` (C# or Lua) | NEW | v3.1.0 | XL | `rt-renderer` |
+| 5 | `prefab-system` | NEW | v3.1.x | M | `scripting` |
 
 Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequisite for most gameplay-side future ideas.
 
@@ -112,7 +159,7 @@ Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequ
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 6 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v2.16.0 | XL | `animation-quick-pass` ✅ |
+| 6 | `animation-controller-v2` | [#94](https://github.com/Hekbas/Luth/issues/94) | v3.2.0 | XL | `animation-quick-pass` ✅ |
 
 ### Polish (no fixed slot — opportunistic)
 
@@ -120,8 +167,9 @@ Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequ
 |---|---|---|---|
 | `procedural-sky` | NEW | M | Independent; drop into any quiet renderer slot |
 | `jiggle-bones` | [#61](https://github.com/Hekbas/Luth/issues/61) | M | Benefits from `jolt-physics` ✅ colliders |
-| `fxaa-taa` | [#72](https://github.com/Hekbas/Luth/issues/72) | M | TAA pairs with GTAO temporal accumulation |
-| `rg-aliasing` (optional) | NEW | M | Defer unless `forward-plus` pressures transient VRAM |
+| `rg-aliasing` (optional) | NEW | M | Defer unless `rt-renderer` Phase A/D pressures transient VRAM |
+
+> `fxaa-taa` ([#72](https://github.com/Hekbas/Luth/issues/72)) — TAA absorbed into rt-renderer Phase A.5; FXAA dropped (TAA is strictly better given motion vectors land in Phase A.2).
 
 > Detailed design lives in `docs/development/epics/<slug>.md` (local, never committed) once an epic enters plan-mode. The arch docs ([`arch/`](arch/)) are the canonical reference for system invariants.
 
