@@ -24,6 +24,9 @@ layout(set = 0, binding = 0) uniform GridGlobals {
     float skyboxIntensity;
     float debugVisualizeCascades;
     float cascadeBlendWidth;
+    vec2  viewportSize;
+    float nearZ;
+    float farZ;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2D u_SceneDepth;

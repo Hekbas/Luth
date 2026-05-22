@@ -42,6 +42,9 @@ namespace Luth
         float     skyboxIntensity;
         float     debugVisualizeCascades;
         float     cascadeBlendWidth;
+        Vec2      viewportSize;        // pixels (W, H) — fragment cluster ID, screen-space reconstruction
+        float     nearZ;
+        float     farZ;
     };
 
     enum class ShadeMode : u8 {

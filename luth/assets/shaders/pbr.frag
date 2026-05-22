@@ -32,6 +32,9 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float skyboxIntensity;
     float debugVisualizeCascades;    // 0 = off, 1 = tint by cascade
     float cascadeBlendWidth;         // fraction of slice depth range used for cross-cascade blending
+    vec2  viewportSize;       // pixels — cluster ID + screen-space recon
+    float nearZ;
+    float farZ;
 } ubo;
 
 // Set 0: IBL textures
