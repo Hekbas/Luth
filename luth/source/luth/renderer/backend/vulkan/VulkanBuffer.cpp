@@ -16,10 +16,16 @@ namespace Luth
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = size;
-        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
+
+        VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+        addrInfo.buffer = m_Buffer;
+        m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
     }
 
     VKVertexBuffer::VKVertexBuffer(const void* data, uint32_t size)
@@ -62,10 +68,16 @@ namespace Luth
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = size;
-        bufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
+
+        VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+        addrInfo.buffer = m_Buffer;
+        m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
 
         // Async upload — see VKVertexBuffer::SetData for the queue-ordering rationale.
         UploadContext::Get().UploadBuffer(indices, size, m_Buffer, 0);

@@ -1,12 +1,17 @@
 #version 460
+#extension GL_EXT_nonuniform_qualifier : enable
 
-// invariant: albedoTex is updated per-bake by ThumbnailPreviewScene via
-// vkUpdateDescriptorSets — material bakes point it at the material's albedo
-// texture, mesh bakes point it at a 1x1 white default. ImmediateSubmit waits
-// before returning, so per-bake update is safe (descriptor never in-flight
-// across update).
+// Samples the engine-wide bindless texture array. Caller supplies the material's
+// diffuse bindless index in the push constant; slot 0 is the reserved 1x1 white
+// (used for mesh bakes and as the fallback when a material has no diffuse map).
 
-layout(set = 0, binding = 0) uniform sampler2D albedoTex;
+layout(set = 0, binding = 0) uniform sampler2D globalTextures[];
+
+layout(push_constant) uniform PC {
+    mat4 viewProj;
+    vec4 albedo;
+    uint diffuseIndex;
+} pc;
 
 layout(location = 0) in vec3 vNormal;
 layout(location = 1) in vec4 vAlbedo;
@@ -16,7 +21,7 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
-    vec4 sampled  = texture(albedoTex, vUV);
+    vec4 sampled  = texture(globalTextures[nonuniformEXT(pc.diffuseIndex)], vUV);
     vec3 base     = sampled.rgb * vAlbedo.rgb;
 
     const vec3 L  = normalize(vec3(0.5, 1.0, 0.7));

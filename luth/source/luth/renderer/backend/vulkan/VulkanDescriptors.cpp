@@ -14,40 +14,50 @@ namespace Luth
     {
         m_Device = device;
 
-        // 1. Create Layout
-        VkDescriptorSetLayoutBinding binding{};
-        binding.binding = 0;
-        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding.descriptorCount = MAX_BINDLESS_RESOURCES;
-        binding.stageFlags = VK_SHADER_STAGE_ALL;
-        binding.pImmutableSamplers = nullptr;
+        // 1. Layout — two bindings on the same set. Both partial-bound + UAB so writes can
+        //    overlap in-flight reads (binding 0 retires textures via UploadContext's fence pump;
+        //    binding 1 ad-hoc samplers may register from any thread post-Init).
+        VkDescriptorSetLayoutBinding bindings[2]{};
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = MAX_BINDLESS_RESOURCES;
+        bindings[0].stageFlags = VK_SHADER_STAGE_ALL;
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        bindings[1].descriptorCount = MAX_BINDLESS_SAMPLERS;
+        bindings[1].stageFlags = VK_SHADER_STAGE_ALL;
 
-        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorBindingFlags bindingFlags[2] = {
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        };
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
         bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-        bindingFlagsInfo.bindingCount = 1;
-        bindingFlagsInfo.pBindingFlags = &bindingFlags;
+        bindingFlagsInfo.bindingCount = 2;
+        bindingFlagsInfo.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.pNext = &bindingFlagsInfo;
         layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &binding;
+        layoutInfo.bindingCount = 2;
+        layoutInfo.pBindings = bindings;
 
         vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_Layout);
 
-        // 2. Create Pool
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = MAX_BINDLESS_RESOURCES;
+        // 2. Pool — one entry per descriptor type.
+        VkDescriptorPoolSize poolSizes[2]{};
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[0].descriptorCount = MAX_BINDLESS_RESOURCES;
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+        poolSizes[1].descriptorCount = MAX_BINDLESS_SAMPLERS;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets = 1;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.poolSizeCount = 2;
+        poolInfo.pPoolSizes = poolSizes;
 
         vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_Pool);
 
@@ -60,14 +70,19 @@ namespace Luth
 
         vkAllocateDescriptorSets(m_Device, &allocInfo, &m_DescriptorSet);
 
-        // 4. Initialize free list. Slot 0 is reserved for the null texture and never enters
-        //    the pool. Push descending so pop_back yields ascending allocation order (1, 2, 3 ...)
-        //    — matches the previous deque/pop_front behavior, easier to read in RenderDoc.
+        // 4. Initialize free lists. Slot 0 of binding 0 is reserved for the null texture and
+        //    never enters the pool. The canonical sampler block occupies slots 0..N-1 of binding 1
+        //    and is also out of the LIFO. Both push descending so pop_back yields ascending
+        //    allocation order — easier to read in RenderDoc.
         m_FreeIndices.reserve(MAX_BINDLESS_RESOURCES - 1);
         for (u32 i = MAX_BINDLESS_RESOURCES - 1; i > NULL_TEXTURE_SLOT; --i)
             m_FreeIndices.push_back(i);
 
-        // 5. Create Null Texture (1x1 White) and bind to the reserved slot 0
+        m_FreeSamplerIndices.reserve(MAX_BINDLESS_SAMPLERS - NUM_CANONICAL_SAMPLERS);
+        for (u32 i = MAX_BINDLESS_SAMPLERS - 1; i >= NUM_CANONICAL_SAMPLERS; --i)
+            m_FreeSamplerIndices.push_back(i);
+
+        // 5. Null texture + canonical samplers.
         CreateNullTexture();
         {
             VkDescriptorImageInfo imageInfo{};
@@ -86,6 +101,7 @@ namespace Luth
 
             vkUpdateDescriptorSets(m_Device, 1, &write, 0, nullptr);
         }
+        CreateCanonicalSamplers();
     }
 
     void BindlessDescriptorSet::Shutdown()
@@ -94,8 +110,67 @@ namespace Luth
         vkDestroyImageView(m_Device, m_NullImageView, nullptr);
         vkDestroySampler(m_Device, m_NullSampler, nullptr);
 
+        for (u32 i = 0; i < NUM_CANONICAL_SAMPLERS; ++i)
+        {
+            if (m_CanonicalSamplers[i] != VK_NULL_HANDLE)
+                vkDestroySampler(m_Device, m_CanonicalSamplers[i], nullptr);
+        }
+
         vkDestroyDescriptorPool(m_Device, m_Pool, nullptr);
         vkDestroyDescriptorSetLayout(m_Device, m_Layout, nullptr);
+    }
+
+    void BindlessDescriptorSet::CreateCanonicalSamplers()
+    {
+        const float maxAniso = VulkanContext::Get().GetPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
+
+        auto MakeSampler = [&](VkFilter filt, VkSamplerMipmapMode mip, VkSamplerAddressMode addr, bool aniso) -> VkSampler {
+            VkSamplerCreateInfo info{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+            info.magFilter    = filt;
+            info.minFilter    = filt;
+            info.mipmapMode   = mip;
+            info.addressModeU = addr;
+            info.addressModeV = addr;
+            info.addressModeW = addr;
+            info.maxLod       = VK_LOD_CLAMP_NONE;
+            if (aniso)
+            {
+                info.anisotropyEnable = VK_TRUE;
+                info.maxAnisotropy    = maxAniso;
+            }
+            info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+            VkSampler s = VK_NULL_HANDLE;
+            vkCreateSampler(m_Device, &info, nullptr, &s);
+            return s;
+        };
+
+        m_CanonicalSamplers[(u32)CanonicalSampler::LinearRepeatAnisoMip] =
+            MakeSampler(VK_FILTER_LINEAR,  VK_SAMPLER_MIPMAP_MODE_LINEAR,  VK_SAMPLER_ADDRESS_MODE_REPEAT,        true);
+        m_CanonicalSamplers[(u32)CanonicalSampler::LinearClampAnisoMip]  =
+            MakeSampler(VK_FILTER_LINEAR,  VK_SAMPLER_MIPMAP_MODE_LINEAR,  VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, true);
+        m_CanonicalSamplers[(u32)CanonicalSampler::NearestRepeatNoMip]   =
+            MakeSampler(VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT,        false);
+        m_CanonicalSamplers[(u32)CanonicalSampler::NearestClampNoMip]    =
+            MakeSampler(VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, false);
+
+        for (u32 i = 0; i < NUM_CANONICAL_SAMPLERS; ++i)
+            WriteSamplerSlot(i, m_CanonicalSamplers[i]);
+    }
+
+    void BindlessDescriptorSet::WriteSamplerSlot(u32 index, VkSampler sampler)
+    {
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.sampler = sampler;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = m_DescriptorSet;
+        write.dstBinding      = 1;
+        write.dstArrayElement = index;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &imageInfo;
+
+        vkUpdateDescriptorSets(m_Device, 1, &write, 0, nullptr);
     }
 
     void BindlessDescriptorSet::CreateNullTexture()
@@ -220,5 +295,35 @@ namespace Luth
         vkUpdateDescriptorSets(m_Device, 1, &write, 0, nullptr);
 
         m_FreeIndices.push_back(index);
+    }
+
+    u32 BindlessDescriptorSet::BindSampler(VkSampler sampler)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+
+        if (m_FreeSamplerIndices.empty())
+        {
+            LH_CORE_ERROR("Bindless sampler array full!");
+            return INVALID_BINDLESS_SLOT;
+        }
+
+        u32 index = m_FreeSamplerIndices.back();
+        m_FreeSamplerIndices.pop_back();
+        WriteSamplerSlot(index, sampler);
+        return index;
+    }
+
+    void BindlessDescriptorSet::UnbindSampler(u32 index)
+    {
+        // Sentinel and the canonical block (slots 0..N-1) are not vended by BindSampler and
+        // must not return to the LIFO. Canonical slots are owned for the lifetime of the device.
+        if (index == INVALID_BINDLESS_SLOT || index < NUM_CANONICAL_SAMPLERS)
+            return;
+
+        std::lock_guard<std::mutex> lock(m_Lock);
+        // Restore the LinearRepeatAnisoMip canonical as the safe fallback — partial-bound covers
+        // the "never sampled" case, but a defined value beats an unspecified one for renderdoc.
+        WriteSamplerSlot(index, m_CanonicalSamplers[(u32)CanonicalSampler::LinearRepeatAnisoMip]);
+        m_FreeSamplerIndices.push_back(index);
     }
 }

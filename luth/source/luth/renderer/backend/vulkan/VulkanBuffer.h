@@ -25,10 +25,12 @@ namespace Luth
         virtual void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
 
         VkBuffer GetVulkanBuffer() const { return m_Buffer; }
+        VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
 
     private:
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;
+        VkDeviceAddress m_DeviceAddress = 0;
         BufferLayout m_Layout;
     };
 
@@ -42,12 +44,14 @@ namespace Luth
         virtual void Unbind() const override {}
 
         virtual uint32_t GetCount() const override { return m_Count; }
-        
+
         VkBuffer GetVulkanBuffer() const { return m_Buffer; }
+        VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
 
     private:
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;
+        VkDeviceAddress m_DeviceAddress = 0;
         uint32_t m_Count;
     };
 

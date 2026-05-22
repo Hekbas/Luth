@@ -126,7 +126,8 @@ namespace Luth::Memory
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                   | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         // Universal CPU→GPU data path — Material / Bone / Object / Indirect / per-frame UBOs all sub-allocate from
         // these large-one-shot allocations. Async-compute passes may read SSBOs allocated here in a future effort
         // (forward-plus cluster build). CONCURRENT carries no overhead on NVIDIA per Khronos guidance; AMD DCC
@@ -302,7 +303,8 @@ namespace Luth::Memory
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                    | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                   | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                   | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         // Backings carve into 2 MB pages distributed across all per-frame SSBO / UBO consumers; once forward-plus /
         // gpu-particles route their compute work to AsyncCompute, the buffer regions cross queue families. Apply
         // CONCURRENT across the whole pool — uniform with the large-one-shot path.
