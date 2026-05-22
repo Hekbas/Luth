@@ -41,12 +41,11 @@ demands them.
 
 | Item | Depends on | Notes |
 |---|---|---|
-| **Deferred GBuffer** | `forward-plus` | If Forward+ hits limits; unlocks SSR, decals. |
-| **SSR (Screen-Space Reflections)** | GBuffer or depth | Hi-Z traced reflection. |
-| **Volumetric Fog** | `compute-gpu-culling` ✅, `forward-plus` | Froxel-based, compute-driven. |
-| **Global Illumination** | `forward-plus` | Screen-space or probe-based. |
-| **HZB Occlusion Culling** | `compute-gpu-culling` ✅ | Two-phase cull pipeline; depth pyramid as compute. |
-| **Shadow frustum-union fit** | `game-panel` ✅ | CSM refits per view (2× shadow cost with game panel open); one union fit covers all active views. |
+| **Full deferred shading** | `rt-renderer` (slim G-buffer lands in Phase A.2) | If the forward path hits material-variant complexity limits; the slim G-buffer is already there feeding RT denoising, motion vectors, and SSR-replaced-by-RT-reflections. Full deferred would extend it with albedo + metallic/roughness + emissive + opaque shading model ID. |
+| **HZB Occlusion Culling** | `compute-gpu-culling` ✅, `gpu-driven` series | Two-phase cull pipeline; depth pyramid as compute. Lands as part of the post-`rt-renderer` `gpu-driven` series (mesh shaders + GPU-driven culling). |
+| **Decals (screen-space deferred)** | `rt-renderer` slim G-buffer | Cluster-binned (same pattern as lights). Could land late in `rt-renderer` arc or as polish; not on the critical path for Bhaal Temple. |
+
+> Removed because absorbed into `rt-renderer`: Volumetric Fog → Phase A.4 (Wronski full voxel volume), Global Illumination → Phase C (ReSTIR DI + GI), SSR → Phase D.1 (RT reflections supersede screen-space). Shadow frustum-union fit removed because Phase B.3 retires CSM entirely.
 
 ## Animation maturity (post `animation-controller-v2`)
 

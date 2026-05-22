@@ -60,29 +60,90 @@ ImGuiPass (composites editor UI onto LDR → swapchain)
 
 Pass invocations live in `RenderPipeline.cpp::BuildGraph` (chain visible at lines ~400–442). All passes go through the render graph for barrier insertion + dead-pass culling.
 
-## Target RenderGraph Pass Order (End State)
+## Target RenderGraph Pass Order (post-`rt-renderer` arc)
+
+End state targeted by the `rt-renderer` series (v3.0.0). RT-mandatory; the raster CSM path retires in Phase B.3.
 
 ```
-ShadowPass (depth-only, light POV)
+DepthPrepass (depth-only, main view, indirect draw)
   ↓
-GBuffer Pass (albedo RT0, normal RT1, metalRough RT2, depth)
+CullComputePass (main scene) — populates per-draw indirect args
   ↓
-SSAOPass (read depth+normals → occlusion R8)
+SlimGBufferPass (normal RG16F + roughness R8 + motion vectors RG16F + material ID R16U; reads prepass depth)
   ↓
-SSAOBlurPass
+GTAO chain (PrefilterPass → MainPass → DenoisePass) — half-res AO; supplements RT GI's slow indirect convergence
   ↓
-LightingPass (deferred: GBuffer + occlusion + shadow → HDR RGBA16F)
+ClusterBuildPass (compute, async-compute eligible)
   ↓
-SkyboxPass (read/write HDR)
+LightAssignPass (compute, async-compute eligible)
   ↓
-TransparentPass (forward, read depth, read/write HDR)
+VolumetricInjectPass (compute) — voxel density + in-scattering from cluster lights + RT shadow rays per cell
   ↓
-BloomExtractPass → DownsamplePass × N → UpsamplePass × N
+VolumetricIntegratePass (compute) — accumulate along view rays into froxel volume
   ↓
-PostProcessPass (tonemap + bloom + vignette + grain + CA + FXAA)
+TlasBuildPass (per-frame for dynamic instances; static skipped)
   ↓
-ImGuiPass (swapchain)
+RtDirectLightingPass (ReSTIR DI — reservoir-sampled visibility handles both light selection and shadow)
+  ↓
+RtGiPass (ReSTIR GI — indirect bounce reservoirs)
+  ↓
+SvgfDenoisePass (spatial + temporal accumulation for RT outputs)
+  ↓
+GeometryPass (forward, clustered light loop, reads RT direct + GI, samples volumetric)
+  ↓
+SkyboxPass (depth = 1.0 trick, HDR)
+  ↓
+TransparentPass (forward, reads depth, reads/writes HDR; cluster lights + volumetric)
+  ↓
+RtReflectionsPass (stochastic ray dispatch + dedicated denoise)
+  ↓
+GpuParticleSimPass (compute) → ParticleRenderPass (alpha-blended sprites)
+  ↓
+SelectionMaskPass (entity-ID → mask for outline)
+  ↓
+TaaResolvePass (Karis14 — reads motion vectors from slim G-buffer, reads history)
+  ↓
+BloomExtractPass → BloomBlurH/V (separable 9-tap, half-res)
+  ↓
+PostProcessPass (tonemap [ACES variant / AgX] + bloom compose + vignette + grain + CA → LDR)
+  ↓
+OutlinePass (reads mask + depth, composites onto LDR)
+  ↓
+GridPass (editor overlay)
+  ↓
+ImGuiPass (composites editor UI onto LDR → swapchain)
 ```
+
+> Pass-order details may shift per phase landing. Phase B.3 may ship a standalone `RtSunShadowsPass` that consolidates into ReSTIR DI when Phase C.1 lands — both shapes are correct. Phase C.1/C.3 integration may merge `RtDirectLightingPass`/`RtGiPass` into a single resampling pass.
+
+## Active modernization — `rt-renderer` arc (v3.0.0)
+
+The arc layers new pass families onto the existing render graph; foundational systems (job system, render graph DAG, frame pipeline, memory primitives, queue topology) stay unchanged. Key data-structure additions by phase:
+
+**Phase A — modern foundation**
+- Set 1 (bindless) scales up; new bindless sampler array + bindless mesh access via `VK_KHR_buffer_device_address`
+- Set 3 reshapes: fixed `LightUBO` → unbounded `Light SSBO` + `Cluster grid SSBO` + `Light index SSBO`, all from `GPUTaggedPageAllocator`
+- Slim G-buffer attachments (normal/roughness/motion vectors/material ID) — feeds TAA + RT denoising
+- Volumetric voxel volume (compute storage image, frustum-aligned)
+
+**Phase B — RT foundation**
+- New descriptor set for RT (TLAS binding + RT-output storage images + SBT)
+- BLAS per mesh asset (built on import or geometry change); TLAS rebuilt per frame from scene instance list
+- Raster shadow pipeline (ShadowPass + cascade selection in `LightingSubsystem`) retires when B.3 lands
+
+**Phase C — RT GI**
+- ReSTIR reservoir buffers (per-pixel ping-pong, `GPUTaggedPageAllocator`)
+- SVGF history buffers (color + moments, ping-pong) behind an `IDenoiser` abstraction for later NRD swap
+
+**Phase C.5 — PT reference mode**
+- Parallel `PathTraceMode` toggle; reuses Phase B BLAS/TLAS + Phase C material BRDF sampling; persistent accumulation image; bypasses raster + ReSTIR
+
+**Phase D — reflections + atmospheric polish**
+- RT reflections (stochastic samples + denoise outputs)
+- Volumetric voxel volume gains RT shadow-ray writes per cell
+- GPU particle simulation/render passes added downstream of GeometryPass
+
+Full per-phase work in `docs/development/epics/rt-renderer.md` (local spec, never committed).
 
 ## Memory Budget
 
