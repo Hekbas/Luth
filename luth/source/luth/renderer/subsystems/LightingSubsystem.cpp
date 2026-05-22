@@ -773,8 +773,10 @@ namespace Luth
 
         RG::BufferDesc aabbDesc{ "ClusterAABB", aabbSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
         RG::BufferDesc gridDesc{ "ClusterGrid", gridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        out.aabb = rg.ImportBuffer(aabbDesc, (void*)aabbR.buffer, RG::ResourceState::Undefined);
-        out.grid = rg.ImportBuffer(gridDesc, (void*)gridR.buffer, RG::ResourceState::Undefined);
+        out.aabb       = rg.ImportBuffer(aabbDesc, (void*)aabbR.buffer, RG::ResourceState::Undefined);
+        out.grid       = rg.ImportBuffer(gridDesc, (void*)gridR.buffer, RG::ResourceState::Undefined);
+        out.aabbRegion = aabbR;
+        out.gridRegion = gridR;
 
         struct ClusterBuildData {
             RG::BufferHandle aabb;
@@ -893,11 +895,10 @@ namespace Luth
         // to re-allocate identical slices here. The tagged heap returns the next available bump
         // location each call — so we cannot re-fetch the producer's slice without state. Instead,
         // pull the VkBuffer + offset directly from the BufferNode via RG.
-        // BufferHandle.index is 1-based (0 = invalid sentinel — see RenderGraph.cpp:195).
-        const auto& aabbNode = rg.GetBuffers()[cb.aabb.index - 1];
-        const auto& gridNode = rg.GetBuffers()[cb.grid.index - 1];
-        VkDescriptorBufferInfo aabbBi{ (VkBuffer)aabbNode.buffer, 0, aabbNode.desc.size };
-        VkDescriptorBufferInfo gridBi{ (VkBuffer)gridNode.buffer, 0, gridNode.desc.size };
+        // Use the producer's SubRegion offsets — BufferHandle only carries the backing VkBuffer;
+        // offset+size live on the SubRegion (see GeometrySubsystem.cpp:563-566 for the pattern).
+        VkDescriptorBufferInfo aabbBi{ cb.aabbRegion.buffer, cb.aabbRegion.offset, cb.aabbRegion.size };
+        VkDescriptorBufferInfo gridBi{ cb.gridRegion.buffer, cb.gridRegion.offset, cb.gridRegion.size };
         VkDescriptorBufferInfo indexBi{ indexR.buffer,   indexR.offset,   indexR.size };
         VkDescriptorBufferInfo counterBi{ counterR.buffer, counterR.offset, counterR.size };
 

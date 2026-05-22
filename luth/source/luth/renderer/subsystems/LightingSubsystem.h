@@ -46,9 +46,15 @@ namespace Luth
         RG::ResourceHandle AddShadowPass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex);
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
 
-        // Forward+ cluster build. Returns the AABB + grid BufferHandles into the active view's
-        // tagged-heap regions. LightAssignPass consumes both via these handles (see arch hazard 1).
-        struct ClusterBuildOutputs { RG::BufferHandle aabb; RG::BufferHandle grid; };
+        // Forward+ cluster build. Returns BufferHandles + the underlying SubRegions so consumers can
+        // bind the right (buffer, offset, size) triple — BufferHandle stores only the backing VkBuffer
+        // pointer; the offset within that backing is in the SubRegion.
+        struct ClusterBuildOutputs {
+            RG::BufferHandle     aabb;
+            RG::BufferHandle     grid;
+            Memory::GPUSubRegion aabbRegion;
+            Memory::GPUSubRegion gridRegion;
+        };
         ClusterBuildOutputs AddClusterBuildPass(RG::RenderGraph& rg);
 
         // Forward+ light-to-cluster assignment. Reads LightUBO + Cluster AABB; writes Cluster Grid
