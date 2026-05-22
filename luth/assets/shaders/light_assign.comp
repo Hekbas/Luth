@@ -1,0 +1,90 @@
+#version 450
+
+// Forward+ light-to-cluster assignment.
+// One invocation per cluster. For each point light, sphere-vs-AABB test against the cluster's
+// view-space AABB; atomicAdd reserves a contiguous slot range in LightIndex; cluster grid gets
+// (offset, count). LightSSBO at binding 0 is bound to the same VkBuffer that Set 3 binding 0
+// currently exposes as a UBO (tagged-heap backings carry both UNIFORM + STORAGE usage flags) —
+// pbr.frag still reads it as UBO until sub-task 3b promotes the layout.
+
+const uint TILES_X  = 16u;
+const uint TILES_Y  =  9u;
+const uint SLICES_Z = 24u;
+const uint NUM_CLUSTERS = TILES_X * TILES_Y * SLICES_Z;
+const uint MAX_LIGHTS_PER_CLUSTER = 128u;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct DirectionalLightData {
+    vec3  direction;  float intensity;
+    vec3  color;      float _pad;
+};
+struct PointLightData {
+    vec3  position;   float range;
+    vec3  color;      float intensity;
+};
+struct ClusterAABB {
+    vec4 minView;
+    vec4 maxView;
+};
+
+// std140 to mirror the existing LightUBO declaration in pbr.frag. Same memory layout —
+// tagged-heap backing happens to have both UBO and SSBO usage bits.
+layout(std140, set = 0, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    PointLightData       points[64];
+    int                  pointLightCount;
+} lights;
+
+layout(std430, set = 0, binding = 1) readonly buffer ClusterAABBBuffer {
+    ClusterAABB clusters[];
+};
+
+layout(std430, set = 0, binding = 2) buffer ClusterGridBuffer {
+    uvec2 grid[];
+};
+
+layout(std430, set = 0, binding = 3) writeonly buffer LightIndexBuffer {
+    uint indices[];
+};
+
+layout(std430, set = 0, binding = 4) buffer LightIndexCounter {
+    uint counter;
+};
+
+layout(push_constant) uniform PC {
+    mat4 view;
+    uint pointLightCount;
+    uint maxLightsPerCluster;
+    uint _pad[2];
+} pc;
+
+void main() {
+    uint clusterID = gl_GlobalInvocationID.x;
+    if (clusterID >= NUM_CLUSTERS) return;
+
+    vec3 cMin = clusters[clusterID].minView.xyz;
+    vec3 cMax = clusters[clusterID].maxView.xyz;
+
+    uint local[MAX_LIGHTS_PER_CLUSTER];
+    uint localCount = 0u;
+
+    uint n = min(pc.pointLightCount, 64u);
+    for (uint i = 0u; i < n; ++i) {
+        vec3 posVS = (pc.view * vec4(lights.points[i].position, 1.0)).xyz;
+        float r = lights.points[i].range;
+        vec3 closest = clamp(posVS, cMin, cMax);
+        vec3 d = posVS - closest;
+        if (dot(d, d) <= r * r && localCount < pc.maxLightsPerCluster) {
+            local[localCount] = i;
+            localCount += 1u;
+        }
+    }
+
+    uint base = 0u;
+    if (localCount > 0u) base = atomicAdd(counter, localCount);
+    grid[clusterID] = uvec2(base, localCount);
+    for (uint k = 0u; k < localCount; ++k) {
+        indices[base + k] = local[k];
+    }
+}

@@ -180,6 +180,7 @@ namespace Luth
         allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet,          "View.Grid");
         allocSingle(m_PostProcess.GetSlimVizDescSetLayout(), vr.slimVizDescSet,   "View.SlimViz");
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
+        allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);

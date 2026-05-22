@@ -253,13 +253,13 @@ namespace Luth
         // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
         SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
 
-        // Forward+ cluster AABB builder. Async-compute; outputs flow into LightAssign (next sub-task)
-        // and then GeometryPass (sub-task 3b). For sub-task 4 the AABB buffer has no downstream
-        // consumer yet — the RG culls the pass if dead-pass elimination kicks in, so the cluster
-        // build only runs when something reads its output. Bind via frame-debugger buffer dump to
-        // verify AABBs look reasonable until the downstream consumers land.
+        // Forward+ cluster AABB builder + light-to-cluster assignment. Both async-compute; the
+        // assign pass consumes the build pass's AABB + grid handles directly (no re-import — see
+        // arch hazard 1). LightIndex output stays unread by pbr.frag until sub-task 3b promotes
+        // Set 3 b0; verify via frame-debugger buffer dump in the meantime.
         LightingSubsystem::ClusterBuildOutputs clusters = m_Lighting.AddClusterBuildPass(rg);
-        (void)clusters;  // unused until LightAssignPass (sub-task 5)
+        RG::BufferHandle lightIndexHandle               = m_Lighting.AddLightAssignPass(rg, clusters);
+        (void)lightIndexHandle;  // pbr.frag consumes in 3b
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the

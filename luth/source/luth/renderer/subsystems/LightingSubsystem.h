@@ -9,6 +9,7 @@
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <array>
 #include <filesystem>
@@ -50,7 +51,13 @@ namespace Luth
         struct ClusterBuildOutputs { RG::BufferHandle aabb; RG::BufferHandle grid; };
         ClusterBuildOutputs AddClusterBuildPass(RG::RenderGraph& rg);
 
+        // Forward+ light-to-cluster assignment. Reads LightUBO + Cluster AABB; writes Cluster Grid
+        // (atomic offset+count) + LightIndex flat array. Returns the LightIndex handle for later
+        // pbr.frag consumption in sub-task 3b.
+        RG::BufferHandle AddLightAssignPass(RG::RenderGraph& rg, ClusterBuildOutputs cb);
+
         VkDescriptorSetLayout GetClusterBuildLayout() const { return m_ClusterBuildSetLayout; }
+        VkDescriptorSetLayout GetLightAssignLayout()  const { return m_LightAssignSetLayout; }
 
         // ---- Accessors ----
         VkDescriptorSetLayout GetSetLayout() const          { return m_LightSetLayout; }
@@ -111,5 +118,14 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_ClusterBuildPipeline;
         VkDescriptorSetLayout              m_ClusterBuildSetLayout = VK_NULL_HANDLE;
         std::vector<u32>                   m_ClusterBuildSpv;
+
+        std::unique_ptr<VKComputePipeline> m_LightAssignPipeline;
+        VkDescriptorSetLayout              m_LightAssignSetLayout = VK_NULL_HANDLE;
+        std::vector<u32>                   m_LightAssignSpv;
+
+        // Latest per-frame LightUBO region from UploadLightUBO. AddLightAssignPass binds the same
+        // VkBuffer to binding 0 of the LightAssign compute set (tagged-heap backings carry both
+        // UBO + SSBO usage bits, so the same buffer can serve both descriptor types).
+        Memory::GPUSubRegion m_LastLightUBORegion{};
     };
 }
