@@ -72,6 +72,13 @@ namespace Luth
         samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         vkCreateSampler(device, &samplerCI, nullptr, &fd.sampler);
 
+        // Nearest sampler for sampling integer slim G-buffer matID archives (R16_UINT) —
+        // integer formats lack SAMPLED_IMAGE_FILTER_LINEAR_BIT (VUID 04553).
+        VkSamplerCreateInfo nearestCI = samplerCI;
+        nearestCI.magFilter = VK_FILTER_NEAREST;
+        nearestCI.minFilter = VK_FILTER_NEAREST;
+        vkCreateSampler(device, &nearestCI, nullptr, &fd.samplerNearest);
+
         // Descriptor set layout: binding 0 = combined image sampler.
         // invariant: UAB flags so BlitArchivedDepthToPreview / Replay* can rewrite
         // binding 0 between back-to-back ImmediateSubmits without racing a still-
@@ -1779,8 +1786,10 @@ namespace Luth
         VkImageView srcView = archive.view;
         if (srcView == VK_NULL_HANDLE) return;
 
+        // Mode 3 (matID) reads VK_FORMAT_R16_UINT — must use NEAREST sampler (VUID 04553).
         VkDescriptorImageInfo imgInfo{};
-        imgInfo.sampler     = sys.GetFrameDebugger().sampler;
+        imgInfo.sampler     = (mode == 3u) ? sys.GetFrameDebugger().samplerNearest
+                                           : sys.GetFrameDebugger().sampler;
         imgInfo.imageView   = srcView;
         imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 

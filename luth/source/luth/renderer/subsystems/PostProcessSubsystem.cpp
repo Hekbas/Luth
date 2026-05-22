@@ -32,6 +32,17 @@ namespace Luth
         samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_Sampler);
 
+        // Nearest sampler for the slim G-buffer matID binding (R16_UINT — integer formats lack
+        // SAMPLED_IMAGE_FILTER_LINEAR_BIT, so binding the LINEAR m_Sampler trips VUID 04553).
+        VkSamplerCreateInfo nearestInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        nearestInfo.magFilter    = VK_FILTER_NEAREST;
+        nearestInfo.minFilter    = VK_FILTER_NEAREST;
+        nearestInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearestInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearestInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearestInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        vkCreateSampler(device, &nearestInfo, nullptr, &m_NearestSampler);
+
         // Bloom extract / blur / composite descriptor layout:
         //   binding 0 = sampler2D (primary), binding 1 = sampler2D (secondary), binding 2 = UBO.
         VkDescriptorSetLayoutBinding bindings[3] = {};
@@ -170,6 +181,7 @@ namespace Luth
         m_BloomBlurPipeline.reset();
         m_BloomExtractPipeline.reset();
         if (m_Sampler)              { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
+        if (m_NearestSampler)       { vkDestroySampler(device, m_NearestSampler, nullptr); m_NearestSampler = VK_NULL_HANDLE; }
         if (m_DescSetLayout)        { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
         if (m_SlimVizDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
     }
@@ -318,7 +330,8 @@ namespace Luth
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
 
         // Slim viz set — 4 stable bindings into the per-view slim attachments. Written once
-        // per resize (the set is reallocated when the descPool is destroyed in DestroyViewResources).
+        // per resize. Binding 3 (R16_UINT matID) uses m_NearestSampler — integer formats don't
+        // support LINEAR filtering (VUID 04553).
         if (vr.slimVizDescSet != VK_NULL_HANDLE)
         {
             auto slimN = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal());
@@ -327,11 +340,18 @@ namespace Luth
             auto slimID = std::static_pointer_cast<VKTexture>(targets.GetSlimMaterialID());
             if (slimN && slimR && slimM && slimID)
             {
+                auto makeImgWithSampler = [](VkImageView v, VkSampler s) {
+                    VkDescriptorImageInfo info{};
+                    info.sampler     = s;
+                    info.imageView   = v;
+                    info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    return info;
+                };
                 VkDescriptorImageInfo slimInfos[4] = {
-                    makeImg(slimN->GetImageView()),
-                    makeImg(slimR->GetImageView()),
-                    makeImg(slimM->GetImageView()),
-                    makeImg(slimID->GetImageView()),
+                    makeImgWithSampler(slimN->GetImageView(),  m_Sampler),
+                    makeImgWithSampler(slimR->GetImageView(),  m_Sampler),
+                    makeImgWithSampler(slimM->GetImageView(),  m_Sampler),
+                    makeImgWithSampler(slimID->GetImageView(), m_NearestSampler),
                 };
                 VkWriteDescriptorSet slimWrites[4] = {};
                 for (u32 b = 0; b < 4; ++b)
@@ -578,7 +598,8 @@ namespace Luth
         return outputHandle;
     }
 
-    RG::ResourceHandle PostProcessSubsystem::AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput, u32 mode, float scale)
+    RG::ResourceHandle PostProcessSubsystem::AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
+                                                            const SlimGBufferOutput& slimGB, u32 mode, float scale)
     {
         const auto* view = m_Pipeline->GetCurrentView();
         if (!m_SlimVizPipeline || !view->targets->GetLDROutput())
@@ -592,41 +613,21 @@ namespace Luth
             RG::ResourceHandle slimMaterialID;
         };
         RG::ResourceHandle outputHandle;
-        auto ldrVk = std::static_pointer_cast<VKTexture>(view->targets->GetLDROutput());
 
         rg.AddPass<SlimVizPassData>("SlimVizPass",
-            [&, ldrVk, mode](SlimVizPassData& data, RG::RenderPassBuilder& builder)
+            [&, ldrInput, mode, slimGB](SlimVizPassData& data, RG::RenderPassBuilder& builder)
             {
-                const auto* v = m_Pipeline->GetCurrentView();
-                RG::TextureDesc desc;
-                desc.name   = "LDROutput";
-                desc.width  = v->targets->GetLDROutput()->GetWidth();
-                desc.height = v->targets->GetLDROutput()->GetHeight();
-                desc.format = RG::TextureFormat::RGBA8_Unorm;
-
-                data.output = rg.ImportResource(desc,
-                    (void*)ldrVk->GetImage(), (void*)ldrVk->GetImageView(),
-                    RG::ResourceState::ShaderResource);
-                // CLEAR rather than LOAD — the slim viz overwrites whatever PostProcess just wrote.
+                // Write to the LDR handle Composite returned — same RG resource node, so the
+                // barrier solver sees the producer's COLOR_ATTACHMENT state. Re-importing would
+                // alias the same VkImage onto a fresh node with a stale initialState (VUID 01197).
                 VkClearValue clearVal{ { {0.f, 0.f, 0.f, 1.f} } };
-                data.output = builder.Write(data.output, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, clearVal);
+                data.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, clearVal);
 
-                // Read each of the 4 slim attachments so RG inserts the COLOR_ATTACHMENT → SHADER_READ
-                // transitions automatically. We import them from FrameTargets; the descriptor set was
-                // written at AllocateViewResources time and remains stable for this view.
-                auto importRead = [&](const std::shared_ptr<Texture>& tex, const char* name, RG::TextureFormat fmt) {
-                    RG::TextureDesc d; d.name = name;
-                    d.width = tex->GetWidth(); d.height = tex->GetHeight(); d.format = fmt;
-                    auto vk = std::static_pointer_cast<VKTexture>(tex);
-                    RG::ResourceHandle h = rg.ImportResource(d,
-                        (void*)vk->GetImage(), (void*)vk->GetImageView(),
-                        RG::ResourceState::ColorAttachment);
-                    return builder.Read(h);
-                };
-                data.slimNormal     = importRead(v->targets->GetSlimNormal(),     "SlimNormal",     RG::TextureFormat::RG16_Float);
-                data.slimRoughness  = importRead(v->targets->GetSlimRoughness(),  "SlimRoughness",  RG::TextureFormat::R8_Unorm);
-                data.slimMotion     = importRead(v->targets->GetSlimMotion(),     "SlimMotion",     RG::TextureFormat::RG16_Float);
-                data.slimMaterialID = importRead(v->targets->GetSlimMaterialID(), "SlimMaterialID", RG::TextureFormat::R16_Uint);
+                // Same reasoning for the slim attachments — reuse SlimGBufferPass's handles.
+                data.slimNormal     = builder.Read(slimGB.normal);
+                data.slimRoughness  = builder.Read(slimGB.roughness);
+                data.slimMotion     = builder.Read(slimGB.motion);
+                data.slimMaterialID = builder.Read(slimGB.materialID);
 
                 outputHandle = data.output;
             },

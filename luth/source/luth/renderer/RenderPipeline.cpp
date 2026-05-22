@@ -250,8 +250,8 @@ namespace Luth
 
         // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
         // with EQUAL test; foundation for A.5 TAA + Phase B/C RT denoise + D RT reflections.
+        // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
         SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
-        (void)slimGB;  // A.2 has no consumers; downstream efforts wire it.
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -281,7 +281,7 @@ namespace Luth
         if (shadeMode >= ShadeMode::SlimNormal && shadeMode <= ShadeMode::SlimMaterialID)
         {
             const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
-            ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimMode, /*motionScale*/20.0f);
+            ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimGB, slimMode, /*motionScale*/20.0f);
         }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline

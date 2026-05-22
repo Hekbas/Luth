@@ -13,6 +13,7 @@ namespace Luth
     class FrameTargets;
     class RenderPipeline;
     struct ViewResources;
+    struct SlimGBufferOutput;
 
     // Owns the PostProcess descriptor layout/sampler, the bloom extract +
     // bloom blur + tonemap-composite pipelines, and the per-frame PP UBO
@@ -36,7 +37,10 @@ namespace Luth
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
         // Live slim G-buffer viz — bypasses tonemap. Mode = SlimNormal/Roughness/Motion/MaterialID,
         // scale is motion magnification (unused for other modes). Runs after composite, writes LDR.
-        RG::ResourceHandle AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput, u32 mode, float scale);
+        // slimGB carries the producer-side RG handles from SlimGBufferPass; re-importing the same
+        // VkImages would create aliased RG resources the barrier solver can't reconcile.
+        RG::ResourceHandle AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
+                                          const SlimGBufferOutput& slimGB, u32 mode, float scale);
 
         VkDescriptorSetLayout GetDescSetLayout()        const { return m_DescSetLayout; }
         VkDescriptorSetLayout GetSlimVizDescSetLayout() const { return m_SlimVizDescSetLayout; }
@@ -48,6 +52,7 @@ namespace Luth
         RenderPipeline* m_Pipeline = nullptr;
 
         VkSampler             m_Sampler              = VK_NULL_HANDLE;
+        VkSampler             m_NearestSampler       = VK_NULL_HANDLE; // for integer slim matID binding
         VkDescriptorSetLayout m_DescSetLayout        = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_SlimVizDescSetLayout = VK_NULL_HANDLE;
 

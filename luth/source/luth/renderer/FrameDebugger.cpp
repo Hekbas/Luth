@@ -580,11 +580,15 @@ namespace Luth
 
         if (sampler)
             vkDestroySampler(device, sampler, nullptr);
+        if (samplerNearest)
+            vkDestroySampler(device, samplerNearest, nullptr);
         if (descSetLayout)
             vkDestroyDescriptorSetLayout(device, descSetLayout, nullptr);
         if (descPool)
             vkDestroyDescriptorPool(device, descPool, nullptr);
         blitPipeline.reset();
         depthPipeline.reset();
+        slimDecodePipeline.reset();
+        slimMatIDPipeline.reset();
     }
 }
