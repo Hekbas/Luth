@@ -122,6 +122,12 @@ namespace Luth
         // Slim G-buffer live viz (ShadeMode toggle). Single set, written once at AllocateViewResources
         // time pointing at the 4 slim FrameTargets. Bindings: 0=normal, 1=roughness, 2=motion, 3=matID.
         VkDescriptorSet slimVizDescSet = VK_NULL_HANDLE;
+
+        // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
+        // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
+        // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
+        // independent. Identity-initialized → frame 0 has nonsense motion, settles by frame 1.
+        Mat4 prevViewProj{ 1.0f };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
