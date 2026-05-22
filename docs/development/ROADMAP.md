@@ -85,6 +85,7 @@
 | v2.11.0 | `custom-fibers` | Custom x86_64 MASM context switch + `VirtualAlloc` stacks replaces Win32 fibers so ASan can track per-fiber stack bounds. TIB ArbitraryUserPointer (`gs:[0x28]`) replaces Win32 FLS. ~5× faster switch (secondary win) | 2026-05-19 |
 | v2.11.1 | `foundation-testing` | 28-case stress harness (V1–V6, AtomicCounter, LinearAllocator, TaggedPageAllocator, SpinLock, MPMCQueue, WorkStealingDeque) under DebugASan; caught two engine bugs inline | 2026-05-20 |
 | v2.12.0 | `async-compute-queue` | Three-queue Vulkan foundation (graphics + async-compute + transfer) with per-view 3-submit topology, RG queue routing + cross-queue barrier rule (TOP_OF_PIPE substitution on the reader's pre-barrier), CONCURRENT sharing opt-in per cross-queue resource, GTAO chain routed to async compute, UploadContext routed to dedicated transfer queue (DMA engine on discrete GPUs) | 2026-05-20 |
+| v3.0.0 | `bindless-migration` | rt-renderer arc opens. `bufferDeviceAddress` enabled (feature + VMA bit + `SHADER_DEVICE_ADDRESS_BIT` on mesh + tagged-heap buffers; addresses cached on `VKVertex`/`VKIndexBuffer`). Set 1 binding 1 = `VK_DESCRIPTOR_TYPE_SAMPLER` array (32 slots, 4 canonical samplers at fixed 0-3 + `BindSampler`/`UnbindSampler` LIFO over 4-31). `GPUMaterialData` extended to 8 map indices + flag repack (UV 8-15 → 16-23, new HAS_* bits 5-7). `thumbnail_mesh` migrated to bindless sampling (net −120 LOC). All compose with existing primitives — no new allocator/sync/descriptor set | 2026-05-22 |
 
 ---
 
@@ -96,7 +97,7 @@ Effort scale (scope/difficulty, not calendar time): **S** = small, contained · 
 
 RT-first renderer modernization arc. Clustered Forward+ with bindless throughout, hardware ray tracing for shadows / GI / reflections, full Wronski volumetrics, ReSTIR + SVGF denoising, path-traced reference mode. Target showcase: Bhaal Temple, fully RT-lit. RT-mandatory (raises minimum HW to RT-capable GPU — counted toward the MAJOR bump).
 
-Mode A — series start bumps `Version.h` to `3.0.0`; intermediate efforts ship as `rt-renderer.N-<slug>` checkpoint tags without bumping `Version.h`. Milestone Release at series end.
+Mode A — series start bumps `Version.h` to `3.0.0` (`bindless-migration`). Intermediate efforts PATCH-bump from there (`v3.0.1` onwards), tag-only — no per-effort Release. Milestone Release at series end.
 
 Umbrella issue: [#TBD] (sub-effort issues created on demand; commits use `Part of #<umbrella>` trailer).
 
