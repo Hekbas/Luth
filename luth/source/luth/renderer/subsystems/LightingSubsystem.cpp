@@ -893,8 +893,9 @@ namespace Luth
         // to re-allocate identical slices here. The tagged heap returns the next available bump
         // location each call — so we cannot re-fetch the producer's slice without state. Instead,
         // pull the VkBuffer + offset directly from the BufferNode via RG.
-        const auto& aabbNode = rg.GetBuffers()[cb.aabb.index];
-        const auto& gridNode = rg.GetBuffers()[cb.grid.index];
+        // BufferHandle.index is 1-based (0 = invalid sentinel — see RenderGraph.cpp:195).
+        const auto& aabbNode = rg.GetBuffers()[cb.aabb.index - 1];
+        const auto& gridNode = rg.GetBuffers()[cb.grid.index - 1];
         VkDescriptorBufferInfo aabbBi{ (VkBuffer)aabbNode.buffer, 0, aabbNode.desc.size };
         VkDescriptorBufferInfo gridBi{ (VkBuffer)gridNode.buffer, 0, gridNode.desc.size };
         VkDescriptorBufferInfo indexBi{ indexR.buffer,   indexR.offset,   indexR.size };
