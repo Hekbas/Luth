@@ -39,6 +39,8 @@ ShadowPass (depth-only)   ─┘
 
 DepthPrepass (depth-only, main view, indirect draw)
   ↓
+SlimGBufferPass (normal RG16F + roughness R8 + motion RG16F + matID R16U; reads prepass depth via EQUAL test, opaque-only)
+  ↓
 GTAO: PrefilterPass → MainPass (horizon integral) → DenoisePass (bilateral)
   ↓
 CullComputePass (main scene) — populates per-draw indirect args
@@ -54,6 +56,8 @@ GridPass (optional, editor-only overlay)
 BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res)
   ↓
 PostProcessPass (tonemap + bloom compose + vignette + grain + CA → LDR)
+  ↓
+SlimVizPass (conditional — runs when ShadeMode is SlimNormal/Roughness/Motion/MaterialID; blits selected slim attachment to LDR via slim_viz.frag, bypassing tonemap)
   ↓
 OutlinePass (reads mask + depth, composites onto LDR)
   ↓
@@ -123,9 +127,9 @@ ImGuiPass (composites editor UI onto LDR → swapchain)
 The arc layers new pass families onto the existing render graph; foundational systems (job system, render graph DAG, frame pipeline, memory primitives, queue topology) stay unchanged. Key data-structure additions by phase:
 
 **Phase A — modern foundation**
-- Set 1 (bindless) scales up; new bindless sampler array + bindless mesh access via `VK_KHR_buffer_device_address`
+- Set 1 (bindless) scales up; new bindless sampler array + bindless mesh access via `VK_KHR_buffer_device_address` (v3.0.0 — `bindless-migration`)
+- Slim G-buffer attachments (normal RG16F oct + roughness R8 + motion RG16F NDC + matID R16U) — feeds TAA + RT denoising (v3.0.1 — `slim-gbuffer`). `GlobalUniforms` + `prevViewProjection`, `GPUObjectData` + `prevModel` + `prevBoneOffset`, `BoneMatrixBuffer` dual-region for prev-frame bones. Per-view `prevViewProj` storage on `ViewResources` (not `GlobalSubsystem` — single global cross-contaminated under multi-view rendering)
 - Set 3 reshapes: fixed `LightUBO` → unbounded `Light SSBO` + `Cluster grid SSBO` + `Light index SSBO`, all from `GPUTaggedPageAllocator`
-- Slim G-buffer attachments (normal/roughness/motion vectors/material ID) — feeds TAA + RT denoising
 - Volumetric voxel volume (compute storage image, frustum-aligned)
 
 **Phase B — RT foundation**
@@ -146,6 +150,13 @@ The arc layers new pass families onto the existing render graph; foundational sy
 - GPU particle simulation/render passes added downstream of GeometryPass
 
 Full per-phase work in `docs/development/epics/rt-renderer.md` (local spec, never committed).
+
+### Render-graph hazards (documented from slim-gbuffer smoke)
+
+Two RG patterns surfaced during A.2 testing — worth knowing before adding new passes that consume FrameTarget outputs:
+
+- **Re-importing a VkImage that another pass in the same frame already imported aliases it onto two `ResourceNode`s**. Each `rg.ImportResource(...)` creates a new node with its own `currentState`/`lastWriter`. The barrier solver tracks state per-node, so two nodes wrapping the same VkImage diverge: one node thinks the resource is in state X (from the producer's `Write`), the other in state Y (from the consumer's `ImportResource(... initialState)`). The consumer-side barrier's `oldLayout` mismatches the actual GPU layout → VUID 01197. **Pattern:** when a downstream pass writes/reads a target that an upstream pass produced this frame, take the producer's returned handle as a parameter and use `builder.Read(handle)` / `builder.Write(handle)` — same node, consistent state tracking.
+- **Per-view render state stored on a per-pipeline subsystem causes multi-view contamination.** A single `Mat4` on a subsystem (e.g., `GlobalSubsystem::m_CachedViewProj`) is fine when only one view renders per frame, but breaks the moment another view's `RecordView` runs in the same frame — the second view's read sees the first view's write, not its own previous value. **Pattern:** per-view state lives on `ViewResources` (or any per-view container). `m_CachedViewProj` still works for its existing role (frustum cull within one view's render) because write + read alternate per-view; cross-frame caching does not.
 
 ## Memory Budget
 
