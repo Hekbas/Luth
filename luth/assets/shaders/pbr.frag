@@ -53,8 +53,11 @@ layout(set = 0, binding = 5, std140) uniform GTAOUBO {
     vec2  invFullResolution;
 } gtao;
 
-// Set 1: Bindless Textures
+// Set 1: Bindless Textures (combined image-samplers) + canonical sampler array.
+// Binding 1 is declared so future shader paths (per-map sampler selection) can index it;
+// today's PBR sampling still goes through binding 0's per-texture baked samplers.
 layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
+layout(set = 1, binding = 1) uniform sampler   bindlessSamplers[];
 
 // Set 2: Material SSBO
 // flags layout: bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each).
