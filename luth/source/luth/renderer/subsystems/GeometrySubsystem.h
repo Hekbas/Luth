@@ -100,6 +100,11 @@ namespace Luth
         std::unordered_map<entt::entity, u32>     m_EntityToSSBOIndex;
         std::vector<entt::entity>                 m_EntityLookup;
 
+        // Frame N-1's worldMatrix per entity (motion vectors). Rebuilt by atomic-replace at end
+        // of BuildGPUObjectBuffer — despawned entities drop, newly-spawned fall back to current
+        // model on next frame. Render-side state; gameplay never touches it.
+        std::unordered_map<entt::entity, Mat4>    m_PrevModelByEntity;
+
         // Cull compute pipeline + descriptor.
         std::unique_ptr<VKComputePipeline> m_CullPipeline;
         VkDescriptorPool                   m_CullDescPool   = VK_NULL_HANDLE;

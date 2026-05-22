@@ -10,6 +10,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform GridGlobals {
     mat4 viewProjection;
+    mat4 prevViewProjection;  // shares Set 0 binding 0 with GlobalUniforms — must mirror layout
     mat4 view;
     mat4 projection;
     vec3 cameraPos;

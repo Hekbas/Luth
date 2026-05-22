@@ -28,6 +28,7 @@ namespace Luth
     // Per-frame global shader inputs (Set 0 UBO). Layout mirrors GLSL binding.
     struct GlobalUniforms {
         Mat4 viewProjection;
+        Mat4 prevViewProjection;  // frame N reads frame N-1's VP (motion vectors + TAA reprojection)
         Mat4 view;
         Mat4 projection;
         Vec3 cameraPos;

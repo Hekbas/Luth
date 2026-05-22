@@ -79,6 +79,11 @@ namespace Luth
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
+        // Frame N reads frame N-1's VP via m_CachedViewProj — captured before the store below.
+        // Frame 0: m_CachedViewProj is Identity, so motion vectors are nonsense for one frame
+        // (matches every TAA pipeline's bootstrap). Downstream readers (cull, debugger) still
+        // see the current frame's VP because the store below runs in the same call.
+        ubo.prevViewProjection = m_CachedViewProj;
         ubo.cameraPos = camera.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)

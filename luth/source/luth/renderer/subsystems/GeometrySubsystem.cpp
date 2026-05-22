@@ -440,6 +440,14 @@ namespace Luth
             GPUObjectData& obj = objectData[count];
             obj.model = meshSnap.worldMatrix;
 
+            // Resolve previous-frame model from the render-side cache. Newly-spawned entities
+            // (cache miss) fall back to current model → zero motion for one frame.
+            entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
+            if (auto pmIt = m_PrevModelByEntity.find(entity); pmIt != m_PrevModelByEntity.end())
+                obj.prevModel = pmIt->second;
+            else
+                obj.prevModel = obj.model;
+
             const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
             obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
 
@@ -453,15 +461,14 @@ namespace Luth
             obj.entityID      = (u32)m_EntityLookup.size();
             obj.boneOffset    = meshSnap.boneOffset;
 
-            entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
             m_EntityLookup.push_back(entity);
             m_EntityToSSBOIndex[entity] = count;
 
             auto* ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer()).get();
-            obj.indexCount   = ib ? ib->GetCount() : 0;
-            obj.firstIndex   = 0;
-            obj.vertexOffset = 0;
-            obj._pad         = 0;
+            obj.indexCount     = ib ? ib->GetCount() : 0;
+            obj.firstIndex     = 0;
+            obj.vertexOffset   = 0;
+            obj.prevBoneOffset = 0;  // commit 2 wires the dual-bone-buffer offset; 0 until then
 
             VkDrawIndexedIndirectCommand baseCmd{};
             baseCmd.indexCount    = obj.indexCount;
@@ -475,6 +482,15 @@ namespace Luth
         }
 
         m_GPUObjectCount = count;
+
+        // Atomic-replace the prev-model cache from this frame's snapshot. Reads the ungated
+        // snapshot list so entities with transient asset-load issues keep their prev-frame
+        // matrix instead of dropping out of the cache for one frame.
+        std::unordered_map<entt::entity, Mat4> nextPrev;
+        nextPrev.reserve(snapshot.meshes.size());
+        for (const auto& m : snapshot.meshes)
+            nextPrev.emplace(static_cast<entt::entity>(m.entity), m.worldMatrix);
+        m_PrevModelByEntity = std::move(nextPrev);
 
         heap.FlushRegion(m_ObjectRegion);
         heap.FlushRegion(m_IndirectRegion);
