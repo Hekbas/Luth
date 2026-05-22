@@ -44,7 +44,12 @@ namespace Luth
         float     cascadeBlendWidth;
     };
 
-    enum class ShadeMode : u8 { Lit = 0, Unlit, Wireframe, Normals, EntityID };
+    enum class ShadeMode : u8 {
+        Lit = 0, Unlit, Wireframe, Normals, EntityID,
+        // Slim G-buffer live viz — bypasses tonemap and blits the selected attachment to LDR.
+        // Implemented in PostProcessSubsystem::AddSlimVizPass via slim_viz.frag.
+        SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID
+    };
 
     struct GeometryOutput {
         RG::ResourceHandle color;

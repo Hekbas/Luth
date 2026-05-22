@@ -66,6 +66,22 @@ namespace Luth
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescSetLayout);
 
+        // Slim viz descriptor set layout — 4 sampler bindings (normal/roughness/motion/matID).
+        // Stable per-view; written once at AllocateViewResources time. No UAB needed since the
+        // slim attachment views only change on resize (which destroys + recreates the descPool).
+        VkDescriptorSetLayoutBinding slimBindings[4] = {};
+        for (u32 i = 0; i < 4; ++i)
+        {
+            slimBindings[i].binding         = i;
+            slimBindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            slimBindings[i].descriptorCount = 1;
+            slimBindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        VkDescriptorSetLayoutCreateInfo slimLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        slimLayoutInfo.bindingCount = 4;
+        slimLayoutInfo.pBindings    = slimBindings;
+        vkCreateDescriptorSetLayout(device, &slimLayoutInfo, nullptr, &m_SlimVizDescSetLayout);
+
         auto loadSpv = [](const char* relPath) -> std::vector<u32> {
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
@@ -74,9 +90,11 @@ namespace Luth
         m_BloomExtractFragSpv = loadSpv("shaders/bloomExtract.frag");
         m_BloomBlurFragSpv    = loadSpv("shaders/bloomBlur.frag");
         m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
+        m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.frag");
 
         if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
-            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty())
+            m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
+            m_SlimVizFragSpv.empty())
         {
             LH_CORE_ERROR("PostProcessSubsystem: shader SPIR-V empty after asset load!");
             return;
@@ -126,16 +144,34 @@ namespace Luth
             m_PostProcessPipeline = std::make_unique<VKPipeline>(
                 cfg, m_FullscreenVertSpv, m_PostProcessFragSpv, ppLayouts);
         }
+
+        // Slim G-buffer viz pipeline (live ShadeMode toggle). Push constants: mode + scale = 8B.
+        if (!m_SlimVizFragSpv.empty())
+        {
+            std::vector<VkDescriptorSetLayout> slimLayouts = { m_SlimVizDescSetLayout };
+            VkPushConstantRange slimPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(u32) + sizeof(float) };
+            PipelineConfig cfg;
+            cfg.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false; cfg.depthWrite = false;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { slimPC };
+            m_SlimVizPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_SlimVizFragSpv, slimLayouts);
+        }
     }
 
     void PostProcessSubsystem::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
+        m_SlimVizPipeline.reset();
         m_PostProcessPipeline.reset();
         m_BloomBlurPipeline.reset();
         m_BloomExtractPipeline.reset();
-        if (m_Sampler)       { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
-        if (m_DescSetLayout) { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
+        if (m_Sampler)              { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
+        if (m_DescSetLayout)        { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
+        if (m_SlimVizDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
     }
 
     bool PostProcessSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -149,11 +185,13 @@ namespace Luth
         else if (name == "bloomExtract.frag")  m_BloomExtractFragSpv = spv;
         else if (name == "bloomBlur.frag")     m_BloomBlurFragSpv    = spv;
         else if (name == "postprocess.frag")   m_PostProcessFragSpv  = spv;
+        else if (name == "slim_viz.frag")      m_SlimVizFragSpv      = spv;
         else return false;
 
         deferGfx(m_BloomExtractPipeline);
         deferGfx(m_BloomBlurPipeline);
         deferGfx(m_PostProcessPipeline);
+        deferGfx(m_SlimVizPipeline);
         BuildPipelines();
         // For fullscreen.vert, return false so the orchestrator also rebuilds Outline + Grid
         // (they share the same vertex shader). PostProcess pipelines are already rebuilt above.
@@ -278,6 +316,36 @@ namespace Luth
         }
 
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
+
+        // Slim viz set — 4 stable bindings into the per-view slim attachments. Written once
+        // per resize (the set is reallocated when the descPool is destroyed in DestroyViewResources).
+        if (vr.slimVizDescSet != VK_NULL_HANDLE)
+        {
+            auto slimN = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal());
+            auto slimR = std::static_pointer_cast<VKTexture>(targets.GetSlimRoughness());
+            auto slimM = std::static_pointer_cast<VKTexture>(targets.GetSlimMotion());
+            auto slimID = std::static_pointer_cast<VKTexture>(targets.GetSlimMaterialID());
+            if (slimN && slimR && slimM && slimID)
+            {
+                VkDescriptorImageInfo slimInfos[4] = {
+                    makeImg(slimN->GetImageView()),
+                    makeImg(slimR->GetImageView()),
+                    makeImg(slimM->GetImageView()),
+                    makeImg(slimID->GetImageView()),
+                };
+                VkWriteDescriptorSet slimWrites[4] = {};
+                for (u32 b = 0; b < 4; ++b)
+                {
+                    slimWrites[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    slimWrites[b].dstSet          = vr.slimVizDescSet;
+                    slimWrites[b].dstBinding      = b;
+                    slimWrites[b].descriptorCount = 1;
+                    slimWrites[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    slimWrites[b].pImageInfo      = &slimInfos[b];
+                }
+                vkUpdateDescriptorSets(device, 4, slimWrites, 0, nullptr);
+            }
+        }
     }
 
     RG::ResourceHandle PostProcessSubsystem::AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
@@ -504,6 +572,94 @@ namespace Luth
                 ObjectPushConstants dummyPC{};
                 sys.GetFrameDebugger().CaptureDrawCall("PostProcess", "FullscreenTriangle", "PostProcess", 0, 0, dummyPC,
                     { "postprocess", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+        return outputHandle;
+    }
+
+    RG::ResourceHandle PostProcessSubsystem::AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput, u32 mode, float scale)
+    {
+        const auto* view = m_Pipeline->GetCurrentView();
+        if (!m_SlimVizPipeline || !view->targets->GetLDROutput())
+            return ldrInput;
+
+        struct SlimVizPassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle slimNormal;
+            RG::ResourceHandle slimRoughness;
+            RG::ResourceHandle slimMotion;
+            RG::ResourceHandle slimMaterialID;
+        };
+        RG::ResourceHandle outputHandle;
+        auto ldrVk = std::static_pointer_cast<VKTexture>(view->targets->GetLDROutput());
+
+        rg.AddPass<SlimVizPassData>("SlimVizPass",
+            [&, ldrVk, mode](SlimVizPassData& data, RG::RenderPassBuilder& builder)
+            {
+                const auto* v = m_Pipeline->GetCurrentView();
+                RG::TextureDesc desc;
+                desc.name   = "LDROutput";
+                desc.width  = v->targets->GetLDROutput()->GetWidth();
+                desc.height = v->targets->GetLDROutput()->GetHeight();
+                desc.format = RG::TextureFormat::RGBA8_Unorm;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)ldrVk->GetImage(), (void*)ldrVk->GetImageView(),
+                    RG::ResourceState::ShaderResource);
+                // CLEAR rather than LOAD — the slim viz overwrites whatever PostProcess just wrote.
+                VkClearValue clearVal{ { {0.f, 0.f, 0.f, 1.f} } };
+                data.output = builder.Write(data.output, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, clearVal);
+
+                // Read each of the 4 slim attachments so RG inserts the COLOR_ATTACHMENT → SHADER_READ
+                // transitions automatically. We import them from FrameTargets; the descriptor set was
+                // written at AllocateViewResources time and remains stable for this view.
+                auto importRead = [&](const std::shared_ptr<Texture>& tex, const char* name, RG::TextureFormat fmt) {
+                    RG::TextureDesc d; d.name = name;
+                    d.width = tex->GetWidth(); d.height = tex->GetHeight(); d.format = fmt;
+                    auto vk = std::static_pointer_cast<VKTexture>(tex);
+                    RG::ResourceHandle h = rg.ImportResource(d,
+                        (void*)vk->GetImage(), (void*)vk->GetImageView(),
+                        RG::ResourceState::ColorAttachment);
+                    return builder.Read(h);
+                };
+                data.slimNormal     = importRead(v->targets->GetSlimNormal(),     "SlimNormal",     RG::TextureFormat::RG16_Float);
+                data.slimRoughness  = importRead(v->targets->GetSlimRoughness(),  "SlimRoughness",  RG::TextureFormat::R8_Unorm);
+                data.slimMotion     = importRead(v->targets->GetSlimMotion(),     "SlimMotion",     RG::TextureFormat::RG16_Float);
+                data.slimMaterialID = importRead(v->targets->GetSlimMaterialID(), "SlimMaterialID", RG::TextureFormat::R16_Uint);
+
+                outputHandle = data.output;
+            },
+            [this, mode, scale](SlimVizPassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                const auto* v = m_Pipeline->GetCurrentView();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->slimVizDescSet == VK_NULL_HANDLE) return;
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "SlimVizPass", "LDROutput", false,
+                    { "slim_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_SlimVizPipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_SlimVizPipeline->GetLayout(), 0, 1, &vr->slimVizDescSet, 0, nullptr);
+
+                struct { u32 mode; float scale; } pcData{ mode, scale };
+                vkCmdPushConstants(cmd, m_SlimVizPipeline->GetLayout(),
+                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pcData), &pcData);
+
+                u32 w = v->targets->GetLDROutput()->GetWidth();
+                u32 h = v->targets->GetLDROutput()->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("SlimVizPass", "FullscreenTriangle", "SlimViz", 0, 0, dummyPC,
+                    { "slim_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
                 sys.GetFrameDebugger().EndCapturePass();
             }
         );

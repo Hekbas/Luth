@@ -118,6 +118,10 @@ namespace Luth
         // scene view (game view's subgraph skips both passes via flags).
         VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
+
+        // Slim G-buffer live viz (ShadeMode toggle). Single set, written once at AllocateViewResources
+        // time pointing at the 4 slim FrameTargets. Bindings: 0=normal, 1=roughness, 2=motion, 3=matID.
+        VkDescriptorSet slimVizDescSet = VK_NULL_HANDLE;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

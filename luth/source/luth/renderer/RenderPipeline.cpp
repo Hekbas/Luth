@@ -271,7 +271,19 @@ namespace Luth
         RG::ResourceHandle gridColor   = view.drawGrid
                                          ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
                                          : skyboxColor;
-        RG::ResourceHandle ldrOutput   = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
+        RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
+
+        // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.
+        // Mode index = enum offset from ShadeMode::SlimNormal (0..3). Motion scale hardcoded —
+        // the frame-debugger panel exposes a slider for per-capture tuning; live viz uses a
+        // sensible default matching the existing thumbnail UX.
+        const ShadeMode shadeMode = m_System.GetShadeMode();
+        if (shadeMode >= ShadeMode::SlimNormal && shadeMode <= ShadeMode::SlimMaterialID)
+        {
+            const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
+            ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimMode, /*motionScale*/20.0f);
+        }
+
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
