@@ -8,7 +8,9 @@
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/backend/vulkan/TimelineSemaphore.h"
+#include "luth/renderer/backend/vulkan/UploadContext.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanDescriptors.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/material/Material.h"
@@ -40,8 +42,10 @@ namespace Luth::UI::ThumbnailPreviewScene
         {
             Mat4 viewProj;
             Vec4 albedo;
+            u32  diffuseIndex;
+            u32  _pad[3]; // pad to 16-byte align (push-constant ranges are size-rounded)
         };
-        static_assert(sizeof(PushConstants) == 80, "thumbnail PC layout drift");
+        static_assert(sizeof(PushConstants) == 96, "thumbnail PC layout drift");
 
         // Two pipelines share the same shaders (Position@0 + Normal@12 + UV@24
         // are at identical offsets in Vertex and SkinnedVertex); only the
@@ -54,14 +58,6 @@ namespace Luth::UI::ThumbnailPreviewScene
         VkBuffer                    s_Staging       = VK_NULL_HANDLE;
         VmaAllocation               s_StagingAlloc  = nullptr;
         void*                       s_StagingMapped = nullptr;
-
-        // Per-bake descriptor: set=0 binding=0 = combined image sampler. Updated
-        // each bake to point at the chosen texture (white for mesh, material's
-        // albedo otherwise). invariant: ImmediateSubmit waits before returning,
-        // so the descriptor is never in flight across updates.
-        VkDescriptorSetLayout       s_SamplerLayout = VK_NULL_HANDLE;
-        VkDescriptorPool            s_SamplerPool   = VK_NULL_HANDLE;
-        VkDescriptorSet             s_SamplerSet    = VK_NULL_HANDLE;
 
         // 1x1 white default texture — bound for mesh bakes (no albedo texture)
         // and as a fallback when a material has no albedo map. Created via
@@ -85,15 +81,12 @@ namespace Luth::UI::ThumbnailPreviewScene
             std::shared_ptr<Texture> color;
             std::shared_ptr<Texture> depth;
             VkDescriptorSet          imguiSet     = VK_NULL_HANDLE;
-            VkDescriptorSet          samplerSet   = VK_NULL_HANDLE;
             VkCommandBuffer          cmd          = VK_NULL_HANDLE;
             u64                      timelineValue = 0;
         };
 
         std::array<InspectorSlot, kInspectorRingSize> s_Ring{};
         VkCommandPool         s_InspectorCmdPool        = VK_NULL_HANDLE;
-        VkDescriptorSetLayout s_InspectorSamplerLayout  = VK_NULL_HANDLE;
-        VkDescriptorPool      s_InspectorSamplerPool    = VK_NULL_HANDLE;
         TimelineSemaphore     s_InspectorTimeline;
         u64                   s_NextSubmitValue         = 0;
         u32                   s_RingHead                = 0;
@@ -169,90 +162,35 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.size       = sizeof(PushConstants);
             cfg.pushConstantRanges = { pc };
 
+            // Pipeline now references the engine-wide bindless descriptor set layout (Set 1 in
+            // main rendering, Set 0 here — same VkDescriptorSetLayout, different binding index
+            // at the pipeline-layout level). Per-bake sampling uses globalTextures[diffuseIndex].
             return std::make_unique<VKPipeline>(cfg, vert, frag,
-                                                std::vector<VkDescriptorSetLayout>{ s_SamplerLayout });
-        }
-
-        bool CreateSamplerDescriptor()
-        {
-            VkDevice device = VulkanContext::Get().GetDevice();
-
-            VkDescriptorSetLayoutBinding binding{};
-            binding.binding         = 0;
-            binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            binding.descriptorCount = 1;
-            binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-            VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            layoutInfo.bindingCount = 1;
-            layoutInfo.pBindings    = &binding;
-            if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &s_SamplerLayout) != VK_SUCCESS)
-                return false;
-
-            VkDescriptorPoolSize poolSize{};
-            poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            poolSize.descriptorCount = 1;
-
-            VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-            poolInfo.maxSets       = 1;
-            poolInfo.poolSizeCount = 1;
-            poolInfo.pPoolSizes    = &poolSize;
-            if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &s_SamplerPool) != VK_SUCCESS)
-                return false;
-
-            VkDescriptorSetAllocateInfo alloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-            alloc.descriptorPool     = s_SamplerPool;
-            alloc.descriptorSetCount = 1;
-            alloc.pSetLayouts        = &s_SamplerLayout;
-            return vkAllocateDescriptorSets(device, &alloc, &s_SamplerSet) == VK_SUCCESS;
+                std::vector<VkDescriptorSetLayout>{ VulkanContext::Get().GetBindlessSet().GetLayout() });
         }
 
         bool CreateWhiteTexture()
         {
-            // Async-upload path; flush with vkDeviceWaitIdle below so the
-            // first sample isn't UB. Init runs once at editor startup so the
-            // wait has no per-frame cost.
+            // Async-upload path; flush with vkDeviceWaitIdle below so the first sample isn't
+            // UB. Drain the deferred-bindless pump so s_WhiteTexture's bindless slot is
+            // populated before any bake fetches it via GetBindlessIndex(). Init runs once at
+            // editor startup so the wait has no per-frame cost.
             const u8 white[4] = { 255, 255, 255, 255 };
             s_WhiteTexture = Texture::Create(1, 1, TextureFormat::RGBA8, white);
             if (!s_WhiteTexture) return false;
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            UploadContext::Get().DrainPendingBinds();
             return true;
         }
 
-        void UpdateSamplerDescriptor(VkImageView view, VkSampler sampler)
+        // Resolves a Texture to a GPU-safe bindless slot. Falls back to slot 0 (1x1 white)
+        // when the texture is missing OR not yet registered — visually equivalent to the old
+        // s_WhiteTexture binding for both cases.
+        u32 ResolveBindlessIndex(const std::shared_ptr<Texture>& tex)
         {
-            VkDescriptorImageInfo info{};
-            info.sampler     = sampler;
-            info.imageView   = view;
-            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            w.dstSet          = s_SamplerSet;
-            w.dstBinding      = 0;
-            w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w.descriptorCount = 1;
-            w.pImageInfo      = &info;
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
-        }
-
-        // Per-slot variant for the async inspector path. The slot's sampler set
-        // is private to its in-flight cmd buffer, so writes here cannot race
-        // a pending submission as long as the caller has waited on that slot's
-        // timeline value before recording.
-        void UpdateInspectorSamplerSet(VkDescriptorSet set, VkImageView view, VkSampler sampler)
-        {
-            VkDescriptorImageInfo info{};
-            info.sampler     = sampler;
-            info.imageView   = view;
-            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            w.dstSet          = set;
-            w.dstBinding      = 0;
-            w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w.descriptorCount = 1;
-            w.pImageInfo      = &info;
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &w, 0, nullptr);
+            if (!tex) return 0u;
+            auto vkTex = std::static_pointer_cast<VKTexture>(tex);
+            return BindlessOrNull(vkTex->GetBindlessIndex());
         }
 
         bool CreatePipelines()
@@ -312,8 +250,6 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (s_Initialized) return true;
         if (!VulkanActive()) return false;
 
-        // Sampler layout/pool/set first — pipelines depend on the layout.
-        if (!CreateSamplerDescriptor()) { Shutdown(); return false; }
         if (!CreatePipelines())         { Shutdown(); return false; }
         if (!CreateTargets())           { Shutdown(); return false; }
         if (!CreateStaging())           { Shutdown(); return false; }
@@ -350,7 +286,6 @@ namespace Luth::UI::ThumbnailPreviewScene
             slot.color.reset();
             slot.depth.reset();
             slot.imguiSet     = VK_NULL_HANDLE;
-            slot.samplerSet   = VK_NULL_HANDLE;
             slot.cmd          = VK_NULL_HANDLE;
             slot.timelineValue = 0;
         }
@@ -364,22 +299,11 @@ namespace Luth::UI::ThumbnailPreviewScene
         s_SphereModel.reset();
 
         if (device != VK_NULL_HANDLE) {
-            // Pool destroy frees the allocated sets and command buffers.
-            if (s_InspectorSamplerPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_InspectorSamplerPool, nullptr);
-            if (s_InspectorSamplerLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_InspectorSamplerLayout, nullptr);
-            if (s_InspectorCmdPool       != VK_NULL_HANDLE) vkDestroyCommandPool(device, s_InspectorCmdPool, nullptr);
-
-            if (s_SamplerPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_SamplerPool, nullptr);
-            if (s_SamplerLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_SamplerLayout, nullptr);
+            // Pool destroy frees the allocated cmd buffers.
+            if (s_InspectorCmdPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, s_InspectorCmdPool, nullptr);
         }
-        s_InspectorSamplerPool   = VK_NULL_HANDLE;
-        s_InspectorSamplerLayout = VK_NULL_HANDLE;
-        s_InspectorCmdPool       = VK_NULL_HANDLE;
+        s_InspectorCmdPool = VK_NULL_HANDLE;
         s_InspectorTimeline.Shutdown();
-
-        s_SamplerPool   = VK_NULL_HANDLE;
-        s_SamplerLayout = VK_NULL_HANDLE;
-        s_SamplerSet    = VK_NULL_HANDLE;
 
         if (s_StagingAlloc) {
             if (s_StagingMapped) VulkanAllocator::Unmap(s_StagingAlloc);
@@ -413,16 +337,15 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     // Shared mesh-bake body. Public BakeMesh / BakeMaterial differ only by
     // which model + albedo they pass — the GPU work is identical.
-    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo);
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex);
 
     Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model)
     {
         if (!s_Initialized) return {};
-        // Mesh bakes have no per-asset texture — bind the white default so the
-        // shader's texture × albedo multiply degrades to the flat tint.
-        auto vkWhite = std::static_pointer_cast<VKTexture>(s_WhiteTexture);
-        UpdateSamplerDescriptor(vkWhite->GetImageView(), vkWhite->GetSampler());
-        return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f));
+        // Mesh bakes have no per-asset texture — sample slot 0 (1x1 white) so
+        // shader texture × albedo collapses to the flat tint.
+        return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f),
+                                ResolveBindlessIndex(s_WhiteTexture));
     }
 
     Image::LoadResult8 BakeMaterial(const std::shared_ptr<Material>& material)
@@ -430,25 +353,21 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!s_Initialized || !material) return {};
         if (!LoadSphereLazy()) return {};
 
-        // invariant: LoadImmediate every sampled texture, then vkDeviceWaitIdle
-        // so async upload fences retire before sampling (else UB). Full GPU
-        // sync per material bake; paired with the cache's 1 GPU-bake/frame
-        // budget, one sync per affected frame.
+        // invariant: LoadImmediate every sampled texture, then vkDeviceWaitIdle so async
+        // upload fences retire before sampling. Drain the deferred-bindless pump so the
+        // material's diffuse slot is populated before ResolveBindlessIndex() reads it.
         for (const auto& m : material->GetTextures()) {
             if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
         }
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+        UploadContext::Get().DrainPendingBinds();
 
-        // Resolve albedo — fall back to white when material has no diffuse map.
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
-        if (!albedo) albedo = s_WhiteTexture;
-        auto vkAlbedo = std::static_pointer_cast<VKTexture>(albedo);
-        UpdateSamplerDescriptor(vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
-
-        return BakeMeshInternal(s_SphereModel, material->GetColor());
+        return BakeMeshInternal(s_SphereModel, material->GetColor(),
+                                ResolveBindlessIndex(albedo));
     }
 
-    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo)
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex)
     {
         Image::LoadResult8 out;
         if (!s_Initialized || !model) return out;
@@ -504,9 +423,10 @@ namespace Luth::UI::ThumbnailPreviewScene
         Mat4       proj   = Math::Perspective(fov, 1.0f, dist * 0.05f, dist * 5.0f + diag * 4.0f);
         proj[1][1] *= -1.0f;   // Vulkan flips Y vs GL convention
 
-        PushConstants pc;
-        pc.viewProj = proj * view;
-        pc.albedo   = albedo;
+        PushConstants pc{};
+        pc.viewProj     = proj * view;
+        pc.albedo       = albedo;
+        pc.diffuseIndex = diffuseIndex;
 
         auto vkColor = std::static_pointer_cast<VKTexture>(s_ColorRT);
         auto vkDepth = std::static_pointer_cast<VKTexture>(s_DepthRT);
@@ -565,11 +485,10 @@ namespace Luth::UI::ThumbnailPreviewScene
                                                        : s_PipelineStatic.get();
             pipeline->Bind(cmd);
 
-            // Bind the per-bake sampler descriptor — caller updated it before
-            // ImmediateSubmit to point at the right texture (white default for
-            // mesh, material's albedo for material).
+            // Bind the engine-wide bindless set; shader samples globalTextures[diffuseIndex].
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline->GetLayout(), 0, 1, &s_SamplerSet, 0, nullptr);
+                pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
 
             vkCmdPushConstants(cmd, pipeline->GetLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -639,33 +558,6 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             VkDevice device = VulkanContext::Get().GetDevice();
 
-            // Inspector sampler layout/pool — separate from the bake path's
-            // single set so per-slot writes don't race with bake submissions.
-            {
-                VkDescriptorSetLayoutBinding binding{};
-                binding.binding         = 0;
-                binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                binding.descriptorCount = 1;
-                binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-                VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-                layoutInfo.bindingCount = 1;
-                layoutInfo.pBindings    = &binding;
-                if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &s_InspectorSamplerLayout) != VK_SUCCESS)
-                    return false;
-
-                VkDescriptorPoolSize poolSize{};
-                poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                poolSize.descriptorCount = kInspectorRingSize;
-
-                VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-                poolInfo.maxSets       = kInspectorRingSize;
-                poolInfo.poolSizeCount = 1;
-                poolInfo.pPoolSizes    = &poolSize;
-                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &s_InspectorSamplerPool) != VK_SUCCESS)
-                    return false;
-            }
-
             // Cmd pool with RESET_COMMAND_BUFFER_BIT — slot buffers are reused
             // per submission rather than freed/reallocated.
             {
@@ -676,8 +568,7 @@ namespace Luth::UI::ThumbnailPreviewScene
                     return false;
             }
 
-            // Allocate per-slot resources: cmd buffer, sampler set, RT pair,
-            // ImGui descriptor for the color view.
+            // Allocate per-slot resources: cmd buffer, RT pair, ImGui descriptor.
             VkCommandBuffer cmdBufs[kInspectorRingSize]{};
             {
                 VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -688,23 +579,9 @@ namespace Luth::UI::ThumbnailPreviewScene
                     return false;
             }
 
-            VkDescriptorSet samplerSets[kInspectorRingSize]{};
-            {
-                VkDescriptorSetLayout layouts[kInspectorRingSize];
-                for (u32 i = 0; i < kInspectorRingSize; ++i) layouts[i] = s_InspectorSamplerLayout;
-
-                VkDescriptorSetAllocateInfo alloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-                alloc.descriptorPool     = s_InspectorSamplerPool;
-                alloc.descriptorSetCount = kInspectorRingSize;
-                alloc.pSetLayouts        = layouts;
-                if (vkAllocateDescriptorSets(device, &alloc, samplerSets) != VK_SUCCESS)
-                    return false;
-            }
-
             for (u32 i = 0; i < kInspectorRingSize; ++i) {
                 auto& slot = s_Ring[i];
                 slot.cmd        = cmdBufs[i];
-                slot.samplerSet = samplerSets[i];
                 slot.color      = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::RGBA8);
                 slot.depth      = Texture::Create(kInspectorSize, kInspectorSize, TextureFormat::D32_Float);
                 if (!slot.color || !slot.depth) return false;
@@ -756,8 +633,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         ImTextureID RenderInspectorInternal(const std::shared_ptr<Model>& model,
                                             Vec4 albedo,
                                             const ThumbnailPreviewScene::OrbitCamera& orb,
-                                            VkImageView samplerView,
-                                            VkSampler   samplerHandle)
+                                            u32 diffuseIndex)
         {
             if (!s_Initialized || !model) return s_LastGoodInspectorTex;
             if (!EnsureInspectorRing())   return s_LastGoodInspectorTex;
@@ -794,18 +670,18 @@ namespace Luth::UI::ThumbnailPreviewScene
             Mat4 proj = Math::Perspective(fov, 1.0f, dist * 0.05f, dist * 5.0f + diag * 4.0f);
             proj[1][1] *= -1.0f;
 
-            PushConstants pc;
-            pc.viewProj = proj * view;
-            pc.albedo   = albedo;
+            PushConstants pc{};
+            pc.viewProj     = proj * view;
+            pc.albedo       = albedo;
+            pc.diffuseIndex = diffuseIndex;
 
-            // Pick slot; wait on its previous submission so its cmd buffer and
-            // sampler-set descriptor are safe to overwrite.
+            // Pick slot; wait on its previous submission so its cmd buffer is safe to overwrite.
+            // The engine-wide bindless set carries the texture across submissions — no per-slot
+            // descriptor write is needed any more.
             const u32 slotIdx = s_RingHead % kInspectorRingSize;
             auto&     slot    = s_Ring[slotIdx];
             if (slot.timelineValue != 0 && s_InspectorTimeline.GetValue() < slot.timelineValue)
                 s_InspectorTimeline.Wait(slot.timelineValue);
-
-            UpdateInspectorSamplerSet(slot.samplerSet, samplerView, samplerHandle);
 
             auto vkColor = std::static_pointer_cast<VKTexture>(slot.color);
             auto vkDepth = std::static_pointer_cast<VKTexture>(slot.depth);
@@ -865,8 +741,9 @@ namespace Luth::UI::ThumbnailPreviewScene
             VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
                                                       : s_PipelineStatic.get();
             pipeline->Bind(cmd);
+            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline->GetLayout(), 0, 1, &slot.samplerSet, 0, nullptr);
+                pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
             vkCmdPushConstants(cmd, pipeline->GetLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0, sizeof(pc), &pc);
@@ -927,9 +804,8 @@ namespace Luth::UI::ThumbnailPreviewScene
     ImTextureID RenderMeshInspector(const std::shared_ptr<Model>& model, const OrbitCamera& cam)
     {
         if (!s_Initialized || !model) return (ImTextureID)0;
-        auto vkWhite = std::static_pointer_cast<VKTexture>(s_WhiteTexture);
         return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam,
-                                       vkWhite->GetImageView(), vkWhite->GetSampler());
+                                       ResolveBindlessIndex(s_WhiteTexture));
     }
 
     ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material, const OrbitCamera& cam)
@@ -937,9 +813,9 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!s_Initialized || !material) return (ImTextureID)0;
         if (!LoadSphereLazy())            return (ImTextureID)0;
 
-        // Material-change gate: only flush async uploads when the inspected
-        // material's identity or its texture-map UUID set changes. Steady
-        // state (same material, no edits) does no work here.
+        // Material-change gate: only flush async uploads + drain the bindless pump when the
+        // inspected material's identity or its texture-map UUID set changes. Steady state
+        // (same material, no edits) does no work here.
         const UUID matHandle = material->Handle;
         size_t texHash = 0;
         {
@@ -956,16 +832,14 @@ namespace Luth::UI::ThumbnailPreviewScene
                 if (m.Uuid.IsValid()) AssetManager::LoadImmediate(m.Uuid);
             }
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            UploadContext::Get().DrainPendingBinds();
             s_LastInspectorMaterialHandle  = matHandle;
             s_LastInspectorMaterialTexHash = texHash;
         }
 
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
-        if (!albedo) albedo = s_WhiteTexture;
-        auto vkAlbedo = std::static_pointer_cast<VKTexture>(albedo);
-
         return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam,
-                                       vkAlbedo->GetImageView(), vkAlbedo->GetSampler());
+                                       ResolveBindlessIndex(albedo));
     }
 
     u32 GetInspectorSize() { return kInspectorSize; }

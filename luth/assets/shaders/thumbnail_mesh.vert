@@ -1,9 +1,9 @@
 #version 460
 
-// Thumbnail bake shader. Single sampler binding at set=0 binding=0; mesh bakes
-// bind a 1x1 white default (so albedoTex × albedo == albedo), material bakes
-// bind the material's albedo VKTexture view/sampler directly (sidesteps the
-// bindless-registration race for textures that haven't finished async upload).
+// Thumbnail bake shader. Samples the engine-wide bindless texture array (Set 0 here,
+// same descriptor layout as the main pipeline's Set 1). diffuseIndex is supplied per
+// bake as a push constant — slot 0 (1x1 white) when no albedo texture is assigned,
+// so x*albedo collapses to the flat tint.
 //
 // Model matrix is implicit identity — the bake camera is fitted to the mesh's
 // model-space AABB, so the vertex shader can pass position + normal through.
@@ -15,6 +15,7 @@ layout(location = 2) in vec2 a_UV;
 layout(push_constant) uniform PC {
     mat4 viewProj;
     vec4 albedo;
+    uint diffuseIndex;
 } pc;
 
 layout(location = 0) out vec3 vNormal;
