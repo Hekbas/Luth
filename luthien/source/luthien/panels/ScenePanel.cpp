@@ -204,7 +204,8 @@ namespace Luth
                 {
                     const bool dbgActive = (curMode == (int)ShadeMode::Normals)
                                         || (curMode == (int)ShadeMode::EntityID)
-                                        || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID);
+                                        || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID)
+                                        || (curMode == (int)ShadeMode::ClustersDensity);
                     bool dbgState = dbgActive;
                     if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
                         [&]() {
@@ -234,6 +235,12 @@ namespace Luth
                             if (ImGui::RadioButton("Slim Material ID",  curMode == (int)ShadeMode::SlimMaterialID)) {
                                 settings.lastDebugMode = (u8)ShadeMode::SlimMaterialID;
                                 m_RenderingSystem->SetShadeMode(ShadeMode::SlimMaterialID);
+                            }
+                            ImGui::Separator();
+                            ImGui::TextDisabled("Forward+ Clusters");
+                            if (ImGui::RadioButton("Cluster Density",   curMode == (int)ShadeMode::ClustersDensity)) {
+                                settings.lastDebugMode = (u8)ShadeMode::ClustersDensity;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::ClustersDensity);
                             }
                             ImGui::PopFont();
                         }))

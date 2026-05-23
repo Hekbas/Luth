@@ -135,6 +135,48 @@ namespace Luth
                 std::vector<VkDescriptorSetLayout>{ m_LightAssignSetLayout },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
+
+        // Cluster debug viz pipeline. Two descriptor sets: set 0 = depth sampler (per-view stable),
+        // set 1 = m_LightSetLayout (per-view × per-frame, the existing lightDescSet — only b1 read).
+        {
+            VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+            sampCI.magFilter    = VK_FILTER_NEAREST;
+            sampCI.minFilter    = VK_FILTER_NEAREST;
+            sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(device, &sampCI, nullptr, &m_ClusterVizDepthSampler);
+
+            VkDescriptorSetLayoutBinding sbinding{};
+            sbinding.binding         = 0;
+            sbinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            sbinding.descriptorCount = 1;
+            sbinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            VkDescriptorSetLayoutCreateInfo slayoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            slayoutCI.bindingCount = 1;
+            slayoutCI.pBindings    = &sbinding;
+            vkCreateDescriptorSetLayout(device, &slayoutCI, nullptr, &m_ClusterVizDescSetLayout);
+
+            m_FullscreenVertSpv = loadSpv("shaders/fullscreen.vert");
+            m_ClusterVizFragSpv = loadSpv("shaders/cluster_viz.frag");
+            if (!m_FullscreenVertSpv.empty() && !m_ClusterVizFragSpv.empty())
+            {
+                std::vector<VkDescriptorSetLayout> layouts = { m_ClusterVizDescSetLayout, m_LightSetLayout };
+                VkPushConstantRange pcRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };  // vec2 viewport + nearZ + farZ
+                PipelineConfig cfg;
+                cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
+                cfg.depthFormat        = VK_FORMAT_UNDEFINED;
+                cfg.depthTest          = false;
+                cfg.depthWrite         = false;
+                cfg.blendEnabled       = true;
+                cfg.cullMode           = VK_CULL_MODE_NONE;
+                cfg.pushConstantRanges = { pcRange };
+                m_ClusterVizPipeline = std::make_unique<VKPipeline>(
+                    cfg, m_FullscreenVertSpv, m_ClusterVizFragSpv, layouts);
+            }
+        }
     }
 
     void LightingSubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -179,6 +221,18 @@ namespace Luth
         {
             vkDestroyDescriptorSetLayout(device, m_LightAssignSetLayout, nullptr);
             m_LightAssignSetLayout = VK_NULL_HANDLE;
+        }
+
+        m_ClusterVizPipeline.reset();
+        if (m_ClusterVizDescSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(device, m_ClusterVizDescSetLayout, nullptr);
+            m_ClusterVizDescSetLayout = VK_NULL_HANDLE;
+        }
+        if (m_ClusterVizDepthSampler)
+        {
+            vkDestroySampler(device, m_ClusterVizDepthSampler, nullptr);
+            m_ClusterVizDepthSampler = VK_NULL_HANDLE;
         }
     }
 
@@ -227,6 +281,27 @@ namespace Luth
             m_LightAssignPipeline = std::make_unique<VKComputePipeline>(m_LightAssignSpv,
                 std::vector<VkDescriptorSetLayout>{ m_LightAssignSetLayout },
                 std::vector<VkPushConstantRange>{ pc });
+            return true;
+        }
+        if ((name == "cluster_viz.frag" || name == "fullscreen.vert") && m_ClusterVizDescSetLayout)
+        {
+            if (name == "cluster_viz.frag") m_ClusterVizFragSpv = spv;
+            else                            m_FullscreenVertSpv = spv;
+            deferGfx(m_ClusterVizPipeline);
+            if (!m_FullscreenVertSpv.empty() && !m_ClusterVizFragSpv.empty())
+            {
+                std::vector<VkDescriptorSetLayout> layouts = { m_ClusterVizDescSetLayout, m_LightSetLayout };
+                VkPushConstantRange pcRange{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };
+                PipelineConfig cfg;
+                cfg.colorFormats = { VK_FORMAT_R8G8B8A8_UNORM };
+                cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+                cfg.depthTest    = false; cfg.depthWrite = false;
+                cfg.blendEnabled = true;
+                cfg.cullMode     = VK_CULL_MODE_NONE;
+                cfg.pushConstantRanges = { pcRange };
+                m_ClusterVizPipeline = std::make_unique<VKPipeline>(
+                    cfg, m_FullscreenVertSpv, m_ClusterVizFragSpv, layouts);
+            }
             return true;
         }
 
@@ -977,5 +1052,100 @@ namespace Luth
             });
 
         return out;
+    }
+
+    // Per-view stable depth-sampler write for the ClusterViz set 0. Mirrors the EditorOverlays
+    // sampler-write pattern — called from AllocateViewResources after FrameTargets exists.
+    void LightingSubsystem::WriteClusterVizView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (vr.clusterVizDescSet == VK_NULL_HANDLE || m_ClusterVizDepthSampler == VK_NULL_HANDLE) return;
+
+        auto vkScnDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
+        if (!vkScnDepth) return;
+
+        VkDescriptorImageInfo depthInfo{};
+        depthInfo.sampler     = m_ClusterVizDepthSampler;
+        depthInfo.imageView   = vkScnDepth->GetImageView();
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr.clusterVizDescSet;
+        write.dstBinding      = 0;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &depthInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
+    // Cluster density viz. Fullscreen triangle blended over LDR; samples SceneDepth to compute the
+    // true per-fragment 3D cluster ID (Olsson slice from linearized depth + screen tile from UV),
+    // then heat-maps the cluster's light count over the lit scene.
+    RG::ResourceHandle LightingSubsystem::AddClusterVizPass(RG::RenderGraph& rg,
+                                                            RG::ResourceHandle ldrInput,
+                                                            RG::ResourceHandle sceneDepth)
+    {
+        if (!m_ClusterVizPipeline) return ldrInput;
+
+        struct ClusterVizData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle depth;
+        };
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<ClusterVizData>("ClusterVizPass",
+            [&, ldrInput, sceneDepth](ClusterVizData& d, RG::RenderPassBuilder& builder)
+            {
+                VkClearValue clearVal{ { {0.f, 0.f, 0.f, 1.f} } };
+                d.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_LOAD,
+                                                   VK_ATTACHMENT_STORE_OP_STORE, clearVal);
+                d.depth  = builder.Read(sceneDepth);
+                outputHandle = d.output;
+            },
+            [this](ClusterVizData&, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                const auto* view = m_Pipeline->GetCurrentView();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->clusterVizDescSet == VK_NULL_HANDLE) return;
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex())
+                                 % MAX_FRAMES_IN_FLIGHT;
+                if (vr->lightDescSet[slot] == VK_NULL_HANDLE) return;
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "ClusterVizPass", "LDROutput", false,
+                    { "cluster_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_ClusterVizPipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = { vr->clusterVizDescSet, vr->lightDescSet[slot] };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_ClusterVizPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                struct ClusterVizPC {
+                    Vec2  viewport;
+                    float nearZ;
+                    float farZ;
+                } pc{};
+                pc.viewport = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
+                pc.nearZ    = view->camera.nearZ;
+                pc.farZ     = view->camera.farZ;
+                vkCmdPushConstants(cmd, m_ClusterVizPipeline->GetLayout(),
+                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ClusterVizPC), &pc);
+
+                const u32 w = view->targets->GetLDROutput()->GetWidth();
+                const u32 h = view->targets->GetLDROutput()->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("ClusterVizPass", "FullscreenTriangle", "ClusterViz",
+                    0, 0, dummyPC,
+                    { "cluster_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+        return outputHandle;
     }
 }

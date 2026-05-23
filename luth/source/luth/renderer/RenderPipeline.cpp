@@ -297,6 +297,10 @@ namespace Luth
             const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
             ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimGB, slimMode, /*motionScale*/20.0f);
         }
+        else if (shadeMode == ShadeMode::ClustersDensity)
+        {
+            ldrOutput = m_Lighting.AddClusterVizPass(rg, ldrOutput, prepassDepth);
+        }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)

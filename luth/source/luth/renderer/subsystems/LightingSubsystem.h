@@ -78,8 +78,19 @@ namespace Luth
         // from AllocateViewResources after the descriptor pool has allocated the set.
         void WriteShadowView(struct ViewResources& vr);
 
+        // Cluster debug viz — gated by ShadeMode::ClustersDensity in BuildGraph. Samples SceneDepth
+        // to derive the per-fragment Olsson slice, then reads the per-view cluster grid and heat-maps
+        // the lights-per-cluster count over LDR.
+        RG::ResourceHandle AddClusterVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
+                                              RG::ResourceHandle sceneDepth);
+
+        // Per-view depth-sampler write for the ClusterViz pipeline. Stable across frames — called
+        // once at AllocateViewResources time + on resize via FrameTargets re-allocation.
+        void WriteClusterVizView(struct ViewResources& vr, class FrameTargets& targets);
+
         VkDescriptorSetLayout GetClusterBuildLayout() const { return m_ClusterBuildSetLayout; }
         VkDescriptorSetLayout GetLightAssignLayout()  const { return m_LightAssignSetLayout; }
+        VkDescriptorSetLayout GetClusterVizLayout()   const { return m_ClusterVizDescSetLayout; }
 
         // ---- Accessors ----
         VkDescriptorSetLayout GetSetLayout() const          { return m_LightSetLayout; }
@@ -144,6 +155,14 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_LightAssignPipeline;
         VkDescriptorSetLayout              m_LightAssignSetLayout = VK_NULL_HANDLE;
         std::vector<u32>                   m_LightAssignSpv;
+
+        // Cluster debug viz. Two-set pipeline: set 0 owns the depth sampler (stable per-view, written
+        // by WriteClusterVizView); set 1 reuses the Set 3 lightDescSet for its cluster grid read.
+        std::unique_ptr<VKPipeline> m_ClusterVizPipeline;
+        VkDescriptorSetLayout       m_ClusterVizDescSetLayout = VK_NULL_HANDLE;
+        VkSampler                   m_ClusterVizDepthSampler  = VK_NULL_HANDLE;
+        std::vector<u32>            m_FullscreenVertSpv;
+        std::vector<u32>            m_ClusterVizFragSpv;
 
         // Latest per-frame LightSSBO region from UploadLightingResources. AddLightAssignPass binds
         // the same VkBuffer to binding 0 of the LightAssign compute set.

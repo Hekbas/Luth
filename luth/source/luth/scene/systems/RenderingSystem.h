@@ -51,7 +51,10 @@ namespace Luth
         Lit = 0, Unlit, Wireframe, Normals, EntityID,
         // Slim G-buffer live viz — bypasses tonemap and blits the selected attachment to LDR.
         // Implemented in PostProcessSubsystem::AddSlimVizPass via slim_viz.frag.
-        SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID
+        SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID,
+        // Forward+ cluster density viz — samples SceneDepth to compute the per-fragment 3D cluster
+        // ID and heat-maps the cluster's light count over LDR. LightingSubsystem::AddClusterVizPass.
+        ClustersDensity
     };
 
     struct GeometryOutput {

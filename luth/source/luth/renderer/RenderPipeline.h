@@ -133,6 +133,10 @@ namespace Luth
         // alloc time, propagates to all slots. b0/b1/b2 rebound each frame by UploadLightingResources.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightDescSet{};
 
+        // Cluster debug viz: single set, 1 binding = SceneDepth sampler. Stable per-view; written
+        // by WriteClusterVizView at AllocateViewResources time.
+        VkDescriptorSet clusterVizDescSet = VK_NULL_HANDLE;
+
         // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
         // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
