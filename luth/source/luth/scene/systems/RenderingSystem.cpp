@@ -203,14 +203,10 @@ namespace Luth
         // reference the freshly populated indirect buffer.
         m_DrawListBuilder.Build(snapshot, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
-        // invariant: Set 3 is a single global descriptor — UPDATE_AFTER_BIND late-write would
-        // make View1 draws read View2's lights if rebound per view. Lights are snapshot-derived
-        // (view-independent); cascades stay per-view via Set 0 in RecordView.
+        // LightGatherer + CSM fit. Set 3 is per-view now (cluster grid + light index differ per
+        // view), so the LightSSBO upload + Set 3 binding writes happen inside BuildGraph per view.
         if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
-        {
-            lighting->UpdateFor(snapshot, m_CameraParams); // gathers m_Lights from snapshot
-            m_Pipeline->UploadLightUBO(lighting->GetLights());
-        }
+            lighting->UpdateFor(snapshot, m_CameraParams);
 
         // Primary view — always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;

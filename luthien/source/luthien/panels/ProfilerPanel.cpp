@@ -6,6 +6,7 @@
 #include "luth/core/time/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/SystemRegistry.h"
+#include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/resources/AssetManager.h"
 #include "luthien/widgets/Icons.h"
@@ -103,6 +104,10 @@ namespace Luth
                 // GPU frame time from render graph snapshot
                 if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
                     m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
+
+                // Forward+ stat: active point-light count from the latest LightGatherer output.
+                if (auto ls = SystemRegistry::GetSystem<LightingSystem>())
+                    m_PointLightCount = static_cast<u32>(ls->GetLights().points.size());
             }
 
             // 25002500 Update cached stats at 10Hz 25002500
@@ -285,6 +290,9 @@ namespace Luth
                 ImGui::TextColored(FrameTimeColor(m_FrameTimeAvg), "  Avg: %.1f ms", m_FrameTimeAvg);
                 ImGui::SameLine();
                 ImGui::TextColored(FrameTimeColor(m_FrameTimeMax), "  Max: %.1f ms", m_FrameTimeMax);
+
+                ImGui::Separator();
+                ImGui::Text("Active point lights: %u", m_PointLightCount);
 
                 UI::EndCollapsingHeader();
             }

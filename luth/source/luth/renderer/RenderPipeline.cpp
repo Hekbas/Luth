@@ -2,6 +2,8 @@
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
+#include "luth/scene/systems/LightingSystem.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
@@ -253,6 +255,18 @@ namespace Luth
         // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
         SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
 
+        // Forward+ cluster AABB builder + light-to-cluster assignment. Both async-compute; the
+        // assign pass consumes the build pass's AABB + grid handles directly (no re-import — see
+        // arch hazard 1). UploadLightSSBO must run BEFORE AddLightAssignPass so the assign pass
+        // can bind the same VkBuffer to its b0 read; WriteSet3PerView lands afterwards once all
+        // three per-view tagged-heap regions are known.
+        Memory::GPUSubRegion lightSSBORegion{};
+        if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+            lightSSBORegion = m_Lighting.UploadLightSSBO(lighting->GetLights());
+        LightingSubsystem::ClusterBuildOutputs clusters = m_Lighting.AddClusterBuildPass(rg);
+        LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
+        m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -282,6 +296,10 @@ namespace Luth
         {
             const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
             ldrOutput = m_PostProcess.AddSlimVizPass(rg, ldrOutput, slimGB, slimMode, /*motionScale*/20.0f);
+        }
+        else if (shadeMode == ShadeMode::ClustersDensity)
+        {
+            ldrOutput = m_Lighting.AddClusterVizPass(rg, ldrOutput, prepassDepth);
         }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
@@ -694,11 +712,6 @@ namespace Luth
                                               const DirectionalLightShadowParams& shadowParams)
     {
         m_Global.UpdateUBO(camera, cascades, shadowParams);
-    }
-
-    void RenderPipeline::UploadLightUBO(const LightUniforms& lights)
-    {
-        m_Lighting.UploadLightUBO(lights);
     }
 
     void RenderPipeline::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)

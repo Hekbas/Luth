@@ -27,6 +27,9 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float skyboxIntensity;
     float debugVisualizeCascades;
     float cascadeBlendWidth;
+    vec2  viewportSize;       // pixels — cluster ID + screen-space recon
+    float nearZ;
+    float farZ;
 } ubo;
 
 // Set 4: Bone Matrices SSBO

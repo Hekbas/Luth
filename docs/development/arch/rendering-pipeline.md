@@ -7,7 +7,7 @@
 | 0 | GlobalUniforms + shadow cascade array + IBL irradiance + IBL prefiltered env + BRDF LUT + GTAO settings UBO (6 bindings) | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 1 | b0: Bindless textures (16384 combined image-samplers) + b1: Canonical sampler array (32 slots, 4 reserved at the front: LinearRepeatAnisoMip / LinearClampAnisoMip / NearestRepeatNoMip / NearestClampNoMip) | b0 on upload-fence retire (UPDATE_AFTER_BIND, partially-bound; deferred via `UploadContext` pump per `texture-async-uploads` v2.8.14). b1 fixed-allocated for canonical samplers at startup; `BindSampler`/`UnbindSampler` LIFO over the remaining slots (UPDATE_AFTER_BIND, partially-bound). |
 | 2 | Material SSBO (16384 entries) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
-| 3 | Light UBO (dir + point lights) + shadow map sampler | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
+| 3 | LightSSBO (header + flexible PointLightData[], std430) + ClusterGrid SSBO (uvec2 offset+count per cluster) + LightIndex SSBO (flat indices) + shadow map sampler (4 bindings) | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots; **per-view** (cluster grid + index differ between Scene + Game panel views — see `forward-plus` v3.0.2) |
 | 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 5 | `GPUObjectData` SSBO — per-draw transforms/IDs for indirect dispatch | Per render stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 
@@ -41,11 +41,15 @@ DepthPrepass (depth-only, main view, indirect draw)
   ↓
 SlimGBufferPass (normal RG16F + roughness R8 + motion RG16F + matID R16U; reads prepass depth via EQUAL test, opaque-only)
   ↓
-GTAO: PrefilterPass → MainPass (horizon integral) → DenoisePass (bilateral)
+ClusterBuildPass (compute, AsyncCompute) — per-cluster view-space AABB via Olsson log depth slicing
+  ↓
+LightAssignPass (compute, AsyncCompute) — sphere-vs-AABB per cluster, atomic-packs LightIndex + writes ClusterGrid (offset, count)
+  ↓
+GTAO: PrefilterPass → MainPass → DenoisePass (all on AsyncCompute, sequential after cluster passes on the same compute primary)
   ↓
 CullComputePass (main scene) — populates per-draw indirect args
   ↓
-GeometryPass (PBR forward — opaque/cutout/transparent variants, reads prepass depth + AO + shadows)
+GeometryPass (PBR forward — opaque/cutout/transparent variants; reads prepass depth + AO + shadows + LightSSBO/ClusterGrid/LightIndex via per-view Set 3)
   ↓
 SelectionMaskPass (entity-ID → mask for outline)
   ↓
@@ -57,7 +61,7 @@ BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res)
   ↓
 PostProcessPass (tonemap + bloom compose + vignette + grain + CA → LDR)
   ↓
-SlimVizPass (conditional — runs when ShadeMode is SlimNormal/Roughness/Motion/MaterialID; blits selected slim attachment to LDR via slim_viz.frag, bypassing tonemap)
+SlimVizPass / ClusterVizPass (conditional — gated by ShadeMode; SlimViz for Slim*, ClusterViz for ClustersDensity (cluster_viz.frag samples SceneDepth → 3D cluster ID → heat-map); blit over LDR)
   ↓
 OutlinePass (reads mask + depth, composites onto LDR)
   ↓
@@ -151,12 +155,13 @@ The arc layers new pass families onto the existing render graph; foundational sy
 
 Full per-phase work in `docs/development/epics/rt-renderer.md` (local spec, never committed).
 
-### Render-graph hazards (documented from slim-gbuffer smoke)
+### Render-graph hazards (documented from slim-gbuffer + forward-plus smoke)
 
-Two RG patterns surfaced during A.2 testing — worth knowing before adding new passes that consume FrameTarget outputs:
+Three RG patterns surfaced during A.2 / A.3 testing — worth knowing before adding new passes:
 
 - **Re-importing a VkImage that another pass in the same frame already imported aliases it onto two `ResourceNode`s**. Each `rg.ImportResource(...)` creates a new node with its own `currentState`/`lastWriter`. The barrier solver tracks state per-node, so two nodes wrapping the same VkImage diverge: one node thinks the resource is in state X (from the producer's `Write`), the other in state Y (from the consumer's `ImportResource(... initialState)`). The consumer-side barrier's `oldLayout` mismatches the actual GPU layout → VUID 01197. **Pattern:** when a downstream pass writes/reads a target that an upstream pass produced this frame, take the producer's returned handle as a parameter and use `builder.Read(handle)` / `builder.Write(handle)` — same node, consistent state tracking.
 - **Per-view render state stored on a per-pipeline subsystem causes multi-view contamination.** A single `Mat4` on a subsystem (e.g., `GlobalSubsystem::m_CachedViewProj`) is fine when only one view renders per frame, but breaks the moment another view's `RecordView` runs in the same frame — the second view's read sees the first view's write, not its own previous value. **Pattern:** per-view state lives on `ViewResources` (or any per-view container). `m_CachedViewProj` still works for its existing role (frustum cull within one view's render) because write + read alternate per-view; cross-frame caching does not.
+- **`BufferHandle` is for barrier tracking, not descriptor binding** (`forward-plus` smoke). `RG::BufferHandle` carries `index + version` of an internal `BufferNode`; the node stores only the backing `VkBuffer` pointer (not the sub-region offset within that backing). For tagged-heap-backed buffers, multiple `ImportBuffer` calls on the same `VkBuffer` at different offsets create multiple nodes that all map to the same physical buffer. Resolving a downstream pass's binding via `rg.GetBuffers()[handle.index - 1]` only gives you the `VkBuffer`; the offset must come from the producer's `GPUSubRegion`. **Pattern:** producer returns its `BufferHandle` *plus* `GPUSubRegion(s)` in the output struct; consumer's `VkDescriptorBufferInfo` uses `subRegion.buffer + subRegion.offset + subRegion.size`. Existing `GeometrySubsystem::BuildGPUObjectBuffer` already follows this — internal RG sites do `m_Buffers[handle.index - 1]` only for barrier-solve bookkeeping, never for binding offsets.
 
 ## Memory Budget
 

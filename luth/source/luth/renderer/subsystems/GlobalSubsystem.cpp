@@ -79,18 +79,20 @@ namespace Luth
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
         ubo.viewProjection = ubo.projection * ubo.view;
-        // Per-view prev-VP — stored on ViewResources, NOT on GlobalSubsystem. m_CachedViewProj is
-        // a single global, so multi-view rendering (e.g., Scene + Game panel) was cross-contaminating
-        // prev-VP between views and producing huge motion vectors for static geometry. Each view now
-        // tracks its own previous-frame VP independently. Frame 0: prevViewProj is Identity → motion
-        // nonsense for one frame, settles by frame 1 (matches TAA bootstrap behavior).
-        ViewResources* vrPrev = m_Pipeline->GetCurrentViewResources();
-        if (vrPrev) {
-            ubo.prevViewProjection = vrPrev->prevViewProj;
-            vrPrev->prevViewProj   = ubo.viewProjection;
+        // Per-view prev-VP + viewport size — stored on ViewResources, NOT on GlobalSubsystem. A single
+        // global cross-contaminates between Scene + Game panels (huge motion vectors for static geometry).
+        // Frame 0: prevViewProj is Identity → motion nonsense for one frame, settles by frame 1.
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (vr) {
+            ubo.prevViewProjection = vr->prevViewProj;
+            vr->prevViewProj       = ubo.viewProjection;
+            ubo.viewportSize       = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
+            ubo.viewportSize       = Vec2(0.0f);
         }
+        ubo.nearZ = camera.nearZ;
+        ubo.farZ  = camera.farZ;
         ubo.cameraPos = camera.position;
         ubo.time = Time::GetTime();
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
@@ -114,7 +116,6 @@ namespace Luth
         m_LastUboBytes.resize(sizeof(GlobalUniforms));
         std::memcpy(m_LastUboBytes.data(), &ubo, sizeof(GlobalUniforms));
 
-        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         auto* jobCtx = JobSystem::GetCurrentJobContext();

@@ -46,6 +46,8 @@ namespace Luth
         float m_GameStageMs   = 0.0f;
         float m_RenderStageMs = 0.0f;
 
+        u32   m_PointLightCount = 0;   // Active point lights in the last RenderSnapshot
+
         int   m_TargetFPS = 60;
         float m_FrameBudgetMs = 16.67f;
 

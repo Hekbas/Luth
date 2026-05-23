@@ -32,6 +32,9 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float skyboxIntensity;
     float debugVisualizeCascades;    // 0 = off, 1 = tint by cascade
     float cascadeBlendWidth;         // fraction of slice depth range used for cross-cascade blending
+    vec2  viewportSize;       // pixels — cluster ID + screen-space recon
+    float nearZ;
+    float farZ;
 } ubo;
 
 // Set 0: IBL textures
@@ -82,7 +85,9 @@ layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
     GPUMaterialData materials[];
 };
 
-// Set 3: Lights + Shadow
+// Set 3: Forward+ lighting. b0 = LightSSBO (header + flexible point-light array, std430), b1 =
+// ClusterGrid (uvec2 offset+count per cluster), b2 = LightIndex (flat indices into points[]),
+// b3 = shadow sampler. Cluster ID layout matches cluster_build.comp / light_assign.comp.
 struct DirectionalLightData {
     vec3  direction;
     float intensity;
@@ -97,13 +102,39 @@ struct PointLightData {
     float intensity;
 };
 
-layout(set = 3, binding = 0) uniform LightUBO {
+const uint k_ClusterTilesX  = 16u;
+const uint k_ClusterTilesY  =  9u;
+const uint k_ClusterSlicesZ = 24u;
+
+layout(std430, set = 3, binding = 0) readonly buffer LightBuffer {
     DirectionalLightData dirLight;
-    PointLightData       pointLights[64];
-    int                  numPointLights;
+    uint                 pointLightCount;
+    uint                 _pad[3];
+    PointLightData       points[];
 } lights;
 
-layout(set = 3, binding = 1) uniform sampler2DArrayShadow shadowMap;
+layout(std430, set = 3, binding = 1) readonly buffer ClusterBuffer {
+    uvec2 clusters[];   // (offset, count) into LightIndex
+} clusterGrid;
+
+layout(std430, set = 3, binding = 2) readonly buffer LightIndexBuffer {
+    uint indices[];
+} lightIndex;
+
+layout(set = 3, binding = 3) uniform sampler2DArrayShadow shadowMap;
+
+uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
+    // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
+    float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
+    uint slice = uint(floor(log(max(linDepth, nearZ) / nearZ) / log(farZ / nearZ) * float(k_ClusterSlicesZ)));
+    slice = clamp(slice, 0u, k_ClusterSlicesZ - 1u);
+
+    uvec2 tile = uvec2(fragCoord.xy / (viewportPx / vec2(k_ClusterTilesX, k_ClusterTilesY)));
+    tile.x = min(tile.x, k_ClusterTilesX - 1u);
+    tile.y = min(tile.y, k_ClusterTilesY - 1u);
+
+    return slice * k_ClusterTilesX * k_ClusterTilesY + tile.y * k_ClusterTilesX + tile.x;
+}
 
 // ---------- Flag Constants ----------
 
@@ -414,15 +445,20 @@ void main()
                              V, N, albedo.rgb, metallic, roughness) * sr.shadow;
     }
 
-    // Point lights (no shadows)
-    for (int i = 0; i < min(lights.numPointLights, 64); ++i)
+    // Forward+ point lights: cluster ID from screen position + linearized depth → fetch (offset,
+    // count) → loop only the lights overlapping this cluster.
+    uint  clusterID = ComputeClusterID(gl_FragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
+    uvec2 oc        = clusterGrid.clusters[clusterID];
+    uint  baseIdx   = oc.x;
+    uint  lightCnt  = oc.y;
+    for (uint k = 0u; k < lightCnt; ++k)
     {
-        vec3  toLight   = lights.pointLights[i].position - v_WorldPos;
+        PointLightData pl = lights.points[lightIndex.indices[baseIdx + k]];
+        vec3  toLight   = pl.position - v_WorldPos;
         float dist      = length(toLight);
         float atten     = 1.0 / max(dist * dist, 0.0001);
-        float rolloff   = pow(1.0 - clamp(dist / lights.pointLights[i].range, 0.0, 1.0), 2.0);
-        vec3  ptRadiance = lights.pointLights[i].color
-                         * lights.pointLights[i].intensity * atten * rolloff;
+        float rolloff   = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
+        vec3  ptRadiance = pl.color * pl.intensity * atten * rolloff;
         if (dot(ptRadiance, ptRadiance) > 0.0001)
             Lo += CalculateLight(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
     }

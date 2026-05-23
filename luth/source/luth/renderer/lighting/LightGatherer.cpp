@@ -6,17 +6,16 @@
 namespace Luth
 {
     void LightGatherer::Gather(const RenderSnapshot& snapshot,
-                               LightUniforms& outLights,
+                               GatheredLights& outLights,
                                DirectionalLightShadowParams& outShadow) const
     {
-        outLights = {};
-
         if (snapshot.directionalLight.present)
         {
             const auto& dl = snapshot.directionalLight;
             outLights.dirLight.direction = dl.direction;
             outLights.dirLight.color     = dl.color;
             outLights.dirLight.intensity = dl.intensity;
+            outLights.dirLight._pad      = 0.0f;
 
             outShadow.castShadows           = dl.castShadows;
             outShadow.shadowBias            = dl.shadowBias;
@@ -32,18 +31,21 @@ namespace Luth
             outLights.dirLight.direction = Math::Normalize(Vec3(1.0f, 1.0f, 0.5f));
             outLights.dirLight.color     = Vec3(1.0f);
             outLights.dirLight.intensity = 3.0f;
+            outLights.dirLight._pad      = 0.0f;
             // Shadow params: leave outShadow untouched so last-known config persists.
         }
 
+        // Point-light vector reuses storage across frames — capacity grows monotonically to the
+        // steady-state peak, so the per-frame copy is heap-allocation-free once warmed up.
         const u32 count = static_cast<u32>(snapshot.pointLights.size());
+        outLights.points.resize(count);
         for (u32 i = 0; i < count; ++i)
         {
             const auto& pl = snapshot.pointLights[i];
-            outLights.pointLights[i].position  = pl.position;
-            outLights.pointLights[i].color     = pl.color;
-            outLights.pointLights[i].intensity = pl.intensity;
-            outLights.pointLights[i].range     = pl.range;
+            outLights.points[i].position  = pl.position;
+            outLights.points[i].range     = pl.range;
+            outLights.points[i].color     = pl.color;
+            outLights.points[i].intensity = pl.intensity;
         }
-        outLights.numPointLights = static_cast<i32>(count);
     }
 }

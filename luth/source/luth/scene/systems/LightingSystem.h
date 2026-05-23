@@ -11,11 +11,10 @@ namespace Luth
     struct RenderSnapshot;
 
     // CPU-side per-frame light gathering + directional-light CSM cascade fit.
-    // Outputs feed RenderPipeline's global UBO, shadow-cascade frustum cull,
-    // and the frame debugger capturedFrame snapshot.
+    // Outputs feed RenderPipeline's per-view LightSSBO + cluster passes, shadow-cascade frustum
+    // cull, and the frame debugger capturedFrame snapshot.
     //
-    // Invoked from RenderingSystem::Update via UpdateFor() so the CPU flow
-    // (gather -> cascade fit -> UBO upload -> global uniforms) stays sequenced.
+    // Invoked from RenderingSystem::Update via UpdateFor() so the CPU flow stays sequenced.
     // The ISystem Update override is intentionally a no-op.
     class LightingSystem : public ISystem
     {
@@ -24,14 +23,14 @@ namespace Luth
 
         void UpdateFor(const RenderSnapshot& snapshot, const CameraParams& camera);
 
-        const LightUniforms&                GetLights()       const { return m_Lights; }
+        const GatheredLights&               GetLights()       const { return m_Lights; }
         const CascadeData&                  GetCascades()     const { return m_Cascades; }
         const DirectionalLightShadowParams& GetShadowParams() const { return m_Shadow; }
 
     private:
         LightGatherer                m_Gatherer;
         CascadeBuilder               m_Builder;
-        LightUniforms                m_Lights{};
+        GatheredLights               m_Lights{};
         CascadeData                  m_Cascades{};
         DirectionalLightShadowParams m_Shadow{};
     };

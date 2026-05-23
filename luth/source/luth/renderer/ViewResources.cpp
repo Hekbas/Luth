@@ -16,9 +16,10 @@
 namespace Luth
 {
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
-    static constexpr u32 k_ViewPoolMaxSets              = 32;
+    static constexpr u32 k_ViewPoolMaxSets              = 48;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
     static constexpr u32 k_ViewPoolStorageImageCount    = 8;
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 48;  // Set 3 + cluster build + light assign cycled sets
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
 
     namespace {
@@ -115,18 +116,20 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        VkDescriptorPoolSize poolSizes[3] = {};
+        VkDescriptorPoolSize poolSizes[4] = {};
         poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = k_ViewPoolUniformBufferCount;
         poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         poolSizes[1].descriptorCount = k_ViewPoolStorageImageCount;
         poolSizes[2].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[2].descriptorCount = k_ViewPoolCombinedSamplerCount;
+        poolSizes[3].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[3].descriptorCount = k_ViewPoolStorageBufferCount;
 
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = k_ViewPoolMaxSets;
-        poolInfo.poolSizeCount = 3;
+        poolInfo.poolSizeCount = 4;
         poolInfo.pPoolSizes    = poolSizes;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &vr.descPool);
 
@@ -176,11 +179,17 @@ namespace Luth
         allocSingle(m_EditorOverlays.GetOutlineLayout(), vr.outlineDescSet,       "View.Outline");
         allocCycled(m_EditorOverlays.GetGridLayout(),    vr.gridDescSet,          "View.Grid");
         allocSingle(m_PostProcess.GetSlimVizDescSetLayout(), vr.slimVizDescSet,   "View.SlimViz");
+        allocCycled(m_Lighting.GetSetLayout(),           vr.lightDescSet,         "View.Light");
+        allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
+        allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
+        allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
         m_EditorOverlays.WriteOutlineView(vr, targets);
         m_EditorOverlays.WriteGridView(vr, targets);
+        m_Lighting.WriteShadowView(vr);
+        m_Lighting.WriteClusterVizView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
