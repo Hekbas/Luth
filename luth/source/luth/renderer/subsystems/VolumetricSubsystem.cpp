@@ -57,8 +57,10 @@ namespace Luth
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
         // Inject layout (Set 1): b0/b1 storage images, b2/b3/b4/b5 SSBOs (LightSSBO, ClusterGrid,
-        // LightIndex, FogVolume), b6 shadow sampler. SSBO bindings rebind per-frame against the
-        // latest tagged-heap regions — cycling guarantees disjoint slots so no UAB needed.
+        // LightIndex, FogVolume), b6 shadow sampler. SSBO bindings (2-5) get rewritten per frame
+        // in WriteInjectPerFrame against the latest tagged-heap regions — UAB allows that rewrite
+        // while the prior frame's descriptor set is still pending on the GPU (mirrors the cluster
+        // build / light assign layouts in LightingSubsystem).
         {
             VkDescriptorSetLayoutBinding bindings[7]{};
             for (u32 i = 0; i < 7; ++i)
@@ -75,7 +77,22 @@ namespace Luth
             bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
             bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
 
+            VkDescriptorBindingFlags bindingFlags[7] = {
+                0, 0,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                0,
+            };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 7;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 7;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDescLayout);
@@ -430,10 +447,6 @@ namespace Luth
         auto vkDepth    = std::static_pointer_cast<VKTexture>(sceneDepthTex);
         auto vkScat     = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
-        // Known issue: RG's builder.Read(sceneDepth) doesn't reliably transition the depth target
-        // from DSA → SHADER_READ across the graphics → compute → graphics queue cycle. Validation
-        // fires (VUID-vkCmdDraw-None-09600) but rendering still works. Documented in spec; follow-up
-        // effort will fix RG's cross-queue depth-handoff (cluster_viz has the same latent bug).
         VkDescriptorImageInfo depthInfo{};
         depthInfo.imageView   = vkDepth->GetImageView();
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -462,22 +475,28 @@ namespace Luth
 
     RG::ResourceHandle VolumetricSubsystem::AddCompositePass(RG::RenderGraph& rg,
                                                               RG::ResourceHandle sceneColor,
-                                                              RG::ResourceHandle sceneDepth)
+                                                              RG::ResourceHandle sceneDepth,
+                                                              RG::ResourceHandle inScatter)
     {
         if (!m_CompositePipeline) return sceneColor;
 
         struct CompositeData {
             RG::ResourceHandle color;
             RG::ResourceHandle depth;
+            RG::ResourceHandle inScatter;
         };
         RG::ResourceHandle outputHandle;
 
         rg.AddPass<CompositeData>("VolumetricComposite",
-            [&, sceneColor, sceneDepth](CompositeData& data, RG::RenderPassBuilder& builder)
+            [&, sceneColor, sceneDepth, inScatter](CompositeData& data, RG::RenderPassBuilder& builder)
             {
                 data.color = builder.Write(sceneColor,
                     VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
                 data.depth = builder.Read(sceneDepth);
+                // Sampler-binding 1 of the composite descriptor — declaring the read makes RG emit
+                // the GENERAL → SHADER_READ_ONLY transition after integrate's storage write.
+                if (inScatter.IsValid())
+                    data.inScatter = builder.Read(inScatter);
                 outputHandle = data.color;
             },
             [this](CompositeData& /*data*/, RG::RenderPassContext& ctx)
@@ -524,40 +543,24 @@ namespace Luth
         return outputHandle;
     }
 
-    void VolumetricSubsystem::AddIntegratePass(RG::RenderGraph& rg)
+    RG::ResourceHandle VolumetricSubsystem::AddIntegratePass(RG::RenderGraph& rg, InjectOutputs injectOut)
     {
         struct IntegrateData
         {
             RG::ResourceHandle density;
             RG::ResourceHandle inScatter;
         };
+        RG::ResourceHandle outputHandle;
 
         rg.AddComputePass<IntegrateData>("VolumetricIntegrate", RG::QueueFamily::AsyncCompute,
-            [&](IntegrateData& data, RG::RenderPassBuilder& builder)
+            [&, injectOut](IntegrateData& data, RG::RenderPassBuilder& builder)
             {
-                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-
-                RG::TextureDesc descD;
-                descD.name   = "VolDensity";
-                descD.width  = k_VolDimX;
-                descD.height = k_VolDimY;
-                descD.format = RG::TextureFormat::RGBA16_Float;
-                auto vkDens  = std::static_pointer_cast<VKTexture>(vr->volDensity);
-                data.density = rg.ImportResource(descD,
-                    (void*)vkDens->GetImage(), (void*)vkDens->GetImageView(),
-                    RG::ResourceState::Undefined);
-                data.density = builder.ReadStorageImage(data.density);
-
-                RG::TextureDesc descS;
-                descS.name   = "VolInScatter";
-                descS.width  = k_VolDimX;
-                descS.height = k_VolDimY;
-                descS.format = RG::TextureFormat::RGBA16_Float;
-                auto vkScat    = std::static_pointer_cast<VKTexture>(vr->volInScatter);
-                data.inScatter = rg.ImportResource(descS,
-                    (void*)vkScat->GetImage(), (void*)vkScat->GetImageView(),
-                    RG::ResourceState::Undefined);
-                data.inScatter = builder.WriteStorageImage(data.inScatter);
+                // Reuse inject's ResourceNodes (no fresh ImportResource — arch hazard #1). The atlases
+                // are persistent VMA images shared across both passes; aliasing them onto distinct
+                // nodes would diverge state tracking between the two passes' Solve walks.
+                data.density   = builder.ReadStorageImage(injectOut.density);
+                data.inScatter = builder.WriteStorageImage(injectOut.inScatter);
+                outputHandle   = data.inScatter;
             },
             [this](IntegrateData& /*data*/, RG::RenderPassContext& ctx)
             {
@@ -597,18 +600,22 @@ namespace Luth
                     "volumetric_integrate", groupX, groupY, 1);
                 sys.GetFrameDebugger().EndCapturePass();
             });
+        return outputHandle;
     }
 
-    void VolumetricSubsystem::AddInjectPass(RG::RenderGraph& rg)
+    VolumetricSubsystem::InjectOutputs VolumetricSubsystem::AddInjectPass(RG::RenderGraph& rg,
+        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount])
     {
         struct InjectData
         {
             RG::ResourceHandle density;
             RG::ResourceHandle inScatter;
+            RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
         };
+        InjectOutputs output{};
 
         rg.AddComputePass<InjectData>("VolumetricInject", RG::QueueFamily::AsyncCompute,
-            [&](InjectData& data, RG::RenderPassBuilder& builder)
+            [&, this](InjectData& data, RG::RenderPassBuilder& builder)
             {
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
 
@@ -633,6 +640,18 @@ namespace Luth
                     (void*)vkScat->GetImage(), (void*)vkScat->GetImageView(),
                     RG::ResourceState::Undefined);
                 data.inScatter = builder.WriteStorageImage(data.inScatter);
+
+                // Per-cascade read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1)
+                // — shader binding 6 samples the full shadow-map array. Use ReadStorageImage despite
+                // the COMBINED_IMAGE_SAMPLER descriptor: the builder name is about queue affinity
+                // (ComputeRead → COMPUTE_SHADER stage), not descriptor type. The layout it transitions
+                // to (SHADER_READ_ONLY) matches what the sampler binding expects.
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                    if (shadowHandles[i].IsValid())
+                        data.shadowCascades[i] = builder.ReadStorageImage(shadowHandles[i]);
+
+                output.density   = data.density;
+                output.inScatter = data.inScatter;
             },
             [this](InjectData& /*data*/, RG::RenderPassContext& ctx)
             {
@@ -679,5 +698,6 @@ namespace Luth
                     "volumetric_inject", groupX, groupY, groupZ);
                 sys.GetFrameDebugger().EndCapturePass();
             });
+        return output;
     }
 }

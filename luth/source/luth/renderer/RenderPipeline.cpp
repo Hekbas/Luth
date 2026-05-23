@@ -273,6 +273,7 @@ namespace Luth
         // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
         // composite passes skip entirely; sceneColor flows through unchanged.
         const bool volumetricEnabled = view.camera.enableVolumetricFog;
+        RG::ResourceHandle volInScatterHandle{};
         if (volumetricEnabled)
         {
             Memory::GPUSubRegion fogVolumeRegion{};
@@ -280,8 +281,12 @@ namespace Luth
                 fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
             m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
                                              assign.indexRegion, fogVolumeRegion);
-            m_Volumetric.AddInjectPass(rg);
-            m_Volumetric.AddIntegratePass(rg);
+            // Inject samples shadow cascades via descriptor binding 6 — RG needs the explicit Reads
+            // so it can emit per-layer DSA → SHADER_READ_ONLY barriers. Atlas handles chain through
+            // integrate so both passes share the same ResourceNode (arch hazard #1) and composite
+            // can declare its own sampler Read on the post-integrate inScatter handle.
+            auto injectOut = m_Volumetric.AddInjectPass(rg, shadowHandles);
+            volInScatterHandle = m_Volumetric.AddIntegratePass(rg, injectOut);
         }
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
@@ -301,12 +306,8 @@ namespace Luth
         // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
         // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
         // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
-        // Known: sceneDepth read fires a benign validation (VUID-vkCmdDraw-None-09600) — RG's
-        // depth-attachment layout doesn't transition reliably across the graphics→compute→graphics
-        // queue cycle. See docs/development/epics/volumetric-fog.md "Known issues" for the
-        // follow-up effort that owns the fix.
         RG::ResourceHandle fogColor    = volumetricEnabled
-                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth)
+                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volInScatterHandle)
                                          : skyboxColor;
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid

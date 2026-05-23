@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
@@ -52,17 +53,28 @@ namespace Luth
                                  const Memory::GPUSubRegion& lightIndexRegion,
                                  const Memory::GPUSubRegion& fogVolumeRegion);
 
+        // Inject pass output — atlas handles after the storage writes, threaded into integrate so
+        // both passes share the same `ResourceNode` per arch hazard #1 (no double ImportResource).
+        struct InjectOutputs
+        {
+            RG::ResourceHandle density;
+            RG::ResourceHandle inScatter;
+        };
+
         // Compute pass: per-voxel dir-light + cluster point-light injection with CSM shadow and
         // local FogVolume modulation. Async-compute eligible. Dispatched against the 160x90x128
-        // atlas grid.
-        void AddInjectPass(RG::RenderGraph& rg);
+        // atlas grid. Takes per-cascade shadow handles so RG knows to transition the shadow array
+        // layers from DSA → SHADER_READ_ONLY before sampling (shader binding 6).
+        InjectOutputs AddInjectPass(RG::RenderGraph& rg,
+                                    const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount]);
 
         // Stable per-view writes for the integrate pass — b0 (density read), b1 (inScatter R/W).
         void WriteIntegrateView(ViewResources& vr);
 
         // Compute pass: walks froxel columns front-to-back, accumulating transmittance + in-scatter.
-        // Reads volDensity, writes volInScatter in-place. Async-compute eligible.
-        void AddIntegratePass(RG::RenderGraph& rg);
+        // Reads volDensity, writes volInScatter in-place. Async-compute eligible. Returns the
+        // post-write inScatter handle so composite can declare its sampler read.
+        RG::ResourceHandle AddIntegratePass(RG::RenderGraph& rg, InjectOutputs injectOut);
 
         // Stable per-view writes for the composite pass — b0 (sceneDepth sampler), b1 (volInScatter
         // sampler3D). Single descriptor set, not cycled — bindings don't change across frames.
@@ -72,7 +84,8 @@ namespace Luth
         // Reads sceneColor (via blend), sceneDepth (sampler), volInScatter atlas (sampler3D), and
         // the Global UBO. Writes to sceneColor in-place.
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
-                                            RG::ResourceHandle sceneDepth);
+                                            RG::ResourceHandle sceneDepth,
+                                            RG::ResourceHandle inScatter);
 
         VkSampler                   GetSampler()             const { return m_Sampler; }
         const Memory::GPUSubRegion& GetLastFogVolumeRegion() const { return m_LastFogVolumeRegion; }
