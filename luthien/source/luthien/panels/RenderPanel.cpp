@@ -131,6 +131,16 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Volumetric Fog
+            if (UI::BeginCollapsingHeader("Volumetric Fog", true)) {
+                auto& vs = m_RS->GetVolumetricSettings();
+                if (UI::BeginProperties("VolumetricProps")) {
+                    UI::Property("Multi-Scatter Intensity", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Bloom
             if (UI::BeginCollapsingHeader("Bloom", true)) {
                 if (UI::BeginProperties("BloomProps")) {
