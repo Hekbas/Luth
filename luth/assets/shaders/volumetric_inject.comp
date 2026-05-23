@@ -1,0 +1,34 @@
+#version 450
+
+// Wronski volumetric fog — light injection shell.
+// Writes density + dir-light in-scatter per voxel. Per-voxel cluster + CSM eval and local
+// FogVolume modulation are added in the next commit; this is the smallest pass that puts
+// a volumetric compute dispatch on the wire end-to-end (atlas bind → dispatch → RG barrier
+// to SHADER_READ).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image3D volDensity;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D volInScatter;
+
+layout(push_constant) uniform PC {
+    vec4 dirLightDirIntensity;  // xyz = direction toward light, w = intensity
+    vec4 dirLightColor;         // rgb = color, a = _pad
+} pc;
+
+const ivec3 VOL_DIM = ivec3(160, 90, 128);
+
+void main() {
+    ivec3 voxel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(voxel, VOL_DIM))) return;
+
+    // Constant density + isotropic dir-light in-scatter. The next commit replaces this with
+    // per-voxel world reconstruction (Wronski exponential Z slicing), cluster light iteration,
+    // CSM shadow attenuation, and local FogVolume modulation.
+    const float density    = 0.02;
+    const float kIsotropic = 0.0796;  // 1 / (4 * pi)
+    vec3 inScatter = pc.dirLightColor.rgb * pc.dirLightDirIntensity.w * kIsotropic * density;
+
+    imageStore(volDensity,   voxel, vec4(density, density, density, 0.0));
+    imageStore(volInScatter, voxel, vec4(inScatter, 0.0));
+}

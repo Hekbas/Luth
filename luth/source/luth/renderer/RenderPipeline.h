@@ -137,6 +137,10 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
+        // Volumetric inject pass. Cycled — temporal ping-pong (next commit) starts differentiating
+        // slots by frame parity (current vs history atlas).
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDescSet{};
+
         // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
         // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view
         // alloc time, propagates to all slots. b0/b1/b2 rebound each frame by UploadLightingResources.

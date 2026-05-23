@@ -4,6 +4,7 @@
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
+#include "luth/renderer/subsystems/VolumetricSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -183,6 +184,7 @@ namespace Luth
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
+        allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -190,6 +192,7 @@ namespace Luth
         m_EditorOverlays.WriteGridView(vr, targets);
         m_Lighting.WriteShadowView(vr);
         m_Lighting.WriteClusterVizView(vr, targets);
+        m_Volumetric.WriteInjectView(vr);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }

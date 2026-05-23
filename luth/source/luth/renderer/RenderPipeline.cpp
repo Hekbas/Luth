@@ -270,6 +270,10 @@ namespace Luth
         LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
+        // Volumetric inject — async-compute, runs alongside GTAO. A4.7 shell writes uniform density
+        // + dir-light isotropic in-scatter; next commit threads cluster + CSM + FogVolume modulation.
+        m_Volumetric.AddInjectPass(rg);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
