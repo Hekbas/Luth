@@ -661,6 +661,9 @@ namespace Luth
         if (auto it = m_ViewResources.find(&m_System.GetSceneTargets()); it != m_ViewResources.end()) {
             if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
             if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
+            if (it->second.volDensity)          m_NamedTextures["VolDensity"]           = it->second.volDensity;
+            if (it->second.volInScatter)        m_NamedTextures["VolInScatter"]         = it->second.volInScatter;
+            if (it->second.volInScatterHistory) m_NamedTextures["VolInScatterHistory"]  = it->second.volInScatterHistory;
         }
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();

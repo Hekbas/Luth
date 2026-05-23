@@ -102,6 +102,14 @@ namespace Luth
         std::shared_ptr<Texture> gtaoEdges;
         std::shared_ptr<Texture> gtaoFinal;
 
+        // Volumetric fog atlases (RGBA16F, 160×90×128). View-frustum-aligned; persistent across
+        // frames because the history buffer reprojects from the previous frame's in-scatter.
+        // Allocated via the 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler — the
+        // VolumetricSubsystem owns the shared linear-clamp sampler).
+        std::shared_ptr<Texture> volDensity;
+        std::shared_ptr<Texture> volInScatter;
+        std::shared_ptr<Texture> volInScatterHistory;
+
         // Bloom extract / blur / composite — bind view's SceneColor +
         // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
         // all 4 sets atomically against the per-frame slot.

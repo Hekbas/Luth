@@ -209,6 +209,18 @@ namespace Luth
         vr.gtaoRawAO       = makeStorage(TextureFormat::R8);
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
+
+        // Volumetric fog atlases — fixed 160×90×128 froxel grid (Wronski). View-aligned but
+        // dimensions are independent of viewport pixels, so they don't scale with halfW/halfH.
+        constexpr u32 k_VolW = 160;
+        constexpr u32 k_VolH = 90;
+        constexpr u32 k_VolD = 128;
+        auto makeVolume = [](TextureFormat fmt) {
+            return std::make_shared<VKTexture>(k_VolW, k_VolH, k_VolD, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
+        };
+        vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistory  = makeVolume(TextureFormat::RGBA16F);
     }
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)
@@ -220,6 +232,9 @@ namespace Luth
         vr.gtaoRawAO.reset();
         vr.gtaoEdges.reset();
         vr.gtaoFinal.reset();
+        vr.volDensity.reset();
+        vr.volInScatter.reset();
+        vr.volInScatterHistory.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {
