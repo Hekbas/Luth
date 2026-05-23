@@ -167,6 +167,7 @@ namespace Luth
                 if (UI::BeginProperties("PrefsIBL")) {
                     if (Match("IBL Intensity"))    { committedAny |= UI::Property("IBL Intensity",    s.iblIntensity,    0.01f, 0.0f, 8.0f).committed; ++rowsRendered; }
                     if (Match("Skybox Intensity")) { committedAny |= UI::Property("Skybox Intensity", s.skyboxIntensity, 0.01f, 0.0f, 8.0f).committed; ++rowsRendered; }
+                    if (Match("Volumetric Fog"))   { committedAny |= UI::Property("Volumetric Fog", s.enableVolumetricFog).committed; ++rowsRendered; }
                     UI::EndProperties();
                 }
                 if (rowsRendered > 0 || !filter) {

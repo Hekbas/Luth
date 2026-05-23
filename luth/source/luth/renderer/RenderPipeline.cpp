@@ -270,15 +270,19 @@ namespace Luth
         LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
-        // Volumetric inject — async-compute. Upload FogVolume SSBO this frame (per-frame tagged-heap
-        // region) and refresh the inject pass's per-view SSBO bindings before record + dispatch.
-        Memory::GPUSubRegion fogVolumeRegion{};
-        if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
-            fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
-        m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
-                                         assign.indexRegion, fogVolumeRegion);
-        m_Volumetric.AddInjectPass(rg);
-        m_Volumetric.AddIntegratePass(rg);
+        // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
+        // composite passes skip entirely; sceneColor flows through unchanged.
+        const bool volumetricEnabled = view.camera.enableVolumetricFog;
+        if (volumetricEnabled)
+        {
+            Memory::GPUSubRegion fogVolumeRegion{};
+            if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+                fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
+            m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
+                                             assign.indexRegion, fogVolumeRegion);
+            m_Volumetric.AddInjectPass(rg);
+            m_Volumetric.AddIntegratePass(rg);
+        }
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -296,11 +300,14 @@ namespace Luth
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
         // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
+        // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
         // Known: sceneDepth read fires a benign validation (VUID-vkCmdDraw-None-09600) — RG's
         // depth-attachment layout doesn't transition reliably across the graphics→compute→graphics
         // queue cycle. See docs/development/epics/volumetric-fog.md "Known issues" for the
         // follow-up effort that owns the fix.
-        RG::ResourceHandle fogColor    = m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth);
+        RG::ResourceHandle fogColor    = volumetricEnabled
+                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth)
+                                         : skyboxColor;
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
                                          ? m_EditorOverlays.AddGridPass(rg, fogColor, geoOutput.depth)

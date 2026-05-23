@@ -58,6 +58,7 @@ namespace
             const auto& s = Editor::GetSettings();
             out.iblIntensity     = s.iblIntensity;
             out.skyboxIntensity  = s.skyboxIntensity;
+            out.enableVolumetricFog = s.enableVolumetricFog;
             out.selectedEntities = EditorSelection::GetSelectedEntities();
 
             out.outlineColor          = s.outlineColor;
