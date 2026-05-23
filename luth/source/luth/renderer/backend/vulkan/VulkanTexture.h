@@ -18,12 +18,16 @@ namespace Luth
         // Cubemap / storage image constructor (no data upload — filled via compute or blit)
         VKTexture(u32 width, u32 height, TextureFormat format, u32 arrayLayers,
                   VkImageCreateFlags createFlags, u32 mipLevels, VkImageUsageFlags extraUsage = 0);
+        // 3D storage image (no data upload — filled via compute). Sampler is null; the consumer
+        // subsystem provides its own (volumetrics wants linear-clamp, not bindless anisotropic).
+        VKTexture(u32 width, u32 height, u32 depth, TextureFormat format, VkImageUsageFlags extraUsage = 0);
         virtual ~VKTexture();
 
         virtual void Bind(u32 slot = 0) const override;
 
         virtual u32 GetWidth() const override { return m_Width; }
         virtual u32 GetHeight() const override { return m_Height; }
+        virtual u32 GetDepth() const override { return m_Depth; }
         virtual u32 GetRendererID() const override { return 0; } // Not used in Vulkan
         virtual const fs::path& GetPath() const override { return m_Path; }
 
@@ -62,6 +66,7 @@ namespace Luth
 
         fs::path m_Path;
         u32 m_Width, m_Height;
+        u32 m_Depth = 1;   // > 1 selects VK_IMAGE_TYPE_3D + VK_IMAGE_VIEW_TYPE_3D paths
         TextureFormat m_Format;
         TextureWrapMode m_WrapMode = TextureWrapMode::Repeat;
         TextureFilterMode m_MinFilter = TextureFilterMode::Linear, m_MagFilter = TextureFilterMode::Linear;
