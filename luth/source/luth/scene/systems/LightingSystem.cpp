@@ -9,6 +9,7 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         m_Gatherer.Gather(snapshot, m_Lights, m_Shadow);
+        m_FogGatherer.Gather(snapshot, m_FogVolumes);
         m_Builder.Build(m_Lights.dirLight.direction, camera, m_Shadow, m_Cascades);
     }
 }

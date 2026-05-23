@@ -1,7 +1,13 @@
 #include "luthpch.h"
 #include "luth/renderer/subsystems/VolumetricSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/lighting/FogVolumeGatherer.h"
+#include "luth/core/FrameData.h"
+#include "luth/jobs/JobSystem.h"
+
+#include <cstring>
 
 namespace Luth
 {
@@ -36,5 +42,32 @@ namespace Luth
         // No pipelines yet — each lands with its first-use commit. Reload requests for
         // volumetric_*.{comp,frag} no-op here until those commits add their handlers.
         return false;
+    }
+
+    Memory::GPUSubRegion VolumetricSubsystem::UploadFogVolumeSSBO(const GatheredFogVolumes& volumes)
+    {
+        Memory::GPUSubRegion region{};
+        auto* jobCtx = JobSystem::GetCurrentJobContext();
+        if (!jobCtx) return region;
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        jobCtx->GpuCache.CurrentTag = frameAbs;
+
+        auto& heap = Memory::GPUTaggedPageAllocator::Get();
+        const u64 ssboSize = sizeof(FogVolumeSSBOHeader) + volumes.volumes.size() * sizeof(FogVolumeData);
+        region = heap.Allocate(jobCtx->GpuCache, ssboSize, 16);
+        if (!region.buffer) return {};
+
+        auto* header = static_cast<FogVolumeSSBOHeader*>(region.mappedPtr);
+        header->count = static_cast<u32>(volumes.volumes.size());
+        header->_pad[0] = header->_pad[1] = header->_pad[2] = 0;
+        if (!volumes.volumes.empty())
+        {
+            auto* dst = reinterpret_cast<FogVolumeData*>(
+                static_cast<u8*>(region.mappedPtr) + sizeof(FogVolumeSSBOHeader));
+            std::memcpy(dst, volumes.volumes.data(), volumes.volumes.size() * sizeof(FogVolumeData));
+        }
+        heap.FlushRegion(region);
+        m_LastFogVolumeRegion = region;
+        return region;
     }
 }
