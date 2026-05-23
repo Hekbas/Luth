@@ -109,6 +109,15 @@ namespace Luth
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
+        // Volumetric fog params — distance fog + height fog + multi-scatter scalar.
+        const VolumetricSettings& vs = m_Pipeline->GetSystem().GetVolumetricSettings();
+        ubo.distanceFogColorDensity = Vec4(vs.distanceFogColor, vs.distanceFogDensity);
+        ubo.distanceFogParams       = Vec4(vs.distanceFogStart, vs.distanceFogMaxOpacity,
+                                           vs.distanceFogEnabled ? 1.0f : 0.0f, 0.0f);
+        ubo.heightFogColorDensity   = Vec4(vs.heightFogColor, vs.heightFogDensity);
+        ubo.heightFogParams         = Vec4(vs.heightFogRefHeight, vs.heightFogFalloff,
+                                           vs.heightFogEnabled ? 1.0f : 0.0f, vs.multiScatterIntensity);
+
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.
         m_CachedViewProj = ubo.viewProjection;

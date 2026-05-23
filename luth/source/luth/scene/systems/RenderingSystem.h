@@ -14,6 +14,7 @@
 #include "luth/renderer/rendergraph/FrameCapture.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/renderer/settings/VolumetricSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -45,6 +46,14 @@ namespace Luth
         Vec2      viewportSize;        // pixels (W, H) — fragment cluster ID, screen-space reconstruction
         float     nearZ;
         float     farZ;
+        // Volumetric fog params. rgb/a packing keeps the std140 ride efficient — 4 vec4 = 64 B.
+        // .a of distanceFogColorDensity / heightFogColorDensity carries density (single-channel).
+        // distanceFogParams: x = start, y = maxOpacity, z = enabled flag (0/1), w = pad.
+        // heightFogParams:   x = refHeight, y = falloff, z = enabled flag, w = multiScatterIntensity.
+        Vec4 distanceFogColorDensity;
+        Vec4 distanceFogParams;
+        Vec4 heightFogColorDensity;
+        Vec4 heightFogParams;
     };
 
     enum class ShadeMode : u8 {
@@ -112,6 +121,9 @@ namespace Luth
         }
         PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
         const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
+
+        VolumetricSettings& GetVolumetricSettings() { return m_VolumetricSettings; }
+        const VolumetricSettings& GetVolumetricSettings() const { return m_VolumetricSettings; }
 
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
@@ -220,6 +232,7 @@ namespace Luth
 
         // Editor-facing state.
         PostProcessSettings m_PostProcessSettings;
+        VolumetricSettings  m_VolumetricSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 
