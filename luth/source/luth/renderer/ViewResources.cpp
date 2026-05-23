@@ -75,6 +75,8 @@ namespace Luth
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
             m_EditorOverlays.WriteGridView(vr, targets);
+            // sceneDepth is per-view + recreated on resize, so re-bind the composite descriptor too.
+            m_Volumetric.WriteCompositeView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -186,6 +188,7 @@ namespace Luth
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
         allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
         allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
+        allocSingle(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -195,6 +198,7 @@ namespace Luth
         m_Lighting.WriteClusterVizView(vr, targets);
         m_Volumetric.WriteInjectView(vr);
         m_Volumetric.WriteIntegrateView(vr);
+        m_Volumetric.WriteCompositeView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }

@@ -5,6 +5,7 @@
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/lighting/FogVolumeGatherer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/scene/systems/LightingSystem.h"
@@ -128,6 +129,47 @@ namespace Luth
                 std::vector<VkDescriptorSetLayout>{ m_IntegrateDescLayout },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
+
+        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D). All FRAGMENT stage.
+        // Single set per view (no cycling); bindings stable across frames.
+        {
+            VkDescriptorSetLayoutBinding bindings[2]{};
+            for (u32 i = 0; i < 2; ++i)
+            {
+                bindings[i].binding         = i;
+                bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[i].descriptorCount = 1;
+                bindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+            }
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 2;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_CompositeDescLayout);
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
+                m_FullscreenVertSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_composite.frag"))
+                m_CompositeFragSpv = sh->GetSpirV();
+            if (m_FullscreenVertSpv.empty() || m_CompositeFragSpv.empty())
+            {
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load composite shaders!");
+                return;
+            }
+
+            PipelineConfig cfg{};
+            cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };  // matches SceneColor
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;                 // no depth attachment
+            cfg.depthTest    = false;
+            cfg.depthWrite   = false;
+            cfg.blendEnabled = true;                                // standard alpha — shader emits (fogColor, fogOpacity)
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            std::vector<VkDescriptorSetLayout> setLayouts = {
+                pipeline.GetGlobal().GetSetLayout(),
+                m_CompositeDescLayout,
+            };
+            m_CompositePipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
+        }
     }
 
     void VolumetricSubsystem::Shutdown()
@@ -135,11 +177,14 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InjectPipeline.reset();
         m_IntegratePipeline.reset();
+        m_CompositePipeline.reset();
         if (m_InjectDescLayout)    vkDestroyDescriptorSetLayout(device, m_InjectDescLayout, nullptr);
         if (m_IntegrateDescLayout) vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
+        if (m_CompositeDescLayout) vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
         if (m_Sampler)             vkDestroySampler(device, m_Sampler, nullptr);
         m_InjectDescLayout    = VK_NULL_HANDLE;
         m_IntegrateDescLayout = VK_NULL_HANDLE;
+        m_CompositeDescLayout = VK_NULL_HANDLE;
         m_Sampler             = VK_NULL_HANDLE;
     }
 
@@ -171,6 +216,28 @@ namespace Luth
             m_IntegratePipeline = std::make_unique<VKComputePipeline>(m_IntegrateSpv,
                 std::vector<VkDescriptorSetLayout>{ m_IntegrateDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
+            return true;
+        }
+        if ((name == "volumetric_composite.frag" || name == "fullscreen.vert")
+            && m_CompositeDescLayout)
+        {
+            if (name == "volumetric_composite.frag") m_CompositeFragSpv = spv;
+            else                                     m_FullscreenVertSpv = spv;
+            if (auto* raw = m_CompositePipeline.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            PipelineConfig cfg{};
+            cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false;
+            cfg.depthWrite   = false;
+            cfg.blendEnabled = true;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            std::vector<VkDescriptorSetLayout> setLayouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(),
+                m_CompositeDescLayout,
+            };
+            m_CompositePipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
             return true;
         }
         return false;
@@ -341,6 +408,108 @@ namespace Luth
             ++w;
         }
         vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteCompositeView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
+        if (vr.volCompositeDescSet == VK_NULL_HANDLE) return;
+
+        auto sceneDepthTex = targets.GetSceneDepth();
+        if (!sceneDepthTex || !vr.volInScatter) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto vkDepth    = std::static_pointer_cast<VKTexture>(sceneDepthTex);
+        auto vkScat     = std::static_pointer_cast<VKTexture>(vr.volInScatter);
+
+        VkDescriptorImageInfo depthInfo{};
+        depthInfo.imageView   = vkDepth->GetImageView();
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        depthInfo.sampler     = m_Sampler;
+
+        VkDescriptorImageInfo scatInfo{};
+        scatInfo.imageView   = vkScat->GetImageView();
+        scatInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        scatInfo.sampler     = m_Sampler;
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = vr.volCompositeDescSet;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo      = &depthInfo;
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = vr.volCompositeDescSet;
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo      = &scatInfo;
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    }
+
+    RG::ResourceHandle VolumetricSubsystem::AddCompositePass(RG::RenderGraph& rg,
+                                                              RG::ResourceHandle sceneColor,
+                                                              RG::ResourceHandle sceneDepth)
+    {
+        if (!m_CompositePipeline) return sceneColor;
+
+        struct CompositeData {
+            RG::ResourceHandle color;
+            RG::ResourceHandle depth;
+        };
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<CompositeData>("VolumetricComposite",
+            [&, sceneColor, sceneDepth](CompositeData& data, RG::RenderPassBuilder& builder)
+            {
+                data.color = builder.Write(sceneColor,
+                    VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+                data.depth = builder.Read(sceneDepth);
+                outputHandle = data.color;
+            },
+            [this](CompositeData& /*data*/, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                const auto* view = m_Pipeline->GetCurrentView();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricComposite",
+                    "SceneColor", false,
+                    { "volumetric_composite", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                if (!m_CompositePipeline || vr->volCompositeDescSet == VK_NULL_HANDLE)
+                {
+                    sys.GetFrameDebugger().EndCapturePass();
+                    return;
+                }
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_CompositePipeline->Bind(cmd);
+
+                VkDescriptorSet sets[2] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->volCompositeDescSet,
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_CompositePipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                u32 w = view->targets->GetSceneColor()->GetWidth();
+                u32 h = view->targets->GetSceneColor()->GetHeight();
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("VolumetricComposite", "FullscreenTriangle",
+                    "VolumetricComposite", 0, 0, dummyPC,
+                    { "volumetric_composite", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            });
+        return outputHandle;
     }
 
     void VolumetricSubsystem::AddIntegratePass(RG::RenderGraph& rg)

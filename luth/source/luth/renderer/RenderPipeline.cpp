@@ -294,10 +294,13 @@ namespace Luth
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
+        // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
+        // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
+        RG::ResourceHandle fogColor    = m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth);
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
-                                         : skyboxColor;
+                                         ? m_EditorOverlays.AddGridPass(rg, fogColor, geoOutput.depth)
+                                         : fogColor;
         RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
 
         // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.
