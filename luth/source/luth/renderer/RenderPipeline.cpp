@@ -272,8 +272,10 @@ namespace Luth
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
         // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
-        // composite passes skip entirely; sceneColor flows through unchanged.
+        // composite passes skip entirely; sceneColor flows through unchanged. injectOut hoisted
+        // to outer scope so the debug viz pass below can reference the density atlas handle.
         const bool volumetricEnabled = view.camera.enableVolumetricFog;
+        VolumetricSubsystem::InjectOutputs injectOut{};
         RG::ResourceHandle volInScatterHandle{};
         if (volumetricEnabled && m_CurrentViewResources)
         {
@@ -281,18 +283,19 @@ namespace Luth
             Memory::GPUSubRegion fogVolumeRegion{};
             if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
                 fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
-            // Inject/integrate/composite descriptors all parity-rewrite b1 (and inject also b0/b7)
-            // each frame to ping-pong the volInScatter/volInScatterHistory atlas pair. Cycled slots
-            // keep this frame's rewrite disjoint from in-flight prior frame's reads.
+            // Inject/integrate/composite/viz descriptors all parity-rewrite b1 (and inject also
+            // b0/b7) each frame to ping-pong the volInScatter/volInScatterHistory atlas pair.
+            // Cycled slots keep this frame's rewrite disjoint from in-flight prior frame's reads.
             m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
                                              assign.indexRegion, fogVolumeRegion, frameAbs);
             m_Volumetric.WriteIntegratePerFrame(*m_CurrentViewResources, frameAbs);
             m_Volumetric.WriteCompositePerFrame(*m_CurrentViewResources, *view.targets, frameAbs);
+            m_Volumetric.WriteVizPerFrame(*m_CurrentViewResources, frameAbs);
             // Inject samples shadow cascades via descriptor binding 6 — RG needs the explicit Reads
             // so it can emit per-layer DSA → SHADER_READ_ONLY barriers. Atlas handles chain through
             // integrate so both passes share the same ResourceNode (arch hazard #1) and composite
             // can declare its own sampler Read on the post-integrate inScatter handle.
-            auto injectOut = m_Volumetric.AddInjectPass(rg, shadowHandles);
+            injectOut = m_Volumetric.AddInjectPass(rg, shadowHandles);
             volInScatterHandle = m_Volumetric.AddIntegratePass(rg, injectOut);
         }
 
@@ -335,6 +338,14 @@ namespace Luth
         else if (shadeMode == ShadeMode::ClustersDensity)
         {
             ldrOutput = m_Lighting.AddClusterVizPass(rg, ldrOutput, prepassDepth);
+        }
+        else if ((shadeMode == ShadeMode::VolumetricDensity ||
+                  shadeMode == ShadeMode::VolumetricInScatter) &&
+                 volumetricEnabled && m_CurrentViewResources)
+        {
+            const u32 vizMode = (shadeMode == ShadeMode::VolumetricDensity) ? 0u : 1u;
+            ldrOutput = m_Volumetric.AddVizPass(rg, ldrOutput, injectOut.density,
+                                                volInScatterHandle, prepassDepth, vizMode);
         }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline

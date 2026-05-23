@@ -63,7 +63,10 @@ namespace Luth
         SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID,
         // Forward+ cluster density viz — samples SceneDepth to compute the per-fragment 3D cluster
         // ID and heat-maps the cluster's light count over LDR. LightingSubsystem::AddClusterVizPass.
-        ClustersDensity
+        ClustersDensity,
+        // Volumetric fog atlas viz — samples SceneDepth to derive the Wronski slice, then reads
+        // the per-view fog atlas. Two modes: density heat-map and integrated in-scatter radiance.
+        VolumetricDensity, VolumetricInScatter
     };
 
     struct GeometryOutput {

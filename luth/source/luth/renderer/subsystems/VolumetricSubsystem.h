@@ -92,6 +92,20 @@ namespace Luth
         // Per-frame rewrite of composite b1 — samples the atlas that was integrated this frame.
         void WriteCompositePerFrame(ViewResources& vr, FrameTargets& targets, u32 frameAbs);
 
+        // Stable per-view write of the viz descriptor — only b0 (sceneDepth sampler) and b1
+        // (volDensity sampler) are stable. b2 (volInScatter sampler) parity-rewrites per frame
+        // in WriteVizPerFrame to follow the integrate ping-pong target. Viz set is cycled per
+        // MAX_FRAMES_IN_FLIGHT slot like the other volumetric sets.
+        void WriteVizView(ViewResources& vr, FrameTargets& targets);
+        void WriteVizPerFrame(ViewResources& vr, u32 frameAbs);
+
+        // Debug graphics pass: blits a heat-mapped density or raw in-scatter radiance over LDR.
+        // ShadeMode::VolumetricDensity → mode 0; VolumetricInScatter → mode 1. Declares Read on
+        // sceneDepth + density + inScatter so RG transitions all three to SHADER_READ_ONLY.
+        RG::ResourceHandle AddVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
+                                      RG::ResourceHandle density, RG::ResourceHandle inScatter,
+                                      RG::ResourceHandle sceneDepth, u32 mode);
+
         // Graphics pass: blends fog-modulated radiance back into sceneColor via standard alpha blend.
         // Reads sceneColor (via blend), sceneDepth (sampler), volInScatter atlas (sampler3D), and
         // the Global UBO. Writes to sceneColor in-place.
@@ -104,6 +118,7 @@ namespace Luth
         VkDescriptorSetLayout       GetInjectLayout()        const { return m_InjectDescLayout; }
         VkDescriptorSetLayout       GetIntegrateLayout()     const { return m_IntegrateDescLayout; }
         VkDescriptorSetLayout       GetCompositeLayout()     const { return m_CompositeDescLayout; }
+        VkDescriptorSetLayout       GetVizLayout()           const { return m_VizDescLayout; }
 
     private:
         RenderPipeline*      m_Pipeline = nullptr;
@@ -126,5 +141,10 @@ namespace Luth
         std::unique_ptr<VKPipeline>        m_CompositePipeline;
         std::vector<u32>                   m_FullscreenVertSpv;
         std::vector<u32>                   m_CompositeFragSpv;
+
+        // Debug viz pass — heat-mapped density or in-scatter overlay onto LDR.
+        VkDescriptorSetLayout              m_VizDescLayout = VK_NULL_HANDLE;
+        std::unique_ptr<VKPipeline>        m_VizPipeline;
+        std::vector<u32>                   m_VizFragSpv;
     };
 }

@@ -212,6 +212,53 @@ namespace Luth
             m_CompositePipeline = std::make_unique<VKPipeline>(
                 cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
         }
+
+        // Viz layout (Set 1) — b0 sceneDepth, b1 volDensity, b2 volInScatter. All FRAGMENT.
+        // b2 parity-rewrites per frame to follow integrate's ping-pong target. Cycled set.
+        {
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            for (u32 i = 0; i < 3; ++i)
+            {
+                bindings[i].binding         = i;
+                bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                bindings[i].descriptorCount = 1;
+                bindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+            }
+            VkDescriptorBindingFlags bindingFlags[3] = { 0, 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 3;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            layoutCI.bindingCount = 3;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_VizDescLayout);
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_viz.frag"))
+                m_VizFragSpv = sh->GetSpirV();
+            if (!m_VizFragSpv.empty() && !m_FullscreenVertSpv.empty())
+            {
+                VkPushConstantRange pc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                        sizeof(u32) + sizeof(f32) + sizeof(f32) };
+                PipelineConfig cfg{};
+                cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };  // matches LDR
+                cfg.depthFormat        = VK_FORMAT_UNDEFINED;
+                cfg.depthTest          = false;
+                cfg.depthWrite         = false;
+                cfg.blendEnabled       = true;
+                cfg.cullMode           = VK_CULL_MODE_NONE;
+                cfg.pushConstantRanges = { pc };
+                std::vector<VkDescriptorSetLayout> vizLayouts = {
+                    pipeline.GetGlobal().GetSetLayout(),
+                    m_VizDescLayout,
+                };
+                m_VizPipeline = std::make_unique<VKPipeline>(
+                    cfg, m_FullscreenVertSpv, m_VizFragSpv, vizLayouts);
+            }
+        }
     }
 
     void VolumetricSubsystem::Shutdown()
@@ -220,13 +267,16 @@ namespace Luth
         m_InjectPipeline.reset();
         m_IntegratePipeline.reset();
         m_CompositePipeline.reset();
+        m_VizPipeline.reset();
         if (m_InjectDescLayout)    vkDestroyDescriptorSetLayout(device, m_InjectDescLayout, nullptr);
         if (m_IntegrateDescLayout) vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
         if (m_CompositeDescLayout) vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
+        if (m_VizDescLayout)       vkDestroyDescriptorSetLayout(device, m_VizDescLayout, nullptr);
         if (m_Sampler)             vkDestroySampler(device, m_Sampler, nullptr);
         m_InjectDescLayout    = VK_NULL_HANDLE;
         m_IntegrateDescLayout = VK_NULL_HANDLE;
         m_CompositeDescLayout = VK_NULL_HANDLE;
+        m_VizDescLayout       = VK_NULL_HANDLE;
         m_Sampler             = VK_NULL_HANDLE;
     }
 
@@ -280,6 +330,29 @@ namespace Luth
             };
             m_CompositePipeline = std::make_unique<VKPipeline>(
                 cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
+            return true;
+        }
+        if (name == "volumetric_viz.frag" && m_VizDescLayout)
+        {
+            m_VizFragSpv = spv;
+            if (auto* raw = m_VizPipeline.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            VkPushConstantRange pc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                    sizeof(u32) + sizeof(f32) + sizeof(f32) };
+            PipelineConfig cfg{};
+            cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
+            cfg.depthFormat        = VK_FORMAT_UNDEFINED;
+            cfg.depthTest          = false;
+            cfg.depthWrite         = false;
+            cfg.blendEnabled       = true;
+            cfg.cullMode           = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { pc };
+            std::vector<VkDescriptorSetLayout> vizLayouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(),
+                m_VizDescLayout,
+            };
+            m_VizPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_VizFragSpv, vizLayouts);
             return true;
         }
         return false;
@@ -791,5 +864,160 @@ namespace Luth
                 sys.GetFrameDebugger().EndCapturePass();
             });
         return output;
+    }
+
+    void VolumetricSubsystem::WriteVizView(ViewResources& vr, FrameTargets& targets)
+    {
+        // Stable: b0 (sceneDepth sampler), b1 (volDensity sampler). b2 (volInScatter) follows
+        // ping-pong parity, rewritten in WriteVizPerFrame.
+        if (m_VizDescLayout == VK_NULL_HANDLE) return;
+        auto sceneDepthTex = targets.GetSceneDepth();
+        if (!sceneDepthTex || !vr.volDensity) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto vkDepth = std::static_pointer_cast<VKTexture>(sceneDepthTex);
+        auto vkDens  = std::static_pointer_cast<VKTexture>(vr.volDensity);
+
+        VkDescriptorImageInfo depthInfo{};
+        depthInfo.imageView   = vkDepth->GetImageView();
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        depthInfo.sampler     = m_Sampler;
+        VkDescriptorImageInfo densInfo{};
+        densInfo.imageView   = vkDens->GetImageView();
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        densInfo.sampler     = m_Sampler;
+
+        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
+        u32 w = 0;
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorSet set = vr.volVizDescSet[i];
+            if (set == VK_NULL_HANDLE) continue;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 0;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &depthInfo;
+            ++w;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 1;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &densInfo;
+            ++w;
+        }
+        vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteVizPerFrame(ViewResources& vr, u32 frameAbs)
+    {
+        if (m_VizDescLayout == VK_NULL_HANDLE) return;
+        if (!vr.volInScatter || !vr.volInScatterHistory) return;
+
+        const u32 slot    = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        const bool parity = (frameAbs & 1u) != 0u;
+        if (vr.volVizDescSet[slot] == VK_NULL_HANDLE) return;
+
+        // Same parity rule as composite: sample whichever atlas integrate wrote to this frame.
+        auto vkScat = std::static_pointer_cast<VKTexture>(
+            parity ? vr.volInScatterHistory : vr.volInScatter);
+
+        VkDescriptorImageInfo scatInfo{};
+        scatInfo.imageView   = vkScat->GetImageView();
+        scatInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        scatInfo.sampler     = m_Sampler;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr.volVizDescSet[slot];
+        write.dstBinding      = 2;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &scatInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
+    RG::ResourceHandle VolumetricSubsystem::AddVizPass(RG::RenderGraph& rg,
+                                                       RG::ResourceHandle ldrInput,
+                                                       RG::ResourceHandle density,
+                                                       RG::ResourceHandle inScatter,
+                                                       RG::ResourceHandle sceneDepth,
+                                                       u32 mode)
+    {
+        if (!m_VizPipeline) return ldrInput;
+
+        struct VizData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle depth;
+            RG::ResourceHandle density;
+            RG::ResourceHandle inScatter;
+        };
+        RG::ResourceHandle outputHandle;
+
+        rg.AddPass<VizData>("VolumetricVizPass",
+            [&, ldrInput, sceneDepth, density, inScatter](VizData& d, RG::RenderPassBuilder& builder)
+            {
+                VkClearValue clearVal{ { { 0.f, 0.f, 0.f, 1.f } } };
+                d.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_LOAD,
+                                                   VK_ATTACHMENT_STORE_OP_STORE, clearVal);
+                d.depth  = builder.Read(sceneDepth);
+                // Both atlases sampled via descriptors — RG MUST know so it emits the
+                // GENERAL → SHADER_READ_ONLY transitions (v3.0.4 lesson, hazard #1 family).
+                if (density.IsValid())   d.density   = builder.Read(density);
+                if (inScatter.IsValid()) d.inScatter = builder.Read(inScatter);
+                outputHandle = d.output;
+            },
+            [this, mode](VizData&, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                const auto* view = m_Pipeline->GetCurrentView();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricVizPass",
+                    "LDROutput", false,
+                    { "volumetric_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                if (!vr || vr->volVizDescSet[slot] == VK_NULL_HANDLE ||
+                    vr->globalDescriptorSet[slot] == VK_NULL_HANDLE)
+                {
+                    sys.GetFrameDebugger().EndCapturePass();
+                    return;
+                }
+
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_VizPipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->volVizDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_VizPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                struct VizPC { u32 mode; f32 scale; f32 overlayAlpha; } pc{};
+                pc.mode         = mode;
+                // Density rarely exceeds 1.0; in-scatter is HDR radiance (can be >> 1). Slim default
+                // scale that keeps both visually meaningful; finer tuning happens via the toggle.
+                pc.scale        = (mode == 0u) ? 5.0f : 0.5f;
+                pc.overlayAlpha = 0.75f;
+                vkCmdPushConstants(cmd, m_VizPipeline->GetLayout(),
+                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VizPC), &pc);
+
+                u32 w = view->targets->GetLDROutput()->GetWidth();
+                u32 h = view->targets->GetLDROutput()->GetHeight();
+                VkViewport vp{}; vp.width = (f32)w; vp.height = (f32)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("VolumetricVizPass", "FullscreenTriangle",
+                    "VolumetricViz", 0, 0, dummyPC,
+                    { "volumetric_viz", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            });
+        return outputHandle;
     }
 }
