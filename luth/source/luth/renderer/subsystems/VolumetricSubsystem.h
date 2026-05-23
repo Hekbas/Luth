@@ -55,18 +55,31 @@ namespace Luth
         // atlas grid.
         void AddInjectPass(RG::RenderGraph& rg);
 
+        // Stable per-view writes for the integrate pass — b0 (density read), b1 (inScatter R/W).
+        void WriteIntegrateView(ViewResources& vr);
+
+        // Compute pass: walks froxel columns front-to-back, accumulating transmittance + in-scatter.
+        // Reads volDensity, writes volInScatter in-place. Async-compute eligible.
+        void AddIntegratePass(RG::RenderGraph& rg);
+
         VkSampler                   GetSampler()             const { return m_Sampler; }
         const Memory::GPUSubRegion& GetLastFogVolumeRegion() const { return m_LastFogVolumeRegion; }
         VkDescriptorSetLayout       GetInjectLayout()        const { return m_InjectDescLayout; }
+        VkDescriptorSetLayout       GetIntegrateLayout()     const { return m_IntegrateDescLayout; }
 
     private:
         RenderPipeline*      m_Pipeline = nullptr;
         VkSampler            m_Sampler  = VK_NULL_HANDLE;
         Memory::GPUSubRegion m_LastFogVolumeRegion{};
 
-        // Inject pass — first volumetric pipeline on the wire. Two storage images written per voxel.
+        // Inject pass — per-voxel light injection (dir + cluster + FogVolume modulation).
         VkDescriptorSetLayout              m_InjectDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_InjectPipeline;
         std::vector<u32>                   m_InjectSpv;
+
+        // Integrate pass — front-to-back ray march in-place over volInScatter.
+        VkDescriptorSetLayout              m_IntegrateDescLayout = VK_NULL_HANDLE;
+        std::unique_ptr<VKComputePipeline> m_IntegratePipeline;
+        std::vector<u32>                   m_IntegrateSpv;
     };
 }

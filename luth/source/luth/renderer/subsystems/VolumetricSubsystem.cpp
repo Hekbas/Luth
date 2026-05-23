@@ -30,6 +30,11 @@ namespace Luth
         {
             Mat4 invView;  // Push 64 B once per dispatch; avoids per-voxel inverse(ubo.view).
         };
+
+        struct IntegratePC
+        {
+            Vec4 nearFarPad;  // x = nearZ, y = farZ (matches integrate shader)
+        };
     }
 
     void VolumetricSubsystem::Init(RenderPipeline& pipeline)
@@ -92,16 +97,50 @@ namespace Luth
                 },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
+
+        // Integrate layout — b0 readonly volDensity, b1 read+write volInScatter. Single thread per
+        // froxel column walks Z; no SSBO access, no Global UBO (push constant carries nearZ/farZ).
+        {
+            VkDescriptorSetLayoutBinding bindings[2]{};
+            for (u32 i = 0; i < 2; ++i)
+            {
+                bindings[i].binding         = i;
+                bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                bindings[i].descriptorCount = 1;
+                bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            }
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.bindingCount = 2;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_IntegrateDescLayout);
+
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IntegratePC) };
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_integrate.comp"))
+                m_IntegrateSpv = sh->GetSpirV();
+            if (m_IntegrateSpv.empty())
+            {
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_integrate.comp!");
+                return;
+            }
+            m_IntegratePipeline = std::make_unique<VKComputePipeline>(
+                m_IntegrateSpv,
+                std::vector<VkDescriptorSetLayout>{ m_IntegrateDescLayout },
+                std::vector<VkPushConstantRange>{ pcRange });
+        }
     }
 
     void VolumetricSubsystem::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InjectPipeline.reset();
-        if (m_InjectDescLayout) vkDestroyDescriptorSetLayout(device, m_InjectDescLayout, nullptr);
-        if (m_Sampler)          vkDestroySampler(device, m_Sampler, nullptr);
-        m_InjectDescLayout = VK_NULL_HANDLE;
-        m_Sampler          = VK_NULL_HANDLE;
+        m_IntegratePipeline.reset();
+        if (m_InjectDescLayout)    vkDestroyDescriptorSetLayout(device, m_InjectDescLayout, nullptr);
+        if (m_IntegrateDescLayout) vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
+        if (m_Sampler)             vkDestroySampler(device, m_Sampler, nullptr);
+        m_InjectDescLayout    = VK_NULL_HANDLE;
+        m_IntegrateDescLayout = VK_NULL_HANDLE;
+        m_Sampler             = VK_NULL_HANDLE;
     }
 
     bool VolumetricSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -117,7 +156,20 @@ namespace Luth
             deferComp(m_InjectPipeline);
             VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
             m_InjectPipeline = std::make_unique<VKComputePipeline>(m_InjectSpv,
-                std::vector<VkDescriptorSetLayout>{ m_InjectDescLayout },
+                std::vector<VkDescriptorSetLayout>{
+                    m_Pipeline->GetGlobal().GetSetLayout(),
+                    m_InjectDescLayout,
+                },
+                std::vector<VkPushConstantRange>{ pc });
+            return true;
+        }
+        if (name == "volumetric_integrate.comp" && m_IntegrateDescLayout)
+        {
+            m_IntegrateSpv = spv;
+            deferComp(m_IntegratePipeline);
+            VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IntegratePC) };
+            m_IntegratePipeline = std::make_unique<VKComputePipeline>(m_IntegrateSpv,
+                std::vector<VkDescriptorSetLayout>{ m_IntegrateDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
@@ -248,6 +300,122 @@ namespace Luth
             writes[i].pBufferInfo     = infos[i];
         }
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 4, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteIntegrateView(ViewResources& vr)
+    {
+        if (m_IntegrateDescLayout == VK_NULL_HANDLE) return;
+        if (!vr.volDensity || !vr.volInScatter)       return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto vkDens = std::static_pointer_cast<VKTexture>(vr.volDensity);
+        auto vkScat = std::static_pointer_cast<VKTexture>(vr.volInScatter);
+
+        VkDescriptorImageInfo densInfo{};
+        densInfo.imageView   = vkDens->GetImageView();
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        VkDescriptorImageInfo scatInfo{};
+        scatInfo.imageView   = vkScat->GetImageView();
+        scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
+        u32 w = 0;
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorSet set = vr.volIntegrateDescSet[i];
+            if (set == VK_NULL_HANDLE) continue;
+
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 0;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &densInfo;
+            ++w;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 1;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &scatInfo;
+            ++w;
+        }
+        vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::AddIntegratePass(RG::RenderGraph& rg)
+    {
+        struct IntegrateData
+        {
+            RG::ResourceHandle density;
+            RG::ResourceHandle inScatter;
+        };
+
+        rg.AddComputePass<IntegrateData>("VolumetricIntegrate", RG::QueueFamily::AsyncCompute,
+            [&](IntegrateData& data, RG::RenderPassBuilder& builder)
+            {
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                RG::TextureDesc descD;
+                descD.name   = "VolDensity";
+                descD.width  = k_VolDimX;
+                descD.height = k_VolDimY;
+                descD.format = RG::TextureFormat::RGBA16_Float;
+                auto vkDens  = std::static_pointer_cast<VKTexture>(vr->volDensity);
+                data.density = rg.ImportResource(descD,
+                    (void*)vkDens->GetImage(), (void*)vkDens->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.density = builder.ReadStorageImage(data.density);
+
+                RG::TextureDesc descS;
+                descS.name   = "VolInScatter";
+                descS.width  = k_VolDimX;
+                descS.height = k_VolDimY;
+                descS.format = RG::TextureFormat::RGBA16_Float;
+                auto vkScat    = std::static_pointer_cast<VKTexture>(vr->volInScatter);
+                data.inScatter = rg.ImportResource(descS,
+                    (void*)vkScat->GetImage(), (void*)vkScat->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.inScatter = builder.WriteStorageImage(data.inScatter);
+            },
+            [this](IntegrateData& /*data*/, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricIntegrate",
+                    "VolInScatter", false,
+                    { "volumetric_integrate", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+
+                if (!m_IntegratePipeline || vr->volIntegrateDescSet[slot] == VK_NULL_HANDLE)
+                {
+                    sys.GetFrameDebugger().EndCapturePass();
+                    return;
+                }
+
+                m_IntegratePipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_IntegratePipeline->GetLayout(), 0, 1, &vr->volIntegrateDescSet[slot], 0, nullptr);
+
+                IntegratePC pc{};
+                pc.nearFarPad = Vec4(m_Pipeline->GetCurrentView()->camera.nearZ,
+                                     m_Pipeline->GetCurrentView()->camera.farZ, 0.0f, 0.0f);
+                vkCmdPushConstants(cmd, m_IntegratePipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IntegratePC), &pc);
+
+                // 2D dispatch over (x, y); each thread walks the full Z column.
+                const u32 groupX = (k_VolDimX + 7) / 8;
+                const u32 groupY = (k_VolDimY + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+
+                sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricIntegrate",
+                    "volumetric_integrate", groupX, groupY, 1);
+                sys.GetFrameDebugger().EndCapturePass();
+            });
     }
 
     void VolumetricSubsystem::AddInjectPass(RG::RenderGraph& rg)

@@ -185,6 +185,7 @@ namespace Luth
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
         allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
+        allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -193,6 +194,7 @@ namespace Luth
         m_Lighting.WriteShadowView(vr);
         m_Lighting.WriteClusterVizView(vr, targets);
         m_Volumetric.WriteInjectView(vr);
+        m_Volumetric.WriteIntegrateView(vr);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }

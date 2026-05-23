@@ -278,6 +278,7 @@ namespace Luth
         m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
                                          assign.indexRegion, fogVolumeRegion);
         m_Volumetric.AddInjectPass(rg);
+        m_Volumetric.AddIntegratePass(rg);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
