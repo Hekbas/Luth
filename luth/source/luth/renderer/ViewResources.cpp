@@ -188,7 +188,7 @@ namespace Luth
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
         allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
         allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
-        allocSingle(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
+        allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -230,6 +230,54 @@ namespace Luth
         vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
         vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);
         vr.volInScatterHistory  = makeVolume(TextureFormat::RGBA16F);
+
+        // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and
+        // undefined pixel content. The temporal inject shader samples volInScatterHistory on
+        // frame 0; without this clear the first sample is undefined memory (NaN-prone). One-shot
+        // submit at recreate time only — runs zero per-frame cost.
+        VkImage clearTargets[2] = {
+            std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.volInScatterHistory)->GetImage(),
+        };
+        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+            VkImageMemoryBarrier toDst[2]{};
+            for (u32 i = 0; i < 2; ++i)
+            {
+                toDst[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                toDst[i].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                toDst[i].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toDst[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toDst[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toDst[i].image               = clearTargets[i];
+                toDst[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toDst[i].srcAccessMask       = 0;
+                toDst[i].dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+            }
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 2, toDst);
+
+            VkClearColorValue zero{ { 0.0f, 0.0f, 0.0f, 0.0f } };
+            VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            for (u32 i = 0; i < 2; ++i)
+                vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     &zero, 1, &range);
+
+            VkImageMemoryBarrier toGen[2]{};
+            for (u32 i = 0; i < 2; ++i)
+            {
+                toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toGen[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+                toGen[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen[i].image               = clearTargets[i];
+                toGen[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toGen[i].srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+                toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            }
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 2, toGen);
+        });
     }
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)

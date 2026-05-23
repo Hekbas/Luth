@@ -23,6 +23,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/time/Time.h"
 #include "luth/core/diagnostics/Profiler.h"
@@ -274,13 +275,19 @@ namespace Luth
         // composite passes skip entirely; sceneColor flows through unchanged.
         const bool volumetricEnabled = view.camera.enableVolumetricFog;
         RG::ResourceHandle volInScatterHandle{};
-        if (volumetricEnabled)
+        if (volumetricEnabled && m_CurrentViewResources)
         {
+            const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
             Memory::GPUSubRegion fogVolumeRegion{};
             if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
                 fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
+            // Inject/integrate/composite descriptors all parity-rewrite b1 (and inject also b0/b7)
+            // each frame to ping-pong the volInScatter/volInScatterHistory atlas pair. Cycled slots
+            // keep this frame's rewrite disjoint from in-flight prior frame's reads.
             m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
-                                             assign.indexRegion, fogVolumeRegion);
+                                             assign.indexRegion, fogVolumeRegion, frameAbs);
+            m_Volumetric.WriteIntegratePerFrame(*m_CurrentViewResources, frameAbs);
+            m_Volumetric.WriteCompositePerFrame(*m_CurrentViewResources, *view.targets, frameAbs);
             // Inject samples shadow cascades via descriptor binding 6 — RG needs the explicit Reads
             // so it can emit per-layer DSA → SHADER_READ_ONLY barriers. Atlas handles chain through
             // integrate so both passes share the same ResourceNode (arch hazard #1) and composite
@@ -306,7 +313,7 @@ namespace Luth
         // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
         // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
         // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
-        RG::ResourceHandle fogColor    = volumetricEnabled
+        RG::ResourceHandle fogColor    = (volumetricEnabled && m_CurrentViewResources)
                                          ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volInScatterHandle)
                                          : skyboxColor;
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom

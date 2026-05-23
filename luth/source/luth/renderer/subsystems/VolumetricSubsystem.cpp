@@ -56,44 +56,48 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Inject layout (Set 1): b0/b1 storage images, b2/b3/b4/b5 SSBOs (LightSSBO, ClusterGrid,
-        // LightIndex, FogVolume), b6 shadow sampler. SSBO bindings (2-5) get rewritten per frame
-        // in WriteInjectPerFrame against the latest tagged-heap regions — UAB allows that rewrite
-        // while the prior frame's descriptor set is still pending on the GPU (mirrors the cluster
-        // build / light assign layouts in LightingSubsystem).
+        // Inject layout (Set 1): b0/b1 storage images (atlas density + current-frame in-scatter),
+        // b2/b3/b4/b5 SSBOs (LightSSBO, ClusterGrid, LightIndex, FogVolume), b6 shadow sampler,
+        // b7 history sampler (previous-frame in-scatter for temporal accumulation). b0/b1/b7
+        // parity-rewrite each frame in WriteInjectPerFrame to ping-pong the in-scatter atlas
+        // pair between write target and history source. UAB on every rewritten binding (b0/b1/
+        // b2-b5/b7) — mirrors the cluster build / light assign layouts in LightingSubsystem.
         {
-            VkDescriptorSetLayoutBinding bindings[7]{};
-            for (u32 i = 0; i < 7; ++i)
+            VkDescriptorSetLayoutBinding bindings[8]{};
+            for (u32 i = 0; i < 8; ++i)
             {
                 bindings[i].binding         = i;
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
             }
             bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volDensity
-            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volInScatter
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volInScatter (current write)
             bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightSSBO
             bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // ClusterGrid
             bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightIndex
             bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
             bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
+            bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // volInScatterHistory
 
-            VkDescriptorBindingFlags bindingFlags[7] = {
-                0, 0,
+            VkDescriptorBindingFlags bindingFlags[8] = {
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 0,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
             };
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bindingFlagsCI.bindingCount  = 7;
+            bindingFlagsCI.bindingCount  = 8;
             bindingFlagsCI.pBindingFlags = bindingFlags;
 
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.pNext        = &bindingFlagsCI;
             layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-            layoutCI.bindingCount = 7;
+            layoutCI.bindingCount = 8;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDescLayout);
 
@@ -117,9 +121,8 @@ namespace Luth
         }
 
         // Integrate layout — b0 sampled volDensity (sampler3D, READ_ONLY layout matches RG's
-        // ReadStorageImage transition), b1 read+write volInScatter (storage image, GENERAL layout).
-        // Single thread per froxel column walks Z; no SSBO access, no Global UBO (push constant
-        // carries nearZ/farZ).
+        // ReadStorageImage transition), b1 read+write volInScatter (storage image, GENERAL).
+        // b1 parity-rewrites each frame to point at inject's current write target — UAB required.
         {
             VkDescriptorSetLayoutBinding bindings[2]{};
             for (u32 i = 0; i < 2; ++i)
@@ -130,7 +133,16 @@ namespace Luth
             }
             bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;  // volDensity (sampled)
             bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;           // volInScatter (R/W)
+
+            VkDescriptorBindingFlags bindingFlags[2] = { 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 2;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 2;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_IntegrateDescLayout);
@@ -150,8 +162,10 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D). All FRAGMENT stage.
-        // Single set per view (no cycling); bindings stable across frames.
+        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D). All FRAGMENT.
+        // b1 parity-rewrites each frame to sample whichever atlas integrate wrote to — UAB needed.
+        // Descriptor set is cycled per MAX_FRAMES_IN_FLIGHT to keep rewrites disjoint from
+        // in-flight prior frame's reads.
         {
             VkDescriptorSetLayoutBinding bindings[2]{};
             for (u32 i = 0; i < 2; ++i)
@@ -161,7 +175,15 @@ namespace Luth
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
             }
+            VkDescriptorBindingFlags bindingFlags[2] = { 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 2;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             layoutCI.bindingCount = 2;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_CompositeDescLayout);
@@ -292,25 +314,13 @@ namespace Luth
 
     void VolumetricSubsystem::WriteInjectView(ViewResources& vr)
     {
+        // Only b6 (shadow array sampler) is stable across frames now — b0/b1/b7 parity-rewrite
+        // each frame in WriteInjectPerFrame to ping-pong the in-scatter atlases.
         if (m_InjectDescLayout == VK_NULL_HANDLE) return;
-        if (!vr.volDensity || !vr.volInScatter)   return;
 
-        VkDevice device  = VulkanContext::Get().GetDevice();
-        auto& lighting   = m_Pipeline->GetLighting();
-        auto vkDens      = std::static_pointer_cast<VKTexture>(vr.volDensity);
-        auto vkScat      = std::static_pointer_cast<VKTexture>(vr.volInScatter);
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto& lighting  = m_Pipeline->GetLighting();
 
-        VkDescriptorImageInfo densInfo{};
-        densInfo.imageView   = vkDens->GetImageView();
-        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkDescriptorImageInfo scatInfo{};
-        scatInfo.imageView   = vkScat->GetImageView();
-        scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        // CSM array view + compare sampler (PCF less). Same for every slot — written here so the
-        // per-frame WriteInjectPerFrame doesn't have to touch b6. Shadow map's image lives on
-        // LightingSubsystem; sampler too. SHADER_READ_ONLY_OPTIMAL matches LightingSubsystem's
-        // PBR-side write (WriteShadowView) — depth attachments use SHADER_READ_ONLY when sampled.
         VkDescriptorImageInfo shadowInfo{};
         if (auto shadowTex = lighting.GetShadowMap())
         {
@@ -318,41 +328,21 @@ namespace Luth
             shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             shadowInfo.sampler     = lighting.GetShadowSampler();
         }
+        if (!shadowInfo.sampler) return;
 
-        constexpr u32 kStableCount = 3;  // b0, b1, b6
-        VkWriteDescriptorSet writes[kStableCount * MAX_FRAMES_IN_FLIGHT]{};
+        VkWriteDescriptorSet writes[MAX_FRAMES_IN_FLIGHT]{};
         u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorSet set = vr.volInjectDescSet[i];
             if (set == VK_NULL_HANDLE) continue;
-
             writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[w].dstSet          = set;
-            writes[w].dstBinding      = 0;
-            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].dstBinding      = 6;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[w].descriptorCount = 1;
-            writes[w].pImageInfo      = &densInfo;
+            writes[w].pImageInfo      = &shadowInfo;
             ++w;
-
-            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[w].dstSet          = set;
-            writes[w].dstBinding      = 1;
-            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            writes[w].descriptorCount = 1;
-            writes[w].pImageInfo      = &scatInfo;
-            ++w;
-
-            if (shadowInfo.sampler)
-            {
-                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-                writes[w].dstSet          = set;
-                writes[w].dstBinding      = 6;
-                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[w].descriptorCount = 1;
-                writes[w].pImageInfo      = &shadowInfo;
-                ++w;
-            }
         }
         vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
     }
@@ -360,63 +350,105 @@ namespace Luth
     void VolumetricSubsystem::WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
                                                   const Memory::GPUSubRegion& clusterGridRegion,
                                                   const Memory::GPUSubRegion& lightIndexRegion,
-                                                  const Memory::GPUSubRegion& fogVolumeRegion)
+                                                  const Memory::GPUSubRegion& fogVolumeRegion,
+                                                  u32 frameAbs)
     {
-        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        const bool parity  = (frameAbs & 1u) != 0u;
 
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->volInjectDescSet[slot] == VK_NULL_HANDLE) return;
+        if (!vr->volDensity || !vr->volInScatter || !vr->volInScatterHistory) return;
         if (!lightSSBORegion.buffer || !clusterGridRegion.buffer ||
             !lightIndexRegion.buffer || !fogVolumeRegion.buffer)
             return;
+
+        // Ping-pong: parity=0 writes volInScatter and reads volInScatterHistory; parity=1 swaps.
+        auto vkDens  = std::static_pointer_cast<VKTexture>(vr->volDensity);
+        auto vkWrite = std::static_pointer_cast<VKTexture>(
+            parity ? vr->volInScatterHistory : vr->volInScatter);
+        auto vkHist  = std::static_pointer_cast<VKTexture>(
+            parity ? vr->volInScatter        : vr->volInScatterHistory);
+
+        VkDescriptorImageInfo densInfo{};
+        densInfo.imageView   = vkDens->GetImageView();
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo writeInfo{};
+        writeInfo.imageView   = vkWrite->GetImageView();
+        writeInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo histInfo{};
+        histInfo.imageView   = vkHist->GetImageView();
+        histInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        histInfo.sampler     = m_Sampler;
 
         VkDescriptorBufferInfo lightBi { lightSSBORegion.buffer,   lightSSBORegion.offset,   lightSSBORegion.size   };
         VkDescriptorBufferInfo gridBi  { clusterGridRegion.buffer, clusterGridRegion.offset, clusterGridRegion.size };
         VkDescriptorBufferInfo indexBi { lightIndexRegion.buffer,  lightIndexRegion.offset,  lightIndexRegion.size  };
         VkDescriptorBufferInfo fogBi   { fogVolumeRegion.buffer,   fogVolumeRegion.offset,   fogVolumeRegion.size   };
 
-        VkWriteDescriptorSet writes[4]{};
-        const VkDescriptorBufferInfo* infos[4] = { &lightBi, &gridBi, &indexBi, &fogBi };
+        VkWriteDescriptorSet writes[7]{};
+        VkDescriptorSet set = vr->volInjectDescSet[slot];
+
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = set;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo      = &densInfo;
+
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = set;
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo      = &writeInfo;
+
+        const VkDescriptorBufferInfo* bufInfos[4] = { &lightBi, &gridBi, &indexBi, &fogBi };
         for (u32 i = 0; i < 4; ++i)
         {
-            writes[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[i].dstSet          = vr->volInjectDescSet[slot];
-            writes[i].dstBinding      = 2 + i;  // bindings 2..5
-            writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            writes[i].descriptorCount = 1;
-            writes[i].pBufferInfo     = infos[i];
+            writes[2 + i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[2 + i].dstSet          = set;
+            writes[2 + i].dstBinding      = 2 + i;
+            writes[2 + i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[2 + i].descriptorCount = 1;
+            writes[2 + i].pBufferInfo     = bufInfos[i];
         }
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 4, writes, 0, nullptr);
+
+        writes[6] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[6].dstSet          = set;
+        writes[6].dstBinding      = 7;
+        writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[6].descriptorCount = 1;
+        writes[6].pImageInfo      = &histInfo;
+
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 7, writes, 0, nullptr);
     }
 
     void VolumetricSubsystem::WriteIntegrateView(ViewResources& vr)
     {
+        // Only b0 (density sampler) is stable — b1 (in-scatter storage write target) rewrites
+        // each frame in WriteIntegratePerFrame to follow inject's ping-pong parity.
         if (m_IntegrateDescLayout == VK_NULL_HANDLE) return;
-        if (!vr.volDensity || !vr.volInScatter)       return;
+        if (!vr.volDensity) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
         auto vkDens = std::static_pointer_cast<VKTexture>(vr.volDensity);
-        auto vkScat = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
-        // b0 sampler3D — RG ReadStorageImage transitions volDensity to SHADER_READ_ONLY_OPTIMAL.
-        // m_Sampler is unused by texelFetch but Vulkan requires a valid sampler in the descriptor.
+        // RG ReadStorageImage transitions volDensity to SHADER_READ_ONLY_OPTIMAL. m_Sampler is
+        // unused by texelFetch but Vulkan requires a valid sampler in the descriptor.
         VkDescriptorImageInfo densInfo{};
         densInfo.imageView   = vkDens->GetImageView();
         densInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         densInfo.sampler     = m_Sampler;
-        // b1 storage image — RG WriteStorageImage keeps GENERAL layout.
-        VkDescriptorImageInfo scatInfo{};
-        scatInfo.imageView   = vkScat->GetImageView();
-        scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
+        VkWriteDescriptorSet writes[MAX_FRAMES_IN_FLIGHT]{};
         u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorSet set = vr.volIntegrateDescSet[i];
             if (set == VK_NULL_HANDLE) continue;
-
             writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[w].dstSet          = set;
             writes[w].dstBinding      = 0;
@@ -424,53 +456,94 @@ namespace Luth
             writes[w].descriptorCount = 1;
             writes[w].pImageInfo      = &densInfo;
             ++w;
-            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[w].dstSet          = set;
-            writes[w].dstBinding      = 1;
-            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            writes[w].descriptorCount = 1;
-            writes[w].pImageInfo      = &scatInfo;
-            ++w;
         }
         vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
     }
 
+    void VolumetricSubsystem::WriteIntegratePerFrame(ViewResources& vr, u32 frameAbs)
+    {
+        if (m_IntegrateDescLayout == VK_NULL_HANDLE) return;
+        if (!vr.volInScatter || !vr.volInScatterHistory) return;
+
+        const u32 slot    = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        const bool parity = (frameAbs & 1u) != 0u;
+        if (vr.volIntegrateDescSet[slot] == VK_NULL_HANDLE) return;
+
+        auto vkWrite = std::static_pointer_cast<VKTexture>(
+            parity ? vr.volInScatterHistory : vr.volInScatter);
+
+        VkDescriptorImageInfo scatInfo{};
+        scatInfo.imageView   = vkWrite->GetImageView();
+        scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr.volIntegrateDescSet[slot];
+        write.dstBinding      = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &scatInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
     void VolumetricSubsystem::WriteCompositeView(ViewResources& vr, FrameTargets& targets)
     {
+        // Only b0 (sceneDepth sampler) is stable — b1 (in-scatter sampler) rewrites each frame
+        // in WriteCompositePerFrame to follow integrate's ping-pong parity.
         if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
-        if (vr.volCompositeDescSet == VK_NULL_HANDLE) return;
 
         auto sceneDepthTex = targets.GetSceneDepth();
-        if (!sceneDepthTex || !vr.volInScatter) return;
+        if (!sceneDepthTex) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
-        auto vkDepth    = std::static_pointer_cast<VKTexture>(sceneDepthTex);
-        auto vkScat     = std::static_pointer_cast<VKTexture>(vr.volInScatter);
+        auto vkDepth = std::static_pointer_cast<VKTexture>(sceneDepthTex);
 
         VkDescriptorImageInfo depthInfo{};
         depthInfo.imageView   = vkDepth->GetImageView();
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         depthInfo.sampler     = m_Sampler;
 
+        VkWriteDescriptorSet writes[MAX_FRAMES_IN_FLIGHT]{};
+        u32 w = 0;
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorSet set = vr.volCompositeDescSet[i];
+            if (set == VK_NULL_HANDLE) continue;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 0;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &depthInfo;
+            ++w;
+        }
+        vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteCompositePerFrame(ViewResources& vr, FrameTargets& /*targets*/, u32 frameAbs)
+    {
+        if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
+        if (!vr.volInScatter || !vr.volInScatterHistory) return;
+
+        const u32 slot    = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        const bool parity = (frameAbs & 1u) != 0u;
+        if (vr.volCompositeDescSet[slot] == VK_NULL_HANDLE) return;
+
+        // Sample whichever atlas integrate wrote to this frame — same parity rule as inject's b1.
+        auto vkScat = std::static_pointer_cast<VKTexture>(
+            parity ? vr.volInScatterHistory : vr.volInScatter);
+
         VkDescriptorImageInfo scatInfo{};
         scatInfo.imageView   = vkScat->GetImageView();
         scatInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         scatInfo.sampler     = m_Sampler;
 
-        VkWriteDescriptorSet writes[2]{};
-        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr.volCompositeDescSet;
-        writes[0].dstBinding      = 0;
-        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo      = &depthInfo;
-        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[1].dstSet          = vr.volCompositeDescSet;
-        writes[1].dstBinding      = 1;
-        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo      = &scatInfo;
-        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr.volCompositeDescSet[slot];
+        write.dstBinding      = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &scatInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
     }
 
     RG::ResourceHandle VolumetricSubsystem::AddCompositePass(RG::RenderGraph& rg,
@@ -509,19 +582,19 @@ namespace Luth
                     "SceneColor", false,
                     { "volumetric_composite", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                if (!m_CompositePipeline || vr->volCompositeDescSet == VK_NULL_HANDLE)
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                if (!m_CompositePipeline || vr->volCompositeDescSet[slot] == VK_NULL_HANDLE)
                 {
                     sys.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
-                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 m_CompositePipeline->Bind(cmd);
 
                 VkDescriptorSet sets[2] = {
                     vr->globalDescriptorSet[slot],
-                    vr->volCompositeDescSet,
+                    vr->volCompositeDescSet[slot],
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_CompositePipeline->GetLayout(), 0, 2, sets, 0, nullptr);
@@ -610,6 +683,7 @@ namespace Luth
         {
             RG::ResourceHandle density;
             RG::ResourceHandle inScatter;
+            RG::ResourceHandle history;
             RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
         };
         InjectOutputs output{};
@@ -618,6 +692,8 @@ namespace Luth
             [&, this](InjectData& data, RG::RenderPassBuilder& builder)
             {
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                const bool parity  = (frameAbs & 1u) != 0u;
 
                 RG::TextureDesc descD;
                 descD.name   = "VolDensity";
@@ -630,22 +706,38 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.density = builder.WriteStorageImage(data.density);
 
-                RG::TextureDesc descS;
-                descS.name   = "VolInScatter";
-                descS.width  = k_VolDimX;
-                descS.height = k_VolDimY;
-                descS.format = RG::TextureFormat::RGBA16_Float;
-                auto vkScat    = std::static_pointer_cast<VKTexture>(vr->volInScatter);
-                data.inScatter = rg.ImportResource(descS,
-                    (void*)vkScat->GetImage(), (void*)vkScat->GetImageView(),
+                // Ping-pong: parity=0 writes volInScatter and reads volInScatterHistory; parity=1
+                // swaps. Both VkImages are distinct, so two ImportResource calls don't alias the
+                // same node (arch hazard #1 only fires on duplicate imports of the same image).
+                auto vkScatW = std::static_pointer_cast<VKTexture>(
+                    parity ? vr->volInScatterHistory : vr->volInScatter);
+                auto vkScatH = std::static_pointer_cast<VKTexture>(
+                    parity ? vr->volInScatter        : vr->volInScatterHistory);
+
+                RG::TextureDesc descW;
+                descW.name   = parity ? "VolInScatter[history]" : "VolInScatter";
+                descW.width  = k_VolDimX;
+                descW.height = k_VolDimY;
+                descW.format = RG::TextureFormat::RGBA16_Float;
+                data.inScatter = rg.ImportResource(descW,
+                    (void*)vkScatW->GetImage(), (void*)vkScatW->GetImageView(),
                     RG::ResourceState::Undefined);
                 data.inScatter = builder.WriteStorageImage(data.inScatter);
 
-                // Per-cascade read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1)
-                // — shader binding 6 samples the full shadow-map array. Use ReadStorageImage despite
-                // the COMBINED_IMAGE_SAMPLER descriptor: the builder name is about queue affinity
-                // (ComputeRead → COMPUTE_SHADER stage), not descriptor type. The layout it transitions
-                // to (SHADER_READ_ONLY) matches what the sampler binding expects.
+                RG::TextureDesc descH;
+                descH.name   = parity ? "VolInScatter" : "VolInScatter[history]";
+                descH.width  = k_VolDimX;
+                descH.height = k_VolDimY;
+                descH.format = RG::TextureFormat::RGBA16_Float;
+                data.history = rg.ImportResource(descH,
+                    (void*)vkScatH->GetImage(), (void*)vkScatH->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.history = builder.ReadStorageImage(data.history);
+
+                // Per-cascade read triggers DEPTH→SHADER_READ barriers — shader binding 6 samples
+                // the full shadow-map array. ReadStorageImage despite the COMBINED_IMAGE_SAMPLER
+                // descriptor — builder name is about queue affinity (COMPUTE_SHADER stage), not
+                // descriptor type. Target layout SHADER_READ_ONLY matches sampler use.
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                     if (shadowHandles[i].IsValid())
                         data.shadowCascades[i] = builder.ReadStorageImage(shadowHandles[i]);

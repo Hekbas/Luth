@@ -137,15 +137,18 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
-        // Volumetric inject pass. Cycled — temporal ping-pong (next commit) starts differentiating
-        // slots by frame parity (current vs history atlas).
+        // Volumetric inject pass. Cycled — temporal ping-pong picks current-write vs history-read
+        // atlas by frame parity; the cycled slots keep this frame's rewrite disjoint from in-flight
+        // prior frame's reads.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDescSet{};
 
-        // Volumetric integrate pass. Cycled like inject; same temporal ping-pong follows.
+        // Volumetric integrate pass. Cycled; b1 (in-scatter write target) parity-picks the same
+        // atlas inject wrote to this frame.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volIntegrateDescSet{};
 
-        // Volumetric composite — single set, stable across frames; rewritten only on viewport resize.
-        VkDescriptorSet volCompositeDescSet = VK_NULL_HANDLE;
+        // Volumetric composite. Cycled — b1 (in-scatter sampler) parity-picks the atlas integrate
+        // wrote to this frame. b0 (sceneDepth sampler) is stable across slots.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volCompositeDescSet{};
 
         // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
         // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view

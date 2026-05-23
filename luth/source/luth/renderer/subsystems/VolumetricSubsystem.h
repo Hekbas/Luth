@@ -40,18 +40,20 @@ namespace Luth
         // or when allocation fails.
         Memory::GPUSubRegion UploadFogVolumeSSBO(const GatheredFogVolumes& volumes);
 
-        // Stable per-view writes for the inject pass — bindings that don't change across frames:
-        // b0/b1 (atlas storage images), b6 (shadow sampler). The per-frame SSBO bindings are
-        // rewritten each frame via WriteInjectPerFrame.
+        // Stable per-view writes for the inject pass — only b6 (shadow sampler) is stable now.
+        // b0 (density) / b1 (in-scatter write) / b7 (history read) and b2-b5 (SSBOs) all rewrite
+        // per frame in WriteInjectPerFrame — b0/b1/b7 parity-pick which physical atlas plays
+        // which role this frame for temporal accumulation.
         void WriteInjectView(ViewResources& vr);
 
-        // Per-frame rewrites for the inject pass's per-view set, indexed by the active frame slot.
-        // SSBO regions are tagged-heap allocations that differ each frame; b2 (Light), b3 (Cluster
-        // grid), b4 (Light index), b5 (FogVolume) get refreshed against this frame's regions.
+        // Per-frame rewrites for the inject set: b0 (density), b1 (current-frame in-scatter
+        // write target), b7 (previous-frame in-scatter sampled as history) get parity-picked
+        // from `frameAbs & 1`. b2-b5 SSBOs refresh against this frame's tagged-heap regions.
         void WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
                                  const Memory::GPUSubRegion& clusterGridRegion,
                                  const Memory::GPUSubRegion& lightIndexRegion,
-                                 const Memory::GPUSubRegion& fogVolumeRegion);
+                                 const Memory::GPUSubRegion& fogVolumeRegion,
+                                 u32 frameAbs);
 
         // Inject pass output — atlas handles after the storage writes, threaded into integrate so
         // both passes share the same `ResourceNode` per arch hazard #1 (no double ImportResource).
@@ -68,17 +70,27 @@ namespace Luth
         InjectOutputs AddInjectPass(RG::RenderGraph& rg,
                                     const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount]);
 
-        // Stable per-view writes for the integrate pass — b0 (density read), b1 (inScatter R/W).
+        // Stable per-view writes for the integrate pass — only b0 (density sampler) is stable.
+        // b1 (in-scatter write target) parity-cycles between volInScatter and volInScatterHistory;
+        // rewritten in WriteIntegratePerFrame against the same atlas inject wrote to this frame.
         void WriteIntegrateView(ViewResources& vr);
+
+        // Per-frame rewrite of integrate b1 — matches inject's parity-chosen write target.
+        void WriteIntegratePerFrame(ViewResources& vr, u32 frameAbs);
 
         // Compute pass: walks froxel columns front-to-back, accumulating transmittance + in-scatter.
         // Reads volDensity, writes volInScatter in-place. Async-compute eligible. Returns the
         // post-write inScatter handle so composite can declare its sampler read.
         RG::ResourceHandle AddIntegratePass(RG::RenderGraph& rg, InjectOutputs injectOut);
 
-        // Stable per-view writes for the composite pass — b0 (sceneDepth sampler), b1 (volInScatter
-        // sampler3D). Single descriptor set, not cycled — bindings don't change across frames.
+        // Stable per-view writes for the composite pass — only b0 (sceneDepth sampler) is stable.
+        // b1 (volInScatter sampler3D) parity-cycles to whichever atlas integrate wrote to this
+        // frame; rewritten in WriteCompositePerFrame. Composite descriptor set is cycled across
+        // MAX_FRAMES_IN_FLIGHT to keep rewrites disjoint from in-flight reads.
         void WriteCompositeView(ViewResources& vr, FrameTargets& targets);
+
+        // Per-frame rewrite of composite b1 — samples the atlas that was integrated this frame.
+        void WriteCompositePerFrame(ViewResources& vr, FrameTargets& targets, u32 frameAbs);
 
         // Graphics pass: blends fog-modulated radiance back into sceneColor via standard alpha blend.
         // Reads sceneColor (via blend), sceneDepth (sampler), volInScatter atlas (sampler3D), and
