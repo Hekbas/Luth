@@ -430,10 +430,6 @@ namespace Luth
         auto vkDepth    = std::static_pointer_cast<VKTexture>(sceneDepthTex);
         auto vkScat     = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
-        // Known issue: RG's builder.Read(sceneDepth) doesn't reliably transition the depth target
-        // from DSA → SHADER_READ across the graphics → compute → graphics queue cycle. Validation
-        // fires (VUID-vkCmdDraw-None-09600) but rendering still works. Documented in spec; follow-up
-        // effort will fix RG's cross-queue depth-handoff (cluster_viz has the same latent bug).
         VkDescriptorImageInfo depthInfo{};
         depthInfo.imageView   = vkDepth->GetImageView();
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
