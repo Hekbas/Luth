@@ -19,8 +19,8 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
     static constexpr u32 k_ViewPoolMaxSets              = 48;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 8;
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 48;  // Set 3 + cluster build + light assign cycled sets
+    static constexpr u32 k_ViewPoolStorageImageCount    = 24;  // GTAO + volumetric atlases (cycled)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 64;  // Set 3 + cluster + assign + volumetric
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
 
     namespace {

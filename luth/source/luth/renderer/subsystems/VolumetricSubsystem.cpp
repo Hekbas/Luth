@@ -28,8 +28,7 @@ namespace Luth
 
         struct InjectPC
         {
-            Vec4 dirLightDirIntensity;
-            Vec4 dirLightColor;
+            Mat4 invView;  // Push 64 B once per dispatch; avoids per-voxel inverse(ubo.view).
         };
     }
 
@@ -51,20 +50,27 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Inject layout: 2 storage images (volDensity + volInScatter).
+        // Inject layout (Set 1): b0/b1 storage images, b2/b3/b4/b5 SSBOs (LightSSBO, ClusterGrid,
+        // LightIndex, FogVolume), b6 shadow sampler. SSBO bindings rebind per-frame against the
+        // latest tagged-heap regions — cycling guarantees disjoint slots so no UAB needed.
         {
-            VkDescriptorSetLayoutBinding bindings[2]{};
-            bindings[0].binding         = 0;
-            bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            bindings[0].descriptorCount = 1;
-            bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
-            bindings[1].binding         = 1;
-            bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            bindings[1].descriptorCount = 1;
-            bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            VkDescriptorSetLayoutBinding bindings[7]{};
+            for (u32 i = 0; i < 7; ++i)
+            {
+                bindings[i].binding         = i;
+                bindings[i].descriptorCount = 1;
+                bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            }
+            bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volDensity
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volInScatter
+            bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightSSBO
+            bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // ClusterGrid
+            bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightIndex
+            bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
+            bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
 
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            layoutCI.bindingCount = 2;
+            layoutCI.bindingCount = 7;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDescLayout);
 
@@ -77,9 +83,13 @@ namespace Luth
                 LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject.comp!");
                 return;
             }
+            // Pipeline layout: Set 0 = GlobalSubsystem's (camera + CSM uniforms), Set 1 = own.
             m_InjectPipeline = std::make_unique<VKComputePipeline>(
                 m_InjectSpv,
-                std::vector<VkDescriptorSetLayout>{ m_InjectDescLayout },
+                std::vector<VkDescriptorSetLayout>{
+                    pipeline.GetGlobal().GetSetLayout(),
+                    m_InjectDescLayout,
+                },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
     }
@@ -146,9 +156,10 @@ namespace Luth
         if (m_InjectDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volDensity || !vr.volInScatter)   return;
 
-        VkDevice device = VulkanContext::Get().GetDevice();
-        auto vkDens = std::static_pointer_cast<VKTexture>(vr.volDensity);
-        auto vkScat = std::static_pointer_cast<VKTexture>(vr.volInScatter);
+        VkDevice device  = VulkanContext::Get().GetDevice();
+        auto& lighting   = m_Pipeline->GetLighting();
+        auto vkDens      = std::static_pointer_cast<VKTexture>(vr.volDensity);
+        auto vkScat      = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
         VkDescriptorImageInfo densInfo{};
         densInfo.imageView   = vkDens->GetImageView();
@@ -157,29 +168,86 @@ namespace Luth
         scatInfo.imageView   = vkScat->GetImageView();
         scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // A4.7 shell: same write replicated across all cycled slots. Temporal ping-pong (A4.10)
-        // will start differentiating slots by frame parity (current vs history atlas).
-        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
+        // CSM array view + compare sampler (PCF less). Same for every slot — written here so the
+        // per-frame WriteInjectPerFrame doesn't have to touch b6. Shadow map's image lives on
+        // LightingSubsystem; sampler too.
+        VkDescriptorImageInfo shadowInfo{};
+        if (auto shadowTex = lighting.GetShadowMap())
+        {
+            shadowInfo.imageView   = std::static_pointer_cast<VKTexture>(shadowTex)->GetImageView();
+            shadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            shadowInfo.sampler     = lighting.GetShadowSampler();
+        }
+
+        constexpr u32 kStableCount = 3;  // b0, b1, b6
+        VkWriteDescriptorSet writes[kStableCount * MAX_FRAMES_IN_FLIGHT]{};
+        u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorSet set = vr.volInjectDescSet[i];
             if (set == VK_NULL_HANDLE) continue;
 
-            writes[i * 2 + 0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[i * 2 + 0].dstSet          = set;
-            writes[i * 2 + 0].dstBinding      = 0;
-            writes[i * 2 + 0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            writes[i * 2 + 0].descriptorCount = 1;
-            writes[i * 2 + 0].pImageInfo      = &densInfo;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 0;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &densInfo;
+            ++w;
 
-            writes[i * 2 + 1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[i * 2 + 1].dstSet          = set;
-            writes[i * 2 + 1].dstBinding      = 1;
-            writes[i * 2 + 1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            writes[i * 2 + 1].descriptorCount = 1;
-            writes[i * 2 + 1].pImageInfo      = &scatInfo;
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 1;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &scatInfo;
+            ++w;
+
+            if (shadowInfo.sampler)
+            {
+                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[w].dstSet          = set;
+                writes[w].dstBinding      = 6;
+                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[w].descriptorCount = 1;
+                writes[w].pImageInfo      = &shadowInfo;
+                ++w;
+            }
         }
-        vkUpdateDescriptorSets(device, 2 * MAX_FRAMES_IN_FLIGHT, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
+                                                  const Memory::GPUSubRegion& clusterGridRegion,
+                                                  const Memory::GPUSubRegion& lightIndexRegion,
+                                                  const Memory::GPUSubRegion& fogVolumeRegion)
+    {
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!vr || vr->volInjectDescSet[slot] == VK_NULL_HANDLE) return;
+        if (!lightSSBORegion.buffer || !clusterGridRegion.buffer ||
+            !lightIndexRegion.buffer || !fogVolumeRegion.buffer)
+            return;
+
+        VkDescriptorBufferInfo lightBi { lightSSBORegion.buffer,   lightSSBORegion.offset,   lightSSBORegion.size   };
+        VkDescriptorBufferInfo gridBi  { clusterGridRegion.buffer, clusterGridRegion.offset, clusterGridRegion.size };
+        VkDescriptorBufferInfo indexBi { lightIndexRegion.buffer,  lightIndexRegion.offset,  lightIndexRegion.size  };
+        VkDescriptorBufferInfo fogBi   { fogVolumeRegion.buffer,   fogVolumeRegion.offset,   fogVolumeRegion.size   };
+
+        VkWriteDescriptorSet writes[4]{};
+        const VkDescriptorBufferInfo* infos[4] = { &lightBi, &gridBi, &indexBi, &fogBi };
+        for (u32 i = 0; i < 4; ++i)
+        {
+            writes[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[i].dstSet          = vr->volInjectDescSet[slot];
+            writes[i].dstBinding      = 2 + i;  // bindings 2..5
+            writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[i].descriptorCount = 1;
+            writes[i].pBufferInfo     = infos[i];
+        }
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 4, writes, 0, nullptr);
     }
 
     void VolumetricSubsystem::AddInjectPass(RG::RenderGraph& rg)
@@ -237,24 +305,19 @@ namespace Luth
                 }
 
                 m_InjectPipeline->Bind(cmd);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_InjectPipeline->GetLayout(), 0, 1, &vr->volInjectDescSet[slot], 0, nullptr);
 
-                // Sticky dir-light snapshot. LightingSystem's gather mirrors directional state into
-                // GatheredLights even when no Component::DirectionalLight exists this frame, so the
-                // shell always has a sensible (color/intensity/direction).
+                // Set 0 = Global UBO (camera + CSM + nearZ/farZ), Set 1 = volumetric (atlases + SSBOs
+                // + shadow sampler). Both per-view + per-frame-cycled.
+                VkDescriptorSet sets[2] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->volInjectDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_InjectPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                // Push invView once per dispatch — avoids per-voxel inverse(ubo.view) (~40 ALU ops).
                 InjectPC pc{};
-                if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
-                {
-                    const auto& dl = lighting->GetLights().dirLight;
-                    pc.dirLightDirIntensity = Vec4(-dl.direction, dl.intensity);
-                    pc.dirLightColor        = Vec4(dl.color, 0.0f);
-                }
-                else
-                {
-                    pc.dirLightDirIntensity = Vec4(0.0f, 1.0f, 0.0f, 1.0f);
-                    pc.dirLightColor        = Vec4(1.0f);
-                }
+                pc.invView = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
                 vkCmdPushConstants(cmd, m_InjectPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC), &pc);
 

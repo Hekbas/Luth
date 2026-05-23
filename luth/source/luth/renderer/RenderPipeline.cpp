@@ -270,8 +270,13 @@ namespace Luth
         LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
-        // Volumetric inject — async-compute, runs alongside GTAO. A4.7 shell writes uniform density
-        // + dir-light isotropic in-scatter; next commit threads cluster + CSM + FogVolume modulation.
+        // Volumetric inject — async-compute. Upload FogVolume SSBO this frame (per-frame tagged-heap
+        // region) and refresh the inject pass's per-view SSBO bindings before record + dispatch.
+        Memory::GPUSubRegion fogVolumeRegion{};
+        if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+            fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
+        m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
+                                         assign.indexRegion, fogVolumeRegion);
         m_Volumetric.AddInjectPass(rg);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees

@@ -37,13 +37,22 @@ namespace Luth
         // or when allocation fails.
         Memory::GPUSubRegion UploadFogVolumeSSBO(const GatheredFogVolumes& volumes);
 
-        // Stable per-view writes for the inject pass: image bindings to the view's volDensity +
-        // volInScatter atlases. Same write replicated across all MAX_FRAMES_IN_FLIGHT slots until
-        // temporal ping-pong arrives — the slot then differentiates which atlas is "current".
+        // Stable per-view writes for the inject pass — bindings that don't change across frames:
+        // b0/b1 (atlas storage images), b6 (shadow sampler). The per-frame SSBO bindings are
+        // rewritten each frame via WriteInjectPerFrame.
         void WriteInjectView(ViewResources& vr);
 
-        // Compute pass: per-voxel dir-light in-scatter into volDensity / volInScatter.
-        // Async-compute eligible. Dispatched against the 160x90x128 atlas grid.
+        // Per-frame rewrites for the inject pass's per-view set, indexed by the active frame slot.
+        // SSBO regions are tagged-heap allocations that differ each frame; b2 (Light), b3 (Cluster
+        // grid), b4 (Light index), b5 (FogVolume) get refreshed against this frame's regions.
+        void WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
+                                 const Memory::GPUSubRegion& clusterGridRegion,
+                                 const Memory::GPUSubRegion& lightIndexRegion,
+                                 const Memory::GPUSubRegion& fogVolumeRegion);
+
+        // Compute pass: per-voxel dir-light + cluster point-light injection with CSM shadow and
+        // local FogVolume modulation. Async-compute eligible. Dispatched against the 160x90x128
+        // atlas grid.
         void AddInjectPass(RG::RenderGraph& rg);
 
         VkSampler                   GetSampler()             const { return m_Sampler; }
