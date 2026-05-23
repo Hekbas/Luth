@@ -641,12 +641,14 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.inScatter = builder.WriteStorageImage(data.inScatter);
 
-                // Per-cascade Read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1)
-                // — shader binding 6 samples the full shadow-map array; without these declarations
-                // the RG never transitions the cascades out of DSA left by ShadowPass.
+                // Per-cascade read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1)
+                // — shader binding 6 samples the full shadow-map array. Use ReadStorageImage despite
+                // the COMBINED_IMAGE_SAMPLER descriptor: the builder name is about queue affinity
+                // (ComputeRead → COMPUTE_SHADER stage), not descriptor type. The layout it transitions
+                // to (SHADER_READ_ONLY) matches what the sampler binding expects.
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                     if (shadowHandles[i].IsValid())
-                        data.shadowCascades[i] = builder.Read(shadowHandles[i]);
+                        data.shadowCascades[i] = builder.ReadStorageImage(shadowHandles[i]);
 
                 output.density   = data.density;
                 output.inScatter = data.inScatter;
