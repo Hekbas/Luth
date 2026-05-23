@@ -99,17 +99,20 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Integrate layout — b0 readonly volDensity, b1 read+write volInScatter. Single thread per
-        // froxel column walks Z; no SSBO access, no Global UBO (push constant carries nearZ/farZ).
+        // Integrate layout — b0 sampled volDensity (sampler3D, READ_ONLY layout matches RG's
+        // ReadStorageImage transition), b1 read+write volInScatter (storage image, GENERAL layout).
+        // Single thread per froxel column walks Z; no SSBO access, no Global UBO (push constant
+        // carries nearZ/farZ).
         {
             VkDescriptorSetLayoutBinding bindings[2]{};
             for (u32 i = 0; i < 2; ++i)
             {
                 bindings[i].binding         = i;
-                bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
             }
+            bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;  // volDensity (sampled)
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;           // volInScatter (R/W)
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.bindingCount = 2;
             layoutCI.pBindings    = bindings;
@@ -289,12 +292,13 @@ namespace Luth
 
         // CSM array view + compare sampler (PCF less). Same for every slot — written here so the
         // per-frame WriteInjectPerFrame doesn't have to touch b6. Shadow map's image lives on
-        // LightingSubsystem; sampler too.
+        // LightingSubsystem; sampler too. SHADER_READ_ONLY_OPTIMAL matches LightingSubsystem's
+        // PBR-side write (WriteShadowView) — depth attachments use SHADER_READ_ONLY when sampled.
         VkDescriptorImageInfo shadowInfo{};
         if (auto shadowTex = lighting.GetShadowMap())
         {
             shadowInfo.imageView   = std::static_pointer_cast<VKTexture>(shadowTex)->GetImageView();
-            shadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             shadowInfo.sampler     = lighting.GetShadowSampler();
         }
 
@@ -378,9 +382,13 @@ namespace Luth
         auto vkDens = std::static_pointer_cast<VKTexture>(vr.volDensity);
         auto vkScat = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
+        // b0 sampler3D — RG ReadStorageImage transitions volDensity to SHADER_READ_ONLY_OPTIMAL.
+        // m_Sampler is unused by texelFetch but Vulkan requires a valid sampler in the descriptor.
         VkDescriptorImageInfo densInfo{};
         densInfo.imageView   = vkDens->GetImageView();
-        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        densInfo.sampler     = m_Sampler;
+        // b1 storage image — RG WriteStorageImage keeps GENERAL layout.
         VkDescriptorImageInfo scatInfo{};
         scatInfo.imageView   = vkScat->GetImageView();
         scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -395,7 +403,7 @@ namespace Luth
             writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[w].dstSet          = set;
             writes[w].dstBinding      = 0;
-            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[w].descriptorCount = 1;
             writes[w].pImageInfo      = &densInfo;
             ++w;
@@ -422,9 +430,13 @@ namespace Luth
         auto vkDepth    = std::static_pointer_cast<VKTexture>(sceneDepthTex);
         auto vkScat     = std::static_pointer_cast<VKTexture>(vr.volInScatter);
 
+        // Known issue: RG's builder.Read(sceneDepth) doesn't reliably transition the depth target
+        // from DSA → SHADER_READ across the graphics → compute → graphics queue cycle. Validation
+        // fires (VUID-vkCmdDraw-None-09600) but rendering still works. Documented in spec; follow-up
+        // effort will fix RG's cross-queue depth-handoff (cluster_viz has the same latent bug).
         VkDescriptorImageInfo depthInfo{};
         depthInfo.imageView   = vkDepth->GetImageView();
-        depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         depthInfo.sampler     = m_Sampler;
 
         VkDescriptorImageInfo scatInfo{};

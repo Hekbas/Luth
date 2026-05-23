@@ -50,6 +50,8 @@ float ViewZToAtlasSlice(float viewZ) {
 }
 
 void main() {
+    // Known issue: sceneDepth's DSA → SHADER_READ_ONLY transition isn't reliably emitted by RG
+    // across the graphics → compute → graphics queue cycle. Documented in spec; follow-up effort.
     float ndcDepth = texture(sceneDepth, v_TexCoord).r;
     float viewZ    = DepthToViewZ(ndcDepth);
 

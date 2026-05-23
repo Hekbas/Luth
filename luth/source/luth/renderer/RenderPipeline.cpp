@@ -296,6 +296,10 @@ namespace Luth
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
         // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
         // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
+        // Known: sceneDepth read fires a benign validation (VUID-vkCmdDraw-None-09600) — RG's
+        // depth-attachment layout doesn't transition reliably across the graphics→compute→graphics
+        // queue cycle. See docs/development/epics/volumetric-fog.md "Known issues" for the
+        // follow-up effort that owns the fix.
         RG::ResourceHandle fogColor    = m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth);
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid

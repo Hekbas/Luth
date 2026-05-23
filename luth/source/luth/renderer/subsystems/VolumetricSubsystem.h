@@ -65,12 +65,12 @@ namespace Luth
         void AddIntegratePass(RG::RenderGraph& rg);
 
         // Stable per-view writes for the composite pass — b0 (sceneDepth sampler), b1 (volInScatter
-        // sampler). Single descriptor set, not cycled (bindings don't change across frames).
+        // sampler3D). Single descriptor set, not cycled — bindings don't change across frames.
         void WriteCompositeView(ViewResources& vr, FrameTargets& targets);
 
-        // Graphics pass: blends fog-modulated radiance back into sceneColor via (src + dst*src.a).
+        // Graphics pass: blends fog-modulated radiance back into sceneColor via standard alpha blend.
         // Reads sceneColor (via blend), sceneDepth (sampler), volInScatter atlas (sampler3D), and
-        // the Global UBO for global distance + height fog params. Writes to sceneColor in-place.
+        // the Global UBO. Writes to sceneColor in-place.
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
                                             RG::ResourceHandle sceneDepth);
 

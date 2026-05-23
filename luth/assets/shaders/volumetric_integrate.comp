@@ -7,8 +7,11 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform readonly  image3D volDensity;
-layout(set = 0, binding = 1, rgba16f) uniform           image3D volInScatter;
+// volDensity is read-only this pass — sampler3D + texelFetch keeps the descriptor in
+// SHADER_READ_ONLY_OPTIMAL (matches RG's ReadStorageImage transition). Storage-image reads
+// would require VK_IMAGE_LAYOUT_GENERAL, which conflicts with the RG state.
+layout(set = 0, binding = 0)          uniform sampler3D       volDensity;
+layout(set = 0, binding = 1, rgba16f) uniform image3D         volInScatter;
 
 layout(push_constant) uniform PC {
     vec4 nearFarPad;  // x = nearZ, y = farZ
@@ -35,7 +38,7 @@ void main() {
     for (int z = 0; z < VOL_DIM.z; ++z)
     {
         ivec3 voxel = ivec3(xy, z);
-        vec4 dens = imageLoad(volDensity,   voxel);
+        vec4 dens = texelFetch(volDensity, voxel, 0);
         vec4 scat = imageLoad(volInScatter, voxel);
 
         float currViewZ = SliceToViewZ(uint(z), nearZ, farZ);
