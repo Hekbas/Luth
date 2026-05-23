@@ -88,6 +88,7 @@ namespace Luth
         m_DebugDraw.BuildPipelines();
 
         m_GTAO.Init(*this);
+        m_Volumetric.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -119,7 +120,8 @@ namespace Luth
             // returns true). Debug shaders + IBL precompute remain RP residual.
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
-                              || m_GTAO.OnShaderReloaded(name, spv);
+                              || m_GTAO.OnShaderReloaded(name, spv)
+                              || m_Volumetric.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -175,6 +177,7 @@ namespace Luth
         m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
         m_PostProcess.Shutdown();
+        m_Volumetric.Shutdown();
         m_GTAO.Shutdown();
         m_Geometry.Shutdown();
         m_Lighting.Shutdown();

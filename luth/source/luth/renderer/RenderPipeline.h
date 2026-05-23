@@ -18,6 +18,7 @@
 #include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
+#include "luth/renderer/subsystems/VolumetricSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
@@ -303,6 +304,7 @@ namespace Luth
         LightingSubsystem       m_Lighting;
         GeometrySubsystem       m_Geometry;
         GTAOSubsystem           m_GTAO;
+        VolumetricSubsystem     m_Volumetric;
         PostProcessSubsystem    m_PostProcess;
         EditorOverlaysSubsystem m_EditorOverlays;
         DebugDrawSubsystem      m_DebugDraw;
