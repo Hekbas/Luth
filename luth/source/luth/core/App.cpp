@@ -272,6 +272,7 @@ namespace Luth
                     }
                     cp.iblIntensity     = viewState.iblIntensity;
                     cp.skyboxIntensity  = viewState.skyboxIntensity;
+                    cp.enableVolumetricFog = viewState.enableVolumetricFog;
                     cp.selectedEntities = std::move(viewState.selectedEntities);
 
                     cp.outlineColor          = viewState.outlineColor;

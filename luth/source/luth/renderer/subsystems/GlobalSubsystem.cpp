@@ -22,7 +22,9 @@ namespace Luth
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
-        bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        // COMPUTE added so VolumetricSubsystem's inject pass can sample camera/CSM uniforms.
+        bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+                               | VK_SHADER_STAGE_COMPUTE_BIT;
 
         for (u32 i = 1; i <= 4; ++i)
         {
@@ -106,6 +108,15 @@ namespace Luth
         ubo.skyboxIntensity = camera.skyboxIntensity;
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
+
+        // Volumetric fog params — distance fog + height fog + multi-scatter scalar.
+        const VolumetricSettings& vs = m_Pipeline->GetSystem().GetVolumetricSettings();
+        ubo.distanceFogColorDensity = Vec4(vs.distanceFogColor, vs.distanceFogDensity);
+        ubo.distanceFogParams       = Vec4(vs.distanceFogStart, vs.distanceFogMaxOpacity,
+                                           vs.distanceFogEnabled ? 1.0f : 0.0f, 0.0f);
+        ubo.heightFogColorDensity   = Vec4(vs.heightFogColor, vs.heightFogDensity);
+        ubo.heightFogParams         = Vec4(vs.heightFogRefHeight, vs.heightFogFalloff,
+                                           vs.heightFogEnabled ? 1.0f : 0.0f, vs.multiScatterIntensity);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

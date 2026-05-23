@@ -51,6 +51,7 @@ namespace Luth
 
         virtual u32 GetWidth() const = 0;
         virtual u32 GetHeight() const = 0;
+        virtual u32 GetDepth() const { return 1; }
         virtual u32 GetRendererID() const = 0;
         virtual const fs::path& GetPath() const = 0;
 

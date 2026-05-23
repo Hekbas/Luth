@@ -4,6 +4,7 @@
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
+#include "luth/renderer/subsystems/VolumetricSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -18,8 +19,8 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
     static constexpr u32 k_ViewPoolMaxSets              = 48;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 8;
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 48;  // Set 3 + cluster build + light assign cycled sets
+    static constexpr u32 k_ViewPoolStorageImageCount    = 24;  // GTAO + volumetric atlases (cycled)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 64;  // Set 3 + cluster + assign + volumetric
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
 
     namespace {
@@ -74,6 +75,8 @@ namespace Luth
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
             m_EditorOverlays.WriteGridView(vr, targets);
+            // sceneDepth is per-view + recreated on resize, so re-bind the composite descriptor too.
+            m_Volumetric.WriteCompositeView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -183,6 +186,9 @@ namespace Luth
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
+        allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
+        allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
+        allocSingle(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -190,6 +196,9 @@ namespace Luth
         m_EditorOverlays.WriteGridView(vr, targets);
         m_Lighting.WriteShadowView(vr);
         m_Lighting.WriteClusterVizView(vr, targets);
+        m_Volumetric.WriteInjectView(vr);
+        m_Volumetric.WriteIntegrateView(vr);
+        m_Volumetric.WriteCompositeView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -209,6 +218,18 @@ namespace Luth
         vr.gtaoRawAO       = makeStorage(TextureFormat::R8);
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
+
+        // Volumetric fog atlases — fixed 160×90×128 froxel grid (Wronski). View-aligned but
+        // dimensions are independent of viewport pixels, so they don't scale with halfW/halfH.
+        constexpr u32 k_VolW = 160;
+        constexpr u32 k_VolH = 90;
+        constexpr u32 k_VolD = 128;
+        auto makeVolume = [](TextureFormat fmt) {
+            return std::make_shared<VKTexture>(k_VolW, k_VolH, k_VolD, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
+        };
+        vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistory  = makeVolume(TextureFormat::RGBA16F);
     }
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)
@@ -220,6 +241,9 @@ namespace Luth
         vr.gtaoRawAO.reset();
         vr.gtaoEdges.reset();
         vr.gtaoFinal.reset();
+        vr.volDensity.reset();
+        vr.volInScatter.reset();
+        vr.volInScatterHistory.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

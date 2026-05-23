@@ -53,6 +53,22 @@ namespace Luth
         return "Box";
     }
 
+    static const char* FogVolumeTypeToString(FogVolume::Type t)
+    {
+        switch (t)
+        {
+            case FogVolume::Type::Box:    return "Box";
+            case FogVolume::Type::Sphere: return "Sphere";
+        }
+        return "Box";
+    }
+
+    static FogVolume::Type FogVolumeTypeFromString(const std::string& s)
+    {
+        if (s == "Sphere") return FogVolume::Type::Sphere;
+        return FogVolume::Type::Box;
+    }
+
     static Collider::Type ColliderTypeFromString(const std::string& s)
     {
         if (s == "Sphere")        return Collider::Type::Sphere;
@@ -223,6 +239,29 @@ namespace Luth
             pj["intensity"] = pl.Intensity;
             pj["range"]     = pl.Range;
             j["pointLight"] = pj;
+        }
+
+        if (entity.HasComponent<FogVolume>()) {
+            const auto& fv = entity.GetComponent<FogVolume>();
+            json fj;
+            fj["type"]           = FogVolumeTypeToString(fv.type);
+            fj["localOffset"]    = SerializeVec3(fv.localOffset);
+            fj["localRotation"]  = SerializeQuat(fv.localRotation);
+            switch (fv.type)
+            {
+                case FogVolume::Type::Box:
+                    fj["box"]    = json{ {"halfExtents", SerializeVec3(fv.halfExtents)} };
+                    break;
+                case FogVolume::Type::Sphere:
+                    fj["sphere"] = json{ {"radius", fv.radius} };
+                    break;
+            }
+            fj["color"]          = SerializeVec3(fv.color);
+            fj["density"]        = fv.density;
+            fj["falloffStart"]   = fv.falloffStart;
+            fj["falloffEnd"]     = fv.falloffEnd;
+            fj["affectsAmbient"] = fv.affectsAmbient;
+            j["fogVolume"]       = fj;
         }
 
         if (entity.HasComponent<Collider>()) {
@@ -591,6 +630,33 @@ namespace Luth
                 pl.Color     = DeserializeVec3(pj.value("color", json::array()), { 1, 1, 1 });
                 pl.Intensity = pj.value("intensity", 1.0f);
                 pl.Range     = pj.value("range", 350.0f);
+            }
+
+            // FogVolume — tagged-union; load type first, then the active union member.
+            if (ej.contains("fogVolume")) {
+                const auto& fj = ej["fogVolume"];
+                FogVolume fv;
+                fv.type          = FogVolumeTypeFromString(fj.value("type", "Box"));
+                fv.localOffset   = DeserializeVec3(fj.value("localOffset",   json::array()), Vec3(0.0f));
+                fv.localRotation = DeserializeQuat(fj.value("localRotation", json::array()));
+                switch (fv.type)
+                {
+                    case FogVolume::Type::Box:
+                        if (fj.contains("box"))
+                            fv.halfExtents = DeserializeVec3(fj["box"].value("halfExtents", json::array()),
+                                                             Vec3(2.0f));
+                        break;
+                    case FogVolume::Type::Sphere:
+                        if (fj.contains("sphere"))
+                            fv.radius = fj["sphere"].value("radius", 2.0f);
+                        break;
+                }
+                fv.color          = DeserializeVec3(fj.value("color", json::array()), Vec3(1.0f));
+                fv.density        = fj.value("density",        0.1f);
+                fv.falloffStart   = fj.value("falloffStart",   0.0f);
+                fv.falloffEnd     = fj.value("falloffEnd",     1.0f);
+                fv.affectsAmbient = fj.value("affectsAmbient", true);
+                entity.AddComponent<FogVolume>(fv);
             }
 
             // Collider / RigidBody — both populate a local first, then AddComponent copy-emplaces the

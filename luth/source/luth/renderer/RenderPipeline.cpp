@@ -88,6 +88,7 @@ namespace Luth
         m_DebugDraw.BuildPipelines();
 
         m_GTAO.Init(*this);
+        m_Volumetric.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -119,7 +120,8 @@ namespace Luth
             // returns true). Debug shaders + IBL precompute remain RP residual.
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
-                              || m_GTAO.OnShaderReloaded(name, spv);
+                              || m_GTAO.OnShaderReloaded(name, spv)
+                              || m_Volumetric.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -175,6 +177,7 @@ namespace Luth
         m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
         m_PostProcess.Shutdown();
+        m_Volumetric.Shutdown();
         m_GTAO.Shutdown();
         m_Geometry.Shutdown();
         m_Lighting.Shutdown();
@@ -267,6 +270,20 @@ namespace Luth
         LightingSubsystem::LightAssignOutputs  assign   = m_Lighting.AddLightAssignPass(rg, clusters);
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
+        // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
+        // composite passes skip entirely; sceneColor flows through unchanged.
+        const bool volumetricEnabled = view.camera.enableVolumetricFog;
+        if (volumetricEnabled)
+        {
+            Memory::GPUSubRegion fogVolumeRegion{};
+            if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
+                fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
+            m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
+                                             assign.indexRegion, fogVolumeRegion);
+            m_Volumetric.AddInjectPass(rg);
+            m_Volumetric.AddIntegratePass(rg);
+        }
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -281,10 +298,20 @@ namespace Luth
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
         RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, skyboxColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? m_EditorOverlays.AddGridPass(rg, skyboxColor, geoOutput.depth)
+        // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
+        // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
+        // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
+        // Known: sceneDepth read fires a benign validation (VUID-vkCmdDraw-None-09600) — RG's
+        // depth-attachment layout doesn't transition reliably across the graphics→compute→graphics
+        // queue cycle. See docs/development/epics/volumetric-fog.md "Known issues" for the
+        // follow-up effort that owns the fix.
+        RG::ResourceHandle fogColor    = volumetricEnabled
+                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth)
                                          : skyboxColor;
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
+        RG::ResourceHandle gridColor   = view.drawGrid
+                                         ? m_EditorOverlays.AddGridPass(rg, fogColor, geoOutput.depth)
+                                         : fogColor;
         RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
 
         // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.
@@ -658,6 +685,9 @@ namespace Luth
         if (auto it = m_ViewResources.find(&m_System.GetSceneTargets()); it != m_ViewResources.end()) {
             if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
             if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
+            if (it->second.volDensity)          m_NamedTextures["VolDensity"]           = it->second.volDensity;
+            if (it->second.volInScatter)        m_NamedTextures["VolInScatter"]         = it->second.volInScatter;
+            if (it->second.volInScatterHistory) m_NamedTextures["VolInScatterHistory"]  = it->second.volInScatterHistory;
         }
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();

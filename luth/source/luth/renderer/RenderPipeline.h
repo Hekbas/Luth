@@ -18,6 +18,7 @@
 #include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
+#include "luth/renderer/subsystems/VolumetricSubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
@@ -101,6 +102,14 @@ namespace Luth
         std::shared_ptr<Texture> gtaoEdges;
         std::shared_ptr<Texture> gtaoFinal;
 
+        // Volumetric fog atlases (RGBA16F, 160×90×128). View-frustum-aligned; persistent across
+        // frames because the history buffer reprojects from the previous frame's in-scatter.
+        // Allocated via the 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler — the
+        // VolumetricSubsystem owns the shared linear-clamp sampler).
+        std::shared_ptr<Texture> volDensity;
+        std::shared_ptr<Texture> volInScatter;
+        std::shared_ptr<Texture> volInScatterHistory;
+
         // Bloom extract / blur / composite — bind view's SceneColor +
         // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
         // all 4 sets atomically against the per-frame slot.
@@ -127,6 +136,16 @@ namespace Luth
         // tagged-heap regions get rewritten into the slot's bindings before dispatch.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
+
+        // Volumetric inject pass. Cycled — temporal ping-pong (next commit) starts differentiating
+        // slots by frame parity (current vs history atlas).
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDescSet{};
+
+        // Volumetric integrate pass. Cycled like inject; same temporal ping-pong follows.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volIntegrateDescSet{};
+
+        // Volumetric composite — single set, stable across frames; rewritten only on viewport resize.
+        VkDescriptorSet volCompositeDescSet = VK_NULL_HANDLE;
 
         // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
         // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view
@@ -303,6 +322,7 @@ namespace Luth
         LightingSubsystem       m_Lighting;
         GeometrySubsystem       m_Geometry;
         GTAOSubsystem           m_GTAO;
+        VolumetricSubsystem     m_Volumetric;
         PostProcessSubsystem    m_PostProcess;
         EditorOverlaysSubsystem m_EditorOverlays;
         DebugDrawSubsystem      m_DebugDraw;

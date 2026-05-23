@@ -1,0 +1,57 @@
+#version 450
+
+// Front-to-back ray march through the volumetric atlas. Each invocation walks one (x,y) froxel
+// column over Z; accumulates per-step transmittance (Beer-Lambert) + in-scatter. The output is
+// written back in-place into volInScatter: RGB = accumulated in-scatter, A = transmittance to the
+// near edge of the slice (the composition pass samples this).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// volDensity is read-only this pass — sampler3D + texelFetch keeps the descriptor in
+// SHADER_READ_ONLY_OPTIMAL (matches RG's ReadStorageImage transition). Storage-image reads
+// would require VK_IMAGE_LAYOUT_GENERAL, which conflicts with the RG state.
+layout(set = 0, binding = 0)          uniform sampler3D       volDensity;
+layout(set = 0, binding = 1, rgba16f) uniform image3D         volInScatter;
+
+layout(push_constant) uniform PC {
+    vec4 nearFarPad;  // x = nearZ, y = farZ
+} pc;
+
+const ivec3 VOL_DIM = ivec3(160, 90, 128);
+
+// Slicing math replicated from volumetric_inject.comp — engine ShaderCompiler has no #include.
+float SliceToViewZ(uint i, float nearZ, float farZ) {
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(VOL_DIM.z));
+}
+
+void main() {
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= VOL_DIM.x || xy.y >= VOL_DIM.y) return;
+
+    const float nearZ = pc.nearFarPad.x;
+    const float farZ  = pc.nearFarPad.y;
+
+    vec3  accumRGB    = vec3(0.0);
+    float transmit    = 1.0;
+    float prevViewZ   = nearZ;
+
+    for (int z = 0; z < VOL_DIM.z; ++z)
+    {
+        ivec3 voxel = ivec3(xy, z);
+        vec4 dens = texelFetch(volDensity, voxel, 0);
+        vec4 scat = imageLoad(volInScatter, voxel);
+
+        float currViewZ = SliceToViewZ(uint(z), nearZ, farZ);
+        float dt = max(currViewZ - prevViewZ, 0.0);
+        prevViewZ = currViewZ;
+
+        // Per-step Beer-Lambert: T_step = exp(-extinction*dt). Analytic single-scattering:
+        // accumRGB += T * scat * (1 - T_step). T *= T_step.
+        float extinction = dens.r;
+        float stepT      = exp(-extinction * dt);
+        accumRGB += transmit * scat.rgb * (1.0 - stepT);
+        transmit *= stepT;
+
+        imageStore(volInScatter, voxel, vec4(accumRGB, transmit));
+    }
+}

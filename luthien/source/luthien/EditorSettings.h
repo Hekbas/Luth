@@ -26,6 +26,9 @@ namespace Luth
         float skyboxIntensity = 1.0f;
         std::string skyboxPath = "textures/environment.hdr";
 
+        // Volumetric fog master toggle. Off skips inject + integrate + composite passes.
+        bool enableVolumetricFog = true;
+
         // Editor camera
         float cameraFlySpeed      = 5.0f;
         float cameraFOV           = 70.0f;

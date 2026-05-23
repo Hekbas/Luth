@@ -23,6 +23,7 @@ namespace Luth::ComponentDrawers
         RegisterAnimationController();
         RegisterDirectionalLight();
         RegisterPointLight();
+        RegisterFogVolume();
         RegisterCollider();
         RegisterRigidBody();
         RegisterCharacterController();

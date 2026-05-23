@@ -59,6 +59,23 @@ namespace Luth
         f32  range = 10.0f;
     };
 
+    // ── Volumetric fog snapshots ──
+    // worldMatrix bakes the entity's WorldTransform * fog local-offset/rotation so the injection
+    // shader gets a single volume-to-world transform per row. extentsOrRadius carries Box
+    // halfExtents (xyz) or Sphere radius (x, others ignored) per `type`.
+
+    struct FogVolumeSnapshot
+    {
+        Mat4 worldMatrix{ 1.0f };
+        u32  type = 0;                  // 0 = Box, 1 = Sphere — matches FogVolume::Type
+        Vec3 extentsOrRadius{ 1.0f };
+        Vec3 color{ 1.0f };
+        f32  density = 0.1f;
+        f32  falloffStart = 0.0f;
+        f32  falloffEnd = 1.0f;
+        bool affectsAmbient = true;
+    };
+
     // ── RenderSnapshot ──
     // POD aggregate. Spans point into a per-frame LinearAllocator (FrameContext::LogicMemory),
     // which resets two iterations later — backing memory survives long enough for one render pass.
@@ -67,6 +84,7 @@ namespace Luth
     {
         std::span<const MeshDrawSnapshot>   meshes;
         std::span<const PointLightSnapshot> pointLights;
+        std::span<const FogVolumeSnapshot>  fogVolumes;
         DirectionalLightSnapshot            directionalLight;
         std::span<const char* const>        tagsByEntity;   // debug-only; empty when frame-debugger not capturing
 
@@ -74,6 +92,7 @@ namespace Luth
         {
             meshes = {};
             pointLights = {};
+            fogVolumes = {};
             directionalLight = {};
             tagsByEntity = {};
         }

@@ -45,6 +45,7 @@ namespace Luth
             settings.iblIntensity    = j.value("iblIntensity", settings.iblIntensity);
             settings.skyboxIntensity = j.value("skyboxIntensity", settings.skyboxIntensity);
             settings.skyboxPath      = j.value("skyboxPath", settings.skyboxPath);
+            settings.enableVolumetricFog = j.value("enableVolumetricFog", settings.enableVolumetricFog);
             settings.cameraFlySpeed      = j.value("cameraFlySpeed", settings.cameraFlySpeed);
             settings.cameraFOV           = j.value("cameraFOV", settings.cameraFOV);
             settings.cameraNearClip      = j.value("cameraNearClip", settings.cameraNearClip);
@@ -126,6 +127,7 @@ namespace Luth
             j["activeLayout"]    = settings.activeLayout;
             j["iblIntensity"]    = settings.iblIntensity;
             j["skyboxIntensity"] = settings.skyboxIntensity;
+            j["enableVolumetricFog"] = settings.enableVolumetricFog;
             j["skyboxPath"]      = settings.skyboxPath;
             j["cameraFlySpeed"]      = settings.cameraFlySpeed;
             j["cameraFOV"]           = settings.cameraFOV;

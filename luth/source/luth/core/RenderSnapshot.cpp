@@ -132,6 +132,41 @@ namespace Luth
             out.pointLights = std::span<const PointLightSnapshot>(lightRows, count);
         }
 
+        // ── Fog volumes ──
+        // Bake the entity world matrix with the fog's local-offset/rotation so the injection
+        // shader inverts a single transform per volume. extentsOrRadius is the active union
+        // member packed as Vec3 (halfExtents for Box, radius in .x for Sphere).
+        {
+            auto view = registry.view<Component::WorldTransform, Component::FogVolume>();
+            const size_t maxCount = view.size_hint();
+            auto* rows = maxCount > 0
+                ? static_cast<FogVolumeSnapshot*>(
+                      mem.Allocate(maxCount * sizeof(FogVolumeSnapshot), alignof(FogVolumeSnapshot)))
+                : nullptr;
+            size_t count = 0;
+
+            for (auto [entity, wt, fv] : view.each())
+            {
+                const Mat4 fogLocal =
+                    Math::Translate(Mat4(1.0f), fv.localOffset) * Math::ToMat4(fv.localRotation);
+
+                FogVolumeSnapshot* dst = new (rows + count) FogVolumeSnapshot();
+                dst->worldMatrix     = wt.Matrix * fogLocal;
+                dst->type            = static_cast<u32>(fv.type);
+                dst->extentsOrRadius = (fv.type == Component::FogVolume::Type::Box)
+                                       ? fv.halfExtents
+                                       : Vec3(fv.radius, 0.0f, 0.0f);
+                dst->color           = fv.color;
+                dst->density         = fv.density;
+                dst->falloffStart    = fv.falloffStart;
+                dst->falloffEnd      = fv.falloffEnd;
+                dst->affectsAmbient  = fv.affectsAmbient;
+                ++count;
+            }
+
+            out.fogVolumes = std::span<const FogVolumeSnapshot>(rows, count);
+        }
+
         // ── Frame Debugger entity tags ──
         // Indexed by entt::to_entity(handle) (dense index, version stripped).
         // Strings are copied into LogicMemory so the snapshot stays valid across

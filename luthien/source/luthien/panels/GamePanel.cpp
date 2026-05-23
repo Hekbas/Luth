@@ -81,6 +81,7 @@ namespace Luth
         out.position        = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
         out.iblIntensity    = Editor::GetSettings().iblIntensity;
         out.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
+        out.enableVolumetricFog = Editor::GetSettings().enableVolumetricFog;
         outAspect           = cam.AspectRatio;
         return true;
     }
