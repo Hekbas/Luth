@@ -9,7 +9,7 @@
 
 const uint TILES_X  = 16u;
 const uint TILES_Y  =  9u;
-const uint SLICES_Z = 24u;
+const uint SLICES_Z = 48u;
 const uint NUM_CLUSTERS = TILES_X * TILES_Y * SLICES_Z;
 const uint MAX_LIGHTS_PER_CLUSTER = 128u;
 

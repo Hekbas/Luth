@@ -8,7 +8,7 @@
 
 const uint TILES_X  = 16u;
 const uint TILES_Y  =  9u;
-const uint SLICES_Z = 24u;
+const uint SLICES_Z = 48u;
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
