@@ -27,6 +27,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  distanceFogParams;         // x = start, y = maxOpacity, z = enabled, w = pad
     vec4  heightFogColorDensity;
     vec4  heightFogParams;           // x = refHeight, y = falloff, z = enabled, w = multiScatter
+    vec4  volTemporalParams;         // x = anisotropy, y = temporalAlpha, z = sunFogAbsorptionSteps, w = skyFogStrength
+    vec4  prevViewParams;            // x = prevNearZ, y = prevFarZ, z/w pad
 } ubo;
 
 #endif

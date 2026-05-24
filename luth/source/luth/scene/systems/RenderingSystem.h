@@ -54,6 +54,12 @@ namespace Luth
         Vec4 distanceFogParams;
         Vec4 heightFogColorDensity;
         Vec4 heightFogParams;
+        // x = anisotropy (HG g), y = temporalAlpha, z = sunFogAbsorptionSteps (cast),
+        // w = skyFogStrength.
+        Vec4 volTemporalParams;
+        // x = prevNearZ, y = prevFarZ, z/w = pad. Cached for cross-frame reprojection so the resolve
+        // pass can reconstruct prev view-Z without assuming nearZ/farZ are constant.
+        Vec4 prevViewParams;
     };
 
     enum class ShadeMode : u8 {

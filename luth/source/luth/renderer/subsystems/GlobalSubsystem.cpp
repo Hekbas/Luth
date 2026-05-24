@@ -89,9 +89,17 @@ namespace Luth
             ubo.prevViewProjection = vr->prevViewProj;
             vr->prevViewProj       = ubo.viewProjection;
             ubo.viewportSize       = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
+            // Cross-frame near/far cache — read for the resolve pass's reprojection. Bootstrap to
+            // current frame's values if uninitialized so frame 0's slice reconstruction is sane.
+            const f32 pNearZ = (vr->prevNearZ != 0.0f) ? vr->prevNearZ : camera.nearZ;
+            const f32 pFarZ  = (vr->prevFarZ  != 0.0f) ? vr->prevFarZ  : camera.farZ;
+            ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
+            vr->prevNearZ = camera.nearZ;
+            vr->prevFarZ  = camera.farZ;
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
             ubo.viewportSize       = Vec2(0.0f);
+            ubo.prevViewParams     = Vec4(camera.nearZ, camera.farZ, 0.0f, 0.0f);
         }
         ubo.nearZ = camera.nearZ;
         ubo.farZ  = camera.farZ;
@@ -109,7 +117,9 @@ namespace Luth
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
-        // Volumetric fog params — distance fog + height fog + multi-scatter scalar.
+        // Volumetric fog params — distance fog + height fog + multi-scatter + temporal/sun-absorption/
+        // sky tunables. heightFogParams.w still carries multiScatterIntensity for back-compat with
+        // shaders that haven't migrated to volTemporalParams yet.
         const VolumetricSettings& vs = m_Pipeline->GetSystem().GetVolumetricSettings();
         ubo.distanceFogColorDensity = Vec4(vs.distanceFogColor, vs.distanceFogDensity);
         ubo.distanceFogParams       = Vec4(vs.distanceFogStart, vs.distanceFogMaxOpacity,
@@ -117,6 +127,10 @@ namespace Luth
         ubo.heightFogColorDensity   = Vec4(vs.heightFogColor, vs.heightFogDensity);
         ubo.heightFogParams         = Vec4(vs.heightFogRefHeight, vs.heightFogFalloff,
                                            vs.heightFogEnabled ? 1.0f : 0.0f, vs.multiScatterIntensity);
+        ubo.volTemporalParams       = Vec4(vs.anisotropy,
+                                           vs.temporalAlpha,
+                                           static_cast<f32>(vs.sunFogAbsorptionSteps),
+                                           vs.skyFogStrength);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

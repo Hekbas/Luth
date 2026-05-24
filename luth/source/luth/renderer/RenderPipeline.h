@@ -167,6 +167,11 @@ namespace Luth
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
         // independent. Identity-initialized → frame 0 has nonsense motion, settles by frame 1.
         Mat4 prevViewProj{ 1.0f };
+
+        // Prev-frame near/far for the resolve pass's reprojection slice math — needed because the
+        // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
+        f32 prevNearZ = 0.0f;
+        f32 prevFarZ  = 0.0f;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
