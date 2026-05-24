@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
 // Volumetric fog composite. Samples the front-to-back integrated in-scatter atlas (Wronski
 // parameterization) at the fragment's view-space Z, applies analytic global distance + height
@@ -7,33 +8,10 @@
 //   final = sceneColor * T_total + scatter
 // where fogOpacity = 1 - T_total and fogColor = scatter / fogOpacity (protected against /0).
 
+#include "common/globals.glsl"
+
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 outColor;
-
-layout(set = 0, binding = 0) uniform GlobalUniforms {
-    mat4 viewProjection;
-    mat4 prevViewProjection;
-    mat4 view;
-    mat4 projection;
-    vec3 cameraPos;
-    float time;
-    mat4 lightSpaceMatrix[4];
-    vec4 cascadeSplitsViewZ;
-    vec4 shadowBias;
-    vec4 shadowNormalBias;
-    vec4 cascadeTexelSize;
-    float iblIntensity;
-    float skyboxIntensity;
-    float debugVisualizeCascades;
-    float cascadeBlendWidth;
-    vec2  viewportSize;
-    float nearZ;
-    float farZ;
-    vec4  distanceFogColorDensity;   // rgb = color, a = density
-    vec4  distanceFogParams;         // x = start, y = maxOpacity, z = enabled, w = pad
-    vec4  heightFogColorDensity;
-    vec4  heightFogParams;           // x = refHeight, y = falloff, z = enabled, w = multiScatter
-} ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D sceneDepth;
 layout(set = 1, binding = 1) uniform sampler3D volInScatter;

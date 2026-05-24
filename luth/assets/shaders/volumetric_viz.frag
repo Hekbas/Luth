@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
 // Volumetric fog debug viz. Two modes selected by push constant:
 //   0 = Density       — heat-map the density atlas (R channel × scale).
@@ -6,35 +7,10 @@
 // Both sample SceneDepth to derive the per-fragment Wronski slice index, then read the 3D atlas
 // at (screenUV, sliceW). Output is alpha-blended onto LDR so the scene shows through.
 
+#include "common/globals.glsl"
+
 layout(location = 0) in  vec2 v_TexCoord;
 layout(location = 0) out vec4 outColor;
-
-// Set 0 mirrors the inject/composite UBO so we can derive view-space Z from SceneDepth using
-// the same near/far the volumetric chain uses. Only nearZ/farZ are read here.
-layout(set = 0, binding = 0) uniform GlobalUniforms {
-    mat4 viewProjection;
-    mat4 prevViewProjection;
-    mat4 view;
-    mat4 projection;
-    vec3 cameraPos;
-    float time;
-    mat4 lightSpaceMatrix[4];
-    vec4 cascadeSplitsViewZ;
-    vec4 shadowBias;
-    vec4 shadowNormalBias;
-    vec4 cascadeTexelSize;
-    float iblIntensity;
-    float skyboxIntensity;
-    float debugVisualizeCascades;
-    float cascadeBlendWidth;
-    vec2  viewportSize;
-    float nearZ;
-    float farZ;
-    vec4  distanceFogColorDensity;
-    vec4  distanceFogParams;
-    vec4  heightFogColorDensity;
-    vec4  heightFogParams;
-} ubo;
 
 // Set 1: scene depth + the two atlases. b2 (volInScatter) parity-rewrites each frame to follow
 // integrate's ping-pong write target — same primitive as composite's cycled b1.

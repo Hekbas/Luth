@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
 // Wronski volumetric fog — light injection with Karis 3x3x3 temporal accumulation.
 // Per voxel: reconstruct world position via exponential Z slicing, evaluate dir-light contribution
@@ -11,33 +12,9 @@
 // halo computes fresh in-scatter purely to seed shared memory for the neighborhood clamp; halo
 // threads outside the atlas extent contribute 0 (fog density vanishes outside the frustum anyway).
 
-layout(local_size_x = 10, local_size_y = 10, local_size_z = 6) in;
+#include "common/globals.glsl"
 
-// ── Set 0 — Global Uniforms (mirrors pbr.frag) ──
-layout(set = 0, binding = 0) uniform GlobalUniforms {
-    mat4 viewProjection;
-    mat4 prevViewProjection;
-    mat4 view;
-    mat4 projection;
-    vec3 cameraPos;
-    float time;
-    mat4 lightSpaceMatrix[4];
-    vec4 cascadeSplitsViewZ;
-    vec4 shadowBias;
-    vec4 shadowNormalBias;
-    vec4 cascadeTexelSize;
-    float iblIntensity;
-    float skyboxIntensity;
-    float debugVisualizeCascades;
-    float cascadeBlendWidth;
-    vec2  viewportSize;
-    float nearZ;
-    float farZ;
-    vec4  distanceFogColorDensity;   // rgb = color, a = density
-    vec4  distanceFogParams;         // x = start, y = maxOpacity, z = enabled, w = pad
-    vec4  heightFogColorDensity;
-    vec4  heightFogParams;           // x = refHeight, y = falloff, z = enabled, w = multiScatter
-} ubo;
+layout(local_size_x = 10, local_size_y = 10, local_size_z = 6) in;
 
 // ── Set 1 — volumetric subsystem state ──
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D volDensity;
