@@ -49,12 +49,17 @@ void main() {
         prevViewZ = currViewZ;
 
         // Per-step Beer-Lambert: T_step = exp(-extinction*dt). Analytic single-scattering:
-        // accumRGB += T * scat * (1 - T_step). T *= T_step.
+        // accumRGB += T * scat * (1 - T_step). Stored value at this slice corresponds to the slice
+        // CENTER's view-Z, so we apply the half-step transmittance for the stored alpha (the value
+        // at center, not far edge). Composite samples this via trilinear interp and gets the right
+        // mid-slice transmittance at fragment depth.
         float extinction = dens.r;
         float stepT      = exp(-extinction * dt);
         accumRGB += transmit * scat.rgb * (1.0 - stepT);
+        float halfStepT  = exp(-extinction * dt * 0.5);
+        float transmitAtCenter = transmit * halfStepT;
         transmit *= stepT;
 
-        imageStore(volInScatter, voxel, vec4(accumRGB, transmit));
+        imageStore(volInScatter, voxel, vec4(accumRGB, transmitAtCenter));
     }
 }

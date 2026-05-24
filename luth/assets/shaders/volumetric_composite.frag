@@ -16,22 +16,26 @@ layout(location = 0) out vec4 outColor;
 layout(set = 1, binding = 0) uniform sampler2D sceneDepth;
 layout(set = 1, binding = 1) uniform sampler3D volInScatter;
 
+// invView pushed each draw — avoids per-fragment inverse(ubo.view) (~40 ALU * full-screen).
+layout(push_constant) uniform PC {
+    mat4 invView;
+} pc;
+
 float DepthToViewZ(float ndcDepth) {
     // Inverse of glm::perspectiveRH_ZO (Vulkan depth range 0..1).
     return (ubo.nearZ * ubo.farZ) / (ndcDepth * (ubo.nearZ - ubo.farZ) + ubo.farZ);
 }
 
-// Slicing math replicated from volumetric_inject.comp — no #include support in ShaderCompiler.
+// Slicing math replicated from volumetric_inject.comp.
 float ViewZToAtlasSlice(float viewZ) {
     return clamp(log(max(viewZ, ubo.nearZ) / ubo.nearZ)
                / log(ubo.farZ / ubo.nearZ), 0.0, 1.0);
 }
 
 void main() {
-    // Known issue: sceneDepth's DSA → SHADER_READ_ONLY transition isn't reliably emitted by RG
-    // across the graphics → compute → graphics queue cycle. Documented in spec; follow-up effort.
     float ndcDepth = texture(sceneDepth, v_TexCoord).r;
     float viewZ    = DepthToViewZ(ndcDepth);
+    bool  isSky    = ndcDepth >= 0.9999;
 
     // Volumetric sample.
     float sliceW = ViewZToAtlasSlice(viewZ);
@@ -45,7 +49,7 @@ void main() {
     float vsX = ndcXY.x * (-vsZ) / ubo.projection[0][0];
     float vsY = ndcXY.y * (-vsZ) / ubo.projection[1][1];
     vec3 viewPos  = vec3(vsX, vsY, vsZ);
-    vec3 worldPos = (inverse(ubo.view) * vec4(viewPos, 1.0)).xyz;
+    vec3 worldPos = (pc.invView * vec4(viewPos, 1.0)).xyz;
     float camDist = length(worldPos - ubo.cameraPos);
 
     // Distance fog — analytic exponential.
@@ -75,6 +79,12 @@ void main() {
 
     // Re-shape for standard alpha blending: (fogColor, fogOpacity).
     float fogOpacity = clamp(1.0 - T_total, 0.0, 1.0);
+    // Sky-pixel fog strength cap — scales fog opacity at the far slice so the skybox can stay
+    // visible in dense fog. 1.0 = full fog on sky (skybox can disappear); 0.0 = no fog on sky.
+    if (isSky) {
+        float skyStrength = ubo.volTemporalParams.w;
+        fogOpacity *= skyStrength;
+    }
     vec3  fogColor   = (fogOpacity > 1e-5) ? scatter / fogOpacity : vec3(0.0);
     outColor = vec4(fogColor, fogOpacity);
 }

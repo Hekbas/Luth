@@ -20,12 +20,22 @@ namespace Luth
     struct ViewResources;
     struct GatheredFogVolumes;
 
-    // Wronski frustum voxel volumetric fog. Subsystem skeleton plus a single linear-clamp
-    // sampler shared across the inject / integrate / composite pipelines. Each pipeline +
-    // descriptor layout lands with its first-use commit (inject A4.7, integrate A4.9,
-    // composite A4.13). The 3D atlases live on ViewResources (persistent VMA via 3D VKTexture
-    // ctor); the per-frame FogVolume SSBO routes through GPUTaggedPageAllocator, mirroring
-    // LightingSubsystem::UploadLightSSBO.
+    // Wronski frustum voxel volumetric fog. Four-pass chain:
+    //   Inject     — pre-integrate per-voxel scatter (dir-light + cluster points + FogVolume mod).
+    //   Integrate  — front-to-back Beer-Lambert ray march; writes accumulated transmittance + in-
+    //                scatter in-place over volInScatter scratch.
+    //   Resolve    — temporal reprojection + Karis 3x3x3 clamp + history blend. Reads scratch +
+    //                prev-frame's resolved (parity ping-pong over HistA/B); writes this frame's
+    //                resolved. Decouples temporal from inject so history domain matches resolve
+    //                output (post-integrate), avoiding the energy-non-conservation that an
+    //                inject-time temporal blend produced.
+    //   Composite  — graphics fullscreen blend onto sceneColor. Samples the resolved atlas.
+    //
+    // The viz pass (Vol Density / Vol In-Scatter ShadeMode) samples density + the resolved atlas
+    // for diagnostic overlays.
+    //
+    // Atlases live on ViewResources (persistent VMA). Per-frame FogVolume SSBO routes through
+    // GPUTaggedPageAllocator, mirroring LightingSubsystem::UploadLightSSBO.
     class VolumetricSubsystem
     {
     public:
@@ -40,83 +50,83 @@ namespace Luth
         // or when allocation fails.
         Memory::GPUSubRegion UploadFogVolumeSSBO(const GatheredFogVolumes& volumes);
 
-        // Stable per-view writes for the inject pass — only b6 (shadow sampler) is stable now.
-        // b0 (density) / b1 (in-scatter write) / b7 (history read) and b2-b5 (SSBOs) all rewrite
-        // per frame in WriteInjectPerFrame — b0/b1/b7 parity-pick which physical atlas plays
-        // which role this frame for temporal accumulation.
+        // Stable per-view writes for the inject pass — b0 (density storage), b1 (in-scatter
+        // storage), b6 (shadow array sampler). The SSBO bindings b2-b5 rewrite per-frame.
         void WriteInjectView(ViewResources& vr);
 
-        // Per-frame rewrites for the inject set: b0 (density), b1 (current-frame in-scatter
-        // write target), b7 (previous-frame in-scatter sampled as history) get parity-picked
-        // from `frameAbs & 1`. b2-b5 SSBOs refresh against this frame's tagged-heap regions.
+        // Per-frame rewrites for the inject set's SSBO bindings (Light, ClusterGrid, LightIndex,
+        // FogVolume) against this frame's tagged-heap regions. b0/b1/b6 are stable (WriteInjectView).
         void WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
                                  const Memory::GPUSubRegion& clusterGridRegion,
                                  const Memory::GPUSubRegion& lightIndexRegion,
-                                 const Memory::GPUSubRegion& fogVolumeRegion,
-                                 u32 frameAbs);
+                                 const Memory::GPUSubRegion& fogVolumeRegion);
 
-        // Inject pass output — atlas handles after the storage writes, threaded into integrate so
-        // both passes share the same `ResourceNode` per arch hazard #1 (no double ImportResource).
+        // Inject pass output — atlas handle threaded into integrate so both passes share the same
+        // ResourceNode per arch hazard #1.
         struct InjectOutputs
         {
             RG::ResourceHandle density;
             RG::ResourceHandle inScatter;
         };
 
-        // Compute pass: per-voxel dir-light + cluster point-light injection with CSM shadow and
-        // local FogVolume modulation. Async-compute eligible. Dispatched against the 160x90x128
-        // atlas grid. Takes per-cascade shadow handles so RG knows to transition the shadow array
-        // layers from DSA → SHADER_READ_ONLY before sampling (shader binding 6).
+        // Compute pass: per-voxel scatter (Hillaire HG phase) with sun light-path absorption ray-
+        // march + IBL ambient. Async-compute eligible. Takes per-cascade shadow handles so RG knows
+        // to transition them to SHADER_READ_ONLY before sampling (binding 6).
         InjectOutputs AddInjectPass(RG::RenderGraph& rg,
                                     const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount]);
 
-        // Stable per-view writes for the integrate pass — only b0 (density sampler) is stable.
-        // b1 (in-scatter write target) parity-cycles between volInScatter and volInScatterHistory;
-        // rewritten in WriteIntegratePerFrame against the same atlas inject wrote to this frame.
+        // Stable per-view writes for the integrate pass — both b0 (density sampler) and b1
+        // (in-scatter storage write target = volInScatter scratch) are stable. No per-frame.
         void WriteIntegrateView(ViewResources& vr);
 
-        // Per-frame rewrite of integrate b1 — matches inject's parity-chosen write target.
-        void WriteIntegratePerFrame(ViewResources& vr, u32 frameAbs);
-
-        // Compute pass: walks froxel columns front-to-back, accumulating transmittance + in-scatter.
-        // Reads volDensity, writes volInScatter in-place. Async-compute eligible. Returns the
-        // post-write inScatter handle so composite can declare its sampler read.
+        // Compute pass: front-to-back ray march; reads volDensity + volInScatter (pre-integrate),
+        // writes accumulated transmittance + in-scatter back to volInScatter (in-place). Returns
+        // post-integrate handle that the resolve pass consumes.
         RG::ResourceHandle AddIntegratePass(RG::RenderGraph& rg, InjectOutputs injectOut);
 
+        // Stable per-view writes for the resolve pass — only b0 (volInScatter scratch sampler) is
+        // stable. b1 (prev history sampler) + b2 (curr history storage write target) parity-rewrite
+        // per frame to ping-pong over volInScatterHistA / volInScatterHistB.
+        void WriteResolveView(ViewResources& vr);
+
+        // Per-frame rewrite of resolve b1 + b2 — parity picks (HistA, HistB) vs (HistB, HistA)
+        // for (read prev, write curr).
+        void WriteResolvePerFrame(ViewResources& vr, u32 frameAbs);
+
+        // Compute pass: temporal accumulation. Reads scratch (this frame's post-integrate) + prev
+        // resolved (reprojected via prevViewProjection), applies Karis 3x3x3 min/max clamp on the
+        // 27 scratch neighbors, blends with temporalAlpha, writes curr resolved. Returns curr
+        // resolved handle so composite + viz can declare reads.
+        RG::ResourceHandle AddResolvePass(RG::RenderGraph& rg, RG::ResourceHandle scratchInScatter);
+
         // Stable per-view writes for the composite pass — only b0 (sceneDepth sampler) is stable.
-        // b1 (volInScatter sampler3D) parity-cycles to whichever atlas integrate wrote to this
-        // frame; rewritten in WriteCompositePerFrame. Composite descriptor set is cycled across
-        // MAX_FRAMES_IN_FLIGHT to keep rewrites disjoint from in-flight reads.
+        // b1 (resolved sampler3D) parity-cycles HistA / HistB.
         void WriteCompositeView(ViewResources& vr, FrameTargets& targets);
 
-        // Per-frame rewrite of composite b1 — samples the atlas that was integrated this frame.
+        // Per-frame rewrite of composite b1 — samples this frame's resolved history atlas.
         void WriteCompositePerFrame(ViewResources& vr, FrameTargets& targets, u32 frameAbs);
 
-        // Stable per-view write of the viz descriptor — only b0 (sceneDepth sampler) and b1
-        // (volDensity sampler) are stable. b2 (volInScatter sampler) parity-rewrites per frame
-        // in WriteVizPerFrame to follow the integrate ping-pong target. Viz set is cycled per
-        // MAX_FRAMES_IN_FLIGHT slot like the other volumetric sets.
+        // Stable per-view write of the viz descriptor — b0 (sceneDepth), b1 (volDensity) are stable.
+        // b2 (resolved in-scatter sampler) parity-rewrites in WriteVizPerFrame.
         void WriteVizView(ViewResources& vr, FrameTargets& targets);
         void WriteVizPerFrame(ViewResources& vr, u32 frameAbs);
 
         // Debug graphics pass: blits a heat-mapped density or raw in-scatter radiance over LDR.
-        // ShadeMode::VolumetricDensity → mode 0; VolumetricInScatter → mode 1. Declares Read on
-        // sceneDepth + density + inScatter so RG transitions all three to SHADER_READ_ONLY.
+        // ShadeMode::VolumetricDensity → mode 0; VolumetricInScatter → mode 1.
         RG::ResourceHandle AddVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
                                       RG::ResourceHandle density, RG::ResourceHandle inScatter,
                                       RG::ResourceHandle sceneDepth, u32 mode);
 
         // Graphics pass: blends fog-modulated radiance back into sceneColor via standard alpha blend.
-        // Reads sceneColor (via blend), sceneDepth (sampler), volInScatter atlas (sampler3D), and
-        // the Global UBO. Writes to sceneColor in-place.
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
                                             RG::ResourceHandle sceneDepth,
-                                            RG::ResourceHandle inScatter);
+                                            RG::ResourceHandle resolvedInScatter);
 
         VkSampler                   GetSampler()             const { return m_Sampler; }
         const Memory::GPUSubRegion& GetLastFogVolumeRegion() const { return m_LastFogVolumeRegion; }
         VkDescriptorSetLayout       GetInjectLayout()        const { return m_InjectDescLayout; }
         VkDescriptorSetLayout       GetIntegrateLayout()     const { return m_IntegrateDescLayout; }
+        VkDescriptorSetLayout       GetResolveLayout()       const { return m_ResolveDescLayout; }
         VkDescriptorSetLayout       GetCompositeLayout()     const { return m_CompositeDescLayout; }
         VkDescriptorSetLayout       GetVizLayout()           const { return m_VizDescLayout; }
 
@@ -130,13 +140,17 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_InjectPipeline;
         std::vector<u32>                   m_InjectSpv;
 
-        // Integrate pass — front-to-back ray march in-place over volInScatter.
+        // Integrate pass — front-to-back ray march in-place over volInScatter scratch.
         VkDescriptorSetLayout              m_IntegrateDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_IntegratePipeline;
         std::vector<u32>                   m_IntegrateSpv;
 
-        // Composite pass — fullscreen graphics pipeline; samples atlas + depth, blends back into
-        // sceneColor via the pipeline's src + dst*src.a blend equation.
+        // Resolve pass — temporal accumulation, scratch + prev → curr history.
+        VkDescriptorSetLayout              m_ResolveDescLayout = VK_NULL_HANDLE;
+        std::unique_ptr<VKComputePipeline> m_ResolvePipeline;
+        std::vector<u32>                   m_ResolveSpv;
+
+        // Composite pass — fullscreen graphics; samples sceneDepth + resolved atlas, alpha-blends.
         VkDescriptorSetLayout              m_CompositeDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKPipeline>        m_CompositePipeline;
         std::vector<u32>                   m_FullscreenVertSpv;

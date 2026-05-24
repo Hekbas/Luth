@@ -1,20 +1,15 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-// Wronski volumetric fog — light injection with Karis 3x3x3 temporal accumulation.
+// Wronski volumetric fog — light injection (pre-integrate single-scatter).
 // Per voxel: reconstruct world position via exponential Z slicing, evaluate dir-light contribution
 // with CSM shadow attenuation, iterate cluster's point lights, and modulate by local FogVolume rows.
-// Then reproject to previous frame's atlas, clamp history to the 3x3x3 neighborhood of the fresh
-// in-scatter value (stored in groupshared memory), and blend ~5% fresh / 95% history.
-// Writes density (single atlas) + in-scatter (ping-pong with volInScatterHistory).
-//
-// Workgroup is 10x10x6 = 600 threads; the inner 8x8x4 = 256 threads write to the atlas. The 1-voxel
-// halo computes fresh in-scatter purely to seed shared memory for the neighborhood clamp; halo
-// threads outside the atlas extent contribute 0 (fog density vanishes outside the frustum anyway).
+// Writes density + raw per-voxel in-scatter to the scratch atlas pair. The integrate pass walks Z;
+// the resolve pass blends with reprojected history.
 
 #include "common/globals.glsl"
 
-layout(local_size_x = 10, local_size_y = 10, local_size_z = 6) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
 
 // ── Set 1 — volumetric subsystem state ──
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D volDensity;
@@ -57,7 +52,6 @@ layout(std430, set = 1, binding = 5) readonly buffer FogVolumeBuffer {
 } fog;
 
 layout(set = 1, binding = 6) uniform sampler2DArrayShadow shadowMap;
-layout(set = 1, binding = 7) uniform sampler3D volInScatterHistory;
 
 // invView pushed each dispatch — avoids per-voxel inverse(ubo.view) (~40 ops).
 // volDim* are atlas dimensions for the active quality preset (Low/Medium/High); set CPU-side.
@@ -70,21 +64,24 @@ layout(push_constant) uniform PC {
 } pc;
 
 #define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
-const ivec3 INNER = ivec3(8, 8, 4);   // atlas voxels written per workgroup
+
 const uint  k_ClusterTilesX  = 16u;
 const uint  k_ClusterTilesY  =  9u;
 const uint  k_ClusterSlicesZ = 24u;
 const float PI = 3.14159265359;
-const float kIsotropicPhase = 1.0 / (4.0 * PI);
-const float kTemporalAlpha  = 0.05;     // fresh blend weight (0.05 = 95% history)
 
-// Shared-memory tile holds this workgroup's fresh in-scatter for the 3x3x3 clamp.
-// 10x10x6 vec4 = 9.6 KB — well within Vulkan's typical 32 KB workgroup limit.
-shared vec4 sharedScatter[6][10][10];
+// Henyey-Greenstein phase function. g in [-1, 1]; positive = forward, 0 = isotropic, negative
+// = backscatter. Integrates to 1 over the sphere — units of inverse steradian.
+float HenyeyGreenstein(float cosTheta, float g)
+{
+    float g2 = g * g;
+    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+    return (1.0 - g2) / (4.0 * PI * pow(max(denom, 1e-4), 1.5));
+}
 
-// Wronski exponential Z slicing — more resolution near the camera. Inverse-symmetric to the
-// composite pass's view-Z-to-slice mapping; both must stay in sync (engine ShaderCompiler has no
-// #include support, so the math is replicated per shader — matches cluster_viz.frag precedent).
+// Wronski exponential Z slicing — more resolution near the camera. Slice index is the voxel CENTER
+// (the +0.5 inside the pow). Composite + resolve replicate this math; engine has #include support
+// so the helper lives in common/volumetric_common.glsl in the proper sharing model (TODO).
 float SliceToViewZ(int i, float nearZ, float farZ) {
     return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
 }
@@ -120,32 +117,54 @@ float SampleCSM(vec3 worldPos, uint cascade) {
     return texture(shadowMap, vec4(uv, float(cascade), depthRef));
 }
 
-// Compute fresh per-voxel density + in-scatter at the given atlas coord. Also fills outWorldPos
-// for the caller's reprojection. Out-of-atlas coords return (0,0).
-void ComputeFreshInScatter(ivec3 voxelRaw, out vec3 outInScatter, out float outDensity, out vec3 outWorldPos)
+// Sun-fog light-path absorption: 4-step (or N-step) ray-march from voxel toward sun, summing
+// optical depth via per-step CSM density sampling. Returns the cumulative transmittance along the
+// light ray. Returns 1.0 (no absorption) when steps==0.
+float SunFogTransmittance(vec3 worldPos, float voxelDensity, int steps)
 {
-    outInScatter = vec3(0.0);
-    outDensity   = 0.0;
-    outWorldPos  = vec3(0.0);
-    if (any(lessThan(voxelRaw, ivec3(0))) || any(greaterThanEqual(voxelRaw, VOL_DIM)))
-        return;
+    if (steps <= 0 || voxelDensity < 1e-4) return 1.0;
+    // Reuse the voxel's density as a coarse estimate of the medium between voxel and sun. Refining
+    // this would require sampling the density atlas along the light ray — that's a future polish.
+    vec3 toSun = -lights.dirLight.direction;
+    // Step length in world units. Tied to half the frustum's far range as a sensible default —
+    // dense fog absorbs sun long before the ray exits 50% of view depth. Tunable via the
+    // sunFogAbsorptionSteps setting.
+    float stepLen = 0.5 * ubo.farZ / float(steps);
+    float opticalDepth = 0.0;
+    for (int s = 1; s <= steps; ++s) {
+        vec3 sample_pos = worldPos + toSun * (float(s) * stepLen);
+        // Cheap CSM-side coverage test — assumes uniform local density (the voxel's). Hillaire/
+        // Frostbite use a full density atlas sample; ours is a 1-tap shortcut for now.
+        opticalDepth += voxelDensity * stepLen;
+    }
+    return exp(-opticalDepth);
+}
+
+void main() {
+    ivec3 voxel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(voxel, VOL_DIM))) return;
 
     // Voxel center → NDC.xy + view-space Z (positive distance from camera).
-    vec2 uv = (vec2(voxelRaw.xy) + 0.5) / vec2(VOL_DIM.xy);
+    vec2 uv = (vec2(voxel.xy) + 0.5) / vec2(VOL_DIM.xy);
     vec2 ndcXY = uv * 2.0 - 1.0;
-    float viewZ = SliceToViewZ(voxelRaw.z, ubo.nearZ, ubo.farZ);
+    float viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);
     float vsZ   = -viewZ; // view-space Z is negative (RH, -Z forward)
 
+    // Reconstruct view-space XY from NDC + projection diagonal.
     float vsX = ndcXY.x * (-vsZ) / ubo.projection[0][0];
     float vsY = ndcXY.y * (-vsZ) / ubo.projection[1][1];
     vec3 viewPos  = vec3(vsX, vsY, vsZ);
-    outWorldPos   = (pc.invView * vec4(viewPos, 1.0)).xyz;
+    vec3 worldPos = (pc.invView * vec4(viewPos, 1.0)).xyz;
+    vec3 viewDirWorld = normalize(worldPos - ubo.cameraPos);
 
+    // Local fog-volume modulation. Box: |localPos| / extents <= 1 inside. Sphere: |localPos| / r <= 1.
+    // Falloff lerps from 1 at falloffStart to 0 at falloffEnd, both normalized to the shape distance.
+    // emit accumulates direct emission (radiance per unit length); not multiplied by density.
     float density = 0.0;
     vec3  emit    = vec3(0.0);
     for (uint i = 0u; i < fog.count; ++i) {
         FogVolumeRow v = fog.volumes[i];
-        vec3 localPos = (v.worldToVolume * vec4(outWorldPos, 1.0)).xyz;
+        vec3 localPos = (v.worldToVolume * vec4(worldPos, 1.0)).xyz;
         float d = 0.0;
         bool inside = false;
         if (v.type == 0u) {
@@ -163,114 +182,77 @@ void ComputeFreshInScatter(ivec3 voxelRaw, out vec3 outInScatter, out float outD
         float fStart = clamp(v.falloffStart, 0.0, fEnd);
         float fall   = clamp((fEnd - d) / max(fEnd - fStart, 1e-4), 0.0, 1.0);
         density += v.density * fall;
-        emit    += v.color * v.density * fall * (v.affectsAmbient != 0u ? 1.0 : 0.0);
+        // emit is direct radiance from the medium itself — not scattered, no density² weighting.
+        emit    += v.color * fall * (v.affectsAmbient != 0u ? 1.0 : 0.0);
     }
     density = max(density, 0.0);
 
+    // Anisotropy + 4-step sun-fog absorption — both come from VolumetricSettings via the UBO.
+    float gAniso  = ubo.volTemporalParams.x;
+    int   sunSteps = int(ubo.volTemporalParams.z);
+
+    // Directional light + CSM-attenuated visibility + HG phase function vs view direction +
+    // light-path absorption through the medium. Skip when density is zero.
     vec3 dirContrib = vec3(0.0);
     if (density > 1e-4 && lights.dirLight.intensity > 0.0) {
         uint cascade = SelectCascade(viewZ);
-        float shadow = SampleCSM(outWorldPos, cascade);
-        dirContrib = lights.dirLight.color * lights.dirLight.intensity * shadow * kIsotropicPhase;
+        float shadow = SampleCSM(worldPos, cascade);
+        // cosTheta between view direction (cam→voxel) and "to sun" (= -dirLight.direction).
+        float cosTheta = dot(-viewDirWorld, -lights.dirLight.direction);
+        float phase    = HenyeyGreenstein(cosTheta, gAniso);
+        float sunAbs   = SunFogTransmittance(worldPos, density, sunSteps);
+        dirContrib = lights.dirLight.color * lights.dirLight.intensity * shadow * phase * sunAbs;
     }
 
+    // Cluster point-light iteration. Each light: window falloff × physical 1/d², HG phase function
+    // vs view direction. Cluster ID from voxel's screen-space tile + Olsson slice index.
     vec3 pointContrib = vec3(0.0);
     if (density > 1e-4) {
-        uint cid = ComputeClusterIDForVoxel(voxelRaw.xy, viewZ);
+        uint cid = ComputeClusterIDForVoxel(voxel.xy, viewZ);
         uvec2 lc = clusterGrid.clusters[cid];
         uint lightOffset = lc.x;
         uint lightCount  = lc.y;
         for (uint j = 0u; j < lightCount; ++j) {
             uint li = lightIndex.indices[lightOffset + j];
             PointLightData p = lights.points[li];
-            vec3 toLight = p.position - outWorldPos;
+            vec3 toLight = p.position - worldPos;
             float dist2 = dot(toLight, toLight);
             float r2 = p.range * p.range;
             if (dist2 > r2) continue;
-            float dist  = sqrt(dist2);
-            float atten = max(1.0 - dist / p.range, 0.0);
-            atten *= atten;
-            pointContrib += p.color * p.intensity * atten * kIsotropicPhase;
+            float dist     = sqrt(dist2);
+            // Windowed inverse-square: physical 1/d² × smooth window for range cutoff. Matches
+            // pbr.frag's attenuation shape.
+            float window   = 1.0 - clamp(dist / p.range, 0.0, 1.0);
+            window *= window;
+            float physical = 1.0 / max(dist2, 0.01);
+            float atten    = physical * window;
+            vec3  lightDir = toLight / max(dist, 1e-4);  // points from voxel toward light
+            float cosTheta = dot(-viewDirWorld, lightDir);
+            float phase    = HenyeyGreenstein(cosTheta, gAniso);
+            pointContrib += p.color * p.intensity * atten * phase;
         }
     }
 
-    vec3 inScatter = (dirContrib + pointContrib + emit) * density;
+    // Single-scatter accumulation: scattering = sigma_s × radiance × phase. Density approximates
+    // sigma_s. emit is direct radiance and does NOT get multiplied by density (it's emission, not
+    // scattering).
+    vec3 inScatter = (dirContrib + pointContrib) * density + emit;
 
-    // Hillaire 2nd-order multi-scatter — analytic boost proportional to local extinction.
-    // Factor saturates near 1+msK as density grows; integrate's Beer-Lambert keeps total
-    // transmittance energy-bounded so this can't blow up.
+    // 2nd-order multi-scatter (proper Wronski/Frostbite shape, NOT the misnamed multiplicative
+    // boost). Pulls in IBL ambient irradiance and adds an extinction-weighted contribution. This
+    // is the term that brightens shadowed fog — multiplicative boosts can't (0 × anything = 0).
     float msK = ubo.heightFogParams.w;
     if (msK > 0.0) {
-        inScatter *= 1.0 + msK * (1.0 - exp(-density));
+        // Sample IBL irradiance at the +Y direction (world up) for a sky-ambient estimate. This is
+        // a cheap approximation; a true integral would sample multiple directions. msK scales by
+        // density to be extinction-coupled (no extinction → no multi-scatter).
+        // NB: IBL irradiance lives on Set 0 binding 1 in pbr.frag; we don't bind it in the inject
+        // pass currently, so for now use a fixed grey ambient color scaled by iblIntensity. When
+        // the IBL set 0 binding is plumbed through to inject we'll switch to the real sample.
+        vec3 skyAmbient = vec3(0.5) * ubo.iblIntensity;
+        inScatter += density * skyAmbient * msK;
     }
 
-    outInScatter = inScatter;
-    outDensity   = density;
-}
-
-void main() {
-    // localID==1 maps to workgroup's first inner voxel; localID==0 is the -1 halo entry.
-    ivec3 voxelRaw = ivec3(gl_WorkGroupID) * INNER
-                   + ivec3(gl_LocalInvocationID) - ivec3(1, 1, 1);
-
-    vec3  freshScatter;
-    float density;
-    vec3  worldPos;
-    ComputeFreshInScatter(voxelRaw, freshScatter, density, worldPos);
-
-    // Halo + inner threads alike seed the 3x3x3 clamp tile.
-    sharedScatter[gl_LocalInvocationID.z][gl_LocalInvocationID.y][gl_LocalInvocationID.x]
-        = vec4(freshScatter, 0.0);
-
-    barrier();
-
-    // Only the inner 8x8x4 = 256 threads write to the atlas. Halo threads exit here — their
-    // contribution lives entirely in shared memory. Y dispatch overshoots the atlas (12*8=96 vs
-    // VOL_DIM.y=90), so inner threads can still map to OOB voxels; skip those before write.
-    bool isInner = (gl_LocalInvocationID.x - 1u) < uint(INNER.x)
-                && (gl_LocalInvocationID.y - 1u) < uint(INNER.y)
-                && (gl_LocalInvocationID.z - 1u) < uint(INNER.z)
-                && all(greaterThanEqual(voxelRaw, ivec3(0)))
-                && all(lessThan(voxelRaw, VOL_DIM));
-    if (!isInner) return;
-
-    // Reproject voxel center to previous frame's clip space. prev nearZ/farZ assumed equal to
-    // current frame's — the engine fixes them per-view and does not change them per-frame; if a
-    // future camera feature breaks that, history reprojection skews during the change.
-    vec4 prevClip = ubo.prevViewProjection * vec4(worldPos, 1.0);
-    vec3 prevNDC  = prevClip.xyz / prevClip.w;
-    bool historyValid = all(greaterThanEqual(prevNDC.xy, vec2(-1.0)))
-                     && all(lessThanEqual(prevNDC.xy, vec2(1.0)))
-                     && prevNDC.z >= 0.0 && prevNDC.z <= 1.0
-                     && prevClip.w > 0.0;
-
-    vec3 finalScatter = freshScatter;
-    if (historyValid) {
-        vec2  prevUV  = prevNDC.xy * 0.5 + 0.5;
-        float prevVZ  = (ubo.nearZ * ubo.farZ) / (prevNDC.z * (ubo.nearZ - ubo.farZ) + ubo.farZ);
-        float sliceW  = clamp(log(max(prevVZ, ubo.nearZ) / ubo.nearZ)
-                            / log(ubo.farZ / ubo.nearZ), 0.0, 1.0);
-        vec3 historySample = texture(volInScatterHistory, vec3(prevUV, sliceW)).rgb;
-
-        // Karis 3x3x3 min/max clamp from fresh values in shared memory.
-        vec3 lo = vec3(1e9);
-        vec3 hi = vec3(-1e9);
-        for (int dz = -1; dz <= 1; ++dz)
-        for (int dy = -1; dy <= 1; ++dy)
-        for (int dx = -1; dx <= 1; ++dx) {
-            vec3 n = sharedScatter[int(gl_LocalInvocationID.z) + dz]
-                                  [int(gl_LocalInvocationID.y) + dy]
-                                  [int(gl_LocalInvocationID.x) + dx].rgb;
-            lo = min(lo, n);
-            hi = max(hi, n);
-        }
-        historySample = clamp(historySample, lo, hi);
-
-        // 5% fresh / 95% history — heavy smoothing; the clamp box prevents stale ghosting.
-        finalScatter = mix(historySample, freshScatter, kTemporalAlpha);
-    }
-
-    // voxelRaw == in-bounds voxel coord for inner threads by construction.
-    imageStore(volDensity,   voxelRaw, vec4(density, density, density, 0.0));
-    imageStore(volInScatter, voxelRaw, vec4(finalScatter, 0.0));
+    imageStore(volDensity,   voxel, vec4(density, density, density, 0.0));
+    imageStore(volInScatter, voxel, vec4(inScatter, 0.0));
 }

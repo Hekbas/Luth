@@ -81,6 +81,7 @@ namespace Luth
             // the inject/integrate/composite/viz descriptors that reference them.
             m_Volumetric.WriteInjectView(vr);
             m_Volumetric.WriteIntegrateView(vr);
+            m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
@@ -194,6 +195,7 @@ namespace Luth
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
         allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
         allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
+        allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
 
@@ -205,6 +207,7 @@ namespace Luth
         m_Lighting.WriteClusterVizView(vr, targets);
         m_Volumetric.WriteInjectView(vr);
         m_Volumetric.WriteIntegrateView(vr);
+        m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);
         m_Volumetric.WriteVizView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
@@ -237,21 +240,22 @@ namespace Luth
         auto makeVolume = [&dims](TextureFormat fmt) {
             return std::make_shared<VKTexture>(dims.x, dims.y, dims.z, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
         };
-        vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
-        vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);
-        vr.volInScatterHistory  = makeVolume(TextureFormat::RGBA16F);
+        vr.volDensity          = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatter        = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistA   = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistB   = makeVolume(TextureFormat::RGBA16F);
 
-        // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and
-        // undefined pixel content. The temporal inject shader samples volInScatterHistory on
-        // frame 0; without this clear the first sample is undefined memory (NaN-prone). One-shot
-        // submit at recreate time only — runs zero per-frame cost.
-        VkImage clearTargets[2] = {
+        // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and undefined
+        // pixel content. The resolve pass samples volInScatterHist{A,B} on frame 0; without this
+        // clear the first sample is NaN-prone garbage. One-shot submit per view-resize only.
+        VkImage clearTargets[3] = {
             std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
-            std::static_pointer_cast<VKTexture>(vr.volInScatterHistory)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
         };
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            VkImageMemoryBarrier toDst[2]{};
-            for (u32 i = 0; i < 2; ++i)
+            VkImageMemoryBarrier toDst[3]{};
+            for (u32 i = 0; i < 3; ++i)
             {
                 toDst[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toDst[i].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -264,16 +268,16 @@ namespace Luth
                 toDst[i].dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
             }
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 2, toDst);
+                                 0, 0, nullptr, 0, nullptr, 3, toDst);
 
             VkClearColorValue zero{ { 0.0f, 0.0f, 0.0f, 0.0f } };
             VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-            for (u32 i = 0; i < 2; ++i)
+            for (u32 i = 0; i < 3; ++i)
                 vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                      &zero, 1, &range);
 
-            VkImageMemoryBarrier toGen[2]{};
-            for (u32 i = 0; i < 2; ++i)
+            VkImageMemoryBarrier toGen[3]{};
+            for (u32 i = 0; i < 3; ++i)
             {
                 toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -286,7 +290,7 @@ namespace Luth
                 toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             }
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 2, toGen);
+                                 0, 0, nullptr, 0, nullptr, 3, toGen);
         });
     }
 
@@ -301,7 +305,8 @@ namespace Luth
         vr.gtaoFinal.reset();
         vr.volDensity.reset();
         vr.volInScatter.reset();
-        vr.volInScatterHistory.reset();
+        vr.volInScatterHistA.reset();
+        vr.volInScatterHistB.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

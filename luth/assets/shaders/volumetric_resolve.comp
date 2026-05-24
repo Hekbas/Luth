@@ -1,0 +1,97 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+// Volumetric temporal-resolve pass. Reads this frame's post-integrate (scratch) atlas, reprojects
+// each voxel center to the previous frame's resolved atlas via prevViewProjection + prev nearZ/
+// farZ slice math, applies a Karis 3x3x3 min/max clamp from the 27 scratch neighbors to suppress
+// disocclusion ghosting, and blends with temporalAlpha. Writes the resolved value to the curr
+// history atlas (binding 2). Composite + viz sample the same atlas via the parity-cycled binding
+// 1 of their own sets.
+//
+// Lives in resolve (post-integrate) NOT in inject (pre-integrate) so the history domain matches
+// the resolve output — blending pre-integrate fresh with post-integrate history would cause
+// energy non-conservation (the v3.0.4 bug this refactor fixes).
+
+#include "common/globals.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
+
+layout(set = 1, binding = 0) uniform sampler3D u_VolScratch;       // this frame's post-integrate
+layout(set = 1, binding = 1) uniform sampler3D u_VolPrev;          // prev frame's resolved (history)
+layout(set = 1, binding = 2, rgba16f) uniform writeonly image3D u_VolCurr; // this frame's resolved (write)
+
+layout(push_constant) uniform PC {
+    mat4 invView;             // 64 B — current frame's view → world reconstruction
+    uint volDimX;
+    uint volDimY;
+    uint volDimZ;
+    uint _pad;
+} pc;
+
+#define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
+
+float SliceToViewZ(int i, float nearZ, float farZ) {
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
+}
+
+float DepthToViewZ(float ndcDepth, float nearZ, float farZ) {
+    return (nearZ * farZ) / (ndcDepth * (nearZ - farZ) + farZ);
+}
+
+void main() {
+    ivec3 voxel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(voxel, VOL_DIM))) return;
+
+    // Voxel center → world position (mirrors inject's reconstruction).
+    vec2 uv = (vec2(voxel.xy) + 0.5) / vec2(VOL_DIM.xy);
+    vec2 ndcXY = uv * 2.0 - 1.0;
+    float viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);
+    float vsZ   = -viewZ;
+    float vsX = ndcXY.x * (-vsZ) / ubo.projection[0][0];
+    float vsY = ndcXY.y * (-vsZ) / ubo.projection[1][1];
+    vec3 worldPos = (pc.invView * vec4(vec3(vsX, vsY, vsZ), 1.0)).xyz;
+
+    vec4 freshPost = texelFetch(u_VolScratch, voxel, 0);
+
+    // Reproject to prev frame's clip space + atlas slice. prev nearZ/farZ may differ from current
+    // (camera near/far animation), so read them from prevViewParams.
+    vec4 prevClip  = ubo.prevViewProjection * vec4(worldPos, 1.0);
+    bool historyValid = (prevClip.w > 0.0)
+        && all(greaterThanEqual(prevClip.xy, -prevClip.www))
+        && all(lessThanEqual(prevClip.xy, prevClip.www))
+        && prevClip.z >= 0.0 && prevClip.z <= prevClip.w;
+
+    vec4 finalScatter = freshPost;
+    if (historyValid) {
+        vec3 prevNDC = prevClip.xyz / prevClip.w;
+        vec2 prevUV  = prevNDC.xy * 0.5 + 0.5;
+        float prevNearZ = ubo.prevViewParams.x;
+        float prevFarZ  = ubo.prevViewParams.y;
+        float prevVZ    = DepthToViewZ(prevNDC.z, prevNearZ, prevFarZ);
+        float prevSliceW = clamp(log(max(prevVZ, prevNearZ) / prevNearZ)
+                               / log(prevFarZ / prevNearZ), 0.0, 1.0);
+
+        vec4 historySample = texture(u_VolPrev, vec3(prevUV, prevSliceW));
+
+        // Karis 3x3x3 min/max clamp from scratch neighbors. texelFetch into the already-written
+        // scratch atlas — cache-friendly, no shared memory needed (the post-integrate values are
+        // all written by integrate before resolve runs, RG's barrier guarantees ordering).
+        vec4 lo = vec4( 1e9);
+        vec4 hi = vec4(-1e9);
+        for (int dz = -1; dz <= 1; ++dz)
+        for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec3 n = clamp(voxel + ivec3(dx, dy, dz), ivec3(0), VOL_DIM - ivec3(1));
+            vec4 v = texelFetch(u_VolScratch, n, 0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+        historySample = clamp(historySample, lo, hi);
+
+        // Blend in the RGBA domain — both color and transmittance smooth temporally.
+        float alpha = ubo.volTemporalParams.y;
+        finalScatter = mix(historySample, freshPost, alpha);
+    }
+
+    imageStore(u_VolCurr, voxel, finalScatter);
+}
