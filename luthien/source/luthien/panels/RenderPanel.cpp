@@ -143,21 +143,33 @@ namespace Luth
                     int qIdx = static_cast<int>(vs.quality);
                     if (UI::PropertyCombo("Quality", qIdx, kQualities, IM_ARRAYSIZE(kQualities)))
                         vs.quality = static_cast<VolumetricSettings::Quality>(qIdx);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Atlas resolution preset. Higher = sharper fog detail + temporal stability;\nLow uses ~3.5 MB GPU per view, High uses ~50 MB.");
                     UI::EndProperties();
                 }
 
                 // In-scatter — phase function + multi-scatter + sky cap.
                 if (UI::BeginProperties("VolumetricInScatter")) {
-                    UI::Property("Anisotropy (g)",      vs.anisotropy,            0.01f, -0.99f, 0.99f);
-                    UI::Property("Multi-Scatter",       vs.multiScatterIntensity, 0.01f,  0.0f,  1.0f);
-                    UI::Property("Sky Fog Strength",    vs.skyFogStrength,        0.01f,  0.0f,  1.0f);
+                    UI::Property("Anisotropy (g)", vs.anisotropy, 0.01f, -0.99f, 0.99f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Henyey-Greenstein phase function parameter. 0 = isotropic;\npositive = forward scatter (god rays); negative = backscatter.\nTypical fog: 0.3-0.7.");
+                    UI::Property("Multi-Scatter", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("2nd-order multi-scatter — adds IBL ambient as an extinction-weighted in-scatter term.\nLifts shadowed fog (single-scatter alone leaves shadowed regions black).");
+                    UI::Property("Sky Fog Strength", vs.skyFogStrength, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Multiplier on fog opacity at sky pixels.\n1.0 = sky fully fogged in dense fog; 0.0 = sky never affected.");
                     UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Steps for sun light-path absorption ray-march through fog.\n0 = disabled; 4 = quality default. Higher = more accurate dense-fog self-shadowing.");
                     UI::EndProperties();
                 }
 
                 // Temporal accumulation tuning.
                 if (UI::BeginProperties("VolumetricTemporal")) {
                     UI::Property("Temporal Blend (alpha)", vs.temporalAlpha, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Fresh-sample weight in the resolve pass blend.\nWronski recommends 0.05 (95% history) for stable fog under motion.");
                     UI::EndProperties();
                 }
 
