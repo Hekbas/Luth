@@ -8,10 +8,83 @@
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Scene.h"
+#include "luth/scene/components/FogVolume.h"
+#include "luth/scene/components/Transform.h"
+#include "luth/core/DebugDraw.h"
 #include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
+    namespace
+    {
+        // FogVolume gizmo helpers. Pack-byte color matches DebugDraw expectations (R, G, B, A in
+        // bytes 0..3) — see PhysicsSystem.cpp:81 for the canonical packing reference.
+        constexpr u32 kFogGizmoColor = 0x80FFCC4D;  // soft orange-yellow, half-alpha
+
+        void DrawFogBoxWire(const Mat4& m, const Vec3& halfExtents, u32 color)
+        {
+            Vec3 c[8];
+            for (int i = 0; i < 8; ++i)
+            {
+                const Vec3 local((i & 1) ? halfExtents.x : -halfExtents.x,
+                                 (i & 2) ? halfExtents.y : -halfExtents.y,
+                                 (i & 4) ? halfExtents.z : -halfExtents.z);
+                c[i] = Vec3(m * Vec4(local, 1.0f));
+            }
+            DebugDraw::Line(c[0], c[1], color); DebugDraw::Line(c[1], c[3], color);
+            DebugDraw::Line(c[3], c[2], color); DebugDraw::Line(c[2], c[0], color);
+            DebugDraw::Line(c[4], c[5], color); DebugDraw::Line(c[5], c[7], color);
+            DebugDraw::Line(c[7], c[6], color); DebugDraw::Line(c[6], c[4], color);
+            DebugDraw::Line(c[0], c[4], color); DebugDraw::Line(c[1], c[5], color);
+            DebugDraw::Line(c[2], c[6], color); DebugDraw::Line(c[3], c[7], color);
+        }
+
+        void DrawFogSphereWire(const Vec3& center, float radius, u32 color)
+        {
+            // 3 orthogonal great circles. Same shape as PhysicsSystem's DrawWireSphere — Unity style.
+            constexpr int kSegments = 24;
+            const float kStep = (2.0f * 3.14159265359f) / float(kSegments);
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                for (int s = 0; s < kSegments; ++s)
+                {
+                    float a0 = kStep * float(s);
+                    float a1 = kStep * float(s + 1);
+                    float c0 = std::cos(a0), s0 = std::sin(a0);
+                    float c1 = std::cos(a1), s1 = std::sin(a1);
+                    Vec3 p0, p1;
+                    switch (axis)
+                    {
+                        case 0: p0 = center + Vec3(c0, s0, 0) * radius; p1 = center + Vec3(c1, s1, 0) * radius; break;
+                        case 1: p0 = center + Vec3(c0, 0, s0) * radius; p1 = center + Vec3(c1, 0, s1) * radius; break;
+                        default: p0 = center + Vec3(0, c0, s0) * radius; p1 = center + Vec3(0, c1, s1) * radius; break;
+                    }
+                    DebugDraw::Line(p0, p1, color);
+                }
+            }
+        }
+
+        void DrawFogVolumeGizmos(Scene* scene)
+        {
+            if (!scene) return;
+            auto& reg  = scene->Registry();
+            auto  view = reg.view<Component::FogVolume, Component::WorldTransform>();
+            for (auto entity : view)
+            {
+                const auto& fog   = view.get<Component::FogVolume>(entity);
+                const auto& world = view.get<Component::WorldTransform>(entity);
+
+                const Mat4 localT = glm::translate(Mat4(1.0f), fog.localOffset);
+                const Mat4 localR = glm::mat4_cast(fog.localRotation);
+                const Mat4 m      = world.Matrix * localT * localR;
+
+                if (fog.type == Component::FogVolume::Type::Box)
+                    DrawFogBoxWire(m, fog.halfExtents, kFogGizmoColor);
+                else
+                    DrawFogSphereWire(Vec3(m[3]), fog.radius, kFogGizmoColor);
+            }
+        }
+    }
 
     // ── Construction / Destruction ──
 
@@ -197,6 +270,10 @@ namespace Luth
 
         // Build GPU object buffer (after materials are registered)
         m_Pipeline->BuildGPUObjectBuffer(snapshot);
+
+        // FogVolume viewport gizmos — wireframe box/sphere for each fog region. DebugDraw queues
+        // lines for one frame; the DebugDrawSubsystem flushes them as part of the render pass.
+        DrawFogVolumeGizmos(scene);
 
         // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
         // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
