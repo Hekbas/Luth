@@ -17,12 +17,15 @@
 
 namespace Luth
 {
-    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
-    static constexpr u32 k_ViewPoolMaxSets              = 48;
+    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity was 48
+    // (50 needed) after the volumetric resolve set + viz set landed — silent vkAllocateDescriptorSets
+    // failure on the last cycled set produced VK_NULL_HANDLE handles and skipped the viz draw.
+    // Bumped generously to absorb the next subsystem addition without revisiting these constants.
+    static constexpr u32 k_ViewPoolMaxSets              = 64;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 24;  // GTAO + volumetric atlases (cycled)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 64;  // Set 3 + cluster + assign + volumetric
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
+    static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 96;
 
     namespace {
         // Build the per-view Set 0 write context from RP-side state. invariant:
@@ -169,7 +172,13 @@ namespace Luth
             ai.descriptorPool     = vr.descPool;
             ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
             ai.pSetLayouts        = layouts;
-            vkAllocateDescriptorSets(device, &ai, outArr.data());
+            VkResult result = vkAllocateDescriptorSets(device, &ai, outArr.data());
+            if (result != VK_SUCCESS)
+            {
+                LH_CORE_ERROR("ViewResources: allocCycled '{}' failed (VkResult {}); bump pool sizes", tagPrefix, (int)result);
+                for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) outArr[i] = VK_NULL_HANDLE;
+                return;
+            }
             for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
             {
                 char name[64]; std::snprintf(name, sizeof(name), "%s.Slot%u", tagPrefix, i);
