@@ -131,13 +131,64 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // Volumetric Fog
+            // Volumetric Fog — Wronski frustum-voxel fog with temporal accumulation. The master
+            // enable toggle lives in EditorSettings → IBL & Skybox; this section is per-feature tuning.
             if (UI::BeginCollapsingHeader("Volumetric Fog", true)) {
                 auto& vs = m_RS->GetVolumetricSettings();
-                if (UI::BeginProperties("VolumetricProps")) {
-                    UI::Property("Multi-Scatter Intensity", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
+
+                // Quality preset — atlas resolution (Low/Medium/High). Triggers atlas recreation
+                // + descriptor re-bind on change.
+                if (UI::BeginProperties("VolumetricQuality")) {
+                    const char* kQualities[] = { "Low (80x45x64)", "Medium (160x90x128)", "High (240x135x192)" };
+                    int qIdx = static_cast<int>(vs.quality);
+                    if (UI::PropertyCombo("Quality", qIdx, kQualities, IM_ARRAYSIZE(kQualities)))
+                        vs.quality = static_cast<VolumetricSettings::Quality>(qIdx);
                     UI::EndProperties();
                 }
+
+                // In-scatter — phase function + multi-scatter + sky cap.
+                if (UI::BeginProperties("VolumetricInScatter")) {
+                    UI::Property("Anisotropy (g)",      vs.anisotropy,            0.01f, -0.99f, 0.99f);
+                    UI::Property("Multi-Scatter",       vs.multiScatterIntensity, 0.01f,  0.0f,  1.0f);
+                    UI::Property("Sky Fog Strength",    vs.skyFogStrength,        0.01f,  0.0f,  1.0f);
+                    UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
+                    UI::EndProperties();
+                }
+
+                // Temporal accumulation tuning.
+                if (UI::BeginProperties("VolumetricTemporal")) {
+                    UI::Property("Temporal Blend (alpha)", vs.temporalAlpha, 0.005f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
+
+                // Distance fog — exponential attenuation with camera-to-fragment distance.
+                if (UI::BeginProperties("VolumetricDistanceFog")) {
+                    UI::Property      ("Distance Fog",     vs.distanceFogEnabled);
+                    UI::PropertyColor ("  Color",          vs.distanceFogColor);
+                    UI::Property      ("  Density",        vs.distanceFogDensity,    0.001f, 0.0f,  1.0f);
+                    UI::Property      ("  Start (m)",      vs.distanceFogStart,      0.5f,   0.0f,  1000.0f);
+                    UI::Property      ("  Max Opacity",    vs.distanceFogMaxOpacity, 0.01f,  0.0f,  1.0f);
+                    UI::EndProperties();
+                }
+
+                // Height fog — exponential attenuation below a reference height.
+                if (UI::BeginProperties("VolumetricHeightFog")) {
+                    UI::Property      ("Height Fog",       vs.heightFogEnabled);
+                    UI::PropertyColor ("  Color",          vs.heightFogColor);
+                    UI::Property      ("  Density",        vs.heightFogDensity,     0.001f, 0.0f,  1.0f);
+                    UI::Property      ("  Ref Height (m)", vs.heightFogRefHeight,   0.1f,  -1000.0f, 1000.0f);
+                    UI::Property      ("  Falloff",        vs.heightFogFalloff,     0.01f,  0.001f, 5.0f);
+                    UI::EndProperties();
+                }
+
+                // Debug viz tunables — picked up by AddVizPass push-constant each frame.
+                if (UI::BeginProperties("VolumetricViz")) {
+                    UI::Property("Viz Density Scale",    vs.vizScaleDensity,   0.1f, 0.0f, 50.0f);
+                    UI::Property("Viz In-Scatter Scale", vs.vizScaleInScatter, 0.01f, 0.0f, 10.0f);
+                    UI::Property("Viz Overlay Opacity",  vs.vizOpacity,        0.01f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
+
                 UI::EndCollapsingHeader();
             }
 

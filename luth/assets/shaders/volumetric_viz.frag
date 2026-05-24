@@ -53,7 +53,10 @@ void main()
         float d = texture(u_VolDensity, uvw).r * pc.scale;
         outColor = vec4(HeatColor(clamp(d, 0.0, 1.0)), pc.overlayAlpha);
     } else {
+        // In-scatter is HDR radiance — log10-encode for diagnostic usefulness. Raw values blow
+        // out white near bright lights; log encoding spreads the dynamic range visibly.
         vec3 s = texture(u_VolInScatter, uvw).rgb * pc.scale;
-        outColor = vec4(s, pc.overlayAlpha);
+        vec3 log_s = log(s + vec3(1.0)) * 0.434;  // log10(s+1)
+        outColor = vec4(clamp(log_s, vec3(0.0), vec3(1.0)), pc.overlayAlpha);
     }
 }

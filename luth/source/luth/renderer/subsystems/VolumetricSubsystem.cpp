@@ -1168,12 +1168,12 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_VizPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
 
+                // Pull live tunables from VolumetricSettings — Render panel exposes both scales.
+                const auto& vs = sys.GetVolumetricSettings();
                 struct VizPC { u32 mode; f32 scale; f32 overlayAlpha; } pc{};
                 pc.mode         = mode;
-                // Density rarely exceeds 1.0; in-scatter is HDR radiance (can be >> 1). Slim default
-                // scale that keeps both visually meaningful; finer tuning happens via the toggle.
-                pc.scale        = (mode == 0u) ? 5.0f : 0.5f;
-                pc.overlayAlpha = 0.75f;
+                pc.scale        = (mode == 0u) ? vs.vizScaleDensity : vs.vizScaleInScatter;
+                pc.overlayAlpha = vs.vizOpacity;
                 vkCmdPushConstants(cmd, m_VizPipeline->GetLayout(),
                                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VizPC), &pc);
 
