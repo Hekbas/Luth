@@ -71,7 +71,7 @@ layout(push_constant) uniform PC {
 
 const uint  k_ClusterTilesX  = 16u;
 const uint  k_ClusterTilesY  =  9u;
-const uint  k_ClusterSlicesZ = 24u;
+const uint  k_ClusterSlicesZ = 48u;
 const float PI = 3.14159265359;
 
 // Henyey-Greenstein phase function. g in [-1, 1]; positive = forward, 0 = isotropic, negative
