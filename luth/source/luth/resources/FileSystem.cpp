@@ -180,7 +180,9 @@ namespace Luth
             { ".tga",     AssetType::Texture  },
             { ".mat",     AssetType::Material },
             { ".physmat", AssetType::PhysicsMaterial },
-            { ".glsl",    AssetType::Shader   },
+            // .glsl is reserved for #include headers (common/*.glsl) loaded by the shader compiler's
+            // Includer at compile time, NOT standalone shader assets — kept out of the asset map so
+            // the asset DB skips importing them.
             { ".vert",    AssetType::Shader   },
             { ".frag",    AssetType::Shader   },
             { ".comp",    AssetType::Shader   },

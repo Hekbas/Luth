@@ -57,8 +57,8 @@ void main() {
     // (camera near/far animation), so read them from prevViewParams.
     vec4 prevClip  = ubo.prevViewProjection * vec4(worldPos, 1.0);
     bool historyValid = (prevClip.w > 0.0)
-        && all(greaterThanEqual(prevClip.xy, -prevClip.www))
-        && all(lessThanEqual(prevClip.xy, prevClip.www))
+        && all(greaterThanEqual(prevClip.xy, -prevClip.ww))
+        && all(lessThanEqual(prevClip.xy, prevClip.ww))
         && prevClip.z >= 0.0 && prevClip.z <= prevClip.w;
 
     vec4 finalScatter = freshPost;
