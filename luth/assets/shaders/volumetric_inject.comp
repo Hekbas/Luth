@@ -11,6 +11,10 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
 
+// Set 0 binding 1 = IBL irradiance cubemap. Sampled once per voxel for the 2nd-order multi-
+// scatter ambient term. Stage flag added to the existing pbr.frag set in GlobalSubsystem.
+layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
+
 // ── Set 1 — volumetric subsystem state ──
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D volDensity;
 layout(set = 1, binding = 1, rgba16f) uniform writeonly image3D volInScatter;
@@ -238,18 +242,15 @@ void main() {
     // scattering).
     vec3 inScatter = (dirContrib + pointContrib) * density + emit;
 
-    // 2nd-order multi-scatter (proper Wronski/Frostbite shape, NOT the misnamed multiplicative
-    // boost). Pulls in IBL ambient irradiance and adds an extinction-weighted contribution. This
-    // is the term that brightens shadowed fog — multiplicative boosts can't (0 × anything = 0).
+    // 2nd-order multi-scatter (Wronski/Frostbite shape — adds IBL ambient instead of multiplying
+    // single-scatter). The defining property: this term survives in shadowed regions where single-
+    // scatter is zero, so dense fog in shadow still picks up sky bounce. msK is the user-tunable
+    // intensity; multiplied by density so no-extinction voxels add nothing.
     float msK = ubo.heightFogParams.w;
     if (msK > 0.0) {
-        // Sample IBL irradiance at the +Y direction (world up) for a sky-ambient estimate. This is
-        // a cheap approximation; a true integral would sample multiple directions. msK scales by
-        // density to be extinction-coupled (no extinction → no multi-scatter).
-        // NB: IBL irradiance lives on Set 0 binding 1 in pbr.frag; we don't bind it in the inject
-        // pass currently, so for now use a fixed grey ambient color scaled by iblIntensity. When
-        // the IBL set 0 binding is plumbed through to inject we'll switch to the real sample.
-        vec3 skyAmbient = vec3(0.5) * ubo.iblIntensity;
+        // Sample IBL irradiance at world-up — cheap one-tap sky-ambient estimate. A multi-tap
+        // integral would be more accurate but is rarely visible at fog scales.
+        vec3 skyAmbient = texture(irradianceMap, vec3(0.0, 1.0, 0.0)).rgb * ubo.iblIntensity;
         inScatter += density * skyAmbient * msK;
     }
 

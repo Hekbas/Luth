@@ -31,7 +31,9 @@ namespace Luth
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             bindings[i].descriptorCount = 1;
-            bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            // COMPUTE added so VolumetricSubsystem's inject pass can sample IBL irradiance (b1)
+            // for the 2nd-order multi-scatter ambient term.
+            bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         }
 
         bindings[5].binding = 5;
