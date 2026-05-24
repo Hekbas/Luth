@@ -12,6 +12,7 @@
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/settings/GTAOSettings.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/core/diagnostics/Log.h"
 
 namespace Luth
@@ -66,7 +67,8 @@ namespace Luth
             vr.id = s_NextId.fetch_add(1, std::memory_order_relaxed);
             AllocateViewResources(vr, targets);
         }
-        else if (vr.width != newW || vr.height != newH)
+        else if (vr.width != newW || vr.height != newH ||
+                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality))
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -75,8 +77,10 @@ namespace Luth
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
             m_EditorOverlays.WriteGridView(vr, targets);
-            // sceneDepth is per-view + recreated on resize, so re-bind the composite and viz
-            // descriptors too (both sample sceneDepth).
+            // sceneDepth + atlases are per-view + recreated on resize/quality change, so re-bind
+            // the inject/integrate/composite/viz descriptors that reference them.
+            m_Volumetric.WriteInjectView(vr);
+            m_Volumetric.WriteIntegrateView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
@@ -223,13 +227,15 @@ namespace Luth
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
 
-        // Volumetric fog atlases — fixed 160×90×128 froxel grid (Wronski). View-aligned but
-        // dimensions are independent of viewport pixels, so they don't scale with halfW/halfH.
-        constexpr u32 k_VolW = 160;
-        constexpr u32 k_VolH = 90;
-        constexpr u32 k_VolD = 128;
-        auto makeVolume = [](TextureFormat fmt) {
-            return std::make_shared<VKTexture>(k_VolW, k_VolH, k_VolD, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
+        // Volumetric fog atlas dims from current quality preset (Low / Medium / High). View-aligned
+        // but dimensions are independent of viewport pixels — they don't scale with halfW/halfH.
+        // Cached on vr so EnsureViewResources can detect runtime quality changes.
+        const auto quality = m_System.GetVolumetricSettings().quality;
+        const auto dims    = Volumetric::GetAtlasDims(quality);
+        vr.volDimX = dims.x; vr.volDimY = dims.y; vr.volDimZ = dims.z;
+        vr.volQualityCached = static_cast<u32>(quality);
+        auto makeVolume = [&dims](TextureFormat fmt) {
+            return std::make_shared<VKTexture>(dims.x, dims.y, dims.z, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
         };
         vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
         vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);

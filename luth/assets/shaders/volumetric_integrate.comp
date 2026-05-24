@@ -15,13 +15,16 @@ layout(set = 0, binding = 1, rgba16f) uniform image3D         volInScatter;
 
 layout(push_constant) uniform PC {
     vec4 nearFarPad;  // x = nearZ, y = farZ
+    uint volDimX;
+    uint volDimY;
+    uint volDimZ;
+    uint _pad;
 } pc;
 
-const ivec3 VOL_DIM = ivec3(160, 90, 128);
+#define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
 
-// Slicing math replicated from volumetric_inject.comp — engine ShaderCompiler has no #include.
 float SliceToViewZ(uint i, float nearZ, float farZ) {
-    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(VOL_DIM.z));
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
 }
 
 void main() {

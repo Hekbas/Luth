@@ -60,12 +60,17 @@ layout(set = 1, binding = 6) uniform sampler2DArrayShadow shadowMap;
 layout(set = 1, binding = 7) uniform sampler3D volInScatterHistory;
 
 // invView pushed each dispatch — avoids per-voxel inverse(ubo.view) (~40 ops).
+// volDim* are atlas dimensions for the active quality preset (Low/Medium/High); set CPU-side.
 layout(push_constant) uniform PC {
     mat4 invView;
+    uint volDimX;
+    uint volDimY;
+    uint volDimZ;
+    uint _pad;
 } pc;
 
-const ivec3 VOL_DIM = ivec3(160, 90, 128);
-const ivec3 INNER   = ivec3(8, 8, 4);   // atlas voxels written per workgroup
+#define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
+const ivec3 INNER = ivec3(8, 8, 4);   // atlas voxels written per workgroup
 const uint  k_ClusterTilesX  = 16u;
 const uint  k_ClusterTilesY  =  9u;
 const uint  k_ClusterSlicesZ = 24u;
@@ -81,14 +86,15 @@ shared vec4 sharedScatter[6][10][10];
 // composite pass's view-Z-to-slice mapping; both must stay in sync (engine ShaderCompiler has no
 // #include support, so the math is replicated per shader — matches cluster_viz.frag precedent).
 float SliceToViewZ(int i, float nearZ, float farZ) {
-    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(VOL_DIM.z));
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
 }
 
 uint ComputeClusterIDForVoxel(ivec2 voxelXY, float viewZ) {
     float sliceF = log(max(viewZ, ubo.nearZ) / ubo.nearZ)
                  / log(ubo.farZ / ubo.nearZ) * float(k_ClusterSlicesZ);
     uint slice = uint(clamp(floor(sliceF), 0.0, float(k_ClusterSlicesZ - 1u)));
-    vec2 tileScale = vec2(VOL_DIM.xy) / vec2(float(k_ClusterTilesX), float(k_ClusterTilesY));
+    vec2 tileScale = vec2(float(pc.volDimX), float(pc.volDimY))
+                   / vec2(float(k_ClusterTilesX), float(k_ClusterTilesY));
     uvec2 tile = uvec2(floor(vec2(voxelXY) / tileScale));
     tile.x = min(tile.x, k_ClusterTilesX - 1u);
     tile.y = min(tile.y, k_ClusterTilesY - 1u);

@@ -21,20 +21,16 @@ namespace Luth
 {
     namespace
     {
-        // Atlas dimensions — match volumetric_inject.comp's VOL_DIM constant and the 3D VKTexture
-        // ctor calls in RecreateViewTextures. Local-size 8x8x4 → 20x12x32 group counts per dispatch.
-        constexpr u32 k_VolDimX = 160;
-        constexpr u32 k_VolDimY = 90;
-        constexpr u32 k_VolDimZ = 128;
-
         struct InjectPC
         {
-            Mat4 invView;  // Push 64 B once per dispatch; avoids per-voxel inverse(ubo.view).
+            Mat4 invView;             // 64 B — push once per dispatch; avoids per-voxel inverse(ubo.view).
+            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims, runtime-set per quality.
         };
 
         struct IntegratePC
         {
-            Vec4 nearFarPad;  // x = nearZ, y = farZ (matches integrate shader)
+            Vec4 nearFarPad;          // 16 B — x = nearZ, y = farZ.
+            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims.
         };
     }
 
@@ -734,12 +730,13 @@ namespace Luth
                 IntegratePC pc{};
                 pc.nearFarPad = Vec4(m_Pipeline->GetCurrentView()->camera.nearZ,
                                      m_Pipeline->GetCurrentView()->camera.farZ, 0.0f, 0.0f);
+                pc.volDimX = vr->volDimX; pc.volDimY = vr->volDimY; pc.volDimZ = vr->volDimZ;
                 vkCmdPushConstants(cmd, m_IntegratePipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IntegratePC), &pc);
 
                 // 2D dispatch over (x, y); each thread walks the full Z column.
-                const u32 groupX = (k_VolDimX + 7) / 8;
-                const u32 groupY = (k_VolDimY + 7) / 8;
+                const u32 groupX = (vr->volDimX + 7) / 8;
+                const u32 groupY = (vr->volDimY + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
 
                 sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricIntegrate",
@@ -770,8 +767,8 @@ namespace Luth
 
                 RG::TextureDesc descD;
                 descD.name   = "VolDensity";
-                descD.width  = k_VolDimX;
-                descD.height = k_VolDimY;
+                descD.width  = vr->volDimX;
+                descD.height = vr->volDimY;
                 descD.format = RG::TextureFormat::RGBA16_Float;
                 auto vkDens  = std::static_pointer_cast<VKTexture>(vr->volDensity);
                 data.density = rg.ImportResource(descD,
@@ -789,8 +786,8 @@ namespace Luth
 
                 RG::TextureDesc descW;
                 descW.name   = parity ? "VolInScatter[history]" : "VolInScatter";
-                descW.width  = k_VolDimX;
-                descW.height = k_VolDimY;
+                descW.width  = vr->volDimX;
+                descW.height = vr->volDimY;
                 descW.format = RG::TextureFormat::RGBA16_Float;
                 data.inScatter = rg.ImportResource(descW,
                     (void*)vkScatW->GetImage(), (void*)vkScatW->GetImageView(),
@@ -799,8 +796,8 @@ namespace Luth
 
                 RG::TextureDesc descH;
                 descH.name   = parity ? "VolInScatter" : "VolInScatter[history]";
-                descH.width  = k_VolDimX;
-                descH.height = k_VolDimY;
+                descH.width  = vr->volDimX;
+                descH.height = vr->volDimY;
                 descH.format = RG::TextureFormat::RGBA16_Float;
                 data.history = rg.ImportResource(descH,
                     (void*)vkScatH->GetImage(), (void*)vkScatH->GetImageView(),
@@ -851,12 +848,13 @@ namespace Luth
                 // Push invView once per dispatch — avoids per-voxel inverse(ubo.view) (~40 ALU ops).
                 InjectPC pc{};
                 pc.invView = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
+                pc.volDimX = vr->volDimX; pc.volDimY = vr->volDimY; pc.volDimZ = vr->volDimZ;
                 vkCmdPushConstants(cmd, m_InjectPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC), &pc);
 
-                const u32 groupX = (k_VolDimX + 7) / 8;
-                const u32 groupY = (k_VolDimY + 7) / 8;
-                const u32 groupZ = (k_VolDimZ + 3) / 4;
+                const u32 groupX = (vr->volDimX + 7) / 8;
+                const u32 groupY = (vr->volDimY + 7) / 8;
+                const u32 groupZ = (vr->volDimZ + 3) / 4;
                 vkCmdDispatch(cmd, groupX, groupY, groupZ);
 
                 sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricInject",

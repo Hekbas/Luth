@@ -172,6 +172,12 @@ namespace Luth
         // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
         f32 prevNearZ = 0.0f;
         f32 prevFarZ  = 0.0f;
+
+        // Volumetric atlas dimensions live here so changing VolumetricSettings::quality at runtime
+        // re-allocates the atlases (mirrors width/height resize handling). volQualityCached tracks
+        // the value at last allocation; EnsureViewResources compares + recreates on mismatch.
+        u32 volDimX = 0, volDimY = 0, volDimZ = 0;
+        u32 volQualityCached = ~0u;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
