@@ -144,10 +144,14 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
-        // Volumetric inject pass. Cycled across MAX_FRAMES_IN_FLIGHT — UAB bindings rewrite per
-        // frame against fresh tagged-heap regions; cycling keeps rewrites disjoint from in-flight
-        // prior frame reads.
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDescSet{};
+        // Volumetric inject density pass. Cycled — b1 (FogVolume SSBO) rewrites per frame against
+        // a fresh tagged-heap region; b0 + b2 are stable per-view.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDensityDescSet{};
+
+        // Volumetric inject scatter pass. Cycled — b2-b4 (Light, ClusterGrid, LightIndex SSBOs)
+        // rewrite per frame; b0/b1/b5 stable. Reads volDensity written by the density pass via the
+        // shared ResourceNode (RG inserts the barrier).
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectScatterDescSet{};
 
         // Volumetric integrate pass. Cycled; reads + writes volInScatter (scratch) in-place.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volIntegrateDescSet{};

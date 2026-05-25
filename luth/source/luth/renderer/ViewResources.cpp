@@ -82,7 +82,8 @@ namespace Luth
             m_EditorOverlays.WriteGridView(vr, targets);
             // sceneDepth + atlases are per-view + recreated on resize/quality change, so re-bind
             // the inject/integrate/composite/viz descriptors that reference them.
-            m_Volumetric.WriteInjectView(vr);
+            m_Volumetric.WriteInjectDensityView(vr);
+            m_Volumetric.WriteInjectScatterView(vr);
             m_Volumetric.WriteIntegrateView(vr);
             m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
@@ -202,8 +203,9 @@ namespace Luth
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
-        allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
-        allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
+        allocCycled(m_Volumetric.GetInjectDensityLayout(), vr.volInjectDensityDescSet, "View.VolInjectDensity");
+        allocCycled(m_Volumetric.GetInjectScatterLayout(), vr.volInjectScatterDescSet, "View.VolInjectScatter");
+        allocCycled(m_Volumetric.GetIntegrateLayout(),     vr.volIntegrateDescSet,     "View.VolIntegrate");
         allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
@@ -214,7 +216,8 @@ namespace Luth
         m_EditorOverlays.WriteGridView(vr, targets);
         m_Lighting.WriteShadowView(vr);
         m_Lighting.WriteClusterVizView(vr, targets);
-        m_Volumetric.WriteInjectView(vr);
+        m_Volumetric.WriteInjectDensityView(vr);
+        m_Volumetric.WriteInjectScatterView(vr);
         m_Volumetric.WriteIntegrateView(vr);
         m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);

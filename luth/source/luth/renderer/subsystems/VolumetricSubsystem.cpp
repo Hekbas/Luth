@@ -58,62 +58,107 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Inject layout (Set 1): b0/b1 storage images (density + in-scatter scratch), b2-b5 SSBOs
-        // (LightSSBO, ClusterGrid, LightIndex, FogVolume), b6 shadow sampler, b7 3D noise sampler
-        // (static Worley-FBM, baked once at Init). b0/b1/b6/b7 are stable per-view; b2-b5 rewrite
-        // per frame against fresh tagged-heap regions.
+        // Inject density layout (Set 1): b0 volDensity storage (write), b1 FogVolume SSBO,
+        // b2 volNoise3D sampler. b0/b2 stable per-view; b1 rewrites per-frame.
         {
-            VkDescriptorSetLayoutBinding bindings[8]{};
-            for (u32 i = 0; i < 8; ++i)
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            for (u32 i = 0; i < 3; ++i)
             {
                 bindings[i].binding         = i;
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
             }
             bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volDensity
-            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volInScatter (scratch)
-            bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightSSBO
-            bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // ClusterGrid
-            bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightIndex
-            bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
-            bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
-            bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // volNoise3D
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
+            bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // volNoise3D
 
-            VkDescriptorBindingFlags bindingFlags[8] = {
-                0, 0,
+            VkDescriptorBindingFlags bindingFlags[3] = {
+                0,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-                0, 0,
+                0,
             };
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bindingFlagsCI.bindingCount  = 8;
+            bindingFlagsCI.bindingCount  = 3;
             bindingFlagsCI.pBindingFlags = bindingFlags;
 
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.pNext        = &bindingFlagsCI;
             layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-            layoutCI.bindingCount = 8;
+            layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
-            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDescLayout);
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDensityDescLayout);
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject.comp"))
-                m_InjectSpv = sh->GetSpirV();
-            if (m_InjectSpv.empty())
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_density.comp"))
+                m_InjectDensitySpv = sh->GetSpirV();
+            if (m_InjectDensitySpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject.comp!");
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_density.comp!");
                 return;
             }
-            // Pipeline layout: Set 0 = GlobalSubsystem's (camera + CSM uniforms), Set 1 = own.
-            m_InjectPipeline = std::make_unique<VKComputePipeline>(
-                m_InjectSpv,
+            // Pipeline layout: Set 0 = GlobalSubsystem's, Set 1 = density-only inject state.
+            m_InjectDensityPipeline = std::make_unique<VKComputePipeline>(
+                m_InjectDensitySpv,
                 std::vector<VkDescriptorSetLayout>{
                     pipeline.GetGlobal().GetSetLayout(),
-                    m_InjectDescLayout,
+                    m_InjectDensityDescLayout,
+                },
+                std::vector<VkPushConstantRange>{ pcRange });
+        }
+
+        // Inject scatter layout (Set 1): b0 volDensity sampler3D (read; density.r + tint.gba),
+        // b1 volInScatter storage (write), b2-b4 SSBOs (Light, ClusterGrid, LightIndex), b5 shadow
+        // array sampler. b0/b1/b5 stable per-view; b2-b4 rewrite per-frame.
+        {
+            VkDescriptorSetLayoutBinding bindings[6]{};
+            for (u32 i = 0; i < 6; ++i)
+            {
+                bindings[i].binding         = i;
+                bindings[i].descriptorCount = 1;
+                bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            }
+            bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // volDensity sampler3D
+            bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // volInScatter (write)
+            bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightSSBO
+            bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // ClusterGrid
+            bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightIndex
+            bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
+
+            VkDescriptorBindingFlags bindingFlags[6] = {
+                0, 0,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+                0,
+            };
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount  = 6;
+            bindingFlagsCI.pBindingFlags = bindingFlags;
+
+            VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutCI.pNext        = &bindingFlagsCI;
+            layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            layoutCI.bindingCount = 6;
+            layoutCI.pBindings    = bindings;
+            vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectScatterDescLayout);
+
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_scatter.comp"))
+                m_InjectScatterSpv = sh->GetSpirV();
+            if (m_InjectScatterSpv.empty())
+            {
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.comp!");
+                return;
+            }
+            m_InjectScatterPipeline = std::make_unique<VKComputePipeline>(
+                m_InjectScatterSpv,
+                std::vector<VkDescriptorSetLayout>{
+                    pipeline.GetGlobal().GetSetLayout(),
+                    m_InjectScatterDescLayout,
                 },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
@@ -420,26 +465,29 @@ namespace Luth
     void VolumetricSubsystem::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        m_InjectPipeline.reset();
+        m_InjectDensityPipeline.reset();
+        m_InjectScatterPipeline.reset();
         m_IntegratePipeline.reset();
         m_ResolvePipeline.reset();
         m_CompositePipeline.reset();
         m_VizPipeline.reset();
-        if (m_InjectDescLayout)    vkDestroyDescriptorSetLayout(device, m_InjectDescLayout, nullptr);
-        if (m_IntegrateDescLayout) vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
-        if (m_ResolveDescLayout)   vkDestroyDescriptorSetLayout(device, m_ResolveDescLayout, nullptr);
-        if (m_CompositeDescLayout) vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
-        if (m_VizDescLayout)       vkDestroyDescriptorSetLayout(device, m_VizDescLayout, nullptr);
-        if (m_Sampler)             vkDestroySampler(device, m_Sampler, nullptr);
-        if (m_NoiseSampler)        vkDestroySampler(device, m_NoiseSampler, nullptr);
+        if (m_InjectDensityDescLayout) vkDestroyDescriptorSetLayout(device, m_InjectDensityDescLayout, nullptr);
+        if (m_InjectScatterDescLayout) vkDestroyDescriptorSetLayout(device, m_InjectScatterDescLayout, nullptr);
+        if (m_IntegrateDescLayout)     vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
+        if (m_ResolveDescLayout)       vkDestroyDescriptorSetLayout(device, m_ResolveDescLayout, nullptr);
+        if (m_CompositeDescLayout)     vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
+        if (m_VizDescLayout)           vkDestroyDescriptorSetLayout(device, m_VizDescLayout, nullptr);
+        if (m_Sampler)                 vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_NoiseSampler)            vkDestroySampler(device, m_NoiseSampler, nullptr);
         m_NoiseTexture.reset();
-        m_InjectDescLayout    = VK_NULL_HANDLE;
-        m_IntegrateDescLayout = VK_NULL_HANDLE;
-        m_ResolveDescLayout   = VK_NULL_HANDLE;
-        m_CompositeDescLayout = VK_NULL_HANDLE;
-        m_VizDescLayout       = VK_NULL_HANDLE;
-        m_Sampler             = VK_NULL_HANDLE;
-        m_NoiseSampler        = VK_NULL_HANDLE;
+        m_InjectDensityDescLayout = VK_NULL_HANDLE;
+        m_InjectScatterDescLayout = VK_NULL_HANDLE;
+        m_IntegrateDescLayout     = VK_NULL_HANDLE;
+        m_ResolveDescLayout       = VK_NULL_HANDLE;
+        m_CompositeDescLayout     = VK_NULL_HANDLE;
+        m_VizDescLayout           = VK_NULL_HANDLE;
+        m_Sampler                 = VK_NULL_HANDLE;
+        m_NoiseSampler            = VK_NULL_HANDLE;
     }
 
     bool VolumetricSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -449,15 +497,28 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if (name == "volumetric_inject.comp" && m_InjectDescLayout)
+        if (name == "volumetric_inject_density.comp" && m_InjectDensityDescLayout)
         {
-            m_InjectSpv = spv;
-            deferComp(m_InjectPipeline);
+            m_InjectDensitySpv = spv;
+            deferComp(m_InjectDensityPipeline);
             VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
-            m_InjectPipeline = std::make_unique<VKComputePipeline>(m_InjectSpv,
+            m_InjectDensityPipeline = std::make_unique<VKComputePipeline>(m_InjectDensitySpv,
                 std::vector<VkDescriptorSetLayout>{
                     m_Pipeline->GetGlobal().GetSetLayout(),
-                    m_InjectDescLayout,
+                    m_InjectDensityDescLayout,
+                },
+                std::vector<VkPushConstantRange>{ pc });
+            return true;
+        }
+        if (name == "volumetric_inject_scatter.comp" && m_InjectScatterDescLayout)
+        {
+            m_InjectScatterSpv = spv;
+            deferComp(m_InjectScatterPipeline);
+            VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
+            m_InjectScatterPipeline = std::make_unique<VKComputePipeline>(m_InjectScatterSpv,
+                std::vector<VkDescriptorSetLayout>{
+                    m_Pipeline->GetGlobal().GetSetLayout(),
+                    m_InjectScatterDescLayout,
                 },
                 std::vector<VkPushConstantRange>{ pc });
             return true;
@@ -562,11 +623,82 @@ namespace Luth
         return region;
     }
 
-    void VolumetricSubsystem::WriteInjectView(ViewResources& vr)
+    void VolumetricSubsystem::WriteInjectDensityView(ViewResources& vr)
     {
-        // Stable across frames: b0 (volDensity), b1 (volInScatter scratch), b6 (shadow sampler),
-        // b7 (3D noise sampler). SSBO bindings b2-b5 rewrite per frame in WriteInjectPerFrame.
-        if (m_InjectDescLayout == VK_NULL_HANDLE) return;
+        // Stable across frames: b0 (volDensity storage write), b2 (3D noise sampler).
+        // b1 (FogVolume SSBO) rewrites per frame in WriteInjectDensityPerFrame.
+        if (m_InjectDensityDescLayout == VK_NULL_HANDLE) return;
+        if (!vr.volDensity) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto vkDens = std::static_pointer_cast<VKTexture>(vr.volDensity);
+
+        VkDescriptorImageInfo densInfo{};
+        densInfo.imageView   = vkDens->GetImageView();
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo noiseInfo{};
+        if (m_NoiseTexture && m_NoiseSampler)
+        {
+            noiseInfo.imageView   = std::static_pointer_cast<VKTexture>(m_NoiseTexture)->GetImageView();
+            noiseInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            noiseInfo.sampler     = m_NoiseSampler;
+        }
+
+        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
+        u32 w = 0;
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorSet set = vr.volInjectDensityDescSet[i];
+            if (set == VK_NULL_HANDLE) continue;
+
+            writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[w].dstSet          = set;
+            writes[w].dstBinding      = 0;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorCount = 1;
+            writes[w].pImageInfo      = &densInfo;
+            ++w;
+
+            if (noiseInfo.sampler)
+            {
+                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[w].dstSet          = set;
+                writes[w].dstBinding      = 2;
+                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[w].descriptorCount = 1;
+                writes[w].pImageInfo      = &noiseInfo;
+                ++w;
+            }
+        }
+        vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteInjectDensityPerFrame(const Memory::GPUSubRegion& fogVolumeRegion)
+    {
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!vr || vr->volInjectDensityDescSet[slot] == VK_NULL_HANDLE) return;
+        if (!fogVolumeRegion.buffer) return;
+
+        VkDescriptorBufferInfo fogBi{ fogVolumeRegion.buffer, fogVolumeRegion.offset, fogVolumeRegion.size };
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr->volInjectDensityDescSet[slot];
+        write.dstBinding      = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo     = &fogBi;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
+    void VolumetricSubsystem::WriteInjectScatterView(ViewResources& vr)
+    {
+        // Stable across frames: b0 (volDensity sampler3D, read), b1 (volInScatter storage write),
+        // b5 (shadow array sampler). SSBOs b2-b4 rewrite per frame in WriteInjectScatterPerFrame.
+        // RG transitions volDensity to SHADER_READ_ONLY before this pass runs (it's a Read here).
+        if (m_InjectScatterDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volDensity || !vr.volInScatter) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -577,7 +709,8 @@ namespace Luth
 
         VkDescriptorImageInfo densInfo{};
         densInfo.imageView   = vkDens->GetImageView();
-        densInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        densInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        densInfo.sampler     = m_Sampler;
         VkDescriptorImageInfo scatInfo{};
         scatInfo.imageView   = vkScat->GetImageView();
         scatInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -590,25 +723,17 @@ namespace Luth
             shadowInfo.sampler     = lighting.GetShadowSampler();
         }
 
-        VkDescriptorImageInfo noiseInfo{};
-        if (m_NoiseTexture && m_NoiseSampler)
-        {
-            noiseInfo.imageView   = std::static_pointer_cast<VKTexture>(m_NoiseTexture)->GetImageView();
-            noiseInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            noiseInfo.sampler     = m_NoiseSampler;
-        }
-
-        VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT]{};
+        VkWriteDescriptorSet writes[3 * MAX_FRAMES_IN_FLIGHT]{};
         u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            VkDescriptorSet set = vr.volInjectDescSet[i];
+            VkDescriptorSet set = vr.volInjectScatterDescSet[i];
             if (set == VK_NULL_HANDLE) continue;
 
             writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[w].dstSet          = set;
             writes[w].dstBinding      = 0;
-            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[w].descriptorCount = 1;
             writes[w].pImageInfo      = &densInfo;
             ++w;
@@ -625,58 +750,43 @@ namespace Luth
             {
                 writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
                 writes[w].dstSet          = set;
-                writes[w].dstBinding      = 6;
+                writes[w].dstBinding      = 5;
                 writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 writes[w].descriptorCount = 1;
                 writes[w].pImageInfo      = &shadowInfo;
-                ++w;
-            }
-
-            if (noiseInfo.sampler)
-            {
-                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-                writes[w].dstSet          = set;
-                writes[w].dstBinding      = 7;
-                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[w].descriptorCount = 1;
-                writes[w].pImageInfo      = &noiseInfo;
                 ++w;
             }
         }
         vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
     }
 
-    void VolumetricSubsystem::WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
-                                                  const Memory::GPUSubRegion& clusterGridRegion,
-                                                  const Memory::GPUSubRegion& lightIndexRegion,
-                                                  const Memory::GPUSubRegion& fogVolumeRegion)
+    void VolumetricSubsystem::WriteInjectScatterPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
+                                                         const Memory::GPUSubRegion& clusterGridRegion,
+                                                         const Memory::GPUSubRegion& lightIndexRegion)
     {
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-        if (!vr || vr->volInjectDescSet[slot] == VK_NULL_HANDLE) return;
-        if (!lightSSBORegion.buffer || !clusterGridRegion.buffer ||
-            !lightIndexRegion.buffer || !fogVolumeRegion.buffer)
-            return;
+        if (!vr || vr->volInjectScatterDescSet[slot] == VK_NULL_HANDLE) return;
+        if (!lightSSBORegion.buffer || !clusterGridRegion.buffer || !lightIndexRegion.buffer) return;
 
-        VkDescriptorBufferInfo lightBi { lightSSBORegion.buffer,   lightSSBORegion.offset,   lightSSBORegion.size   };
-        VkDescriptorBufferInfo gridBi  { clusterGridRegion.buffer, clusterGridRegion.offset, clusterGridRegion.size };
-        VkDescriptorBufferInfo indexBi { lightIndexRegion.buffer,  lightIndexRegion.offset,  lightIndexRegion.size  };
-        VkDescriptorBufferInfo fogBi   { fogVolumeRegion.buffer,   fogVolumeRegion.offset,   fogVolumeRegion.size   };
+        VkDescriptorBufferInfo lightBi{ lightSSBORegion.buffer,   lightSSBORegion.offset,   lightSSBORegion.size   };
+        VkDescriptorBufferInfo gridBi { clusterGridRegion.buffer, clusterGridRegion.offset, clusterGridRegion.size };
+        VkDescriptorBufferInfo indexBi{ lightIndexRegion.buffer,  lightIndexRegion.offset,  lightIndexRegion.size  };
 
-        VkWriteDescriptorSet writes[4]{};
-        const VkDescriptorBufferInfo* infos[4] = { &lightBi, &gridBi, &indexBi, &fogBi };
-        for (u32 i = 0; i < 4; ++i)
+        VkWriteDescriptorSet writes[3]{};
+        const VkDescriptorBufferInfo* infos[3] = { &lightBi, &gridBi, &indexBi };
+        for (u32 i = 0; i < 3; ++i)
         {
             writes[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[i].dstSet          = vr->volInjectDescSet[slot];
+            writes[i].dstSet          = vr->volInjectScatterDescSet[slot];
             writes[i].dstBinding      = 2 + i;
             writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             writes[i].descriptorCount = 1;
             writes[i].pBufferInfo     = infos[i];
         }
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 4, writes, 0, nullptr);
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 3, writes, 0, nullptr);
     }
 
     void VolumetricSubsystem::WriteIntegrateView(ViewResources& vr)
@@ -1075,22 +1185,18 @@ namespace Luth
         return outputHandle;
     }
 
-    VolumetricSubsystem::InjectOutputs VolumetricSubsystem::AddInjectPass(RG::RenderGraph& rg,
-        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount])
+    RG::ResourceHandle VolumetricSubsystem::AddInjectDensityPass(RG::RenderGraph& rg)
     {
-        struct InjectData
+        struct DensityData
         {
             RG::ResourceHandle density;
-            RG::ResourceHandle inScatter;
-            RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
         };
-        InjectOutputs output{};
+        RG::ResourceHandle outputHandle;
 
-        rg.AddComputePass<InjectData>("VolumetricInject", RG::QueueFamily::AsyncCompute,
-            [&, this](InjectData& data, RG::RenderPassBuilder& builder)
+        rg.AddComputePass<DensityData>("VolumetricInjectDensity", RG::QueueFamily::AsyncCompute,
+            [&, this](DensityData& data, RG::RenderPassBuilder& builder)
             {
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-
                 RG::TextureDesc descD;
                 descD.name   = "VolDensity";
                 descD.width  = vr->volDimX;
@@ -1101,9 +1207,75 @@ namespace Luth
                     (void*)vkDens->GetImage(), (void*)vkDens->GetImageView(),
                     RG::ResourceState::Undefined);
                 data.density = builder.WriteStorageImage(data.density);
+                outputHandle = data.density;
+            },
+            [this](DensityData& /*data*/, RG::RenderPassContext& ctx)
+            {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
 
-                // Single-atlas scratch write — temporal accumulation moved to the resolve pass so
-                // inject no longer needs ping-pong or history reads.
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricInjectDensity",
+                    "VolDensity", false,
+                    { "volumetric_inject_density", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+
+                if (!m_InjectDensityPipeline || vr->volInjectDensityDescSet[slot] == VK_NULL_HANDLE)
+                {
+                    sys.GetFrameDebugger().EndCapturePass();
+                    return;
+                }
+
+                m_InjectDensityPipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->volInjectDensityDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_InjectDensityPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                InjectPC pc{};
+                pc.invView = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
+                pc.volDimX = vr->volDimX; pc.volDimY = vr->volDimY; pc.volDimZ = vr->volDimZ;
+                vkCmdPushConstants(cmd, m_InjectDensityPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC), &pc);
+
+                const u32 groupX = (vr->volDimX + 7) / 8;
+                const u32 groupY = (vr->volDimY + 7) / 8;
+                const u32 groupZ = (vr->volDimZ + 3) / 4;
+                vkCmdDispatch(cmd, groupX, groupY, groupZ);
+
+                sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricInjectDensity",
+                    "volumetric_inject_density", groupX, groupY, groupZ);
+                sys.GetFrameDebugger().EndCapturePass();
+            });
+        return outputHandle;
+    }
+
+    RG::ResourceHandle VolumetricSubsystem::AddInjectScatterPass(RG::RenderGraph& rg,
+        RG::ResourceHandle density,
+        const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount])
+    {
+        struct ScatterData
+        {
+            RG::ResourceHandle density;
+            RG::ResourceHandle inScatter;
+            RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
+        };
+        RG::ResourceHandle outputHandle;
+
+        rg.AddComputePass<ScatterData>("VolumetricInjectScatter", RG::QueueFamily::AsyncCompute,
+            [&, this, density](ScatterData& data, RG::RenderPassBuilder& builder)
+            {
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+
+                // Reuse the density pass's ResourceNode (hazard #1: no fresh ImportResource — the
+                // RG barrier between the two compute passes only fires when both share the same
+                // node). Sampling via sampler3D in the shader; RG transitions to SHADER_READ_ONLY.
+                data.density = builder.ReadStorageImage(density);
+
                 RG::TextureDesc descS;
                 descS.name   = "VolInScatter";
                 descS.width  = vr->volDimX;
@@ -1115,52 +1287,46 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.inScatter = builder.WriteStorageImage(data.inScatter);
 
-                // Per-cascade read triggers DEPTH→SHADER_READ barriers — shader binding 6 samples
+                // Per-cascade Read triggers DEPTH→SHADER_READ barriers — shader binding 5 samples
                 // the full shadow-map array. ReadStorageImage despite the COMBINED_IMAGE_SAMPLER
-                // descriptor — builder name is about queue affinity (COMPUTE_SHADER stage), not
-                // descriptor type. Target layout SHADER_READ_ONLY matches sampler use.
+                // descriptor — builder name is about queue affinity (COMPUTE_SHADER stage).
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                     if (shadowHandles[i].IsValid())
                         data.shadowCascades[i] = builder.ReadStorageImage(shadowHandles[i]);
 
-                output.density   = data.density;
-                output.inScatter = data.inScatter;
+                outputHandle = data.inScatter;
             },
-            [this](InjectData& /*data*/, RG::RenderPassContext& ctx)
+            [this](ScatterData& /*data*/, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 auto& sys = m_Pipeline->GetSystem();
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
 
-                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricInject",
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "VolumetricInjectScatter",
                     "VolInScatter", false,
-                    { "volumetric_inject", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
+                    { "volumetric_inject_scatter", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
                 const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
                 const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
-                if (!m_InjectPipeline || vr->volInjectDescSet[slot] == VK_NULL_HANDLE)
+                if (!m_InjectScatterPipeline || vr->volInjectScatterDescSet[slot] == VK_NULL_HANDLE)
                 {
                     sys.GetFrameDebugger().EndCapturePass();
                     return;
                 }
 
-                m_InjectPipeline->Bind(cmd);
-
-                // Set 0 = Global UBO (camera + CSM + nearZ/farZ), Set 1 = volumetric (atlases + SSBOs
-                // + shadow sampler). Both per-view + per-frame-cycled.
+                m_InjectScatterPipeline->Bind(cmd);
                 VkDescriptorSet sets[2] = {
                     vr->globalDescriptorSet[slot],
-                    vr->volInjectDescSet[slot],
+                    vr->volInjectScatterDescSet[slot],
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_InjectPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+                    m_InjectScatterPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
 
-                // Push invView once per dispatch — avoids per-voxel inverse(ubo.view) (~40 ALU ops).
                 InjectPC pc{};
                 pc.invView = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
                 pc.volDimX = vr->volDimX; pc.volDimY = vr->volDimY; pc.volDimZ = vr->volDimZ;
-                vkCmdPushConstants(cmd, m_InjectPipeline->GetLayout(),
+                vkCmdPushConstants(cmd, m_InjectScatterPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC), &pc);
 
                 const u32 groupX = (vr->volDimX + 7) / 8;
@@ -1168,11 +1334,11 @@ namespace Luth
                 const u32 groupZ = (vr->volDimZ + 3) / 4;
                 vkCmdDispatch(cmd, groupX, groupY, groupZ);
 
-                sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricInject",
-                    "volumetric_inject", groupX, groupY, groupZ);
+                sys.GetFrameDebugger().CaptureComputeDispatch("VolumetricInjectScatter",
+                    "volumetric_inject_scatter", groupX, groupY, groupZ);
                 sys.GetFrameDebugger().EndCapturePass();
             });
-        return output;
+        return outputHandle;
     }
 
     void VolumetricSubsystem::WriteVizView(ViewResources& vr, FrameTargets& targets)

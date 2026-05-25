@@ -21,16 +21,22 @@ namespace Luth
     struct ViewResources;
     struct GatheredFogVolumes;
 
-    // Wronski frustum voxel volumetric fog. Four-pass chain:
-    //   Inject     — pre-integrate per-voxel scatter (dir-light + cluster points + FogVolume mod).
-    //   Integrate  — front-to-back Beer-Lambert ray march; writes accumulated transmittance + in-
-    //                scatter in-place over volInScatter scratch.
-    //   Resolve    — temporal reprojection + Karis 3x3x3 clamp + history blend. Reads scratch +
-    //                prev-frame's resolved (parity ping-pong over HistA/B); writes this frame's
-    //                resolved. Decouples temporal from inject so history domain matches resolve
-    //                output (post-integrate), avoiding the energy-non-conservation that an
-    //                inject-time temporal blend produced.
-    //   Composite  — graphics fullscreen blend onto sceneColor. Samples the resolved atlas.
+    // Wronski frustum voxel volumetric fog. Five-pass chain:
+    //   InjectDensity — per-voxel density + tint accumulation (FogVolume + analytic distance +
+    //                   analytic height + Worley-FBM noise modulation). Writes vec4(density,
+    //                   tint.rgb) to volDensity.
+    //   InjectScatter — reads volDensity (sampler3D), computes CSM-shadowed dir light + clustered
+    //                   point lights + IBL multi-scatter. Sun-ray absorption samples the density
+    //                   atlas along the ray (proper density-aware extinction; restores god rays
+    //                   through varying fog). Writes vec4(inScatter, 0) to volInScatter scratch.
+    //   Integrate     — front-to-back Beer-Lambert ray march; writes accumulated transmittance
+    //                   + in-scatter in-place over volInScatter scratch.
+    //   Resolve       — temporal reprojection + Karis 3x3x3 clamp + history blend. Reads scratch +
+    //                   prev-frame's resolved (parity ping-pong over HistA/B); writes this frame's
+    //                   resolved. Decouples temporal from inject so history domain matches resolve
+    //                   output (post-integrate), avoiding the energy-non-conservation that an
+    //                   inject-time temporal blend produced.
+    //   Composite     — graphics fullscreen blend onto sceneColor. Samples the resolved atlas.
     //
     // The viz pass (Vol Density / Vol In-Scatter ShadeMode) samples density + the resolved atlas
     // for diagnostic overlays.
@@ -51,30 +57,44 @@ namespace Luth
         // or when allocation fails.
         Memory::GPUSubRegion UploadFogVolumeSSBO(const GatheredFogVolumes& volumes);
 
-        // Stable per-view writes for the inject pass — b0 (density storage), b1 (in-scatter
-        // storage), b6 (shadow array sampler). The SSBO bindings b2-b5 rewrite per-frame.
-        void WriteInjectView(ViewResources& vr);
+        // Stable per-view writes for the density pass — b0 (volDensity storage), b2 (noise sampler).
+        // b1 (FogVolume SSBO) rewrites per-frame.
+        void WriteInjectDensityView(ViewResources& vr);
 
-        // Per-frame rewrites for the inject set's SSBO bindings (Light, ClusterGrid, LightIndex,
-        // FogVolume) against this frame's tagged-heap regions. b0/b1/b6 are stable (WriteInjectView).
-        void WriteInjectPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
-                                 const Memory::GPUSubRegion& clusterGridRegion,
-                                 const Memory::GPUSubRegion& lightIndexRegion,
-                                 const Memory::GPUSubRegion& fogVolumeRegion);
+        // Per-frame rewrite of the density set's FogVolume SSBO (b1) against this frame's
+        // tagged-heap region.
+        void WriteInjectDensityPerFrame(const Memory::GPUSubRegion& fogVolumeRegion);
 
-        // Inject pass output — atlas handle threaded into integrate so both passes share the same
-        // ResourceNode per arch hazard #1.
+        // Stable per-view writes for the scatter pass — b0 (volDensity sampler3D), b1 (volInScatter
+        // storage), b5 (shadow array sampler). SSBO bindings b2-b4 rewrite per-frame.
+        void WriteInjectScatterView(ViewResources& vr);
+
+        // Per-frame rewrite of the scatter set's SSBO bindings (Light b2, ClusterGrid b3,
+        // LightIndex b4). b0/b1/b5 are stable (WriteInjectScatterView).
+        void WriteInjectScatterPerFrame(const Memory::GPUSubRegion& lightSSBORegion,
+                                        const Memory::GPUSubRegion& clusterGridRegion,
+                                        const Memory::GPUSubRegion& lightIndexRegion);
+
+        // Inject pass outputs — handles threaded into downstream passes so RG resolves barriers on
+        // the same ResourceNode (hazard #1: no re-import). Scatter reads density via the handle
+        // returned by AddInjectDensityPass; integrate consumes both density + scatter.
         struct InjectOutputs
         {
             RG::ResourceHandle density;
             RG::ResourceHandle inScatter;
         };
 
-        // Compute pass: per-voxel scatter (Hillaire HG phase) with sun light-path absorption ray-
-        // march + IBL ambient. Async-compute eligible. Takes per-cascade shadow handles so RG knows
-        // to transition them to SHADER_READ_ONLY before sampling (binding 6).
-        InjectOutputs AddInjectPass(RG::RenderGraph& rg,
-                                    const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount]);
+        // Density pass: per-voxel density + tint accumulation + noise modulation. Async-compute.
+        // Returns the volDensity handle (scatter pass reads it, integrate reads it).
+        RG::ResourceHandle AddInjectDensityPass(RG::RenderGraph& rg);
+
+        // Scatter pass: reads volDensity (via density handle) and writes volInScatter. Sun-ray
+        // absorption samples the density atlas along the ray. Takes per-cascade shadow handles so
+        // RG transitions them to SHADER_READ_ONLY before sampling (binding 5). Returns inScatter
+        // handle for integrate; InjectOutputs is reassembled by the caller for AddIntegratePass.
+        RG::ResourceHandle AddInjectScatterPass(RG::RenderGraph& rg,
+                                                RG::ResourceHandle density,
+                                                const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount]);
 
         // Stable per-view writes for the integrate pass — both b0 (density sampler) and b1
         // (in-scatter storage write target = volInScatter scratch) are stable. No per-frame.
@@ -123,23 +143,31 @@ namespace Luth
                                             RG::ResourceHandle sceneDepth,
                                             RG::ResourceHandle resolvedInScatter);
 
-        VkSampler                   GetSampler()             const { return m_Sampler; }
-        const Memory::GPUSubRegion& GetLastFogVolumeRegion() const { return m_LastFogVolumeRegion; }
-        VkDescriptorSetLayout       GetInjectLayout()        const { return m_InjectDescLayout; }
-        VkDescriptorSetLayout       GetIntegrateLayout()     const { return m_IntegrateDescLayout; }
-        VkDescriptorSetLayout       GetResolveLayout()       const { return m_ResolveDescLayout; }
-        VkDescriptorSetLayout       GetCompositeLayout()     const { return m_CompositeDescLayout; }
-        VkDescriptorSetLayout       GetVizLayout()           const { return m_VizDescLayout; }
+        VkSampler                   GetSampler()              const { return m_Sampler; }
+        const Memory::GPUSubRegion& GetLastFogVolumeRegion()  const { return m_LastFogVolumeRegion; }
+        VkDescriptorSetLayout       GetInjectDensityLayout()  const { return m_InjectDensityDescLayout; }
+        VkDescriptorSetLayout       GetInjectScatterLayout()  const { return m_InjectScatterDescLayout; }
+        VkDescriptorSetLayout       GetIntegrateLayout()      const { return m_IntegrateDescLayout; }
+        VkDescriptorSetLayout       GetResolveLayout()        const { return m_ResolveDescLayout; }
+        VkDescriptorSetLayout       GetCompositeLayout()      const { return m_CompositeDescLayout; }
+        VkDescriptorSetLayout       GetVizLayout()            const { return m_VizDescLayout; }
 
     private:
         RenderPipeline*      m_Pipeline = nullptr;
         VkSampler            m_Sampler  = VK_NULL_HANDLE;
         Memory::GPUSubRegion m_LastFogVolumeRegion{};
 
-        // Inject pass — per-voxel light injection (dir + cluster + FogVolume modulation).
-        VkDescriptorSetLayout              m_InjectDescLayout = VK_NULL_HANDLE;
-        std::unique_ptr<VKComputePipeline> m_InjectPipeline;
-        std::vector<u32>                   m_InjectSpv;
+        // Inject density pass — per-voxel density + tint accumulation (FogVolume + analytic
+        // distance + analytic height + noise modulation). Writes vec4(density, tint.rgb).
+        VkDescriptorSetLayout              m_InjectDensityDescLayout = VK_NULL_HANDLE;
+        std::unique_ptr<VKComputePipeline> m_InjectDensityPipeline;
+        std::vector<u32>                   m_InjectDensitySpv;
+
+        // Inject scatter pass — reads volDensity (density + tint), computes dir + cluster + multi-
+        // scatter contributions with density-atlas sun-ray absorption. Writes volInScatter scratch.
+        VkDescriptorSetLayout              m_InjectScatterDescLayout = VK_NULL_HANDLE;
+        std::unique_ptr<VKComputePipeline> m_InjectScatterPipeline;
+        std::vector<u32>                   m_InjectScatterSpv;
 
         // Integrate pass — front-to-back ray march in-place over volInScatter scratch.
         VkDescriptorSetLayout              m_IntegrateDescLayout = VK_NULL_HANDLE;

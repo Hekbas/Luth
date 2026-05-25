@@ -284,21 +284,23 @@ namespace Luth
             Memory::GPUSubRegion fogVolumeRegion{};
             if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
                 fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
-            // Inject SSBOs rewrite each frame. Resolve/composite/viz b1-or-b2 parity-rewrite to
-            // ping-pong HistA/B for temporal accumulation. Cycled slots keep rewrites disjoint
-            // from in-flight prior frame reads.
-            m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
-                                             assign.indexRegion, fogVolumeRegion);
+            // Density pass binds FogVolume SSBO; scatter pass binds Light/ClusterGrid/LightIndex.
+            // Resolve/composite/viz b1-or-b2 parity-rewrite to ping-pong HistA/B for temporal
+            // accumulation. Cycled slots keep rewrites disjoint from in-flight prior frame reads.
+            m_Volumetric.WriteInjectDensityPerFrame(fogVolumeRegion);
+            m_Volumetric.WriteInjectScatterPerFrame(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
             m_Volumetric.WriteResolvePerFrame(*m_CurrentViewResources, frameAbs);
             m_Volumetric.WriteCompositePerFrame(*m_CurrentViewResources, *view.targets, frameAbs);
             m_Volumetric.WriteVizPerFrame(*m_CurrentViewResources, frameAbs);
-            // Inject samples shadow cascades via descriptor binding 6 — RG needs the explicit
-            // Reads so it can emit per-layer DSA → SHADER_READ_ONLY barriers. Atlas handles chain
-            // through integrate (in-place on scratch) and resolve (separate ResourceNode for the
-            // HistA/B parity-picked write) so RG transitions are coherent end-to-end.
-            injectOut          = m_Volumetric.AddInjectPass(rg, shadowHandles);
-            volInScatterHandle = m_Volumetric.AddIntegratePass(rg, injectOut);
-            volResolvedHandle  = m_Volumetric.AddResolvePass(rg, volInScatterHandle);
+            // Density pass writes volDensity; scatter pass reads it (via shared ResourceNode so RG
+            // inserts the barrier) and samples it along the sun ray for proper density-aware
+            // absorption. Scatter samples shadow cascades via descriptor binding 5 — per-cascade
+            // RG Reads emit the DSA → SHADER_READ_ONLY transitions. Atlas handles chain through
+            // integrate + resolve so RG transitions are coherent end-to-end.
+            injectOut.density   = m_Volumetric.AddInjectDensityPass(rg);
+            injectOut.inScatter = m_Volumetric.AddInjectScatterPass(rg, injectOut.density, shadowHandles);
+            volInScatterHandle  = m_Volumetric.AddIntegratePass(rg, injectOut);
+            volResolvedHandle   = m_Volumetric.AddResolvePass(rg, volInScatterHandle);
         }
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees

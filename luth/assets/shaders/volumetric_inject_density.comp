@@ -1,0 +1,134 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+// Volumetric fog inject — density pass. Per voxel, accumulates fog density + tint from all
+// sources (FogVolume rows + analytic distance + analytic height), normalizes tint as the density-
+// weighted color average, then modulates density by 3D Worley-FBM noise. Writes vec4(density,
+// tint.rgb) to volDensity. The scatter pass reads both channels via sampler3D for light contribution
+// + sun-ray density-atlas absorption; integrate samples .r for Beer-Lambert extinction.
+
+#include "common/globals.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
+
+layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D volDensity;
+
+struct FogVolumeRow {
+    mat4 worldToVolume;
+    vec3 extentsOrRadius;
+    uint type;          // 0 = Box, 1 = Sphere
+    vec3 color;
+    float density;
+    float falloffStart;
+    float falloffEnd;
+    uint  affectsAmbient;
+    uint  _pad;
+};
+
+layout(std430, set = 1, binding = 1) readonly buffer FogVolumeBuffer {
+    uint count;
+    uint _padFog[3];
+    FogVolumeRow volumes[];
+} fog;
+
+layout(set = 1, binding = 2) uniform sampler3D volNoise3D;
+
+layout(push_constant) uniform PC {
+    mat4 invView;
+    uint volDimX;
+    uint volDimY;
+    uint volDimZ;
+    uint _pad;
+} pc;
+
+#define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
+
+// Wronski exponential Z slicing — voxel center, mirrors inject_scatter + composite + viz.
+float SliceToViewZ(int i, float nearZ, float farZ) {
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
+}
+
+void main() {
+    ivec3 voxel = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(voxel, VOL_DIM))) return;
+
+    // Voxel center → world via inverse-projection + invView push (saves per-voxel inverse(view)).
+    vec2 uv    = (vec2(voxel.xy) + 0.5) / vec2(VOL_DIM.xy);
+    vec2 ndcXY = uv * 2.0 - 1.0;
+    float viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);
+    float vsZ   = -viewZ; // RH, -Z forward
+    float vsX   = ndcXY.x * (-vsZ) / ubo.projection[0][0];
+    float vsY   = ndcXY.y * (-vsZ) / ubo.projection[1][1];
+    vec3  worldPos = (pc.invView * vec4(vec3(vsX, vsY, vsZ), 1.0)).xyz;
+
+    // Per-voxel fog accumulation — every source (FogVolume + analytic distance + analytic height)
+    // contributes (density, color). Final tint = density-weighted color average so every fog cell
+    // gets the same CSM-shadow + HG-phase + multi-scatter treatment in the scatter pass.
+    float density    = 0.0;
+    vec3  colorAccum = vec3(0.0);
+
+    // 1. Local FogVolume rows.
+    for (uint i = 0u; i < fog.count; ++i) {
+        FogVolumeRow v = fog.volumes[i];
+        vec3 localPos = (v.worldToVolume * vec4(worldPos, 1.0)).xyz;
+        float d = 0.0;
+        bool inside = false;
+        if (v.type == 0u) {
+            vec3 e = max(v.extentsOrRadius, vec3(1e-4));
+            vec3 r = abs(localPos) / e;
+            d = max(max(r.x, r.y), r.z);
+            inside = d <= 1.0;
+        } else {
+            float r = max(v.extentsOrRadius.x, 1e-4);
+            d = length(localPos) / r;
+            inside = d <= 1.0;
+        }
+        if (!inside) continue;
+        float fEnd   = max(v.falloffEnd,   1e-4);
+        float fStart = clamp(v.falloffStart, 0.0, fEnd);
+        float fall   = clamp((fEnd - d) / max(fEnd - fStart, 1e-4), 0.0, 1.0);
+        float dContrib = v.density * fall;
+        density    += dContrib;
+        colorAccum += v.color * dContrib;
+    }
+
+    // 2. Analytic distance fog — uniform density past dfStart.
+    float dfDensityRaw = ubo.distanceFogColorDensity.a;
+    float dfEnabled    = ubo.distanceFogParams.z;
+    float dfStart      = ubo.distanceFogParams.x;
+    vec3  dfColor      = ubo.distanceFogColorDensity.rgb;
+    float camDistVoxel = length(worldPos - ubo.cameraPos);
+    float dfDensity_v  = (camDistVoxel > dfStart) ? dfDensityRaw : 0.0;
+    dfDensity_v       *= dfEnabled;
+    density    += dfDensity_v;
+    colorAccum += dfColor * dfDensity_v;
+
+    // 3. Analytic height fog — exponential profile below the reference height.
+    float hfDensityRaw = ubo.heightFogColorDensity.a;
+    float hfEnabled    = ubo.heightFogParams.z;
+    float hfRefH       = ubo.heightFogParams.x;
+    float hfFalloff    = ubo.heightFogParams.y;
+    vec3  hfColor      = ubo.heightFogColorDensity.rgb;
+    float depthBelow   = max(hfRefH - worldPos.y, 0.0);
+    float hfDensity_v  = hfDensityRaw * (1.0 - exp(-depthBelow * hfFalloff)) * hfEnabled;
+    density    += hfDensity_v;
+    colorAccum += hfColor * hfDensity_v;
+
+    density = max(density, 0.0);
+    vec3 tint = (density > 1e-4) ? colorAccum / density : vec3(1.0);
+
+    // 3D Worley-FBM noise modulates density in world space — REPEAT sampler tiles the 128³ atlas
+    // seamlessly. Noise scale = 1/wavelength_m, strength = [0..1] modulation amplitude. Wind via
+    // ubo.time animates the sample UVW. Tint is captured BEFORE noise so colour stays stable.
+    float noiseStrength = ubo.volNoiseParams.y;
+    if (noiseStrength > 1e-4 && density > 1e-4)
+    {
+        vec3 noiseUVW = worldPos * ubo.volNoiseParams.x + ubo.volNoiseWind.xyz * ubo.time * ubo.volNoiseParams.x;
+        float n       = texture(volNoise3D, noiseUVW).a;
+        density *= mix(1.0 - noiseStrength, 1.0 + noiseStrength, n);
+    }
+
+    // .r = density (consumed by integrate Beer-Lambert + viz density heat-map).
+    // .gba = tint  (consumed by scatter for per-voxel colour modulation).
+    imageStore(volDensity, voxel, vec4(density, tint.r, tint.g, tint.b));
+}
