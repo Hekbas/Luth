@@ -66,8 +66,14 @@ namespace Luth
         // xyz = wind direction × speed (m/s) — animates the noise sample UV over time, w pad.
         Vec4 volNoiseWind;
         // x = scatteringIntensity (post-canonical artistic multiplier on inject_scatter's output;
-        // matches UE5 "Scattering Distribution" / Frostbite multiplier). yzw reserved.
+        // matches UE5 "Scattering Distribution" / Frostbite multiplier). y = blueNoiseDither (1/0).
+        // zw reserved.
         Vec4 volScatterParams;
+        // x = specularAaEnabled (1/0), y = specularAaSigma. Tokuyoshi 2019 screen-space normal-curvature
+        // variance lifted into roughness in pbr.frag — kills high-freq specular sparkle on curved metal.
+        Vec4 specAaParams;
+        // x = taaEnabled (1/0), y = temporalAlpha (history feedback, 0.05..0.2), zw = currentJitter (NDC).
+        Vec4 taaParams;
     };
 
     enum class ShadeMode : u8 {
