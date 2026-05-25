@@ -32,9 +32,19 @@ namespace Luth
         // Stable per-view writes (sceneColor + bloom textures); UBO at binding 2 is rebound by UpdateUBO.
         void WriteView(ViewResources& vr, FrameTargets& targets);
 
+        // Stable per-view writes for the TAA resolve set (bindings 0/1/3 — sceneColor / motion /
+        // sceneDepth). Binding 2 (history-prev sampler) is rebound per-frame in WriteTaaResolvePerFrame.
+        void WriteTaaResolveView(ViewResources& vr, FrameTargets& targets);
+        void WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs);
+
         // Render-graph contributions.
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
+        // TAA Resolve (Karis14 YCoCg-clip recipe). Reads sceneColor + motion + sceneDepth + the
+        // parity-picked history-prev (bound by WriteTaaResolvePerFrame); writes the parity-picked
+        // history-curr. Returned handle is what downstream bloom + grid + composite consume.
+        RG::ResourceHandle AddTaaResolvePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
+                                             RG::ResourceHandle motion, RG::ResourceHandle sceneDepth);
         // Live slim G-buffer viz — bypasses tonemap. Mode = SlimNormal/Roughness/Motion/MaterialID,
         // scale is motion magnification (unused for other modes). Runs after composite, writes LDR.
         // slimGB carries the producer-side RG handles from SlimGBufferPass; re-importing the same
@@ -62,11 +72,13 @@ namespace Luth
         std::unique_ptr<VKPipeline> m_BloomBlurPipeline;
         std::unique_ptr<VKPipeline> m_PostProcessPipeline;
         std::unique_ptr<VKPipeline> m_SlimVizPipeline;
+        std::unique_ptr<VKPipeline> m_TaaResolvePipeline;
 
         std::vector<u32> m_FullscreenVertSpv;
         std::vector<u32> m_BloomExtractFragSpv;
         std::vector<u32> m_BloomBlurFragSpv;
         std::vector<u32> m_PostProcessFragSpv;
         std::vector<u32> m_SlimVizFragSpv;
+        std::vector<u32> m_TaaResolveFragSpv;
     };
 }

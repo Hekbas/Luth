@@ -77,6 +77,7 @@ namespace Luth
             const u32 halfH = std::max(newH / 2, 1u);
             RecreateViewTextures(vr, newW, newH, halfW, halfH);
             m_PostProcess.WriteView(vr, targets);
+            m_PostProcess.WriteTaaResolveView(vr, targets);
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
             m_EditorOverlays.WriteGridView(vr, targets);
@@ -214,6 +215,7 @@ namespace Luth
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
 
         m_PostProcess.WriteView(vr, targets);
+        m_PostProcess.WriteTaaResolveView(vr, targets);
         m_GTAO.WriteView(vr, targets);
         m_EditorOverlays.WriteOutlineView(vr, targets);
         m_EditorOverlays.WriteGridView(vr, targets);
