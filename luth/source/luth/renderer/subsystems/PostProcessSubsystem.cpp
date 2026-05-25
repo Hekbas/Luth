@@ -18,6 +18,19 @@
 
 namespace Luth
 {
+    // Mirrors the GLSL push_constant block in taa_resolve.frag. The vec2 forces 8-byte
+    // alignment so the leading float needs a 4-byte pad. jitterDeltaUv carries
+    // (currentJitter − prevJitter) / viewport — the resolve adds it to the per-pixel
+    // motion so static scenes resolve to motion = 0 (production-engine convention).
+    struct TaaResolvePushConstants
+    {
+        f32  temporalAlpha;
+        f32  pad;
+        Vec2 jitterDeltaUv;
+    };
+    static_assert(sizeof(TaaResolvePushConstants) == 16,
+                  "TaaResolvePushConstants must match taa_resolve.frag's push_constant block");
+
     void PostProcessSubsystem::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;
@@ -210,11 +223,11 @@ namespace Luth
         }
 
         // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
-        // temporalAlpha. No depth, no blend — opaque write.
+        // temporalAlpha + jitterDeltaUv. No depth, no blend — opaque write.
         if (!m_TaaResolveFragSpv.empty())
         {
             std::vector<VkDescriptorSetLayout> taaLayouts = { m_TaaResolveDescSetLayout };
-            VkPushConstantRange taaPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) };
+            VkPushConstantRange taaPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TaaResolvePushConstants) };
             PipelineConfig cfg;
             cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
             cfg.depthFormat  = VK_FORMAT_UNDEFINED;
@@ -902,9 +915,16 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                float alpha = sys.GetPostProcessSettings().taaTemporalAlpha;
+                // De-jitter the per-pixel motion at resolve time. jitterDeltaUv adds
+                // (currentJitter − prevJitter)/viewport in UV units; the shader applies it as
+                // motion += jitterDeltaUv so static scenes net to zero motion and the bilinear
+                // history sample lands on an integer texel instead of cycling sub-pixel offsets.
+                TaaResolvePushConstants pc{};
+                pc.temporalAlpha   = sys.GetPostProcessSettings().taaTemporalAlpha;
+                pc.jitterDeltaUv.x = (vr->currentJitter.x - vr->prevJitter.x) / static_cast<f32>(w);
+                pc.jitterDeltaUv.y = (vr->currentJitter.y - vr->prevJitter.y) / static_cast<f32>(h);
                 vkCmdPushConstants(cmd, m_TaaResolvePipeline->GetLayout(),
-                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float), &alpha);
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
                 VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
                 vkCmdSetViewport(cmd, 0, 1, &vp);

@@ -33,6 +33,7 @@ Memory: +32 MB per view (two RGBA16F viewport-sized history textures for the pin
 | D | **TaaResolvePass — full Karis14 L2 recipe.** New `common/taa.glsl` (RGB↔YCoCg + `clip_aabb` + Blackman-Harris 3.3 weights, lifted from [playdead/temporal](https://github.com/playdeadgames/temporal) MIT, attributed in shader header). New `taa_resolve.frag` (~170 LOC): 9-tap 3×3 in YCoCg → BH-reconstructed center → rounded box+plus AABB → chroma narrow (¼ luma extent) → closest-depth velocity dilation → off-screen UV rejection → `clip_aabb` toward AABB center → luma-distance feedback weight → blend → YCoCg→RGB. Push constant carries `temporalAlpha`. `AddTaaResolvePass` + `WriteTaaResolveView` (stable bindings 0/1/3) + `WriteTaaResolvePerFrame` (binding 2 = parity-picked history-prev). Inserted in `RenderPipeline::Execute` between volumetric composite and bloom; grid pass now writes on TAA output. | `b7b631d` |
 | E | **Blue-noise volumetric slice dither.** New `blue_noise_bake.comp` — Roberts R2 plastic-number quasi-random sequence (one-line math, no iteration, blue-noise-LIKE spectrum without full void-and-cluster cost). `m_BlueNoise2D` + `m_BlueNoiseSampler` (NEAREST + REPEAT) on `VolumetricSubsystem`, baked once at `Init` via `ImmediateSubmit` mirroring the existing 3D Worley block byte-for-byte. Composite descriptor set layout gains binding 2 (stable per-view), written in `WriteCompositeView`. `volumetric_composite.frag` jitters `sliceW` by ±0.5 slices when `ubo.volScatterParams.y != 0`. `VolumetricSettings::blueNoiseDither = true` toggle plumbed via `GlobalSubsystem::UpdateUBO`. | `04905e9` |
 | F | **RenderPanel UI + wrap-up v3.0.7.** New "Anti-Aliasing" collapsing header between Volumetric Fog and Bloom — TAA enable + temporalAlpha slider + Specular AA enable + sigma slider + tooltips. "Blue-Noise Dither" toggle added to Volumetric Fog → Temporal section. `Version.h` 3.0.6 → 3.0.7. This history file. ROADMAP A.5 row → done. `arch/rendering-pipeline.md` pass-order updated. | this commit |
+| G | **Fix: TAA static-camera jitter.** Resolve-side de-jitter via push constant. Smoke gate after F showed Karis14 TAA failing to converge on a fully static scene — output essentially equalled the jittered current render every frame. Root cause: slim G-buffer motion vectors carry the Halton jitter delta (~1 pixel for static), bilinear sampling of `historyPrev` at that sub-pixel offset never converges on high-frequency content. Fix: extend `taa_resolve.frag`'s push constant to `{float alpha, float pad, vec2 jitterDeltaUv}`, populate `jitterDeltaUv = (currentJitter − prevJitter)/viewport` from existing `ViewResources` state, add it to the per-pixel motion so static scenes net to zero motion. Production engines (UE4 / HDRP / playdead) de-jitter at the producer; doing it in the resolve keeps slim_gbuffer untouched. | post-wrap fix |
 
 ---
 
@@ -152,6 +153,14 @@ The slim viz pipeline (sub-task A.2 SlimVizPass) could be extended with a TaaHis
 
 If smoke shows Roberts R2's slight per-frame periodicity as visible grain (with TAA off in some debug viz), swap to a precomputed void-and-cluster pattern as a baked PNG asset. Sampling code unchanged; replace the `blue_noise_bake.comp` dispatch with a PNG upload. Defer until the scene that triggers it appears.
 
+### Blackman-Harris weight normalization
+
+The 3×3 BH weights in `common/taa.glsl` sum to 0.9956 (canonical Pedersen sum ≈ 1.0004). Slight under-weighting causes per-frame dimming of ~0.044% at default feedback — imperceptible but a cleanup candidate. Not the jitter cause (caught while reviewing the resolve in sub-task G).
+
+### Source-side de-jitter for RT denoising
+
+The sub-task G fix de-jitters at the resolve. The cleaner long-term shape — used by UE4 / HDRP / playdead — computes motion vectors with UNJITTERED prev/curr VPs at the slim G-buffer stage, so motion vectors carry pure rigid displacement reusable by other consumers (motion blur, RT denoising). Cost: two new Mat4 fields in `GlobalUniforms` (`viewProjectionUnjittered`, `prevViewProjectionUnjittered`) + a `ViewResources::prevViewProjUnjittered` field + updates in `slim_gbuffer.vert`. Defer to Phase B `rt-extensions` / `blas-tlas` when RT denoising needs the cleaner motion convention.
+
 ### AgX exposure-aware curve fit
 
 Wrensch's polynomial is a 16.5-stop fit centered at middle gray. If users push extreme exposures (`pp.exposure > 5` or `< 0.2`), the fit deviates from Blender's reference LUT. The CONTRACT comment notes this; the workaround is to stay within ±2 stops of unity exposure. A future enhancement could swap to Filament's expanded-range fit at a 10-20 LOC cost.
@@ -160,7 +169,8 @@ Wrensch's polynomial is a 16.5-stop fit centered at middle gray. If users push e
 
 ## Bugs caught during implementation
 
-None significant. The pbr.frag std140-offset gotcha was caught during planning, not implementation (the v3.0.5 deferred-migration note flagged it). Build was clean across all six commits with only pre-existing warnings (LNK4006 dbghelp / vulkan-1, C4244 chrono in Editor.cpp, C4996 sscanf in Properties.cpp).
+- **TAA static-camera jitter** — fixed post-wrap (sub-task G). Smoke gate after the wrap commit showed TAA failing to converge on a fully static scene because slim G-buffer motion vectors include the Halton jitter delta; bilinear history sampling at the sub-pixel offset can't converge. Resolved by adding `(currentJitter − prevJitter)/viewport` to the resolve's motion vector via push constant. Source-side de-jitter (slim_gbuffer + unjittered prev/curr VPs on the UBO) is the long-term form; defer to Phase B when RT denoising wants pure rigid-displacement motion vectors.
+- The pbr.frag std140-offset gotcha was caught during planning, not implementation (the v3.0.5 deferred-migration note flagged it). Build was clean across all seven commits with only pre-existing warnings (LNK4006 dbghelp / vulkan-1, C4244 chrono in Editor.cpp, C4996 sscanf in Properties.cpp).
 
 ---
 

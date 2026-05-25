@@ -18,10 +18,17 @@ layout(set = 0, binding = 1) uniform sampler2D motionVectors;
 layout(set = 0, binding = 2) uniform sampler2D historyPrev;
 layout(set = 0, binding = 3) uniform sampler2D sceneDepth;
 // Binding 4 (UBO) is declared in the descriptor set layout but unused here — reserved for future
-// TAA tunables (e.g. Salvi K4 variance gamma). Push constant carries the only param we need today.
+// TAA tunables (e.g. Salvi K4 variance gamma). Push constant carries the params we need today.
 
+// invariant: jitterDeltaUv = (currentJitter − prevJitter) / viewportSize, populated by
+// AddTaaResolvePass from ViewResources. Added to the resolve's per-pixel motion so static
+// scenes resolve to motion = 0 instead of a sub-pixel jitter delta — without it bilinear
+// history sampling at the Halton offset never converges. Production engines (UE/HDRP/INSIDE)
+// de-jitter at the motion-vector producer; doing it here keeps slim_gbuffer untouched.
 layout(push_constant) uniform TaaPC {
     float temporalAlpha;  // 0.05..0.2 — current-frame feedback weight in YCoCg blend
+    float pad;
+    vec2  jitterDeltaUv;
 } taa;
 
 void main()
@@ -41,11 +48,10 @@ void main()
         float d   = texture(sceneDepth, sUv).r;
         if (d < minDepth) { minDepth = d; closestUv = sUv; }
     }
-    // Slim G-buffer stores motion as NDC delta (currNDC - prevNDC, range +/- 2). Convert to UV
-    // delta by * 0.5 for history reprojection per the documented Karis14 convention in
-    // slim_gbuffer.frag. Without this, motion is 2x oversized and history samples land at the
-    // wrong pixel every frame -> no temporal integration, raw jitter visible at the output.
-    vec2 motion = texture(motionVectors, closestUv).rg * 0.5;
+    // Slim G-buffer motion = currNDC − prevNDC (NDC range ±2). ×0.5 → UV delta. The +jitterDeltaUv
+    // adds back (currJitter − prevJitter)/viewport so static scenes net to zero motion; without it
+    // prevUv lands sub-pixel-offset every frame and bilinear history sampling can't converge.
+    vec2 motion = texture(motionVectors, closestUv).rg * 0.5 + taa.jitterDeltaUv;
     vec2 prevUv = v_TexCoord - motion;
 
     // 2. Sample 3×3 current neighborhood in YCoCg + accumulate Blackman-Harris reconstructed
@@ -77,10 +83,8 @@ void main()
     vec3 aabbMin = 0.5 * (minBox + minPlus);
     vec3 aabbMax = 0.5 * (maxBox + maxPlus);
 
-    // 4. Chroma narrow — separately constrain chroma extent to ¼ of luma extent (playdead
-    //    `chroma_extent = 0.25 * 0.5 * (lumMax - lumMin)`). Fixes the "purple fringe" ghost
-    //    RGB AABB exhibits where saturated chroma history samples stay valid against a
-    //    green-dominant neighborhood as long as luma matches.
+    // 4. Chroma narrow — tighten chroma bounds independently to suppress the purple-fringe ghost
+    //    that grayscale-tight luma + permissive chroma exhibits on saturated edges.
     float chromaExtent = 0.25 * 0.5 * (aabbMax.x - aabbMin.x);
     vec2  chromaCenter = ycc[4].yz;
     aabbMin.yz = chromaCenter - vec2(chromaExtent);
@@ -113,5 +117,5 @@ void main()
 
     // 8. Blend in YCoCg then convert back to RGB.
     vec3 result = mix(clipped.xyz, currentBH, feedback);
-    outColor = vec4(YCoCg_RGB(result), 1.0);
+    outColor    = vec4(YCoCg_RGB(result), 1.0);
 }
