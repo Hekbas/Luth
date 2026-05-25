@@ -196,5 +196,13 @@ namespace Luth
         // so we own a dedicated one).
         std::shared_ptr<Texture>           m_NoiseTexture;
         VkSampler                          m_NoiseSampler = VK_NULL_HANDLE;
+
+        // 2D blue-noise-like dither (Roberts R2 quasi-random). Single shared 64² R8 instance, baked
+        // once at Init. Sampled by volumetric_composite.frag to jitter the per-fragment atlas slice
+        // (sliceW) by ±0.5 slices — TAA then integrates the dither over ~6 frames into a smooth
+        // gradient, eliminating residual Wronski log-slice Z-banding. Sampler is NEAREST + REPEAT;
+        // bilinear filtering destroys the spectral properties.
+        std::shared_ptr<Texture>           m_BlueNoise2D;
+        VkSampler                          m_BlueNoiseSampler = VK_NULL_HANDLE;
     };
 }

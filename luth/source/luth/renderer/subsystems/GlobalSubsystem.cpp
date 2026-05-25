@@ -154,7 +154,9 @@ namespace Luth
                                            vs.skyFogStrength);
         ubo.volNoiseParams          = Vec4(vs.noiseScale, vs.noiseStrength, 0.0f, 0.0f);
         ubo.volNoiseWind            = Vec4(vs.noiseWind, 0.0f);
-        ubo.volScatterParams        = Vec4(vs.scatteringIntensity, 0.0f, 0.0f, 0.0f);
+        ubo.volScatterParams        = Vec4(vs.scatteringIntensity,
+                                           vs.blueNoiseDither ? 1.0f : 0.0f,
+                                           0.0f, 0.0f);
 
         // Image-quality toggles. Tail of GlobalUniforms — pbr.frag uses common/globals.glsl since
         // the spec-AA migration so the std140 offsets match the C++ layout exactly.
