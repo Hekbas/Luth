@@ -205,7 +205,9 @@ namespace Luth
                     const bool dbgActive = (curMode == (int)ShadeMode::Normals)
                                         || (curMode == (int)ShadeMode::EntityID)
                                         || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID)
-                                        || (curMode == (int)ShadeMode::ClustersDensity);
+                                        || (curMode == (int)ShadeMode::ClustersDensity)
+                                        || (curMode == (int)ShadeMode::VolumetricDensity)
+                                        || (curMode == (int)ShadeMode::VolumetricInScatter);
                     bool dbgState = dbgActive;
                     if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
                         [&]() {
@@ -241,6 +243,16 @@ namespace Luth
                             if (ImGui::RadioButton("Cluster Density",   curMode == (int)ShadeMode::ClustersDensity)) {
                                 settings.lastDebugMode = (u8)ShadeMode::ClustersDensity;
                                 m_RenderingSystem->SetShadeMode(ShadeMode::ClustersDensity);
+                            }
+                            ImGui::Separator();
+                            ImGui::TextDisabled("Volumetric Fog");
+                            if (ImGui::RadioButton("Vol Density",       curMode == (int)ShadeMode::VolumetricDensity)) {
+                                settings.lastDebugMode = (u8)ShadeMode::VolumetricDensity;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::VolumetricDensity);
+                            }
+                            if (ImGui::RadioButton("Vol In-Scatter",    curMode == (int)ShadeMode::VolumetricInScatter)) {
+                                settings.lastDebugMode = (u8)ShadeMode::VolumetricInScatter;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::VolumetricInScatter);
                             }
                             ImGui::PopFont();
                         }))

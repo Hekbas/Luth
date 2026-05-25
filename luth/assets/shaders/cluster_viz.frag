@@ -7,7 +7,7 @@
 
 const uint k_ClusterTilesX  = 16u;
 const uint k_ClusterTilesY  =  9u;
-const uint k_ClusterSlicesZ = 24u;
+const uint k_ClusterSlicesZ = 48u;
 const uint k_MaxLightsPerCluster = 128u;
 
 layout(location = 0) in  vec2 v_TexCoord;

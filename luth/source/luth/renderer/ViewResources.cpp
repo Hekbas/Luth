@@ -12,16 +12,20 @@
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/settings/GTAOSettings.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/core/diagnostics/Log.h"
 
 namespace Luth
 {
-    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each.
-    static constexpr u32 k_ViewPoolMaxSets              = 48;
+    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity was 48
+    // (50 needed) after the volumetric resolve set + viz set landed — silent vkAllocateDescriptorSets
+    // failure on the last cycled set produced VK_NULL_HANDLE handles and skipped the viz draw.
+    // Bumped generously to absorb the next subsystem addition without revisiting these constants.
+    static constexpr u32 k_ViewPoolMaxSets              = 64;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 24;  // GTAO + volumetric atlases (cycled)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 64;  // Set 3 + cluster + assign + volumetric
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 64;
+    static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 96;
 
     namespace {
         // Build the per-view Set 0 write context from RP-side state. invariant:
@@ -66,7 +70,8 @@ namespace Luth
             vr.id = s_NextId.fetch_add(1, std::memory_order_relaxed);
             AllocateViewResources(vr, targets);
         }
-        else if (vr.width != newW || vr.height != newH)
+        else if (vr.width != newW || vr.height != newH ||
+                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality))
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -75,8 +80,14 @@ namespace Luth
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
             m_EditorOverlays.WriteGridView(vr, targets);
-            // sceneDepth is per-view + recreated on resize, so re-bind the composite descriptor too.
+            // sceneDepth + atlases are per-view + recreated on resize/quality change, so re-bind
+            // the inject/integrate/composite/viz descriptors that reference them.
+            m_Volumetric.WriteInjectDensityView(vr);
+            m_Volumetric.WriteInjectScatterView(vr);
+            m_Volumetric.WriteIntegrateView(vr);
+            m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
+            m_Volumetric.WriteVizView(vr, targets);
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -162,7 +173,13 @@ namespace Luth
             ai.descriptorPool     = vr.descPool;
             ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
             ai.pSetLayouts        = layouts;
-            vkAllocateDescriptorSets(device, &ai, outArr.data());
+            VkResult result = vkAllocateDescriptorSets(device, &ai, outArr.data());
+            if (result != VK_SUCCESS)
+            {
+                LH_CORE_ERROR("ViewResources: allocCycled '{}' failed (VkResult {}); bump pool sizes", tagPrefix, (int)result);
+                for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) outArr[i] = VK_NULL_HANDLE;
+                return;
+            }
             for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
             {
                 char name[64]; std::snprintf(name, sizeof(name), "%s.Slot%u", tagPrefix, i);
@@ -186,9 +203,12 @@ namespace Luth
         allocCycled(m_Lighting.GetClusterBuildLayout(),  vr.clusterBuildDescSet,  "View.ClusterBuild");
         allocCycled(m_Lighting.GetLightAssignLayout(),   vr.lightAssignDescSet,   "View.LightAssign");
         allocSingle(m_Lighting.GetClusterVizLayout(),    vr.clusterVizDescSet,    "View.ClusterViz");
-        allocCycled(m_Volumetric.GetInjectLayout(),      vr.volInjectDescSet,     "View.VolInject");
-        allocCycled(m_Volumetric.GetIntegrateLayout(),   vr.volIntegrateDescSet,  "View.VolIntegrate");
-        allocSingle(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
+        allocCycled(m_Volumetric.GetInjectDensityLayout(), vr.volInjectDensityDescSet, "View.VolInjectDensity");
+        allocCycled(m_Volumetric.GetInjectScatterLayout(), vr.volInjectScatterDescSet, "View.VolInjectScatter");
+        allocCycled(m_Volumetric.GetIntegrateLayout(),     vr.volIntegrateDescSet,     "View.VolIntegrate");
+        allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
+        allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
+        allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -196,9 +216,12 @@ namespace Luth
         m_EditorOverlays.WriteGridView(vr, targets);
         m_Lighting.WriteShadowView(vr);
         m_Lighting.WriteClusterVizView(vr, targets);
-        m_Volumetric.WriteInjectView(vr);
+        m_Volumetric.WriteInjectDensityView(vr);
+        m_Volumetric.WriteInjectScatterView(vr);
         m_Volumetric.WriteIntegrateView(vr);
+        m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);
+        m_Volumetric.WriteVizView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -219,17 +242,68 @@ namespace Luth
         vr.gtaoEdges       = makeStorage(TextureFormat::R8);
         vr.gtaoFinal       = makeStorage(TextureFormat::R8);
 
-        // Volumetric fog atlases — fixed 160×90×128 froxel grid (Wronski). View-aligned but
-        // dimensions are independent of viewport pixels, so they don't scale with halfW/halfH.
-        constexpr u32 k_VolW = 160;
-        constexpr u32 k_VolH = 90;
-        constexpr u32 k_VolD = 128;
-        auto makeVolume = [](TextureFormat fmt) {
-            return std::make_shared<VKTexture>(k_VolW, k_VolH, k_VolD, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
+        // Volumetric fog atlas dims from current quality preset (Low / Medium / High). View-aligned
+        // but dimensions are independent of viewport pixels — they don't scale with halfW/halfH.
+        // Cached on vr so EnsureViewResources can detect runtime quality changes.
+        const auto quality = m_System.GetVolumetricSettings().quality;
+        const auto dims    = Volumetric::GetAtlasDims(quality);
+        vr.volDimX = dims.x; vr.volDimY = dims.y; vr.volDimZ = dims.z;
+        vr.volQualityCached = static_cast<u32>(quality);
+        auto makeVolume = [&dims](TextureFormat fmt) {
+            return std::make_shared<VKTexture>(dims.x, dims.y, dims.z, fmt, VK_IMAGE_USAGE_STORAGE_BIT);
         };
-        vr.volDensity           = makeVolume(TextureFormat::RGBA16F);
-        vr.volInScatter         = makeVolume(TextureFormat::RGBA16F);
-        vr.volInScatterHistory  = makeVolume(TextureFormat::RGBA16F);
+        vr.volDensity          = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatter        = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistA   = makeVolume(TextureFormat::RGBA16F);
+        vr.volInScatterHistB   = makeVolume(TextureFormat::RGBA16F);
+
+        // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and undefined
+        // pixel content. The resolve pass samples volInScatterHist{A,B} on frame 0; without this
+        // clear the first sample is NaN-prone garbage. One-shot submit per view-resize only.
+        VkImage clearTargets[3] = {
+            std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
+        };
+        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+            VkImageMemoryBarrier toDst[3]{};
+            for (u32 i = 0; i < 3; ++i)
+            {
+                toDst[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                toDst[i].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                toDst[i].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toDst[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toDst[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toDst[i].image               = clearTargets[i];
+                toDst[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toDst[i].srcAccessMask       = 0;
+                toDst[i].dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+            }
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 3, toDst);
+
+            VkClearColorValue zero{ { 0.0f, 0.0f, 0.0f, 0.0f } };
+            VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            for (u32 i = 0; i < 3; ++i)
+                vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     &zero, 1, &range);
+
+            VkImageMemoryBarrier toGen[3]{};
+            for (u32 i = 0; i < 3; ++i)
+            {
+                toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toGen[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+                toGen[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen[i].image               = clearTargets[i];
+                toGen[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toGen[i].srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+                toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            }
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 3, toGen);
+        });
     }
 
     void RenderPipeline::DestroyViewResources(ViewResources& vr)
@@ -243,7 +317,8 @@ namespace Luth
         vr.gtaoFinal.reset();
         vr.volDensity.reset();
         vr.volInScatter.reset();
-        vr.volInScatterHistory.reset();
+        vr.volInScatterHistA.reset();
+        vr.volInScatterHistB.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

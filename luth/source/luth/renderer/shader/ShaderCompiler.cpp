@@ -1,8 +1,10 @@
 #include "luthpch.h"
 #include "ShaderCompiler.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/resources/FileSystem.h"
 #include <shaderc/shaderc.hpp>
 #include <fstream>
+#include <cstring>
 
 #ifdef _MSC_VER
     #pragma comment(lib, "shaderc_shared.lib")
@@ -10,6 +12,71 @@
 
 namespace Luth
 {
+    namespace
+    {
+        // Resolves #include directives. Relative includes (#include "x.glsl") look in the requesting
+        // source's directory; angled includes (#include <x.glsl>) and unresolved relative paths fall
+        // back to the engine shader root (luth/assets/shaders/).
+        class LuthIncluder : public shaderc::CompileOptions::IncluderInterface
+        {
+        public:
+            explicit LuthIncluder(fs::path shaderRoot) : m_Root(std::move(shaderRoot)) {}
+
+            shaderc_include_result* GetInclude(const char* requested,
+                                               shaderc_include_type type,
+                                               const char* requesting,
+                                               size_t /*depth*/) override
+            {
+                fs::path resolved;
+                if (type == shaderc_include_type_relative && requesting && *requesting)
+                {
+                    resolved = fs::path(requesting).parent_path() / requested;
+                    if (!fs::exists(resolved))
+                        resolved = m_Root / requested;
+                }
+                else
+                {
+                    resolved = m_Root / requested;
+                }
+
+                auto* result  = new shaderc_include_result{};
+                auto* payload = new Payload{};
+
+                if (!fs::exists(resolved))
+                {
+                    payload->content = "// Luth includer: file not found: ";
+                    payload->content += requested;
+                    payload->name    = std::string(requested);
+                }
+                else
+                {
+                    std::ifstream f(resolved, std::ios::binary);
+                    std::ostringstream ss; ss << f.rdbuf();
+                    payload->content = ss.str();
+                    payload->name    = resolved.string();
+                }
+
+                result->source_name        = payload->name.c_str();
+                result->source_name_length = payload->name.size();
+                result->content            = payload->content.c_str();
+                result->content_length     = payload->content.size();
+                result->user_data          = payload;
+                return result;
+            }
+
+            void ReleaseInclude(shaderc_include_result* result) override
+            {
+                if (!result) return;
+                delete static_cast<Payload*>(result->user_data);
+                delete result;
+            }
+
+        private:
+            struct Payload { std::string name; std::string content; };
+            fs::path m_Root;
+        };
+    }
+
     ShaderStage ShaderCompiler::InferStage(const fs::path& path)
     {
         std::string ext = path.extension().string();
@@ -59,11 +126,12 @@ namespace Luth
         shaderc::CompileOptions options;
         options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
         if (optimize) options.SetOptimizationLevel(shaderc_optimization_level_performance);
+        options.SetIncluder(std::make_unique<LuthIncluder>(FileSystem::EngineAssetsPath("shaders")));
 
         shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(
             sourceStr,
             ToShadercKind(stage),
-            sourcePath.filename().string().c_str(),
+            sourcePath.string().c_str(),  // full path so includer can resolve relative includes
             options
         );
 

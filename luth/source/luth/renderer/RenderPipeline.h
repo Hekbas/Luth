@@ -102,13 +102,20 @@ namespace Luth
         std::shared_ptr<Texture> gtaoEdges;
         std::shared_ptr<Texture> gtaoFinal;
 
-        // Volumetric fog atlases (RGBA16F, 160×90×128). View-frustum-aligned; persistent across
-        // frames because the history buffer reprojects from the previous frame's in-scatter.
-        // Allocated via the 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler — the
-        // VolumetricSubsystem owns the shared linear-clamp sampler).
+        // Volumetric fog atlases (RGBA16F). View-frustum-aligned; persistent across frames so the
+        // resolve pass can reproject + blend with prev frame's resolved output. Allocated via the
+        // 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler — VolumetricSubsystem owns
+        // the shared linear-clamp sampler). Dims pulled from VolumetricSettings::quality preset.
+        //
+        // volInScatter is the scratch atlas — inject writes pre-integrate per-voxel scatter, then
+        // integrate reads + writes the post-integrate cumulative in-place. volInScatterHistA/B
+        // ping-pong as the temporal-resolve I/O pair: each frame the resolve pass reads one as
+        // "prev resolved" and writes the other as "current resolved". Composite + viz sample the
+        // "current resolved" atlas of the active frame parity.
         std::shared_ptr<Texture> volDensity;
         std::shared_ptr<Texture> volInScatter;
-        std::shared_ptr<Texture> volInScatterHistory;
+        std::shared_ptr<Texture> volInScatterHistA;
+        std::shared_ptr<Texture> volInScatterHistB;
 
         // Bloom extract / blur / composite — bind view's SceneColor +
         // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
@@ -137,15 +144,28 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
-        // Volumetric inject pass. Cycled — temporal ping-pong (next commit) starts differentiating
-        // slots by frame parity (current vs history atlas).
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDescSet{};
+        // Volumetric inject density pass. Cycled — b1 (FogVolume SSBO) rewrites per frame against
+        // a fresh tagged-heap region; b0 + b2 are stable per-view.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDensityDescSet{};
 
-        // Volumetric integrate pass. Cycled like inject; same temporal ping-pong follows.
+        // Volumetric inject scatter pass. Cycled — b2-b4 (Light, ClusterGrid, LightIndex SSBOs)
+        // rewrite per frame; b0/b1/b5 stable. Reads volDensity written by the density pass via the
+        // shared ResourceNode (RG inserts the barrier).
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectScatterDescSet{};
+
+        // Volumetric integrate pass. Cycled; reads + writes volInScatter (scratch) in-place.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volIntegrateDescSet{};
 
-        // Volumetric composite — single set, stable across frames; rewritten only on viewport resize.
-        VkDescriptorSet volCompositeDescSet = VK_NULL_HANDLE;
+        // Volumetric resolve pass. Cycled; reads scratch + prev history (parity), writes curr
+        // history (parity). Temporal accumulation happens here, post-integrate.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volResolveDescSet{};
+
+        // Volumetric composite. Cycled — b1 (in-scatter sampler) parity-picks the resolved history
+        // atlas (HistA or HistB). b0 (sceneDepth sampler) is stable across slots.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volCompositeDescSet{};
+
+        // Volumetric debug viz. Cycled — b2 follows the same ping-pong parity as composite.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volVizDescSet{};
 
         // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
         // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view
@@ -161,6 +181,17 @@ namespace Luth
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
         // independent. Identity-initialized → frame 0 has nonsense motion, settles by frame 1.
         Mat4 prevViewProj{ 1.0f };
+
+        // Prev-frame near/far for the resolve pass's reprojection slice math — needed because the
+        // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
+        f32 prevNearZ = 0.0f;
+        f32 prevFarZ  = 0.0f;
+
+        // Volumetric atlas dimensions live here so changing VolumetricSettings::quality at runtime
+        // re-allocates the atlases (mirrors width/height resize handling). volQualityCached tracks
+        // the value at last allocation; EnsureViewResources compares + recreates on mismatch.
+        u32 volDimX = 0, volDimY = 0, volDimZ = 0;
+        u32 volQualityCached = ~0u;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

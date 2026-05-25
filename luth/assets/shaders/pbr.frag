@@ -104,7 +104,7 @@ struct PointLightData {
 
 const uint k_ClusterTilesX  = 16u;
 const uint k_ClusterTilesY  =  9u;
-const uint k_ClusterSlicesZ = 24u;
+const uint k_ClusterSlicesZ = 48u;
 
 layout(std430, set = 3, binding = 0) readonly buffer LightBuffer {
     DirectionalLightData dirLight;

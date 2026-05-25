@@ -54,6 +54,20 @@ namespace Luth
         Vec4 distanceFogParams;
         Vec4 heightFogColorDensity;
         Vec4 heightFogParams;
+        // x = anisotropy (HG g), y = temporalAlpha, z = sunFogAbsorptionSteps (cast),
+        // w = skyFogStrength.
+        Vec4 volTemporalParams;
+        // x = prevNearZ, y = prevFarZ, z/w = pad. Cached for cross-frame reprojection so the resolve
+        // pass can reconstruct prev view-Z without assuming nearZ/farZ are constant.
+        Vec4 prevViewParams;
+        // x = noiseScale (world-space frequency, 1/wavelength_m), y = noiseStrength (0..1 modulation
+        // amplitude), z/w pad. Drives the Worley-FBM density-noise term in the inject shader.
+        Vec4 volNoiseParams;
+        // xyz = wind direction × speed (m/s) — animates the noise sample UV over time, w pad.
+        Vec4 volNoiseWind;
+        // x = scatteringIntensity (post-canonical artistic multiplier on inject_scatter's output;
+        // matches UE5 "Scattering Distribution" / Frostbite multiplier). yzw reserved.
+        Vec4 volScatterParams;
     };
 
     enum class ShadeMode : u8 {
@@ -63,7 +77,10 @@ namespace Luth
         SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID,
         // Forward+ cluster density viz — samples SceneDepth to compute the per-fragment 3D cluster
         // ID and heat-maps the cluster's light count over LDR. LightingSubsystem::AddClusterVizPass.
-        ClustersDensity
+        ClustersDensity,
+        // Volumetric fog atlas viz — samples SceneDepth to derive the Wronski slice, then reads
+        // the per-view fog atlas. Two modes: density heat-map and integrated in-scatter radiance.
+        VolumetricDensity, VolumetricInScatter
     };
 
     struct GeometryOutput {

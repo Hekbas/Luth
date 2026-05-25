@@ -41,8 +41,10 @@ namespace Luth
 
     inline constexpr u32 k_ClusterTilesX        = 16;
     inline constexpr u32 k_ClusterTilesY        =  9;
-    inline constexpr u32 k_ClusterSlicesZ       = 24;
-    inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 3456
+    // Z resolution bumped from 24 → 48 (volumetric Z-banding mitigation). Atlas slice = 128 so
+    // each cluster spans ~2.7 atlas slices instead of ~5.3 — fog illumination bands halved in Z.
+    inline constexpr u32 k_ClusterSlicesZ       = 48;
+    inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 6912
     inline constexpr u32 k_MaxLightsPerCluster  = 128;
 
     // Set 3 binding 0 layout: { LightSSBOHeader header; PointLightData points[header.pointLightCount]; }

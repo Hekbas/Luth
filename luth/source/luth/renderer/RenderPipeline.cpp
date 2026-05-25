@@ -23,6 +23,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/core/FrameData.h"
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/time/Time.h"
 #include "luth/core/diagnostics/Profiler.h"
@@ -271,22 +272,35 @@ namespace Luth
         m_Lighting.WriteSet3PerView(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
 
         // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
-        // composite passes skip entirely; sceneColor flows through unchanged.
+        // composite passes skip entirely; sceneColor flows through unchanged. injectOut hoisted
+        // to outer scope so the debug viz pass below can reference the density atlas handle.
         const bool volumetricEnabled = view.camera.enableVolumetricFog;
-        RG::ResourceHandle volInScatterHandle{};
-        if (volumetricEnabled)
+        VolumetricSubsystem::InjectOutputs injectOut{};
+        RG::ResourceHandle volInScatterHandle{};  // post-integrate scratch (viz mode 1 samples this)
+        RG::ResourceHandle volResolvedHandle{};   // post-resolve (composite + viz sample)
+        if (volumetricEnabled && m_CurrentViewResources)
         {
+            const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
             Memory::GPUSubRegion fogVolumeRegion{};
             if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
                 fogVolumeRegion = m_Volumetric.UploadFogVolumeSSBO(lighting->GetFogVolumes());
-            m_Volumetric.WriteInjectPerFrame(lightSSBORegion, clusters.gridRegion,
-                                             assign.indexRegion, fogVolumeRegion);
-            // Inject samples shadow cascades via descriptor binding 6 — RG needs the explicit Reads
-            // so it can emit per-layer DSA → SHADER_READ_ONLY barriers. Atlas handles chain through
-            // integrate so both passes share the same ResourceNode (arch hazard #1) and composite
-            // can declare its own sampler Read on the post-integrate inScatter handle.
-            auto injectOut = m_Volumetric.AddInjectPass(rg, shadowHandles);
-            volInScatterHandle = m_Volumetric.AddIntegratePass(rg, injectOut);
+            // Density pass binds FogVolume SSBO; scatter pass binds Light/ClusterGrid/LightIndex.
+            // Resolve/composite/viz b1-or-b2 parity-rewrite to ping-pong HistA/B for temporal
+            // accumulation. Cycled slots keep rewrites disjoint from in-flight prior frame reads.
+            m_Volumetric.WriteInjectDensityPerFrame(fogVolumeRegion);
+            m_Volumetric.WriteInjectScatterPerFrame(lightSSBORegion, clusters.gridRegion, assign.indexRegion);
+            m_Volumetric.WriteResolvePerFrame(*m_CurrentViewResources, frameAbs);
+            m_Volumetric.WriteCompositePerFrame(*m_CurrentViewResources, *view.targets, frameAbs);
+            m_Volumetric.WriteVizPerFrame(*m_CurrentViewResources, frameAbs);
+            // Density pass writes volDensity; scatter pass reads it (via shared ResourceNode so RG
+            // inserts the barrier) and samples it along the sun ray for proper density-aware
+            // absorption. Scatter samples shadow cascades via descriptor binding 5 — per-cascade
+            // RG Reads emit the DSA → SHADER_READ_ONLY transitions. Atlas handles chain through
+            // integrate + resolve so RG transitions are coherent end-to-end.
+            injectOut.density   = m_Volumetric.AddInjectDensityPass(rg);
+            injectOut.inScatter = m_Volumetric.AddInjectScatterPass(rg, injectOut.density, shadowHandles);
+            volInScatterHandle  = m_Volumetric.AddIntegratePass(rg, injectOut);
+            volResolvedHandle   = m_Volumetric.AddResolvePass(rg, volInScatterHandle);
         }
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
@@ -306,8 +320,8 @@ namespace Luth
         // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
         // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
         // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
-        RG::ResourceHandle fogColor    = volumetricEnabled
-                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volInScatterHandle)
+        RG::ResourceHandle fogColor    = (volumetricEnabled && m_CurrentViewResources)
+                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
                                          : skyboxColor;
         RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
         RG::ResourceHandle gridColor   = view.drawGrid
@@ -328,6 +342,14 @@ namespace Luth
         else if (shadeMode == ShadeMode::ClustersDensity)
         {
             ldrOutput = m_Lighting.AddClusterVizPass(rg, ldrOutput, prepassDepth);
+        }
+        else if ((shadeMode == ShadeMode::VolumetricDensity ||
+                  shadeMode == ShadeMode::VolumetricInScatter) &&
+                 volumetricEnabled && m_CurrentViewResources)
+        {
+            const u32 vizMode = (shadeMode == ShadeMode::VolumetricDensity) ? 0u : 1u;
+            ldrOutput = m_Volumetric.AddVizPass(rg, ldrOutput, injectOut.density,
+                                                volResolvedHandle, prepassDepth, vizMode);
         }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
@@ -688,7 +710,8 @@ namespace Luth
             if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
             if (it->second.volDensity)          m_NamedTextures["VolDensity"]           = it->second.volDensity;
             if (it->second.volInScatter)        m_NamedTextures["VolInScatter"]         = it->second.volInScatter;
-            if (it->second.volInScatterHistory) m_NamedTextures["VolInScatterHistory"]  = it->second.volInScatterHistory;
+            if (it->second.volInScatterHistA)   m_NamedTextures["VolInScatterHistA"]   = it->second.volInScatterHistA;
+            if (it->second.volInScatterHistB)   m_NamedTextures["VolInScatterHistB"]   = it->second.volInScatterHistB;
         }
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();

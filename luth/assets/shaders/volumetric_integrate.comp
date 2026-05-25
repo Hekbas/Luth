@@ -4,6 +4,12 @@
 // column over Z; accumulates per-step transmittance (Beer-Lambert) + in-scatter. The output is
 // written back in-place into volInScatter: RGB = accumulated in-scatter, A = transmittance to the
 // near edge of the slice (the composition pass samples this).
+//
+// CONTRACT (Wronski 2014 / Hillaire 2015):
+//   inject_scatter writes  scat = albedo × J  (J = phase × L × visibility, summed over lights).
+//   integrate accumulates  transmit × scat × (1 − exp(−σ_t · dt))  per slice.
+// Do NOT multiply by σ_t here (and inject_scatter must NOT pre-multiply). (1 − exp(−σ_t · dt)) is
+// the σ_t-aware path-length factor — it already encodes how much the slab scatters at this density.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -15,13 +21,16 @@ layout(set = 0, binding = 1, rgba16f) uniform image3D         volInScatter;
 
 layout(push_constant) uniform PC {
     vec4 nearFarPad;  // x = nearZ, y = farZ
+    uint volDimX;
+    uint volDimY;
+    uint volDimZ;
+    uint _pad;
 } pc;
 
-const ivec3 VOL_DIM = ivec3(160, 90, 128);
+#define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
 
-// Slicing math replicated from volumetric_inject.comp — engine ShaderCompiler has no #include.
 float SliceToViewZ(uint i, float nearZ, float farZ) {
-    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(VOL_DIM.z));
+    return nearZ * pow(farZ / nearZ, (float(i) + 0.5) / float(pc.volDimZ));
 }
 
 void main() {
@@ -46,12 +55,17 @@ void main() {
         prevViewZ = currViewZ;
 
         // Per-step Beer-Lambert: T_step = exp(-extinction*dt). Analytic single-scattering:
-        // accumRGB += T * scat * (1 - T_step). T *= T_step.
+        // accumRGB += T * scat * (1 - T_step). Stored value at this slice corresponds to the slice
+        // CENTER's view-Z, so we apply the half-step transmittance for the stored alpha (the value
+        // at center, not far edge). Composite samples this via trilinear interp and gets the right
+        // mid-slice transmittance at fragment depth.
         float extinction = dens.r;
         float stepT      = exp(-extinction * dt);
         accumRGB += transmit * scat.rgb * (1.0 - stepT);
+        float halfStepT  = exp(-extinction * dt * 0.5);
+        float transmitAtCenter = transmit * halfStepT;
         transmit *= stepT;
 
-        imageStore(volInScatter, voxel, vec4(accumRGB, transmit));
+        imageStore(volInScatter, voxel, vec4(accumRGB, transmitAtCenter));
     }
 }

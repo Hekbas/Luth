@@ -131,6 +131,100 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Volumetric Fog — Wronski frustum-voxel fog with temporal accumulation. The master
+            // enable toggle lives in EditorSettings → IBL & Skybox; this section is per-feature tuning.
+            if (UI::BeginCollapsingHeader("Volumetric Fog", true)) {
+                auto& vs = m_RS->GetVolumetricSettings();
+
+                // Quality preset — atlas resolution (Low/Medium/High). Triggers atlas recreation
+                // + descriptor re-bind on change.
+                if (UI::BeginProperties("VolumetricQuality")) {
+                    const char* kQualities[] = { "Low (80x45x64)", "Medium (160x90x128)", "High (240x135x192)" };
+                    int qIdx = static_cast<int>(vs.quality);
+                    if (UI::PropertyCombo("Quality", qIdx, kQualities, IM_ARRAYSIZE(kQualities)))
+                        vs.quality = static_cast<VolumetricSettings::Quality>(qIdx);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Atlas resolution preset. Higher = sharper fog detail + temporal stability;\nLow uses ~3.5 MB GPU per view, High uses ~50 MB.");
+                    UI::EndProperties();
+                }
+
+                // In-scatter — phase function + multi-scatter + sky cap.
+                if (UI::BeginProperties("VolumetricInScatter")) {
+                    UI::Property("Anisotropy (g)", vs.anisotropy, 0.01f, -0.99f, 0.99f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Henyey-Greenstein phase function parameter. 0 = isotropic;\npositive = forward scatter (god rays); negative = backscatter.\nTypical fog: 0.3-0.7.");
+                    UI::Property("Scattering Intensity", vs.scatteringIntensity, 0.5f, 0.0f, 100.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Artistic post-canonical multiplier on total in-scatter (single + multi).\nLifts off-axis fog into visible range against the HG-phase forward bias.\nUE5 / Frostbite expose the same knob. 1.0 = energy-conserving; 10-50 = visible at default scenes.\nIncrease ambient feel by raising; > 1 is intentionally non-physical.");
+                    UI::Property("Multi-Scatter", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("2nd-order multi-scatter — adds IBL ambient as an extinction-weighted in-scatter term.\nLifts shadowed fog (single-scatter alone leaves shadowed regions black).");
+                    UI::Property("Sky Fog Strength", vs.skyFogStrength, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Multiplier on fog opacity at sky pixels.\n1.0 = sky fully fogged in dense fog; 0.0 = sky never affected.");
+                    UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Steps for sun light-path absorption ray-march through fog.\n0 = disabled; 4 = quality default. Higher = more accurate dense-fog self-shadowing.");
+                    UI::EndProperties();
+                }
+
+                // Temporal accumulation tuning.
+                if (UI::BeginProperties("VolumetricTemporal")) {
+                    UI::Property("Temporal Blend (alpha)", vs.temporalAlpha, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Fresh-sample weight in the resolve pass blend.\nWronski recommends 0.05 (95% history) for stable fog under motion.");
+                    UI::EndProperties();
+                }
+
+                // Density noise — 3D Worley-FBM modulation for the "wispy" look.
+                if (UI::BeginProperties("VolumetricNoise")) {
+                    UI::Property("Noise Scale",    vs.noiseScale,    0.005f, 0.001f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("World-space frequency (1/m). Larger = smaller clumps.\nTypical: 0.02 (50m clumps) to 0.1 (10m clumps).");
+                    UI::Property("Noise Strength", vs.noiseStrength, 0.01f,  0.0f,   1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Density modulation amplitude. 0 = disabled, uniform fog;\n1 = swings density 0×..2× around its mean.");
+                    UI::Property("Wind (m/s)",     vs.noiseWind,     0.05f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Wind direction × speed — animates the noise UVW over time\nfor slow atmospheric drift.");
+                    UI::EndProperties();
+                }
+
+                // Distance fog — exponential attenuation with camera-to-fragment distance.
+                if (UI::BeginProperties("VolumetricDistanceFog")) {
+                    UI::Property      ("Distance Fog",     vs.distanceFogEnabled);
+                    UI::PropertyColor ("  Color",          vs.distanceFogColor);
+                    UI::Property      ("  Density",        vs.distanceFogDensity,    0.001f, 0.0f,  1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Extinction coefficient σ_t (1/m). Beer-Lambert: T = exp(−σ_t · path_length).\nTypical atmospheric haze: 0.005-0.02. Light fog: 0.05-0.1. Dense fog: 0.2+.\nNon-zero values where camDist > Start contribute to per-voxel density.");
+                    UI::Property      ("  Start (m)",      vs.distanceFogStart,      0.5f,   0.0f,  1000.0f);
+                    UI::Property      ("  Max Opacity",    vs.distanceFogMaxOpacity, 0.01f,  0.0f,  1.0f);
+                    UI::EndProperties();
+                }
+
+                // Height fog — exponential attenuation below a reference height.
+                if (UI::BeginProperties("VolumetricHeightFog")) {
+                    UI::Property      ("Height Fog",       vs.heightFogEnabled);
+                    UI::PropertyColor ("  Color",          vs.heightFogColor);
+                    UI::Property      ("  Density",        vs.heightFogDensity,     0.001f, 0.0f,  1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Extinction coefficient σ_t (1/m) at the reference height.\nFalls off exponentially above ref. Same scale as distance-fog density.");
+                    UI::Property      ("  Ref Height (m)", vs.heightFogRefHeight,   0.1f,  -1000.0f, 1000.0f);
+                    UI::Property      ("  Falloff",        vs.heightFogFalloff,     0.01f,  0.001f, 5.0f);
+                    UI::EndProperties();
+                }
+
+                // Debug viz tunables — picked up by AddVizPass push-constant each frame.
+                if (UI::BeginProperties("VolumetricViz")) {
+                    UI::Property("Viz Density Scale",    vs.vizScaleDensity,   0.1f, 0.0f, 50.0f);
+                    UI::Property("Viz In-Scatter Scale", vs.vizScaleInScatter, 0.01f, 0.0f, 10.0f);
+                    UI::Property("Viz Overlay Opacity",  vs.vizOpacity,        0.01f, 0.0f, 1.0f);
+                    UI::EndProperties();
+                }
+
+                UI::EndCollapsingHeader();
+            }
+
             // Bloom
             if (UI::BeginCollapsingHeader("Bloom", true)) {
                 if (UI::BeginProperties("BloomProps")) {
