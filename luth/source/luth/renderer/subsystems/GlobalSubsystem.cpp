@@ -2,6 +2,7 @@
 #include "luth/renderer/subsystems/GlobalSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/TaaJitter.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/core/FrameData.h"
@@ -82,11 +83,26 @@ namespace Luth
         ubo.view = camera.view;
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
-        ubo.viewProjection = ubo.projection * ubo.view;
+
         // Per-view prev-VP + viewport size — stored on ViewResources, NOT on GlobalSubsystem. A single
         // global cross-contaminates between Scene + Game panels (huge motion vectors for static geometry).
         // Frame 0: prevViewProj is Identity → motion nonsense for one frame, settles by frame 1.
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        const PostProcessSettings& pps = m_Pipeline->GetSystem().GetPostProcessSettings();
+
+        // TAA jitter — Halton(2,3) sub-pixel offset on the projection matrix BEFORE viewProjection
+        // compute. All rendered passes (DepthPrepass, SlimGBuffer, Geometry, Shadow, Skybox) use the
+        // jittered projection; motion vectors naturally absorb the jitter delta (standard Karis recipe).
+        // Disabled when TAA is off so users don't see pure shimmer with no resolve pass to integrate it.
+        Vec2 thisFrameJitter{ 0.0f, 0.0f };
+        if (vr && pps.taaEnabled && vr->width > 0 && vr->height > 0)
+        {
+            const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
+            thisFrameJitter    = TAA::SampleHalton(frameAbs);
+            ubo.projection     = TAA::ApplyJitter(ubo.projection, thisFrameJitter, vr->width, vr->height);
+        }
+        ubo.viewProjection = ubo.projection * ubo.view;
+
         if (vr) {
             ubo.prevViewProjection = vr->prevViewProj;
             vr->prevViewProj       = ubo.viewProjection;
@@ -96,8 +112,11 @@ namespace Luth
             const f32 pNearZ = (vr->prevNearZ != 0.0f) ? vr->prevNearZ : camera.nearZ;
             const f32 pFarZ  = (vr->prevFarZ  != 0.0f) ? vr->prevFarZ  : camera.farZ;
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
-            vr->prevNearZ = camera.nearZ;
-            vr->prevFarZ  = camera.farZ;
+            vr->prevNearZ      = camera.nearZ;
+            vr->prevFarZ       = camera.farZ;
+            // Cache prev/curr jitter so the resolve shader (sub-task D) can dejitter sample positions.
+            vr->prevJitter    = vr->currentJitter;
+            vr->currentJitter = thisFrameJitter;
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
             ubo.viewportSize       = Vec2(0.0f);
@@ -135,7 +154,15 @@ namespace Luth
                                            vs.skyFogStrength);
         ubo.volNoiseParams          = Vec4(vs.noiseScale, vs.noiseStrength, 0.0f, 0.0f);
         ubo.volNoiseWind            = Vec4(vs.noiseWind, 0.0f);
-        ubo.volScatterParams        = Vec4(vs.scatteringIntensity, 0.0f, 0.0f, 0.0f);
+        ubo.volScatterParams        = Vec4(vs.scatteringIntensity,
+                                           vs.blueNoiseDither ? 1.0f : 0.0f,
+                                           0.0f, 0.0f);
+
+        // Image-quality toggles. Tail of GlobalUniforms — pbr.frag uses common/globals.glsl since
+        // the spec-AA migration so the std140 offsets match the C++ layout exactly.
+        ubo.specAaParams = Vec4(pps.specularAaEnabled ? 1.0f : 0.0f, pps.specularAaSigma, 0.0f, 0.0f);
+        ubo.taaParams    = Vec4(pps.taaEnabled ? 1.0f : 0.0f, pps.taaTemporalAlpha,
+                                thisFrameJitter.x, thisFrameJitter.y);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

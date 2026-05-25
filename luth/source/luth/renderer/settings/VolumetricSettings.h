@@ -70,6 +70,11 @@ namespace Luth
         f32  noiseStrength = 1.0f;
         Vec3 noiseWind     = Vec3(0.25f, 0.0f, 0.20f);
 
+        // Blue-noise dither on the composite slice fetch. Breaks up Wronski log-slice Z-banding by
+        // jittering sliceW ±0.5 slices per fragment. Without TAA shows as grain; with TAA the
+        // dither integrates to smooth gradients over ~6 frames.
+        bool blueNoiseDither = true;
+
         // Atlas resolution preset. Changing recreates the per-view atlases + descriptors.
         enum class Quality : u32 { Low = 0, Medium = 1, High = 2 };
         Quality quality = Quality::High;

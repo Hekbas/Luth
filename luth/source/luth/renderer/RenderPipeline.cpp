@@ -323,10 +323,30 @@ namespace Luth
         RG::ResourceHandle fogColor    = (volumetricEnabled && m_CurrentViewResources)
                                          ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
                                          : skyboxColor;
-        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, fogColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? m_EditorOverlays.AddGridPass(rg, fogColor, geoOutput.depth)
+        // TAA Resolve — Karis14 YCoCg-clip. Runs AFTER volumetric composite, BEFORE bloom + grid
+        // (HDR-domain TAA per Karis recipe). Bloom + grid + composite then consume the resolved
+        // color. Per-frame WriteTaaResolvePerFrame rebinds the parity-picked history-prev sampler;
+        // the resolve pass writes to the parity-picked history-curr (bound as color attachment).
+        const PostProcessSettings& pps = m_System.GetPostProcessSettings();
+        const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources;
+        if (m_CurrentViewResources)
+        {
+            const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+            if (taaEnabled)
+                m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources, frameAbs);
+            // Per-frame rebind of bloom-extract + composite binding 0 so downstream consumes the
+            // TAA chain's actual output texture (taaHistoryCurr) when TAA is on. Without this the
+            // bindings statically reference SceneColor (set in WriteView) and TAA's output is
+            // dropped — bloom and composite read the pre-TAA scene, grid lines disappear.
+            m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets, frameAbs);
+        }
+        RG::ResourceHandle taaColor    = taaEnabled
+                                         ? m_PostProcess.AddTaaResolvePass(rg, fogColor, slimGB.motion, prepassDepth)
                                          : fogColor;
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, taaColor); // bloom reads PRE-grid color so grid lines don't bloom
+        RG::ResourceHandle gridColor   = view.drawGrid
+                                         ? m_EditorOverlays.AddGridPass(rg, taaColor, geoOutput.depth)
+                                         : taaColor;
         RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
 
         // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.

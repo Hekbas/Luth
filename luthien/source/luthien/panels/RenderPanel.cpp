@@ -173,6 +173,9 @@ namespace Luth
                     UI::Property("Temporal Blend (alpha)", vs.temporalAlpha, 0.005f, 0.0f, 1.0f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Fresh-sample weight in the resolve pass blend.\nWronski recommends 0.05 (95% history) for stable fog under motion.");
+                    UI::Property("Blue-Noise Dither", vs.blueNoiseDither);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Jitters per-fragment atlas slice by +/- 0.5 slices using Roberts R2 noise.\nBreaks up Wronski log-slice Z-banding. Requires TAA on to integrate cleanly\n(without TAA you'll see grain).");
                     UI::EndProperties();
                 }
 
@@ -225,6 +228,30 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Anti-Aliasing — Karis14 YCoCg-clip TAA + Tokuyoshi19 specular AA. Both gated by their
+            // own enable flag; sliders pulled from PostProcessSettings (default-on at sane values).
+            if (UI::BeginCollapsingHeader("Anti-Aliasing", true)) {
+                if (UI::BeginProperties("TaaProps")) {
+                    UI::Property("TAA", pp.taaEnabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Karis14 temporal antialiasing with YCoCg-clip recipe + closest-depth\nvelocity dilation + Blackman-Harris reconstruction + luma feedback weight.\nReads motion vectors from the slim G-buffer. Disables jitter when off.");
+                    UI::Property("Temporal Blend (alpha)", pp.taaTemporalAlpha, 0.005f, 0.05f, 0.3f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Current-frame feedback weight (Karis default 0.1 = 90% history).\nLower = smoother + more ghosting; higher = sharper + more flicker.");
+                    UI::EndProperties();
+                }
+                if (UI::BeginProperties("SpecAaProps")) {
+                    UI::Property("Specular AA", pp.specularAaEnabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Tokuyoshi 2019 - lifts BRDF roughness from screen-space normal\ncurvature variance. Kills high-freq specular sparkle on curved metal\nat glancing angles. No cost on flat surfaces.");
+                    UI::Property("Sigma", pp.specularAaSigma, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Variance scale. 0 = no boost; 0.5 = recommended; 1.0 = aggressive.\nHigher values smear specular more under curvature.");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Bloom
             if (UI::BeginCollapsingHeader("Bloom", true)) {
                 if (UI::BeginProperties("BloomProps")) {
@@ -238,7 +265,7 @@ namespace Luth
             // Tone Mapping
             if (UI::BeginCollapsingHeader("Tone Mapping", true)) {
                 if (UI::BeginProperties("ToneMapProps")) {
-                    const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2" };
+                    const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2", "AgX", "AgX Punchy" };
                     int currentOp = static_cast<int>(pp.tonemapOp);
                     if (UI::PropertyCombo("Operator", currentOp, operators, IM_ARRAYSIZE(operators)))
                         pp.tonemapOp = static_cast<TonemapOperator>(currentOp);

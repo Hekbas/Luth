@@ -32,9 +32,26 @@ namespace Luth
         // Stable per-view writes (sceneColor + bloom textures); UBO at binding 2 is rebound by UpdateUBO.
         void WriteView(ViewResources& vr, FrameTargets& targets);
 
+        // Stable per-view writes for the TAA resolve set (bindings 0/1/3 — sceneColor / motion /
+        // sceneDepth). Binding 2 (history-prev sampler) is rebound per-frame in WriteTaaResolvePerFrame.
+        void WriteTaaResolveView(ViewResources& vr, FrameTargets& targets);
+        void WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs);
+
+        // Per-frame rebind of bloom-extract + composite binding 0 to track the TAA chain. When TAA
+        // is enabled the binding points at taaHistoryCurr (parity-picked) so bloom and composite
+        // consume the TAA-resolved color — without this, both descriptors statically reference
+        // FrameTargets::SceneColor and TAA's output is dropped into an orphan texture nobody reads.
+        // When TAA is disabled the binding restores to FrameTargets::SceneColor for the legacy path.
+        void UpdateBloomCompositeInput(ViewResources& vr, FrameTargets& targets, u32 frameAbs);
+
         // Render-graph contributions.
         RG::ResourceHandle AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
         RG::ResourceHandle AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult);
+        // TAA Resolve (Karis14 YCoCg-clip recipe). Reads sceneColor + motion + sceneDepth + the
+        // parity-picked history-prev (bound by WriteTaaResolvePerFrame); writes the parity-picked
+        // history-curr. Returned handle is what downstream bloom + grid + composite consume.
+        RG::ResourceHandle AddTaaResolvePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
+                                             RG::ResourceHandle motion, RG::ResourceHandle sceneDepth);
         // Live slim G-buffer viz — bypasses tonemap. Mode = SlimNormal/Roughness/Motion/MaterialID,
         // scale is motion magnification (unused for other modes). Runs after composite, writes LDR.
         // slimGB carries the producer-side RG handles from SlimGBufferPass; re-importing the same
@@ -42,8 +59,9 @@ namespace Luth
         RG::ResourceHandle AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
                                           const SlimGBufferOutput& slimGB, u32 mode, float scale);
 
-        VkDescriptorSetLayout GetDescSetLayout()        const { return m_DescSetLayout; }
-        VkDescriptorSetLayout GetSlimVizDescSetLayout() const { return m_SlimVizDescSetLayout; }
+        VkDescriptorSetLayout GetDescSetLayout()           const { return m_DescSetLayout; }
+        VkDescriptorSetLayout GetSlimVizDescSetLayout()    const { return m_SlimVizDescSetLayout; }
+        VkDescriptorSetLayout GetTaaResolveDescSetLayout() const { return m_TaaResolveDescSetLayout; }
         const std::vector<u32>& GetFullscreenVertSpv() const { return m_FullscreenVertSpv; }
 
     private:
@@ -51,20 +69,23 @@ namespace Luth
 
         RenderPipeline* m_Pipeline = nullptr;
 
-        VkSampler             m_Sampler              = VK_NULL_HANDLE;
-        VkSampler             m_NearestSampler       = VK_NULL_HANDLE; // for integer slim matID binding
-        VkDescriptorSetLayout m_DescSetLayout        = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_SlimVizDescSetLayout = VK_NULL_HANDLE;
+        VkSampler             m_Sampler                 = VK_NULL_HANDLE;
+        VkSampler             m_NearestSampler          = VK_NULL_HANDLE; // for integer slim matID binding
+        VkDescriptorSetLayout m_DescSetLayout           = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_SlimVizDescSetLayout    = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_TaaResolveDescSetLayout = VK_NULL_HANDLE;
 
         std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
         std::unique_ptr<VKPipeline> m_BloomBlurPipeline;
         std::unique_ptr<VKPipeline> m_PostProcessPipeline;
         std::unique_ptr<VKPipeline> m_SlimVizPipeline;
+        std::unique_ptr<VKPipeline> m_TaaResolvePipeline;
 
         std::vector<u32> m_FullscreenVertSpv;
         std::vector<u32> m_BloomExtractFragSpv;
         std::vector<u32> m_BloomBlurFragSpv;
         std::vector<u32> m_PostProcessFragSpv;
         std::vector<u32> m_SlimVizFragSpv;
+        std::vector<u32> m_TaaResolveFragSpv;
     };
 }

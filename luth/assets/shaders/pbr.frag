@@ -1,5 +1,8 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -14,28 +17,6 @@ layout(location = 0) out vec4 outColor;
 layout(location = 1) out uint outEntityID;
 
 // ---------- Descriptor Sets ----------
-
-// Set 0: Global Uniforms
-layout(set = 0, binding = 0) uniform GlobalUniforms {
-    mat4 viewProjection;
-    mat4 prevViewProjection;  // frame N-1's VP — motion vectors + TAA reprojection
-    mat4 view;
-    mat4 projection;
-    vec3 cameraPos;
-    float time;
-    mat4 lightSpaceMatrix[4];        // Per-cascade light-space matrices (Phase 13)
-    vec4 cascadeSplitsViewZ;         // Far view-space depth per cascade
-    vec4 shadowBias;                 // Per-cascade depth bias (x<0 = shadows disabled)
-    vec4 shadowNormalBias;           // Per-cascade normal bias (in shadow-map texels)
-    vec4 cascadeTexelSize;           // World-space size of one shadow texel per cascade
-    float iblIntensity;
-    float skyboxIntensity;
-    float debugVisualizeCascades;    // 0 = off, 1 = tint by cascade
-    float cascadeBlendWidth;         // fraction of slice depth range used for cross-cascade blending
-    vec2  viewportSize;       // pixels — cluster ID + screen-space recon
-    float nearZ;
-    float farZ;
-} ubo;
 
 // Set 0: IBL textures
 layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
@@ -402,6 +383,19 @@ void main()
         metallic  = mrSample.b;
     }
     roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
+
+    // Tokuyoshi 2019 "Improved Geometric Specular Antialiasing" (HPG). Screen-space normal curvature
+    // adds variance to BRDF roughness — kills high-freq specular sparkle on curved surfaces at glancing
+    // angles. The σ² term is the projected normal variance over a pixel footprint; we add it to α² (=
+    // roughness²) and take sqrt back. Disabled → behaves identically to v3.0.6.
+    if (ubo.specAaParams.x != 0.0)
+    {
+        vec3  dNdu     = dFdx(N);
+        vec3  dNdv     = dFdy(N);
+        float sigma2   = ubo.specAaParams.y * ubo.specAaParams.y;
+        float variance = sigma2 * (dot(dNdu, dNdu) + dot(dNdv, dNdv));
+        roughness      = clamp(sqrt(roughness * roughness + variance), 0.04, 1.0);
+    }
 
     // --- Always write entity ID for picking ---
     outEntityID = v_EntityID;

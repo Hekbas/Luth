@@ -192,6 +192,16 @@ namespace Luth
         // the value at last allocation; EnsureViewResources compares + recreates on mismatch.
         u32 volDimX = 0, volDimY = 0, volDimZ = 0;
         u32 volQualityCached = ~0u;
+
+        // TAA history (Karis14 YCoCg-clip recipe). Viewport-sized RGBA16F, persistent across frames,
+        // ping-pong via frameAbs parity matching volInScatterHistA/B shape. Bootstrap-cleared at
+        // resize so frame 0 history read is well-defined. currentJitter / prevJitter are NDC-space
+        // sub-pixel offsets stored on the view because GlobalSubsystem is shared across views.
+        Vec2 currentJitter{ 0.0f, 0.0f };
+        Vec2 prevJitter{ 0.0f, 0.0f };
+        std::shared_ptr<Texture> taaHistoryA;
+        std::shared_ptr<Texture> taaHistoryB;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> taaResolveDescSet{};
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -345,7 +355,7 @@ namespace Luth
     private:
         // Split allocation + per-group descriptor writes for readability.
         void AllocateViewResources(ViewResources& vr, FrameTargets& targets);
-        void RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH);
+        void RecreateViewTextures(ViewResources& vr, u32 fullW, u32 fullH, u32 halfW, u32 halfH);
         void DestroyViewResources(ViewResources& vr);
 
         // ---- Subsystems (own their domain state + lifecycle + passes) ----

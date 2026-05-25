@@ -8,7 +8,9 @@ namespace Luth
         Linear     = 0,
         Reinhard   = 1,
         ACES       = 2,
-        Uncharted2 = 3
+        Uncharted2 = 3,
+        AgX        = 4,
+        AgXPunchy  = 5
     };
 
     struct PostProcessSettings
@@ -34,6 +36,16 @@ namespace Luth
         float grainAmount         = 0.0f;
         float sharpness           = 0.0f;
         float chromaticAberration = 0.0f;
+
+        // Specular antialiasing (Tokuyoshi 2019). Default-on — at sigma 0.5 it's a no-op on flat
+        // surfaces and only kicks in where screen-space normal curvature would alias the BRDF.
+        bool  specularAaEnabled = true;
+        float specularAaSigma   = 0.5f;
+
+        // Temporal antialiasing (Karis 2014 YCoCg-clip recipe). taaTemporalAlpha is the
+        // current-frame feedback weight (0.1 = 90% history, Karis default).
+        bool  taaEnabled       = true;
+        float taaTemporalAlpha = 0.1f;
 
         // Ambient occlusion (GTAO)
         GTAOSettings gtao;

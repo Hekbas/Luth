@@ -16,6 +16,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 1, binding = 0) uniform sampler2D sceneDepth;
 layout(set = 1, binding = 1) uniform sampler3D volInScatter;
+layout(set = 1, binding = 2) uniform sampler2D blueNoise;  // 64² R8 NEAREST+REPEAT
 
 // Push constant kept for forward-compat (future features may need invView); harmless at zero cost.
 layout(push_constant) uniform PC {
@@ -38,8 +39,16 @@ void main() {
     float viewZ    = DepthToViewZ(ndcDepth);
     bool  isSky    = ndcDepth >= 0.9999;
 
-    // Sample the integrated + resolved atlas.
+    // Sample the integrated + resolved atlas. Blue-noise jitter on sliceW breaks up Wronski's
+    // log-slice Z-banding by ±0.5 slices per fragment. Without TAA this shows as grain; with TAA
+    // the dither integrates over ~6 frames into smooth gradients. Toggle via volScatterParams.y.
     float sliceW = ViewZToAtlasSlice(viewZ);
+    if (ubo.volScatterParams.y != 0.0)
+    {
+        float dither = texture(blueNoise, gl_FragCoord.xy / 64.0).r;
+        sliceW += (dither - 0.5) * (1.0 / float(textureSize(volInScatter, 0).z));
+        sliceW  = clamp(sliceW, 0.0, 1.0);
+    }
     vec4 volS = texture(volInScatter, vec3(v_TexCoord, sliceW));
     vec3  volScatter  = volS.rgb;
     float volTransmit = volS.a;

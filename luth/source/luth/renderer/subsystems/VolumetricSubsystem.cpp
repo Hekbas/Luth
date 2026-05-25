@@ -247,29 +247,30 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D). All FRAGMENT.
-        // b1 parity-rewrites each frame to sample whichever atlas integrate wrote to — UAB needed.
+        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D), b2 blueNoise.
+        // All FRAGMENT. b1 parity-rewrites each frame to sample whichever atlas integrate wrote to —
+        // UAB needed. b2 is stable per-view (blue noise texture never changes after bake).
         // Descriptor set is cycled per MAX_FRAMES_IN_FLIGHT to keep rewrites disjoint from
         // in-flight prior frame's reads.
         {
-            VkDescriptorSetLayoutBinding bindings[2]{};
-            for (u32 i = 0; i < 2; ++i)
+            VkDescriptorSetLayoutBinding bindings[3]{};
+            for (u32 i = 0; i < 3; ++i)
             {
                 bindings[i].binding         = i;
                 bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
             }
-            VkDescriptorBindingFlags bindingFlags[2] = { 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+            VkDescriptorBindingFlags bindingFlags[3] = { 0, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0 };
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bindingFlagsCI.bindingCount  = 2;
+            bindingFlagsCI.bindingCount  = 3;
             bindingFlagsCI.pBindingFlags = bindingFlags;
 
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.pNext        = &bindingFlagsCI;
             layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-            layoutCI.bindingCount = 2;
+            layoutCI.bindingCount = 3;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_CompositeDescLayout);
 
@@ -460,6 +461,118 @@ namespace Luth
             vkDestroyDescriptorPool(device, bakePool, nullptr);
             vkDestroyDescriptorSetLayout(device, bakeLayout, nullptr);
         }
+
+        // 2D blue-noise-like dither bake. Roberts R2 quasi-random sequence; sampled by the volumetric
+        // composite to jitter the per-fragment atlas slice (sliceW) by ±0.5 slices — TAA integrates
+        // the dither over ~6 frames into a smooth gradient, eliminating residual Wronski log-slice
+        // Z-banding. NEAREST + REPEAT sampler — bilinear filtering destroys the spectral properties.
+        {
+            constexpr u32 k_BlueNoiseDim = 64;
+            m_BlueNoise2D = std::make_shared<VKTexture>(
+                k_BlueNoiseDim, k_BlueNoiseDim, TextureFormat::R8,
+                /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+                VK_IMAGE_USAGE_STORAGE_BIT);
+
+            VkSamplerCreateInfo bsCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+            bsCI.magFilter    = VK_FILTER_NEAREST;
+            bsCI.minFilter    = VK_FILTER_NEAREST;
+            bsCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            bsCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            bsCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            bsCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(device, &bsCI, nullptr, &m_BlueNoiseSampler);
+
+            std::vector<u32> bakeSpv;
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/blue_noise_bake.comp"))
+                bakeSpv = sh->GetSpirV();
+            if (bakeSpv.empty())
+            {
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load blue_noise_bake.comp!");
+                return;
+            }
+
+            VkDescriptorSetLayoutBinding binding{};
+            binding.binding         = 0;
+            binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            binding.descriptorCount = 1;
+            binding.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+            VkDescriptorSetLayoutCreateInfo bakeLayoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            bakeLayoutCI.bindingCount = 1;
+            bakeLayoutCI.pBindings    = &binding;
+            VkDescriptorSetLayout bakeLayout = VK_NULL_HANDLE;
+            vkCreateDescriptorSetLayout(device, &bakeLayoutCI, nullptr, &bakeLayout);
+
+            VkDescriptorPoolSize bakePoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 };
+            VkDescriptorPoolCreateInfo bakePoolCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            bakePoolCI.maxSets       = 1;
+            bakePoolCI.poolSizeCount = 1;
+            bakePoolCI.pPoolSizes    = &bakePoolSize;
+            VkDescriptorPool bakePool = VK_NULL_HANDLE;
+            vkCreateDescriptorPool(device, &bakePoolCI, nullptr, &bakePool);
+
+            VkDescriptorSet bakeSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo bakeAI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            bakeAI.descriptorPool     = bakePool;
+            bakeAI.descriptorSetCount = 1;
+            bakeAI.pSetLayouts        = &bakeLayout;
+            vkAllocateDescriptorSets(device, &bakeAI, &bakeSet);
+
+            VkPushConstantRange bakePC{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(u32) };
+            auto bakePipeline = std::make_unique<VKComputePipeline>(
+                bakeSpv,
+                std::vector<VkDescriptorSetLayout>{ bakeLayout },
+                std::vector<VkPushConstantRange>{ bakePC });
+
+            auto vkBlue = std::static_pointer_cast<VKTexture>(m_BlueNoise2D);
+            VkDescriptorImageInfo blueStoreInfo{};
+            blueStoreInfo.imageView   = vkBlue->GetImageView();
+            blueStoreInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            VkWriteDescriptorSet bakeWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            bakeWrite.dstSet          = bakeSet;
+            bakeWrite.dstBinding      = 0;
+            bakeWrite.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bakeWrite.descriptorCount = 1;
+            bakeWrite.pImageInfo      = &blueStoreInfo;
+            vkUpdateDescriptorSets(device, 1, &bakeWrite, 0, nullptr);
+
+            VkImage blueImg = vkBlue->GetImage();
+            VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
+            {
+                VkImageMemoryBarrier toGen{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                toGen.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                toGen.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+                toGen.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen.image               = blueImg;
+                toGen.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toGen.srcAccessMask       = 0;
+                toGen.dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &toGen);
+
+                bakePipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    bakePipeline->GetLayout(), 0, 1, &bakeSet, 0, nullptr);
+                u32 dim = k_BlueNoiseDim;
+                vkCmdPushConstants(cmd, bakePipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(u32), &dim);
+                const u32 groups = (k_BlueNoiseDim + 7) / 8;
+                vkCmdDispatch(cmd, groups, groups, 1);
+
+                VkImageMemoryBarrier toShader = toGen;
+                toShader.oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+                toShader.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                toShader.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &toShader);
+            });
+
+            bakePipeline.reset();
+            vkDestroyDescriptorPool(device, bakePool, nullptr);
+            vkDestroyDescriptorSetLayout(device, bakeLayout, nullptr);
+        }
     }
 
     void VolumetricSubsystem::Shutdown()
@@ -479,7 +592,9 @@ namespace Luth
         if (m_VizDescLayout)           vkDestroyDescriptorSetLayout(device, m_VizDescLayout, nullptr);
         if (m_Sampler)                 vkDestroySampler(device, m_Sampler, nullptr);
         if (m_NoiseSampler)            vkDestroySampler(device, m_NoiseSampler, nullptr);
+        if (m_BlueNoiseSampler)        vkDestroySampler(device, m_BlueNoiseSampler, nullptr);
         m_NoiseTexture.reset();
+        m_BlueNoise2D.reset();
         m_InjectDensityDescLayout = VK_NULL_HANDLE;
         m_InjectScatterDescLayout = VK_NULL_HANDLE;
         m_IntegrateDescLayout     = VK_NULL_HANDLE;
@@ -488,6 +603,7 @@ namespace Luth
         m_VizDescLayout           = VK_NULL_HANDLE;
         m_Sampler                 = VK_NULL_HANDLE;
         m_NoiseSampler            = VK_NULL_HANDLE;
+        m_BlueNoiseSampler        = VK_NULL_HANDLE;
     }
 
     bool VolumetricSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -908,8 +1024,8 @@ namespace Luth
 
     void VolumetricSubsystem::WriteCompositeView(ViewResources& vr, FrameTargets& targets)
     {
-        // Only b0 (sceneDepth sampler) is stable — b1 (in-scatter sampler) rewrites each frame
-        // in WriteCompositePerFrame to follow integrate's ping-pong parity.
+        // b0 (sceneDepth) + b2 (blueNoise) are stable per-view. b1 (in-scatter sampler) rewrites
+        // each frame in WriteCompositePerFrame to follow integrate's ping-pong parity.
         if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
 
         auto sceneDepthTex = targets.GetSceneDepth();
@@ -923,7 +1039,18 @@ namespace Luth
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         depthInfo.sampler     = m_Sampler;
 
-        VkWriteDescriptorSet writes[MAX_FRAMES_IN_FLIGHT]{};
+        // Blue noise: NEAREST + REPEAT — preserves spectral high-frequency content. Required for
+        // the dither to integrate cleanly under TAA. Bilinear would smear it into junk gradients.
+        VkDescriptorImageInfo blueInfo{};
+        const bool haveBlue = (m_BlueNoise2D && m_BlueNoiseSampler);
+        if (haveBlue)
+        {
+            blueInfo.imageView   = std::static_pointer_cast<VKTexture>(m_BlueNoise2D)->GetImageView();
+            blueInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            blueInfo.sampler     = m_BlueNoiseSampler;
+        }
+
+        VkWriteDescriptorSet writes[2 * MAX_FRAMES_IN_FLIGHT]{};
         u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -936,6 +1063,16 @@ namespace Luth
             writes[w].descriptorCount = 1;
             writes[w].pImageInfo      = &depthInfo;
             ++w;
+            if (haveBlue)
+            {
+                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[w].dstSet          = set;
+                writes[w].dstBinding      = 2;
+                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[w].descriptorCount = 1;
+                writes[w].pImageInfo      = &blueInfo;
+                ++w;
+            }
         }
         vkUpdateDescriptorSets(device, w, writes, 0, nullptr);
     }

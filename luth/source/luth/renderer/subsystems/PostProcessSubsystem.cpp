@@ -18,6 +18,19 @@
 
 namespace Luth
 {
+    // Mirrors the GLSL push_constant block in taa_resolve.frag. The vec2 forces 8-byte
+    // alignment so the leading float needs a 4-byte pad. jitterDeltaUv carries
+    // (currentJitter − prevJitter) / viewport — the resolve adds it to the per-pixel
+    // motion so static scenes resolve to motion = 0 (production-engine convention).
+    struct TaaResolvePushConstants
+    {
+        f32  temporalAlpha;
+        f32  pad;
+        Vec2 jitterDeltaUv;
+    };
+    static_assert(sizeof(TaaResolvePushConstants) == 16,
+                  "TaaResolvePushConstants must match taa_resolve.frag's push_constant block");
+
     void PostProcessSubsystem::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;
@@ -93,6 +106,42 @@ namespace Luth
         slimLayoutInfo.pBindings    = slimBindings;
         vkCreateDescriptorSetLayout(device, &slimLayoutInfo, nullptr, &m_SlimVizDescSetLayout);
 
+        // TAA Resolve descriptor set layout (Karis14 YCoCg-clip recipe).
+        //   0 = sceneColor (sampler2D, current HDR after volumetric composite)
+        //   1 = motion vectors (sampler2D, RG16F NDC delta from SlimGBufferPass)
+        //   2 = history-prev (sampler2D, cycled UAB — parity-picked taaHistoryA/B each frame)
+        //   3 = sceneDepth (sampler2D, for closest-depth velocity dilation in resolve)
+        //   4 = PP UBO (shared with bloom/composite sets — rewritten per render-stage)
+        // All bindings UAB so binding 2's per-frame parity-rewrite is race-safe.
+        VkDescriptorSetLayoutBinding taaBindings[5] = {};
+        for (u32 i = 0; i < 4; ++i)
+        {
+            taaBindings[i].binding         = i;
+            taaBindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            taaBindings[i].descriptorCount = 1;
+            taaBindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        taaBindings[4].binding         = 4;
+        taaBindings[4].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        taaBindings[4].descriptorCount = 1;
+        taaBindings[4].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorBindingFlags taaFlags[5] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo taaFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        taaFlagsCI.bindingCount  = 5;
+        taaFlagsCI.pBindingFlags = taaFlags;
+        VkDescriptorSetLayoutCreateInfo taaLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        taaLayoutInfo.pNext        = &taaFlagsCI;
+        taaLayoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        taaLayoutInfo.bindingCount = 5;
+        taaLayoutInfo.pBindings    = taaBindings;
+        vkCreateDescriptorSetLayout(device, &taaLayoutInfo, nullptr, &m_TaaResolveDescSetLayout);
+
         auto loadSpv = [](const char* relPath) -> std::vector<u32> {
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
@@ -102,10 +151,11 @@ namespace Luth
         m_BloomBlurFragSpv    = loadSpv("shaders/bloomBlur.frag");
         m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
         m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.frag");
+        m_TaaResolveFragSpv   = loadSpv("shaders/taa_resolve.frag");
 
         if (m_FullscreenVertSpv.empty() || m_BloomExtractFragSpv.empty() ||
             m_BloomBlurFragSpv.empty() || m_PostProcessFragSpv.empty() ||
-            m_SlimVizFragSpv.empty())
+            m_SlimVizFragSpv.empty() || m_TaaResolveFragSpv.empty())
         {
             LH_CORE_ERROR("PostProcessSubsystem: shader SPIR-V empty after asset load!");
             return;
@@ -171,19 +221,38 @@ namespace Luth
             m_SlimVizPipeline = std::make_unique<VKPipeline>(
                 cfg, m_FullscreenVertSpv, m_SlimVizFragSpv, slimLayouts);
         }
+
+        // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
+        // temporalAlpha + jitterDeltaUv. No depth, no blend — opaque write.
+        if (!m_TaaResolveFragSpv.empty())
+        {
+            std::vector<VkDescriptorSetLayout> taaLayouts = { m_TaaResolveDescSetLayout };
+            VkPushConstantRange taaPC{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TaaResolvePushConstants) };
+            PipelineConfig cfg;
+            cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            cfg.depthFormat  = VK_FORMAT_UNDEFINED;
+            cfg.depthTest    = false; cfg.depthWrite = false;
+            cfg.blendEnabled = false;
+            cfg.cullMode     = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { taaPC };
+            m_TaaResolvePipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_TaaResolveFragSpv, taaLayouts);
+        }
     }
 
     void PostProcessSubsystem::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
+        m_TaaResolvePipeline.reset();
         m_SlimVizPipeline.reset();
         m_PostProcessPipeline.reset();
         m_BloomBlurPipeline.reset();
         m_BloomExtractPipeline.reset();
         if (m_Sampler)              { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
         if (m_NearestSampler)       { vkDestroySampler(device, m_NearestSampler, nullptr); m_NearestSampler = VK_NULL_HANDLE; }
-        if (m_DescSetLayout)        { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
-        if (m_SlimVizDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
+        if (m_DescSetLayout)           { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
+        if (m_SlimVizDescSetLayout)    { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
+        if (m_TaaResolveDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_TaaResolveDescSetLayout, nullptr); m_TaaResolveDescSetLayout = VK_NULL_HANDLE; }
     }
 
     bool PostProcessSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -198,12 +267,14 @@ namespace Luth
         else if (name == "bloomBlur.frag")     m_BloomBlurFragSpv    = spv;
         else if (name == "postprocess.frag")   m_PostProcessFragSpv  = spv;
         else if (name == "slim_viz.frag")      m_SlimVizFragSpv      = spv;
+        else if (name == "taa_resolve.frag")   m_TaaResolveFragSpv   = spv;
         else return false;
 
         deferGfx(m_BloomExtractPipeline);
         deferGfx(m_BloomBlurPipeline);
         deferGfx(m_PostProcessPipeline);
         deferGfx(m_SlimVizPipeline);
+        deferGfx(m_TaaResolvePipeline);
         BuildPipelines();
         // For fullscreen.vert, return false so the orchestrator also rebuilds Outline + Grid
         // (they share the same vertex shader). PostProcess pipelines are already rebuilt above.
@@ -665,5 +736,208 @@ namespace Luth
             }
         );
         return outputHandle;
+    }
+
+    void PostProcessSubsystem::WriteTaaResolveView(ViewResources& vr, FrameTargets& targets)
+    {
+        // Bindings 0/1/3 are stable per-view-resize — write once across all cycled slots.
+        // Binding 2 (history-prev sampler) cycles per-frame in WriteTaaResolvePerFrame.
+        // Binding 4 (UBO) is declared in the layout but unused by the current shader.
+        if (vr.taaResolveDescSet[0] == VK_NULL_HANDLE) return;
+
+        auto sceneTex  = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
+        auto motionTex = std::static_pointer_cast<VKTexture>(targets.GetSlimMotion());
+        auto depthTex  = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
+        if (!sceneTex || !motionTex || !depthTex) return;
+
+        auto makeImg = [&](VkImageView v) {
+            VkDescriptorImageInfo info{};
+            info.sampler     = m_Sampler;
+            info.imageView   = v;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            return info;
+        };
+        VkDescriptorImageInfo sceneInfo  = makeImg(sceneTex->GetImageView());
+        VkDescriptorImageInfo motionInfo = makeImg(motionTex->GetImageView());
+        // Depth: aspect is DEPTH only; layout is DEPTH_STENCIL_READ_ONLY_OPTIMAL once the prepass
+        // completes. SHADER_READ_ONLY_OPTIMAL works as well because the RG will transition into
+        // a read-compatible state when the pass declares the depth Read.
+        VkDescriptorImageInfo depthInfo  = makeImg(depthTex->GetImageView());
+
+        VkWriteDescriptorSet writes[3 * MAX_FRAMES_IN_FLIGHT] = {};
+        u32 idx = 0;
+        auto addImg = [&](VkDescriptorSet set, u32 binding, VkDescriptorImageInfo* info) {
+            writes[idx] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[idx].dstSet          = set;
+            writes[idx].dstBinding      = binding;
+            writes[idx].descriptorCount = 1;
+            writes[idx].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[idx].pImageInfo      = info;
+            ++idx;
+        };
+        for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)
+        {
+            addImg(vr.taaResolveDescSet[s], 0, &sceneInfo);
+            addImg(vr.taaResolveDescSet[s], 1, &motionInfo);
+            addImg(vr.taaResolveDescSet[s], 3, &depthInfo);
+        }
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), idx, writes, 0, nullptr);
+    }
+
+    void PostProcessSubsystem::UpdateBloomCompositeInput(ViewResources& vr, FrameTargets& targets, u32 frameAbs)
+    {
+        const u32 slot = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        if (vr.bloomExtractDescSet[slot] == VK_NULL_HANDLE || vr.compositeDescSet[slot] == VK_NULL_HANDLE)
+            return;
+
+        const auto& pps  = m_Pipeline->GetSystem().GetPostProcessSettings();
+        const bool taaOn = pps.taaEnabled && vr.taaHistoryA && vr.taaHistoryB;
+
+        VkImageView srcView = VK_NULL_HANDLE;
+        if (taaOn)
+        {
+            // Parity rule matches AddTaaResolvePass — parity=0 writes taaHistoryA, =1 writes B.
+            // Bloom + grid + composite all read the same VkImage; RG inserts barriers so bloom
+            // sees the pre-grid version and composite sees the post-grid version.
+            const bool parity = (frameAbs & 1u) != 0u;
+            auto historyCurr = parity ? vr.taaHistoryB : vr.taaHistoryA;
+            srcView = std::static_pointer_cast<VKTexture>(historyCurr)->GetImageView();
+        }
+        else
+        {
+            auto sceneTex = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
+            if (!sceneTex) return;
+            srcView = sceneTex->GetImageView();
+        }
+
+        VkDescriptorImageInfo info{};
+        info.sampler     = m_Sampler;
+        info.imageView   = srcView;
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = vr.bloomExtractDescSet[slot];
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].pImageInfo      = &info;
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = vr.compositeDescSet[slot];
+        writes[1].dstBinding      = 0;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo      = &info;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
+    }
+
+    void PostProcessSubsystem::WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs)
+    {
+        // Binding 2 = history-prev sampler. Parity-pick: even frame reads HistA + writes HistB;
+        // odd frame reads HistB + writes HistA. The write target is bound as a color attachment
+        // via the RG (not in this descriptor set), so we only rebind the READ side here.
+        if (!vr.taaHistoryA || !vr.taaHistoryB) return;
+        const u32 slot = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        if (vr.taaResolveDescSet[slot] == VK_NULL_HANDLE) return;
+
+        const bool parity = (frameAbs & 1u) != 0u;
+        auto vkPrev = std::static_pointer_cast<VKTexture>(parity ? vr.taaHistoryA : vr.taaHistoryB);
+
+        VkDescriptorImageInfo prevInfo{};
+        prevInfo.sampler     = m_Sampler;
+        prevInfo.imageView   = vkPrev->GetImageView();
+        prevInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = vr.taaResolveDescSet[slot];
+        write.dstBinding      = 2;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo      = &prevInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
+    RG::ResourceHandle PostProcessSubsystem::AddTaaResolvePass(
+        RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
+        RG::ResourceHandle motion, RG::ResourceHandle sceneDepth)
+    {
+        ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+        if (!m_TaaResolvePipeline || !vr || !vr->taaHistoryA || !vr->taaHistoryB)
+            return sceneColor;
+
+        const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
+        const bool parity  = (frameAbs & 1u) != 0u;
+        // Output target: opposite of what WriteTaaResolvePerFrame picked as "prev".
+        auto historyCurrTex = parity ? vr->taaHistoryB : vr->taaHistoryA;
+        auto historyCurrVk  = std::static_pointer_cast<VKTexture>(historyCurrTex);
+        const u32 w = historyCurrTex->GetWidth();
+        const u32 h = historyCurrTex->GetHeight();
+
+        struct TaaResolvePassData {
+            RG::ResourceHandle output;
+            RG::ResourceHandle current;
+            RG::ResourceHandle motion;
+            RG::ResourceHandle depth;
+        };
+        RG::ResourceHandle outHandle;
+
+        rg.AddPass<TaaResolvePassData>("TaaResolve",
+            [&, sceneColor, motion, sceneDepth, historyCurrVk, w, h](TaaResolvePassData& data, RG::RenderPassBuilder& builder)
+            {
+                RG::TextureDesc desc;
+                desc.name   = "TaaCurrent";
+                desc.width  = w;
+                desc.height = h;
+                desc.format = RG::TextureFormat::RGBA16_Float;
+
+                data.output = rg.ImportResource(desc,
+                    (void*)historyCurrVk->GetImage(), (void*)historyCurrVk->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.output  = builder.Write(data.output, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                                             VK_ATTACHMENT_STORE_OP_STORE);
+                data.current = builder.Read(sceneColor);
+                data.motion  = builder.Read(motion);
+                data.depth   = builder.Read(sceneDepth);
+                outHandle    = data.output;
+            },
+            [this, w, h](TaaResolvePassData& data, RG::RenderPassContext& ctx)
+            {
+                auto& sys = m_Pipeline->GetSystem();
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+
+                sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "TaaResolve", "TaaCurrent", false,
+                    { "taa_resolve", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                m_TaaResolvePipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
+
+                // De-jitter the per-pixel motion at resolve time. jitterDeltaUv adds
+                // (currentJitter − prevJitter)/viewport in UV units; the shader applies it as
+                // motion += jitterDeltaUv so static scenes net to zero motion and the bilinear
+                // history sample lands on an integer texel instead of cycling sub-pixel offsets.
+                TaaResolvePushConstants pc{};
+                pc.temporalAlpha   = sys.GetPostProcessSettings().taaTemporalAlpha;
+                pc.jitterDeltaUv.x = (vr->currentJitter.x - vr->prevJitter.x) / static_cast<f32>(w);
+                pc.jitterDeltaUv.y = (vr->currentJitter.y - vr->prevJitter.y) / static_cast<f32>(h);
+                vkCmdPushConstants(cmd, m_TaaResolvePipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+                VkViewport vp{}; vp.width = (float)w; vp.height = (float)h; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { w, h };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+
+                ObjectPushConstants dummyPC{};
+                sys.GetFrameDebugger().CaptureDrawCall("TaaResolve", "FullscreenTriangle", "TaaResolve", 0, 0, dummyPC,
+                    { "taa_resolve", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, false });
+                sys.GetFrameDebugger().EndCapturePass();
+            }
+        );
+        return outHandle;
     }
 }
