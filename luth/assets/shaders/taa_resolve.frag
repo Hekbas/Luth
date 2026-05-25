@@ -41,7 +41,11 @@ void main()
         float d   = texture(sceneDepth, sUv).r;
         if (d < minDepth) { minDepth = d; closestUv = sUv; }
     }
-    vec2 motion = texture(motionVectors, closestUv).rg;
+    // Slim G-buffer stores motion as NDC delta (currNDC - prevNDC, range +/- 2). Convert to UV
+    // delta by * 0.5 for history reprojection per the documented Karis14 convention in
+    // slim_gbuffer.frag. Without this, motion is 2x oversized and history samples land at the
+    // wrong pixel every frame -> no temporal integration, raw jitter visible at the output.
+    vec2 motion = texture(motionVectors, closestUv).rg * 0.5;
     vec2 prevUv = v_TexCoord - motion;
 
     // 2. Sample 3×3 current neighborhood in YCoCg + accumulate Blackman-Harris reconstructed
