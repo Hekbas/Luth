@@ -93,6 +93,42 @@ namespace Luth
         slimLayoutInfo.pBindings    = slimBindings;
         vkCreateDescriptorSetLayout(device, &slimLayoutInfo, nullptr, &m_SlimVizDescSetLayout);
 
+        // TAA Resolve descriptor set layout (Karis14 YCoCg-clip recipe).
+        //   0 = sceneColor (sampler2D, current HDR after volumetric composite)
+        //   1 = motion vectors (sampler2D, RG16F NDC delta from SlimGBufferPass)
+        //   2 = history-prev (sampler2D, cycled UAB — parity-picked taaHistoryA/B each frame)
+        //   3 = sceneDepth (sampler2D, for closest-depth velocity dilation in resolve)
+        //   4 = PP UBO (shared with bloom/composite sets — rewritten per render-stage)
+        // All bindings UAB so binding 2's per-frame parity-rewrite is race-safe.
+        VkDescriptorSetLayoutBinding taaBindings[5] = {};
+        for (u32 i = 0; i < 4; ++i)
+        {
+            taaBindings[i].binding         = i;
+            taaBindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            taaBindings[i].descriptorCount = 1;
+            taaBindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        taaBindings[4].binding         = 4;
+        taaBindings[4].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        taaBindings[4].descriptorCount = 1;
+        taaBindings[4].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorBindingFlags taaFlags[5] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo taaFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        taaFlagsCI.bindingCount  = 5;
+        taaFlagsCI.pBindingFlags = taaFlags;
+        VkDescriptorSetLayoutCreateInfo taaLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        taaLayoutInfo.pNext        = &taaFlagsCI;
+        taaLayoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        taaLayoutInfo.bindingCount = 5;
+        taaLayoutInfo.pBindings    = taaBindings;
+        vkCreateDescriptorSetLayout(device, &taaLayoutInfo, nullptr, &m_TaaResolveDescSetLayout);
+
         auto loadSpv = [](const char* relPath) -> std::vector<u32> {
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
@@ -182,8 +218,9 @@ namespace Luth
         m_BloomExtractPipeline.reset();
         if (m_Sampler)              { vkDestroySampler(device, m_Sampler, nullptr); m_Sampler = VK_NULL_HANDLE; }
         if (m_NearestSampler)       { vkDestroySampler(device, m_NearestSampler, nullptr); m_NearestSampler = VK_NULL_HANDLE; }
-        if (m_DescSetLayout)        { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
-        if (m_SlimVizDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
+        if (m_DescSetLayout)           { vkDestroyDescriptorSetLayout(device, m_DescSetLayout, nullptr); m_DescSetLayout = VK_NULL_HANDLE; }
+        if (m_SlimVizDescSetLayout)    { vkDestroyDescriptorSetLayout(device, m_SlimVizDescSetLayout, nullptr); m_SlimVizDescSetLayout = VK_NULL_HANDLE; }
+        if (m_TaaResolveDescSetLayout) { vkDestroyDescriptorSetLayout(device, m_TaaResolveDescSetLayout, nullptr); m_TaaResolveDescSetLayout = VK_NULL_HANDLE; }
     }
 
     bool PostProcessSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)

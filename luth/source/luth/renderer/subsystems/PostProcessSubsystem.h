@@ -42,8 +42,9 @@ namespace Luth
         RG::ResourceHandle AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
                                           const SlimGBufferOutput& slimGB, u32 mode, float scale);
 
-        VkDescriptorSetLayout GetDescSetLayout()        const { return m_DescSetLayout; }
-        VkDescriptorSetLayout GetSlimVizDescSetLayout() const { return m_SlimVizDescSetLayout; }
+        VkDescriptorSetLayout GetDescSetLayout()           const { return m_DescSetLayout; }
+        VkDescriptorSetLayout GetSlimVizDescSetLayout()    const { return m_SlimVizDescSetLayout; }
+        VkDescriptorSetLayout GetTaaResolveDescSetLayout() const { return m_TaaResolveDescSetLayout; }
         const std::vector<u32>& GetFullscreenVertSpv() const { return m_FullscreenVertSpv; }
 
     private:
@@ -51,10 +52,11 @@ namespace Luth
 
         RenderPipeline* m_Pipeline = nullptr;
 
-        VkSampler             m_Sampler              = VK_NULL_HANDLE;
-        VkSampler             m_NearestSampler       = VK_NULL_HANDLE; // for integer slim matID binding
-        VkDescriptorSetLayout m_DescSetLayout        = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_SlimVizDescSetLayout = VK_NULL_HANDLE;
+        VkSampler             m_Sampler                 = VK_NULL_HANDLE;
+        VkSampler             m_NearestSampler          = VK_NULL_HANDLE; // for integer slim matID binding
+        VkDescriptorSetLayout m_DescSetLayout           = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_SlimVizDescSetLayout    = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_TaaResolveDescSetLayout = VK_NULL_HANDLE;
 
         std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
         std::unique_ptr<VKPipeline> m_BloomBlurPipeline;

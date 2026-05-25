@@ -17,15 +17,15 @@
 
 namespace Luth
 {
-    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity was 48
-    // (50 needed) after the volumetric resolve set + viz set landed — silent vkAllocateDescriptorSets
-    // failure on the last cycled set produced VK_NULL_HANDLE handles and skipped the viz draw.
-    // Bumped generously to absorb the next subsystem addition without revisiting these constants.
-    static constexpr u32 k_ViewPoolMaxSets              = 64;
-    static constexpr u32 k_ViewPoolUniformBufferCount   = 32;
+    // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
+    // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
+    // VK_NULL_HANDLE handles and skips the draw with no log (volumetric viz v3.0.6 lesson).
+    // Bump generously; pool memory is cheap.
+    static constexpr u32 k_ViewPoolMaxSets              = 96;
+    static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 96;
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 128;
 
     namespace {
         // Build the per-view Set 0 write context from RP-side state. invariant:
@@ -75,7 +75,7 @@ namespace Luth
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
-            RecreateViewTextures(vr, halfW, halfH);
+            RecreateViewTextures(vr, newW, newH, halfW, halfH);
             m_PostProcess.WriteView(vr, targets);
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
@@ -150,9 +150,11 @@ namespace Luth
         // Set 0 UBO bindings (0 + 5) and Grid set binding 0 are written per render-stage
         // by UpdateGlobalUniforms / UpdateGTAOUBO; nothing to allocate up front.
 
-        const u32 halfW = std::max(targets.GetSceneColor()->GetWidth()  / 2, 1u);
-        const u32 halfH = std::max(targets.GetSceneColor()->GetHeight() / 2, 1u);
-        RecreateViewTextures(vr, halfW, halfH);
+        const u32 fullW = targets.GetSceneColor()->GetWidth();
+        const u32 fullH = targets.GetSceneColor()->GetHeight();
+        const u32 halfW = std::max(fullW / 2, 1u);
+        const u32 halfH = std::max(fullH / 2, 1u);
+        RecreateViewTextures(vr, fullW, fullH, halfW, halfH);
 
         auto allocSingle = [&](VkDescriptorSetLayout layout, VkDescriptorSet& outSet, const char* tag) {
             if (layout == VK_NULL_HANDLE) return;
@@ -209,6 +211,7 @@ namespace Luth
         allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
+        allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
 
         m_PostProcess.WriteView(vr, targets);
         m_GTAO.WriteView(vr, targets);
@@ -226,10 +229,17 @@ namespace Luth
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
 
-    void RenderPipeline::RecreateViewTextures(ViewResources& vr, u32 halfW, u32 halfH)
+    void RenderPipeline::RecreateViewTextures(ViewResources& vr, u32 fullW, u32 fullH, u32 halfW, u32 halfH)
     {
         vr.bloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
         vr.bloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
+
+        // TAA history (Karis14 YCoCg-clip recipe) — viewport-sized RGBA16F HDR. Persistent across
+        // frames; ping-pong via frameAbs parity. SAMPLED for the resolve's history read; COLOR
+        // attachment for the resolve's write. Frame 0 settles via off-screen UV rejection in
+        // the resolve shader (motion vectors land outside [0,1] when prevViewProj is identity).
+        vr.taaHistoryA = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
+        vr.taaHistoryB = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -319,6 +329,8 @@ namespace Luth
         vr.volInScatter.reset();
         vr.volInScatterHistA.reset();
         vr.volInScatterHistB.reset();
+        vr.taaHistoryA.reset();
+        vr.taaHistoryB.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

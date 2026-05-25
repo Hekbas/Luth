@@ -42,6 +42,11 @@ namespace Luth
         bool  specularAaEnabled = true;
         float specularAaSigma   = 0.5f;
 
+        // Temporal antialiasing (Karis 2014 YCoCg-clip recipe). taaTemporalAlpha is the
+        // current-frame feedback weight (0.1 = 90% history, Karis default).
+        bool  taaEnabled       = true;
+        float taaTemporalAlpha = 0.1f;
+
         // Ambient occlusion (GTAO)
         GTAOSettings gtao;
     };
