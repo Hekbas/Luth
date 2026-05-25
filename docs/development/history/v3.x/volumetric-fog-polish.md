@@ -1,9 +1,9 @@
 # volumetric-fog-polish
 
-**Date:** 2026-05-24
-**Commits:** 14 + wrap-up
+**Date:** 2026-05-24 (v3.0.5) · 2026-05-25 (v3.0.6 follow-up)
+**Commits:** 14 (v3.0.5) + 3 post-release fixes + 3 (v3.0.6 follow-up) + wrap-up
 **Issue:** [#132](https://github.com/Hekbas/Luth/issues/132)
-**Series:** `rt-renderer` Mode A series-coalesced — `Version.h` PATCH bump to `v3.0.5`, tag-only, no Release.
+**Series:** `rt-renderer` Mode A series-coalesced — `Version.h` PATCH bumps `v3.0.5` then `v3.0.6`, tag-only, no Release.
 
 ---
 
@@ -36,7 +36,28 @@ Memory: +14 MB per view (one extra in-scatter atlas for the resolve ping-pong: `
 | UI-expansion | **Comprehensive RenderPanel UI.** All 11+ VolumetricSettings fields exposed: Quality combo, Anisotropy, Multi-Scatter, Sky Fog Strength, Sun Absorption Steps, Temporal Blend, Distance Fog (color/density/start/maxOpacity), Height Fog (color/density/refHeight/falloff), Viz density/inScatter scales + opacity. Viz pass push constants now read scales/opacity from VolumetricSettings (no hardcoded magic). `volumetric_viz.frag` log10-encodes in-scatter mode for diagnostic-useful HDR display. | `3d77df5` |
 | FogVolume gizmos | **Viewport wireframe gizmos for FogVolume entities.** `DrawFogVolumeGizmos` iterates ECS `(FogVolume, WorldTransform)` views; emits box (12 edges) or sphere (3 great circles × 24 segments) via `Luth::DebugDraw::Line`. Called from `RenderingSystem::Update`. | `dfd0db9` |
 | Tooltips | **Hover tooltips on the key fog UI fields.** Quality, Anisotropy, Multi-Scatter, Sky Fog Strength, Sun Absorption Steps, Temporal Blend each show a one-line `ImGui::SetTooltip` on hover with recommended-range guidance. | `fefc5b2` |
-| Wrap-up | **History + version bump + merge.** This document. `Version.h` 3.0.4 → 3.0.5. `--no-ff` merge into `main` + `v3.0.5` tag. | this commit |
+| Wrap-up (v3.0.5) | **History + version bump.** This document up through this row. `Version.h` 3.0.4 → 3.0.5. | `bffe71b` |
+| Post-release fix | **Smoke-time shader compile errors.** Resolve shader's `volScratch` binding name + integrate's missing `texelFetch` arg surfaced on first scene load. | `2fe9894` |
+| Post-release fix | **cluster_build + light_assign SLICES_Z 24 → 48.** Cluster grid count mismatch with the bumped k_ClusterSlicesZ — compute passes still allocated for 24 slices. | `d8023f7` |
+| Post-release fix | **viz desc-pool overflow silently dropped viz descset.** Pool capacity (48) too small for the cycled viz set after C.1's UAB layout grew; `vkAllocateDescriptorSets` returned `VK_ERROR_OUT_OF_POOL_MEMORY` with no log. Bumped + added VkResult check. | `b975465` |
+| F.1 (v3.0.6) | **3D Worley-FBM density noise modulation.** New `volumetric_noise_bake.comp` (128³ RGBA8 baked once at Init). Inject samples per voxel, density `*= mix(1−s, 1+s, n)` to preserve mean. New `noiseScale` / `noiseStrength` / `noiseWind` settings + `volNoiseParams` + `volNoiseWind` UBO vec4s + RenderPanel sliders. | `3f8e5f6` |
+| F.2 (v3.0.6) | **Split inject into density + scatter passes.** Sun-ray absorption needs to READ density at neighbouring voxels — impossible in a single-dispatch compute, so inject becomes two passes with RG barrier between them. Density pass writes `vec4(density, tint.rgb)` to volDensity (tint packed into `.gba`). Scatter pass reads via sampler3D, runs CSM+HG+multi-scatter math, samples density atlas along the sun ray for proper density-aware absorption (replaces the broken uniform-density shortcut where `steps` cancelled out of the formula). C++ split: two layouts, two pipelines, four Write functions, two AddPass functions; ViewResources rename + new descset; RenderPipeline.cpp chain density→scatter→integrate. | `41e1871` |
+| F.3 (v3.0.6) | **Canonical inject/integrate contract + scatter intensity knob.** Spurious `× density` in inject_scatter dropped — integrate's `(1 − exp(−σ_t · dt))` already supplies the σ_t factor (canonical Wronski 2014 / Hillaire 2015). Pre-multiplying double-applied σ_t and dimmed fog by ~10× at density 0.1. CONTRACT comment in both shaders + new "Cross-pass numerical contracts" section in `arch/rendering-pipeline.md`. Plus `scatteringIntensity` post-canonical artistic multiplier (UE5/Frostbite-style knob, default 15.0) — lifts off-axis voxels into visible range against HG's natural forward bias. Default settings recalibrated for the canonical math (density 0.1, anisotropy 0.7, multiScatter 0.15, sunSteps 2, Quality High). | `9f1b31b` |
+| Wrap-up (v3.0.6) | **History + version bump + merge.** This row. `Version.h` 3.0.5 → 3.0.6. `--no-ff` merge into `main` + `v3.0.6` tag. | this commit |
+
+---
+
+## v3.0.6 follow-up — debug session findings
+
+The v3.0.5 wrap-up was premature: smoke testing after the chore(release) commit surfaced three regressions (the three post-release fixes above), and a deeper bug — fog rendered as **black opacity** in shadow regions even when god rays were visible from sun-aimed angles. A diagnostic-first session (handoff in `docs/development/handoff/volumetric-fog-debug.md`, untracked) walked through five hypotheses before finding the right one:
+
+1. **Sun-absorption ray-march was a no-op for any `steps > 0`.** `SunFogTransmittance` computed `stepLen = 0.5 × farZ / steps`; the loop accumulated `voxelDensity × stepLen` exactly `steps` times → `steps` cancelled, giving `exp(−0.5 × farZ × voxelDensity)` regardless of step count. With farZ ≈ 1000 and any density above ~0.01 the function returns ~0 → no sun reaches voxels → no in-scatter → black. Confirmed by toggling `sunFogAbsorptionSteps = 0`: god rays reappeared instantly. The `sample_pos` variable inside the loop was dead code — the original author intended to sample the density atlas along the ray (the Hillaire/Frostbite proper formulation) but never wired the read.
+
+2. **Single-pass inject can't sample density at other voxels.** Vulkan compute dispatches execute all workgroups concurrently with no cross-workgroup ordering. To sample density at a neighbour you need a barrier between density-write and density-read — i.e. two passes. F.2 is the architectural split that enables F.3's proper sun absorption.
+
+3. **Inject's `× density` was double-applying σ_t.** Once the split was in place and the obvious bugs gone, fog was *still* dim. Tracing the math: the radiative transfer per-slice contribution is `σ_s × J × (1 − exp(−σ_t · dt)) / σ_t`, which for `σ_s = σ_t × albedo` collapses to `albedo × J × (1 − exp(−σ_t · dt))`. The codebase had `albedo × J × σ_t` in inject AND `(1 − exp(−σ_t · dt))` in integrate, but no `/σ_t` to cancel one σ_t factor. The OLD pre-unified-fog code worked by coincidence because FogVolumes are typically authored at density ≈ 1.0 (where × 1 / 1 = no-op); the unified-fog refactor exposed the bug by routing distance fog (density 0.05–0.5) through the same path. Dropping the `× density` from inject_scatter restores the canonical Wronski/Hillaire formula. F.3.
+
+4. **HG phase + directional light leaves off-axis fog intrinsically dim.** Even with the math correct, HG `g = 0.7` gives ~75× brightness ratio between sun-axis and perpendicular voxels — physically correct, but visually leaves ambient fog near-black without an ambient lift. Multi-scatter + IBL is the principled solution; for scenes without IBL, the `scatteringIntensity` post-canonical multiplier (matches UE5's "ScatteringDistribution") lets users dial in visible ambient at the cost of energy conservation (default 15.0 chosen empirically). The CONTRACT comment explicitly notes this multiplier sits *outside* the physical formula.
 
 ---
 
@@ -134,16 +155,20 @@ The multi-scatter IBL term samples `irradianceMap` at world-up only — a cheap 
 
 ## Bugs caught during smoke testing
 
-Filled in after user smoke-test gate.
+- **Resolve + integrate shader compile errors** on first scene load (`2fe9894`).
+- **cluster_build / light_assign Z-slice count mismatch** after k_ClusterSlicesZ 24 → 48 (`d8023f7`).
+- **Viz desc-pool silently overflowed**, dropped viz descriptor set, fog disappeared from Lit while Vol Density viz still worked (`b975465`).
+- **Fog rendered black in shadow regions** — the multi-symptom bug that drove the v3.0.6 follow-up. Root cause: `× density` double-application in inject + dead-code sun-absorption ray-march. See the v3.0.6 follow-up section above.
 
 ---
 
 ## Build verification
 
-- Debug x64 builds clean across all 14 commits — only pre-existing warnings (LNK4006 dbghelp, C4996 sscanf/strncpy, C4244 chrono in Editor.cpp).
-- All 6 binary targets produced: `Luth.lib`, `Luthien.lib`, `Luthien.exe`, `LuthTests.exe`, `JobSysProof.exe`, engine externs.
-- Shader compilation deferred to runtime; smoke test will verify resolve shader compiles + temporal accumulation behaves correctly.
+- Debug x64 builds clean across the full 20-commit chain — only pre-existing warnings (LNK4006 dbghelp, C4996 sscanf/strncpy, C4244 chrono in Editor.cpp).
+- All 6 binary targets produced.
+- Shader hot-reload exercised for all three new variants (density / scatter / noise bake).
+- User smoke-test confirmed correct visual on Sponza with default v3.0.6 settings (anisotropy 0.7, density 0.1, scatteringIntensity 15, multiScatter 0.15, Quality High).
 
 ### Tagging
 
-After this commit merges to `main`: `git tag -a v3.0.5 -m "v3.0.5 — volumetric-fog-polish"` + `git push --follow-tags`. Mode A — tag-only, no GitHub Release.
+After this commit merges to `main`: `git tag -a v3.0.6 -m "v3.0.6 — volumetric-fog-polish"` + `git push --follow-tags`. Mode A — tag-only, no GitHub Release.
