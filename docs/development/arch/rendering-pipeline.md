@@ -49,17 +49,21 @@ GTAO: PrefilterPass → MainPass → DenoisePass (all on AsyncCompute, sequentia
   ↓
 CullComputePass (main scene) — populates per-draw indirect args
   ↓
-GeometryPass (PBR forward — opaque/cutout/transparent variants; reads prepass depth + AO + shadows + LightSSBO/ClusterGrid/LightIndex via per-view Set 3)
+GeometryPass (PBR forward — opaque/cutout/transparent variants; reads prepass depth + AO + shadows + LightSSBO/ClusterGrid/LightIndex via per-view Set 3; specular AA inline via dFdx(N)/dFdy(N) curvature variance)
   ↓
 SelectionMaskPass (entity-ID → mask for outline)
   ↓
 SkyboxPass (depth = 1.0 trick, HDR)
   ↓
-GridPass (optional, editor-only overlay)
+VolumetricCompositePass (alpha-blends fog into HDR sceneColor)
   ↓
-BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res)
+TaaResolvePass (Karis14 YCoCg-clip — reads HDR sceneColor + slim G-buffer motion + parity-picked taaHistoryPrev; writes parity-picked taaHistoryCurr. Output flows through grid + bloom + composite.)
   ↓
-PostProcessPass (tonemap + bloom compose + vignette + grain + CA → LDR)
+GridPass (optional, editor-only overlay — writes on TAA output in-place)
+  ↓
+BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res; reads TAA-resolved color so bloom blooms anti-aliased HDR)
+  ↓
+PostProcessPass (tonemap [ACES / Uncharted 2 / AgX / AgX Punchy] + bloom compose + vignette + grain + CA → LDR)
   ↓
 SlimVizPass / ClusterVizPass (conditional — gated by ShadeMode; SlimViz for Slim*, ClusterViz for ClustersDensity (cluster_viz.frag samples SceneDepth → 3D cluster ID → heat-map); blit over LDR)
   ↓
@@ -135,6 +139,7 @@ The arc layers new pass families onto the existing render graph; foundational sy
 - Slim G-buffer attachments (normal RG16F oct + roughness R8 + motion RG16F NDC + matID R16U) — feeds TAA + RT denoising (v3.0.1 — `slim-gbuffer`). `GlobalUniforms` + `prevViewProjection`, `GPUObjectData` + `prevModel` + `prevBoneOffset`, `BoneMatrixBuffer` dual-region for prev-frame bones. Per-view `prevViewProj` storage on `ViewResources` (not `GlobalSubsystem` — single global cross-contaminated under multi-view rendering)
 - Set 3 reshapes: fixed `LightUBO` → unbounded `Light SSBO` + `Cluster grid SSBO` + `Light index SSBO`, all from `GPUTaggedPageAllocator`
 - Volumetric voxel volume (compute storage image, frustum-aligned)
+- Image quality (v3.0.7 — `image-quality`): Halton(2,3) prefix-8 jitter on projection (per-view state on `ViewResources` matching the `prevViewProj` precedent — multi-view contamination hazard); per-view RGBA16F `taaHistoryA/B` ping-pong via `frameAbs` parity; `TaaResolvePass` runs HDR-domain between volumetric composite and bloom (Karis14 YCoCg-clip recipe lifted from playdead/temporal MIT); Tokuyoshi19 specular AA inline in `pbr.frag`; AgX tonemap operator gains two enum slots (`AgX`, `AgXPunchy`) — output contract is linear sRGB, tail gamma in `postprocess.frag` is load-bearing
 
 **Phase B — RT foundation**
 - New descriptor set for RT (TLAS binding + RT-output storage images + SBT)
