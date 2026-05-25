@@ -153,6 +153,9 @@ namespace Luth
                     UI::Property("Anisotropy (g)", vs.anisotropy, 0.01f, -0.99f, 0.99f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Henyey-Greenstein phase function parameter. 0 = isotropic;\npositive = forward scatter (god rays); negative = backscatter.\nTypical fog: 0.3-0.7.");
+                    UI::Property("Scattering Intensity", vs.scatteringIntensity, 0.5f, 0.0f, 100.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Artistic post-canonical multiplier on total in-scatter (single + multi).\nLifts off-axis fog into visible range against the HG-phase forward bias.\nUE5 / Frostbite expose the same knob. 1.0 = energy-conserving; 10-50 = visible at default scenes.\nIncrease ambient feel by raising; > 1 is intentionally non-physical.");
                     UI::Property("Multi-Scatter", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("2nd-order multi-scatter — adds IBL ambient as an extinction-weighted in-scatter term.\nLifts shadowed fog (single-scatter alone leaves shadowed regions black).");
@@ -192,6 +195,8 @@ namespace Luth
                     UI::Property      ("Distance Fog",     vs.distanceFogEnabled);
                     UI::PropertyColor ("  Color",          vs.distanceFogColor);
                     UI::Property      ("  Density",        vs.distanceFogDensity,    0.001f, 0.0f,  1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Extinction coefficient σ_t (1/m). Beer-Lambert: T = exp(−σ_t · path_length).\nTypical atmospheric haze: 0.005-0.02. Light fog: 0.05-0.1. Dense fog: 0.2+.\nNon-zero values where camDist > Start contribute to per-voxel density.");
                     UI::Property      ("  Start (m)",      vs.distanceFogStart,      0.5f,   0.0f,  1000.0f);
                     UI::Property      ("  Max Opacity",    vs.distanceFogMaxOpacity, 0.01f,  0.0f,  1.0f);
                     UI::EndProperties();
@@ -202,6 +207,8 @@ namespace Luth
                     UI::Property      ("Height Fog",       vs.heightFogEnabled);
                     UI::PropertyColor ("  Color",          vs.heightFogColor);
                     UI::Property      ("  Density",        vs.heightFogDensity,     0.001f, 0.0f,  1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Extinction coefficient σ_t (1/m) at the reference height.\nFalls off exponentially above ref. Same scale as distance-fog density.");
                     UI::Property      ("  Ref Height (m)", vs.heightFogRefHeight,   0.1f,  -1000.0f, 1000.0f);
                     UI::Property      ("  Falloff",        vs.heightFogFalloff,     0.01f,  0.001f, 5.0f);
                     UI::EndProperties();

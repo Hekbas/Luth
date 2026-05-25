@@ -65,6 +65,9 @@ namespace Luth
         Vec4 volNoiseParams;
         // xyz = wind direction × speed (m/s) — animates the noise sample UV over time, w pad.
         Vec4 volNoiseWind;
+        // x = scatteringIntensity (post-canonical artistic multiplier on inject_scatter's output;
+        // matches UE5 "Scattering Distribution" / Frostbite multiplier). yzw reserved.
+        Vec4 volScatterParams;
     };
 
     enum class ShadeMode : u8 {

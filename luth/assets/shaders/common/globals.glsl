@@ -31,6 +31,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  prevViewParams;            // x = prevNearZ, y = prevFarZ, z/w pad
     vec4  volNoiseParams;            // x = noiseScale (world frequency), y = noiseStrength (0..1), z/w pad
     vec4  volNoiseWind;              // xyz = wind direction × speed (m/s), w pad
+    vec4  volScatterParams;          // x = scatteringIntensity (artistic post-canonical multiplier), yzw reserved
 } ubo;
 
 #endif

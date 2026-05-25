@@ -4,6 +4,12 @@
 // column over Z; accumulates per-step transmittance (Beer-Lambert) + in-scatter. The output is
 // written back in-place into volInScatter: RGB = accumulated in-scatter, A = transmittance to the
 // near edge of the slice (the composition pass samples this).
+//
+// CONTRACT (Wronski 2014 / Hillaire 2015):
+//   inject_scatter writes  scat = albedo × J  (J = phase × L × visibility, summed over lights).
+//   integrate accumulates  transmit × scat × (1 − exp(−σ_t · dt))  per slice.
+// Do NOT multiply by σ_t here (and inject_scatter must NOT pre-multiply). (1 − exp(−σ_t · dt)) is
+// the σ_t-aware path-length factor — it already encodes how much the slab scatters at this density.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

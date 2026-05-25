@@ -135,6 +135,7 @@ namespace Luth
                                            vs.skyFogStrength);
         ubo.volNoiseParams          = Vec4(vs.noiseScale, vs.noiseStrength, 0.0f, 0.0f);
         ubo.volNoiseWind            = Vec4(vs.noiseWind, 0.0f);
+        ubo.volScatterParams        = Vec4(vs.scatteringIntensity, 0.0f, 0.0f, 0.0f);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

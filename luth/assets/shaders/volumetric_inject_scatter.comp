@@ -11,6 +11,13 @@
 // Splitting density off into a separate prior pass is what unlocks reading density at voxels we
 // didn't write in this dispatch — the RG barrier between density and scatter passes guarantees all
 // density writes are visible before any scatter read fires.
+//
+// CONTRACT (Wronski 2014 / Hillaire 2015):
+//   inject writes  scat = albedo × J,  with  J = Σ_lights phase × L × visibility  +  ambient.
+//   integrate accumulates  transmit × scat × (1 − exp(−σ_t · dt))  per slice.
+//   Together they reconstruct  σ_s × J × (1 − exp(−σ_t · dt)) / σ_t  for albedo = σ_s/σ_t.
+// Do NOT pre-multiply by density here — that's the σ_t factor that integrate's (1 − exp) supplies.
+// Adding it back would double-apply σ_t and dim the fog by σ_t (≈ 10× at density 0.1).
 
 #include "common/globals.glsl"
 
@@ -203,17 +210,24 @@ void main() {
         }
     }
 
-    // Single-scatter — tinted by per-voxel albedo. Pre-multiplied by density as σ_s factor (will
-    // be revisited).
-    vec3 inScatter = tint * (dirContrib + pointContrib) * density;
+    // scat = albedo × J (per CONTRACT above). No × density here — integrate supplies the σ_t path
+    // factor via (1 − exp(−σ_t · dt)). Pre-multiplying would double-apply σ_t and dim by σ_t.
+    vec3 inScatter = tint * (dirContrib + pointContrib);
 
-    // 2nd-order multi-scatter: IBL ambient × extinction × tint. Survives in shadow where single-
-    // scatter is zero, so dense fog in shadow still picks up sky bounce. msK is user-tunable.
+    // 2nd-order multi-scatter: IBL ambient × albedo. Survives in shadow where single-scatter is
+    // zero, so dense fog in shadow still picks up sky bounce. msK is user-tunable.
     float msK = ubo.heightFogParams.w;
     if (msK > 0.0) {
         vec3 skyAmbient = texture(irradianceMap, vec3(0.0, 1.0, 0.0)).rgb * ubo.iblIntensity;
-        inScatter += density * skyAmbient * msK * tint;
+        inScatter += skyAmbient * msK * tint;
     }
+
+    // Artistic post-canonical multiplier on the entire in-scatter (single + multi). HG phase + dir
+    // light gives ~75× brightness ratio between sun-axis and off-axis voxels — physically correct but
+    // visually leaves ambient fog dim. UE5 / Frostbite expose this same knob; > 1 is energy non-
+    // conservative by design. The CONTRACT above describes the formula BEFORE this multiplier; the
+    // multiplier is an artistic scaling on top, not part of the physical model.
+    inScatter *= ubo.volScatterParams.x;
 
     imageStore(volInScatter, voxel, vec4(inScatter, 0.0));
 }
