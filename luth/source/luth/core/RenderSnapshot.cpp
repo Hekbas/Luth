@@ -202,12 +202,9 @@ namespace Luth
         }
 
         // ── Material registration + dirty flush (game stage) ──
-        // Mirrors the legacy loop from RenderingSystem::Update. Walks the registry
-        // once more so even entities skipped by the mesh capture (no model loaded
-        // yet) still hold their material refs alive, matching prior behavior.
-        // MaterialSystem::Update flushes any dirty material UBO writes; runs here
-        // so its m_Lock stays stage-isolated to the game thread once stages
-        // overlap (asserted in S9).
+        // Walk the registry a second time so even entities skipped by the mesh capture (no model
+        // loaded yet) still hold their material refs alive. MaterialSystem::Update flushes any
+        // dirty material UBO writes; running it on the game stage keeps m_Lock stage-isolated.
         if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
         {
             RenderPipeline& pipeline = rs->GetPipeline();

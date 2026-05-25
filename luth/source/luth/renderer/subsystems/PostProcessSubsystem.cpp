@@ -18,10 +18,9 @@
 
 namespace Luth
 {
-    // Mirrors the GLSL push_constant block in taa_resolve.frag. The vec2 forces 8-byte
-    // alignment so the leading float needs a 4-byte pad. jitterDeltaUv carries
-    // (currentJitter − prevJitter) / viewport — the resolve adds it to the per-pixel
-    // motion so static scenes resolve to motion = 0 (production-engine convention).
+    // Mirrors the GLSL push_constant block in taa_resolve.frag. vec2 forces 8-byte alignment;
+    // jitterDeltaUv = (currentJitter − prevJitter)/viewport — resolve adds it to per-pixel
+    // motion so static scenes net to zero motion.
     struct TaaResolvePushConstants
     {
         f32  temporalAlpha;

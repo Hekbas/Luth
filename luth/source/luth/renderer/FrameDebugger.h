@@ -46,7 +46,7 @@ namespace Luth
         u64 lastRecaptureFrameIndex = 0;
 
         // Per-draw stepping reads the frozen UBOs/SSBOs/indirect buffers and
-        // re-records the owning pass via ImmediateSubmit; live re-replay is gone.
+        // re-records the owning pass via ImmediateSubmit.
 
         // Debug blit resources (depth -> color preview composition)
         std::unique_ptr<VKPipeline>  blitPipeline;
@@ -63,8 +63,7 @@ namespace Luth
         VkSampler                    sampler        = VK_NULL_HANDLE;
         VkSampler                    samplerNearest = VK_NULL_HANDLE; // for integer slim matID archive sampling
 
-        // Archive sink configuration. Names match RG::TextureDesc::name.
-        // Set by RegisterTrackedRT before each capture.
+        // Archive sink configuration. Names match RG::TextureDesc::name. Set by RegisterTrackedRT before each capture.
         std::unordered_set<std::string> trackedRTs;
 
         // (passName + "/" + rtName) → index into capturedFrame.archivedImages.

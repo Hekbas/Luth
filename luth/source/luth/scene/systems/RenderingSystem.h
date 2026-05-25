@@ -54,8 +54,7 @@ namespace Luth
         Vec4 distanceFogParams;
         Vec4 heightFogColorDensity;
         Vec4 heightFogParams;
-        // x = anisotropy (HG g), y = temporalAlpha, z = sunFogAbsorptionSteps (cast),
-        // w = skyFogStrength.
+        // x = anisotropy (HG g), y = temporalAlpha, z = sunFogAbsorptionSteps (cast), w = skyFogStrength.
         Vec4 volTemporalParams;
         // x = prevNearZ, y = prevFarZ, z/w = pad. Cached for cross-frame reprojection so the resolve
         // pass can reconstruct prev view-Z without assuming nearZ/farZ are constant.
@@ -96,7 +95,7 @@ namespace Luth
     };
 
     // SlimGBufferPass outputs — written between DepthPrepass and GTAO Prefilter. Consumed by
-    // A.5 TAA (motion), Phase B/C RT denoisers (normal + roughness), D RT reflections (normal).
+    // TAA (motion), downstream RT denoisers (normal + roughness), RT reflections (normal).
     struct SlimGBufferOutput {
         RG::ResourceHandle normal;     // RG16F — octahedral world-space normal
         RG::ResourceHandle roughness;  // R8    — perceptual roughness
@@ -229,7 +228,7 @@ namespace Luth
         // into the view's QueueRecorders triplet. Returns true iff the graph routed any pass to async-compute —
         // forwarded to Renderer::EndPrimaryCmdAndSubmit so SubmitView knows whether to issue the compute submit.
         // Cross-view RAW sync for shared resources (m_ShadowMap) is enforced by the per-view 3-submit topology's
-        // timeline waits at submit boundaries (replaces the legacy InsertInterViewBarrier). See arch/multi-queue.md.
+        // timeline waits at submit boundaries. See arch/multi-queue.md.
         bool RecordView(const RenderView& view, QueueRecorders recorders);
 
         // Camera / editor state set each frame by App.
@@ -241,8 +240,7 @@ namespace Luth
         // Memory.
         std::unique_ptr<Memory::LinearAllocator> m_FrameAllocator;
 
-        // Scene panel's render targets. GamePanel owns its own FrameTargets
-        // so the two views resize independently.
+        // Scene panel's render targets. GamePanel owns its own FrameTargets so the two views resize independently.
         FrameTargets m_SceneTargets;
 
         // Per-frame draw list (RenderMode-sorted buckets + tri count).

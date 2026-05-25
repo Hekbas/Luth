@@ -10,8 +10,7 @@ namespace Luth
 
     namespace
     {
-        // Vec4 ↔ JSON array. Skips assignment on malformed entries so a corrupt
-        // file leaves struct defaults intact.
+        // Vec4 ↔ JSON array. Skips assignment on malformed entries so a corrupt file leaves struct defaults intact.
         void LoadVec4(const json& j, const char* key, Vec4& out)
         {
             if (j.contains(key) && j[key].is_array() && j[key].size() == 4)

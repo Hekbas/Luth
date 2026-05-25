@@ -49,7 +49,7 @@ struct GPUObjectData {
     uint  indexCount;     // 4B
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
-    uint  prevBoneOffset; // 4B — wired by commit 2 (dual-buffer bones)
+    uint  prevBoneOffset; // 4B — prev-frame bones region (dual-region BoneMatrixBuffer)
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
@@ -65,14 +65,14 @@ void main()
     v_TexCoord0 = a_TexCoord0;
     v_TexCoord1 = a_TexCoord1;
 
-    // Normal matrix (handles non-uniform scale)
+    // Inverse-transpose preserves orientation under non-uniform scale.
     mat3 normalMatrix = mat3(transpose(inverse(obj.model)));
     v_Normal = normalize(normalMatrix * a_Normal);
 
-    // TBN matrix for normal mapping (Gram-Schmidt re-orthogonalization)
+    // TBN, Gram-Schmidt re-orthogonalized.
     vec3 T = normalize(mat3(obj.model) * a_Tangent);
     vec3 N = v_Normal;
-    T = normalize(T - dot(T, N) * N); // Re-orthogonalize
+    T = normalize(T - dot(T, N) * N);
     vec3 B = cross(N, T);
     v_TBN = mat3(T, B, N);
 

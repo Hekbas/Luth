@@ -264,7 +264,7 @@ namespace Luth
         }
     } // anonymous namespace
 
-    // ---- Capture metadata helpers (unchanged) ----
+    // ---- Capture metadata helpers ----
 
     void FrameDebugger::BeginCapturePass(u32 graphPassIndex,
                                          const std::string& name, const std::string& activeTarget,
@@ -528,8 +528,7 @@ namespace Luth
             if (res.image == VK_NULL_HANDLE) continue;
             if (trackedRTs.find(res.desc.name) == trackedRTs.end()) continue;
 
-            // Slot key: (pass name, RT name). Both stable across captures,
-            // unlike pass index which shifts with culling.
+            // Slot key: (pass name, RT name). Both stable across captures, unlike pass index which shifts with culling.
             const std::string slotKey = pass.name + "/" + res.desc.name;
             u32 archiveIdx = UINT32_MAX;
 

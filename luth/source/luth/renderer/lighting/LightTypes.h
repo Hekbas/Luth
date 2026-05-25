@@ -41,8 +41,8 @@ namespace Luth
 
     inline constexpr u32 k_ClusterTilesX        = 16;
     inline constexpr u32 k_ClusterTilesY        =  9;
-    // Z resolution bumped from 24 → 48 (volumetric Z-banding mitigation). Atlas slice = 128 so
-    // each cluster spans ~2.7 atlas slices instead of ~5.3 — fog illumination bands halved in Z.
+    // 48 slices sized so each cluster spans ~2.7 atlas slices (128 atlas slices total) — keeps
+    // fog Z-banding below the visible threshold.
     inline constexpr u32 k_ClusterSlicesZ       = 48;
     inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 6912
     inline constexpr u32 k_MaxLightsPerCluster  = 128;
@@ -67,10 +67,8 @@ namespace Luth
     static_assert(sizeof(GPUCluster) == 8, "GPUCluster std430 layout");
 
     // Per-frame directional-light shadow config, snapshot from the first
-    // Component::DirectionalLight each frame. Sticky — if no directional light
-    // is present, last-known values remain. Feeds both CascadeBuilder (split
-    // lambda / shadow distance / stabilization) and GlobalUniforms (biases +
-    // blend width + debug visualize).
+    // Component::DirectionalLight each frame. Sticky — last-known values remain
+    // when no directional light is present.
     struct DirectionalLightShadowParams
     {
         Vec4 shadowBias            = Vec4(0.005f, 0.008f, 0.012f, 0.02f);
@@ -83,9 +81,8 @@ namespace Luth
         bool      debugVisualizeCascades = false;
     };
 
-    // Per-frame CSM output — one light-space matrix per cascade plus derived
-    // per-cascade data the PBR shader needs (far view-Z split + world-space
-    // texel size for normal-bias scaling).
+    // CSM output produced each frame. PBR shader needs view-Z splits + world-space
+    // texel size (for normal-bias scaling) alongside the light-space matrices.
     struct CascadeData
     {
         Mat4 lightSpaceMatrix[k_ShadowCascadeCount] = {

@@ -18,7 +18,7 @@ namespace Luth
     namespace
     {
         // FogVolume gizmo helpers. Pack-byte color matches DebugDraw expectations (R, G, B, A in
-        // bytes 0..3) — see PhysicsSystem.cpp:81 for the canonical packing reference.
+        // bytes 0..3) — same convention PhysicsSystem uses for its wire gizmos.
         constexpr u32 kFogGizmoColor = 0x80FFCC4D;  // soft orange-yellow, half-alpha
 
         void DrawFogBoxWire(const Mat4& m, const Vec3& halfExtents, u32 color)
@@ -304,7 +304,7 @@ namespace Luth
         // timeline-semaphore waits at boundaries. Queued views record first (their LDRs are sampled by the scene
         // view's ImGui pass), then the scene view closes with the ImGui pass + present barrier. Cross-view ordering
         // for shared resources (m_ShadowMap, IBL maps) is enforced by view K+1's gA submit waiting on view K's gB
-        // signal at EARLY_FRAGMENT_TESTS_BIT — same stage relationship as the legacy inline pipeline barrier.
+        // signal at EARLY_FRAGMENT_TESTS_BIT.
         const u64 frameIndex  = Renderer::GetFrameData()->GetFrameIndex();
         const u32 totalViews  = (u32)m_QueuedViews.size() + 1;  // queued + scene view
         LH_CORE_ASSERT(totalViews <= MAX_VIEWS_PER_FRAME, "view count exceeds MAX_VIEWS_PER_FRAME");

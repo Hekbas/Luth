@@ -550,8 +550,7 @@ namespace Luth::RG
         bool hasComputeWork  = false;
         bool seenAsyncCompute = false;
 
-        // Indexed by m_Passes index; slots for culled / compute passes stay
-        // default-constructed and unused.
+        // Indexed by m_Passes index; slots for culled / compute passes stay default-constructed and unused.
         std::vector<PassExecState> passStates(m_Passes.size());
 
         // ── Phase 1: secondary cmd buffer recording ──

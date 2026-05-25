@@ -74,8 +74,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_ClusterBuildSetLayout);
 
-            // Push constant: mat4 invProjection + vec2 viewportSize + vec2 pad + float nearZ + float farZ
-            // + u32 tilesX + u32 tilesY = 64 + 8 + 8 + 4 + 4 + 4 + 4 = 96 B.
+            // Push constant: invProjection + viewportSize + _pad + nearZ + farZ + uvec2 tiles = 96 B.
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 96 };
 
             m_ClusterBuildSpv = loadSpv("shaders/cluster_build.comp");
@@ -328,10 +327,7 @@ namespace Luth
 
     VkDescriptorSet LightingSubsystem::GetLightDescSet(u32 slot) const
     {
-        // Set 3 lives on the active ViewResources after the per-view migration. Callers in
-        // GeometrySubsystem / EditorOverlaysSubsystem / FrameDebuggerContext run inside RecordView
-        // (m_CurrentViewResources set) so the dereference is safe; replay paths that walk archived
-        // pass nodes hit this with a null view and get VK_NULL_HANDLE.
+        // Set 3 lives on the active ViewResources. Replay paths with a null view return VK_NULL_HANDLE.
         auto* vr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!vr) return VK_NULL_HANDLE;
         return vr->lightDescSet[slot];
@@ -491,7 +487,7 @@ namespace Luth
         // Per-view set rewrite is the orchestrator's job (RenderPipeline iterates m_ViewResources).
     }
 
-    // ---- Internal: build shadow + skybox pipelines (extracted from PipelineFactory) ----
+    // ---- Internal: build shadow + skybox pipelines ----
     void LightingSubsystem::BuildShadowPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
         // 4-byte VERTEX push constant carries cascadeIndex.
@@ -620,7 +616,7 @@ namespace Luth
 
                 if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
-                // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO, owned by Geometry until sub-task C).
+                // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO, owned by Geometry).
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
                 VkDescriptorSet sets[] = {
@@ -791,10 +787,9 @@ namespace Luth
         return outputHandle;
     }
 
-    // Forward+ cluster build. Per-view tagged-heap regions for AABB + grid; descriptor set on
-    // ViewResources cycled by frame; dispatched on the async-compute queue. Producer handles flow
-    // back through the return value so LightAssignPass + (later) GeometryPass can read them without
-    // re-ImportBuffer'ing the same VkBuffer (arch hazard 1).
+    // Forward+ cluster build. Async-compute; per-view tagged-heap regions for AABB + grid.
+    // Returns BufferHandles so downstream LightAssignPass / GeometryPass read the same VkBuffer
+    // without re-importing (see arch/rendering-pipeline.md re-import hazard).
     LightingSubsystem::ClusterBuildOutputs LightingSubsystem::AddClusterBuildPass(RG::RenderGraph& rg)
     {
         ClusterBuildOutputs out{};
@@ -846,9 +841,7 @@ namespace Luth
             RG::BufferHandle grid;
         };
 
-        // Capture per-frame values (camera, viewport) at graph-build time. Execute lambda runs later;
-        // m_Pipeline->GetCurrentView() is still valid at execute time because the executor sets it
-        // before dispatching the recorders, but capturing now keeps the lambda body terse.
+        // Capture per-frame values at graph-build time so the execute lambda body stays terse.
         auto* pipeline = m_ClusterBuildPipeline.get();
         FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
 
@@ -902,7 +895,7 @@ namespace Luth
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterBuildPC), &pc);
 
-                // (4, 3, 6) groups × (4, 4, 4) local = (16, 12, 24) invocations; bounds-clamp in shader.
+                // 4×4×4 local; group dims = ceil(tile/slice counts / 4); bounds-clamp in shader.
                 const u32 groupX = (k_ClusterTilesX  + 3) / 4;
                 const u32 groupY = (k_ClusterTilesY  + 3) / 4;
                 const u32 groupZ = (k_ClusterSlicesZ + 3) / 4;
@@ -952,15 +945,9 @@ namespace Luth
         VkDescriptorBufferInfo lightBi{ m_LastLightSSBORegion.buffer, m_LastLightSSBORegion.offset,
                                         m_LastLightSSBORegion.size };
 
-        // The ClusterBuild handles point into the producer's VkBuffer slices — we resolve them via
-        // the graph's BufferNode access after RegisterBufferRead, but for the descriptor write here
-        // we need the raw VkBuffer + offset. Since AddClusterBuildPass also did rg.ImportBuffer on
-        // the same VkBuffers, we keep the regions cached on the subsystem... but a simpler path is
-        // to re-allocate identical slices here. The tagged heap returns the next available bump
-        // location each call — so we cannot re-fetch the producer's slice without state. Instead,
-        // pull the VkBuffer + offset directly from the BufferNode via RG.
-        // Use the producer's SubRegion offsets — BufferHandle only carries the backing VkBuffer;
-        // offset+size live on the SubRegion (see GeometrySubsystem.cpp:563-566 for the pattern).
+        // invariant: bind via the producer's SubRegion offsets — BufferHandle only carries the
+        // backing VkBuffer; offset+size live on the SubRegion. Tagged-heap bump allocations cannot
+        // be re-derived, so the producer hands its regions through ClusterBuildOutputs.
         VkDescriptorBufferInfo aabbBi{ cb.aabbRegion.buffer, cb.aabbRegion.offset, cb.aabbRegion.size };
         VkDescriptorBufferInfo gridBi{ cb.gridRegion.buffer, cb.gridRegion.offset, cb.gridRegion.size };
         VkDescriptorBufferInfo indexBi{ indexR.buffer,   indexR.offset,   indexR.size };
@@ -994,8 +981,7 @@ namespace Luth
 
         auto* pipeline = m_LightAssignPipeline.get();
         FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
-        // Capture the snapshot's point-light count at graph-build time. RenderingSystem::Update
-        // ran LightGatherer earlier this frame, so LightingSystem::GetLights() has the final count.
+        // Snapshot point-light count at graph-build time — LightingSystem::GetLights() is final by now.
         u32 capturedPointCount = 0;
         if (auto* lightingSys = SystemRegistry::GetSystem<LightingSystem>())
             capturedPointCount = static_cast<u32>(lightingSys->GetLights().points.size());
@@ -1040,7 +1026,7 @@ namespace Luth
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightAssignPC), &pc);
 
-                // (64 invocations / cluster) × ceil(3456 / 64) = 54 workgroups.
+                // 64-invocation workgroups; one workgroup per 64 clusters.
                 const u32 groupX = (k_ClusterCount + 63) / 64;
                 vkCmdDispatch(cmd, groupX, 1, 1);
 
@@ -1054,8 +1040,8 @@ namespace Luth
         return out;
     }
 
-    // Per-view stable depth-sampler write for the ClusterViz set 0. Mirrors the EditorOverlays
-    // sampler-write pattern — called from AllocateViewResources after FrameTargets exists.
+    // Per-view stable depth-sampler write for the ClusterViz set 0; called from
+    // AllocateViewResources after FrameTargets exists.
     void LightingSubsystem::WriteClusterVizView(ViewResources& vr, FrameTargets& targets)
     {
         if (vr.clusterVizDescSet == VK_NULL_HANDLE || m_ClusterVizDepthSampler == VK_NULL_HANDLE) return;

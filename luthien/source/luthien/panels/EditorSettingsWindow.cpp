@@ -82,8 +82,7 @@ namespace Luth
         // RIGHT: section content
         ImGui::BeginChild("##PrefsRight", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
-        // Returns true if the section emitted any property row (so we can hide
-        // empty sections in search mode).
+        // Returns true if the section emitted any property row (so we can hide empty sections in search mode).
         auto Header = [](const char* title) {
             ImGui::PushFont(Editor::GetMainFont());
             ImGui::TextUnformatted(title);

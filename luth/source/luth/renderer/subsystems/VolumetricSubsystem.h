@@ -61,8 +61,7 @@ namespace Luth
         // b1 (FogVolume SSBO) rewrites per-frame.
         void WriteInjectDensityView(ViewResources& vr);
 
-        // Per-frame rewrite of the density set's FogVolume SSBO (b1) against this frame's
-        // tagged-heap region.
+        // Per-frame rewrite of the density set's FogVolume SSBO (b1) against this frame's tagged-heap region.
         void WriteInjectDensityPerFrame(const Memory::GPUSubRegion& fogVolumeRegion);
 
         // Stable per-view writes for the scatter pass — b0 (volDensity sampler3D), b1 (volInScatter
@@ -157,51 +156,45 @@ namespace Luth
         VkSampler            m_Sampler  = VK_NULL_HANDLE;
         Memory::GPUSubRegion m_LastFogVolumeRegion{};
 
-        // Inject density pass — per-voxel density + tint accumulation (FogVolume + analytic
-        // distance + analytic height + noise modulation). Writes vec4(density, tint.rgb).
+        // Inject density.
         VkDescriptorSetLayout              m_InjectDensityDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_InjectDensityPipeline;
         std::vector<u32>                   m_InjectDensitySpv;
 
-        // Inject scatter pass — reads volDensity (density + tint), computes dir + cluster + multi-
-        // scatter contributions with density-atlas sun-ray absorption. Writes volInScatter scratch.
+        // Inject scatter.
         VkDescriptorSetLayout              m_InjectScatterDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_InjectScatterPipeline;
         std::vector<u32>                   m_InjectScatterSpv;
 
-        // Integrate pass — front-to-back ray march in-place over volInScatter scratch.
+        // Integrate.
         VkDescriptorSetLayout              m_IntegrateDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_IntegratePipeline;
         std::vector<u32>                   m_IntegrateSpv;
 
-        // Resolve pass — temporal accumulation, scratch + prev → curr history.
+        // Resolve.
         VkDescriptorSetLayout              m_ResolveDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKComputePipeline> m_ResolvePipeline;
         std::vector<u32>                   m_ResolveSpv;
 
-        // Composite pass — fullscreen graphics; samples sceneDepth + resolved atlas, alpha-blends.
+        // Composite.
         VkDescriptorSetLayout              m_CompositeDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKPipeline>        m_CompositePipeline;
         std::vector<u32>                   m_FullscreenVertSpv;
         std::vector<u32>                   m_CompositeFragSpv;
 
-        // Debug viz pass — heat-mapped density or in-scatter overlay onto LDR.
+        // Debug viz.
         VkDescriptorSetLayout              m_VizDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKPipeline>        m_VizPipeline;
         std::vector<u32>                   m_VizFragSpv;
 
-        // Static 3D Worley-FBM noise texture — single shared instance (NOT per-view) used by the
-        // inject pass to modulate density. Baked once at Init via a one-shot compute dispatch.
-        // 128³ RGBA8 = 8 MB. Sampler is a tile-friendly LINEAR+REPEAT (m_Sampler is CLAMP_TO_EDGE
-        // so we own a dedicated one).
+        // 3D Worley-FBM noise (128³ RGBA8). Single shared instance, baked once at Init; modulates
+        // inject density. Tile-friendly LINEAR+REPEAT sampler (m_Sampler is CLAMP_TO_EDGE).
         std::shared_ptr<Texture>           m_NoiseTexture;
         VkSampler                          m_NoiseSampler = VK_NULL_HANDLE;
 
-        // 2D blue-noise-like dither (Roberts R2 quasi-random). Single shared 64² R8 instance, baked
-        // once at Init. Sampled by volumetric_composite.frag to jitter the per-fragment atlas slice
-        // (sliceW) by ±0.5 slices — TAA then integrates the dither over ~6 frames into a smooth
-        // gradient, eliminating residual Wronski log-slice Z-banding. Sampler is NEAREST + REPEAT;
-        // bilinear filtering destroys the spectral properties.
+        // 2D blue-noise dither (Roberts R2 quasi-random, 64² R8). Composite jitters sliceW ±0.5
+        // slices to break Wronski log-Z banding; TAA integrates the dither over ~6 frames into
+        // smooth gradients. NEAREST+REPEAT sampler — bilinear destroys the spectral properties.
         std::shared_ptr<Texture>           m_BlueNoise2D;
         VkSampler                          m_BlueNoiseSampler = VK_NULL_HANDLE;
     };

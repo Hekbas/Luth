@@ -23,7 +23,7 @@ layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 2) uniform samplerCube prefilteredMap;
 layout(set = 0, binding = 3) uniform sampler2D   brdfLUT;
 
-// Set 0: GTAO final AO buffer (half-res R8) + settings (epic #58)
+// Set 0: GTAO final AO buffer (half-res R8) + settings
 layout(set = 0, binding = 4) uniform sampler2D   gtaoTex;
 layout(set = 0, binding = 5, std140) uniform GTAOUBO {
     float intensity;
@@ -189,15 +189,14 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// Calculate contribution of a single light
+// Cook-Torrance BRDF (D·G·F / (4·NdotV·NdotL)) + Lambert diffuse, energy-conserved via kD.
 vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness)
 {
     vec3 H = normalize(V + L);
 
-    // F0: reflectance at normal incidence (0.04 for dielectrics, albedo for metals)
+    // F0: reflectance at normal incidence — 0.04 for dielectrics, albedo for metals.
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    // Cook-Torrance BRDF
     float D = DistributionGGX(N, H, roughness);
     float G = GeometrySmith(N, V, L, roughness);
     vec3  F = FresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -206,7 +205,7 @@ vec3 CalculateLight(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float me
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular     = numerator / denominator;
 
-    // Energy conservation: diffuse = (1 - specular) * (1 - metallic)
+    // Energy conservation — kD darkens with both Fresnel and metalness.
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
     float NdotL = max(dot(N, L), 0.0);
@@ -382,12 +381,12 @@ void main()
         roughness = mrSample.g;
         metallic  = mrSample.b;
     }
-    roughness = clamp(roughness, 0.04, 1.0); // Avoid zero roughness (causes NaN in GGX)
+    roughness = clamp(roughness, 0.04, 1.0); // 0.04 floor — zero roughness produces NaN in GGX
 
     // Tokuyoshi 2019 "Improved Geometric Specular Antialiasing" (HPG). Screen-space normal curvature
     // adds variance to BRDF roughness — kills high-freq specular sparkle on curved surfaces at glancing
     // angles. The σ² term is the projected normal variance over a pixel footprint; we add it to α² (=
-    // roughness²) and take sqrt back. Disabled → behaves identically to v3.0.6.
+    // roughness²) and take sqrt back. Disabled → roughness passes through unmodified.
     if (ubo.specAaParams.x != 0.0)
     {
         vec3  dNdu     = dFdx(N);
@@ -411,7 +410,7 @@ void main()
     }
 
     // --- Ambient Occlusion ---
-    // Material-baked AO * screen-space GTAO (epic #58). GTAO term is fetched
+    // Material-baked AO * screen-space GTAO. GTAO term is fetched
     // from a half-res R8 buffer via bilinear sampling; when the pass is
     // disabled at runtime, gtao.enabled == 0 and we skip the texture read.
     float ao = 1.0;
@@ -435,8 +434,7 @@ void main()
 
     {
         vec3 dirRadiance = lights.dirLight.color * lights.dirLight.intensity;
-        Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance,
-                             V, N, albedo.rgb, metallic, roughness) * sr.shadow;
+        Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance, V, N, albedo.rgb, metallic, roughness) * sr.shadow;
     }
 
     // Forward+ point lights: cluster ID from screen position + linearized depth → fetch (offset,

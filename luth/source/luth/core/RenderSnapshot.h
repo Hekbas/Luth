@@ -99,7 +99,7 @@ namespace Luth
     };
 
     // ── Capture API ──
-    // Implemented in S2. Walks the registry once, allocates the spans from `mem`, fills `out`.
+    // Walks the registry once, allocates the spans from `mem`, fills `out`.
 
     void CaptureSnapshot(Scene& scene, Memory::LinearAllocator& mem, RenderSnapshot& out);
 }

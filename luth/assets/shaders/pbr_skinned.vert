@@ -56,7 +56,7 @@ struct GPUObjectData {
     uint  indexCount;     // 4B
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
-    uint  prevBoneOffset; // 4B — wired by commit 2 (dual-buffer bones)
+    uint  prevBoneOffset; // 4B — prev-frame bones region (dual-region BoneMatrixBuffer)
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
@@ -67,36 +67,34 @@ void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
 
-    // Linear Blend Skinning (LBS)
+    // Linear Blend Skinning.
     mat4 skinMatrix = mat4(0.0);
     for (int i = 0; i < 4; i++) {
         if (a_BoneIDs[i] >= 0)
             skinMatrix += a_BoneWeights[i] * bones[obj.boneOffset + a_BoneIDs[i]];
     }
-    // Fallback: if no bones influence this vertex, use identity
+    // No-bones sentinel: zero diagonal → identity (vertex stays in bind pose).
     if (skinMatrix[0][0] == 0.0 && skinMatrix[1][1] == 0.0 && skinMatrix[2][2] == 0.0)
         skinMatrix = mat4(1.0);
 
-    // Apply skinning to position, normal, and tangent
     vec4 skinnedPos = skinMatrix * vec4(a_Position, 1.0);
     mat3 skinNormalMat = mat3(skinMatrix);
     vec3 skinnedNormal = normalize(skinNormalMat * a_Normal);
     vec3 skinnedTangent = normalize(skinNormalMat * a_Tangent);
 
-    // World transform
     vec4 worldPos = obj.model * skinnedPos;
     v_WorldPos = worldPos.xyz;
     v_TexCoord0 = a_TexCoord0;
     v_TexCoord1 = a_TexCoord1;
 
-    // Normal matrix (handles non-uniform scale)
+    // Inverse-transpose preserves orientation under non-uniform scale.
     mat3 normalMatrix = mat3(transpose(inverse(obj.model)));
     v_Normal = normalize(normalMatrix * skinnedNormal);
 
-    // TBN matrix for normal mapping (Gram-Schmidt re-orthogonalization)
+    // TBN, Gram-Schmidt re-orthogonalized.
     vec3 T = normalize(mat3(obj.model) * skinnedTangent);
     vec3 N = v_Normal;
-    T = normalize(T - dot(T, N) * N); // Re-orthogonalize
+    T = normalize(T - dot(T, N) * N);
     vec3 B = cross(N, T);
     v_TBN = mat3(T, B, N);
 

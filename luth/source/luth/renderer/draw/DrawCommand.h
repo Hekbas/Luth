@@ -46,7 +46,7 @@ namespace Luth
         u32 indexCount;           // 4B
         u32 firstIndex;           // 4B
         i32 vertexOffset;         // 4B
-        u32 prevBoneOffset;       // 4B — offset into BoneMatrixBuffer's prev-bones region (commit 2 wires it; 0 until then)
+        u32 prevBoneOffset;       // 4B — offset into BoneMatrixBuffer's prev-bones region
     };
     static_assert(sizeof(GPUObjectData) == 176, "GPUObjectData std430 layout must stay in lockstep with the GLSL block");
 }

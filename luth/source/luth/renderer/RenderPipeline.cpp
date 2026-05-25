@@ -183,8 +183,6 @@ namespace Luth
         m_Geometry.Shutdown();
         m_Lighting.Shutdown();
         m_Global.Shutdown();
-
-        // GTAO resources (epic #58) — shared.
     }
 
     void RenderPipeline::OnResize(u32 width, u32 height)
@@ -233,16 +231,14 @@ namespace Luth
         {
             const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
             Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
-            m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
-                camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
+            m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
             for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             {
                 Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
                 const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
                 const std::string name = "FrustumCull.C" + std::to_string(i);
-                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf,
-                    cascadeFrustum.planes, destOffset, name.c_str());
+                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
             }
         }
 
@@ -255,7 +251,7 @@ namespace Luth
         RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
 
         // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
-        // with EQUAL test; foundation for A.5 TAA + Phase B/C RT denoise + D RT reflections.
+        // with EQUAL test; feeds TAA + downstream RT denoise + RT reflections.
         // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
         SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
 
@@ -368,8 +364,7 @@ namespace Luth
                  volumetricEnabled && m_CurrentViewResources)
         {
             const u32 vizMode = (shadeMode == ShadeMode::VolumetricDensity) ? 0u : 1u;
-            ldrOutput = m_Volumetric.AddVizPass(rg, ldrOutput, injectOut.density,
-                                                volResolvedHandle, prepassDepth, vizMode);
+            ldrOutput = m_Volumetric.AddVizPass(rg, ldrOutput, injectOut.density, volResolvedHandle, prepassDepth, vizMode);
         }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
@@ -441,7 +436,7 @@ namespace Luth
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOLinearDepth");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAORawAO");
             m_System.GetFrameDebugger().RegisterTrackedRT("GTAOFinal");
-            // Slim G-buffer attachments (Phase A.2). Archive sink copies all 4 after the pass.
+            // Slim G-buffer attachments. Archive sink copies all 4 after the pass.
             m_System.GetFrameDebugger().RegisterTrackedRT("SlimNormal");
             m_System.GetFrameDebugger().RegisterTrackedRT("SlimRoughness");
             m_System.GetFrameDebugger().RegisterTrackedRT("SlimMotion");
@@ -497,8 +492,7 @@ namespace Luth
         // Finalize capture (only the source view — matches the sink gate above).
         if (view.captureRequested && m_System.GetFrameDebugger().state == DebuggerState::CaptureRequested)
         {
-            // captured*Draws / drawLimit are gone. Per-draw replay re-derives draw inputs from
-            // the CapturedDrawCall records together with the frozen indirect/object SSBOs.
+            // Per-draw replay re-derives inputs from CapturedDrawCall + frozen indirect/object SSBOs.
 
             // Copy resource and timing info from the graph snapshot
             m_System.GetFrameDebugger().capturedFrame.resources      = m_GraphSnapshot.resources;
@@ -516,8 +510,7 @@ namespace Luth
                 }
             }
 
-            // Snapshot capture-time camera viewProj for the Frozen-state
-            // auto-recapture comparison (see top of Update).
+            // Snapshot capture-time camera viewProj for the Frozen-state auto-recapture comparison (see top of Update).
             m_System.GetFrameDebugger().FinalizeCapture(m_Global.GetCachedViewProj());
 
             // Stamp CSM state into the captured frame so the cascade detail panel always shows
@@ -736,7 +729,7 @@ namespace Luth
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();
         if (m_Lighting.GetBRDFLut())        m_NamedTextures["BRDF_LUT"]       = m_Lighting.GetBRDFLut();
-        // Slim G-buffer attachments (Phase A.2). Empty until SlimGBufferPass writes them (commit 4).
+        // Slim G-buffer attachments. Empty until SlimGBufferPass writes them.
         if (m_System.GetSceneTargets().GetSlimNormal())     m_NamedTextures["SlimNormal"]     = m_System.GetSceneTargets().GetSlimNormal();
         if (m_System.GetSceneTargets().GetSlimRoughness())  m_NamedTextures["SlimRoughness"]  = m_System.GetSceneTargets().GetSlimRoughness();
         if (m_System.GetSceneTargets().GetSlimMotion())     m_NamedTextures["SlimMotion"]     = m_System.GetSceneTargets().GetSlimMotion();

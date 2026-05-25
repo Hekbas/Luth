@@ -23,7 +23,7 @@ namespace Luth
         std::vector<Entity> selectedEntities;
 
         // Selection-outline + editor-grid params, plumbed through EditorSettings.
-        // Runtime-only build leaves defaults intact (identical to pre-vulkan-polish literals).
+        // Runtime-only build leaves defaults intact.
         Vec4 outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };
         float outlineWidth          = 1.5f;
         float outlineOccludedAlpha  = 0.65f;

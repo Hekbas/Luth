@@ -26,7 +26,7 @@ namespace Luth
     };
     static_assert(sizeof(FogVolumeData) == 112, "FogVolumeData std430 layout");
 
-    // CPU-side aggregate. Volumes vector reuses capacity across frames.
+    // CPU-side aggregate produced by FogVolumeGatherer each game stage.
     struct GatheredFogVolumes
     {
         std::vector<FogVolumeData> volumes;

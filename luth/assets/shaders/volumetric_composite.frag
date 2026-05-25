@@ -18,9 +18,8 @@ layout(set = 1, binding = 0) uniform sampler2D sceneDepth;
 layout(set = 1, binding = 1) uniform sampler3D volInScatter;
 layout(set = 1, binding = 2) uniform sampler2D blueNoise;  // 64² R8 NEAREST+REPEAT
 
-// Push constant kept for forward-compat (future features may need invView); harmless at zero cost.
 layout(push_constant) uniform PC {
-    mat4 invView;
+    mat4 invView;          // reserved for future view-space sampling paths; unused today
 } pc;
 
 float DepthToViewZ(float ndcDepth) {

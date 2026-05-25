@@ -349,16 +349,14 @@ namespace Luth
             }
         }
 
-        // 3D noise bake — one-shot compute dispatch that fills m_NoiseTexture with Worley-FBM at
-        // engine init. All ephemeral state (pool / layout / pipeline) lives inside this scope and
-        // is destroyed at end. The texture itself outlives Init and is sampled by inject's b7.
+        // 3D Worley-FBM noise bake (one-shot at init). Pool/layout/pipeline are scoped — the
+        // texture outlives Init and is sampled by inject density's b2.
         {
             constexpr u32 k_NoiseDim = 128;
             m_NoiseTexture = std::make_shared<VKTexture>(
                 k_NoiseDim, k_NoiseDim, k_NoiseDim, TextureFormat::RGBA8, VK_IMAGE_USAGE_STORAGE_BIT);
 
-            // Sampler — LINEAR + REPEAT for tileable noise. m_Sampler is CLAMP_TO_EDGE so it's not
-            // reusable here.
+            // Tileable noise needs REPEAT; m_Sampler is CLAMP_TO_EDGE so we own a dedicated one.
             VkSamplerCreateInfo nsCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
             nsCI.magFilter    = VK_FILTER_LINEAR;
             nsCI.minFilter    = VK_FILTER_LINEAR;
@@ -456,16 +454,13 @@ namespace Luth
                                      0, 0, nullptr, 0, nullptr, 1, &toShader);
             });
 
-            // Tear down the bake-only state. The texture + sampler stay alive on the subsystem.
             bakePipeline.reset();
             vkDestroyDescriptorPool(device, bakePool, nullptr);
             vkDestroyDescriptorSetLayout(device, bakeLayout, nullptr);
         }
 
-        // 2D blue-noise-like dither bake. Roberts R2 quasi-random sequence; sampled by the volumetric
-        // composite to jitter the per-fragment atlas slice (sliceW) by ±0.5 slices — TAA integrates
-        // the dither over ~6 frames into a smooth gradient, eliminating residual Wronski log-slice
-        // Z-banding. NEAREST + REPEAT sampler — bilinear filtering destroys the spectral properties.
+        // 2D blue-noise dither bake (Roberts R2 quasi-random). Rationale in the header next to
+        // m_BlueNoise2D; the volumetric composite consumes it via NEAREST+REPEAT sampler.
         {
             constexpr u32 k_BlueNoiseDim = 64;
             m_BlueNoise2D = std::make_shared<VKTexture>(
@@ -1039,8 +1034,6 @@ namespace Luth
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         depthInfo.sampler     = m_Sampler;
 
-        // Blue noise: NEAREST + REPEAT — preserves spectral high-frequency content. Required for
-        // the dither to integrate cleanly under TAA. Bilinear would smear it into junk gradients.
         VkDescriptorImageInfo blueInfo{};
         const bool haveBlue = (m_BlueNoise2D && m_BlueNoiseSampler);
         if (haveBlue)
@@ -1157,7 +1150,6 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_CompositePipeline->GetLayout(), 0, 2, sets, 0, nullptr);
 
-                // invView push constant avoids per-fragment inverse(ubo.view) at full-screen.
                 Mat4 invView = Math::Inverse(view->camera.view);
                 vkCmdPushConstants(cmd, m_CompositePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Mat4), &invView);
@@ -1575,7 +1567,7 @@ namespace Luth
                                                    VK_ATTACHMENT_STORE_OP_STORE, clearVal);
                 d.depth  = builder.Read(sceneDepth);
                 // Both atlases sampled via descriptors — RG MUST know so it emits the
-                // GENERAL → SHADER_READ_ONLY transitions (v3.0.4 lesson, hazard #1 family).
+                // GENERAL → SHADER_READ_ONLY transitions (see arch/rendering-pipeline.md re-import hazard).
                 if (density.IsValid())   d.density   = builder.Read(density);
                 if (inScatter.IsValid()) d.inScatter = builder.Read(inScatter);
                 outputHandle = d.output;
@@ -1607,7 +1599,6 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_VizPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
 
-                // Pull live tunables from VolumetricSettings — Render panel exposes both scales.
                 const auto& vs = sys.GetVolumetricSettings();
                 struct VizPC { u32 mode; f32 scale; f32 overlayAlpha; } pc{};
                 pc.mode         = mode;

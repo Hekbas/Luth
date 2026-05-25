@@ -123,10 +123,10 @@ vec4 WorldToAtlasUVW(vec3 worldPos)
     return vec4(uv, slice, 1.0);
 }
 
-// Sun-fog absorption — N-step ray march toward the sun. Each step samples the density atlas at
-// the step's world position for actual extinction (rather than the prior pass's uniform-density
-// shortcut). Out-of-frustum samples contribute zero — known limitation; the proper world-space
-// sun LUT (Hillaire/Frostbite) is future polish. stepLen = 2 m gives a 2·steps-meter local path.
+// Sun-fog absorption: N-step ray march toward the sun, sampling the density atlas per step for
+// density-aware extinction. Out-of-frustum samples contribute zero (known limitation — the
+// world-space sun LUT from Hillaire/Frostbite is future polish). stepLen = 2 m gives a
+// 2·steps-meter local path.
 float SunFogTransmittance(vec3 worldPos, int steps)
 {
     if (steps <= 0) return 1.0;

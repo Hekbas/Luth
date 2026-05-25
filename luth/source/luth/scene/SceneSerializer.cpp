@@ -491,7 +491,7 @@ namespace Luth
                 a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
 
                 // Migrate from legacy `animationIndex`. LoadImmediate is blocking but
-                // only runs once per scene load and only when scenes pre-date this epic.
+                // only runs once per scene load and only when scenes pre-date the clipUUID field.
                 if (aj.contains("clipUUID")) {
                     a.ClipUUID = UUID::FromString(aj.value("clipUUID", ""));
                 }

@@ -28,8 +28,7 @@ namespace Luth
 
     void RenderPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Settings UI mutates RenderingSystem post-process settings live; nothing
-        // meaningful to capture in gather.
+        // Settings UI mutates RenderingSystem post-process settings live; nothing meaningful to capture in gather.
         builder.Add<RenderSettingsSnapshot>();
     }
 

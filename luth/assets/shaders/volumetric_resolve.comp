@@ -10,7 +10,7 @@
 //
 // Lives in resolve (post-integrate) NOT in inject (pre-integrate) so the history domain matches
 // the resolve output — blending pre-integrate fresh with post-integrate history would cause
-// energy non-conservation (the v3.0.4 bug this refactor fixes).
+// energy non-conservation.
 
 #include "common/globals.glsl"
 

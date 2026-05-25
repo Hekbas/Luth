@@ -13,7 +13,7 @@ struct GPUObjectData {
     uint  indexCount;
     uint  firstIndex;
     int   vertexOffset;
-    uint  prevBoneOffset; // wired by commit 2 (dual-buffer bones)
+    uint  prevBoneOffset; // prev-frame bones region (dual-region BoneMatrixBuffer)
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer ObjectBuffer {
@@ -43,14 +43,11 @@ void main()
     uint idx = gl_GlobalInvocationID.x;
     if (idx >= pc.objectCount) return;
 
-    // Object SSBO descriptor binding starts at this frame's region — index 0-based.
     GPUObjectData obj = objects[idx];
 
-    // Transform bounding sphere center to world space
     vec3  center   = (obj.model * vec4(obj.boundingSphere.xyz, 1.0)).xyz;
-    // Scale radius by max column length of model matrix (handles non-uniform scale)
-    float maxScale = max(length(obj.model[0].xyz),
-                     max(length(obj.model[1].xyz), length(obj.model[2].xyz)));
+    // Max column length of model matrix scales radius — handles non-uniform model scale.
+    float maxScale = max(length(obj.model[0].xyz), max(length(obj.model[1].xyz), length(obj.model[2].xyz)));
     float radius   = obj.boundingSphere.w * maxScale;
 
     bool visible = true;

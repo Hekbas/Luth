@@ -49,7 +49,7 @@ struct GPUObjectData {
     uint  indexCount;     // 4B
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
-    uint  prevBoneOffset; // 4B — wired by commit 2 (dual-buffer bones)
+    uint  prevBoneOffset; // 4B — prev-frame bones region (dual-region BoneMatrixBuffer)
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {

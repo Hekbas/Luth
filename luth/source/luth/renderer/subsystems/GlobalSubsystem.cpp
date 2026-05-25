@@ -114,7 +114,7 @@ namespace Luth
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
             vr->prevNearZ      = camera.nearZ;
             vr->prevFarZ       = camera.farZ;
-            // Cache prev/curr jitter so the resolve shader (sub-task D) can dejitter sample positions.
+            // Cache prev/curr jitter so the resolve shader can dejitter sample positions.
             vr->prevJitter    = vr->currentJitter;
             vr->currentJitter = thisFrameJitter;
         } else {
@@ -139,8 +139,7 @@ namespace Luth
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
         // Volumetric fog params — distance fog + height fog + multi-scatter + temporal/sun-absorption/
-        // sky tunables. heightFogParams.w still carries multiScatterIntensity for back-compat with
-        // shaders that haven't migrated to volTemporalParams yet.
+        // sky tunables. heightFogParams.w carries multiScatterIntensity for std140 packing.
         const VolumetricSettings& vs = m_Pipeline->GetSystem().GetVolumetricSettings();
         ubo.distanceFogColorDensity = Vec4(vs.distanceFogColor, vs.distanceFogDensity);
         ubo.distanceFogParams       = Vec4(vs.distanceFogStart, vs.distanceFogMaxOpacity,
@@ -158,8 +157,8 @@ namespace Luth
                                            vs.blueNoiseDither ? 1.0f : 0.0f,
                                            0.0f, 0.0f);
 
-        // Image-quality toggles. Tail of GlobalUniforms — pbr.frag uses common/globals.glsl since
-        // the spec-AA migration so the std140 offsets match the C++ layout exactly.
+        // Image-quality toggles. Tail of GlobalUniforms — pbr.frag's common/globals.glsl mirrors
+        // the std140 layout exactly so offsets stay in lockstep.
         ubo.specAaParams = Vec4(pps.specularAaEnabled ? 1.0f : 0.0f, pps.specularAaSigma, 0.0f, 0.0f);
         ubo.taaParams    = Vec4(pps.taaEnabled ? 1.0f : 0.0f, pps.taaTemporalAlpha,
                                 thisFrameJitter.x, thisFrameJitter.y);

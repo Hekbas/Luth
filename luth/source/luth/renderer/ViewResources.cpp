@@ -19,8 +19,7 @@ namespace Luth
 {
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
-    // VK_NULL_HANDLE handles and skips the draw with no log (volumetric viz v3.0.6 lesson).
-    // Bump generously; pool memory is cheap.
+    // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
     static constexpr u32 k_ViewPoolMaxSets              = 96;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
@@ -297,8 +296,7 @@ namespace Luth
             VkClearColorValue zero{ { 0.0f, 0.0f, 0.0f, 0.0f } };
             VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             for (u32 i = 0; i < 3; ++i)
-                vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                     &zero, 1, &range);
+                vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
 
             VkImageMemoryBarrier toGen[3]{};
             for (u32 i = 0; i < 3; ++i)

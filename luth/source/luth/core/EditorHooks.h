@@ -104,8 +104,7 @@ namespace Luth
         virtual void OnProjectChanged() = 0;
         virtual void SaveSettings() = 0;
 
-        // Input capture queries (used by Input.cpp to suppress keys/mouse
-        // that ImGui is consuming)
+        // Input capture queries (used by Input.cpp to suppress keys/mouse that ImGui is consuming)
         virtual bool WantCaptureKeyboard() = 0;
         virtual bool WantCaptureMouse() = 0;
 
@@ -117,8 +116,7 @@ namespace Luth
         virtual PlayState GetPlayState() const { return PlayState::Editing; }
         virtual bool ConsumeStepRequest() { return false; }
 
-        // ProjectPanel: current directory for file-drop ingestion.
-        // Returns empty path if no panel is available.
+        // ProjectPanel: current directory for file-drop ingestion. Returns empty path if no panel is available.
         virtual std::filesystem::path GetProjectCurrentDir() = 0;
 
         // Engine-side notice surfaced to the editor UI (e.g. status bar, log).

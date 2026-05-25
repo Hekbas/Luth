@@ -124,8 +124,8 @@ namespace Luth
         std::vector<u32>            m_DepthPrepassVertSpv;
         std::vector<u32>            m_DepthPrepassSkinnedVertSpv;
 
-        // Slim G-buffer pipelines + SPV (Phase A.2). Depth-EQUAL against prepass depth, no
-        // depth write, full PBR vtx stride. Opaque-only iteration; cutouts deferred.
+        // Slim G-buffer pipelines + SPV. Depth-EQUAL against prepass depth, no depth write,
+        // full PBR vtx stride. Opaque-only iteration; cutouts deferred.
         std::unique_ptr<VKPipeline> m_SlimGBufferPipeline;
         std::unique_ptr<VKPipeline> m_SlimGBufferSkinnedPipeline;
         std::vector<u32>            m_SlimGBufferVertSpv;

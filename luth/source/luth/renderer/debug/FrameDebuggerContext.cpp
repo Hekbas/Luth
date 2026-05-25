@@ -517,8 +517,7 @@ namespace Luth
                 capturedVr->globalDescriptorSet[slot], bindlessSet, MaterialSystem::GetDescriptorSet(slot),
                 rp.GetLighting().GetLightDescSet(slot), BoneMatrixBuffer::GetDescriptorSet(slot), rp.GetGeometry().GetObjectSSBODescSet(slot)
             };
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipelineLayout, 0, 6, sets, 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 6, sets, 0, nullptr);
 
             VkViewport vp{}; vp.width = (float)width; vp.height = (float)height; vp.maxDepth = 1.0f;
             vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -695,9 +694,8 @@ namespace Luth
         EnsurePerDrawPreviewTexture(k_ShadowResolution, k_ShadowResolution);
         if (m_DepthPreviewImage == VK_NULL_HANDLE || m_PerDrawPreviewImage == VK_NULL_HANDLE) return;
 
-        // Update fd.descSet to sample the shadow cascade view. Pre-existing UAB
-        // hazard noted in spawned task; ImmediateSubmit's fence makes back-to-back
-        // calls safe in practice.
+        // Update fd.descSet to sample the shadow cascade view. ImmediateSubmit's fence makes
+        // back-to-back rewrites safe (no in-flight cmd buffer on the descSet).
         VkDescriptorImageInfo imgInfo{};
         imgInfo.sampler     = sys.GetFrameDebugger().sampler;
         imgInfo.imageView   = shadowLayerView;
@@ -1067,7 +1065,7 @@ namespace Luth
             u32 drawsRemaining = maxDraws;
             bool currentSkinned = false;
 
-            // Opaque-only — DepthPrepass mirrors live behavior at GeometrySubsystem.cpp:642.
+            // Opaque-only — mirrors live DepthPrepass (cutouts/transparents skip prepass).
             for (const auto& dc : sys.GetDrawList().opaque)
             {
                 if (drawsRemaining == 0) break;

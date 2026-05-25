@@ -25,8 +25,7 @@ namespace Luth
         explicit FrameDebuggerContext(RenderPipeline& pipeline);
         ~FrameDebuggerContext();
 
-        // Tear down the two preview textures. Called from RenderPipeline::Shutdown
-        // before the Vulkan device is destroyed.
+        // Tear down the preview textures. Called from RenderPipeline::Shutdown before the Vulkan device is destroyed.
         void Shutdown();
 
         // Lazily create the debug-blit shader + descriptor resources. Safe to
@@ -110,7 +109,7 @@ namespace Luth
         u64           m_DepthPreviewKey    = UINT64_MAX;
 
         // Slim G-buffer decoder preview (RGBA8 — shared by all 4 slim attachments via mode push).
-        // Cache key = (archiveIdx << 32) | (mode << 8) | scaleSlot, so flipping between modes
+        // Cache key = (archiveIdx << 32) | (mode << 16) | scaleBucket, so flipping between modes
         // for the same archive re-decodes lazily without churning the texture allocation.
         VkImage       m_SlimPreviewImage  = VK_NULL_HANDLE;
         VkImageView   m_SlimPreviewView   = VK_NULL_HANDLE;

@@ -37,11 +37,11 @@ namespace Luth
         void WriteTaaResolveView(ViewResources& vr, FrameTargets& targets);
         void WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs);
 
-        // Per-frame rebind of bloom-extract + composite binding 0 to track the TAA chain. When TAA
-        // is enabled the binding points at taaHistoryCurr (parity-picked) so bloom and composite
-        // consume the TAA-resolved color — without this, both descriptors statically reference
-        // FrameTargets::SceneColor and TAA's output is dropped into an orphan texture nobody reads.
-        // When TAA is disabled the binding restores to FrameTargets::SceneColor for the legacy path.
+        // Per-frame rebind of bloom-extract + composite binding 0 to track the TAA chain. When
+        // TAA is on, the binding points at taaHistoryCurr (parity-picked) so bloom and composite
+        // consume the TAA-resolved color; without this rebind, both statically reference
+        // FrameTargets::SceneColor and TAA's output is dropped. When TAA is off, the binding
+        // restores to FrameTargets::SceneColor.
         void UpdateBloomCompositeInput(ViewResources& vr, FrameTargets& targets, u32 frameAbs);
 
         // Render-graph contributions.

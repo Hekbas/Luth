@@ -1,10 +1,10 @@
 #version 450
 
 // Forward+ cluster AABB builder.
-// One invocation per cluster (16 * 9 * 24 = 3456). For each cluster, unprojects the four NDC tile
-// corners to view-space rays, computes Olsson logarithmic view-space Z bounds, intersects rays
-// with z-planes to get 8 view-space corner points, then writes the AABB. Also zero-clears the
-// ClusterGrid SSBO so LightAssignPass atomicAdds start from a known state.
+// One invocation per cluster (TILES_X·TILES_Y·SLICES_Z). For each cluster, unprojects the four
+// NDC tile corners to view-space rays, computes Olsson logarithmic view-space Z bounds, intersects
+// rays with z-planes to get 8 view-space corner points, then writes the AABB. Also zero-clears
+// the ClusterGrid SSBO so LightAssignPass atomicAdds start from a known state.
 
 const uint TILES_X  = 16u;
 const uint TILES_Y  =  9u;

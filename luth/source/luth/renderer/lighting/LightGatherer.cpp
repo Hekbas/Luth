@@ -35,8 +35,6 @@ namespace Luth
             // Shadow params: leave outShadow untouched so last-known config persists.
         }
 
-        // Point-light vector reuses storage across frames — capacity grows monotonically to the
-        // steady-state peak, so the per-frame copy is heap-allocation-free once warmed up.
         const u32 count = static_cast<u32>(snapshot.pointLights.size());
         outLights.points.resize(count);
         for (u32 i = 0; i < count; ++i)

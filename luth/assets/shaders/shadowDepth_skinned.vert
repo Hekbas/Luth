@@ -46,14 +46,14 @@ struct GPUObjectData {
     uint  indexCount;     // 4B
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
-    uint  prevBoneOffset; // 4B — wired by commit 2 (dual-buffer bones)
+    uint  prevBoneOffset; // 4B — prev-frame bones region (dual-region BoneMatrixBuffer)
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
-// Phase 13C: CPU pushes the cascade index per ShadowPass.Ci invocation.
+// CPU pushes the cascade index per ShadowPass.Ci invocation.
 layout(push_constant) uniform PushConstants {
     uint cascadeIndex;
 } pc;

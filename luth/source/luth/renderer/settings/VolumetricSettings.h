@@ -9,9 +9,8 @@ namespace Luth
     // them without a separate binding. Persisted alongside PostProcessSettings on the project.
     struct VolumetricSettings
     {
-        // Distance fog — exponential extinction with camera-to-fragment distance.
-        // Density is σ_t in 1/m (Beer-Lambert extinction coefficient). Per voxel beyond Start it
-        // contributes σ_t to the atlas; integrate's (1 − exp(−σ_t · dt)) supplies the slice integral.
+        // Exponential distance extinction (camera→fragment). σ_t in 1/m (Beer-Lambert);
+        // integrate's (1 − exp(−σ_t · dt)) supplies the slice integral.
         // Typical: atmospheric haze 0.005-0.02 · light fog 0.05-0.1 · dense fog 0.2+.
         bool distanceFogEnabled    = true;
         f32  distanceFogDensity    = 0.1f;
@@ -19,8 +18,8 @@ namespace Luth
         f32  distanceFogMaxOpacity = 0.85f;
         Vec3 distanceFogColor      = Vec3(0.5f, 0.6f, 0.7f);
 
-        // Height fog — exponential extinction with world-space Y vs reference height. Same σ_t
-        // unit convention as distance fog (1/m), modulated by exp(−falloff · max(refH − y, 0)).
+        // Exponential height extinction (world-space Y vs reference). Same σ_t unit (1/m);
+        // modulated by exp(−falloff · max(refH − y, 0)).
         bool heightFogEnabled   = false;
         f32  heightFogDensity   = 0.05f;
         f32  heightFogRefHeight = 0.0f;
@@ -31,15 +30,13 @@ namespace Luth
         // negative = backscatter. Typical fog: 0.3-0.7.
         f32  anisotropy = 0.7f;
 
-        // Artistic scattering multiplier on the post-canonical in-scatter (single + multi). The HG
-        // phase function for directional light produces ~75× brightness contrast between sun-axis
-        // (god-ray) and off-axis voxels — physically correct but visually leaves ambient fog dim.
-        // Production engines (UE5 "Scattering Distribution", Frostbite multiplier) expose this as a
-        // user knob. Energy non-conservative when > 1; that's intentional artistic control.
+        // Artistic multiplier on in-scatter (single + multi). HG for the directional light leaves
+        // off-axis voxels ~75× dimmer than the sun-axis peak — physically correct but visually
+        // dim. UE5 "Scattering Distribution" / Frostbite expose the same knob. Energy non-
+        // conservative when > 1; that's intentional artistic control.
         f32  scatteringIntensity = 15.0f;
 
-        // 2nd-order multi-scatter — adds IBL ambient term modulated by extinction, the proper
-        // Wronski/Frostbite approximation. 0 = disabled.
+        // 2nd-order multi-scatter: IBL ambient × extinction (Wronski/Frostbite). 0 = disabled.
         f32  multiScatterIntensity = 0.15f;
 
         // Temporal accumulation blend (resolve pass). Larger = less smoothing, more responsive;
@@ -55,9 +52,8 @@ namespace Luth
         // analytic distance fog max opacity.
         f32  skyFogStrength = 1.0f;
 
-        // Viz pass tunables — multiplier on sampled value + overlay alpha. ScaleDensity tunes the
-        // density heat-map's bright range; scaleInScatter tunes the radiance overlay; opacity sets
-        // how much the underlying scene shows through.
+        // Viz tunables: scaleDensity tunes the density heat-map's bright range, scaleInScatter
+        // tunes the radiance overlay, opacity gates how much of the scene shows through.
         f32  vizScaleDensity   = 5.0f;
         f32  vizScaleInScatter = 0.5f;
         f32  vizOpacity        = 0.75f;

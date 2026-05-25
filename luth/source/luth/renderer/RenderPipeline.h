@@ -82,8 +82,7 @@ namespace Luth
         u32 width  = 0;
         u32 height = 0;
 
-        // Owns every descriptor set below — one vkDestroyDescriptorPool
-        // frees them all on release.
+        // Owns every descriptor set below — one vkDestroyDescriptorPool frees them all on release.
         VkDescriptorPool descPool = VK_NULL_HANDLE;
 
         // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
@@ -322,8 +321,7 @@ namespace Luth
         const RenderView*  m_CurrentView          = nullptr;
         ViewResources*     m_CurrentViewResources = nullptr;
 
-        // Per-view resource cache. Entries are owned here; panels call
-        // ReleaseViewResources on destruction.
+        // Per-view resource cache. Entries are owned here; panels call ReleaseViewResources on destruction.
         std::unordered_map<FrameTargets*, ViewResources> m_ViewResources;
 
         // ---- Constants (shared with RS-side callers when needed) ----

@@ -3,9 +3,8 @@
 // Forward+ light-to-cluster assignment.
 // One invocation per cluster. For each point light, sphere-vs-AABB test against the cluster's
 // view-space AABB; atomicAdd reserves a contiguous slot range in LightIndex; cluster grid gets
-// (offset, count). LightSSBO at binding 0 is bound to the same VkBuffer that Set 3 binding 0
-// currently exposes as a UBO (tagged-heap backings carry both UNIFORM + STORAGE usage flags) —
-// pbr.frag still reads it as UBO until sub-task 3b promotes the layout.
+// (offset, count). LightSSBO at binding 0 reads the same VkBuffer that Set 3 exposes — tagged-
+// heap backings carry both UNIFORM and STORAGE usage flags so the shaders can pick freely.
 
 const uint TILES_X  = 16u;
 const uint TILES_Y  =  9u;

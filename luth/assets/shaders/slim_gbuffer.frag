@@ -6,7 +6,7 @@
 //   1: roughness  (R8)     — perceptual roughness, clamped to [0.04, 1.0]
 //   2: motion     (RG16F)  — NDC delta (currNDC - prevNDC); ±2 in worst case
 //   3: materialID (R16U)   — bindless material slot
-// Foundation for A.5 TAA + Phase B/C RT denoising + Phase D RT reflections.
+// Feeds TAA (motion); downstream RT denoisers read normal+roughness, RT reflections read normal.
 
 layout(location = 0) in vec2 v_TexCoord0;
 layout(location = 1) in vec2 v_TexCoord1;
@@ -67,7 +67,7 @@ void main()
 {
     GPUMaterialData mat = materials[v_MaterialIndex];
 
-    // Normal — sample tangent-space normal map if present and rotate via TBN to world space.
+    // Sample the tangent-space normal map (if present) and rotate via TBN to world space.
     // Falls back to the interpolated world normal (v_TBN column 2) otherwise.
     vec3 N;
     if ((mat.flags & FLAG_HAS_NORMAL) != 0u)
@@ -83,7 +83,7 @@ void main()
     }
     outNormal = OctEncode(N);
 
-    // Roughness — glTF convention: G channel of metalRough texture. Clamp matches pbr.frag.
+    // glTF convention — roughness sits in the G channel of the metalRough texture. Clamp matches pbr.frag.
     float roughness = mat.roughness;
     if ((mat.flags & FLAG_HAS_METALROUGH) != 0u)
     {

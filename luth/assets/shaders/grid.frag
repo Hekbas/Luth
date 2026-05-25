@@ -98,7 +98,7 @@ void main()
     float subdivisions = 10.0;
     float camHeight    = max(abs(ubo.cameraPos.y), 1e-3);
     float rawLod       = log(camHeight / baseSize) / log(subdivisions);
-    float lodLevel     = max(rawLod, 1.0); //clamp
+    float lodLevel     = max(rawLod, 1.0);   // floor at LOD 1 so the finest grid never shows zoomed in
     float lodFade      = fract(lodLevel);
     float lvl          = floor(lodLevel);
 
