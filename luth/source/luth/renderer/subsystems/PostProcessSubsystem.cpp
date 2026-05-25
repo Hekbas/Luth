@@ -771,6 +771,53 @@ namespace Luth
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), idx, writes, 0, nullptr);
     }
 
+    void PostProcessSubsystem::UpdateBloomCompositeInput(ViewResources& vr, FrameTargets& targets, u32 frameAbs)
+    {
+        const u32 slot = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        if (vr.bloomExtractDescSet[slot] == VK_NULL_HANDLE || vr.compositeDescSet[slot] == VK_NULL_HANDLE)
+            return;
+
+        const auto& pps  = m_Pipeline->GetSystem().GetPostProcessSettings();
+        const bool taaOn = pps.taaEnabled && vr.taaHistoryA && vr.taaHistoryB;
+
+        VkImageView srcView = VK_NULL_HANDLE;
+        if (taaOn)
+        {
+            // Parity rule matches AddTaaResolvePass — parity=0 writes taaHistoryA, =1 writes B.
+            // Bloom + grid + composite all read the same VkImage; RG inserts barriers so bloom
+            // sees the pre-grid version and composite sees the post-grid version.
+            const bool parity = (frameAbs & 1u) != 0u;
+            auto historyCurr = parity ? vr.taaHistoryB : vr.taaHistoryA;
+            srcView = std::static_pointer_cast<VKTexture>(historyCurr)->GetImageView();
+        }
+        else
+        {
+            auto sceneTex = std::static_pointer_cast<VKTexture>(targets.GetSceneColor());
+            if (!sceneTex) return;
+            srcView = sceneTex->GetImageView();
+        }
+
+        VkDescriptorImageInfo info{};
+        info.sampler     = m_Sampler;
+        info.imageView   = srcView;
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = vr.bloomExtractDescSet[slot];
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].pImageInfo      = &info;
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = vr.compositeDescSet[slot];
+        writes[1].dstBinding      = 0;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo      = &info;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
+    }
+
     void PostProcessSubsystem::WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs)
     {
         // Binding 2 = history-prev sampler. Parity-pick: even frame reads HistA + writes HistB;

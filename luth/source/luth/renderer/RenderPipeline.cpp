@@ -329,10 +329,16 @@ namespace Luth
         // the resolve pass writes to the parity-picked history-curr (bound as color attachment).
         const PostProcessSettings& pps = m_System.GetPostProcessSettings();
         const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources;
-        if (taaEnabled)
+        if (m_CurrentViewResources)
         {
             const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-            m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources, frameAbs);
+            if (taaEnabled)
+                m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources, frameAbs);
+            // Per-frame rebind of bloom-extract + composite binding 0 so downstream consumes the
+            // TAA chain's actual output texture (taaHistoryCurr) when TAA is on. Without this the
+            // bindings statically reference SceneColor (set in WriteView) and TAA's output is
+            // dropped — bloom and composite read the pre-TAA scene, grid lines disappear.
+            m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets, frameAbs);
         }
         RG::ResourceHandle taaColor    = taaEnabled
                                          ? m_PostProcess.AddTaaResolvePass(rg, fogColor, slimGB.motion, prepassDepth)
