@@ -29,6 +29,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  heightFogParams;           // x = refHeight, y = falloff, z = enabled, w = multiScatter
     vec4  volTemporalParams;         // x = anisotropy, y = temporalAlpha, z = sunFogAbsorptionSteps, w = skyFogStrength
     vec4  prevViewParams;            // x = prevNearZ, y = prevFarZ, z/w pad
+    vec4  volNoiseParams;            // x = noiseScale (world frequency), y = noiseStrength (0..1), z/w pad
+    vec4  volNoiseWind;              // xyz = wind direction × speed (m/s), w pad
 } ubo;
 
 #endif

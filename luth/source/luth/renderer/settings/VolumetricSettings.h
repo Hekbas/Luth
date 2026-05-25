@@ -52,6 +52,14 @@ namespace Luth
         f32  vizScaleInScatter = 0.5f;
         f32  vizOpacity        = 0.75f;
 
+        // 3D Worley-FBM noise modulating fog density per voxel (Larian/BG3 style wispy look). Scale
+        // is world-space frequency (units: 1/m); larger = smaller, more frequent clumps. Strength
+        // is the per-voxel modulation amplitude [0..1]: 0 disables, 1.0 swings density 0→2× around
+        // its mean. Wind animates the sample UV through time for a slow drift.
+        f32  noiseScale    = 0.04f;
+        f32  noiseStrength = 0.6f;
+        Vec3 noiseWind     = Vec3(0.5f, 0.0f, 0.2f);
+
         // Atlas resolution preset. Changing recreates the per-view atlases + descriptors.
         enum class Quality : u32 { Low = 0, Medium = 1, High = 2 };
         Quality quality = Quality::Medium;

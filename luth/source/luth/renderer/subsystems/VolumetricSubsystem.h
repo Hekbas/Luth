@@ -4,6 +4,7 @@
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 
@@ -160,5 +161,12 @@ namespace Luth
         VkDescriptorSetLayout              m_VizDescLayout = VK_NULL_HANDLE;
         std::unique_ptr<VKPipeline>        m_VizPipeline;
         std::vector<u32>                   m_VizFragSpv;
+
+        // Static 3D Worley-FBM noise texture — single shared instance (NOT per-view) used by the
+        // inject pass to modulate density. Baked once at Init via a one-shot compute dispatch.
+        // 128³ RGBA8 = 8 MB. Sampler is a tile-friendly LINEAR+REPEAT (m_Sampler is CLAMP_TO_EDGE
+        // so we own a dedicated one).
+        std::shared_ptr<Texture>           m_NoiseTexture;
+        VkSampler                          m_NoiseSampler = VK_NULL_HANDLE;
     };
 }

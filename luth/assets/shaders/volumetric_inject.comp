@@ -56,6 +56,7 @@ layout(std430, set = 1, binding = 5) readonly buffer FogVolumeBuffer {
 } fog;
 
 layout(set = 1, binding = 6) uniform sampler2DArrayShadow shadowMap;
+layout(set = 1, binding = 7) uniform sampler3D            volNoise3D;
 
 // invView pushed each dispatch — avoids per-voxel inverse(ubo.view) (~40 ops).
 // volDim* are atlas dimensions for the active quality preset (Low/Medium/High); set CPU-side.
@@ -235,6 +236,20 @@ void main() {
             float phase    = HenyeyGreenstein(cosTheta, gAniso);
             pointContrib += p.color * p.intensity * atten * phase;
         }
+    }
+
+    // 3D Worley-FBM noise — modulates density per voxel in world space (sampled via REPEAT-mode
+    // sampler so the 128³ texture tiles seamlessly). volNoiseParams.x = scale (1/wavelength_m),
+    // .y = strength (0 = disabled, 1 = swings density 0..2× around its mean). volNoiseWind.xyz =
+    // wind in m/s; ubo.time animates the sample UVW for a slow atmospheric drift. Channel A is
+    // the pre-mixed FBM-with-detail variant (see volumetric_noise_bake.comp).
+    float noiseStrength = ubo.volNoiseParams.y;
+    if (noiseStrength > 1e-4 && density > 1e-4)
+    {
+        vec3 noiseUVW = worldPos * ubo.volNoiseParams.x + ubo.volNoiseWind.xyz * ubo.time * ubo.volNoiseParams.x;
+        float n       = texture(volNoise3D, noiseUVW).a;
+        // Remap [0..1] → [1-strength .. 1+strength] so mean density is preserved.
+        density *= mix(1.0 - noiseStrength, 1.0 + noiseStrength, n);
     }
 
     // Single-scatter accumulation: scattering = sigma_s × radiance × phase. Density approximates

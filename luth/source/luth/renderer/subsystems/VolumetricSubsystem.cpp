@@ -59,12 +59,12 @@ namespace Luth
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
         // Inject layout (Set 1): b0/b1 storage images (density + in-scatter scratch), b2-b5 SSBOs
-        // (LightSSBO, ClusterGrid, LightIndex, FogVolume), b6 shadow sampler. b0/b1 are stable
-        // (single-atlas write target, no parity — temporal moved to the resolve pass). UAB only on
-        // the per-frame-rewritten SSBOs.
+        // (LightSSBO, ClusterGrid, LightIndex, FogVolume), b6 shadow sampler, b7 3D noise sampler
+        // (static Worley-FBM, baked once at Init). b0/b1/b6/b7 are stable per-view; b2-b5 rewrite
+        // per frame against fresh tagged-heap regions.
         {
-            VkDescriptorSetLayoutBinding bindings[7]{};
-            for (u32 i = 0; i < 7; ++i)
+            VkDescriptorSetLayoutBinding bindings[8]{};
+            for (u32 i = 0; i < 8; ++i)
             {
                 bindings[i].binding         = i;
                 bindings[i].descriptorCount = 1;
@@ -77,24 +77,25 @@ namespace Luth
             bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // LightIndex
             bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         // FogVolumeSSBO
             bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // shadowMap
+            bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // volNoise3D
 
-            VkDescriptorBindingFlags bindingFlags[7] = {
+            VkDescriptorBindingFlags bindingFlags[8] = {
                 0, 0,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-                0,
+                0, 0,
             };
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-            bindingFlagsCI.bindingCount  = 7;
+            bindingFlagsCI.bindingCount  = 8;
             bindingFlagsCI.pBindingFlags = bindingFlags;
 
             VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutCI.pNext        = &bindingFlagsCI;
             layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-            layoutCI.bindingCount = 7;
+            layoutCI.bindingCount = 8;
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectDescLayout);
 
@@ -301,6 +302,119 @@ namespace Luth
                     cfg, m_FullscreenVertSpv, m_VizFragSpv, vizLayouts);
             }
         }
+
+        // 3D noise bake — one-shot compute dispatch that fills m_NoiseTexture with Worley-FBM at
+        // engine init. All ephemeral state (pool / layout / pipeline) lives inside this scope and
+        // is destroyed at end. The texture itself outlives Init and is sampled by inject's b7.
+        {
+            constexpr u32 k_NoiseDim = 128;
+            m_NoiseTexture = std::make_shared<VKTexture>(
+                k_NoiseDim, k_NoiseDim, k_NoiseDim, TextureFormat::RGBA8, VK_IMAGE_USAGE_STORAGE_BIT);
+
+            // Sampler — LINEAR + REPEAT for tileable noise. m_Sampler is CLAMP_TO_EDGE so it's not
+            // reusable here.
+            VkSamplerCreateInfo nsCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+            nsCI.magFilter    = VK_FILTER_LINEAR;
+            nsCI.minFilter    = VK_FILTER_LINEAR;
+            nsCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            nsCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            nsCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            nsCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            vkCreateSampler(device, &nsCI, nullptr, &m_NoiseSampler);
+
+            // Bake pipeline + descriptor — ephemeral, destroyed at end of this block.
+            std::vector<u32> bakeSpv;
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_noise_bake.comp"))
+                bakeSpv = sh->GetSpirV();
+            if (bakeSpv.empty())
+            {
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_noise_bake.comp!");
+                return;
+            }
+
+            VkDescriptorSetLayoutBinding binding{};
+            binding.binding         = 0;
+            binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            binding.descriptorCount = 1;
+            binding.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            VkDescriptorSetLayoutCreateInfo bakeLayoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            bakeLayoutCI.bindingCount = 1;
+            bakeLayoutCI.pBindings    = &binding;
+            VkDescriptorSetLayout bakeLayout = VK_NULL_HANDLE;
+            vkCreateDescriptorSetLayout(device, &bakeLayoutCI, nullptr, &bakeLayout);
+
+            VkDescriptorPoolSize bakePoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 };
+            VkDescriptorPoolCreateInfo bakePoolCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            bakePoolCI.maxSets       = 1;
+            bakePoolCI.poolSizeCount = 1;
+            bakePoolCI.pPoolSizes    = &bakePoolSize;
+            VkDescriptorPool bakePool = VK_NULL_HANDLE;
+            vkCreateDescriptorPool(device, &bakePoolCI, nullptr, &bakePool);
+
+            VkDescriptorSet bakeSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo bakeAI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            bakeAI.descriptorPool     = bakePool;
+            bakeAI.descriptorSetCount = 1;
+            bakeAI.pSetLayouts        = &bakeLayout;
+            vkAllocateDescriptorSets(device, &bakeAI, &bakeSet);
+
+            VkPushConstantRange bakePC{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(u32) };
+            auto bakePipeline = std::make_unique<VKComputePipeline>(
+                bakeSpv,
+                std::vector<VkDescriptorSetLayout>{ bakeLayout },
+                std::vector<VkPushConstantRange>{ bakePC });
+
+            auto vkNoise = std::static_pointer_cast<VKTexture>(m_NoiseTexture);
+            VkDescriptorImageInfo noiseStoreInfo{};
+            noiseStoreInfo.imageView   = vkNoise->GetImageView();
+            noiseStoreInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            VkWriteDescriptorSet bakeWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            bakeWrite.dstSet          = bakeSet;
+            bakeWrite.dstBinding      = 0;
+            bakeWrite.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            bakeWrite.descriptorCount = 1;
+            bakeWrite.pImageInfo      = &noiseStoreInfo;
+            vkUpdateDescriptorSets(device, 1, &bakeWrite, 0, nullptr);
+
+            VkImage noiseImg = vkNoise->GetImage();
+            VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
+            {
+                VkImageMemoryBarrier toGen{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                toGen.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                toGen.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+                toGen.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toGen.image               = noiseImg;
+                toGen.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                toGen.srcAccessMask       = 0;
+                toGen.dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &toGen);
+
+                bakePipeline->Bind(cmd);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    bakePipeline->GetLayout(), 0, 1, &bakeSet, 0, nullptr);
+                u32 dim = k_NoiseDim;
+                vkCmdPushConstants(cmd, bakePipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(u32), &dim);
+                const u32 groups = (k_NoiseDim + 3) / 4;
+                vkCmdDispatch(cmd, groups, groups, groups);
+
+                VkImageMemoryBarrier toShader = toGen;
+                toShader.oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+                toShader.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                toShader.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &toShader);
+            });
+
+            // Tear down the bake-only state. The texture + sampler stay alive on the subsystem.
+            bakePipeline.reset();
+            vkDestroyDescriptorPool(device, bakePool, nullptr);
+            vkDestroyDescriptorSetLayout(device, bakeLayout, nullptr);
+        }
     }
 
     void VolumetricSubsystem::Shutdown()
@@ -317,12 +431,15 @@ namespace Luth
         if (m_CompositeDescLayout) vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
         if (m_VizDescLayout)       vkDestroyDescriptorSetLayout(device, m_VizDescLayout, nullptr);
         if (m_Sampler)             vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_NoiseSampler)        vkDestroySampler(device, m_NoiseSampler, nullptr);
+        m_NoiseTexture.reset();
         m_InjectDescLayout    = VK_NULL_HANDLE;
         m_IntegrateDescLayout = VK_NULL_HANDLE;
         m_ResolveDescLayout   = VK_NULL_HANDLE;
         m_CompositeDescLayout = VK_NULL_HANDLE;
         m_VizDescLayout       = VK_NULL_HANDLE;
         m_Sampler             = VK_NULL_HANDLE;
+        m_NoiseSampler        = VK_NULL_HANDLE;
     }
 
     bool VolumetricSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
@@ -447,8 +564,8 @@ namespace Luth
 
     void VolumetricSubsystem::WriteInjectView(ViewResources& vr)
     {
-        // Stable across frames: b0 (volDensity), b1 (volInScatter scratch), b6 (shadow sampler).
-        // SSBO bindings b2-b5 rewrite per frame in WriteInjectPerFrame.
+        // Stable across frames: b0 (volDensity), b1 (volInScatter scratch), b6 (shadow sampler),
+        // b7 (3D noise sampler). SSBO bindings b2-b5 rewrite per frame in WriteInjectPerFrame.
         if (m_InjectDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volDensity || !vr.volInScatter) return;
 
@@ -473,7 +590,15 @@ namespace Luth
             shadowInfo.sampler     = lighting.GetShadowSampler();
         }
 
-        VkWriteDescriptorSet writes[3 * MAX_FRAMES_IN_FLIGHT]{};
+        VkDescriptorImageInfo noiseInfo{};
+        if (m_NoiseTexture && m_NoiseSampler)
+        {
+            noiseInfo.imageView   = std::static_pointer_cast<VKTexture>(m_NoiseTexture)->GetImageView();
+            noiseInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            noiseInfo.sampler     = m_NoiseSampler;
+        }
+
+        VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT]{};
         u32 w = 0;
         for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -504,6 +629,17 @@ namespace Luth
                 writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 writes[w].descriptorCount = 1;
                 writes[w].pImageInfo      = &shadowInfo;
+                ++w;
+            }
+
+            if (noiseInfo.sampler)
+            {
+                writes[w] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                writes[w].dstSet          = set;
+                writes[w].dstBinding      = 7;
+                writes[w].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[w].descriptorCount = 1;
+                writes[w].pImageInfo      = &noiseInfo;
                 ++w;
             }
         }

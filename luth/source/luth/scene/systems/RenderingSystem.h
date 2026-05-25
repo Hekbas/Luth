@@ -60,6 +60,11 @@ namespace Luth
         // x = prevNearZ, y = prevFarZ, z/w = pad. Cached for cross-frame reprojection so the resolve
         // pass can reconstruct prev view-Z without assuming nearZ/farZ are constant.
         Vec4 prevViewParams;
+        // x = noiseScale (world-space frequency, 1/wavelength_m), y = noiseStrength (0..1 modulation
+        // amplitude), z/w pad. Drives the Worley-FBM density-noise term in the inject shader.
+        Vec4 volNoiseParams;
+        // xyz = wind direction × speed (m/s) — animates the noise sample UV over time, w pad.
+        Vec4 volNoiseWind;
     };
 
     enum class ShadeMode : u8 {

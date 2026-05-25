@@ -173,6 +173,20 @@ namespace Luth
                     UI::EndProperties();
                 }
 
+                // Density noise — 3D Worley-FBM modulation for the "wispy" look.
+                if (UI::BeginProperties("VolumetricNoise")) {
+                    UI::Property("Noise Scale",    vs.noiseScale,    0.005f, 0.001f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("World-space frequency (1/m). Larger = smaller clumps.\nTypical: 0.02 (50m clumps) to 0.1 (10m clumps).");
+                    UI::Property("Noise Strength", vs.noiseStrength, 0.01f,  0.0f,   1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Density modulation amplitude. 0 = disabled, uniform fog;\n1 = swings density 0×..2× around its mean.");
+                    UI::Property("Wind (m/s)",     vs.noiseWind,     0.05f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Wind direction × speed — animates the noise UVW over time\nfor slow atmospheric drift.");
+                    UI::EndProperties();
+                }
+
                 // Distance fog — exponential attenuation with camera-to-fragment distance.
                 if (UI::BeginProperties("VolumetricDistanceFog")) {
                     UI::Property      ("Distance Fog",     vs.distanceFogEnabled);
