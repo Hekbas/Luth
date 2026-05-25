@@ -8,7 +8,9 @@ namespace Luth
         Linear     = 0,
         Reinhard   = 1,
         ACES       = 2,
-        Uncharted2 = 3
+        Uncharted2 = 3,
+        AgX        = 4,
+        AgXPunchy  = 5
     };
 
     struct PostProcessSettings

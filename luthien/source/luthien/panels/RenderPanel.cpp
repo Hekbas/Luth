@@ -238,7 +238,7 @@ namespace Luth
             // Tone Mapping
             if (UI::BeginCollapsingHeader("Tone Mapping", true)) {
                 if (UI::BeginProperties("ToneMapProps")) {
-                    const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2" };
+                    const char* operators[] = { "Linear", "Reinhard", "ACES", "Uncharted 2", "AgX", "AgX Punchy" };
                     int currentOp = static_cast<int>(pp.tonemapOp);
                     if (UI::PropertyCombo("Operator", currentOp, operators, IM_ARRAYSIZE(operators)))
                         pp.tonemapOp = static_cast<TonemapOperator>(currentOp);
