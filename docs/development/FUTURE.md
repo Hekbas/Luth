@@ -47,6 +47,26 @@ demands them.
 
 > Removed because absorbed into `rt-renderer`: Volumetric Fog → Phase A.4 (Wronski full voxel volume), Global Illumination → Phase C (ReSTIR DI + GI), SSR → Phase D.1 (RT reflections supersede screen-space). Shadow frustum-union fit removed because Phase B.3 retires CSM entirely.
 
+### rt-renderer Phase A polish & follow-ups
+
+Items deferred from Phase A history files (v3.0.0–v3.0.7). None on critical path; pick up opportunistically or fold into the next polish pass.
+
+| Item | Source | Trigger |
+|---|---|---|
+| **Source-side TAA de-jitter** (`slim_gbuffer.vert` + unjittered prev/curr VPs in `GlobalUniforms`) | image-quality v3.0.7 history (sub-task G) | **HIGH** — Phase B RT denoising wants pure-rigid motion vectors |
+| **Salvi K4 variance-clip TAA upgrade** | image-quality v3.0.7 | When RT specular pinpoints surface (Phase D RT reflections) |
+| **Mitchell-Netravali TAA post-sharpen pass** | image-quality v3.0.7 | After Phase A.5; close remaining TAA blur gap |
+| **TAA debug viz ShadeMode** (`TaaHistory`) | image-quality v3.0.7 | Diagnostic convenience |
+| **Blackman-Harris weight normalization** (sum 0.9956 → 1.0) | image-quality v3.0.7 | Imperceptible drift; opportunistic |
+| **AgX exposure-aware curve fit** (Filament's expanded range) | image-quality v3.0.7 | If users push `pp.exposure` past ±2 stops of unity |
+| **Slim G-buffer cutout coverage** | slim-gbuffer v3.0.1 | When cutout-heavy scene surfaces (foliage / glass cards) |
+| **Per-froxel light culling for fog** | tracked as [#134](https://github.com/Hekbas/Luth/issues/134); volumetric-fog-polish v3.0.6 | When a scene shows residual fog Z-banding |
+| **Volumetric per-pass timing in RenderPanel** | volumetric-fog-polish v3.0.6 | Convenience; FrameDebugger already shows pass timings |
+| **Sun-fog absorption via world-space LUT** | tracked as [#133](https://github.com/Hekbas/Luth/issues/133); volumetric-fog-polish v3.0.6 | When god rays through low fog with off-frustum density expose the artifact |
+| **IBL ambient multi-direction sampling** (currently +Y only) | volumetric-fog-polish v3.0.6 | Matters at fog scales rarely |
+| **RG `isCrossQueue` checks `lastReader`** (foundational RG change) | volumetric-validation v3.0.4 | Harmless drift today; pick up if real validation regression surfaces |
+| **Memory Budget table refresh in `arch/rendering-pipeline.md`** | this audit | Stale post-arc; Light UBO removed, GBuffer sizes wrong, volumetric/TAA/IBL/BoneMatrix-dual not listed |
+
 ## Animation maturity (post `animation-controller-v2`)
 
 | Item | Depends on | Notes |
