@@ -32,9 +32,11 @@ namespace Luth
 
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv);
 
-        // Registered into the render graph by RtSubsystem::AddTlasBuildPass (B.2.D wires the call;
-        // B.2.C ships the subsystem dormant — Init creates the pipeline so build verifies it).
-        void AddSkinningPass(RG::RenderGraph& rg, const RenderSnapshot& snapshot);
+        // Per-frame dispatch loop — binds the compute pipeline + Set 0 (BoneMatrixBuffer SSBO) once,
+        // then iterates snapshot.meshes filtering on isSkinned + non-null skinned BLAS, pushes the
+        // per-mesh constants, and dispatches one workgroup-per-64-verts compute. Caller (RtSubsystem)
+        // emits the compute-write → AS-build-read barrier on the deformed-VBs afterward.
+        void DispatchAllSkinned(VkCommandBuffer cmd, const RenderSnapshot& snapshot) const;
 
     private:
         void Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset) const;
