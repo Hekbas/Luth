@@ -118,12 +118,16 @@ namespace Luth
         auto result = std::make_shared<VKAccelerationStructure>();
         result->m_PrimitiveCount = primitiveCount;
 
-        // Persistent AS storage buffer.
+        // Persistent AS storage buffer. CONCURRENT: BLAS is built on graphics (ImmediateSubmit)
+        // but read on compute (RtSunShadowsPass raygen) via TLAS device-address dereference.
+        // Per arch/multi-queue.md, cross-queue buffer access requires CONCURRENT or QFOT; AS
+        // storage was missed in the original policy because B.2's per-frame TLAS was culled
+        // silently and never exercised cross-queue.
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
                               | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VulkanContext::Get().ApplyConcurrentSharing(storageCi);
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
@@ -275,12 +279,12 @@ namespace Luth
             &sizes);
         result->m_UpdateScratchSize = sizes.updateScratchSize;
 
-        // Persistent AS storage.
+        // Persistent AS storage. CONCURRENT for cross-queue read by RT trace (see CreateStaticBLAS).
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
                               | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VulkanContext::Get().ApplyConcurrentSharing(storageCi);
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 

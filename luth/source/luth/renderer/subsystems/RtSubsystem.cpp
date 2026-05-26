@@ -81,7 +81,7 @@ namespace Luth
             storageCi.size        = storageSize;
             storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
                                   | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-            storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            ctx.ApplyConcurrentSharing(storageCi);  // raygen reads on AsyncCompute cross-queue
             outStorageAlloc = VulkanAllocator::AllocateBuffer(
                 storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, outStorageBuf);
             if (!outStorageBuf) return false;
