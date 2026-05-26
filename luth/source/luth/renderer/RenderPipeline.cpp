@@ -311,10 +311,10 @@ namespace Luth
         m_Rt.AddTlasBuildPass(rg);
 
         // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
-        // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle) in
-        // sub-task C. AsyncCompute pass overlaps with GTAO chain below.
+        // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
+        // AsyncCompute pass overlaps with GTAO chain below. Returns invalid handle if the RT
+        // pipeline isn't ready (boot, missing shaders) — consumer treats invalid handle as CSM.
         RG::ResourceHandle rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg);
-        (void)rtShadowMaskHandle;  // wired into AddGeometryPass in sub-task C
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -325,7 +325,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

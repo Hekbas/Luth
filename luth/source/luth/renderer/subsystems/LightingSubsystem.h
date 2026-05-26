@@ -124,7 +124,8 @@ namespace Luth
         // on ViewResources and is allocated from vr.descPool in AllocateViewResources.
         std::shared_ptr<Texture> m_ShadowMap;
         VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
-        VkSampler                m_ShadowSampler  = VK_NULL_HANDLE;
+        VkSampler                m_ShadowSampler        = VK_NULL_HANDLE;
+        VkSampler                m_SunShadowMaskSampler = VK_NULL_HANDLE;  // Set 3 binding 4 — RT sun shadow mask (linear, clamp-to-edge, no compare)
         VkDescriptorSetLayout    m_LightSetLayout = VK_NULL_HANDLE;
 
         // Shadow pipelines + SPV.
