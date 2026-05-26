@@ -26,11 +26,15 @@ namespace Luth
 
         VkBuffer GetVulkanBuffer() const { return m_Buffer; }
         VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
+        // Fence value signaled by UploadContext when this buffer's most recent upload retires.
+        // BLAS factory polls UploadContext::WaitForUpload(this) before reading VB on the graphics queue.
+        uint64_t GetUploadFence() const { return m_UploadFence; }
 
     private:
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;
         VkDeviceAddress m_DeviceAddress = 0;
+        uint64_t m_UploadFence = 0;
         BufferLayout m_Layout;
     };
 
@@ -47,11 +51,13 @@ namespace Luth
 
         VkBuffer GetVulkanBuffer() const { return m_Buffer; }
         VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
+        uint64_t GetUploadFence() const { return m_UploadFence; }
 
     private:
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = nullptr;
         VkDeviceAddress m_DeviceAddress = 0;
+        uint64_t m_UploadFence = 0;
         uint32_t m_Count;
     };
 

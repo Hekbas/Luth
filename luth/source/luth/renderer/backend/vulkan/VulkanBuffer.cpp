@@ -16,9 +16,11 @@ namespace Luth
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = size;
+        // AS_BUILD_INPUT_READ_ONLY required by vkCmdBuildAccelerationStructuresKHR per VUID-...-03671.
         bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
@@ -55,7 +57,11 @@ namespace Luth
         // so any draw that consumes m_Buffer (always submitted later in the frame) implicitly
         // observes the upload. Today UploadContext runs on the graphics queue; the fence-based
         // sync stays correct if a future async-compute split moves this to a dedicated transfer family.
-        UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
+        //
+        // m_UploadFence stash: BLAS-build at import reads VB on the graphics queue, which is a
+        // different submission chain than the rendering frame's draw queue — the implicit
+        // serialize doesn't cover it. BLAS factory polls WaitForUpload(m_UploadFence) explicitly.
+        m_UploadFence = UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
     }
 
     // ── Index Buffer ──
@@ -68,9 +74,11 @@ namespace Luth
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = size;
+        // AS_BUILD_INPUT_READ_ONLY required by vkCmdBuildAccelerationStructuresKHR per VUID-...-03672.
         bufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT
                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                         | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
@@ -80,7 +88,7 @@ namespace Luth
         m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
 
         // Async upload — see VKVertexBuffer::SetData for the queue-ordering rationale.
-        UploadContext::Get().UploadBuffer(indices, size, m_Buffer, 0);
+        m_UploadFence = UploadContext::Get().UploadBuffer(indices, size, m_Buffer, 0);
     }
 
     VKIndexBuffer::~VKIndexBuffer()
