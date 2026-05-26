@@ -376,6 +376,7 @@ namespace Luth
                      && avail13.dynamicRendering
                      && avail13.synchronization2
                      && availAs.accelerationStructure
+                     && availAs.descriptorBindingAccelerationStructureUpdateAfterBind
                      && availRt.rayTracingPipeline
                      && availRq.rayQuery;
         if (!ok)
@@ -386,7 +387,7 @@ namespace Luth
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
                 "bufferDeviceAddress={} dynamicRendering={} synchronization2={} "
-                "accelerationStructure={} rayTracingPipeline={} rayQuery={}",
+                "accelerationStructure={} asUpdateAfterBind={} rayTracingPipeline={} rayQuery={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
                 (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
@@ -400,6 +401,7 @@ namespace Luth
                 (bool)avail13.dynamicRendering,
                 (bool)avail13.synchronization2,
                 (bool)availAs.accelerationStructure,
+                (bool)availAs.descriptorBindingAccelerationStructureUpdateAfterBind,
                 (bool)availRt.rayTracingPipeline,
                 (bool)availRq.rayQuery);
         }
@@ -471,6 +473,9 @@ namespace Luth
         VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{};
         asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
         asFeatures.accelerationStructure = VK_TRUE;
+        // Required so Set 0 binding 6 (TLAS) can use UPDATE_AFTER_BIND — VUID-03570 fires on layout
+        // create without it. Asserted in the baseline check above so RT-mandatory devices guarantee it.
+        asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
 
         VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{};
         rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;

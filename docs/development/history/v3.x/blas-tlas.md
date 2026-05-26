@@ -145,3 +145,13 @@ End-to-end smoke checklist (deferred to user runtime):
 7. Frame time within ±5% of v3.0.8 baseline — TLAS build cost (~100-200 µs for ~100 instances on RTX 3080) overlaps with graphics work on AsyncCompute.
 
 If validation surfaces VUIDs around `Vulkan12Features::scalarBlockLayout` for the `skinning.comp` scalar buffer_reference, enable that feature in `VulkanContext::CreateLogicalDevice` alongside `bufferDeviceAddress` — `std430` layout is what we declared so the feature should not be needed, but document it here as the first thing to check.
+
+---
+
+## Bugs caught during smoke
+
+**VUID-03570 — `descriptorBindingAccelerationStructureUpdateAfterBind` not enabled.** First boot tripped `vkCreateDescriptorSetLayout` on Set 0's new binding 6: the binding uses `UPDATE_AFTER_BIND_BIT` (mirrors the existing 0-5 pattern) but `VkPhysicalDeviceAccelerationStructureFeaturesKHR::descriptorBindingAccelerationStructureUpdateAfterBind` was never enabled at device-create time. Per spec, every AS-type binding using UAB requires this feature flag to be on. Fix: enable the feature alongside `accelerationStructure` in `VulkanContext::CreateLogicalDevice`'s `asFeatures` block + add to the `DeviceMeetsBaseline` probe + log line. NVIDIA Ampere+ exposes the feature freely, so RT-mandatory devices keep working. Catch only fired pre-project-load because that's when `GlobalSubsystem::Init` runs the layout create.
+
+Alternative considered: drop UAB on binding 6 only (PARTIALLY_BOUND alone). The per-frame slot rotation makes UAB technically unnecessary (game-frame K writes slot K%N while render reads (K-1)%N), but the existing 0-5 bindings carry UAB for documented historical race protection, so keeping the AS binding consistent is cleaner than special-casing it.
+
+**`skinning.comp.meta` not committed alongside the shader.** Asset-pipeline auto-generates the JSON sidecar on first import (UUID, hot_reload flag, optimization_level); we missed it in the B.2.C commit. Committed as part of the same fix-up commit so the UUID is stable across clones.
