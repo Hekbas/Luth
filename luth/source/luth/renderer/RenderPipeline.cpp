@@ -239,10 +239,11 @@ namespace Luth
             Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
             m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
-            // CSM cascade cull — skip entirely when RT mode is active (no ShadowPass runs to
-            // consume the indirect args). CastShadows=false also skips both modes' cascade work.
-            const bool runCsmCascades = (m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
-                                     && m_Global.GetShadowParams().castShadows;
+            // CSM cascade cull — needed when ShadowPass runs (CSM mode OR volumetric on, since
+            // volumetric_inject_scatter samples cascades in both shadow modes).
+            const bool runCsmCascades = m_Global.GetShadowParams().castShadows
+                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                         || view.camera.enableVolumetricFog);
             if (runCsmCascades)
             {
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
@@ -255,8 +256,11 @@ namespace Luth
             }
         }
 
-        const bool runCsmShadowPasses = (m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
-                                     && m_Global.GetShadowParams().castShadows;
+        // Shadow pass renders cascade depth — needed for CSM mode AND for volumetric god-rays
+        // in either shadow mode (volumetric scatter samples shadowMap at Set 1 b5).
+        const bool runCsmShadowPasses = m_Global.GetShadowParams().castShadows
+                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                         || view.camera.enableVolumetricFog);
         RG::ResourceHandle shadowHandles[k_ShadowCascadeCount]{};
         if (runCsmShadowPasses)
         {
