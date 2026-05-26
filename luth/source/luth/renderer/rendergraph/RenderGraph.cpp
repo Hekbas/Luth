@@ -459,6 +459,16 @@ namespace Luth::RG
             case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
             case ResourceState::IndirectRead:           return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT };
+            case ResourceState::AccelerationStructureBuild:
+                return { VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                         VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR };
+            case ResourceState::AccelerationStructureRead:
+                // Superset stage covers ray-query consumers in frag/compute shaders + future
+                // RT-pipeline raygen reads. Tightened per-pass when B.3 lands the first reader.
+                return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                       | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                       | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR };
             default:                                    return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
         }
     }

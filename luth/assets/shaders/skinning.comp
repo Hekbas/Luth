@@ -1,0 +1,73 @@
+#version 460
+#extension GL_EXT_buffer_reference  : require
+#extension GL_EXT_buffer_reference2 : require
+
+// Per-vertex compute skinning for RT BLAS refit. Reads tight-packed skin inputs (position +
+// 4 bone IDs + weights) via buffer-reference BDA; reads bone matrices from the engine-shared
+// BoneMatrixBuffer SSBO at set 0 binding 0; writes deformed positions (vec3) to an output
+// buffer-reference BDA that the BLAS update-build subsequently consumes.
+//
+// CONTRACT: SkinInput layout MUST match VKAccelerationStructure::SkinComputeInput (std430):
+//   vec4 position  @ 0   (.xyz = bind pose, .w = 1.0 — saves a vec4 promote inside the loop)
+//   ivec4 boneIDs  @ 16  (negative entries treated as "no bone")
+//   vec4 boneWeights@ 32 (weights for each of the 4 bones; sum should be ~1.0)
+// sizeof(SkinInput) = 48. Stride locked at the C++ static_assert; changing one without the
+// other is a silent miscompile.
+//
+// CONTRACT: Bones SSBO is BoneMatrixBuffer's current-frame backing region — the engine binds
+// the per-frame descriptor set at dispatch time. `pc.boneOffset` is the entity's base matrix
+// index inside that region, populated by AnimationSystem and surfaced through MeshDrawSnapshot.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct SkinInput
+{
+    vec4  position;
+    ivec4 boneIDs;
+    vec4  boneWeights;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InputBuf
+{
+    SkinInput verts[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer DeformedBuf
+{
+    float positions[];   // 3 floats per vertex; idx*3 + {0,1,2}
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer BoneBuf
+{
+    mat4 bones[];
+};
+
+layout(push_constant, std430) uniform PC
+{
+    InputBuf    inputBuf;
+    DeformedBuf deformedBuf;
+    uint        vertexCount;
+    uint        boneOffset;
+} pc;
+
+void main()
+{
+    const uint vid = gl_GlobalInvocationID.x;
+    if (vid >= pc.vertexCount) return;
+
+    const SkinInput v = pc.inputBuf.verts[vid];
+
+    vec3 outPos = vec3(0.0);
+    for (int i = 0; i < 4; ++i)
+    {
+        const int boneId = v.boneIDs[i];
+        if (boneId < 0) continue;
+        const mat4 boneXform = bones[pc.boneOffset + uint(boneId)];
+        outPos += (boneXform * v.position).xyz * v.boneWeights[i];
+    }
+
+    const uint base = vid * 3u;
+    pc.deformedBuf.positions[base + 0u] = outPos.x;
+    pc.deformedBuf.positions[base + 1u] = outPos.y;
+    pc.deformedBuf.positions[base + 2u] = outPos.z;
+}

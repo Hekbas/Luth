@@ -91,6 +91,7 @@ namespace Luth
         m_GTAO.Init(*this);
         m_Volumetric.Init(*this);
         m_Rt.Init(*this);
+        m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -123,7 +124,8 @@ namespace Luth
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
-                              || m_Volumetric.OnShaderReloaded(name, spv);
+                              || m_Volumetric.OnShaderReloaded(name, spv)
+                              || m_Skinning.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -176,6 +178,7 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_Skinning.Shutdown();
         m_Rt.Shutdown();
         m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
@@ -300,6 +303,11 @@ namespace Luth
             volInScatterHandle  = m_Volumetric.AddIntegratePass(rg, injectOut);
             volResolvedHandle   = m_Volumetric.AddResolvePass(rg, volInScatterHandle);
         }
+
+        // RT acceleration structures — per-frame skinning compute + skinned BLAS refit + TLAS build.
+        // Multi-view guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
+        // Routed to AsyncCompute so it overlaps with the rest of the graphics frame.
+        m_Rt.AddTlasBuildPass(rg);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the

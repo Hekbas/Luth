@@ -31,17 +31,19 @@ namespace Luth::RG
     enum class ResourceState
     {
         Undefined,
-        ShaderResource,         // Fragment Shader Read
-        ColorAttachment,        // Color Write
-        DepthStencilAttachment, // Depth Write
-        TransferSrc,            // Copy Source
-        TransferDst,            // Copy Dest / Clear
-        Present,                // Swapchain Present
-        ComputeRead,            // Compute shader read (storage image)
-        ComputeWrite,           // Compute shader write (storage image)
-        StorageBufferRead,      // Compute shader read (SSBO)
-        StorageBufferWrite,     // Compute shader write (SSBO)
-        IndirectRead,           // Indirect draw/dispatch command read
+        ShaderResource,             // Fragment Shader Read
+        ColorAttachment,            // Color Write
+        DepthStencilAttachment,     // Depth Write
+        TransferSrc,                // Copy Source
+        TransferDst,                // Copy Dest / Clear
+        Present,                    // Swapchain Present
+        ComputeRead,                // Compute shader read (storage image)
+        ComputeWrite,               // Compute shader write (storage image)
+        StorageBufferRead,          // Compute shader read (SSBO)
+        StorageBufferWrite,         // Compute shader write (SSBO)
+        IndirectRead,               // Indirect draw/dispatch command read
+        AccelerationStructureBuild, // vkCmdBuildAccelerationStructuresKHR write
+        AccelerationStructureRead,  // Ray-query / RT-pipeline / fragment-shader read of AS
     };
 
     // Which queue family a pass executes on. Default Graphics — opt into AsyncCompute via the 4-arg

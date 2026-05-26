@@ -154,6 +154,12 @@ UploadImageMipped              ─► graphics family ─► SubmitGraphics2 ─
 
 Stage masks on the transfer queue: only `TRANSFER_BIT`, `TOP_OF_PIPE_BIT`, `BOTTOM_OF_PIPE_BIT`, `ALL_COMMANDS_BIT` valid. `UploadImage`'s post-barrier uses `dstStage = BOTTOM_OF_PIPE_BIT` (the upload-fence wait chain supplies the dependency to the graphics-side fragment-shader read).
 
+## Acceleration structure builds — compute-family operation
+
+`vkCmdBuildAccelerationStructuresKHR` requires `VK_QUEUE_COMPUTE_BIT` on the command pool per the Vulkan 1.3 spec — eligible on the graphics queue family (which always advertises compute), the dedicated compute family, and any other family that exposes compute. Specifically NOT required: graphics. This contradicts pre-`rt-renderer` arch text that called for the graphics queue. NVIDIA's "Best Practices for NVIDIA RTX Ray Tracing" explicitly recommends async-compute for AS building so it overlaps with rasterized G-buffer / shadow work.
+
+Per `rt-renderer.B.2`, the per-frame `TlasBuildPass` (which orchestrates skinning compute dispatch + skinned-BLAS refit + TLAS rebuild) routes to `QueueFamily::AsyncCompute` via the 4-arg `RenderGraph::AddComputePass` overload. The cross-queue handoff to a future B.3 RT consumer is covered by the per-submit timeline semaphore wait at the next graphics submit + the existing `TOP_OF_PIPE` substitution for cross-queue barriers. The synchronous import-time BLAS build path (`VKAccelerationStructure::CreateStaticBLAS` / `CreateSkinnedBLAS`) uses `VulkanContext::ImmediateSubmit`, which runs on the graphics queue — still spec-correct because graphics families advertise compute. Tagged-heap backings already opt into `CONCURRENT` sharing per the policy below, so cross-queue scratch consumption works without QFOT.
+
 ## Bindless registration
 
 Unchanged from the single-queue path. `UploadContext::PushPendingBind(outIndex, view, sampler, fenceValue)` records the pending registration with the upload fence value. `DrainPendingBinds` (called from `AssetManager::Update`) polls `m_UploadTimeline.GetValue()` and writes the bindless descriptor (CPU-side `vkUpdateDescriptorSets`, queue-agnostic) once the fence retires. The transfer queue's submit signals `m_UploadTimeline` — same as the graphics queue would — so the pump is invariant.
