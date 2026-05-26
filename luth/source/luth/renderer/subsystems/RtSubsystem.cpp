@@ -17,11 +17,122 @@
 #include "luth/core/FrameData.h"
 #include "luth/core/RenderSnapshot.h"
 
+#include <vma/vk_mem_alloc.h>
+
 namespace Luth
 {
+    namespace
+    {
+        // Build a 0-instance TLAS, persistent for the lifetime of RtSubsystem. Seeds Set 0 binding 6
+        // before any per-frame TlasBuildPass runs — required from B.3 onward since rt_sun_shadows.rgen
+        // statically reads `topLevelAS` at binding 6 and a null handle there violates the descriptor
+        // rules even with PARTIALLY_BOUND (validation interprets static use conservatively). The empty
+        // TLAS is geometrically valid — vkCmdBuild with instanceCount=0 is legal per spec; rayQuery
+        // against it always misses (no instances to intersect), yielding visibility=1.0.
+        bool BuildEmptyTlas(VkAccelerationStructureKHR& outAS,
+                            VkBuffer& outStorageBuf,
+                            VmaAllocation& outStorageAlloc)
+        {
+            auto& ctx = VulkanContext::Get();
+            VkDevice device = ctx.GetDevice();
+            const auto& rt  = ctx.GetRtFn();
+
+            VkAccelerationStructureGeometryInstancesDataKHR instData{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };
+            instData.arrayOfPointers   = VK_FALSE;
+            instData.data.deviceAddress = 0;  // No instances, no buffer needed for the empty case.
+
+            VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+            geom.geometryType        = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+            geom.geometry.instances  = instData;
+            geom.flags               = 0;
+
+            VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+            buildInfo.type          = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+            buildInfo.flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+            buildInfo.mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            buildInfo.geometryCount = 1;
+            buildInfo.pGeometries   = &geom;
+
+            const u32 primitiveCount = 0;
+            VkAccelerationStructureBuildSizesInfoKHR sizes{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+            rt.vkGetAccelerationStructureBuildSizesKHR(
+                device,
+                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                &buildInfo,
+                &primitiveCount,
+                &sizes);
+
+            // Some drivers report zero sizes for an empty TLAS; clamp to a small min so VMA accepts.
+            const VkDeviceSize storageSize = sizes.accelerationStructureSize > 0
+                ? sizes.accelerationStructureSize : 256;
+            const VkDeviceSize scratchSize = sizes.buildScratchSize > 0
+                ? sizes.buildScratchSize : 256;
+
+            VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            storageCi.size        = storageSize;
+            storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
+                                  | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            outStorageAlloc = VulkanAllocator::AllocateBuffer(
+                storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, outStorageBuf);
+            if (!outStorageBuf) return false;
+
+            VkBufferCreateInfo scratchCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            scratchCi.size        = scratchSize;
+            scratchCi.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                  | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            scratchCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            VkBuffer scratchBuf = VK_NULL_HANDLE;
+            VmaAllocation scratchAlloc = nullptr;
+            VulkanAllocator::AllocateBuffer(scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
+
+            VkBufferDeviceAddressInfo scratchAddrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+            scratchAddrInfo.buffer = scratchBuf;
+            const VkDeviceAddress scratchBda = vkGetBufferDeviceAddress(device, &scratchAddrInfo);
+
+            VkAccelerationStructureCreateInfoKHR asCi{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+            asCi.buffer = outStorageBuf;
+            asCi.offset = 0;
+            asCi.size   = storageSize;
+            asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+            rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &outAS);
+
+            buildInfo.dstAccelerationStructure  = outAS;
+            buildInfo.scratchData.deviceAddress = scratchBda;
+
+            VkAccelerationStructureBuildRangeInfoKHR range{};
+            range.primitiveCount = 0;
+            const VkAccelerationStructureBuildRangeInfoKHR* pRange = &range;
+
+            ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
+                rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+            });
+
+            // Scratch lives only for the build — ImmediateSubmit blocks until the GPU finishes,
+            // so an immediate free is safe (no in-flight cmd buffer references it).
+            VulkanAllocator::FreeBuffer(scratchBuf, scratchAlloc);
+            return true;
+        }
+    }
+
     void RtSubsystem::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;
+
+        // Persistent empty TLAS — backs GetTlas() before the first per-frame TlasBuildPass runs.
+        // Kept SEPARATE from m_LastResult so the hash-skip PushDeletion in AddTlasBuildPass never
+        // accidentally destroys it when a per-frame TLAS first replaces the m_LastResult slot.
+        if (BuildEmptyTlas(m_PersistentEmptyTlas, m_PersistentEmptyTlasBuf, m_PersistentEmptyTlasAlloc))
+        {
+            LH_CORE_INFO("RtSubsystem: persistent empty TLAS built (frame-0 binding-6 safety)");
+        }
+        else
+        {
+            LH_CORE_CRITICAL("RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
+        }
 
 #if LUTH_ENABLE_VALIDATION
         auto raygenSpv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/rt_smoke.rgen"));
@@ -72,6 +183,24 @@ namespace Luth
 
     void RtSubsystem::Shutdown()
     {
+        // Persistent empty TLAS — push to deletion queue so it retires after the last in-flight
+        // frame stops referencing it via Set 0 binding 6 (PushDeletion drains N+2 frames out).
+        if (m_PersistentEmptyTlas != VK_NULL_HANDLE)
+        {
+            auto handle = m_PersistentEmptyTlas;
+            auto buf    = m_PersistentEmptyTlasBuf;
+            auto alloc  = m_PersistentEmptyTlasAlloc;
+            VulkanContext::Get().PushDeletion([handle, buf, alloc]() {
+                auto& ctx = VulkanContext::Get();
+                if (handle != VK_NULL_HANDLE)
+                    ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
+                if (buf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(buf, alloc);
+            });
+            m_PersistentEmptyTlas      = VK_NULL_HANDLE;
+            m_PersistentEmptyTlasBuf   = VK_NULL_HANDLE;
+            m_PersistentEmptyTlasAlloc = nullptr;
+        }
+
         // Final-frame TLAS storage retires via PushDeletion at the next AcquireImage drain; for
         // the very last frame, FlushAllDeletionQueues in the backend Shutdown catches them.
         m_LastResult = {};

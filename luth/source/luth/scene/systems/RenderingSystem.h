@@ -77,6 +77,9 @@ namespace Luth
         // slim_gbuffer.frag can dejitter motion source-side (Tardif form): the producer writes pure
         // scene motion, supersedes the resolve-side push-constant jitterDelta. See source-side-taa-dejitter.
         Vec4 prevJitter;
+        // x = shadowingMode (0=RasterCSM, 1=RtShadows), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad.
+        // pbr.frag::ComputeShadow dispatches on .x; RT path reads .y/.z for ray-origin biasing (Wächter-Binder).
+        Vec4 rtShadowParams;
     };
 
     enum class ShadeMode : u8 {

@@ -35,6 +35,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  specAaParams;              // x = specularAaEnabled, y = specularAaSigma (Tokuyoshi 2019)
     vec4  taaParams;                 // x = taaEnabled, y = temporalAlpha, zw = currentJitter (pixels)
     vec4  prevJitter;                // xy = prevJitter (pixels), zw pad — source-side de-jitter in slim_gbuffer.frag
+    vec4  rtShadowParams;            // x = shadowingMode (0=CSM, 1=RT), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad
 } ubo;
 
 #endif

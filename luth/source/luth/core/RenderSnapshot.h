@@ -11,6 +11,8 @@
 #include "luth/core/types/LuthMath.h"
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/UUID.h"
+#include "luth/renderer/lighting/LightTypes.h"  // ShadowingMode
+
 #include <span>
 
 namespace Luth
@@ -49,6 +51,11 @@ namespace Luth
         bool stabilizeCascades = false;
         f32  cascadeBlendWidth = 0.0f;
         bool debugVisualizeCascades = false;
+
+        // RT-shadow toggle + bias (consumed when shadowing == RtShadows).
+        ShadowingMode shadowing       = ShadowingMode::RtShadows;
+        f32           rtOriginEpsilon = 0.001f;
+        f32           rtNormalEpsilon = 0.05f;
     };
 
     struct PointLightSnapshot

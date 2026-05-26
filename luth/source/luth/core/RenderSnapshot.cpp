@@ -105,6 +105,9 @@ namespace Luth
                 out.directionalLight.stabilizeCascades      = dl.StabilizeCascades;
                 out.directionalLight.cascadeBlendWidth      = Math::Clamp(dl.CascadeBlendWidth, 0.0f, 1.0f);
                 out.directionalLight.debugVisualizeCascades = dl.DebugVisualizeCascades;
+                out.directionalLight.shadowing              = dl.Shadowing;
+                out.directionalLight.rtOriginEpsilon        = dl.RtOriginEpsilon;
+                out.directionalLight.rtNormalEpsilon        = dl.RtNormalEpsilon;
                 break;
             }
         }

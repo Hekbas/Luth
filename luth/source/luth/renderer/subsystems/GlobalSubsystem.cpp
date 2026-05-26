@@ -181,6 +181,13 @@ namespace Luth
         ubo.specAaParams = Vec4(pps.specularAaEnabled ? 1.0f : 0.0f, pps.specularAaSigma, 0.0f, 0.0f);
         ubo.taaParams    = Vec4(pps.taaEnabled ? 1.0f : 0.0f, pps.taaTemporalAlpha,
                                 thisFrameJitter.x, thisFrameJitter.y);
+        // Sun-shadow path selector + RT world-space epsilons. pbr.frag::ComputeShadow dispatches
+        // on .x; raygen reads .y/.z. Disabled-shadows sentinel (shadowBias.x < 0) takes precedence
+        // over the mode pick in pbr.frag.
+        ubo.rtShadowParams = Vec4(static_cast<f32>(shadowParams.mode),
+                                  shadowParams.rtOriginEpsilon,
+                                  shadowParams.rtNormalEpsilon,
+                                  0.0f);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.
