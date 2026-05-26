@@ -304,6 +304,11 @@ namespace Luth
             volResolvedHandle   = m_Volumetric.AddResolvePass(rg, volInScatterHandle);
         }
 
+        // RT acceleration structures — per-frame skinning compute + skinned BLAS refit + TLAS build.
+        // Multi-view guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
+        // Routed to AsyncCompute so it overlaps with the rest of the graphics frame.
+        m_Rt.AddTlasBuildPass(rg);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms

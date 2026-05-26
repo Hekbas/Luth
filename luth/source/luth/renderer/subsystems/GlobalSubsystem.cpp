@@ -17,8 +17,8 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO.
-        VkDescriptorSetLayoutBinding bindings[6] = {};
+        // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO, 6 = TLAS.
+        VkDescriptorSetLayoutBinding bindings[7] = {};
 
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -42,18 +42,33 @@ namespace Luth
         bindings[5].descriptorCount = 1;
         bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // TLAS binding. Stage flags span ray-query (frag/compute) + future RT-pipeline consumers.
+        // PARTIALLY_BOUND keeps boot / scene-empty frames legal — shaders that don't statically
+        // access binding 6 (B.2 ships none) don't require the descriptor to be populated.
+        bindings[6].binding         = 6;
+        bindings[6].descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        bindings[6].descriptorCount = 1;
+        bindings[6].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT
+                                    | VK_SHADER_STAGE_COMPUTE_BIT
+                                    | VK_SHADER_STAGE_RAYGEN_BIT_KHR
+                                    | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
+                                    | VK_SHADER_STAGE_MISS_BIT_KHR;
+
         // invariant: cycled per-frame slots still need UAB — write-vs-still-pending
         // races slip past the slot rotation in practice (validation layer 03047).
-        VkDescriptorBindingFlags bindingFlags[6] = {};
-        for (auto& f : bindingFlags) f = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorBindingFlags bindingFlags[7] = {};
+        for (u32 i = 0; i < 6; ++i)
+            bindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        bindingFlags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
+                        | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsCI.bindingCount  = 6;
+        bindingFlagsCI.bindingCount  = 7;
         bindingFlagsCI.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         layoutInfo.pNext        = &bindingFlagsCI;
         layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutInfo.bindingCount = 6;
+        layoutInfo.bindingCount = 7;
         layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_GlobalSetLayout);
     }
@@ -193,7 +208,17 @@ namespace Luth
         bi.offset = region.offset;
         bi.range  = region.size;
 
-        VkWriteDescriptorSet writes[2] = {};
+        // TLAS write rides the same per-frame slot rotation as binding 0. Reads the handle the
+        // current frame's TlasBuildPass published into RtSubsystem; on frame 0 the handle is null
+        // (TlasBuildPass hasn't run yet) — legal under PARTIALLY_BOUND + UAB when no shader
+        // statically accesses binding 6, which is the B.2 case (B.3 brings the first reader).
+        VkAccelerationStructureKHR tlas = m_Pipeline->GetRt().GetTlas();
+        VkWriteDescriptorSetAccelerationStructureKHR asWrite{
+            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+        asWrite.accelerationStructureCount = 1;
+        asWrite.pAccelerationStructures    = &tlas;
+
+        VkWriteDescriptorSet writes[3] = {};
         writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
         writes[0].dstSet          = vr->globalDescriptorSet[slot];
         writes[0].dstBinding      = 0;
@@ -210,6 +235,19 @@ namespace Luth
             writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             writes[1].descriptorCount = 1;
             writes[1].pBufferInfo     = &bi;
+            ++n;
+        }
+
+        // TLAS write skipped when handle is null — descriptor stays in its prior populated state
+        // (or unbound first frame) per PARTIALLY_BOUND semantics; saves an extra descriptor write.
+        if (tlas != VK_NULL_HANDLE)
+        {
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].pNext           = &asWrite;
+            writes[n].dstSet          = vr->globalDescriptorSet[slot];
+            writes[n].dstBinding      = 6;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+            writes[n].descriptorCount = 1;
             ++n;
         }
 

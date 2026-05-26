@@ -25,6 +25,7 @@ namespace Luth
     static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 128;
+    static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
         // Build the per-view Set 0 write context from RP-side state. invariant:
@@ -130,7 +131,7 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        VkDescriptorPoolSize poolSizes[4] = {};
+        VkDescriptorPoolSize poolSizes[5] = {};
         poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = k_ViewPoolUniformBufferCount;
         poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -139,11 +140,13 @@ namespace Luth
         poolSizes[2].descriptorCount = k_ViewPoolCombinedSamplerCount;
         poolSizes[3].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         poolSizes[3].descriptorCount = k_ViewPoolStorageBufferCount;
+        poolSizes[4].type            = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        poolSizes[4].descriptorCount = k_ViewPoolAccelStructCount;
 
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets       = k_ViewPoolMaxSets;
-        poolInfo.poolSizeCount = 4;
+        poolInfo.poolSizeCount = 5;
         poolInfo.pPoolSizes    = poolSizes;
         vkCreateDescriptorPool(device, &poolInfo, nullptr, &vr.descPool);
 
