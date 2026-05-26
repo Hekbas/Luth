@@ -11,13 +11,21 @@
 namespace Luth
 {
 	// A single pipeline stage a shader occupies. Each shader asset holds exactly one.
+	// RT stages (4-9) are recognized by ShaderCompiler in B.1; production asset-pipeline
+	// integration (Shader::Create factory, ShaderImporter, hot-reload) lands with B.3.
 	enum class ShaderStage : u32
 	{
-		Unknown  = 0,
-		Vertex   = 1,
-		Fragment = 2,
-		Compute  = 3,
-		// Future: Geometry, TessControl, TessEval, Mesh, Task, Raygen, ...
+		Unknown      = 0,
+		Vertex       = 1,
+		Fragment     = 2,
+		Compute      = 3,
+		Raygen       = 4,
+		Miss         = 5,
+		ClosestHit   = 6,
+		AnyHit       = 7,
+		Intersection = 8,
+		Callable     = 9,
+		// Future: Geometry, TessControl, TessEval, Mesh, Task, ...
 	};
 
 	// Represents a single uniform variable inside a UBO/PushConstant
