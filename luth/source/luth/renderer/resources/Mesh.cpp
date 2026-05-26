@@ -7,6 +7,7 @@
 
 namespace Luth
 {
+    // Out-of-line for m_Blas (shared_ptr<VKAccelerationStructure> with incomplete type at header).
     Mesh::~Mesh() = default;
 
     std::shared_ptr<Mesh> Mesh::Create(
@@ -15,11 +16,8 @@ namespace Luth
         uint32_t vertexCount,
         bool isSkinned)
     {
-        auto mesh = std::make_shared<Mesh>(vb, ib, vertexCount, isSkinned);
-        // Skinned BLAS uses ALLOW_UPDATE + per-frame compute-skin refit on a separate path —
-        // skipped here so m_Blas stays null until that path fills it. Static gets built now.
-        if (!isSkinned)
-            mesh->SetBlas(VKAccelerationStructure::CreateStaticBLAS(*mesh));
-        return mesh;
+        // BLAS construction happens at Model::ProcessMeshData where the CPU SkinnedVertex source
+        // data is available — keeps static + skinned paths uniform at one call site.
+        return std::make_shared<Mesh>(vb, ib, vertexCount, isSkinned);
     }
 }

@@ -3,6 +3,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
 #include "luth/resources/AssetManager.h"
 
 namespace Luth
@@ -69,7 +70,18 @@ namespace Luth
             const u32 vertCount = data.IsSkinned
                 ? static_cast<u32>(data.SkinnedVertices.size())
                 : static_cast<u32>(data.Vertices.size());
-            m_Meshes.push_back(Mesh::Create(vb, ib, vertCount, data.IsSkinned));
+            auto mesh = Mesh::Create(vb, ib, vertCount, data.IsSkinned);
+
+            // Per-mesh BLAS — static built once over the source VB; skinned built over the deformed
+            // positions buffer (filled by the per-frame skinning compute) with ALLOW_UPDATE so
+            // each frame's MODE_UPDATE refit is cheap. Built unconditionally on Vulkan backends;
+            // factory returns null on non-Vulkan backends (graceful — TLAS skips meshes with no BLAS).
+            if (data.IsSkinned)
+                mesh->SetBlas(VKAccelerationStructure::CreateSkinnedBLAS(*mesh, data.SkinnedVertices));
+            else
+                mesh->SetBlas(VKAccelerationStructure::CreateStaticBLAS(*mesh));
+
+            m_Meshes.push_back(mesh);
         }
 
         CacheModelInfo();

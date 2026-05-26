@@ -91,6 +91,7 @@ namespace Luth
         m_GTAO.Init(*this);
         m_Volumetric.Init(*this);
         m_Rt.Init(*this);
+        m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
@@ -123,7 +124,8 @@ namespace Luth
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
-                              || m_Volumetric.OnShaderReloaded(name, spv);
+                              || m_Volumetric.OnShaderReloaded(name, spv)
+                              || m_Skinning.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -176,6 +178,7 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_Skinning.Shutdown();
         m_Rt.Shutdown();
         m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
