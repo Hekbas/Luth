@@ -18,16 +18,14 @@
 
 namespace Luth
 {
-    // Mirrors the GLSL push_constant block in taa_resolve.frag. vec2 forces 8-byte alignment;
-    // jitterDeltaUv = (currentJitter − prevJitter)/viewport — resolve adds it to per-pixel
-    // motion so static scenes net to zero motion.
+    // Mirrors the GLSL push_constant block in taa_resolve.frag. Source-side de-jitter now lives
+    // in slim_gbuffer.frag (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
+    // a jitter delta — just the temporal feedback weight.
     struct TaaResolvePushConstants
     {
-        f32  temporalAlpha;
-        f32  pad;
-        Vec2 jitterDeltaUv;
+        f32 temporalAlpha;
     };
-    static_assert(sizeof(TaaResolvePushConstants) == 16,
+    static_assert(sizeof(TaaResolvePushConstants) == 4,
                   "TaaResolvePushConstants must match taa_resolve.frag's push_constant block");
 
     void PostProcessSubsystem::Init(RenderPipeline& pipeline)
@@ -222,7 +220,8 @@ namespace Luth
         }
 
         // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
-        // temporalAlpha + jitterDeltaUv. No depth, no blend — opaque write.
+        // temporalAlpha (jitter delta moved to slim_gbuffer.frag as source-side de-jitter).
+        // No depth, no blend — opaque write.
         if (!m_TaaResolveFragSpv.empty())
         {
             std::vector<VkDescriptorSetLayout> taaLayouts = { m_TaaResolveDescSetLayout };
@@ -914,14 +913,10 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                // De-jitter the per-pixel motion at resolve time. jitterDeltaUv adds
-                // (currentJitter − prevJitter)/viewport in UV units; the shader applies it as
-                // motion += jitterDeltaUv so static scenes net to zero motion and the bilinear
-                // history sample lands on an integer texel instead of cycling sub-pixel offsets.
+                // Source-side de-jitter lives in slim_gbuffer.frag — the motion attachment carries
+                // pure scene displacement, so the resolve push constant is just the feedback weight.
                 TaaResolvePushConstants pc{};
-                pc.temporalAlpha   = sys.GetPostProcessSettings().taaTemporalAlpha;
-                pc.jitterDeltaUv.x = (vr->currentJitter.x - vr->prevJitter.x) / static_cast<f32>(w);
-                pc.jitterDeltaUv.y = (vr->currentJitter.y - vr->prevJitter.y) / static_cast<f32>(h);
+                pc.temporalAlpha = sys.GetPostProcessSettings().taaTemporalAlpha;
                 vkCmdPushConstants(cmd, m_TaaResolvePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 

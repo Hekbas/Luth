@@ -33,7 +33,8 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  volNoiseWind;              // xyz = wind direction × speed (m/s), w pad
     vec4  volScatterParams;          // x = scatteringIntensity, y = blueNoiseDither (1/0), zw reserved
     vec4  specAaParams;              // x = specularAaEnabled, y = specularAaSigma (Tokuyoshi 2019)
-    vec4  taaParams;                 // x = taaEnabled, y = temporalAlpha, zw = currentJitter (NDC)
+    vec4  taaParams;                 // x = taaEnabled, y = temporalAlpha, zw = currentJitter (pixels)
+    vec4  prevJitter;                // xy = prevJitter (pixels), zw pad — source-side de-jitter in slim_gbuffer.frag
 } ubo;
 
 #endif
