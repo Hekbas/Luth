@@ -48,7 +48,11 @@ namespace Luth
         // pass — the cross-pass barrier (AS-build → AS-read) is inline in the execute body,
         // same pattern as the BLAS-refit → TLAS-build barrier in TlasBuildPass.
         // Returns the imported shadow mask handle for downstream Read(...) by GeometryPass.
-        RG::ResourceHandle AddRtSunShadowsPass(RG::RenderGraph& rg);
+        // sceneDepth + slimNormal must be Read so RG transitions them to SHADER_READ_ONLY_OPTIMAL
+        // before the raygen samples them (descriptor write declared that layout).
+        RG::ResourceHandle AddRtSunShadowsPass(RG::RenderGraph& rg,
+                                               RG::ResourceHandle sceneDepth,
+                                               RG::ResourceHandle slimNormal);
 
         // Per-view pass-local descriptor set writer. Binds:
         //   set 2 binding 0 = SceneDepth sampler (linear clamp)

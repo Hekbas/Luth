@@ -458,6 +458,32 @@ namespace Luth
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
             m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
 
+        // VKTexture's auto-init for depth images transitions to DEPTH_STENCIL_READ_ONLY_OPTIMAL.
+        // The Set 3 binding 3 descriptor writes declare SHADER_READ_ONLY_OPTIMAL — matched in CSM
+        // mode because ShadowPass writes + GeometryPass Read transitions through. With B.3's
+        // RT-mode gating, ShadowPass never runs and the cascade map sits in the initial layout
+        // forever, mismatching the descriptor. Override to SHADER_READ_ONLY_OPTIMAL at init so
+        // both modes agree. ShadowPass first-frame write does SHADER_READ_ONLY → DSAO normally.
+        VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
+            VkImageMemoryBarrier2 b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+            b.srcStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+            b.srcAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            b.dstStageMask        = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                                  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                  | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
+            b.oldLayout           = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            b.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image               = shadowTexForViews->GetImage();
+            b.subresourceRange    = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, k_ShadowCascadeCount };
+            VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers    = &b;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        });
+
         // Shadow sampler (PCF compare: less).
         VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         samplerInfo.magFilter     = VK_FILTER_LINEAR;
@@ -491,7 +517,9 @@ namespace Luth
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[0].descriptorCount = 1;
-        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        // RAYGEN added so rt_sun_shadows.rgen can read lights.dirLight.direction. Cluster grid +
+        // light index (b1, b2) intentionally stay fragment-only; raygen doesn't iterate clusters.
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
         bindings[1].binding = 1;
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[1].descriptorCount = 1;
@@ -510,11 +538,29 @@ namespace Luth
         bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
                                | VK_SHADER_STAGE_RAYGEN_BIT_KHR;  // raygen may also read for ReSTIR DI (C.1)
 
-        // b0/b1/b2 are SSBOs rebound per-frame; b3 + b4 are samplers, stable per-view. Cycling
-        // guarantees disjoint write/read slots, so no UAB needed.
+        // b0/b1/b2 are SSBOs rebound per-frame and are bound by BOTH graphics passes (PBR fragment)
+        // AND the AsyncCompute RT raygen (set=1 in the RT pipeline-layout). The cycled-slot protocol
+        // alone is no longer sufficient — the second pending reference from the compute submission
+        // means vkUpdateDescriptorSets sees the set as in-use even when writing the "next" slot.
+        // UAB on the rewritten bindings satisfies VUID-vkUpdateDescriptorSets-None-03047 cleanly.
+        // b3 + b4 (samplers) stay flag-less — they're per-view stable, not rewritten per frame.
+        VkDescriptorBindingFlags bindingFlags[5] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b0 LightSSBO
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b1 ClusterGrid
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 LightIndex
+            0,                                            // b3 cascade sampler
+            0,                                            // b4 sun shadow mask sampler
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 5;
+        bindingFlagsCI.pBindingFlags = bindingFlags;
+
         VkDescriptorSetLayoutCreateInfo lightLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        lightLayoutInfo.pNext        = &bindingFlagsCI;
+        lightLayoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         lightLayoutInfo.bindingCount = 5;
-        lightLayoutInfo.pBindings = bindings;
+        lightLayoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
         // Descriptor sets themselves move to ViewResources (per-view × MAX_FRAMES_IN_FLIGHT slots).

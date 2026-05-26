@@ -411,7 +411,9 @@ namespace Luth
         }
     }
 
-    RG::ResourceHandle RtSubsystem::AddRtSunShadowsPass(RG::RenderGraph& rg)
+    RG::ResourceHandle RtSubsystem::AddRtSunShadowsPass(RG::RenderGraph& rg,
+                                                        RG::ResourceHandle sceneDepth,
+                                                        RG::ResourceHandle slimNormal)
     {
         // Pre-flight: pipeline must exist (shaders loaded). Mask must exist (view allocated).
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
@@ -420,6 +422,8 @@ namespace Luth
 
         struct RtSunShadowsData {
             RG::ResourceHandle mask;
+            RG::ResourceHandle depth;
+            RG::ResourceHandle normal;
         };
         RG::ResourceHandle outputHandle{};
         rg.AddComputePass<RtSunShadowsData>(
@@ -439,6 +443,16 @@ namespace Luth
                     (void*)maskTex->GetImage(), (void*)maskTex->GetImageView(),
                     RG::ResourceState::Undefined);
                 data.mask = builder.WriteStorageImage(data.mask);
+                // SceneDepth + slimNormal are descriptor-bound to the pass-local set (set 2 b0, b1)
+                // with imageLayout = SHADER_READ_ONLY_OPTIMAL. ReadStorageImage maps to
+                // ResourceState::ComputeRead (COMPUTE_SHADER | RAY_TRACING_SHADER stages,
+                // SHADER_READ_ONLY_OPTIMAL layout) — compatible with AsyncCompute, unlike
+                // plain Read which uses FRAGMENT_SHADER_BIT and would error on this queue.
+                // Despite the name, the descriptor type is COMBINED_IMAGE_SAMPLER, not storage;
+                // the "StorageImage" suffix here is about queue affinity (same convention used
+                // by VolumetricSubsystem::AddInjectScatterPass for the cascade shadow reads).
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
                 outputHandle = data.mask;
             },
             [this](RtSunShadowsData&, RG::RenderPassContext& ctx) {
@@ -495,11 +509,13 @@ namespace Luth
         rg.AddComputePass<TlasBuildData>(
             "TlasBuild",
             RG::QueueFamily::AsyncCompute,
-            [&](TlasBuildData&, RG::RenderPassBuilder&) {
-                // No RG-tracked resources for B.2 — all per-frame allocations live outside the RG
-                // (per-frame VMA + PushDeletion / tagged-heap large-one-shot scratch). The cross-pass
-                // barrier into the future B.3 RT consumer composes via the new AccelerationStructure*
-                // ResourceState entries once that consumer declares a Read.
+            [&](TlasBuildData&, RG::RenderPassBuilder& builder) {
+                // No RG-tracked resources — all per-frame allocations live outside the RG
+                // (per-frame VMA + PushDeletion / tagged-heap large-one-shot scratch). The
+                // pass's actual output (m_LastResult.tlas → Set 0 binding 6 via UpdateUBO)
+                // is an engine-side side effect; SetHasSideEffect keeps the pass alive
+                // through CullDeadPasses (which otherwise drops passes with no Write/Read).
+                builder.SetHasSideEffect();
             },
             [this](TlasBuildData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;

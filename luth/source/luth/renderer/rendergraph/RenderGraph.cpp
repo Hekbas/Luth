@@ -73,6 +73,11 @@ namespace Luth::RG
         return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::StorageBufferWrite);
     }
 
+    void RenderPassBuilder::SetHasSideEffect()
+    {
+        m_Graph.MarkPassHasSideEffect(m_PassIndex);
+    }
+
     BufferHandle RenderPassBuilder::ReadIndirectBuffer(BufferHandle buffer)
     {
         m_Graph.RegisterBufferRead(m_PassIndex, buffer, ResourceState::IndirectRead);
@@ -145,6 +150,11 @@ namespace Luth::RG
     {
         m_Passes[passIndex].reads.push_back(handle);
         m_Passes[passIndex].readStates.push_back(state);
+    }
+
+    void RenderGraph::MarkPassHasSideEffect(u32 passIndex)
+    {
+        m_Passes[passIndex].hasSideEffect = true;
     }
 
     ResourceHandle RenderGraph::RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state)
@@ -242,6 +252,11 @@ namespace Luth::RG
 
             // Any pass with color or depth attachments is alive (it renders something)
             if (!pass.colorAttachments.empty() || pass.hasDepth)
+                pass.culled = false;
+
+            // Passes that mutate engine-side state outside the RG (e.g., TlasBuildPass writing
+            // RtSubsystem::m_LastResult) must be kept alive even with no Write/Read declarations.
+            if (pass.hasSideEffect)
                 pass.culled = false;
 
             // Any pass that writes to an external image resource is alive

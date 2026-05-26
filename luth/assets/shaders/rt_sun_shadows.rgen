@@ -42,7 +42,8 @@ layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
 layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;   // RG16F oct (Karis 2014)
 layout(set = 2, binding = 2, r8) uniform writeonly image2D outShadowMask;
 
-layout(location = 0) rayPayloadEXT struct { float visibility; } payload;
+struct SunShadowPayload { float visibility; };
+layout(location = 0) rayPayloadEXT SunShadowPayload payload;
 
 // Inverse of slim_gbuffer.frag's OctEncode. Decodes [0,1] RG16F → unit world-space normal.
 vec3 OctDecode(vec2 enc)

@@ -514,16 +514,27 @@ void main()
         return;
     }
 
-    // Debug cascade visualization: tint each cascade with a distinct color overlay.
-    if (ubo.debugVisualizeCascades > 0.5 && sr.cascade >= 0)
+    // Debug visualization for sun shadows. In CSM mode tints each cascade; in RT mode replaces
+    // final color with the raw R8 mask as grayscale so you can see what the raygen wrote.
+    if (ubo.debugVisualizeCascades > 0.5)
     {
-        const vec3 cascadeColors[4] = vec3[4](
-            vec3(1.0, 0.2, 0.2),   // cascade 0 — red (near)
-            vec3(0.2, 1.0, 0.2),   // cascade 1 — green
-            vec3(0.2, 0.2, 1.0),   // cascade 2 — blue
-            vec3(1.0, 1.0, 0.2)    // cascade 3 — yellow (far)
-        );
-        color = mix(color, cascadeColors[sr.cascade], 0.25);
+        if (ubo.rtShadowParams.x > 0.5)
+        {
+            float vis = texture(sunShadowMask, shadowUv).r;
+            outColor = vec4(vis, vis, vis, 1.0);
+            outEntityID = v_EntityID;
+            return;
+        }
+        else if (sr.cascade >= 0)
+        {
+            const vec3 cascadeColors[4] = vec3[4](
+                vec3(1.0, 0.2, 0.2),   // cascade 0 — red (near)
+                vec3(0.2, 1.0, 0.2),   // cascade 1 — green
+                vec3(0.2, 0.2, 1.0),   // cascade 2 — blue
+                vec3(1.0, 1.0, 0.2)    // cascade 3 — yellow (far)
+            );
+            color = mix(color, cascadeColors[sr.cascade], 0.25);
+        }
     }
 
     outColor = vec4(color, albedo.a);

@@ -6,7 +6,8 @@
 // on a hit, so the payload stays at 0. If the ray reaches tMax without hitting anything, this
 // miss fires and sets visibility = 1.0 (fully lit / no occluder along the ray to the sun).
 
-layout(location = 0) rayPayloadInEXT struct { float visibility; } payload;
+struct SunShadowPayload { float visibility; };
+layout(location = 0) rayPayloadInEXT SunShadowPayload payload;
 
 void main()
 {

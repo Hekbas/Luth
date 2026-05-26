@@ -326,11 +326,13 @@ namespace Luth
         // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
         // AsyncCompute pass overlaps with GTAO chain below. Gated on RT mode + CastShadows;
         // CSM mode (or CastShadows=false) returns invalid handle and GeometryPass skips the Read.
+        // Threads prepassDepth + slimGB.normal so RG transitions them from DSA/COLOR_ATTACHMENT to
+        // SHADER_READ_ONLY_OPTIMAL ahead of the raygen sample (descriptor declared that layout).
         RG::ResourceHandle rtShadowMaskHandle{};
         const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
                                && m_Global.GetShadowParams().castShadows;
         if (runRtShadows)
-            rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg);
+            rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg, prepassDepth, slimGB.normal);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
