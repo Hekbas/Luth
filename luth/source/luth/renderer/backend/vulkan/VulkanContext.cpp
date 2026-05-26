@@ -489,6 +489,10 @@ namespace Luth
             LH_CORE_CRITICAL("Failed to create logical device!");
         }
 
+        // KHR ray-tracing entry points are device-level — load right after vkCreateDevice,
+        // before queue acquisition (loader doesn't depend on queues).
+        LoadRayTracingFunctions();
+
         // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle —
         // call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
         vkGetDeviceQueue(m_Device, m_GraphicsFamily, 0, &m_GraphicsQueue);
@@ -513,6 +517,26 @@ namespace Luth
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
         vkCreateCommandPool(m_Device, &poolInfo, nullptr, &m_CommandPool);
+    }
+
+    void VulkanContext::LoadRayTracingFunctions()
+    {
+        // RT-mandatory: any missing fp is fatal. Validation-layer rules forbid silent fallback —
+        // call sites would dispatch through null and trip the validation layer or crash at use site.
+        #define LH_LOAD_RT_FN(field) \
+            m_RtFn.field = (PFN_##field)vkGetDeviceProcAddr(m_Device, #field); \
+            if (!m_RtFn.field) LH_CORE_CRITICAL("RT entry point missing: " #field)
+
+        LH_LOAD_RT_FN(vkCreateAccelerationStructureKHR);
+        LH_LOAD_RT_FN(vkDestroyAccelerationStructureKHR);
+        LH_LOAD_RT_FN(vkGetAccelerationStructureBuildSizesKHR);
+        LH_LOAD_RT_FN(vkCmdBuildAccelerationStructuresKHR);
+        LH_LOAD_RT_FN(vkGetAccelerationStructureDeviceAddressKHR);
+        LH_LOAD_RT_FN(vkCreateRayTracingPipelinesKHR);
+        LH_LOAD_RT_FN(vkGetRayTracingShaderGroupHandlesKHR);
+        LH_LOAD_RT_FN(vkCmdTraceRaysKHR);
+
+        #undef LH_LOAD_RT_FN
     }
 
     void VulkanContext::InitAllocator()
