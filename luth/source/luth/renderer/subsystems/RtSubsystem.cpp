@@ -92,8 +92,8 @@ namespace Luth
                                   | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             scratchCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             VkBuffer scratchBuf = VK_NULL_HANDLE;
-            VmaAllocation scratchAlloc = nullptr;
-            VulkanAllocator::AllocateBuffer(scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
+            VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
+                scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
 
             VkBufferDeviceAddressInfo scratchAddrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
             scratchAddrInfo.buffer = scratchBuf;
