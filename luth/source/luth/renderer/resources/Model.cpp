@@ -66,7 +66,10 @@ namespace Luth
             }
 
             auto ib = IndexBuffer::Create(data.Indices.data(), data.Indices.size());
-            m_Meshes.push_back(Mesh::Create(vb, ib));
+            const u32 vertCount = data.IsSkinned
+                ? static_cast<u32>(data.SkinnedVertices.size())
+                : static_cast<u32>(data.Vertices.size());
+            m_Meshes.push_back(Mesh::Create(vb, ib, vertCount, data.IsSkinned));
         }
 
         CacheModelInfo();
