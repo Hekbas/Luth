@@ -22,6 +22,7 @@
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
+#include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -365,10 +366,13 @@ namespace Luth
         PostProcessSubsystem    m_PostProcess;
         EditorOverlaysSubsystem m_EditorOverlays;
         DebugDrawSubsystem      m_DebugDraw;
+        RtSubsystem             m_Rt;
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
         const EditorOverlaysSubsystem& GetEditorOverlays() const { return m_EditorOverlays; }
+        RtSubsystem&                   GetRt()                   { return m_Rt; }
+        const RtSubsystem&             GetRt()             const { return m_Rt; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----

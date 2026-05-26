@@ -27,11 +27,29 @@ namespace Luth
         static void Shutdown();
         static VulkanContext& Get();
 
+        // Device-level KHR ray-tracing entry points loaded by LoadRayTracingFunctions.
+        // Populated at CreateLogicalDevice time; any null pointer is a fatal CRITICAL log
+        // because RT-mandatory means missing fps are not a soft-fail.
+        struct RtFunctions
+        {
+            PFN_vkCreateAccelerationStructureKHR        vkCreateAccelerationStructureKHR        = nullptr;
+            PFN_vkDestroyAccelerationStructureKHR       vkDestroyAccelerationStructureKHR       = nullptr;
+            PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR = nullptr;
+            PFN_vkCmdBuildAccelerationStructuresKHR     vkCmdBuildAccelerationStructuresKHR     = nullptr;
+            PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR = nullptr;
+            PFN_vkCreateRayTracingPipelinesKHR          vkCreateRayTracingPipelinesKHR          = nullptr;
+            PFN_vkGetRayTracingShaderGroupHandlesKHR    vkGetRayTracingShaderGroupHandlesKHR    = nullptr;
+            PFN_vkCmdTraceRaysKHR                       vkCmdTraceRaysKHR                       = nullptr;
+        };
+
         VkInstance GetInstance() const { return m_Instance; }
         VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
+        const RtFunctions& GetRtFn() const { return m_RtFn; }
+        const VkPhysicalDeviceRayTracingPipelinePropertiesKHR&    GetRtPipelineProperties() const { return m_RtPipelineProperties; }
+        const VkPhysicalDeviceAccelerationStructurePropertiesKHR& GetAsProperties()         const { return m_AsProperties; }
         // UBO descriptor base offsets (and size) must satisfy this when sub-allocating from a tagged page.
         u64 GetMinUniformBufferAlignment() const { return m_PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
@@ -89,6 +107,7 @@ namespace Luth
         void SetupDebugMessenger();
         void PickPhysicalDevice();
         void CreateLogicalDevice();
+        void LoadRayTracingFunctions();
         void InitAllocator();
 
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
@@ -101,7 +120,10 @@ namespace Luth
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
         VkPhysicalDeviceProperties m_PhysicalDeviceProperties;
+        VkPhysicalDeviceRayTracingPipelinePropertiesKHR    m_RtPipelineProperties{};
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR m_AsProperties{};
         VkDevice m_Device = VK_NULL_HANDLE;
+        RtFunctions m_RtFn{};
         
         // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
         // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its

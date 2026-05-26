@@ -80,9 +80,15 @@ namespace Luth
     ShaderStage ShaderCompiler::InferStage(const fs::path& path)
     {
         std::string ext = path.extension().string();
-        if (ext == ".vert") return ShaderStage::Vertex;
-        if (ext == ".frag") return ShaderStage::Fragment;
-        if (ext == ".comp") return ShaderStage::Compute;
+        if (ext == ".vert")  return ShaderStage::Vertex;
+        if (ext == ".frag")  return ShaderStage::Fragment;
+        if (ext == ".comp")  return ShaderStage::Compute;
+        if (ext == ".rgen")  return ShaderStage::Raygen;
+        if (ext == ".rmiss") return ShaderStage::Miss;
+        if (ext == ".rchit") return ShaderStage::ClosestHit;
+        if (ext == ".rahit") return ShaderStage::AnyHit;
+        if (ext == ".rint")  return ShaderStage::Intersection;
+        if (ext == ".rcall") return ShaderStage::Callable;
         return ShaderStage::Unknown;
     }
 
@@ -90,10 +96,16 @@ namespace Luth
     {
         switch (stage)
         {
-            case ShaderStage::Vertex:   return shaderc_glsl_vertex_shader;
-            case ShaderStage::Fragment: return shaderc_glsl_fragment_shader;
-            case ShaderStage::Compute:  return shaderc_glsl_compute_shader;
-            default:                    return shaderc_glsl_infer_from_source;
+            case ShaderStage::Vertex:       return shaderc_glsl_vertex_shader;
+            case ShaderStage::Fragment:     return shaderc_glsl_fragment_shader;
+            case ShaderStage::Compute:      return shaderc_glsl_compute_shader;
+            case ShaderStage::Raygen:       return shaderc_glsl_raygen_shader;
+            case ShaderStage::Miss:         return shaderc_glsl_miss_shader;
+            case ShaderStage::ClosestHit:   return shaderc_glsl_closesthit_shader;
+            case ShaderStage::AnyHit:       return shaderc_glsl_anyhit_shader;
+            case ShaderStage::Intersection: return shaderc_glsl_intersection_shader;
+            case ShaderStage::Callable:     return shaderc_glsl_callable_shader;
+            default:                        return shaderc_glsl_infer_from_source;
         }
     }
 
