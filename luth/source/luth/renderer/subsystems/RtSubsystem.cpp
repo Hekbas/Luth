@@ -273,8 +273,21 @@ namespace Luth
             m_ShadowPassSampler = VK_NULL_HANDLE;
         }
 
-        // Final-frame TLAS storage retires via PushDeletion at the next AcquireImage drain; for
-        // the very last frame, FlushAllDeletionQueues in the backend Shutdown catches them.
+        // Final per-frame TLAS — push to deletion so FlushAllDeletionQueues catches it on shutdown.
+        // The hash-skip path inside AddTlasBuildPass only pushes when REPLACING the slot, so a
+        // long-stable m_LastResult lives until shutdown without ever being deferred.
+        if (m_LastResult.tlas != VK_NULL_HANDLE)
+        {
+            auto handle = m_LastResult.tlas;
+            auto buf    = m_LastResult.storageBuffer;
+            auto alloc  = m_LastResult.storageAlloc;
+            VulkanContext::Get().PushDeletion([handle, buf, alloc]() {
+                auto& ctx = VulkanContext::Get();
+                if (handle != VK_NULL_HANDLE)
+                    ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
+                if (buf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(buf, alloc);
+            });
+        }
         m_LastResult = {};
         m_LastBuildFrame = ~u64(0);
         m_Pipeline = nullptr;
@@ -298,6 +311,18 @@ namespace Luth
         missGroup.generalShader = 1;
         stages.groups.push_back(missGroup);
 
+        // Empty triangle hit group — required even when ray flags skip any-hit/closest-hit
+        // invocation. The GPU's SBT lookup happens before flag-based shader skipping; a missing
+        // hit-group entry causes the GPU to dereference an undefined SBT region on any potential
+        // hit (TerminateOnFirstHit | Opaque still triggers SBT lookup, just not invocation). All
+        // shaders left as VK_SHADER_UNUSED_KHR per spec for "no-op" hit group.
+        RayTracingShaderGroup hitGroup{};
+        hitGroup.type              = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+        hitGroup.generalShader     = VK_SHADER_UNUSED_KHR;
+        hitGroup.closestHitShader  = VK_SHADER_UNUSED_KHR;
+        hitGroup.anyHitShader      = VK_SHADER_UNUSED_KHR;
+        stages.groups.push_back(hitGroup);
+
         // Set 0 = GlobalSubsystem layout (TLAS at binding 6 + GlobalUniforms at 0).
         // Set 1 = LightingSubsystem layout — same VkDescriptorSetLayout PBR binds at its Set 3;
         // we remap to set=1 in the RT pipeline-layout for tighter set-numbering. The raygen
@@ -319,7 +344,7 @@ namespace Luth
             return;
         }
 
-        RtSbtCounts counts; counts.raygenCount = 1; counts.missCount = 1;
+        RtSbtCounts counts; counts.raygenCount = 1; counts.missCount = 1; counts.hitCount = 1;
         m_SunShadowsSBT = std::make_unique<RtShaderBindingTable>(*m_SunShadowsPipeline, counts);
     }
 
@@ -490,13 +515,13 @@ namespace Luth
                                         /*firstSet*/ 0, 3, sets, 0, nullptr);
 
                 const auto& sbt = *m_SunShadowsSBT;
-                const VkStridedDeviceAddressRegionKHR emptyRegion{};
+                const VkStridedDeviceAddressRegionKHR emptyCallable{};
                 VulkanContext::Get().GetRtFn().vkCmdTraceRaysKHR(
                     cmd,
                     &sbt.GetRaygenRegion(),
                     &sbt.GetMissRegion(),
-                    &emptyRegion,
-                    &emptyRegion,
+                    &sbt.GetHitRegion(),  // FIX: was emptyRegion — empty hit table caused TDR
+                    &emptyCallable,        // callable: not used
                     vr->width, vr->height, 1);
             });
 

@@ -670,9 +670,12 @@ namespace Luth
     bool VulkanContext::SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
-        if (vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        // Capture VkResult — `-4` = VK_ERROR_DEVICE_LOST, `-2` = VK_ERROR_OUT_OF_DEVICE_MEMORY,
+        // `-1` = VK_ERROR_OUT_OF_HOST_MEMORY. The bare "Failed!" log dropped this and obscured TDR diagnosis.
+        const VkResult r = vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
             return false;
         }
         return true;
@@ -683,9 +686,10 @@ namespace Luth
         // Aliased compute queue still locks its own mutex — vkQueueSubmit2 is not re-entrant on the same VkQueue
         // even when handles match. Per-mutex prevents contention with concurrent graphics submits.
         std::lock_guard<std::mutex> lock(m_ComputeQueueMutex);
-        if (vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        const VkResult r = vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
             return false;
         }
         return true;
@@ -694,9 +698,10 @@ namespace Luth
     bool VulkanContext::SubmitTransfer2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
         std::lock_guard<std::mutex> lock(m_TransferQueueMutex);
-        if (vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        const VkResult r = vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
             return false;
         }
         return true;
