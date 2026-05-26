@@ -129,13 +129,17 @@ namespace Luth
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
             vr->prevNearZ      = camera.nearZ;
             vr->prevFarZ       = camera.farZ;
-            // Cache prev/curr jitter so the resolve shader can dejitter sample positions.
+            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.frag's source-side de-jitter
+            // (consumed in the next commit); resolve's push-constant jitterDelta still rides
+            // ViewResources::prevJitter directly until that move lands.
             vr->prevJitter    = vr->currentJitter;
             vr->currentJitter = thisFrameJitter;
+            ubo.prevJitter    = Vec4(vr->prevJitter, 0.0f, 0.0f);
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
             ubo.viewportSize       = Vec2(0.0f);
             ubo.prevViewParams     = Vec4(camera.nearZ, camera.farZ, 0.0f, 0.0f);
+            ubo.prevJitter         = Vec4(0.0f);
         }
         ubo.nearZ = camera.nearZ;
         ubo.farZ  = camera.farZ;
