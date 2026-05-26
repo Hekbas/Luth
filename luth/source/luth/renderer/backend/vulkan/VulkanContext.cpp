@@ -244,6 +244,24 @@ namespace Luth
 
     void VulkanContext::CreateLogicalDevice()
     {
+        // RT properties (shaderGroup sizes + alignments + recursion depth) are vendor-dependent —
+        // queried once here so every RT consumer (SBT builder, BLAS sizing, RT pipeline) reads from
+        // one cached struct on VulkanContext. PickPhysicalDevice has two return paths and would
+        // duplicate the call; CreateLogicalDevice runs once after the picker settles.
+        m_RtPipelineProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+        m_AsProperties.sType         = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+        m_RtPipelineProperties.pNext = &m_AsProperties;
+        VkPhysicalDeviceProperties2 props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        props2.pNext = &m_RtPipelineProperties;
+        vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &props2);
+
+        LH_CORE_INFO("RT: shaderGroupHandleSize={} baseAlignment={} handleAlignment={} maxRecursionDepth={} maxGeometryCount={}",
+            m_RtPipelineProperties.shaderGroupHandleSize,
+            m_RtPipelineProperties.shaderGroupBaseAlignment,
+            m_RtPipelineProperties.shaderGroupHandleAlignment,
+            m_RtPipelineProperties.maxRayRecursionDepth,
+            m_AsProperties.maxGeometryCount);
+
         // Priority-order queue family discovery. Graphics is the baseline (asserted in PickPhysicalDevice).
         // Compute prefers a family with COMPUTE_BIT but no GRAPHICS_BIT (true async compute on discrete GPUs).
         // Transfer prefers a DMA-style family (TRANSFER_BIT, no GRAPHICS, no COMPUTE) so uploads run on a copy

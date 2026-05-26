@@ -48,6 +48,8 @@ namespace Luth
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         const RtFunctions& GetRtFn() const { return m_RtFn; }
+        const VkPhysicalDeviceRayTracingPipelinePropertiesKHR&    GetRtPipelineProperties() const { return m_RtPipelineProperties; }
+        const VkPhysicalDeviceAccelerationStructurePropertiesKHR& GetAsProperties()         const { return m_AsProperties; }
         // UBO descriptor base offsets (and size) must satisfy this when sub-allocating from a tagged page.
         u64 GetMinUniformBufferAlignment() const { return m_PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
@@ -118,6 +120,8 @@ namespace Luth
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
         VkPhysicalDeviceProperties m_PhysicalDeviceProperties;
+        VkPhysicalDeviceRayTracingPipelinePropertiesKHR    m_RtPipelineProperties{};
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR m_AsProperties{};
         VkDevice m_Device = VK_NULL_HANDLE;
         RtFunctions m_RtFn{};
         
