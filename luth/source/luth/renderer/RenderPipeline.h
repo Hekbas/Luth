@@ -203,6 +203,13 @@ namespace Luth
         std::shared_ptr<Texture> taaHistoryA;
         std::shared_ptr<Texture> taaHistoryB;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> taaResolveDescSet{};
+
+        // RT sun-shadow mask (Phase B.3). Viewport-sized R8 storage image, written by raygen on
+        // AsyncCompute and sampled by pbr.frag (Set 3 binding 4) when ShadowingMode::RtShadows is
+        // active. Lifetime mirrors taaHistoryA/B — persistent, recreated on resize. The cycled
+        // descriptor set carries the pass-local bindings (SceneDepth + slimNormal + mask storage).
+        std::shared_ptr<Texture> sunShadowMask;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

@@ -1,12 +1,18 @@
 #include "luthpch.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
+#include "luth/renderer/subsystems/GlobalSubsystem.h"
+#include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanRayTracingPipeline.h"
 #include "luth/renderer/backend/vulkan/RtShaderBindingTable.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderCompiler.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -134,6 +140,54 @@ namespace Luth
             LH_CORE_CRITICAL("RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
         }
 
+        // Pass-local sampler — linear clamp-to-edge for both SceneDepth + SlimNormal reads.
+        // Out-of-range UVs (off-screen) clamp to the edge pixel; raygen guards against background
+        // (depth >= 1.0) but the sampler edge behavior is the safe default.
+        VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        samplerInfo.magFilter    = VK_FILTER_LINEAR;
+        samplerInfo.minFilter    = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_ShadowPassSampler);
+
+        // Pass-local descriptor layout (set 2 in the RT pipeline-layout).
+        VkDescriptorSetLayoutBinding shadowBindings[3] = {};
+        shadowBindings[0].binding         = 0;  // SceneDepth sampler
+        shadowBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowBindings[0].descriptorCount = 1;
+        shadowBindings[0].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[1].binding         = 1;  // SlimNormal sampler
+        shadowBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowBindings[1].descriptorCount = 1;
+        shadowBindings[1].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[2].binding         = 2;  // sunShadowMask storage image (write)
+        shadowBindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        shadowBindings[2].descriptorCount = 1;
+        shadowBindings[2].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+
+        VkDescriptorSetLayoutCreateInfo shadowLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        shadowLayoutInfo.bindingCount = 3;
+        shadowLayoutInfo.pBindings    = shadowBindings;
+        vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &shadowLayoutInfo, nullptr, &m_ShadowPassSetLayout);
+
+        // Load production RT shader SPV. ShaderLibrary::LoadEngine routes through the standard
+        // asset path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives the
+        // .rgen / .rmiss when they change on disk.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rgen"))
+            m_RaygenSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rmiss"))
+            m_MissSpv = sh->GetSpirV();
+        if (m_RaygenSpv.empty() || m_MissSpv.empty())
+        {
+            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.rgen + .rmiss SPIR-V");
+        }
+        else
+        {
+            BuildShadowPipeline();
+        }
+
 #if LUTH_ENABLE_VALIDATION
         auto raygenSpv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/rt_smoke.rgen"));
         if (raygenSpv.empty())
@@ -201,11 +255,238 @@ namespace Luth
             m_PersistentEmptyTlasAlloc = nullptr;
         }
 
+        // RT shadow pipeline + SBT retire here (RAII). Caller fence drain in the backend Shutdown
+        // catches in-flight cmd buffers referencing the SBT/pipeline.
+        m_SunShadowsSBT.reset();
+        m_SunShadowsPipeline.reset();
+        m_RaygenSpv.clear();
+        m_MissSpv.clear();
+
+        if (m_ShadowPassSetLayout != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorSetLayout(VulkanContext::Get().GetDevice(), m_ShadowPassSetLayout, nullptr);
+            m_ShadowPassSetLayout = VK_NULL_HANDLE;
+        }
+        if (m_ShadowPassSampler != VK_NULL_HANDLE)
+        {
+            vkDestroySampler(VulkanContext::Get().GetDevice(), m_ShadowPassSampler, nullptr);
+            m_ShadowPassSampler = VK_NULL_HANDLE;
+        }
+
         // Final-frame TLAS storage retires via PushDeletion at the next AcquireImage drain; for
         // the very last frame, FlushAllDeletionQueues in the backend Shutdown catches them.
         m_LastResult = {};
         m_LastBuildFrame = ~u64(0);
         m_Pipeline = nullptr;
+    }
+
+    void RtSubsystem::BuildShadowPipeline()
+    {
+        if (m_RaygenSpv.empty() || m_MissSpv.empty()) return;
+        if (!m_Pipeline) return;
+
+        // Stages: index 0 = raygen, index 1 = miss. Groups: matching general groups by stage index.
+        RayTracingStages stages;
+        stages.stages.push_back({ VK_SHADER_STAGE_RAYGEN_BIT_KHR, m_RaygenSpv, "main" });
+        stages.stages.push_back({ VK_SHADER_STAGE_MISS_BIT_KHR,   m_MissSpv,   "main" });
+        RayTracingShaderGroup raygenGroup{};
+        raygenGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        raygenGroup.generalShader = 0;
+        stages.groups.push_back(raygenGroup);
+        RayTracingShaderGroup missGroup{};
+        missGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        missGroup.generalShader = 1;
+        stages.groups.push_back(missGroup);
+
+        // Set 0 = GlobalSubsystem layout (TLAS at binding 6 + GlobalUniforms at 0).
+        // Set 1 = LightingSubsystem layout — same VkDescriptorSetLayout PBR binds at its Set 3;
+        // we remap to set=1 in the RT pipeline-layout for tighter set-numbering. The raygen
+        // shader's `set = 1` declaration matches this remap.
+        // Set 2 = pass-local (depth + normal + mask).
+        std::vector<VkDescriptorSetLayout> rtLayouts = {
+            m_Pipeline->GetGlobal().GetSetLayout(),
+            m_Pipeline->GetLighting().GetSetLayout(),
+            m_ShadowPassSetLayout,
+        };
+
+        // No push constants for B.3 — all RT-shadow params ride GlobalUniforms.rtShadowParams.
+        m_SunShadowsPipeline = std::make_unique<VKRayTracingPipeline>(stages, rtLayouts, std::vector<VkPushConstantRange>{}, /*maxRecursionDepth*/ 1);
+
+        if (m_SunShadowsPipeline->GetPipeline() == VK_NULL_HANDLE)
+        {
+            LH_CORE_ERROR("RtSubsystem: BuildShadowPipeline failed (vkCreateRayTracingPipelinesKHR returned null)");
+            m_SunShadowsPipeline.reset();
+            return;
+        }
+
+        RtSbtCounts counts; counts.raygenCount = 1; counts.missCount = 1;
+        m_SunShadowsSBT = std::make_unique<RtShaderBindingTable>(*m_SunShadowsPipeline, counts);
+    }
+
+    bool RtSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
+    {
+        if (name == "rt_sun_shadows.rgen")
+        {
+            m_RaygenSpv = spv;
+        }
+        else if (name == "rt_sun_shadows.rmiss")
+        {
+            m_MissSpv = spv;
+        }
+        else
+        {
+            return false;
+        }
+
+        // Defer-destroy the old pipeline + SBT — in-flight cmd buffers may still reference them.
+        if (m_SunShadowsPipeline)
+        {
+            auto* oldPipe = m_SunShadowsPipeline.release();
+            VulkanContext::Get().PushDeletion([oldPipe]() { delete oldPipe; });
+        }
+        if (m_SunShadowsSBT)
+        {
+            auto* oldSbt = m_SunShadowsSBT.release();
+            VulkanContext::Get().PushDeletion([oldSbt]() { delete oldSbt; });
+        }
+        BuildShadowPipeline();
+        LH_CORE_INFO("RtSubsystem: RT shadow pipeline rebuilt after shader reload ({})", name);
+        return true;
+    }
+
+    void RtSubsystem::WriteShadowPassView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (m_ShadowPassSetLayout == VK_NULL_HANDLE) return;
+        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !vr.sunShadowMask) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        const VkImageView depthView  = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth())->GetImageView();
+        const VkImageView normalView = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal())->GetImageView();
+        const VkImageView maskView   = std::static_pointer_cast<VKTexture>(vr.sunShadowMask)->GetImageView();
+
+        for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
+        {
+            VkDescriptorSet set = vr.rtShadowPassDescSet[slot];
+            if (set == VK_NULL_HANDLE) continue;
+
+            VkDescriptorImageInfo depthInfo{};
+            depthInfo.sampler     = m_ShadowPassSampler;
+            depthInfo.imageView   = depthView;
+            depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo normalInfo{};
+            normalInfo.sampler     = m_ShadowPassSampler;
+            normalInfo.imageView   = normalView;
+            normalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo maskInfo{};
+            maskInfo.sampler     = VK_NULL_HANDLE;
+            maskInfo.imageView   = maskView;
+            maskInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkWriteDescriptorSet writes[3]{};
+            writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[0].dstSet          = set;
+            writes[0].dstBinding      = 0;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[0].descriptorCount = 1;
+            writes[0].pImageInfo      = &depthInfo;
+
+            writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[1].dstSet          = set;
+            writes[1].dstBinding      = 1;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[1].descriptorCount = 1;
+            writes[1].pImageInfo      = &normalInfo;
+
+            writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[2].dstSet          = set;
+            writes[2].dstBinding      = 2;
+            writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[2].descriptorCount = 1;
+            writes[2].pImageInfo      = &maskInfo;
+
+            vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        }
+    }
+
+    RG::ResourceHandle RtSubsystem::AddRtSunShadowsPass(RG::RenderGraph& rg)
+    {
+        // Pre-flight: pipeline must exist (shaders loaded). Mask must exist (view allocated).
+        ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        if (!m_SunShadowsPipeline || !m_SunShadowsSBT || !preflightVr || !preflightVr->sunShadowMask)
+            return {};
+
+        struct RtSunShadowsData {
+            RG::ResourceHandle mask;
+        };
+        RG::ResourceHandle outputHandle{};
+        rg.AddComputePass<RtSunShadowsData>(
+            "RtSunShadows",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](RtSunShadowsData& data, RG::RenderPassBuilder& builder) {
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                auto maskTex = std::static_pointer_cast<VKTexture>(vr->sunShadowMask);
+
+                RG::TextureDesc desc;
+                desc.name   = "SunShadowMask";
+                desc.width  = maskTex->GetWidth();
+                desc.height = maskTex->GetHeight();
+                desc.format = RG::TextureFormat::R8_Unorm;
+
+                data.mask = rg.ImportResource(desc,
+                    (void*)maskTex->GetImage(), (void*)maskTex->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.mask = builder.WriteStorageImage(data.mask);
+                outputHandle = data.mask;
+            },
+            [this](RtSunShadowsData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+
+                const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
+                const u32 slot     = static_cast<u32>(frameAbs % MAX_FRAMES_IN_FLIGHT);
+
+                // AS-build → AS-read barrier. TlasBuildPass (same AsyncCompute primary) emits
+                // BLAS→TLAS-build barriers internally but not the final AS-write → ray-tracing-read
+                // hop. Without this, the raygen may sample a TLAS that's still being built.
+                VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+                asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                asBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                asBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                asBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                VkDependencyInfo asDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                asDep.memoryBarrierCount = 1;
+                asDep.pMemoryBarriers    = &asBarrier;
+                vkCmdPipelineBarrier2(cmd, &asDep);
+
+                m_SunShadowsPipeline->Bind(cmd);
+
+                // Sets: 0 = global (TLAS + UBO), 1 = light SSBO (PBR's Set 3 remapped to RT's Set 1),
+                // 2 = per-view pass-local (depth + normal + mask).
+                VkDescriptorSet sets[3] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->lightDescSet[slot],
+                    vr->rtShadowPassDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                                        m_SunShadowsPipeline->GetLayout(),
+                                        /*firstSet*/ 0, 3, sets, 0, nullptr);
+
+                const auto& sbt = *m_SunShadowsSBT;
+                const VkStridedDeviceAddressRegionKHR emptyRegion{};
+                VulkanContext::Get().GetRtFn().vkCmdTraceRaysKHR(
+                    cmd,
+                    &sbt.GetRaygenRegion(),
+                    &sbt.GetMissRegion(),
+                    &emptyRegion,
+                    &emptyRegion,
+                    vr->width, vr->height, 1);
+            });
+
+        return outputHandle;
     }
 
     void RtSubsystem::AddTlasBuildPass(RG::RenderGraph& rg)

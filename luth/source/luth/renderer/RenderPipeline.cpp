@@ -125,7 +125,8 @@ namespace Luth
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
                               || m_Volumetric.OnShaderReloaded(name, spv)
-                              || m_Skinning.OnShaderReloaded(name, spv);
+                              || m_Skinning.OnShaderReloaded(name, spv)
+                              || m_Rt.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -308,6 +309,12 @@ namespace Luth
         // Multi-view guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
         // Routed to AsyncCompute so it overlaps with the rest of the graphics frame.
         m_Rt.AddTlasBuildPass(rg);
+
+        // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
+        // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle) in
+        // sub-task C. AsyncCompute pass overlaps with GTAO chain below.
+        RG::ResourceHandle rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg);
+        (void)rtShadowMaskHandle;  // wired into AddGeometryPass in sub-task C
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
