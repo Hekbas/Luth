@@ -239,18 +239,30 @@ namespace Luth
             Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
             m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
-            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            // CSM cascade cull — skip entirely when RT mode is active (no ShadowPass runs to
+            // consume the indirect args). CastShadows=false also skips both modes' cascade work.
+            const bool runCsmCascades = (m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                     && m_Global.GetShadowParams().castShadows;
+            if (runCsmCascades)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
-                const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
-                const std::string name = "FrustumCull.C" + std::to_string(i);
-                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                {
+                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
+                    const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
+                    const std::string name = "FrustumCull.C" + std::to_string(i);
+                    m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                }
             }
         }
 
-        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
-        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
+        const bool runCsmShadowPasses = (m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                     && m_Global.GetShadowParams().castShadows;
+        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount]{};
+        if (runCsmShadowPasses)
+        {
+            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
+        }
 
         // Z-prepass produces SceneDepth before forward shading. The render
         // graph can schedule it in parallel with the shadow cascades.
@@ -312,9 +324,13 @@ namespace Luth
 
         // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
         // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
-        // AsyncCompute pass overlaps with GTAO chain below. Returns invalid handle if the RT
-        // pipeline isn't ready (boot, missing shaders) — consumer treats invalid handle as CSM.
-        RG::ResourceHandle rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg);
+        // AsyncCompute pass overlaps with GTAO chain below. Gated on RT mode + CastShadows;
+        // CSM mode (or CastShadows=false) returns invalid handle and GeometryPass skips the Read.
+        RG::ResourceHandle rtShadowMaskHandle{};
+        const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
+                               && m_Global.GetShadowParams().castShadows;
+        if (runRtShadows)
+            rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
