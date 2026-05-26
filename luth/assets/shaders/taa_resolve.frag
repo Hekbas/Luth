@@ -20,15 +20,11 @@ layout(set = 0, binding = 3) uniform sampler2D sceneDepth;
 // Binding 4 (UBO) is declared in the descriptor set layout but unused here — reserved for future
 // TAA tunables (e.g. Salvi K4 variance gamma). Push constant carries the params we need today.
 
-// invariant: jitterDeltaUv = (currentJitter − prevJitter) / viewportSize, populated by
-// AddTaaResolvePass from ViewResources. Added to the resolve's per-pixel motion so static
-// scenes resolve to motion = 0 instead of a sub-pixel jitter delta — without it bilinear
-// history sampling at the Halton offset never converges. Production engines (UE/HDRP/INSIDE)
-// de-jitter at the motion-vector producer; doing it here keeps slim_gbuffer untouched.
+// Source-side de-jitter now lives in slim_gbuffer.frag (Tardif form, ubo.taaParams.zw +
+// ubo.prevJitter). The motion attachment carries pure scene displacement, so the resolve
+// reads it directly with no jitter correction.
 layout(push_constant) uniform TaaPC {
     float temporalAlpha;  // 0.05..0.2 — current-frame feedback weight in YCoCg blend
-    float pad;
-    vec2  jitterDeltaUv;
 } taa;
 
 void main()
@@ -48,10 +44,11 @@ void main()
         float d   = texture(sceneDepth, sUv).r;
         if (d < minDepth) { minDepth = d; closestUv = sUv; }
     }
-    // Slim G-buffer motion = currNDC − prevNDC (NDC range ±2). ×0.5 → UV delta. The +jitterDeltaUv
-    // adds back (currJitter − prevJitter)/viewport so static scenes net to zero motion; without it
-    // prevUv lands sub-pixel-offset every frame and bilinear history sampling can't converge.
-    vec2 motion = texture(motionVectors, closestUv).rg * 0.5 + taa.jitterDeltaUv;
+    // Slim G-buffer motion = pure scene NDC delta (de-jittered at the producer). ×0.5 → UV delta.
+    // For a fully static scene the read is exactly zero, so prevUv lands at the fragment center
+    // (single-texel history sample, no bilinear blur) and the BH-reconstructed current supplies
+    // sub-pixel detail across frames.
+    vec2 motion = texture(motionVectors, closestUv).rg * 0.5;
     vec2 prevUv = v_TexCoord - motion;
 
     // 2. Sample 3×3 current neighborhood in YCoCg + accumulate Blackman-Harris reconstructed

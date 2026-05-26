@@ -1,12 +1,16 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
 
 // Slim G-buffer fragment shader. Outputs four attachments at viewport resolution:
 //   0: normal     (RG16F)  — octahedral-encoded world-space normal, range [0, 1]
 //   1: roughness  (R8)     — perceptual roughness, clamped to [0.04, 1.0]
-//   2: motion     (RG16F)  — NDC delta (currNDC - prevNDC); ±2 in worst case
+//   2: motion     (RG16F)  — pure-scene NDC delta (source-side de-jittered); ±2 in worst case
 //   3: materialID (R16U)   — bindless material slot
 // Feeds TAA (motion); downstream RT denoisers read normal+roughness, RT reflections read normal.
+// Motion is jitter-free at the producer — see motion-vector block in main() below.
 
 layout(location = 0) in vec2 v_TexCoord0;
 layout(location = 1) in vec2 v_TexCoord1;
@@ -92,11 +96,20 @@ void main()
     }
     outRoughness = clamp(roughness, 0.04, 1.0);
 
-    // Motion vector in NDC space (currNDC - prevNDC). Consumers multiply by 0.5 for UV-space
-    // history reprojection (Karis14 TAA convention).
+    // Motion vector in NDC space — source-side de-jittered so the attachment carries pure scene
+    // displacement (no Halton jitter delta). RT denoising in Phase B.3 / C.2 reads this directly.
+    // Tardif form sign-corrected for Luth's right-handed Vulkan perspective.
+    //
+    // invariant: jitter applied to ubo.projection shifts NDC by -jitter*2/viewport (not + ; the
+    // perspective divide flips the sign because clip.w = -z_view in right-handed view). Adding
+    // jitter*2/viewport recovers the un-jittered NDC. See plan's Sign-Convention Guardrail; if
+    // SlimMotion debug viz shows saturated motion on a static camera, flip the + to - on both
+    // jitterCurr and jitterPrev terms below.
+    vec2 jitterCurr = ubo.taaParams.zw  * 2.0 / ubo.viewportSize;
+    vec2 jitterPrev = ubo.prevJitter.xy * 2.0 / ubo.viewportSize;
     vec2 currNDC = v_CurrClip.xy / v_CurrClip.w;
     vec2 prevNDC = v_PrevClip.xy / v_PrevClip.w;
-    outMotion    = currNDC - prevNDC;
+    outMotion = (currNDC + jitterCurr) - (prevNDC + jitterPrev);
 
     // Material ID — R16U supports 65535 distinct slots; engine cap is 16384.
     outMaterialID = v_MaterialIndex & 0xFFFFu;
