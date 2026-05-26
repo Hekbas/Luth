@@ -165,7 +165,9 @@ namespace Luth
         }
     }
 
-    // Renderer baseline: VK_KHR_swapchain + a graphics queue family.
+    // Renderer baseline: VK_KHR_swapchain + 4 RT extensions + a graphics queue family.
+    // RT-mandatory (rt-renderer arc): a device missing any RT extension is ineligible,
+    // not a fallback candidate — hard-fail at the picker rather than after vkCreateDevice.
     static bool DeviceMeetsBaseline(VkPhysicalDevice device)
     {
         u32 extCount = 0;
@@ -173,12 +175,20 @@ namespace Luth
         std::vector<VkExtensionProperties> extensions(extCount);
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extCount, extensions.data());
 
-        bool hasSwapchain = false;
-        for (const auto& ext : extensions)
+        const char* required[] = {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_RAY_QUERY_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        };
+        for (const char* req : required)
         {
-            if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) { hasSwapchain = true; break; }
+            bool found = false;
+            for (const auto& ext : extensions)
+                if (strcmp(ext.extensionName, req) == 0) { found = true; break; }
+            if (!found) return false;
         }
-        if (!hasSwapchain) return false;
 
         u32 famCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &famCount, nullptr);
@@ -227,7 +237,9 @@ namespace Luth
             return;
         }
 
-        LH_CORE_CRITICAL("No Vulkan device meets baseline (VK_KHR_swapchain + graphics queue)");
+        LH_CORE_CRITICAL("No Vulkan device meets baseline (VK_KHR_swapchain + RT extensions "
+                         "[acceleration_structure, ray_tracing_pipeline, ray_query, deferred_host_operations] "
+                         "+ graphics queue) — Luth is RT-mandatory per rt-renderer arc");
     }
 
     void VulkanContext::CreateLogicalDevice()
@@ -316,12 +328,19 @@ namespace Luth
                                  b, graphicsBits);
         }
 
-        // Verify required 1.1/1.2/1.3 features before enabling them in vkCreateDevice.
+        // Verify required 1.1/1.2/1.3 + RT features before enabling them in vkCreateDevice.
+        // Chain shape: features2 -> 13 -> 12 -> 11 -> AS -> RT-pipeline -> ray-query.
         VkPhysicalDeviceVulkan11Features avail11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
         VkPhysicalDeviceVulkan12Features avail12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         VkPhysicalDeviceVulkan13Features avail13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR availAs{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR    availRt{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+        VkPhysicalDeviceRayQueryFeaturesKHR              availRq{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
         avail12.pNext = &avail11;
         avail13.pNext = &avail12;
+        avail11.pNext = &availAs;
+        availAs.pNext = &availRt;
+        availRt.pNext = &availRq;
         VkPhysicalDeviceFeatures2 avail2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
         avail2.pNext = &avail13;
         vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &avail2);
@@ -337,15 +356,19 @@ namespace Luth
                      && avail12.timelineSemaphore
                      && avail12.bufferDeviceAddress
                      && avail13.dynamicRendering
-                     && avail13.synchronization2;
+                     && avail13.synchronization2
+                     && availAs.accelerationStructure
+                     && availRt.rayTracingPipeline
+                     && availRq.rayQuery;
         if (!ok)
         {
-            LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 features missing on selected device — "
+            LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device — "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
-                "bufferDeviceAddress={} dynamicRendering={} synchronization2={}",
+                "bufferDeviceAddress={} dynamicRendering={} synchronization2={} "
+                "accelerationStructure={} rayTracingPipeline={} rayQuery={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
                 (bool)avail12.descriptorBindingSampledImageUpdateAfterBind,
@@ -357,7 +380,10 @@ namespace Luth
                 (bool)avail12.timelineSemaphore,
                 (bool)avail12.bufferDeviceAddress,
                 (bool)avail13.dynamicRendering,
-                (bool)avail13.synchronization2);
+                (bool)avail13.synchronization2,
+                (bool)availAs.accelerationStructure,
+                (bool)availRt.rayTracingPipeline,
+                (bool)availRq.rayQuery);
         }
 
         // One VkDeviceQueueCreateInfo per distinct family. Up to 3 (graphics + async-compute + async-transfer);
@@ -422,16 +448,38 @@ namespace Luth
         features13.synchronization2 = VK_TRUE;
         features13.pNext = &features12;
 
+        // RT features (rt-renderer arc) — chain tail: 11 -> AS -> RT-pipeline -> ray-query.
+        // accelerationStructure mandates bufferDeviceAddress (asserted enabled above).
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{};
+        asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        asFeatures.accelerationStructure = VK_TRUE;
+
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{};
+        rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
+
+        VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{};
+        rqFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+        rqFeatures.rayQuery = VK_TRUE;
+
+        features11.pNext         = &asFeatures;
+        asFeatures.pNext         = &rtPipelineFeatures;
+        rtPipelineFeatures.pNext = &rqFeatures;
+
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.pNext = &features13; // Chain 1.3 features
+        createInfo.pNext = &features13; // Chain 1.3 features (full chain reaches RT structs)
         createInfo.pQueueCreateInfos    = queueCreateInfos.data();
         createInfo.queueCreateInfoCount = (u32)queueCreateInfos.size();
         createInfo.pEnabledFeatures = &deviceFeatures;
 
         std::vector<const char*> deviceExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME // Enabled for ImGui compatibility
+            VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, // Enabled for ImGui compatibility
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_RAY_QUERY_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         };
 
         createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
