@@ -426,6 +426,7 @@ namespace Luth
         m_FrameData.Shutdown();
         IOThread::Shutdown();
         JobSystem::Shutdown();
+        EventBus::FlushAll();
         Memory::TaggedPageAllocator::Get().Shutdown();
         Memory::MemoryTracker::Shutdown();
     }
