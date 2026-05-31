@@ -112,16 +112,18 @@ Aftermath sees both.
 ### Compile gate + dynamic load
 
 `AftermathCrashTracker` is compiled in only when premake sees the `AFTERMATH_SDK` env var at generate
-time (`LUTH_ENABLE_AFTERMATH=1` + `LUTH_AFTERMATH_DLL="<sdk>/lib/x64/GFSDK_Aftermath_Lib.x64.dll"`); the
-SDK headers are compile-time only. **The DLL is loaded dynamically at runtime** (`LoadLibraryEx` +
-`GetProcAddress` via the SDK's `PFN_GFSDK_Aftermath_*` typedefs) — never link-time-linked. A missing DLL,
-missing entry points, or version mismatch is a logged soft-fail: disabled, **never a crash**.
+time (`LUTH_ENABLE_AFTERMATH=1` + the include dir); the SDK headers are compile-time only, and the
+Runtime project's post-build step copies the DLL next to `Luthien.exe` (mirroring `shaderc_shared.dll`).
+**The DLL is loaded dynamically at runtime** (`LoadLibraryEx` + `GetProcAddress` via the SDK's
+`PFN_GFSDK_Aftermath_*` typedefs) — never link-time-linked. A missing DLL, missing entry points, or
+version mismatch is a logged soft-fail: disabled, **never a crash**.
 
 > The link-time predecessor hard-crashed any config that linked the import lib (Debug included) when the
 > DLL was absent. Dynamic load is the root fix.
 
-Search order: the SDK path baked at build time, then the exe directory (hardened `LOAD_LIBRARY_SEARCH_*`
-flags keep a planted DLL on the CWD / `%PATH%` from being picked up).
+Loaded by name from the exe directory — **no absolute SDK path is baked into the binary** (the post-build
+copy stages it, like the Vulkan SDK's shaderc DLL). Hardened `LOAD_LIBRARY_SEARCH_*` flags keep a planted
+DLL on the CWD / `%PATH%` from being picked up.
 
 ### Init order + flags
 

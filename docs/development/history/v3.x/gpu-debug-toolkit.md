@@ -40,26 +40,28 @@ Aftermath SDK's dynamic-load typedefs. The normative reference is the new
 |---|---|---|
 | 1 | **Dynamic-load Aftermath + drop link-time dep.** `premake5.lua` drops `libdirs` + `links` for `GFSDK_Aftermath_Lib.x64`, keeps the headers (`includedirs`), and bakes `LUTH_AFTERMATH_DLL="<sdk>/lib/x64/GFSDK_Aftermath_Lib.x64.dll"` (forward-slashed) alongside `LUTH_ENABLE_AFTERMATH=1`. `AftermathCrashTracker.cpp` resolves the three entry points (`Enable`/`Disable`/`GetCrashDumpStatus`) through the SDK's `PFN_GFSDK_Aftermath_*` typedefs after `LoadLibraryEx` (baked SDK path, then exe dir with hardened `LOAD_LIBRARY_SEARCH_*` flags). A missing DLL / missing entry point / version mismatch is a logged soft-fail — disabled, never a crash. | `7cbedee` |
 | 2 | **Runtime validation tiers + checkpoint device-lost dump.** New `LUTH_VALIDATION` env knob (`ResolveValidationConfig`) replaces the never-shipped `LUTH_FORCE_VALIDATION`: `core` floor + opt-in `sync`/`bp`/`gpuav`/`rt`/`uncapped`, default Debug = `core+sync+bp`, `off` escape hatch. `CreateInstance` builds the `VkValidationFeatureEnableEXT[]` conditionally; GPU-AV logs a descriptor-budget/timing warning. NV-RT-validation gates on the `rt` tier. Aftermath diagnostics-config drops `AUTOMATIC_CHECKPOINTS` and only enables when `AftermathCrashTracker::Enabled()`. `GpuCheckpoint` registry + per-pass markers (`RenderGraph`) + `DumpCheckpointsOnDeviceLost` on all submit paths **and** `Present`, fire-once, with the TDR-unreliability note in code. | `20af16e` |
-| 3 | **Arch doc + history + Version bump.** New normative `arch/gpu-crash-debugging.md` (the three layers + the device-lost playbook + the Future Work backlog). `arch/validation-layers.md` gains the runtime-tier section + cross-link and drops a stale `#elif defined(_DEBUG)` snippet. `.gitignore` adds the untracked runtime artifacts + Aftermath crash dumps. `Version.h` → `3.0.10`. | this commit |
+| 3 | **Arch doc + history + Version bump.** New normative `arch/gpu-crash-debugging.md` (the three layers + the device-lost playbook + the Future Work backlog). `arch/validation-layers.md` gains the runtime-tier section + cross-link and drops a stale `#elif defined(_DEBUG)` snippet. `.gitignore` adds the untracked runtime artifacts + Aftermath crash dumps. `Version.h` → `3.0.10`. | `de8f3f8` |
+| 4 | **Stage the Aftermath DLL via post-build copy; drop the baked path.** The Runtime project copies `GFSDK_Aftermath_Lib.x64.dll` next to `Luthien.exe` on build (gated on `AFTERMATH_SDK`, mirroring `shaderc_shared.dll`); `AftermathCrashTracker` loads it by bare name. Drops the `LUTH_AFTERMATH_DLL` absolute-path `#define` so no env-specific path is baked into the compiled binary — it lives only in the gitignored vcxproj, like the Vulkan SDK path. *(Caught in smoke-test review.)* | this commit |
 
 ---
 
 ## Architectural decisions
 
-### Dynamic-load over auto-copy
+### Dynamic load + post-build DLL staging
 
-Two ways to stop the link-time DLL dependency from crashing configs that lack the DLL: (a) keep the link
-and add a premake post-build step that copies the DLL into every config's output dir, or (b) drop the
-link and `LoadLibrary` the DLL at runtime. (b) won. The SDK headers ship `PFN_GFSDK_Aftermath_*` typedefs
-explicitly "if dynamic loading is preferred", the symbols are undecorated `extern "C"` on x64, and the
-result is strictly more robust: a missing DLL, an old DLL missing an entry point, and a header/lib version
-mismatch all soft-fail through the same path. The headers stay compile-time-only (`includedirs`), so the
-engine still builds without the DLL present; only `AFTERMATH_SDK` at premake-generate time toggles
-`LUTH_ENABLE_AFTERMATH`.
+Two orthogonal choices. **How the code binds the DLL:** dynamic `LoadLibrary` + `GetProcAddress` (via the
+SDK's `PFN_GFSDK_Aftermath_*` typedefs, "if dynamic loading is preferred") rather than a link-time import
+lib. The symbols are undecorated `extern "C"` on x64, and dynamic binding makes a missing DLL, an old DLL
+missing an entry point, and a header/lib version mismatch all soft-fail through the same path — disabled,
+never a crash. The headers stay compile-time-only (`includedirs`); only `AFTERMATH_SDK` at generate time
+toggles `LUTH_ENABLE_AFTERMATH`.
 
-The DLL search baked an absolute SDK path (`LUTH_AFTERMATH_DLL`) as the first attempt so a dev build "just
-works" with no copy step, then falls back to the exe directory with `LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
-LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` (never the CWD / `%PATH%` — avoids a planted-DLL hijack).
+**How the DLL reaches the exe:** the Runtime project's post-build step copies it next to `Luthien.exe`,
+exactly as it already does for `shaderc_shared.dll`, and the runtime loads it by bare name with hardened
+search (`LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` — never the CWD /
+`%PATH%`). The first cut instead baked the absolute SDK path into the binary as a `LUTH_AFTERMATH_DLL`
+define; it worked but embedded a machine-specific path in the compiled artifact, so it was dropped for the
+post-build copy — the absolute path now lives only in the gitignored vcxproj, like the Vulkan SDK path.
 
 ### One env knob, two-axis model, legacy feature route
 
@@ -118,7 +120,8 @@ typedefs + the soft-fail requirement; isolated to one Windows-only, `LUTH_ENABLE
 - [`GpuCheckpoint.{h,cpp}`](../../../luth/source/luth/renderer/backend/vulkan/GpuCheckpoint.h) — checkpoint marker name registry (new in the hunt; committed here)
 - [`VulkanContext.{h,cpp}`](../../../luth/source/luth/renderer/backend/vulkan/VulkanContext.cpp) — `ResolveValidationConfig` + tiers, conditional feature array, RT-validation gating, Aftermath flag trim + `Enabled()` gate, checkpoint fn-load + `DumpCheckpointsOnDeviceLost` + Present hook
 - [`RenderGraph.cpp`](../../../luth/source/luth/renderer/rendergraph/RenderGraph.cpp) — per-pass `vkCmdSetCheckpointNV` markers (interned pass names)
-- [`premake5.lua`](../../../luth/premake5.lua) — Aftermath: drop the `.lib` link, bake the DLL path
+- [`premake5.lua`](../../../luth/premake5.lua) — Aftermath: drop the `.lib` link (dynamic-load instead)
+- [`runtime/premake5.lua`](../../../runtime/premake5.lua) — post-build copy of the Aftermath DLL next to the exe
 
 **Docs:**
 - [`arch/gpu-crash-debugging.md`](../../arch/gpu-crash-debugging.md) — new normative reference

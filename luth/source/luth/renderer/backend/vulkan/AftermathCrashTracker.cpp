@@ -72,14 +72,11 @@ namespace Luth
 
     void AftermathCrashTracker::Initialize()
     {
-        // SDK path baked at build time first, then the exe directory. Hardened search flags keep a DLL
-        // planted on the CWD / %PATH% from being loaded in its place.
-    #if defined(LUTH_AFTERMATH_DLL)
-        s_AftermathDll = LoadLibraryExA(LUTH_AFTERMATH_DLL, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    #endif
-        if (!s_AftermathDll)
-            s_AftermathDll = LoadLibraryExA("GFSDK_Aftermath_Lib.x64.dll", nullptr,
-                                            LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        // Loaded by name from the exe directory, where the Runtime project's post-build step stages it
+        // (next to Luthien.exe, like shaderc_shared.dll). Hardened search flags keep a DLL planted on the
+        // CWD / %PATH% from being loaded in its place.
+        s_AftermathDll = LoadLibraryExA("GFSDK_Aftermath_Lib.x64.dll", nullptr,
+                                        LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         if (!s_AftermathDll)
         {
             LH_CORE_WARN("Aftermath: GFSDK_Aftermath_Lib.x64.dll not found - GPU crash dumps disabled "
