@@ -324,7 +324,11 @@ namespace Luth
         // RT acceleration structures — per-frame skinning compute + skinned BLAS refit + TLAS build.
         // Multi-view guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
         // Routed to AsyncCompute so it overlaps with the rest of the graphics frame.
-        m_Rt.AddTlasBuildPass(rg);
+        // Gated on RT mode — only the RT raygen consumes the TLAS; CSM would skin + refit + build for nothing.
+        const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
+                               && m_Global.GetShadowParams().castShadows;
+        if (runRtShadows)
+            m_Rt.AddTlasBuildPass(rg);
 
         // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
         // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
@@ -333,8 +337,6 @@ namespace Luth
         // Threads prepassDepth + slimGB.normal so RG transitions them from DSA/COLOR_ATTACHMENT to
         // SHADER_READ_ONLY_OPTIMAL ahead of the raygen sample (descriptor declared that layout).
         RG::ResourceHandle rtShadowMaskHandle{};
-        const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
-                               && m_Global.GetShadowParams().castShadows;
         if (runRtShadows)
             rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg, prepassDepth, slimGB.normal);
 
