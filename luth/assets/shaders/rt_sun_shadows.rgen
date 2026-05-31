@@ -1,0 +1,123 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+
+// Sun-shadow visibility raygen — Phase B.3 of the rt-renderer arc. Dispatched at viewport
+// resolution by RtSubsystem::AddRtSunShadowsPass on AsyncCompute. One 1-spp visibility ray per
+// pixel from the visible point toward the sun; result writes an R8 mask consumed by pbr.frag
+// when ShadowingMode == RtShadows (Set 3 binding 4 in the PBR pipeline-layout).
+//
+// Payload contract: init to 0.0 (in shadow); RAY_FLAG_TERMINATE_ON_FIRST_HIT + OPAQUE skip any-hit
+// and closest-hit, leaving payload at 0 on a hit; miss program sets to 1.0. So shadow=0 on
+// occluder hit, shadow=1 on miss. See rt_sun_shadows.rmiss for the miss side.
+
+// Set 0: Global UBO (binding 0, via common/globals.glsl) + TLAS (binding 6, declared here).
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
+
+// Set 1: LightSSBO — same VkDescriptorSetLayout PBR binds at its Set 3, just remapped to set=1
+// in the RT pipeline-layout for tighter set-numbering. Only dirLight.direction is read here.
+struct DirectionalLightData {
+    vec3  direction;
+    float intensity;
+    vec3  color;
+    float _pad;
+};
+struct PointLightData {
+    vec3  position;
+    float range;
+    vec3  color;
+    float intensity;
+};
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+// Set 2: pass-local — scene depth + slim G-buffer normal + R8 shadow-mask output.
+layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;   // RG16F oct (Karis 2014)
+layout(set = 2, binding = 2, r8) uniform writeonly image2D outShadowMask;
+
+struct SunShadowPayload { float visibility; };
+layout(location = 0) rayPayloadEXT SunShadowPayload payload;
+
+// Inverse of slim_gbuffer.frag's OctEncode. Decodes [0,1] RG16F → unit world-space normal.
+vec3 OctDecode(vec2 enc)
+{
+    enc = enc * 2.0 - 1.0;
+    vec3 n = vec3(enc.xy, 1.0 - abs(enc.x) - abs(enc.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+    ivec2 size  = ivec2(gl_LaunchSizeEXT.xy);
+
+    // CastShadows=false sentinel — bias[0] < 0 means shadows globally off. Write fully-lit and bail.
+    if (ubo.shadowBias.x < 0.0)
+    {
+        imageStore(outShadowMask, pixel, vec4(1.0));
+        return;
+    }
+
+    vec2 uv = (vec2(pixel) + vec2(0.5)) / vec2(size);
+    float depth = texture(u_SceneDepth, uv).r;
+
+    // Skybox / cleared depth — no surface to shadow.
+    if (depth >= 1.0)
+    {
+        imageStore(outShadowMask, pixel, vec4(1.0));
+        return;
+    }
+
+    // ubo.projection already has the Vulkan Y-flip applied (GlobalSubsystem::UpdateUBO flips
+    // [1][1]); inverse(viewProjection) accounts for it directly, so plain uv*2-1 NDC works.
+    vec4 ndcPos   = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 worldH   = inverse(ubo.viewProjection) * ndcPos;
+    vec3 worldPos = worldH.xyz / worldH.w;
+
+    // Shading normal from slim G-buffer (octahedral). Phase C.2 may swap for geometric-from-depth
+    // if shading-normal bias starts to look wrong at silhouettes.
+    vec2 octN = texture(u_SlimNormal, uv).rg;
+    vec3 N    = OctDecode(octN);
+
+    // LightSSBO stores .direction as the light's *forward* vector (component Transform forward,
+    // negated by ScenePoll into the snapshot). To trace toward the sun we negate again.
+    vec3 L     = normalize(-lights.dirLight.direction);
+    float NdotL = max(dot(N, L), 0.0);
+
+    // Backface — surface points away from sun, definitively self-shadowed. No trace needed.
+    if (NdotL <= 0.0)
+    {
+        imageStore(outShadowMask, pixel, vec4(0.0));
+        return;
+    }
+
+    // Wächter & Binder 2019 origin biasing (RT Gems Ch. 6). Normal-offset scales by (1-NdotL)
+    // to widen at grazing angles where self-intersection probability is highest; light-direction
+    // pre-bias adds a constant safety margin along the ray direction.
+    vec3 origin = worldPos
+                + N * (ubo.rtShadowParams.z * max(1.0 - NdotL, 0.1))
+                + L * ubo.rtShadowParams.y;
+
+    payload.visibility = 0.0;  // Init "in shadow"; miss program flips to 1.0 if the ray escapes.
+    traceRayEXT(
+        topLevelAS,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
+        0xFF,        // cullMask
+        0, 0, 0,     // sbtRecordOffset, sbtRecordStride, missIndex
+        origin, 0.0,
+        L, 10000.0,
+        0            // payload location
+    );
+
+    imageStore(outShadowMask, pixel, vec4(payload.visibility, 0.0, 0.0, 0.0));
+}

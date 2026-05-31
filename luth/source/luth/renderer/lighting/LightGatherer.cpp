@@ -25,6 +25,9 @@ namespace Luth
             outShadow.stabilizeCascades     = dl.stabilizeCascades;
             outShadow.cascadeBlendWidth     = dl.cascadeBlendWidth;
             outShadow.debugVisualizeCascades = dl.debugVisualizeCascades;
+            outShadow.mode                  = dl.shadowing;
+            outShadow.rtOriginEpsilon       = dl.rtOriginEpsilon;
+            outShadow.rtNormalEpsilon       = dl.rtNormalEpsilon;
         }
         else
         {

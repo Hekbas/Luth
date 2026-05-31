@@ -1,12 +1,18 @@
 #include "luthpch.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
+#include "luth/renderer/subsystems/GlobalSubsystem.h"
+#include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanRayTracingPipeline.h"
 #include "luth/renderer/backend/vulkan/RtShaderBindingTable.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderCompiler.h"
+#include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -17,11 +23,170 @@
 #include "luth/core/FrameData.h"
 #include "luth/core/RenderSnapshot.h"
 
+#include <vma/vk_mem_alloc.h>
+
 namespace Luth
 {
+    namespace
+    {
+        // Build a 0-instance TLAS, persistent for the lifetime of RtSubsystem. Seeds Set 0 binding 6
+        // before any per-frame TlasBuildPass runs — required from B.3 onward since rt_sun_shadows.rgen
+        // statically reads `topLevelAS` at binding 6 and a null handle there violates the descriptor
+        // rules even with PARTIALLY_BOUND (validation interprets static use conservatively). The empty
+        // TLAS is geometrically valid — vkCmdBuild with instanceCount=0 is legal per spec; rayQuery
+        // against it always misses (no instances to intersect), yielding visibility=1.0.
+        bool BuildEmptyTlas(VkAccelerationStructureKHR& outAS,
+                            VkBuffer& outStorageBuf,
+                            VmaAllocation& outStorageAlloc)
+        {
+            auto& ctx = VulkanContext::Get();
+            VkDevice device = ctx.GetDevice();
+            const auto& rt  = ctx.GetRtFn();
+
+            VkAccelerationStructureGeometryInstancesDataKHR instData{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };
+            instData.arrayOfPointers   = VK_FALSE;
+            instData.data.deviceAddress = 0;  // No instances, no buffer needed for the empty case.
+
+            VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+            geom.geometryType        = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+            geom.geometry.instances  = instData;
+            geom.flags               = 0;
+
+            VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+            buildInfo.type          = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+            buildInfo.flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+            buildInfo.mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            buildInfo.geometryCount = 1;
+            buildInfo.pGeometries   = &geom;
+
+            const u32 primitiveCount = 0;
+            VkAccelerationStructureBuildSizesInfoKHR sizes{
+                VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+            rt.vkGetAccelerationStructureBuildSizesKHR(
+                device,
+                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                &buildInfo,
+                &primitiveCount,
+                &sizes);
+
+            // Some drivers report zero sizes for an empty TLAS; clamp to a small min so VMA accepts.
+            const VkDeviceSize storageSize = sizes.accelerationStructureSize > 0
+                ? sizes.accelerationStructureSize : 256;
+            const VkDeviceSize scratchSize = sizes.buildScratchSize > 0
+                ? sizes.buildScratchSize : 256;
+
+            VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            storageCi.size        = storageSize;
+            storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
+                                  | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            ctx.ApplyConcurrentSharing(storageCi);  // raygen reads on AsyncCompute cross-queue
+            outStorageAlloc = VulkanAllocator::AllocateBuffer(
+                storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, outStorageBuf);
+            if (!outStorageBuf) return false;
+
+            VkBufferCreateInfo scratchCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            scratchCi.size        = scratchSize;
+            scratchCi.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                  | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            scratchCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            VkBuffer scratchBuf = VK_NULL_HANDLE;
+            VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
+                scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
+
+            VkBufferDeviceAddressInfo scratchAddrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+            scratchAddrInfo.buffer = scratchBuf;
+            const VkDeviceAddress scratchBda = vkGetBufferDeviceAddress(device, &scratchAddrInfo);
+
+            VkAccelerationStructureCreateInfoKHR asCi{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+            asCi.buffer = outStorageBuf;
+            asCi.offset = 0;
+            asCi.size   = storageSize;
+            asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+            rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &outAS);
+
+            buildInfo.dstAccelerationStructure  = outAS;
+            buildInfo.scratchData.deviceAddress = scratchBda;
+
+            VkAccelerationStructureBuildRangeInfoKHR range{};
+            range.primitiveCount = 0;
+            const VkAccelerationStructureBuildRangeInfoKHR* pRange = &range;
+
+            ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
+                rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+            });
+
+            // Scratch lives only for the build — ImmediateSubmit blocks until the GPU finishes,
+            // so an immediate free is safe (no in-flight cmd buffer references it).
+            VulkanAllocator::FreeBuffer(scratchBuf, scratchAlloc);
+            return true;
+        }
+    }
+
     void RtSubsystem::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;
+
+        // Persistent empty TLAS — backs GetTlas() before the first per-frame TlasBuildPass runs.
+        // Kept SEPARATE from m_LastResult so the hash-skip PushDeletion in AddTlasBuildPass never
+        // accidentally destroys it when a per-frame TLAS first replaces the m_LastResult slot.
+        if (BuildEmptyTlas(m_PersistentEmptyTlas, m_PersistentEmptyTlasBuf, m_PersistentEmptyTlasAlloc))
+        {
+            LH_CORE_INFO("RtSubsystem: persistent empty TLAS built (frame-0 binding-6 safety)");
+        }
+        else
+        {
+            LH_CORE_CRITICAL("RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
+        }
+
+        // Pass-local sampler — linear clamp-to-edge for both SceneDepth + SlimNormal reads.
+        // Out-of-range UVs (off-screen) clamp to the edge pixel; raygen guards against background
+        // (depth >= 1.0) but the sampler edge behavior is the safe default.
+        VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        samplerInfo.magFilter    = VK_FILTER_LINEAR;
+        samplerInfo.minFilter    = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_ShadowPassSampler);
+
+        // Pass-local descriptor layout (set 2 in the RT pipeline-layout).
+        VkDescriptorSetLayoutBinding shadowBindings[3] = {};
+        shadowBindings[0].binding         = 0;  // SceneDepth sampler
+        shadowBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowBindings[0].descriptorCount = 1;
+        shadowBindings[0].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[1].binding         = 1;  // SlimNormal sampler
+        shadowBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowBindings[1].descriptorCount = 1;
+        shadowBindings[1].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[2].binding         = 2;  // sunShadowMask storage image (write)
+        shadowBindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        shadowBindings[2].descriptorCount = 1;
+        shadowBindings[2].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+
+        VkDescriptorSetLayoutCreateInfo shadowLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        shadowLayoutInfo.bindingCount = 3;
+        shadowLayoutInfo.pBindings    = shadowBindings;
+        vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &shadowLayoutInfo, nullptr, &m_ShadowPassSetLayout);
+
+        // Load production RT shader SPV. ShaderLibrary::LoadEngine routes through the standard
+        // asset path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives the
+        // .rgen / .rmiss when they change on disk.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rgen"))
+            m_RaygenSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rmiss"))
+            m_MissSpv = sh->GetSpirV();
+        if (m_RaygenSpv.empty() || m_MissSpv.empty())
+        {
+            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.rgen + .rmiss SPIR-V");
+        }
+        else
+        {
+            BuildShadowPipeline();
+        }
 
 #if LUTH_ENABLE_VALIDATION
         auto raygenSpv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/rt_smoke.rgen"));
@@ -72,11 +237,295 @@ namespace Luth
 
     void RtSubsystem::Shutdown()
     {
-        // Final-frame TLAS storage retires via PushDeletion at the next AcquireImage drain; for
-        // the very last frame, FlushAllDeletionQueues in the backend Shutdown catches them.
+        // Persistent empty TLAS — push to deletion queue so it retires after the last in-flight
+        // frame stops referencing it via Set 0 binding 6 (PushDeletion drains N+2 frames out).
+        if (m_PersistentEmptyTlas != VK_NULL_HANDLE)
+        {
+            auto handle = m_PersistentEmptyTlas;
+            auto buf    = m_PersistentEmptyTlasBuf;
+            auto alloc  = m_PersistentEmptyTlasAlloc;
+            VulkanContext::Get().PushDeletion([handle, buf, alloc]() {
+                auto& ctx = VulkanContext::Get();
+                if (handle != VK_NULL_HANDLE)
+                    ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
+                if (buf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(buf, alloc);
+            });
+            m_PersistentEmptyTlas      = VK_NULL_HANDLE;
+            m_PersistentEmptyTlasBuf   = VK_NULL_HANDLE;
+            m_PersistentEmptyTlasAlloc = nullptr;
+        }
+
+        // RT shadow pipeline + SBT retire here (RAII). Caller fence drain in the backend Shutdown
+        // catches in-flight cmd buffers referencing the SBT/pipeline.
+        m_SunShadowsSBT.reset();
+        m_SunShadowsPipeline.reset();
+        m_RaygenSpv.clear();
+        m_MissSpv.clear();
+
+        if (m_ShadowPassSetLayout != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorSetLayout(VulkanContext::Get().GetDevice(), m_ShadowPassSetLayout, nullptr);
+            m_ShadowPassSetLayout = VK_NULL_HANDLE;
+        }
+        if (m_ShadowPassSampler != VK_NULL_HANDLE)
+        {
+            vkDestroySampler(VulkanContext::Get().GetDevice(), m_ShadowPassSampler, nullptr);
+            m_ShadowPassSampler = VK_NULL_HANDLE;
+        }
+
+        // Final per-frame TLAS — push to deletion so FlushAllDeletionQueues catches it on shutdown.
+        // The hash-skip path inside AddTlasBuildPass only pushes when REPLACING the slot, so a
+        // long-stable m_LastResult lives until shutdown without ever being deferred.
+        if (m_LastResult.tlas != VK_NULL_HANDLE)
+        {
+            auto handle = m_LastResult.tlas;
+            auto buf    = m_LastResult.storageBuffer;
+            auto alloc  = m_LastResult.storageAlloc;
+            VulkanContext::Get().PushDeletion([handle, buf, alloc]() {
+                auto& ctx = VulkanContext::Get();
+                if (handle != VK_NULL_HANDLE)
+                    ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
+                if (buf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(buf, alloc);
+            });
+        }
         m_LastResult = {};
         m_LastBuildFrame = ~u64(0);
         m_Pipeline = nullptr;
+    }
+
+    void RtSubsystem::BuildShadowPipeline()
+    {
+        if (m_RaygenSpv.empty() || m_MissSpv.empty()) return;
+        if (!m_Pipeline) return;
+
+        // Stages: index 0 = raygen, index 1 = miss. Groups: matching general groups by stage index.
+        RayTracingStages stages;
+        stages.stages.push_back({ VK_SHADER_STAGE_RAYGEN_BIT_KHR, m_RaygenSpv, "main" });
+        stages.stages.push_back({ VK_SHADER_STAGE_MISS_BIT_KHR,   m_MissSpv,   "main" });
+        RayTracingShaderGroup raygenGroup{};
+        raygenGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        raygenGroup.generalShader = 0;
+        stages.groups.push_back(raygenGroup);
+        RayTracingShaderGroup missGroup{};
+        missGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        missGroup.generalShader = 1;
+        stages.groups.push_back(missGroup);
+
+        // Empty triangle hit group — required even when ray flags skip any-hit/closest-hit
+        // invocation. The GPU's SBT lookup happens before flag-based shader skipping; a missing
+        // hit-group entry causes the GPU to dereference an undefined SBT region on any potential
+        // hit (TerminateOnFirstHit | Opaque still triggers SBT lookup, just not invocation). All
+        // shaders left as VK_SHADER_UNUSED_KHR per spec for "no-op" hit group.
+        RayTracingShaderGroup hitGroup{};
+        hitGroup.type              = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+        hitGroup.generalShader     = VK_SHADER_UNUSED_KHR;
+        hitGroup.closestHitShader  = VK_SHADER_UNUSED_KHR;
+        hitGroup.anyHitShader      = VK_SHADER_UNUSED_KHR;
+        stages.groups.push_back(hitGroup);
+
+        // Set 0 = GlobalSubsystem layout (TLAS at binding 6 + GlobalUniforms at 0).
+        // Set 1 = LightingSubsystem layout — same VkDescriptorSetLayout PBR binds at its Set 3;
+        // we remap to set=1 in the RT pipeline-layout for tighter set-numbering. The raygen
+        // shader's `set = 1` declaration matches this remap.
+        // Set 2 = pass-local (depth + normal + mask).
+        std::vector<VkDescriptorSetLayout> rtLayouts = {
+            m_Pipeline->GetGlobal().GetSetLayout(),
+            m_Pipeline->GetLighting().GetSetLayout(),
+            m_ShadowPassSetLayout,
+        };
+
+        // No push constants for B.3 — all RT-shadow params ride GlobalUniforms.rtShadowParams.
+        m_SunShadowsPipeline = std::make_unique<VKRayTracingPipeline>(stages, rtLayouts, std::vector<VkPushConstantRange>{}, /*maxRecursionDepth*/ 1);
+
+        if (m_SunShadowsPipeline->GetPipeline() == VK_NULL_HANDLE)
+        {
+            LH_CORE_ERROR("RtSubsystem: BuildShadowPipeline failed (vkCreateRayTracingPipelinesKHR returned null)");
+            m_SunShadowsPipeline.reset();
+            return;
+        }
+
+        RtSbtCounts counts; counts.raygenCount = 1; counts.missCount = 1; counts.hitCount = 1;
+        m_SunShadowsSBT = std::make_unique<RtShaderBindingTable>(*m_SunShadowsPipeline, counts);
+    }
+
+    bool RtSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
+    {
+        if (name == "rt_sun_shadows.rgen")
+        {
+            m_RaygenSpv = spv;
+        }
+        else if (name == "rt_sun_shadows.rmiss")
+        {
+            m_MissSpv = spv;
+        }
+        else
+        {
+            return false;
+        }
+
+        // Defer-destroy the old pipeline + SBT — in-flight cmd buffers may still reference them.
+        if (m_SunShadowsPipeline)
+        {
+            auto* oldPipe = m_SunShadowsPipeline.release();
+            VulkanContext::Get().PushDeletion([oldPipe]() { delete oldPipe; });
+        }
+        if (m_SunShadowsSBT)
+        {
+            auto* oldSbt = m_SunShadowsSBT.release();
+            VulkanContext::Get().PushDeletion([oldSbt]() { delete oldSbt; });
+        }
+        BuildShadowPipeline();
+        LH_CORE_INFO("RtSubsystem: RT shadow pipeline rebuilt after shader reload ({})", name);
+        return true;
+    }
+
+    void RtSubsystem::WriteShadowPassView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (m_ShadowPassSetLayout == VK_NULL_HANDLE) return;
+        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !vr.sunShadowMask) return;
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        const VkImageView depthView  = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth())->GetImageView();
+        const VkImageView normalView = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal())->GetImageView();
+        const VkImageView maskView   = std::static_pointer_cast<VKTexture>(vr.sunShadowMask)->GetImageView();
+
+        for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
+        {
+            VkDescriptorSet set = vr.rtShadowPassDescSet[slot];
+            if (set == VK_NULL_HANDLE) continue;
+
+            VkDescriptorImageInfo depthInfo{};
+            depthInfo.sampler     = m_ShadowPassSampler;
+            depthInfo.imageView   = depthView;
+            depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo normalInfo{};
+            normalInfo.sampler     = m_ShadowPassSampler;
+            normalInfo.imageView   = normalView;
+            normalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo maskInfo{};
+            maskInfo.sampler     = VK_NULL_HANDLE;
+            maskInfo.imageView   = maskView;
+            maskInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkWriteDescriptorSet writes[3]{};
+            writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[0].dstSet          = set;
+            writes[0].dstBinding      = 0;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[0].descriptorCount = 1;
+            writes[0].pImageInfo      = &depthInfo;
+
+            writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[1].dstSet          = set;
+            writes[1].dstBinding      = 1;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[1].descriptorCount = 1;
+            writes[1].pImageInfo      = &normalInfo;
+
+            writes[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[2].dstSet          = set;
+            writes[2].dstBinding      = 2;
+            writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[2].descriptorCount = 1;
+            writes[2].pImageInfo      = &maskInfo;
+
+            vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        }
+    }
+
+    RG::ResourceHandle RtSubsystem::AddRtSunShadowsPass(RG::RenderGraph& rg,
+                                                        RG::ResourceHandle sceneDepth,
+                                                        RG::ResourceHandle slimNormal)
+    {
+        // Pre-flight: pipeline must exist (shaders loaded). Mask must exist (view allocated).
+        ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        if (!m_SunShadowsPipeline || !m_SunShadowsSBT || !preflightVr || !preflightVr->sunShadowMask)
+            return {};
+
+        struct RtSunShadowsData {
+            RG::ResourceHandle mask;
+            RG::ResourceHandle depth;
+            RG::ResourceHandle normal;
+        };
+        RG::ResourceHandle outputHandle{};
+        rg.AddComputePass<RtSunShadowsData>(
+            "RtSunShadows",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](RtSunShadowsData& data, RG::RenderPassBuilder& builder) {
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                auto maskTex = std::static_pointer_cast<VKTexture>(vr->sunShadowMask);
+
+                RG::TextureDesc desc;
+                desc.name   = "SunShadowMask";
+                desc.width  = maskTex->GetWidth();
+                desc.height = maskTex->GetHeight();
+                desc.format = RG::TextureFormat::R8_Unorm;
+
+                data.mask = rg.ImportResource(desc,
+                    (void*)maskTex->GetImage(), (void*)maskTex->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.mask = builder.WriteStorageImage(data.mask);
+                // SceneDepth + slimNormal are descriptor-bound to the pass-local set (set 2 b0, b1)
+                // with imageLayout = SHADER_READ_ONLY_OPTIMAL. ReadStorageImage maps to
+                // ResourceState::ComputeRead (COMPUTE_SHADER | RAY_TRACING_SHADER stages,
+                // SHADER_READ_ONLY_OPTIMAL layout) — compatible with AsyncCompute, unlike
+                // plain Read which uses FRAGMENT_SHADER_BIT and would error on this queue.
+                // Despite the name, the descriptor type is COMBINED_IMAGE_SAMPLER, not storage;
+                // the "StorageImage" suffix here is about queue affinity (same convention used
+                // by VolumetricSubsystem::AddInjectScatterPass for the cascade shadow reads).
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                outputHandle = data.mask;
+            },
+            [this](RtSunShadowsData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+
+                const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
+                const u32 slot     = static_cast<u32>(frameAbs % MAX_FRAMES_IN_FLIGHT);
+
+                // AS-build → AS-read barrier. TlasBuildPass (same AsyncCompute primary) emits
+                // BLAS→TLAS-build barriers internally but not the final AS-write → ray-tracing-read
+                // hop. Without this, the raygen may sample a TLAS that's still being built.
+                VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+                asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                asBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                asBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                asBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                VkDependencyInfo asDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                asDep.memoryBarrierCount = 1;
+                asDep.pMemoryBarriers    = &asBarrier;
+                vkCmdPipelineBarrier2(cmd, &asDep);
+
+                m_SunShadowsPipeline->Bind(cmd);
+
+                // Sets: 0 = global (TLAS + UBO), 1 = light SSBO (PBR's Set 3 remapped to RT's Set 1),
+                // 2 = per-view pass-local (depth + normal + mask).
+                VkDescriptorSet sets[3] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->lightDescSet[slot],
+                    vr->rtShadowPassDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                                        m_SunShadowsPipeline->GetLayout(),
+                                        /*firstSet*/ 0, 3, sets, 0, nullptr);
+
+                const auto& sbt = *m_SunShadowsSBT;
+                const VkStridedDeviceAddressRegionKHR emptyCallable{};
+                VulkanContext::Get().GetRtFn().vkCmdTraceRaysKHR(
+                    cmd,
+                    &sbt.GetRaygenRegion(),
+                    &sbt.GetMissRegion(),
+                    &sbt.GetHitRegion(),  // FIX: was emptyRegion — empty hit table caused TDR
+                    &emptyCallable,        // callable: not used
+                    vr->width, vr->height, 1);
+            });
+
+        return outputHandle;
     }
 
     void RtSubsystem::AddTlasBuildPass(RG::RenderGraph& rg)
@@ -85,11 +534,13 @@ namespace Luth
         rg.AddComputePass<TlasBuildData>(
             "TlasBuild",
             RG::QueueFamily::AsyncCompute,
-            [&](TlasBuildData&, RG::RenderPassBuilder&) {
-                // No RG-tracked resources for B.2 — all per-frame allocations live outside the RG
-                // (per-frame VMA + PushDeletion / tagged-heap large-one-shot scratch). The cross-pass
-                // barrier into the future B.3 RT consumer composes via the new AccelerationStructure*
-                // ResourceState entries once that consumer declares a Read.
+            [&](TlasBuildData&, RG::RenderPassBuilder& builder) {
+                // No RG-tracked resources — all per-frame allocations live outside the RG
+                // (per-frame VMA + PushDeletion / tagged-heap large-one-shot scratch). The
+                // pass's actual output (m_LastResult.tlas → Set 0 binding 6 via UpdateUBO)
+                // is an engine-side side effect; SetHasSideEffect keeps the pass alive
+                // through CullDeadPasses (which otherwise drops passes with no Write/Read).
+                builder.SetHasSideEffect();
             },
             [this](TlasBuildData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;

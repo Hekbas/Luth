@@ -55,6 +55,13 @@ project "Runtime"
       "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
    }
 
+   -- Stage the optional Aftermath DLL next to Luthien.exe so the runtime loads it by name (mirrors the
+   -- shaderc copy above). Only when AFTERMATH_SDK is set; the build is otherwise Aftermath-free.
+   local aftermathSDK = os.getenv("AFTERMATH_SDK")
+   if aftermathSDK then
+      postbuildcommands { "{COPY} " .. aftermathSDK:gsub("\\", "/") .. "/lib/x64/GFSDK_Aftermath_Lib.x64.dll %{cfg.targetdir}" }
+   end
+
    links
    {
       "Luth",

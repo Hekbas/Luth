@@ -946,7 +946,8 @@ namespace Luth
                                                       const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount],
                                                       RG::BufferHandle indirectBufferHandle,
                                                       RG::ResourceHandle sceneDepth,
-                                                      RG::ResourceHandle gtaoFinalAO)
+                                                      RG::ResourceHandle gtaoFinalAO,
+                                                      RG::ResourceHandle rtShadowMask)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -954,6 +955,7 @@ namespace Luth
             RG::ResourceHandle depthTex;
             RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
             RG::ResourceHandle gtaoFinalAO;
+            RG::ResourceHandle rtShadowMask;
             RG::BufferHandle   indirectBuf;
         };
         GeometryOutput output;
@@ -1006,6 +1008,13 @@ namespace Luth
                 // GENERAL → SHADER_READ_ONLY transition from GTAODenoise.
                 if (gtaoFinalAO.IsValid())
                     data.gtaoFinalAO = builder.Read(gtaoFinalAO);
+
+                // RT sun-shadow mask. Read triggers GENERAL (RT raygen storage write) →
+                // SHADER_READ_ONLY transition. Handle is invalid in CSM mode (RtSubsystem
+                // returns {} when the pass is gated off) — pbr.frag's CSM branch doesn't
+                // dynamically access binding 4, so the descriptor's layout is irrelevant.
+                if (rtShadowMask.IsValid())
+                    data.rtShadowMask = builder.Read(rtShadowMask);
 
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 

@@ -29,6 +29,9 @@ namespace Luth::ComponentDrawers
             j["stabilizeCascades"]      = dl.StabilizeCascades;
             j["cascadeBlendWidth"]      = dl.CascadeBlendWidth;
             j["debugVisualizeCascades"] = dl.DebugVisualizeCascades;
+            j["shadowing"]              = static_cast<int>(dl.Shadowing);
+            j["rtOriginEpsilon"]        = dl.RtOriginEpsilon;
+            j["rtNormalEpsilon"]        = dl.RtNormalEpsilon;
             return j.dump();
         };
         opts.OnPaste = [](Entity e, const std::string& data) -> bool {
@@ -51,6 +54,10 @@ namespace Luth::ComponentDrawers
                 newDl.StabilizeCascades      = j.value("stabilizeCascades", true);
                 newDl.CascadeBlendWidth      = j.value("cascadeBlendWidth", 0.2f);
                 newDl.DebugVisualizeCascades = j.value("debugVisualizeCascades", false);
+                newDl.Shadowing       = static_cast<ShadowingMode>(
+                                            j.value("shadowing", static_cast<int>(ShadowingMode::RtShadows)));
+                newDl.RtOriginEpsilon = j.value("rtOriginEpsilon", 0.001f);
+                newDl.RtNormalEpsilon = j.value("rtNormalEpsilon", 0.05f);
                 CommandHistory::Execute(std::make_unique<ComponentReplaceCommand<DirectionalLight>>(
                     "Paste DirectionalLight", e.GetScene(), (entt::entity)e, std::move(newDl)));
                 return true;
@@ -87,25 +94,44 @@ namespace Luth::ComponentDrawers
                     }
 
                     if (dirLight.CastShadows) {
-                        UI::Property("Shadow Bias (C0)", dirLight.ShadowBias[0], 0.0001f, 0.0f, 0.05f);
-                        UI::Property("Normal Bias (texels)", dirLight.ShadowNormalBias[0], 0.1f, 0.0f, 10.0f);
-                        UI::Property("Blend Width", dirLight.CascadeBlendWidth, 0.01f, 0.0f, 1.0f);
-                        UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
+                        // Shadow path: RT (default) vs raster CSM compare mode. Mirrors the
+                        // TonemapOperator UI pattern in RenderPanel.cpp:265-278.
+                        const char* shadowingOptions[] = { "Raster CSM", "RT Shadows" };
+                        int currentMode = static_cast<int>(dirLight.Shadowing);
+                        if (UI::PropertyCombo("Shadowing", currentMode, shadowingOptions, IM_ARRAYSIZE(shadowingOptions)))
+                            dirLight.Shadowing = static_cast<ShadowingMode>(currentMode);
 
-                        {
-                            auto state = UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
-                            if (state.committed)
-                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                                    "Change Shadow Size", scene, ent, &DirectionalLight::ShadowOrthoSize,
-                                    UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowOrthoSize));
+                        if (dirLight.Shadowing == ShadowingMode::RasterCSM) {
+                            UI::Property("Shadow Bias (C0)", dirLight.ShadowBias[0], 0.0001f, 0.0f, 0.05f);
+                            UI::Property("Normal Bias (texels)", dirLight.ShadowNormalBias[0], 0.1f, 0.0f, 10.0f);
+                            UI::Property("Blend Width", dirLight.CascadeBlendWidth, 0.01f, 0.0f, 1.0f);
+
+                            {
+                                auto state = UI::Property("Shadow Size", dirLight.ShadowOrthoSize, 1.0f, 10.0f, 2000.0f);
+                                if (state.committed)
+                                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                                        "Change Shadow Size", scene, ent, &DirectionalLight::ShadowOrthoSize,
+                                        UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowOrthoSize));
+                            }
+                            {
+                                auto state = UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
+                                if (state.committed)
+                                    CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
+                                        "Change Shadow Distance", scene, ent, &DirectionalLight::ShadowDistance,
+                                        UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowDistance));
+                            }
                         }
-                        {
-                            auto state = UI::Property("Shadow Distance", dirLight.ShadowDistance, 1.0f, 10.0f, 2000.0f);
-                            if (state.committed)
-                                CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<DirectionalLight, float>>(
-                                    "Change Shadow Distance", scene, ent, &DirectionalLight::ShadowDistance,
-                                    UI::ConsumeItemPreEdit<float>(state.itemId), dirLight.ShadowDistance));
+                        else {
+                            // RT-specific: world-space ray origin biasing (Wächter-Binder 2019).
+                            // OriginEpsilon = constant offset along sun direction; NormalEpsilon = factor
+                            // along geometric normal, modulated by (1-NdotL) for grazing-angle safety.
+                            UI::Property("RT Origin Epsilon", dirLight.RtOriginEpsilon, 0.0001f, 0.0f, 0.01f);
+                            UI::Property("RT Normal Epsilon", dirLight.RtNormalEpsilon, 0.001f, 0.0f, 0.5f);
                         }
+
+                        // debug viz flag stays exposed in both modes — CSM mode tints cascades;
+                        // RT mode reuses the flag for the raw R8 mask overlay (future polish).
+                        UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
                     }
                     UI::EndProperties();
                 }

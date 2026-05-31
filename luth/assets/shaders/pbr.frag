@@ -104,6 +104,13 @@ layout(std430, set = 3, binding = 2) readonly buffer LightIndexBuffer {
 
 layout(set = 3, binding = 3) uniform sampler2DArrayShadow shadowMap;
 
+// RT-traced sun-shadow mask — written by rt_sun_shadows.rgen when ShadowingMode::RtShadows is
+// active. Sampled at screen UV (gl_FragCoord.xy / viewportSize). Single R8 channel = visibility
+// (0 = in shadow, 1 = unshadowed). Reads only happen on the RT branch of ComputeShadow below; the
+// CSM branch never dynamically accesses this binding so layout/initialization quirks of the mask
+// (e.g., CSM-mode-only frames) don't affect the cascade path.
+layout(set = 3, binding = 4) uniform sampler2D sunShadowMask;
+
 uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
     // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
     float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
@@ -270,7 +277,7 @@ float SamplePCF(vec3 proj, int cascade, float depthBias, float NdotL, vec2 texel
 // `outCascade` receives the chosen cascade index (0–3) or -1 for debug visualization.
 struct ShadowResult { float shadow; int cascade; };
 
-ShadowResult ComputeShadow(vec3 worldPos, vec3 N)
+ShadowResult ComputeShadowCSM(vec3 worldPos, vec3 N)
 {
     // Negative bias[0] = shadows globally disabled (CastShadows=false sentinel).
     if (ubo.shadowBias.x < 0.0)
@@ -338,6 +345,26 @@ ShadowResult ComputeShadow(vec3 worldPos, vec3 N)
     }
 
     return ShadowResult(sA, chosen);
+}
+
+// RT sun-shadow visibility — samples the per-view R8 mask written by rt_sun_shadows.rgen at the
+// current pixel's screen UV. Returns cascade=-1 since RT mode has no cascade selection (debug viz
+// reuses the flag for an RT-specific overlay below). 1-spp hard shadows; soft shadows (sun-disk
+// sampling + denoise) arrive in Phase C with ReSTIR DI / SVGF.
+ShadowResult ComputeShadowRT(vec2 uv)
+{
+    if (ubo.shadowBias.x < 0.0)
+        return ShadowResult(1.0, -1);
+    return ShadowResult(texture(sunShadowMask, uv).r, -1);
+}
+
+// Top-level dispatcher. rtShadowParams.x = 0 → cascade PCF (CSM mode, bit-identical to v3.0.9);
+// rtShadowParams.x > 0.5 → ray-traced mask sample.
+ShadowResult ComputeShadow(vec3 worldPos, vec3 N, vec2 uv)
+{
+    if (ubo.rtShadowParams.x > 0.5)
+        return ComputeShadowRT(uv);
+    return ComputeShadowCSM(worldPos, N);
 }
 
 // ---------- Main ----------
@@ -429,8 +456,9 @@ void main()
     vec3 V = normalize(ubo.cameraPos - v_WorldPos);
     vec3 Lo = vec3(0.0);
 
-    // Directional light + PCF shadow
-    ShadowResult sr = ComputeShadow(v_WorldPos, N);
+    // Directional light + shadow (cascade PCF in CSM mode, R8 mask sample in RT mode).
+    vec2 shadowUv = gl_FragCoord.xy / ubo.viewportSize;
+    ShadowResult sr = ComputeShadow(v_WorldPos, N, shadowUv);
 
     {
         vec3 dirRadiance = lights.dirLight.color * lights.dirLight.intensity;
@@ -486,16 +514,27 @@ void main()
         return;
     }
 
-    // Debug cascade visualization: tint each cascade with a distinct color overlay.
-    if (ubo.debugVisualizeCascades > 0.5 && sr.cascade >= 0)
+    // Debug visualization for sun shadows. In CSM mode tints each cascade; in RT mode replaces
+    // final color with the raw R8 mask as grayscale so you can see what the raygen wrote.
+    if (ubo.debugVisualizeCascades > 0.5)
     {
-        const vec3 cascadeColors[4] = vec3[4](
-            vec3(1.0, 0.2, 0.2),   // cascade 0 — red (near)
-            vec3(0.2, 1.0, 0.2),   // cascade 1 — green
-            vec3(0.2, 0.2, 1.0),   // cascade 2 — blue
-            vec3(1.0, 1.0, 0.2)    // cascade 3 — yellow (far)
-        );
-        color = mix(color, cascadeColors[sr.cascade], 0.25);
+        if (ubo.rtShadowParams.x > 0.5)
+        {
+            float vis = texture(sunShadowMask, shadowUv).r;
+            outColor = vec4(vis, vis, vis, 1.0);
+            outEntityID = v_EntityID;
+            return;
+        }
+        else if (sr.cascade >= 0)
+        {
+            const vec3 cascadeColors[4] = vec3[4](
+                vec3(1.0, 0.2, 0.2),   // cascade 0 — red (near)
+                vec3(0.2, 1.0, 0.2),   // cascade 1 — green
+                vec3(0.2, 0.2, 1.0),   // cascade 2 — blue
+                vec3(1.0, 1.0, 0.2)    // cascade 3 — yellow (far)
+            );
+            color = mix(color, cascadeColors[sr.cascade], 0.25);
+        }
     }
 
     outColor = vec4(color, albedo.a);

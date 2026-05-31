@@ -118,12 +118,16 @@ namespace Luth
         auto result = std::make_shared<VKAccelerationStructure>();
         result->m_PrimitiveCount = primitiveCount;
 
-        // Persistent AS storage buffer.
+        // Persistent AS storage buffer. CONCURRENT: BLAS is built on graphics (ImmediateSubmit)
+        // but read on compute (RtSunShadowsPass raygen) via TLAS device-address dereference.
+        // Per arch/multi-queue.md, cross-queue buffer access requires CONCURRENT or QFOT; AS
+        // storage was missed in the original policy because B.2's per-frame TLAS was culled
+        // silently and never exercised cross-queue.
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
                               | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VulkanContext::Get().ApplyConcurrentSharing(storageCi);
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
@@ -203,13 +207,24 @@ namespace Luth
         result->m_PrimitiveCount = indexCount / 3;
 
         // Skin-input: tight-packed pos+boneIDs+weights. Compute reads via BDA + scalar layout.
+        // Cross-queue: uploaded on transfer queue, read on AsyncCompute every frame. EXCLUSIVE
+        // sharing here would be a spec violation (cross-queue without QFOT) and TDRs on NVIDIA;
+        // CONCURRENT matches the universal CPU→GPU data-path policy in arch/multi-queue.md.
         const VkDeviceSize skinInputSize = static_cast<VkDeviceSize>(vertCount) * sizeof(SkinComputeInput);
-        result->m_SkinInputBda = AllocateDeviceBuffer(
-            skinInputSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-            | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            result->m_SkinInputBuffer, result->m_SkinInputAlloc);
+        {
+            VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            ci.size        = skinInputSize;
+            ci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                           | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            ctx.ApplyConcurrentSharing(ci);
+            result->m_SkinInputAlloc = VulkanAllocator::AllocateBuffer(
+                ci, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_SkinInputBuffer);
+            VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+            addrInfo.buffer = result->m_SkinInputBuffer;
+            result->m_SkinInputBda = vkGetBufferDeviceAddress(device, &addrInfo);
+        }
 
         // Extract on CPU then upload through UploadContext (transfer ring).
         std::vector<SkinComputeInput> skinInput(vertCount);
@@ -223,15 +238,25 @@ namespace Luth
         const u64 skinUploadFence = UploadContext::Get().UploadBuffer(
             skinInput.data(), skinInputSize, result->m_SkinInputBuffer, 0);
 
-        // Deformed positions — vec3 per vert; compute writes here, AS build reads here.
-        // Zero-init by VMA; degenerate AS bounds until the first per-frame skinning compute fills it.
+        // Deformed positions — vec3/vert; compute writes, AS build reads. Zero-filled before the initial
+        // build (VMA leaves device memory uninitialized; recycled NaN/Inf would TDR the BVH builder).
+        // Cross-queue: graphics initial build, then compute write+read per frame. see arch/multi-queue.md
         const VkDeviceSize deformedSize = static_cast<VkDeviceSize>(vertCount) * sizeof(Vec3);
-        result->m_DeformedBda = AllocateDeviceBuffer(
-            deformedSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-            | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            result->m_DeformedBuffer, result->m_DeformedAlloc);
+        {
+            VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            ci.size        = deformedSize;
+            ci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                           | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;  // vkCmdFillBuffer zero-init pre-build
+            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            ctx.ApplyConcurrentSharing(ci);
+            result->m_DeformedAlloc = VulkanAllocator::AllocateBuffer(
+                ci, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_DeformedBuffer);
+            VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+            addrInfo.buffer = result->m_DeformedBuffer;
+            result->m_DeformedBda = vkGetBufferDeviceAddress(device, &addrInfo);
+        }
 
         // Wait for IB + skin-input uploads before recording the initial AS build.
         const u64 fence = std::max<u64>(ib->GetUploadFence(), skinUploadFence);
@@ -275,12 +300,12 @@ namespace Luth
             &sizes);
         result->m_UpdateScratchSize = sizes.updateScratchSize;
 
-        // Persistent AS storage.
+        // Persistent AS storage. CONCURRENT for cross-queue read by RT trace (see CreateStaticBLAS).
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
                               | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        storageCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VulkanContext::Get().ApplyConcurrentSharing(storageCi);
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
@@ -312,6 +337,18 @@ namespace Luth
         const VkAccelerationStructureBuildRangeInfoKHR* pRange = &range;
 
         ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
+            // VMA leaves this uninitialized; zero it so the build reads degenerate tris, not NaN/Inf (TDR).
+            vkCmdFillBuffer(cmd, result->m_DeformedBuffer, 0, VK_WHOLE_SIZE, 0u);
+            VkMemoryBarrier2 fillBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+            fillBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+            fillBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            fillBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+            fillBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+            VkDependencyInfo fillDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            fillDep.memoryBarrierCount = 1;
+            fillDep.pMemoryBarriers    = &fillBarrier;
+            vkCmdPipelineBarrier2(cmd, &fillDep);
+
             rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
         });
 

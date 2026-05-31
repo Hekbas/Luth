@@ -176,10 +176,31 @@ namespace Luth
         u64 computeSignalValue = 0;
         if (hasComputeWork)
         {
-            VkSemaphoreSubmitInfo cWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-            cWait.semaphore = m_FrameTimeline.GetHandle();
-            cWait.value     = gaSignalValue;
-            cWait.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            // First view also waits the PREVIOUS frame's last compute: frame K's in-place BLAS refit must
+            // not overlap frame K-1's traceRays still reading that BLAS on compute. Later views chain via
+            // gA -> prev gB -> prev compute. see arch/multi-queue.md
+            VkSemaphoreSubmitInfo cWaits[2]{};
+            u32 cWaitCount = 0;
+            cWaits[cWaitCount].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            cWaits[cWaitCount].semaphore = m_FrameTimeline.GetHandle();
+            cWaits[cWaitCount].value     = gaSignalValue;
+            cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            ++cWaitCount;
+
+            if (firstView && frameIndex > 0)
+            {
+                const u32 prevSlot   = (u32)((frameIndex - 1) % MAX_FRAMES_IN_FLIGHT);
+                const u64 prevValue  = m_LastComputeValuePerFrame[prevSlot];
+                if (prevValue > 0)
+                {
+                    cWaits[cWaitCount].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                    cWaits[cWaitCount].semaphore = m_ComputeTimeline.GetHandle();
+                    cWaits[cWaitCount].value     = prevValue;
+                    cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                 | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                    ++cWaitCount;
+                }
+            }
 
             computeSignalValue = ++m_LastSubmittedComputeValue;
             VkSemaphoreSubmitInfo cSignal{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
@@ -191,8 +212,8 @@ namespace Luth
             cCmdInfo.commandBuffer = recorders.compute;
 
             VkSubmitInfo2 cInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-            cInfo.waitSemaphoreInfoCount   = 1;
-            cInfo.pWaitSemaphoreInfos      = &cWait;
+            cInfo.waitSemaphoreInfoCount   = cWaitCount;
+            cInfo.pWaitSemaphoreInfos      = cWaits;
             cInfo.commandBufferInfoCount   = 1;
             cInfo.pCommandBufferInfos      = &cCmdInfo;
             cInfo.signalSemaphoreInfoCount = 1;

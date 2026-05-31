@@ -53,6 +53,11 @@ namespace Luth::RG
         BufferHandle WriteBuffer(BufferHandle buffer);         // StorageBufferWrite
         BufferHandle ReadIndirectBuffer(BufferHandle buffer);  // IndirectRead
 
+        // Mark this pass as having engine-side side effects (state mutations outside the RG).
+        // Required for passes like TlasBuildPass that don't declare Write/Read on RG resources
+        // but produce values consumed later (m_LastResult.tlas → Set 0 binding 6 via UpdateUBO).
+        void SetHasSideEffect();
+
     private:
         RenderGraph& m_Graph;
         u32 m_PassIndex;
@@ -118,6 +123,12 @@ namespace Luth::RG
             std::vector<Barrier>       preBarriers;        // Image barriers (before pass body)
             std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
             std::vector<Barrier>       postBarriers;       // After pass body — drives external finalState transitions (e.g., swapchain → Present)
+
+            // Side-effect flag for passes that mutate engine state outside the RG (e.g.,
+            // TlasBuildPass updates RtSubsystem::m_LastResult.tlas which feeds Set 0 binding 6
+            // via UpdateUBO). Without this, CullDeadPasses removes the pass because it has no
+            // declared Write/Read of an RG resource, and the side effect never happens.
+            bool hasSideEffect = false;
 
             // Compile output
             bool culled = false;
@@ -249,6 +260,9 @@ namespace Luth::RG
                                        ResourceState initialState, ResourceState finalState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
         ResourceHandle RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state);
+        // Mark a pass as having engine-side side effects so CullDeadPasses keeps it alive
+        // even when it declares no Write/Read of RG-tracked resources. See PassNode::hasSideEffect.
+        void MarkPassHasSideEffect(u32 passIndex);
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
         void RegisterDepthAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
 

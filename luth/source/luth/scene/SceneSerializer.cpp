@@ -229,6 +229,9 @@ namespace Luth
             dj["shadowNormalBias"]    = { dl.ShadowNormalBias[0], dl.ShadowNormalBias[1], dl.ShadowNormalBias[2], dl.ShadowNormalBias[3] };
             dj["cascadeBlendWidth"]   = dl.CascadeBlendWidth;
             dj["debugVisualizeCascades"] = dl.DebugVisualizeCascades;
+            dj["shadowing"]           = static_cast<i32>(dl.Shadowing);
+            dj["rtOriginEpsilon"]     = dl.RtOriginEpsilon;
+            dj["rtNormalEpsilon"]     = dl.RtNormalEpsilon;
             j["directionalLight"] = dj;
         }
 
@@ -621,6 +624,13 @@ namespace Luth
 
                 dl.CascadeBlendWidth       = dj.value("cascadeBlendWidth", 0.2f);
                 dl.DebugVisualizeCascades   = dj.value("debugVisualizeCascades", false);
+
+                // RT-shadow toggle + epsilons. Missing key → engine default (RtShadows) so legacy
+                // scenes pick up RT automatically; saved value round-trips otherwise.
+                dl.Shadowing       = static_cast<ShadowingMode>(
+                                         dj.value("shadowing", static_cast<i32>(ShadowingMode::RtShadows)));
+                dl.RtOriginEpsilon = dj.value("rtOriginEpsilon", 0.001f);
+                dl.RtNormalEpsilon = dj.value("rtNormalEpsilon", 0.05f);
             }
 
             // PointLight

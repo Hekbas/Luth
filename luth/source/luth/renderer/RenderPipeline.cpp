@@ -125,7 +125,8 @@ namespace Luth
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
                               || m_Volumetric.OnShaderReloaded(name, spv)
-                              || m_Skinning.OnShaderReloaded(name, spv);
+                              || m_Skinning.OnShaderReloaded(name, spv)
+                              || m_Rt.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -238,18 +239,34 @@ namespace Luth
             Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
             m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
 
-            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+            // CSM cascade cull — needed when ShadowPass runs (CSM mode OR volumetric on, since
+            // volumetric_inject_scatter samples cascades in both shadow modes).
+            const bool runCsmCascades = m_Global.GetShadowParams().castShadows
+                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                         || view.camera.enableVolumetricFog);
+            if (runCsmCascades)
             {
-                Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
-                const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
-                const std::string name = "FrustumCull.C" + std::to_string(i);
-                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                {
+                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
+                    const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
+                    const std::string name = "FrustumCull.C" + std::to_string(i);
+                    m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                }
             }
         }
 
-        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount];
-        for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-            shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
+        // Shadow pass renders cascade depth — needed for CSM mode AND for volumetric god-rays
+        // in either shadow mode (volumetric scatter samples shadowMap at Set 1 b5).
+        const bool runCsmShadowPasses = m_Global.GetShadowParams().castShadows
+                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                         || view.camera.enableVolumetricFog);
+        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount]{};
+        if (runCsmShadowPasses)
+        {
+            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
+        }
 
         // Z-prepass produces SceneDepth before forward shading. The render
         // graph can schedule it in parallel with the shadow cascades.
@@ -307,7 +324,21 @@ namespace Luth
         // RT acceleration structures — per-frame skinning compute + skinned BLAS refit + TLAS build.
         // Multi-view guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
         // Routed to AsyncCompute so it overlaps with the rest of the graphics frame.
-        m_Rt.AddTlasBuildPass(rg);
+        // Gated on RT mode — only the RT raygen consumes the TLAS; CSM would skin + refit + build for nothing.
+        const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
+                               && m_Global.GetShadowParams().castShadows;
+        if (runRtShadows)
+            m_Rt.AddTlasBuildPass(rg);
+
+        // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
+        // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
+        // AsyncCompute pass overlaps with GTAO chain below. Gated on RT mode + CastShadows;
+        // CSM mode (or CastShadows=false) returns invalid handle and GeometryPass skips the Read.
+        // Threads prepassDepth + slimGB.normal so RG transitions them from DSA/COLOR_ATTACHMENT to
+        // SHADER_READ_ONLY_OPTIMAL ahead of the raygen sample (descriptor declared that layout).
+        RG::ResourceHandle rtShadowMaskHandle{};
+        if (runRtShadows)
+            rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg, prepassDepth, slimGB.normal);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -318,7 +349,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

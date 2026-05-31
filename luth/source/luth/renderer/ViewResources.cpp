@@ -5,6 +5,7 @@
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/VolumetricSubsystem.h"
+#include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -22,7 +23,7 @@ namespace Luth
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
     static constexpr u32 k_ViewPoolMaxSets              = 96;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 32;  // GTAO + volumetric atlases (cycled)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 40;  // GTAO + volumetric atlases + RT shadow mask (cycled)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 128;
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
@@ -89,6 +90,7 @@ namespace Luth
             m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
+            m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -215,6 +217,7 @@ namespace Luth
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
+        allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
 
         m_PostProcess.WriteView(vr, targets);
         m_PostProcess.WriteTaaResolveView(vr, targets);
@@ -229,6 +232,7 @@ namespace Luth
         m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);
         m_Volumetric.WriteVizView(vr, targets);
+        m_Rt.WriteShadowPassView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -244,6 +248,13 @@ namespace Luth
         // the resolve shader (motion vectors land outside [0,1] when prevViewProj is identity).
         vr.taaHistoryA = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
         vr.taaHistoryB = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
+
+        // RT sun-shadow mask — viewport-sized R8 storage. Written by rt_sun_shadows.rgen on
+        // AsyncCompute, sampled by pbr.frag (Set 3 binding 4) when ShadowingMode == RtShadows.
+        vr.sunShadowMask = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::R8,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -334,6 +345,7 @@ namespace Luth
         vr.volInScatterHistB.reset();
         vr.taaHistoryA.reset();
         vr.taaHistoryB.reset();
+        vr.sunShadowMask.reset();
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

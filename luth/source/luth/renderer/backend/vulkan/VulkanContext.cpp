@@ -2,6 +2,8 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/UploadContext.h"
+#include "luth/renderer/backend/vulkan/GpuCheckpoint.h"
+#include "luth/renderer/backend/vulkan/AftermathCrashTracker.h"
 #include "luth/core/diagnostics/Log.h"
 
 #include <GLFW/glfw3.h>
@@ -58,6 +60,9 @@ namespace Luth
         s_Instance = LH_NEW(Memory::Category::Rendering, VulkanContext);
         s_Instance->m_WindowHandle = windowHandle;
         
+        // Enable Aftermath GPU crash dumps before any Vulkan object exists (no-op without the SDK).
+        AftermathCrashTracker::Initialize();
+
         s_Instance->CreateInstance();
         s_Instance->SetupDebugMessenger();
         s_Instance->PickPhysicalDevice();
@@ -85,6 +90,8 @@ namespace Luth
         vkDestroyCommandPool(s_Instance->m_Device, s_Instance->m_CommandPool, nullptr);
         vkDestroyDevice(s_Instance->m_Device, nullptr);
 
+        AftermathCrashTracker::Shutdown();
+
         if (s_Instance->m_EnableValidationLayers) {
             auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(s_Instance->m_Instance, "vkDestroyDebugUtilsMessengerEXT");
             if (func) func(s_Instance->m_Instance, s_Instance->m_DebugMessenger, nullptr);
@@ -101,8 +108,51 @@ namespace Luth
         return *s_Instance;
     }
 
+    void VulkanContext::ResolveValidationConfig()
+    {
+        // Default tier (also empty / "1" / "on" / "default"): core + sync-val + best-practices. GPU-AV
+        // is excluded by default — its instrumentation perturbs submit timing and can mask races.
+        // see arch/gpu-crash-debugging.md
+        auto applyDefault = [this]{ m_ValTiers = {}; m_ValTiers.sync = true; m_ValTiers.bestPractices = true; };
+
+        const char* env = std::getenv("LUTH_VALIDATION");
+        if (!env) {                                  // no override: honor the BuildConfig decision
+            if (m_EnableValidationLayers) applyDefault();
+            return;
+        }
+
+        std::string s = env;
+        for (char& c : s) if (c >= 'A' && c <= 'Z') c = char(c + 32);
+
+        if (s == "off" || s == "0" || s == "none") { m_EnableValidationLayers = false; m_ValTiers = {}; return; }
+
+        m_EnableValidationLayers = true;             // any non-off value forces validation on, any build
+        m_ValTiers = {};
+        if (s.empty() || s == "1" || s == "on" || s == "default") { applyDefault(); return; }
+        if (s == "all") { m_ValTiers = { true, true, true, true, true }; return; }
+
+        for (size_t i = 0; i < s.size(); ) {         // token list split on , ; or space
+            size_t j = s.find_first_of(",; ", i);
+            if (j == std::string::npos) j = s.size();
+            std::string tok = s.substr(i, j - i);
+            i = j + 1;
+            if      (tok.empty() || tok == "core")          {}                              // core is implied
+            else if (tok == "sync")                         m_ValTiers.sync = true;
+            else if (tok == "bp" || tok == "bestpractices") m_ValTiers.bestPractices = true;
+            else if (tok == "gpuav" || tok == "gpu")        m_ValTiers.gpuav = true;
+            else if (tok == "rt")                           m_ValTiers.rtValidation = true;
+            else if (tok == "uncapped" || tok == "verbose") m_ValTiers.uncapped = true;
+            else LH_CORE_WARN("LUTH_VALIDATION: unknown tier '{}' (sync|bp|gpuav|rt|uncapped|all|off)", tok);
+        }
+    }
+
     void VulkanContext::CreateInstance()
     {
+        // LUTH_VALIDATION (any build) overrides the BuildConfig default + selects feature tiers, so a
+        // Release binary can enable the validation stack without a rebuild to diagnose Release-only GPU
+        // faults. Needs the Vulkan SDK layers present (graceful soft-fail below).
+        ResolveValidationConfig();
+
         if (m_EnableValidationLayers && !CheckValidationLayerSupport()) {
             LH_CORE_ERROR("Validation layers requested, but not available!");
             m_EnableValidationLayers = false;
@@ -125,8 +175,22 @@ namespace Luth
         const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
         std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
+        bool haveLayerSettings = false;
         if (m_EnableValidationLayers) {
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+            // VK_EXT_layer_settings (from the validation layer) lifts the duplicate-message cap to
+            // unlimited so a per-frame hazard stays visible past its 10th hit. Only when 'uncapped' set.
+            if (m_ValTiers.uncapped) {
+                u32 lsCount = 0;
+                vkEnumerateInstanceExtensionProperties("VK_LAYER_KHRONOS_validation", &lsCount, nullptr);
+                std::vector<VkExtensionProperties> lsExts(lsCount);
+                vkEnumerateInstanceExtensionProperties("VK_LAYER_KHRONOS_validation", &lsCount, lsExts.data());
+                for (const auto& e : lsExts)
+                    if (strcmp(e.extensionName, VK_EXT_LAYER_SETTINGS_EXTENSION_NAME) == 0) { haveLayerSettings = true; break; }
+                if (haveLayerSettings)
+                    extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+            }
         }
 
         createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -137,12 +201,44 @@ namespace Luth
         // extends only until the call returns, which is exactly when we need it to catch instance
         // create/destroy failures (the persistent messenger from SetupDebugMessenger covers steady state).
         VkDebugUtilsMessengerCreateInfoEXT debugCI{};
+        // Validation features selected per tier. Legacy VkValidationFeaturesEXT route — still functional;
+        // the modern path is VK_EXT_layer_settings (validate_sync / gpuav_enable), see
+        // arch/gpu-crash-debugging.md. GPU-AV must list GPU_ASSISTED before RESERVE_BINDING_SLOT (its VU).
+        std::vector<VkValidationFeatureEnableEXT> valFeatures;
+        if (m_ValTiers.sync)  valFeatures.push_back(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
+        if (m_ValTiers.gpuav) {
+            valFeatures.push_back(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT);
+            valFeatures.push_back(VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT);
+        }
+        if (m_ValTiers.bestPractices) valFeatures.push_back(VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
+        if (m_ValTiers.gpuav)
+            LH_CORE_WARN("LUTH_VALIDATION: GPU-AV on - perturbs submit timing (can mask races) and "
+                         "consumes a descriptor set (maxBoundDescriptorSets-1)");
+
+        VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
+        validationFeatures.enabledValidationFeatureCount = static_cast<uint32_t>(valFeatures.size());
+        validationFeatures.pEnabledValidationFeatures    = valFeatures.data();
+
+        // duplicate_message_limit = 0 (unlimited) so capped per-frame hazards stay visible (see probe above).
+        const uint32_t kDupLimit = 0;
+        const VkLayerSettingEXT layerSettingArr[] = {
+            { "VK_LAYER_KHRONOS_validation", "duplicate_message_limit",
+              VK_LAYER_SETTING_TYPE_UINT32_EXT, 1, &kDupLimit },
+        };
+        VkLayerSettingsCreateInfoEXT layerSettingsCI{ VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT };
+        layerSettingsCI.settingCount = static_cast<uint32_t>(std::size(layerSettingArr));
+        layerSettingsCI.pSettings    = layerSettingArr;
+
         if (m_EnableValidationLayers) {
             createInfo.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size());
             createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
 
+            // pNext chain (tail -> head): debugCI -> [validationFeatures] -> [layerSettings].
             PopulateDebugMessengerCreateInfo(debugCI);
-            createInfo.pNext = &debugCI;
+            const void* chain = &debugCI;
+            if (!valFeatures.empty()) { validationFeatures.pNext = chain; chain = &validationFeatures; }
+            if (haveLayerSettings)    { layerSettingsCI.pNext   = chain; chain = &layerSettingsCI; }
+            createInfo.pNext = chain;
         } else {
             createInfo.enabledLayerCount = 0;
         }
@@ -485,6 +581,12 @@ namespace Luth
         rqFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
         rqFeatures.rayQuery = VK_TRUE;
 
+        // NV ray-tracing validation (driver-level AS-build / SBT / shader-type checks). Chained into
+        // rqFeatures.pNext below iff the extension is present + validation is on; rayTracingValidation
+        // stays VK_FALSE otherwise. Declared here so it outlives vkCreateDevice.
+        VkPhysicalDeviceRayTracingValidationFeaturesNV rtValidationFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV };
+
         features11.pNext         = &asFeatures;
         asFeatures.pNext         = &rtPipelineFeatures;
         rtPipelineFeatures.pNext = &rqFeatures;
@@ -505,6 +607,72 @@ namespace Luth
             VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         };
 
+        // Enumerate device extensions once for the optional-diagnostic probes below.
+        u32 availCount = 0;
+        vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &availCount, nullptr);
+        std::vector<VkExtensionProperties> available(availCount);
+        vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &availCount, available.data());
+        auto hasDeviceExt = [&available](const char* name) {
+            for (const auto& e : available)
+                if (strcmp(e.extensionName, name) == 0) return true;
+            return false;
+        };
+
+        // Optional diagnostic — NV-only, used to localize the failing GPU command after TDR.
+        // Absence is a soft-fail (the dump path checks HasCheckpoints() before invoking).
+        if (hasDeviceExt(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+            m_CheckpointsAvailable = true;
+            LH_CORE_INFO("VK_NV_device_diagnostic_checkpoints enabled - TDR localization active");
+        }
+        else
+        {
+            LH_CORE_INFO("VK_NV_device_diagnostic_checkpoints unavailable on this device");
+        }
+
+        // NVIDIA driver-level ray-tracing validation — catches malformed AS builds (degenerate / OOB
+        // geometry), bad SBT, unexpected shader types. Opt in via LUTH_VALIDATION=rt (which forces the
+        // validation layer on, since it reports through the VK_EXT_debug_utils messenger). The driver
+        // only reports the extension when the NV_ALLOW_RAYTRACING_VALIDATION=1 environment var is also set.
+        if (m_ValTiers.rtValidation && hasDeviceExt(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
+            rtValidationFeatures.rayTracingValidation = VK_TRUE;
+            rqFeatures.pNext = &rtValidationFeatures;  // extend the feature chain tail
+            LH_CORE_INFO("VK_NV_ray_tracing_validation enabled - RT AS/SBT validation active");
+        }
+        else if (m_ValTiers.rtValidation)
+        {
+            LH_CORE_INFO("VK_NV_ray_tracing_validation unavailable (set NV_ALLOW_RAYTRACING_VALIDATION=1)");
+        }
+
+#if defined(LUTH_ENABLE_AFTERMATH)
+        // Aftermath: resource tracking + automatic checkpoints + shader debug info, so the GPU crash
+        // dump can name the faulting resource/shader. Prepended to the device pNext chain; structs are
+        // function-scoped so they outlive vkCreateDevice below.
+        VkPhysicalDeviceDiagnosticsConfigFeaturesNV diagFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DIAGNOSTICS_CONFIG_FEATURES_NV };
+        VkDeviceDiagnosticsConfigCreateInfoNV diagConfig{
+            VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV };
+        // Only enable driver-side tracking when Aftermath actually loaded — no wasted overhead on a
+        // soft-fail (missing DLL). AUTOMATIC_CHECKPOINTS is intentionally omitted: NVIDIA rates it very
+        // high CPU (per-command call-stack walk) and the per-pass vkCmdSetCheckpointNV markers in
+        // RenderGraph already localize the failing pass far cheaper. see arch/gpu-crash-debugging.md
+        if (AftermathCrashTracker::Enabled() && hasDeviceExt(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
+            diagFeatures.diagnosticsConfig = VK_TRUE;
+            diagConfig.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV
+                             | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV
+                             | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV;
+            diagFeatures.pNext = const_cast<void*>(createInfo.pNext);
+            diagConfig.pNext   = &diagFeatures;
+            createInfo.pNext   = &diagConfig;
+            LH_CORE_INFO("VK_NV_device_diagnostics_config enabled - Aftermath resource tracking active");
+        }
+#endif
+
         createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
@@ -515,6 +683,7 @@ namespace Luth
         // KHR ray-tracing entry points are device-level — load right after vkCreateDevice,
         // before queue acquisition (loader doesn't depend on queues).
         LoadRayTracingFunctions();
+        if (m_CheckpointsAvailable) LoadCheckpointFunctions();
 
         // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle —
         // call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
@@ -560,6 +729,20 @@ namespace Luth
         LH_LOAD_RT_FN(vkCmdTraceRaysKHR);
 
         #undef LH_LOAD_RT_FN
+    }
+
+    void VulkanContext::LoadCheckpointFunctions()
+    {
+        m_CheckpointFn.vkCmdSetCheckpointNV =
+            (PFN_vkCmdSetCheckpointNV)vkGetDeviceProcAddr(m_Device, "vkCmdSetCheckpointNV");
+        m_CheckpointFn.vkGetQueueCheckpointDataNV =
+            (PFN_vkGetQueueCheckpointDataNV)vkGetDeviceProcAddr(m_Device, "vkGetQueueCheckpointDataNV");
+        if (!m_CheckpointFn.vkCmdSetCheckpointNV || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
+        {
+            LH_CORE_WARN("VK_NV_device_diagnostic_checkpoints fp load failed — disabling");
+            m_CheckpointFn = {};
+            m_CheckpointsAvailable = false;
+        }
     }
 
     void VulkanContext::InitAllocator()
@@ -670,9 +853,13 @@ namespace Luth
     bool VulkanContext::SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
-        if (vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        // Capture VkResult — `-4` = VK_ERROR_DEVICE_LOST, `-2` = VK_ERROR_OUT_OF_DEVICE_MEMORY,
+        // `-1` = VK_ERROR_OUT_OF_HOST_MEMORY. The bare "Failed!" log dropped this and obscured TDR diagnosis.
+        const VkResult r = vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
+            if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Graphics submit");
             return false;
         }
         return true;
@@ -683,9 +870,11 @@ namespace Luth
         // Aliased compute queue still locks its own mutex — vkQueueSubmit2 is not re-entrant on the same VkQueue
         // even when handles match. Per-mutex prevents contention with concurrent graphics submits.
         std::lock_guard<std::mutex> lock(m_ComputeQueueMutex);
-        if (vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        const VkResult r = vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
+            if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Compute submit");
             return false;
         }
         return true;
@@ -694,18 +883,71 @@ namespace Luth
     bool VulkanContext::SubmitTransfer2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
         std::lock_guard<std::mutex> lock(m_TransferQueueMutex);
-        if (vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+        const VkResult r = vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence);
+        if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 Failed!");
+            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
+            if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Transfer submit");
             return false;
         }
         return true;
     }
 
+    void VulkanContext::DumpCheckpointsOnDeviceLost(const char* originLabel)
+    {
+        // Fire-once gate. Once the device is lost, every subsequent submit returns -4 and we'd
+        // re-dump every frame forever. The first dump localized to a specific GPU command is the
+        // useful one; further dumps would just be noise.
+        static std::atomic<bool> s_Dumped{ false };
+        bool expected = false;
+        if (!s_Dumped.compare_exchange_strong(expected, true)) return;
+
+        // Aftermath crash dump first — the richest post-mortem signal (no-op without the SDK). The
+        // checkpoint dump below is a fallback only: the markers are often wiped by the GPU reset, so
+        // "no checkpoints recorded" is expected, not informative. see arch/gpu-crash-debugging.md
+        AftermathCrashTracker::OnDeviceLost();
+
+        LH_CORE_CRITICAL("─── GPU device lost (origin: {}) — dumping checkpoints ───", originLabel);
+        if (!m_CheckpointsAvailable || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
+        {
+            LH_CORE_CRITICAL("  VK_NV_device_diagnostic_checkpoints unavailable — no localization possible");
+            return;
+        }
+
+        auto dump = [this](const char* qLabel, VkQueue queue)
+        {
+            if (queue == VK_NULL_HANDLE) return;
+            u32 count = 0;
+            m_CheckpointFn.vkGetQueueCheckpointDataNV(queue, &count, nullptr);
+            if (count == 0)
+            {
+                LH_CORE_CRITICAL("  [{}] no checkpoints recorded", qLabel);
+                return;
+            }
+            std::vector<VkCheckpointDataNV> data(count, { VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV });
+            m_CheckpointFn.vkGetQueueCheckpointDataNV(queue, &count, data.data());
+
+            LH_CORE_CRITICAL("  [{}] {} checkpoint(s) in-flight or just-executed:", qLabel, count);
+            for (const auto& cp : data)
+            {
+                const char* name = GpuCheckpointRegistry::Resolve(cp.pCheckpointMarker);
+                LH_CORE_CRITICAL("    stage=0x{:08x} marker={}",
+                                 (u32)cp.stage, name ? name : "(unknown)");
+            }
+        };
+
+        dump("Graphics", m_GraphicsQueue);
+        if (m_ComputeIsAsync)  dump("Compute",  m_ComputeQueue);
+        if (m_TransferIsAsync) dump("Transfer", m_TransferQueue);
+        LH_CORE_CRITICAL("─── End checkpoint dump ───");
+    }
+
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
-        return vkQueuePresentKHR(m_GraphicsQueue, &presentInfo);
+        const VkResult r = vkQueuePresentKHR(m_GraphicsQueue, &presentInfo);
+        if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Present");  // a TDR can first surface here
+        return r;
     }
 
     void VulkanContext::ApplyConcurrentSharing(VkBufferCreateInfo& info) const

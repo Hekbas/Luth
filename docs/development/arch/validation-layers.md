@@ -26,17 +26,28 @@ Define `LUTH_ENABLE_VALIDATION` to force the value, regardless of build config:
 | `-DLUTH_ENABLE_VALIDATION=0` | Validation forced **off** (use to disable in Debug for a perf-sensitive capture) |
 | (undefined) | Falls back to `_DEBUG` autoselect |
 
-The branch is in [`VulkanContext.h`](../../../luth/source/luth/renderer/backend/vulkan/VulkanContext.h) lines 67–73:
+`LUTH_ENABLE_VALIDATION` is always defined by [`BuildConfig.h`](../../../luth/source/luth/core/BuildConfig.h)
+(1 in Debug, 0 in Release/Dist, overridable per-config in premake), so the member is a single branchless line in
+[`VulkanContext.h`](../../../luth/source/luth/renderer/backend/vulkan/VulkanContext.h):
 
 ```cpp
-#if defined(LUTH_ENABLE_VALIDATION)
-    bool m_EnableValidationLayers = (LUTH_ENABLE_VALIDATION != 0);
-#elif defined(_DEBUG) || !defined(NDEBUG)
-    bool m_EnableValidationLayers = true;
-#else
-    bool m_EnableValidationLayers = false;
-#endif
+bool m_EnableValidationLayers = (LUTH_ENABLE_VALIDATION != 0);
 ```
+
+Engine code never tests `_DEBUG` / `NDEBUG` directly — those are toolchain artifacts (see `BuildConfig.h`).
+
+---
+
+## Runtime override — `LUTH_VALIDATION`
+
+The `LUTH_VALIDATION` **environment variable** overrides the build default in *any* build (no recompile) and
+selects which feature tiers run — the mechanism for diagnosing **release-only** GPU faults. Unset honors the
+build-config default above; `off`/`0`/`none` forces validation off even in Debug; any other value forces it
+on. The default tier is `core` + sync-val + best-practices; **GPU-AV is opt-in only** (it perturbs submit
+timing and can mask races). `ResolveValidationConfig()` parses it before `vkCreateInstance`.
+
+Full toolkit — tiers, GPU checkpoints, Nsight Aftermath, and the device-lost playbook — is the normative
+[arch/gpu-crash-debugging.md](gpu-crash-debugging.md). Validation is layer 1 of three.
 
 ---
 

@@ -62,6 +62,16 @@ project "Luth"
       libdirs { vulkanSDK .. "/Lib" }
    end
 
+   -- Optional NVIDIA Nsight Aftermath SDK — GPU crash dumps on device-lost (TDR). Enabled when the
+   -- AFTERMATH_SDK env var points at the SDK root; absent = compiled out (LUTH_ENABLE_AFTERMATH
+   -- undefined). The DLL is loaded dynamically at runtime (no link-time import) by name from the exe
+   -- directory — the Runtime project's post-build step stages it there. A missing DLL soft-fails.
+   local aftermathSDK = os.getenv("AFTERMATH_SDK")
+   if aftermathSDK then
+      includedirs { aftermathSDK .. "/include" }
+      defines     { "LUTH_ENABLE_AFTERMATH=1" }
+   end
+
    links
    {
       "assimp",

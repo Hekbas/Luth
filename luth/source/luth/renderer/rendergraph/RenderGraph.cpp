@@ -6,6 +6,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
+#include "luth/renderer/backend/vulkan/GpuCheckpoint.h"
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/RenderPassJob.h"
@@ -71,6 +72,11 @@ namespace Luth::RG
     BufferHandle RenderPassBuilder::WriteBuffer(BufferHandle buffer)
     {
         return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::StorageBufferWrite);
+    }
+
+    void RenderPassBuilder::SetHasSideEffect()
+    {
+        m_Graph.MarkPassHasSideEffect(m_PassIndex);
     }
 
     BufferHandle RenderPassBuilder::ReadIndirectBuffer(BufferHandle buffer)
@@ -145,6 +151,11 @@ namespace Luth::RG
     {
         m_Passes[passIndex].reads.push_back(handle);
         m_Passes[passIndex].readStates.push_back(state);
+    }
+
+    void RenderGraph::MarkPassHasSideEffect(u32 passIndex)
+    {
+        m_Passes[passIndex].hasSideEffect = true;
     }
 
     ResourceHandle RenderGraph::RegisterWrite(u32 passIndex, ResourceHandle handle, ResourceState state)
@@ -242,6 +253,11 @@ namespace Luth::RG
 
             // Any pass with color or depth attachments is alive (it renders something)
             if (!pass.colorAttachments.empty() || pass.hasDepth)
+                pass.culled = false;
+
+            // Passes that mutate engine-side state outside the RG (e.g., TlasBuildPass writing
+            // RtSubsystem::m_LastResult) must be kept alive even with no Write/Read declarations.
+            if (pass.hasSideEffect)
                 pass.culled = false;
 
             // Any pass that writes to an external image resource is alive
@@ -454,8 +470,15 @@ namespace Luth::RG
             case ResourceState::TransferSrc:            return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
             case ResourceState::ShaderResource:         return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::Present:                return { VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0 };
-            case ResourceState::ComputeRead:            return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
-            case ResourceState::ComputeWrite:           return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
+            // Stage mask widened to include RT-pipeline shaders so a raygen-shader storage-image
+            // write (or read) emits a barrier whose srcStage/dstStage matches the actual writer/
+            // reader pipeline. Mirrors how AccelerationStructureRead unions consumer stages.
+            case ResourceState::ComputeRead:            return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                                VK_ACCESS_2_SHADER_READ_BIT };
+            case ResourceState::ComputeWrite:           return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                                VK_ACCESS_2_SHADER_WRITE_BIT };
             case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
             case ResourceState::IndirectRead:           return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT };
@@ -669,6 +692,17 @@ namespace Luth::RG
             else
             {
                 primaryCmd = seenAsyncCompute ? recorders.gB : recorders.gA;
+            }
+
+            // GPU-side breadcrumb (VK_NV_device_diagnostic_checkpoints). The driver retains the
+            // marker pointer and surfaces the LAST-EXECUTED one on TDR via vkGetQueueCheckpointDataNV.
+            // Marker is the interned pass name's c_str() — stable for the process lifetime so the
+            // dump path can resolve it back to a human-readable string. No-op when extension absent.
+            auto& vkCtx = VulkanContext::Get();
+            if (vkCtx.HasCheckpoints())
+            {
+                const char* marker = GpuCheckpointRegistry::Intern(pass.name);
+                vkCtx.GetCheckpointFn().vkCmdSetCheckpointNV(primaryCmd, marker);
             }
 
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during

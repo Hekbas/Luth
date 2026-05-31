@@ -12,6 +12,17 @@ namespace Luth
     inline constexpr u32 k_ShadowCascadeCount = 4;
     inline constexpr u32 k_ShadowResolution   = 2048;
 
+    // Sun shadowing path selector. RT is the default once the rt-shadows effort lands; CSM stays
+    // as opt-in compare mode. Both paths consume identical inputs (sun direction, world-space
+    // position, surface normal) and produce a per-fragment shadow factor in [0,1]; the dispatch
+    // happens at the pbr.frag::ComputeShadow wrapper. Mirrors the TonemapOperator compare-mode
+    // precedent in PostProcessSettings.
+    enum class ShadowingMode : i32
+    {
+        RasterCSM = 0,
+        RtShadows = 1,
+    };
+
     // ── Light data structs (mirrored in pbr.frag Set 3 LightSSBO) ──
 
     struct DirectionalLightData {
@@ -79,6 +90,13 @@ namespace Luth
         bool      castShadows           = true;
         bool      stabilizeCascades     = true;
         bool      debugVisualizeCascades = false;
+
+        // RT-shadows path (consumed when mode == RtShadows). RT epsilons are world-space, semantically
+        // distinct from CSM's shadowBias/shadowNormalBias (which are NDC depth biases). See Wächter &
+        // Binder 2019 "A Fast and Robust Method for Avoiding Self-Intersection" (RT Gems Ch. 6).
+        ShadowingMode mode             = ShadowingMode::RtShadows;
+        float         rtOriginEpsilon  = 0.001f;   // World-space offset along sun direction (avoids self-int at origin)
+        float         rtNormalEpsilon  = 0.05f;    // Normal-offset multiplier scaled by (1-NdotL) for grazing-angle correctness
     };
 
     // CSM output produced each frame. PBR shader needs view-Z splits + world-space
