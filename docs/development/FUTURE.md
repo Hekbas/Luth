@@ -53,7 +53,6 @@ Items deferred from Phase A history files (v3.0.0–v3.0.7). None on critical pa
 
 | Item | Source | Trigger |
 |---|---|---|
-| **Source-side TAA de-jitter** (`slim_gbuffer.vert` + unjittered prev/curr VPs in `GlobalUniforms`) | image-quality v3.0.7 history (sub-task G) | **HIGH** — Phase B RT denoising wants pure-rigid motion vectors |
 | **Salvi K4 variance-clip TAA upgrade** | image-quality v3.0.7 | When RT specular pinpoints surface (Phase D RT reflections) |
 | **Mitchell-Netravali TAA post-sharpen pass** | image-quality v3.0.7 | After Phase A.5; close remaining TAA blur gap |
 | **TAA debug viz ShadeMode** (`TaaHistory`) | image-quality v3.0.7 | Diagnostic convenience |
