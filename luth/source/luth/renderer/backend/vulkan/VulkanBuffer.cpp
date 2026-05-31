@@ -80,6 +80,11 @@ namespace Luth
                          | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Skinned BLAS refit reads the IB via BDA on the AsyncCompute queue (see TlasBuilder::
+        // RefitSkinnedBLASes). EXCLUSIVE + cross-queue access without QFOT is spec-undefined and
+        // TDRs on NVIDIA. Per arch/multi-queue.md, opt into CONCURRENT for the deduped family
+        // set; single-family GPUs silently fall back to EXCLUSIVE.
+        VulkanContext::Get().ApplyConcurrentSharing(bufferInfo);
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
 
