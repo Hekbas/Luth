@@ -6,6 +6,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
+#include "luth/renderer/backend/vulkan/GpuCheckpoint.h"
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/RenderPassJob.h"
@@ -691,6 +692,17 @@ namespace Luth::RG
             else
             {
                 primaryCmd = seenAsyncCompute ? recorders.gB : recorders.gA;
+            }
+
+            // GPU-side breadcrumb (VK_NV_device_diagnostic_checkpoints). The driver retains the
+            // marker pointer and surfaces the LAST-EXECUTED one on TDR via vkGetQueueCheckpointDataNV.
+            // Marker is the interned pass name's c_str() — stable for the process lifetime so the
+            // dump path can resolve it back to a human-readable string. No-op when extension absent.
+            auto& vkCtx = VulkanContext::Get();
+            if (vkCtx.HasCheckpoints())
+            {
+                const char* marker = GpuCheckpointRegistry::Intern(pass.name);
+                vkCtx.GetCheckpointFn().vkCmdSetCheckpointNV(primaryCmd, marker);
             }
 
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during

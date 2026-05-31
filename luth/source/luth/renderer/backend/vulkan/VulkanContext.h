@@ -42,12 +42,23 @@ namespace Luth
             PFN_vkCmdTraceRaysKHR                       vkCmdTraceRaysKHR                       = nullptr;
         };
 
+        // VK_NV_device_diagnostic_checkpoints — optional NV-only diagnostic. Enabled when the
+        // physical device advertises the extension; otherwise both pointers stay null and call
+        // sites no-op. Used to localize the failing GPU command after VK_ERROR_DEVICE_LOST.
+        struct CheckpointFunctions
+        {
+            PFN_vkCmdSetCheckpointNV         vkCmdSetCheckpointNV         = nullptr;
+            PFN_vkGetQueueCheckpointDataNV   vkGetQueueCheckpointDataNV   = nullptr;
+        };
+
         VkInstance GetInstance() const { return m_Instance; }
         VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         const RtFunctions& GetRtFn() const { return m_RtFn; }
+        const CheckpointFunctions& GetCheckpointFn() const { return m_CheckpointFn; }
+        bool HasCheckpoints() const { return m_CheckpointFn.vkCmdSetCheckpointNV != nullptr; }
         const VkPhysicalDeviceRayTracingPipelinePropertiesKHR&    GetRtPipelineProperties() const { return m_RtPipelineProperties; }
         const VkPhysicalDeviceAccelerationStructurePropertiesKHR& GetAsProperties()         const { return m_AsProperties; }
         // UBO descriptor base offsets (and size) must satisfy this when sub-allocating from a tagged page.
@@ -95,6 +106,11 @@ namespace Luth
         void FlushDeletionQueue();
         void FlushAllDeletionQueues();
 
+        // On VK_ERROR_DEVICE_LOST from any submit: dump the last checkpoint per queue to the log.
+        // Idempotent — only fires once per process lifetime; subsequent calls are no-ops.
+        // No-op when VK_NV_device_diagnostic_checkpoints isn't enabled on this device.
+        void DumpCheckpointsOnDeviceLost(const char* originLabel);
+
         // Called by RendererAPI
         void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
 
@@ -108,13 +124,21 @@ namespace Luth
         void PickPhysicalDevice();
         void CreateLogicalDevice();
         void LoadRayTracingFunctions();
+        void LoadCheckpointFunctions();
         void InitAllocator();
 
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
-        // Default: on in Debug, off in Release/Dist. Override per-config in premake.
+        // Default: on in Debug, off in Release/Dist. Override per-config or via the LUTH_VALIDATION env.
         bool CheckValidationLayerSupport();
+        // Resolve LUTH_VALIDATION → m_EnableValidationLayers + m_ValTiers (any-build runtime opt-in).
+        // see arch/gpu-crash-debugging.md
+        void ResolveValidationConfig();
         std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };
         bool m_EnableValidationLayers = (LUTH_ENABLE_VALIDATION != 0);
+
+        // Feature tiers selected by LUTH_VALIDATION; core is always implied when validation is on.
+        struct ValidationTiers { bool sync=false, gpuav=false, bestPractices=false, rtValidation=false, uncapped=false; };
+        ValidationTiers m_ValTiers{};
 
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
@@ -124,6 +148,8 @@ namespace Luth
         VkPhysicalDeviceAccelerationStructurePropertiesKHR m_AsProperties{};
         VkDevice m_Device = VK_NULL_HANDLE;
         RtFunctions m_RtFn{};
+        CheckpointFunctions m_CheckpointFn{};
+        bool m_CheckpointsAvailable = false;
         
         // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
         // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its
