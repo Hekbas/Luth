@@ -81,7 +81,7 @@ namespace Luth
 
     void TlasBuilder::RefitSkinnedBLASes(VkCommandBuffer cmd,
                                          std::span<const MeshDrawSnapshot> instances,
-                                         u32 frameAbs)
+                                         u32 /*frameAbs*/)
     {
         auto& ctx = VulkanContext::Get();
         const auto& rt = ctx.GetRtFn();
@@ -111,26 +111,39 @@ namespace Luth
         }
         if (entries.empty()) return;
 
-        // Single tagged-heap scratch allocation; slice into per-entry sub-regions.
-        auto* jobCtx = JobSystem::GetCurrentJobContext();
-        if (!jobCtx) return;
-        jobCtx->GpuCache.CurrentTag = frameAbs;
-        auto& heap = Memory::GPUTaggedPageAllocator::Get();
-        Memory::GPUSubRegion scratchRegion = heap.AllocateLargeTagged(frameAbs, totalScratch, scratchAlign);
-        if (!scratchRegion.buffer) return;
-
+        // AS-build scratch must be DEVICE_LOCAL — the tagged heap is HOST_VISIBLE (the CPU->GPU data
+        // path) and NVIDIA's RT accelerator TDRs on it; PushDeletion retires it N+2. see arch/memory.md
+        VkBufferCreateInfo scratchCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        scratchCi.size        = totalScratch;
+        scratchCi.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                              | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        scratchCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkBuffer scratchBuf = VK_NULL_HANDLE;
+        VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
+            scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
+        if (!scratchBuf) return;
         VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-        addrInfo.buffer = scratchRegion.buffer;
-        const VkDeviceAddress scratchBase =
-            vkGetBufferDeviceAddress(ctx.GetDevice(), &addrInfo) + scratchRegion.offset;
+        addrInfo.buffer = scratchBuf;
+        const VkDeviceAddress scratchBase = vkGetBufferDeviceAddress(ctx.GetDevice(), &addrInfo);
+        VulkanContext::Get().PushDeletion([scratchBuf, scratchAlloc]() {
+            VulkanAllocator::FreeBuffer(scratchBuf, scratchAlloc);
+        });
 
-        // Build infos + ranges arrays. Each info references the corresponding mesh's deformed-VB
-        // + IB through ToVkAS-style fields, but we don't have a public helper for that — assemble
-        // directly here to avoid bloating VKAccelerationStructure's API.
-        std::vector<VkAccelerationStructureBuildGeometryInfoKHR> infos(entries.size());
-        std::vector<VkAccelerationStructureGeometryKHR>          geoms(entries.size());
-        std::vector<VkAccelerationStructureBuildRangeInfoKHR>    ranges(entries.size());
-        std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> rangePtrs(entries.size());
+        // invariant: vkCmdBuildAccelerationStructuresKHR retains pointers into these structs until the
+        // GPU executes the build, so heap-allocate them to outlive this stack frame; free via PushDeletion.
+        struct RefitCtx
+        {
+            std::vector<VkAccelerationStructureBuildGeometryInfoKHR> infos;
+            std::vector<VkAccelerationStructureGeometryKHR>          geoms;
+            std::vector<VkAccelerationStructureBuildRangeInfoKHR>    ranges;
+            std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> rangePtrs;
+        };
+        auto* refitCtx = new RefitCtx;
+        refitCtx->infos.resize(entries.size());
+        refitCtx->geoms.resize(entries.size());
+        refitCtx->ranges.resize(entries.size());
+        refitCtx->rangePtrs.resize(entries.size());
+
         for (size_t i = 0; i < entries.size(); ++i)
         {
             const auto& e = entries[i];
@@ -138,7 +151,7 @@ namespace Luth
             const u32 vertCount  = e.blas->GetVertexCount();
             const u32 primCount  = (ib ? ib->GetCount() : 0) / 3;
 
-            auto& geom = geoms[i];
+            auto& geom = refitCtx->geoms[i];
             geom = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
             geom.geometryType                            = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
             geom.geometry.triangles.sType                = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
@@ -150,7 +163,7 @@ namespace Luth
             geom.geometry.triangles.indexData.deviceAddress = ib ? ib->GetDeviceAddress() : 0;
             geom.flags                                   = 0;
 
-            auto& info = infos[i];
+            auto& info = refitCtx->infos[i];
             info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
             info.type                     = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
             info.flags                    = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR
@@ -159,17 +172,19 @@ namespace Luth
             info.srcAccelerationStructure = e.blas->GetHandle();
             info.dstAccelerationStructure = e.blas->GetHandle();
             info.geometryCount            = 1;
-            info.pGeometries              = &geom;
+            info.pGeometries              = &refitCtx->geoms[i];
             info.scratchData.deviceAddress = scratchBase + e.scratchOffset;
 
-            ranges[i]    = { primCount, 0u, 0u, 0u };
-            rangePtrs[i] = &ranges[i];
+            refitCtx->ranges[i]    = { primCount, 0u, 0u, 0u };
+            refitCtx->rangePtrs[i] = &refitCtx->ranges[i];
         }
 
         rt.vkCmdBuildAccelerationStructuresKHR(cmd,
-                                               static_cast<u32>(infos.size()),
-                                               infos.data(),
-                                               rangePtrs.data());
+                                               static_cast<u32>(refitCtx->infos.size()),
+                                               refitCtx->infos.data(),
+                                               refitCtx->rangePtrs.data());
+
+        VulkanContext::Get().PushDeletion([refitCtx]() { delete refitCtx; });
     }
 
     TlasBuildResult TlasBuilder::BuildTlas(VkCommandBuffer cmd,
