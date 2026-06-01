@@ -51,6 +51,14 @@ namespace Luth
             PFN_vkGetQueueCheckpointDataNV   vkGetQueueCheckpointDataNV   = nullptr;
         };
 
+        // VK_EXT_debug_utils — object names + cmd labels for RenderDoc/Nsight/Aftermath; null no-op when off.
+        struct DebugUtilsFunctions
+        {
+            PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT = nullptr;
+            PFN_vkCmdBeginDebugUtilsLabelEXT vkCmdBeginDebugUtilsLabelEXT = nullptr;
+            PFN_vkCmdEndDebugUtilsLabelEXT   vkCmdEndDebugUtilsLabelEXT   = nullptr;
+        };
+
         VkInstance GetInstance() const { return m_Instance; }
         VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkDevice GetDevice() const { return m_Device; }
@@ -58,6 +66,7 @@ namespace Luth
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
         const RtFunctions& GetRtFn() const { return m_RtFn; }
         const CheckpointFunctions& GetCheckpointFn() const { return m_CheckpointFn; }
+        const DebugUtilsFunctions& GetDebugUtilsFn() const { return m_DebugUtilsFn; }
         bool HasCheckpoints() const { return m_CheckpointFn.vkCmdSetCheckpointNV != nullptr; }
         const VkPhysicalDeviceRayTracingPipelinePropertiesKHR&    GetRtPipelineProperties() const { return m_RtPipelineProperties; }
         const VkPhysicalDeviceAccelerationStructurePropertiesKHR& GetAsProperties()         const { return m_AsProperties; }
@@ -114,9 +123,16 @@ namespace Luth
         // Called by RendererAPI
         void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
 
-        // VK_EXT_debug_utils tag — validation layer prints `name` alongside the
-        // raw handle in error messages. No-op when validation/debug-utils is off.
-        static void SetDebugName(VkDescriptorSet set, const char* name);
+        // VK_EXT_debug_utils tag — validation / RenderDoc / Nsight / Aftermath print `name` alongside
+        // the raw handle. No-op when debug-utils is off. Core takes a raw handle + type; typed overloads
+        // cover the common objects so call sites stay terse.
+        static void SetDebugName(u64 objectHandle, VkObjectType type, const char* name);
+        static void SetDebugName(VkImage h, const char* name);
+        static void SetDebugName(VkImageView h, const char* name);
+        static void SetDebugName(VkBuffer h, const char* name);
+        static void SetDebugName(VkPipeline h, const char* name);
+        static void SetDebugName(VkDescriptorSet h, const char* name);
+        static void SetDebugName(VkAccelerationStructureKHR h, const char* name);
 
     private:
         void CreateInstance();
@@ -125,6 +141,7 @@ namespace Luth
         void CreateLogicalDevice();
         void LoadRayTracingFunctions();
         void LoadCheckpointFunctions();
+        void LoadDebugUtilsFunctions();
         void InitAllocator();
 
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
@@ -149,6 +166,7 @@ namespace Luth
         VkDevice m_Device = VK_NULL_HANDLE;
         RtFunctions m_RtFn{};
         CheckpointFunctions m_CheckpointFn{};
+        DebugUtilsFunctions m_DebugUtilsFn{};
         bool m_CheckpointsAvailable = false;
         
         // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through

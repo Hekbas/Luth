@@ -105,6 +105,7 @@ namespace Luth
             asCi.size   = storageSize;
             asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
             rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &outAS);
+            VulkanContext::SetDebugName(outAS, "TLAS.seed");
 
             buildInfo.dstAccelerationStructure  = outAS;
             buildInfo.scratchData.deviceAddress = scratchBda;

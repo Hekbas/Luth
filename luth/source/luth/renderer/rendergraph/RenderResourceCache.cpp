@@ -180,6 +180,10 @@ namespace Luth::RG
 
         vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &res.view);
 
+        // Named at creation; pool is keyed on (format,size,usage) not name, so stable-desc targets stay named right.
+        VulkanContext::SetDebugName(res.image, desc.name.c_str());
+        VulkanContext::SetDebugName(res.view,  desc.name.c_str());
+
         return res;
     }
 
@@ -220,6 +224,7 @@ namespace Luth::RG
         VulkanContext::Get().ApplyConcurrentSharing(bufferInfo);
 
         buf.allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, buf.buffer);
+        VulkanContext::SetDebugName(buf.buffer, desc.name.c_str());
         return buf;
     }
 

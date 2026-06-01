@@ -334,6 +334,7 @@ namespace Luth
         asCi.size   = sizes.accelerationStructureSize;
         asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result.tlas);
+        VulkanContext::SetDebugName(result.tlas, "TLAS");
 
         ctx_->buildInfo.dstAccelerationStructure  = result.tlas;
         ctx_->buildInfo.scratchData.deviceAddress = scratchBda;

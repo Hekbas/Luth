@@ -705,6 +705,21 @@ namespace Luth::RG
                 vkCtx.GetCheckpointFn().vkCmdSetCheckpointNV(primaryCmd, marker);
             }
 
+            // RenderDoc/Nsight/Aftermath pass label — RAII closes it on every exit path; no-op when debug-utils off.
+            const auto& dbgFn = vkCtx.GetDebugUtilsFn();
+            if (dbgFn.vkCmdBeginDebugUtilsLabelEXT)
+            {
+                VkDebugUtilsLabelEXT label{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+                label.pLabelName = pass.name.c_str();
+                dbgFn.vkCmdBeginDebugUtilsLabelEXT(primaryCmd, &label);
+            }
+            struct PassLabelScope
+            {
+                VkCommandBuffer cmd;
+                PFN_vkCmdEndDebugUtilsLabelEXT end;
+                ~PassLabelScope() { if (end) end(cmd); }
+            } passLabelScope{ primaryCmd, dbgFn.vkCmdBeginDebugUtilsLabelEXT ? dbgFn.vkCmdEndDebugUtilsLabelEXT : nullptr };
+
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during
             // SolveBarriers carry b.crossQueueSrc — in that case the src stage / access become TOP_OF_PIPE / NONE
             // since the cross-queue semaphore at submit time already supplies the memory dependency per spec.

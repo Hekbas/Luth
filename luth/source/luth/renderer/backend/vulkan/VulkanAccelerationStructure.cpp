@@ -149,6 +149,7 @@ namespace Luth
         asCi.size   = sizes.accelerationStructureSize;
         asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
+        VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
         buildInfo.dstAccelerationStructure  = result->m_Handle;
         buildInfo.scratchData.deviceAddress = scratchBda;
@@ -325,6 +326,7 @@ namespace Luth
         asCi.size   = sizes.accelerationStructureSize;
         asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
+        VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
         buildInfo.dstAccelerationStructure  = result->m_Handle;
         buildInfo.scratchData.deviceAddress = scratchBda;
