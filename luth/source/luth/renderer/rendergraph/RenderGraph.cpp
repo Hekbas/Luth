@@ -505,13 +505,14 @@ namespace Luth::RG
 
     // ── State → Vulkan Mapping ──
 
-    static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state)
+    std::pair<VkPipelineStageFlags2, VkAccessFlags2> RenderGraph::GetStateInfo(ResourceState state)
     {
         switch (state)
         {
             case ResourceState::Undefined:              return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0 };
-            case ResourceState::ColorAttachment:        return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
-            case ResourceState::DepthStencilAttachment: return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+            // Attachment access carries READ so a loadOp LOAD read is covered by the attachment barrier. see arch/rendering-pipeline.md
+            case ResourceState::ColorAttachment:        return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT };
+            case ResourceState::DepthStencilAttachment: return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT };
             case ResourceState::TransferDst:            return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT };
             case ResourceState::TransferSrc:            return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
             case ResourceState::ShaderResource:         return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };

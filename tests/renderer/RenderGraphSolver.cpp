@@ -133,3 +133,16 @@ TEST_CASE("RGSolver: external finalState emits a Present post-barrier on the las
         if (b.after == ResourceState::Present && b.reason == BarrierReason::Final) ++finals;
     CHECK(finals == 1);
 }
+
+TEST_CASE("RGSolver: attachment states carry READ access so loadOp LOAD is covered [rendergraph]")
+{
+    // Pins the loadOp LOAD fix: the attachment barrier must make the prior write visible to the
+    // attachment READ that vkCmdBeginRendering performs for LOAD_OP_LOAD.
+    auto [cStage, cAccess] = RenderGraph::GetStateInfo(ResourceState::ColorAttachment);
+    CHECK((cAccess & VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT)  != 0);
+    CHECK((cAccess & VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT) != 0);
+
+    auto [dStage, dAccess] = RenderGraph::GetStateInfo(ResourceState::DepthStencilAttachment);
+    CHECK((dAccess & VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)  != 0);
+    CHECK((dAccess & VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT) != 0);
+}
