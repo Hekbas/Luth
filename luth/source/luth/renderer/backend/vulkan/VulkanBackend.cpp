@@ -134,17 +134,30 @@ namespace Luth
         if (firstView) m_CurrentFrameLastComputeValue = 0;
 
         // ── graphics-A submit ──
-        // First view of frame: wait imageAvailable at COLOR_ATTACHMENT_OUTPUT (existing semantics).
-        // Subsequent views: wait previous view's gB signal at EARLY_FRAGMENT_TESTS — replaces the inline inter-view
-        // pipeline barrier; same stage relationship (view K's frag reads → view K+1's depth write).
-        // imageAvailable wait moved to the swapchain-writing last gB (acquire-read vs first transition WAR); first view's gA waits nothing.
+        // Subsequent views wait the previous view's gB at EARLY_FRAGMENT_TESTS (inter-view depth ordering). First view
+        // waits the PREVIOUS frame's compute at ALL_COMMANDS: a persistent resource (shadow map) written here by ShadowPass
+        // must not race the previous frame's async-compute still reading it. imageAvailable is waited on the last gB now.
+        // see arch/multi-queue.md
         VkSemaphoreSubmitInfo gaWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-        const u32 gaWaitCount = firstView ? 0u : 1u;
+        u32 gaWaitCount = 0;
         if (!firstView)
         {
             gaWait.semaphore = m_FrameTimeline.GetHandle();
             gaWait.value     = m_LastSubmittedGraphicsValue;
             gaWait.stageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+            gaWaitCount = 1;
+        }
+        else if (frameIndex > 0)
+        {
+            const u32 prevSlot    = (u32)((frameIndex - 1) % MAX_FRAMES_IN_FLIGHT);
+            const u64 prevCompute = m_LastComputeValuePerFrame[prevSlot];
+            if (prevCompute > 0)
+            {
+                gaWait.semaphore = m_ComputeTimeline.GetHandle();
+                gaWait.value     = prevCompute;
+                gaWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                gaWaitCount = 1;
+            }
         }
 
         const u64 gaSignalValue = ++m_LastSubmittedGraphicsValue;
@@ -167,8 +180,8 @@ namespace Luth
             LH_CORE_ERROR("VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // ── async-compute submit ──
-        // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits on the just-signaled gA value
-        // at COMPUTE_SHADER stage — gA's pre-compute work (DepthPrepass, etc.) completes before compute reads it.
+        // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits the gA value at ALL_COMMANDS
+        // (not COMPUTE_SHADER): gates the reader's TOP_OF_PIPE-src cross-queue layout transition of gA outputs. see arch/multi-queue.md
         u64 computeSignalValue = 0;
         if (hasComputeWork)
         {
@@ -180,7 +193,7 @@ namespace Luth
             cWaits[cWaitCount].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
             cWaits[cWaitCount].semaphore = m_FrameTimeline.GetHandle();
             cWaits[cWaitCount].value     = gaSignalValue;
-            cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             ++cWaitCount;
 
             if (firstView && frameIndex > 0)
@@ -220,16 +233,16 @@ namespace Luth
         }
 
         // ── graphics-B submit ──
-        // hasComputeWork: wait compute signal at FRAGMENT_SHADER — gB's vertex/raster work overlaps with compute on
-        // hardware that supports parallel queue execution; fragment stalls until compute completes.
-        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit.
+        // hasComputeWork: wait the compute signal at ALL_COMMANDS — gates gB's TOP_OF_PIPE-src cross-queue layout
+        // transition of compute outputs (a narrower FRAGMENT_SHADER wait would not). see arch/multi-queue.md
+        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit (intra-queue).
         VkSemaphoreSubmitInfo gbWaits[2]{};
         gbWaits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         if (hasComputeWork)
         {
             gbWaits[0].semaphore = m_ComputeTimeline.GetHandle();
             gbWaits[0].value     = computeSignalValue;
-            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
         else
         {
