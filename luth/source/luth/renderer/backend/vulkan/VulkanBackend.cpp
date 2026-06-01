@@ -137,14 +137,10 @@ namespace Luth
         // First view of frame: wait imageAvailable at COLOR_ATTACHMENT_OUTPUT (existing semantics).
         // Subsequent views: wait previous view's gB signal at EARLY_FRAGMENT_TESTS — replaces the inline inter-view
         // pipeline barrier; same stage relationship (view K's frag reads → view K+1's depth write).
+        // imageAvailable wait moved to the swapchain-writing last gB (acquire-read vs first transition WAR); first view's gA waits nothing.
         VkSemaphoreSubmitInfo gaWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-        if (firstView)
-        {
-            gaWait.semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
-            gaWait.value     = 0;
-            gaWait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        }
-        else
+        const u32 gaWaitCount = firstView ? 0u : 1u;
+        if (!firstView)
         {
             gaWait.semaphore = m_FrameTimeline.GetHandle();
             gaWait.value     = m_LastSubmittedGraphicsValue;
@@ -161,7 +157,7 @@ namespace Luth
         gaCmdInfo.commandBuffer = recorders.gA;
 
         VkSubmitInfo2 gaInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-        gaInfo.waitSemaphoreInfoCount   = 1;
+        gaInfo.waitSemaphoreInfoCount   = gaWaitCount;
         gaInfo.pWaitSemaphoreInfos      = &gaWait;
         gaInfo.commandBufferInfoCount   = 1;
         gaInfo.pCommandBufferInfos      = &gaCmdInfo;
@@ -227,18 +223,30 @@ namespace Luth
         // hasComputeWork: wait compute signal at FRAGMENT_SHADER — gB's vertex/raster work overlaps with compute on
         // hardware that supports parallel queue execution; fragment stalls until compute completes.
         // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit.
-        VkSemaphoreSubmitInfo gbWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        VkSemaphoreSubmitInfo gbWaits[2]{};
+        gbWaits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         if (hasComputeWork)
         {
-            gbWait.semaphore = m_ComputeTimeline.GetHandle();
-            gbWait.value     = computeSignalValue;
-            gbWait.stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            gbWaits[0].semaphore = m_ComputeTimeline.GetHandle();
+            gbWaits[0].value     = computeSignalValue;
+            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         }
         else
         {
-            gbWait.semaphore = m_FrameTimeline.GetHandle();
-            gbWait.value     = gaSignalValue;
-            gbWait.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+            gbWaits[0].semaphore = m_FrameTimeline.GetHandle();
+            gbWaits[0].value     = gaSignalValue;
+            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+        }
+        u32 gbWaitCount = 1;
+
+        // Last view runs ImGuiPass (only swapchain writer) — acquire wait at ALL_COMMANDS, since the UNDEFINED->COLOR transition is at TOP_OF_PIPE (COLOR_OUTPUT wouldn't gate it).
+        if (isLastView)
+        {
+            gbWaits[1].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            gbWaits[1].semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
+            gbWaits[1].value     = 0;
+            gbWaits[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            gbWaitCount = 2;
         }
 
         const u64 gbSignalValue = ++m_LastSubmittedGraphicsValue;
@@ -263,8 +271,8 @@ namespace Luth
         gbCmdInfo.commandBuffer = recorders.gB;
 
         VkSubmitInfo2 gbInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-        gbInfo.waitSemaphoreInfoCount   = 1;
-        gbInfo.pWaitSemaphoreInfos      = &gbWait;
+        gbInfo.waitSemaphoreInfoCount   = gbWaitCount;
+        gbInfo.pWaitSemaphoreInfos      = gbWaits;
         gbInfo.commandBufferInfoCount   = 1;
         gbInfo.pCommandBufferInfos      = &gbCmdInfo;
         gbInfo.signalSemaphoreInfoCount = gbSignalCount;
