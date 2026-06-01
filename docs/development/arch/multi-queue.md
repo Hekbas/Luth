@@ -50,19 +50,24 @@ Frame F, N views queued (typical N = 1 or 2):
 
   view K ∈ [0..N):
     gA submit  (graphics queue):
-      wait    = K == 0 ? imageAvailable @ COLOR_ATTACHMENT_OUTPUT
+      wait    = K == 0 ? prevFrame m_ComputeTimeline @ lastComputeValue @ ALL_COMMANDS (if any)
+                         (cross-frame WAR: gA's ShadowPass write of a persistent resource — the single
+                          shadow map — must not race the previous frame's async-compute still reading it)
                        : m_FrameTimeline @ prevViewGBSignal @ EARLY_FRAGMENT_TESTS
                          (replaces the legacy inline InsertInterViewBarrier — same stage relationship,
                           synchronises view K's fragment-shader reads → view K+1's depth-write)
       signal  = m_FrameTimeline @ (next monotonic value)
 
     compute submit  (compute queue, only if view's RG routed any pass to AsyncCompute):
-      wait    = m_FrameTimeline @ thisViewGASignal @ COMPUTE_SHADER
+      wait    = m_FrameTimeline @ thisViewGASignal @ ALL_COMMANDS
+                  (ALL_COMMANDS, not COMPUTE_SHADER — gates the reader's cross-queue layout transition,
+                   whose barrier src is the empty TOP_OF_PIPE scope; see the cross-queue rule below)
       signal  = m_ComputeTimeline @ (next monotonic value)
 
     gB submit  (graphics queue):
-      wait    = hasCompute ? m_ComputeTimeline @ thisViewComputeSignal @ FRAGMENT_SHADER
+      wait    = hasCompute ? m_ComputeTimeline @ thisViewComputeSignal @ ALL_COMMANDS
                            : m_FrameTimeline   @ thisViewGASignal       @ ALL_GRAPHICS
+              + (K == N-1) imageAvailable @ ALL_COMMANDS (acquire gates the swapchain's first transition)
       signal  = m_FrameTimeline @ (next monotonic value)
               + (K == N-1) renderFinished[imageIdx]
 
@@ -117,7 +122,9 @@ if (b.crossQueueSrc) {
 // dstStage / dstAccess / layout transition unchanged.
 ```
 
-Rationale: the cross-queue semaphore wait at submit time *is* the memory dependency per Vulkan spec — the reader's pre-barrier only needs to establish the layout + dst access scope. Without this substitution, a barrier emitted on the compute primary with a graphics-only src stage (e.g., `VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT`) violates VUID-vkCmdPipelineBarrier2-srcStageMask.
+Rationale: a graphics-only src stage emitted on the compute primary violates VUID-vkCmdPipelineBarrier2-srcStageMask, so the src is dropped to the empty `TOP_OF_PIPE` / `NONE` scope and the cross-queue *semaphore* carries the dependency.
+
+**Wait-stage pairing (corrected after the `vulkan-sync-hardening` sweep — this was a real bug).** An empty source scope forms an execution-dependency chain with the carrying semaphore *only* when the wait's dst stage covers it — i.e. the cross-queue wait must be `ALL_COMMANDS` (logically later than every stage). A narrower wait (`COMPUTE_SHADER` / `FRAGMENT_SHADER`) leaves the reader's layout-transition *write* ungated and races the cross-queue producer (sync-val `WRITE_AFTER_WRITE`). The per-view cross-queue waits above are therefore `ALL_COMMANDS`; cross-*frame* reuse of a persistent resource on two queues (shadow map written on graphics, read on async-compute) is closed by the first-view gA → prev-frame-compute wait. Ref: Khronos cross-queue layout-transition example (its `srcStage=NONE` assumes `pWaitDstStageMask=TOP_OF_PIPE`). N-buffering those resources would let the cross-frame wait relax — deferred; `lastReader`/first-consumer sync placement (UE5 RDG) needs per-pass semaphores, also deferred.
 
 Same logic for buffer barriers and external `finalState` post-barriers when the consumer is on a different queue (today only swapchain Present, which stays on graphics — no cross-queue case exercised yet).
 
@@ -187,7 +194,8 @@ Unchanged from the single-queue path. `UploadContext::PushPendingBind(outIndex, 
 
 ## Validation expectations
 
-- No `VUID-vkCmdPipelineBarrier2-srcStageMask-*` for cross-queue barriers — TOP_OF_PIPE substitution covers it.
+- No `VUID-vkCmdPipelineBarrier2-srcStageMask-*` for cross-queue barriers — TOP_OF_PIPE substitution **plus** the `ALL_COMMANDS` cross-queue waits cover it (the substitution alone does *not* — see the cross-queue rule above).
+- No cross-queue `SYNC-HAZARD-WRITE_AFTER_WRITE` — the `ALL_COMMANDS` cross-queue waits gate the reader's empty-source-scope layout transition; the first-view gA → prev-frame-compute wait closes the cross-frame persistent-resource (shadow map) case.
 - No `VUID-vkCmdBlitImage-commandBuffer-cmdpool` — `UploadImageMipped` stays on graphics queue.
 - No `VK_QUEUE_FAMILY_IGNORED` complaints on cross-queue resources — CONCURRENT applied per the opt-in policy.
 - No `VUID-vkCmdDraw-None-09600` from descriptor layout-mismatch — per-frame descriptor cycling preserved (game frame K writes slot K%3; render reads (K-1)%3 — distinct), and UAB on BoneMatrix + GTAOMain handles the pipeline-depth race that per-view 3-submit overhead exposes.
