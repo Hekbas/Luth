@@ -11,6 +11,8 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/RenderPassJob.h"
 #include <vma/vk_mem_alloc.h>
+#include <fstream>
+#include <cstdlib>
 
 namespace Luth::RG
 {
@@ -240,6 +242,17 @@ namespace Luth::RG
         CullDeadPasses();
         ComputeLifetimes();
         SolveBarriers();
+
+        // One-shot dump for the no-editor path: LUTH_RG_DUMP=<path> writes <path> (.dot) + <path>.json once.
+        static const char* s_dumpPath = std::getenv("LUTH_RG_DUMP");
+        static bool s_dumped = false;
+        if (s_dumpPath && !s_dumped)
+        {
+            s_dumped = true;
+            std::ofstream(s_dumpPath) << DumpGraphDot();
+            std::ofstream(std::string(s_dumpPath) + ".json") << DumpGraphJson();
+            LH_CORE_INFO("RenderGraph dumped to {} (+ .json)", s_dumpPath);
+        }
     }
 
     void RenderGraph::CullDeadPasses()
@@ -348,6 +361,10 @@ namespace Luth::RG
         }
     }
 
+    // Defined after the state→Vulkan mapping below; forward-declared for the SolveBarriers trace.
+    static const char* ToString(ResourceState s);
+    static const char* ToString(BarrierReason r);
+
     void RenderGraph::SolveBarriers()
     {
         // Reset image resource states
@@ -404,7 +421,7 @@ namespace Luth::RG
                                 || (res.lastWriter != UINT32_MAX && res.lastWriter != (u32)passIdx);
                 if (needBarrier)
                 {
-                    pass.preBarriers.push_back({ handle, res.currentState, targetState, isCrossQueue(res.lastWriter) });
+                    pass.preBarriers.push_back({ handle, res.currentState, targetState, isCrossQueue(res.lastWriter), BarrierReason::Waw });
                     res.currentState = targetState;
                 }
                 res.lastWriter = (u32)passIdx;
@@ -435,7 +452,7 @@ namespace Luth::RG
                                 || (buf.lastWriter != UINT32_MAX && buf.lastWriter != (u32)passIdx);
                 if (needBarrier)
                 {
-                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState, isCrossQueue(buf.lastWriter) });
+                    pass.bufferPreBarriers.push_back({ handle, buf.currentState, targetState, isCrossQueue(buf.lastWriter), BarrierReason::Waw });
                     buf.currentState = targetState;
                 }
                 buf.lastWriter = (u32)passIdx;
@@ -452,8 +469,37 @@ namespace Luth::RG
             if (res.currentState == res.finalState) continue;
 
             ResourceHandle h{ (u32)i + 1, res.version };
-            m_Passes[res.lastWriter].postBarriers.push_back({ h, res.currentState, res.finalState });
+            m_Passes[res.lastWriter].postBarriers.push_back({ h, res.currentState, res.finalState, false, BarrierReason::Final });
             res.currentState = res.finalState;
+        }
+
+        // Barrier trace (LUTH_RG_TRACE) — re-emitted once per topology change (pass-count proxy); shows every solved barrier.
+        static const bool s_trace = std::getenv("LUTH_RG_TRACE") != nullptr;
+        if (s_trace)
+        {
+            static size_t s_lastSig = SIZE_MAX;
+            if (m_Passes.size() != s_lastSig)
+            {
+                s_lastSig = m_Passes.size();
+                LH_CORE_INFO("[RG] barrier trace — {} passes", m_Passes.size());
+                for (u32 i = 0; i < m_Passes.size(); ++i)
+                {
+                    const auto& p = m_Passes[i];
+                    if (p.culled) continue;
+                    auto line = [&](const char* kind, const std::string& rname, u32 prod,
+                                    ResourceState before, ResourceState after, bool xq, BarrierReason reason) {
+                        LH_CORE_INFO("[RG]   {}[{}] {} {}: {} -> {}  producer={}  xq={}  reason={}",
+                            p.name, i, kind, rname, ToString(before), ToString(after),
+                            prod == UINT32_MAX ? std::string("-") : std::to_string(prod), xq ? 1 : 0, ToString(reason));
+                    };
+                    for (const auto& b : p.preBarriers)
+                        line("img", m_Resources[b.resource.index - 1].desc.name, FindLastWriter(b.resource, i), b.before, b.after, b.crossQueueSrc, b.reason);
+                    for (const auto& b : p.bufferPreBarriers)
+                        line("buf", m_Buffers[b.resource.index - 1].desc.name, FindLastBufferWriter(b.resource, i), b.before, b.after, b.crossQueueSrc, b.reason);
+                    for (const auto& b : p.postBarriers)
+                        line("post", m_Resources[b.resource.index - 1].desc.name, UINT32_MAX, b.before, b.after, b.crossQueueSrc, b.reason);
+                }
+            }
         }
     }
 
@@ -512,6 +558,44 @@ namespace Luth::RG
             // Buffer states have no image layout — return UNDEFINED (never used for image barriers)
             default:                                    return VK_IMAGE_LAYOUT_UNDEFINED;
         }
+    }
+
+    static const char* ToString(ResourceState s)
+    {
+        switch (s)
+        {
+            case ResourceState::Undefined:                  return "Undefined";
+            case ResourceState::ShaderResource:             return "ShaderResource";
+            case ResourceState::ColorAttachment:            return "ColorAttachment";
+            case ResourceState::DepthStencilAttachment:     return "DepthStencilAttachment";
+            case ResourceState::TransferSrc:                return "TransferSrc";
+            case ResourceState::TransferDst:                return "TransferDst";
+            case ResourceState::Present:                    return "Present";
+            case ResourceState::ComputeRead:                return "ComputeRead";
+            case ResourceState::ComputeWrite:               return "ComputeWrite";
+            case ResourceState::StorageBufferRead:          return "StorageBufferRead";
+            case ResourceState::StorageBufferWrite:         return "StorageBufferWrite";
+            case ResourceState::IndirectRead:               return "IndirectRead";
+            case ResourceState::AccelerationStructureBuild: return "AccelerationStructureBuild";
+            case ResourceState::AccelerationStructureRead:  return "AccelerationStructureRead";
+            default:                                        return "?";
+        }
+    }
+
+    static const char* ToString(BarrierReason r)
+    {
+        switch (r)
+        {
+            case BarrierReason::Raw:   return "RAW";
+            case BarrierReason::Waw:   return "WAW";
+            case BarrierReason::Final: return "FINAL";
+            default:                   return "?";
+        }
+    }
+
+    static const char* QueueName(QueueFamily q)
+    {
+        return q == QueueFamily::AsyncCompute ? "compute" : "graphics";
     }
 
     static VkFormat GetVkFormat(TextureFormat format)
@@ -885,6 +969,105 @@ namespace Luth::RG
 
         CleanupPhysicalResources();
         return hasComputeWork;
+    }
+
+    // ── Graph introspection (dump + trace edge lookup) ──
+
+    u32 RenderGraph::FindLastWriter(ResourceHandle handle, u32 beforePass) const
+    {
+        for (u32 j = beforePass; j > 0; --j)
+            for (const auto& w : m_Passes[j - 1].writes)
+                if (w.index == handle.index) return j - 1;
+        return UINT32_MAX;
+    }
+
+    u32 RenderGraph::FindLastBufferWriter(BufferHandle handle, u32 beforePass) const
+    {
+        for (u32 j = beforePass; j > 0; --j)
+            for (const auto& w : m_Passes[j - 1].bufferWrites)
+                if (w.index == handle.index) return j - 1;
+        return UINT32_MAX;
+    }
+
+    std::string RenderGraph::DumpGraphDot() const
+    {
+        std::string s = "digraph RenderGraph {\n  rankdir=TB;\n  node [style=filled, fontname=\"monospace\"];\n";
+        for (u32 i = 0; i < m_Passes.size(); ++i)
+        {
+            const auto& p = m_Passes[i];
+            if (p.culled) continue;
+            const char* shape = p.isCompute ? "ellipse" : "box";
+            const char* fill  = p.queueFamily == QueueFamily::AsyncCompute ? "lightyellow" : "lightblue";
+            s += "  P" + std::to_string(i) + " [label=\"" + p.name + "\", shape=" + shape + ", fillcolor=" + fill + "];\n";
+        }
+        for (u32 i = 0; i < m_Passes.size(); ++i)
+        {
+            const auto& p = m_Passes[i];
+            if (p.culled) continue;
+            for (const auto& b : p.preBarriers)
+            {
+                u32 producer = FindLastWriter(b.resource, i);
+                if (producer == UINT32_MAX) continue;
+                s += "  P" + std::to_string(producer) + " -> P" + std::to_string(i) + " [label=\""
+                   + m_Resources[b.resource.index - 1].desc.name + ": " + ToString(b.before) + "->" + ToString(b.after)
+                   + (b.crossQueueSrc ? " [xq]" : "") + "\", style=dashed];\n";
+            }
+            for (const auto& b : p.bufferPreBarriers)
+            {
+                u32 producer = FindLastBufferWriter(b.resource, i);
+                if (producer == UINT32_MAX) continue;
+                s += "  P" + std::to_string(producer) + " -> P" + std::to_string(i) + " [label=\""
+                   + m_Buffers[b.resource.index - 1].desc.name + ": " + ToString(b.before) + "->" + ToString(b.after)
+                   + (b.crossQueueSrc ? " [xq]" : "") + "\", style=dotted];\n";
+            }
+        }
+        s += "}\n";
+        return s;
+    }
+
+    std::string RenderGraph::DumpGraphJson() const
+    {
+        auto esc = [](const std::string& in) {
+            std::string o; o.reserve(in.size());
+            for (char c : in) { if (c == '"' || c == '\\') o += '\\'; o += c; }
+            return o;
+        };
+        std::string s = "{\n  \"passes\": [\n";
+        bool first = true;
+        for (u32 i = 0; i < m_Passes.size(); ++i)
+        {
+            const auto& p = m_Passes[i];
+            s += first ? "    " : ",\n    "; first = false;
+            s += "{\"index\":" + std::to_string(i) + ",\"name\":\"" + esc(p.name)
+               + "\",\"queue\":\"" + QueueName(p.queueFamily)
+               + "\",\"compute\":" + (p.isCompute ? "true" : "false")
+               + ",\"culled\":" + (p.culled ? "true" : "false") + "}";
+        }
+        s += "\n  ],\n  \"barriers\": [\n";
+        first = true;
+        for (u32 i = 0; i < m_Passes.size(); ++i)
+        {
+            const auto& p = m_Passes[i];
+            if (p.culled) continue;
+            auto emit = [&](const char* kind, const std::string& rname, u32 producer,
+                            ResourceState before, ResourceState after, bool xq, BarrierReason reason) {
+                s += first ? "    " : ",\n    "; first = false;
+                s += std::string("{\"pass\":") + std::to_string(i) + ",\"kind\":\"" + kind
+                   + "\",\"resource\":\"" + esc(rname) + "\",\"producer\":"
+                   + (producer == UINT32_MAX ? std::string("null") : std::to_string(producer))
+                   + ",\"before\":\"" + ToString(before) + "\",\"after\":\"" + ToString(after)
+                   + "\",\"crossQueue\":" + (xq ? "true" : "false")
+                   + ",\"reason\":\"" + ToString(reason) + "\"}";
+            };
+            for (const auto& b : p.preBarriers)
+                emit("image", m_Resources[b.resource.index - 1].desc.name, FindLastWriter(b.resource, i), b.before, b.after, b.crossQueueSrc, b.reason);
+            for (const auto& b : p.bufferPreBarriers)
+                emit("buffer", m_Buffers[b.resource.index - 1].desc.name, FindLastBufferWriter(b.resource, i), b.before, b.after, b.crossQueueSrc, b.reason);
+            for (const auto& b : p.postBarriers)
+                emit("post", m_Resources[b.resource.index - 1].desc.name, UINT32_MAX, b.before, b.after, b.crossQueueSrc, b.reason);
+        }
+        s += "\n  ]\n}\n";
+        return s;
     }
 
     // ── Physical Resource Management ──
