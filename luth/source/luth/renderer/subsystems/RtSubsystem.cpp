@@ -566,7 +566,7 @@ namespace Luth
                 mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                 mem.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
                 mem.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-                mem.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                mem.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // build reads vertex input as SHADER_READ, not AS_READ
                 VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
                 dep.memoryBarrierCount = 1;
                 dep.pMemoryBarriers    = &mem;

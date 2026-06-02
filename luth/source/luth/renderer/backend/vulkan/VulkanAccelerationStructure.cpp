@@ -345,7 +345,7 @@ namespace Luth
             fillBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
             fillBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             fillBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            fillBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+            fillBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // build reads vertex input as SHADER_READ, not AS_READ
             VkDependencyInfo fillDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
             fillDep.memoryBarrierCount = 1;
             fillDep.pMemoryBarriers    = &fillBarrier;
