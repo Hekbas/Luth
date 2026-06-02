@@ -79,16 +79,18 @@ namespace Luth
             m_FrameTimeline.Wait(gfxWait);
             if (computeWait > 0) m_ComputeTimeline.Wait(computeWait);
 
-            // invariant: page tag T is referenced by iter T (game-stage tag = T) AND iter T+1
-            // (render-stage tag = GetRenderFrameIndex = iter-1). Both cmd buffers must be GPU-done
-            // to reclaim safely; iter T+1's GPU work finishes when graphics retires N-2 (T+2's signal).
-            // GPU-N-2 retired ⇒ safe-to-free tag = (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) - 2.
-            const u64 frameJustRetired = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
-            if (frameJustRetired >= 2)
+            // Direct ND reclaim (HasFrameCompleted): the submit labeled L consumed all data tagged L-1, so
+            // free tag (label-1) for each consuming frame `label` that is GPU-complete. Bound at frameIndex-1
+            // (frame `frameIndex` hasn't submitted → stale cache slot). The block-wait above guarantees label
+            // (frameIndex - MAX_FRAMES_IN_FLIGHT) is complete, so this never frees less than the legacy
+            // FreeTag(frameIndex-4); a faster GPU retires newer labels too. see arch/memory.md
+            for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label)
             {
-                const u32 finishedTag = static_cast<u32>(frameJustRetired - 2);
-                Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(finishedTag);
+                if (!IsFrameComplete(label)) break;  // labels complete in order — stop at the first that isn't
+                const u32 freeTag = static_cast<u32>(label - 1);
+                Memory::TaggedPageAllocator   ::Get().FreeTag(freeTag);
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(freeTag);
+                m_LastReclaimedLabel = label;
             }
         }
 
@@ -342,6 +344,14 @@ namespace Luth
         m_FrameTimeline.Init(0);
         m_ComputeTimeline.Init(0);
         m_NextAcquireSemIndex = 0;
+
+        // Timelines just reset to 0 (resize rebuild) — clear the per-frame value caches + submit counters so
+        // AcquireImage doesn't block-wait or reclaim against a stale pre-resize value. see arch/multi-queue.md
+        m_LastGraphicsValuePerFrame.fill(0);
+        m_LastComputeValuePerFrame.fill(0);
+        m_LastSubmittedGraphicsValue   = 0;
+        m_LastSubmittedComputeValue    = 0;
+        m_CurrentFrameLastComputeValue = 0;
 
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;

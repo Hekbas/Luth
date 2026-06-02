@@ -81,6 +81,10 @@ namespace Luth
         std::array<u64, MAX_FRAMES_IN_FLIGHT> m_LastGraphicsValuePerFrame{};
         std::array<u64, MAX_FRAMES_IN_FLIGHT> m_LastComputeValuePerFrame {};
 
+        // High-water mark: highest consuming-frame label whose tags are reclaimed (direct IsFrameComplete
+        // sweep in AcquireImage). Frees each completed frame's tags exactly once. see arch/memory.md
+        u64 m_LastReclaimedLabel = 0;
+
         // Command Allocator Pools (Per-Frame) for Workers — parallel rings per queue family. CommandAllocatorPool is
         // already parameterized by queueFamilyIndex; instantiation is the only differentiator.
         std::array<std::unique_ptr<CommandAllocatorPool>, MAX_FRAMES_IN_FLIGHT> m_CommandAllocatorPools;
