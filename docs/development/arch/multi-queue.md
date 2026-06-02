@@ -79,7 +79,7 @@ Frame F, N views queued (typical N = 1 or 2):
 
 Empty gA / gB / compute primaries are valid no-op submits. Per-view 3-submit means 3·N submits per frame (typical N = 2 → 6 submits, ~60–300 µs/frame Windows submit overhead, dwarfed by intra-frame compute-overlap gains).
 
-`AcquireImage` predicate (replaces the prior `frameIndex - MAX_FRAMES_IN_FLIGHT + 1` formula):
+`AcquireImage` reclaim — block-wait the retiring frame (backpressure), then a **direct completion sweep**. The submit labeled `L` consumed all data tagged `L-1` (Bridge Lemma: `SubmitView` is driven with the *game* index, so `IsFrameComplete(L)` ⇒ tag `L-1` is GPU-done). Bound at `frameIndex-1` since frame `frameIndex` hasn't submitted (its cache slot is stale):
 
 ```cpp
 const u32 retiringSlot = (frameIndex - MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
@@ -87,12 +87,14 @@ m_FrameTimeline.Wait(m_LastGraphicsValuePerFrame[retiringSlot]);
 if (m_LastComputeValuePerFrame[retiringSlot] > 0)
     m_ComputeTimeline.Wait(m_LastComputeValuePerFrame[retiringSlot]);
 
-// V6 reclaim — page tag T is referenced by iter T (game-stage) and iter T+1 (render-stage).
-// Both retire when graphics signals frame T+2's last value; safe-to-free tag = (frameJustRetired - 2).
-const u64 frameJustRetired = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
-if (frameJustRetired >= 2) {
-    Memory::TaggedPageAllocator   ::Get().FreeTag((u32)(frameJustRetired - 2));
-    Memory::GPUTaggedPageAllocator::Get().FreeTag((u32)(frameJustRetired - 2));
+// Free tag (label-1) for each consuming frame `label` that is GPU-complete. The block-wait guarantees
+// label (frameIndex - MAX_FRAMES_IN_FLIGHT) is done, so this never frees less than the legacy formula.
+for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label) {
+    if (!IsFrameComplete(label)) break;
+    const u32 freeTag = (u32)(label - 1);
+    Memory::TaggedPageAllocator   ::Get().FreeTag(freeTag);
+    Memory::GPUTaggedPageAllocator::Get().FreeTag(freeTag);
+    m_LastReclaimedLabel = label;
 }
 ```
 
@@ -188,9 +190,9 @@ Unchanged from the single-queue path. `UploadContext::PushPendingBind(outIndex, 
 | **V1** SpinLock <100 cycles, no yield under lock | Per-queue mutexes (`m_QueueMutex` + siblings) wrap `vkQueueSubmit2` — kernel syscalls, std::mutex remains correct (documented exception per `arch/memory.md`). Hot-path allocator code stays on `SpinLock`. |
 | **V2** Main thread isolated | Render stage runs on worker fiber; SubmitView called from render stage. Main thread never enters submit path. |
 | **V3** `VkCommandBuffer` thread affinity | Per-queue `CommandAllocatorPool` instances (graphics + compute). Each pool is queue-family-scoped via its ctor parameter; `RecordingScope` invariant applies per pool. |
-| **V4** `WaitOnAddress` lost wakeup | No new condvar waits. Timeline polling is GPU-driven via `VulkanWaitJob`. |
+| **V4** `WaitOnAddress` lost wakeup | No new condvar waits. Per-frame timeline values cached at submit; non-blocking completion via `IsFrameComplete`. |
 | **V5** Sub-job context switch | RG `Execute` single yield (Phase 1 parallel record + WaitForCounter); per-view 3-submit happens serially in main loop, no new fiber switches. |
-| **V6** GPU stall ↔ allocator deadlock | `FreeTag(N-2)` predicate extends to wait on **both** per-frame ring caches before reclaim. Overflow tier unchanged; frame N still gets pages even when GPU stalls on N-2. |
+| **V6** GPU stall ↔ allocator deadlock | Block-wait the retiring frame on **both** timelines (backpressure), then the direct `IsFrameComplete` reclaim sweep. Overflow tier unchanged; frame N still gets pages even when the GPU stalls. |
 
 ## Validation expectations
 

@@ -11,7 +11,7 @@
 3. **No `std::mutex` in the hot path.** Spin-locks (< 100 cycles) or lock-free structures only.
 4. **No `new`/`delete` in gameplay/render.** Use `LinearAllocator` (frame) or `TaggedPageAllocator` / `GPUTaggedPageAllocator` (tagged lifetime — Onion/Garlic split).
 5. **No `VkRenderPass`/`VkFramebuffer`.** Dynamic Rendering only (`vkCmdBeginRendering`).
-6. **No `vkWaitForFences`.** Timeline Semaphores polled by `VulkanWaitJob`.
+6. **No `vkWaitForFences`.** Timeline Semaphores; per-frame completion via `VulkanBackend::IsFrameComplete`.
 7. **Pipelined execution.** Game(N) | Render(N-1) | GPU(N-2). Realized in v2.8.4 ([history](history/v2.x/pipeline-phase-3.md)) — game + render dispatch concurrently on worker fibers, handoff via `RenderSnapshot` captured at end of game stage.
 8. **Main thread is isolated.** OS message pump + present only. Never steals jobs.
 

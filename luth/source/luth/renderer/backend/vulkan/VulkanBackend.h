@@ -45,7 +45,7 @@ namespace Luth
         VkCommandBuffer GetComputePrimary  (u64 frameIndex, u32 viewSlot) const { return m_ComputePrimaries[frameIndex % MAX_FRAMES_IN_FLIGHT][viewSlot]; }
         VkCommandBuffer GetGraphicsBPrimary(u64 frameIndex, u32 viewSlot) const { return m_GBPrimaries     [frameIndex % MAX_FRAMES_IN_FLIGHT][viewSlot]; }
 
-        // Non-blocking GPU completion check for frame pipelining
+        // Non-blocking GPU completion check — frame pipelining + the AcquireImage reclaim sweep
         bool IsFrameComplete(u64 frameIndex);
 
     private:
