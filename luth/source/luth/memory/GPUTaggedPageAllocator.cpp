@@ -50,6 +50,15 @@ namespace Luth::Memory
             LH_DELETE(Memory::Category::GPU, page);
         m_FreePages.clear();
 
+        // Recycled large-one-shots still own their VkBuffer — destroy here (device idle).
+        for (GPUPage* page : m_FreeLargePages)
+        {
+            if (page->oneShotAlloc)
+                VulkanAllocator::FreeBuffer(page->buffer, page->oneShotAlloc);
+            LH_DELETE(Memory::Category::GPU, page);
+        }
+        m_FreeLargePages.clear();
+
         for (BackingBuffer& bb : m_BackingBuffers)
         {
             if (bb.buffer)
@@ -115,10 +124,27 @@ namespace Luth::Memory
 
     GPUSubRegion GPUTaggedPageAllocator::AllocateLargeTagged(u32 tag, u64 size, u64 alignment)
     {
-        // Dedicated VkBuffer per request; tagged like a page so FreeTag releases it.
-        // Backing alignment is whatever VMA picks; we don't apply m_MinAlignment to offset
-        // because offset = 0 for one-shot allocations (the whole buffer is one region).
+        // Dedicated VkBuffer per request; tagged like a page so FreeTag releases it. offset = 0 for one-shot
+        // allocations (the whole buffer is one region), so m_MinAlignment is moot.
+        // invariant: these buffers are RECYCLED on FreeTag, never destroyed — a too-early reclaim must degrade
+        // to stale data, not an unmapped-VA fault. Reuse a pooled buffer of matching capacity; allocate fresh
+        // only on a miss; pool drained at Shutdown. see arch/memory.md
         (void)alignment;
+
+        // Reuse a recycled buffer of exact capacity — `used` holds the buffer's full size.
+        {
+            SpinLockGuard lock(m_Lock);
+            for (size_t i = 0; i < m_FreeLargePages.size(); ++i)
+            {
+                GPUPage* page = m_FreeLargePages[i];
+                if (page->used != size) continue;
+                m_FreeLargePages[i] = m_FreeLargePages.back();
+                m_FreeLargePages.pop_back();
+                page->tag = tag;
+                m_UsedPages.push_back(page);
+                return { page->buffer, 0, size, page->basePtr };
+            }
+        }
 
         VkBufferCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -205,8 +231,9 @@ namespace Luth::Memory
             {
                 if (page->isLargeOneShot)
                 {
-                    VulkanAllocator::FreeBuffer(page->buffer, page->oneShotAlloc);
-                    LH_DELETE(Memory::Category::GPU, page);
+                    // Recycle, never destroy — keep the VkBuffer alive so a too-early reclaim is stale data, not a fault.
+                    page->tag = 0;
+                    m_FreeLargePages.push_back(page);
                 }
                 else
                 {
@@ -231,6 +258,7 @@ namespace Luth::Memory
         Stats s;
         s.BackingBuffers = static_cast<u32>(m_BackingBuffers.size());
         s.FreePages      = static_cast<u32>(m_FreePages.size());
+        s.FreeLargePages = static_cast<u32>(m_FreeLargePages.size());
         u64 inFlight = 0;
         u32 active = 0, oneShots = 0;
         for (const GPUPage* page : m_UsedPages)
