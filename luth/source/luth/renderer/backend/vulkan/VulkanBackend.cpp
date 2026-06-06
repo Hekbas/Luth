@@ -72,23 +72,30 @@ namespace Luth
         // of each timeline at end of the previous frame N-2; AcquireImage waits on exactly those.
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
         {
-            const u32 retiringSlot = (u32)((frameIndex - MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT);
+            // +1: per-frame UAB descriptor slots are read at renderFrameIndex%N — one frame ahead of the
+            // cmd-buffer slot (gameFrameIndex%N) the cmd-buffer reset gates. Wait the slot's prior DESCRIPTOR
+            // reader (frame N-3), not just its cmd-buffer prior user (N-4), so a game-stage slot rewrite can't
+            // race an older in-flight reader under GPU-behind load (skinned-pose ghost). Monotone ⇒ still
+            // covers cmd-buffer reset. see arch/multi-queue.md
+            const u32 retiringSlot = (u32)((frameIndex - MAX_FRAMES_IN_FLIGHT + 1) % MAX_FRAMES_IN_FLIGHT);
             const u64 gfxWait     = m_LastGraphicsValuePerFrame[retiringSlot];
             const u64 computeWait = m_LastComputeValuePerFrame [retiringSlot];
 
             m_FrameTimeline.Wait(gfxWait);
             if (computeWait > 0) m_ComputeTimeline.Wait(computeWait);
 
-            // invariant: page tag T is referenced by iter T (game-stage tag = T) AND iter T+1
-            // (render-stage tag = GetRenderFrameIndex = iter-1). Both cmd buffers must be GPU-done
-            // to reclaim safely; iter T+1's GPU work finishes when graphics retires N-2 (T+2's signal).
-            // GPU-N-2 retired ⇒ safe-to-free tag = (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) - 2.
-            const u64 frameJustRetired = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
-            if (frameJustRetired >= 2)
+            // Direct ND reclaim (HasFrameCompleted): the submit labeled L consumed all data tagged L-1, so
+            // free tag (label-1) for each consuming frame `label` that is GPU-complete. Bound at frameIndex-1
+            // (frame `frameIndex` hasn't submitted → stale cache slot). The block-wait above guarantees label
+            // (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) is complete, so this never frees less than the legacy
+            // FreeTag(frameIndex-4); a faster GPU retires newer labels too. see arch/memory.md
+            for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label)
             {
-                const u32 finishedTag = static_cast<u32>(frameJustRetired - 2);
-                Memory::TaggedPageAllocator::Get().FreeTag(finishedTag);
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(finishedTag);
+                if (!IsFrameComplete(label)) break;  // labels complete in order — stop at the first that isn't
+                const u32 freeTag = static_cast<u32>(label - 1);
+                Memory::TaggedPageAllocator   ::Get().FreeTag(freeTag);
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(freeTag);
+                m_LastReclaimedLabel = label;
             }
         }
 
@@ -134,21 +141,30 @@ namespace Luth
         if (firstView) m_CurrentFrameLastComputeValue = 0;
 
         // ── graphics-A submit ──
-        // First view of frame: wait imageAvailable at COLOR_ATTACHMENT_OUTPUT (existing semantics).
-        // Subsequent views: wait previous view's gB signal at EARLY_FRAGMENT_TESTS — replaces the inline inter-view
-        // pipeline barrier; same stage relationship (view K's frag reads → view K+1's depth write).
+        // Subsequent views wait the previous view's gB at EARLY_FRAGMENT_TESTS (inter-view depth ordering). First view
+        // waits the PREVIOUS frame's compute at ALL_COMMANDS: a persistent resource (shadow map) written here by ShadowPass
+        // must not race the previous frame's async-compute still reading it. imageAvailable is waited on the last gB now.
+        // see arch/multi-queue.md
         VkSemaphoreSubmitInfo gaWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-        if (firstView)
-        {
-            gaWait.semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
-            gaWait.value     = 0;
-            gaWait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        }
-        else
+        u32 gaWaitCount = 0;
+        if (!firstView)
         {
             gaWait.semaphore = m_FrameTimeline.GetHandle();
             gaWait.value     = m_LastSubmittedGraphicsValue;
             gaWait.stageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+            gaWaitCount = 1;
+        }
+        else if (frameIndex > 0)
+        {
+            const u32 prevSlot    = (u32)((frameIndex - 1) % MAX_FRAMES_IN_FLIGHT);
+            const u64 prevCompute = m_LastComputeValuePerFrame[prevSlot];
+            if (prevCompute > 0)
+            {
+                gaWait.semaphore = m_ComputeTimeline.GetHandle();
+                gaWait.value     = prevCompute;
+                gaWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                gaWaitCount = 1;
+            }
         }
 
         const u64 gaSignalValue = ++m_LastSubmittedGraphicsValue;
@@ -161,7 +177,7 @@ namespace Luth
         gaCmdInfo.commandBuffer = recorders.gA;
 
         VkSubmitInfo2 gaInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-        gaInfo.waitSemaphoreInfoCount   = 1;
+        gaInfo.waitSemaphoreInfoCount   = gaWaitCount;
         gaInfo.pWaitSemaphoreInfos      = &gaWait;
         gaInfo.commandBufferInfoCount   = 1;
         gaInfo.pCommandBufferInfos      = &gaCmdInfo;
@@ -171,8 +187,8 @@ namespace Luth
             LH_CORE_ERROR("VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // ── async-compute submit ──
-        // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits on the just-signaled gA value
-        // at COMPUTE_SHADER stage — gA's pre-compute work (DepthPrepass, etc.) completes before compute reads it.
+        // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits the gA value at ALL_COMMANDS
+        // (not COMPUTE_SHADER): gates the reader's TOP_OF_PIPE-src cross-queue layout transition of gA outputs. see arch/multi-queue.md
         u64 computeSignalValue = 0;
         if (hasComputeWork)
         {
@@ -184,7 +200,7 @@ namespace Luth
             cWaits[cWaitCount].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
             cWaits[cWaitCount].semaphore = m_FrameTimeline.GetHandle();
             cWaits[cWaitCount].value     = gaSignalValue;
-            cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            cWaits[cWaitCount].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             ++cWaitCount;
 
             if (firstView && frameIndex > 0)
@@ -224,21 +240,33 @@ namespace Luth
         }
 
         // ── graphics-B submit ──
-        // hasComputeWork: wait compute signal at FRAGMENT_SHADER — gB's vertex/raster work overlaps with compute on
-        // hardware that supports parallel queue execution; fragment stalls until compute completes.
-        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit.
-        VkSemaphoreSubmitInfo gbWait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        // hasComputeWork: wait the compute signal at ALL_COMMANDS — gates gB's TOP_OF_PIPE-src cross-queue layout
+        // transition of compute outputs (a narrower FRAGMENT_SHADER wait would not). see arch/multi-queue.md
+        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit (intra-queue).
+        VkSemaphoreSubmitInfo gbWaits[2]{};
+        gbWaits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         if (hasComputeWork)
         {
-            gbWait.semaphore = m_ComputeTimeline.GetHandle();
-            gbWait.value     = computeSignalValue;
-            gbWait.stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            gbWaits[0].semaphore = m_ComputeTimeline.GetHandle();
+            gbWaits[0].value     = computeSignalValue;
+            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
         else
         {
-            gbWait.semaphore = m_FrameTimeline.GetHandle();
-            gbWait.value     = gaSignalValue;
-            gbWait.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+            gbWaits[0].semaphore = m_FrameTimeline.GetHandle();
+            gbWaits[0].value     = gaSignalValue;
+            gbWaits[0].stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+        }
+        u32 gbWaitCount = 1;
+
+        // Last view runs ImGuiPass (only swapchain writer) — acquire wait at ALL_COMMANDS, since the UNDEFINED->COLOR transition is at TOP_OF_PIPE (COLOR_OUTPUT wouldn't gate it).
+        if (isLastView)
+        {
+            gbWaits[1].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            gbWaits[1].semaphore = m_ImageAvailableSemaphores[m_CurrentAcquireSemIndex];
+            gbWaits[1].value     = 0;
+            gbWaits[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            gbWaitCount = 2;
         }
 
         const u64 gbSignalValue = ++m_LastSubmittedGraphicsValue;
@@ -263,8 +291,8 @@ namespace Luth
         gbCmdInfo.commandBuffer = recorders.gB;
 
         VkSubmitInfo2 gbInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-        gbInfo.waitSemaphoreInfoCount   = 1;
-        gbInfo.pWaitSemaphoreInfos      = &gbWait;
+        gbInfo.waitSemaphoreInfoCount   = gbWaitCount;
+        gbInfo.pWaitSemaphoreInfos      = gbWaits;
         gbInfo.commandBufferInfoCount   = 1;
         gbInfo.pCommandBufferInfos      = &gbCmdInfo;
         gbInfo.signalSemaphoreInfoCount = gbSignalCount;
@@ -321,6 +349,14 @@ namespace Luth
         m_FrameTimeline.Init(0);
         m_ComputeTimeline.Init(0);
         m_NextAcquireSemIndex = 0;
+
+        // Timelines just reset to 0 (resize rebuild) — clear the per-frame value caches + submit counters so
+        // AcquireImage doesn't block-wait or reclaim against a stale pre-resize value. see arch/multi-queue.md
+        m_LastGraphicsValuePerFrame.fill(0);
+        m_LastComputeValuePerFrame.fill(0);
+        m_LastSubmittedGraphicsValue   = 0;
+        m_LastSubmittedComputeValue    = 0;
+        m_CurrentFrameLastComputeValue = 0;
 
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;

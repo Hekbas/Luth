@@ -116,10 +116,9 @@ namespace Luth
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
         const u64 gameFrame = Renderer::GetFrameData()->GetFrameIndex();
-        // Tag gameFrame+1: this region is written game-side but read render-side one iteration later,
-        // so a gameFrame tag would retire it the frame its GPU read completes (0 margin). +1 trails
-        // GPU consumption by a frame. invariant: descriptor slot below stays keyed to gameFrame. see arch/memory.md
-        jobCtx->GpuCache.CurrentTag = static_cast<u32>(gameFrame + 1);
+        // Tag = gameFrame (the consuming frame): game-stage data is read by the next iteration's render
+        // submit; the direct reclaim frees it once that submit's GPU work completes. see arch/memory.md
+        jobCtx->GpuCache.CurrentTag = static_cast<u32>(gameFrame);
 
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
         // Dual region: first half = current bones (m_CpuScratch), second half = previous bones

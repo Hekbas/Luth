@@ -50,19 +50,24 @@ Frame F, N views queued (typical N = 1 or 2):
 
   view K ∈ [0..N):
     gA submit  (graphics queue):
-      wait    = K == 0 ? imageAvailable @ COLOR_ATTACHMENT_OUTPUT
+      wait    = K == 0 ? prevFrame m_ComputeTimeline @ lastComputeValue @ ALL_COMMANDS (if any)
+                         (cross-frame WAR: gA's ShadowPass write of a persistent resource — the single
+                          shadow map — must not race the previous frame's async-compute still reading it)
                        : m_FrameTimeline @ prevViewGBSignal @ EARLY_FRAGMENT_TESTS
                          (replaces the legacy inline InsertInterViewBarrier — same stage relationship,
                           synchronises view K's fragment-shader reads → view K+1's depth-write)
       signal  = m_FrameTimeline @ (next monotonic value)
 
     compute submit  (compute queue, only if view's RG routed any pass to AsyncCompute):
-      wait    = m_FrameTimeline @ thisViewGASignal @ COMPUTE_SHADER
+      wait    = m_FrameTimeline @ thisViewGASignal @ ALL_COMMANDS
+                  (ALL_COMMANDS, not COMPUTE_SHADER — gates the reader's cross-queue layout transition,
+                   whose barrier src is the empty TOP_OF_PIPE scope; see the cross-queue rule below)
       signal  = m_ComputeTimeline @ (next monotonic value)
 
     gB submit  (graphics queue):
-      wait    = hasCompute ? m_ComputeTimeline @ thisViewComputeSignal @ FRAGMENT_SHADER
+      wait    = hasCompute ? m_ComputeTimeline @ thisViewComputeSignal @ ALL_COMMANDS
                            : m_FrameTimeline   @ thisViewGASignal       @ ALL_GRAPHICS
+              + (K == N-1) imageAvailable @ ALL_COMMANDS (acquire gates the swapchain's first transition)
       signal  = m_FrameTimeline @ (next monotonic value)
               + (K == N-1) renderFinished[imageIdx]
 
@@ -74,20 +79,22 @@ Frame F, N views queued (typical N = 1 or 2):
 
 Empty gA / gB / compute primaries are valid no-op submits. Per-view 3-submit means 3·N submits per frame (typical N = 2 → 6 submits, ~60–300 µs/frame Windows submit overhead, dwarfed by intra-frame compute-overlap gains).
 
-`AcquireImage` predicate (replaces the prior `frameIndex - MAX_FRAMES_IN_FLIGHT + 1` formula):
+`AcquireImage` reclaim — block-wait the retiring frame (backpressure), then a **direct completion sweep**. The retiring slot uses `+1`: a per-frame UAB descriptor is read at `renderFrameIndex%N`, one frame ahead of the cmd-buffer slot, so the wait must cover the slot's prior *reader* (frame N-3), not just its cmd-buffer prior user (N-4) — else a game-stage slot rewrite races an older in-flight reader under GPU-behind load (skinned-pose ghost). The submit labeled `L` consumed all data tagged `L-1` (Bridge Lemma: `SubmitView` is driven with the *game* index, so `IsFrameComplete(L)` ⇒ tag `L-1` is GPU-done). Bound at `frameIndex-1` since frame `frameIndex` hasn't submitted (its cache slot is stale):
 
 ```cpp
-const u32 retiringSlot = (frameIndex - MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+const u32 retiringSlot = (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) % MAX_FRAMES_IN_FLIGHT;  // +1 covers the descriptor prior reader
 m_FrameTimeline.Wait(m_LastGraphicsValuePerFrame[retiringSlot]);
 if (m_LastComputeValuePerFrame[retiringSlot] > 0)
     m_ComputeTimeline.Wait(m_LastComputeValuePerFrame[retiringSlot]);
 
-// V6 reclaim — page tag T is referenced by iter T (game-stage) and iter T+1 (render-stage).
-// Both retire when graphics signals frame T+2's last value; safe-to-free tag = (frameJustRetired - 2).
-const u64 frameJustRetired = frameIndex - MAX_FRAMES_IN_FLIGHT + 1;
-if (frameJustRetired >= 2) {
-    Memory::TaggedPageAllocator   ::Get().FreeTag((u32)(frameJustRetired - 2));
-    Memory::GPUTaggedPageAllocator::Get().FreeTag((u32)(frameJustRetired - 2));
+// Free tag (label-1) for each consuming frame `label` that is GPU-complete. The block-wait guarantees
+// label (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) is done, so this never frees less than the legacy formula.
+for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label) {
+    if (!IsFrameComplete(label)) break;
+    const u32 freeTag = (u32)(label - 1);
+    Memory::TaggedPageAllocator   ::Get().FreeTag(freeTag);
+    Memory::GPUTaggedPageAllocator::Get().FreeTag(freeTag);
+    m_LastReclaimedLabel = label;
 }
 ```
 
@@ -117,7 +124,9 @@ if (b.crossQueueSrc) {
 // dstStage / dstAccess / layout transition unchanged.
 ```
 
-Rationale: the cross-queue semaphore wait at submit time *is* the memory dependency per Vulkan spec — the reader's pre-barrier only needs to establish the layout + dst access scope. Without this substitution, a barrier emitted on the compute primary with a graphics-only src stage (e.g., `VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT`) violates VUID-vkCmdPipelineBarrier2-srcStageMask.
+Rationale: a graphics-only src stage emitted on the compute primary violates VUID-vkCmdPipelineBarrier2-srcStageMask, so the src is dropped to the empty `TOP_OF_PIPE` / `NONE` scope and the cross-queue *semaphore* carries the dependency.
+
+**Wait-stage pairing (corrected after the `vulkan-sync-hardening` sweep — this was a real bug).** An empty source scope forms an execution-dependency chain with the carrying semaphore *only* when the wait's dst stage covers it — i.e. the cross-queue wait must be `ALL_COMMANDS` (logically later than every stage). A narrower wait (`COMPUTE_SHADER` / `FRAGMENT_SHADER`) leaves the reader's layout-transition *write* ungated and races the cross-queue producer (sync-val `WRITE_AFTER_WRITE`). The per-view cross-queue waits above are therefore `ALL_COMMANDS`; cross-*frame* reuse of a persistent resource on two queues (shadow map written on graphics, read on async-compute) is closed by the first-view gA → prev-frame-compute wait. Ref: Khronos cross-queue layout-transition example (its `srcStage=NONE` assumes `pWaitDstStageMask=TOP_OF_PIPE`). N-buffering those resources would let the cross-frame wait relax — deferred; `lastReader`/first-consumer sync placement (UE5 RDG) needs per-pass semaphores, also deferred.
 
 Same logic for buffer barriers and external `finalState` post-barriers when the consumer is on a different queue (today only swapchain Present, which stays on graphics — no cross-queue case exercised yet).
 
@@ -181,13 +190,14 @@ Unchanged from the single-queue path. `UploadContext::PushPendingBind(outIndex, 
 | **V1** SpinLock <100 cycles, no yield under lock | Per-queue mutexes (`m_QueueMutex` + siblings) wrap `vkQueueSubmit2` — kernel syscalls, std::mutex remains correct (documented exception per `arch/memory.md`). Hot-path allocator code stays on `SpinLock`. |
 | **V2** Main thread isolated | Render stage runs on worker fiber; SubmitView called from render stage. Main thread never enters submit path. |
 | **V3** `VkCommandBuffer` thread affinity | Per-queue `CommandAllocatorPool` instances (graphics + compute). Each pool is queue-family-scoped via its ctor parameter; `RecordingScope` invariant applies per pool. |
-| **V4** `WaitOnAddress` lost wakeup | No new condvar waits. Timeline polling is GPU-driven via `VulkanWaitJob`. |
+| **V4** `WaitOnAddress` lost wakeup | No new condvar waits. Per-frame timeline values cached at submit; non-blocking completion via `IsFrameComplete`. |
 | **V5** Sub-job context switch | RG `Execute` single yield (Phase 1 parallel record + WaitForCounter); per-view 3-submit happens serially in main loop, no new fiber switches. |
-| **V6** GPU stall ↔ allocator deadlock | `FreeTag(N-2)` predicate extends to wait on **both** per-frame ring caches before reclaim. Overflow tier unchanged; frame N still gets pages even when GPU stalls on N-2. |
+| **V6** GPU stall ↔ allocator deadlock | Block-wait the retiring frame on **both** timelines (backpressure), then the direct `IsFrameComplete` reclaim sweep. Overflow tier unchanged; frame N still gets pages even when the GPU stalls. |
 
 ## Validation expectations
 
-- No `VUID-vkCmdPipelineBarrier2-srcStageMask-*` for cross-queue barriers — TOP_OF_PIPE substitution covers it.
+- No `VUID-vkCmdPipelineBarrier2-srcStageMask-*` for cross-queue barriers — TOP_OF_PIPE substitution **plus** the `ALL_COMMANDS` cross-queue waits cover it (the substitution alone does *not* — see the cross-queue rule above).
+- No cross-queue `SYNC-HAZARD-WRITE_AFTER_WRITE` — the `ALL_COMMANDS` cross-queue waits gate the reader's empty-source-scope layout transition; the first-view gA → prev-frame-compute wait closes the cross-frame persistent-resource (shadow map) case.
 - No `VUID-vkCmdBlitImage-commandBuffer-cmdpool` — `UploadImageMipped` stays on graphics queue.
 - No `VK_QUEUE_FAMILY_IGNORED` complaints on cross-queue resources — CONCURRENT applied per the opt-in policy.
 - No `VUID-vkCmdDraw-None-09600` from descriptor layout-mismatch — per-frame descriptor cycling preserved (game frame K writes slot K%3; render reads (K-1)%3 — distinct), and UAB on BoneMatrix + GTAOMain handles the pipeline-depth race that per-view 3-submit overhead exposes.

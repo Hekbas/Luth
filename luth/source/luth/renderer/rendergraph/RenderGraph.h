@@ -10,6 +10,7 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include <utility>
 
 // Forward declare VMA struct
 struct VmaAllocation_T;
@@ -277,6 +278,13 @@ namespace Luth::RG
         std::vector<ResourceNode>& GetResources() { return m_Resources; }
         std::vector<BufferNode>& GetBuffers() { return m_Buffers; }
 
+        // Serialize the compiled graph for offline inspection (.dot GraphViz / .json schema). Call after Compile().
+        std::string DumpGraphDot()  const;
+        std::string DumpGraphJson() const;
+
+        // State → (stage, access) for barrier emission; public for headless emission tests. see arch/rendering-pipeline.md
+        static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state);
+
         // Archive sink — invoked after each non-culled pass during Execute. Optional.
         // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
         void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }
@@ -302,5 +310,9 @@ namespace Luth::RG
         void CullDeadPasses();
         void SolveBarriers();
         void ComputeLifetimes();
+
+        // Nearest prior pass that wrote `handle` before `beforePass` (UINT32_MAX if none) — graph-dump/trace edges.
+        u32 FindLastWriter(ResourceHandle handle, u32 beforePass) const;
+        u32 FindLastBufferWriter(BufferHandle handle, u32 beforePass) const;
     };
 }

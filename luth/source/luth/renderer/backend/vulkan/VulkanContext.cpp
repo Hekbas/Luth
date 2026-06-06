@@ -12,18 +12,24 @@ namespace Luth
 {
     static VulkanContext* s_Instance = nullptr;
 
-    void VulkanContext::SetDebugName(VkDescriptorSet set, const char* name)
+    void VulkanContext::SetDebugName(u64 objectHandle, VkObjectType type, const char* name)
     {
-        if (!s_Instance || s_Instance->m_Device == VK_NULL_HANDLE || set == VK_NULL_HANDLE) return;
-        static auto fn = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(
-            s_Instance->m_Device, "vkSetDebugUtilsObjectNameEXT");
+        if (!s_Instance || s_Instance->m_Device == VK_NULL_HANDLE || objectHandle == 0) return;
+        auto fn = s_Instance->m_DebugUtilsFn.vkSetDebugUtilsObjectNameEXT;
         if (!fn) return;
         VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
-        info.objectType   = VK_OBJECT_TYPE_DESCRIPTOR_SET;
-        info.objectHandle = (u64)set;
+        info.objectType   = type;
+        info.objectHandle = objectHandle;
         info.pObjectName  = name;
         fn(s_Instance->m_Device, &info);
     }
+
+    void VulkanContext::SetDebugName(VkImage h, const char* name)                    { SetDebugName((u64)h, VK_OBJECT_TYPE_IMAGE, name); }
+    void VulkanContext::SetDebugName(VkImageView h, const char* name)                { SetDebugName((u64)h, VK_OBJECT_TYPE_IMAGE_VIEW, name); }
+    void VulkanContext::SetDebugName(VkBuffer h, const char* name)                   { SetDebugName((u64)h, VK_OBJECT_TYPE_BUFFER, name); }
+    void VulkanContext::SetDebugName(VkPipeline h, const char* name)                 { SetDebugName((u64)h, VK_OBJECT_TYPE_PIPELINE, name); }
+    void VulkanContext::SetDebugName(VkDescriptorSet h, const char* name)            { SetDebugName((u64)h, VK_OBJECT_TYPE_DESCRIPTOR_SET, name); }
+    void VulkanContext::SetDebugName(VkAccelerationStructureKHR h, const char* name) { SetDebugName((u64)h, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, name); }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -684,6 +690,7 @@ namespace Luth
         // before queue acquisition (loader doesn't depend on queues).
         LoadRayTracingFunctions();
         if (m_CheckpointsAvailable) LoadCheckpointFunctions();
+        LoadDebugUtilsFunctions();
 
         // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle —
         // call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
@@ -743,6 +750,17 @@ namespace Luth
             m_CheckpointFn = {};
             m_CheckpointsAvailable = false;
         }
+    }
+
+    void VulkanContext::LoadDebugUtilsFunctions()
+    {
+        // VK_EXT_debug_utils procs (enabled with validation); resolve to null when off — call sites null-guard.
+        m_DebugUtilsFn.vkSetDebugUtilsObjectNameEXT =
+            (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(m_Device, "vkSetDebugUtilsObjectNameEXT");
+        m_DebugUtilsFn.vkCmdBeginDebugUtilsLabelEXT =
+            (PFN_vkCmdBeginDebugUtilsLabelEXT)vkGetDeviceProcAddr(m_Device, "vkCmdBeginDebugUtilsLabelEXT");
+        m_DebugUtilsFn.vkCmdEndDebugUtilsLabelEXT =
+            (PFN_vkCmdEndDebugUtilsLabelEXT)vkGetDeviceProcAddr(m_Device, "vkCmdEndDebugUtilsLabelEXT");
     }
 
     void VulkanContext::InitAllocator()

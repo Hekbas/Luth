@@ -57,8 +57,6 @@ namespace Luth
         // ---- Synchronization ----
         JobSystem::AtomicCounter GameReady;     // Signaled when Game Logic finishes
         JobSystem::AtomicCounter RenderReady;   // Signaled when Render Recording finishes
-        u64 GpuTimelineValue = 0;               // Timeline value GPU signals when done
-        bool GpuFinished = false;               // Set by PollerJob when GPU is done with this frame
 
         // ---- Memory ----
         Memory::LinearAllocator LogicMemory;    // Game-thread allocations
@@ -106,7 +104,6 @@ namespace Luth
             RenderReady.Value = 0;
             RenderReady.WaitingListHead = nullptr;
             RenderReady.Lock.clear(std::memory_order_release);
-            GpuFinished = false;
             UsingOverflow = false;
 
             // Snapshot spans point into LogicMemory; clear them BEFORE resetting the allocator

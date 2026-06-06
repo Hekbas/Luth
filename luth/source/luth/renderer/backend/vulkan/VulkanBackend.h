@@ -45,7 +45,7 @@ namespace Luth
         VkCommandBuffer GetComputePrimary  (u64 frameIndex, u32 viewSlot) const { return m_ComputePrimaries[frameIndex % MAX_FRAMES_IN_FLIGHT][viewSlot]; }
         VkCommandBuffer GetGraphicsBPrimary(u64 frameIndex, u32 viewSlot) const { return m_GBPrimaries     [frameIndex % MAX_FRAMES_IN_FLIGHT][viewSlot]; }
 
-        // Non-blocking GPU completion check for frame pipelining
+        // Non-blocking GPU completion check — frame pipelining + the AcquireImage reclaim sweep
         bool IsFrameComplete(u64 frameIndex);
 
     private:
@@ -80,6 +80,10 @@ namespace Luth
         // AcquireImage waits on these specific values when retiring frame N-2; 0 sentinel skips the compute wait.
         std::array<u64, MAX_FRAMES_IN_FLIGHT> m_LastGraphicsValuePerFrame{};
         std::array<u64, MAX_FRAMES_IN_FLIGHT> m_LastComputeValuePerFrame {};
+
+        // High-water mark: highest consuming-frame label whose tags are reclaimed (direct IsFrameComplete
+        // sweep in AcquireImage). Frees each completed frame's tags exactly once. see arch/memory.md
+        u64 m_LastReclaimedLabel = 0;
 
         // Command Allocator Pools (Per-Frame) for Workers — parallel rings per queue family. CommandAllocatorPool is
         // already parameterized by queueFamilyIndex; instantiation is the only differentiator.

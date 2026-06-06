@@ -63,7 +63,10 @@ Items deferred from Phase A history files (v3.0.0–v3.0.7). None on critical pa
 | **Volumetric per-pass timing in RenderPanel** | volumetric-fog-polish v3.0.6 | Convenience; FrameDebugger already shows pass timings |
 | **Sun-fog absorption via world-space LUT** | tracked as [#133](https://github.com/Hekbas/Luth/issues/133); volumetric-fog-polish v3.0.6 | When god rays through low fog with off-frustum density expose the artifact |
 | **IBL ambient multi-direction sampling** (currently +Y only) | volumetric-fog-polish v3.0.6 | Matters at fog scales rarely |
-| **RG `isCrossQueue` checks `lastReader`** (foundational RG change) | volumetric-validation v3.0.4 | Harmless drift today; pick up if real validation regression surfaces |
+| **RG `lastReader` / first-consumer cross-queue sync** (foundational RG change) | vulkan-sync-hardening v3.0.11 | Research-validated: NOT needed for correctness — Fix A's `ALL_COMMANDS` cross-queue waits cleared every cross-queue hazard. Full UE5-RDG first-consumer placement needs per-pass semaphores. Pick up when ReSTIR/SVGF surfaces concrete cross-queue-WAR cases + tests |
+| **N-buffer high-contention cross-queue persistent resources** | vulkan-sync-hardening v3.0.11 | Relaxes the first-view gA → prev-frame-compute cross-frame wait so frame N+1 graphics overlaps frame N compute. Trigger: profiler flags the stall, or ReSTIR/SVGF history buffers multiply contention |
+| **VKTexture creation transition → sync2 + cleaner initial layout** | vulkan-sync-hardening v3.0.11 | The 9 best-practices `UNDEFINED→read-only` warnings are VKTexture's one-time legacy `vkCmdPipelineBarrier` creation transitions — benign (GPU-AV-clean, written before read) but flagged. Migrate to `VkImageMemoryBarrier2` + transition to write/general first |
+| **Small-buffer VMA sub-allocation** | vulkan-sync-hardening v3.0.11 | The 6 best-practices `vkBindBufferMemory` dedicated-alloc hints (<1 MB); tagged-heap by design. VMA pool / sub-allocation if validation cleanliness is wanted |
 | **Memory Budget table refresh in `arch/rendering-pipeline.md`** | this audit | Stale post-arc; Light UBO removed, GBuffer sizes wrong, volumetric/TAA/IBL/BoneMatrix-dual not listed |
 
 ## Animation maturity (post `animation-controller-v2`)

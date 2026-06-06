@@ -149,6 +149,7 @@ namespace Luth
         asCi.size   = sizes.accelerationStructureSize;
         asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
+        VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
         buildInfo.dstAccelerationStructure  = result->m_Handle;
         buildInfo.scratchData.deviceAddress = scratchBda;
@@ -325,6 +326,7 @@ namespace Luth
         asCi.size   = sizes.accelerationStructureSize;
         asCi.type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
+        VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
         buildInfo.dstAccelerationStructure  = result->m_Handle;
         buildInfo.scratchData.deviceAddress = scratchBda;
@@ -343,7 +345,7 @@ namespace Luth
             fillBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
             fillBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             fillBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            fillBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+            fillBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // build reads vertex input as SHADER_READ, not AS_READ
             VkDependencyInfo fillDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
             fillDep.memoryBarrierCount = 1;
             fillDep.pMemoryBarriers    = &fillBarrier;

@@ -84,6 +84,7 @@ namespace Luth::Memory
             u32 ActivePages      = 0;
             u32 FreePages        = 0;
             u32 LargeOneShots    = 0;
+            u32 FreeLargePages   = 0;
             u64 BytesInFlight    = 0;
         };
         Stats GetStats() const;
@@ -105,6 +106,7 @@ namespace Luth::Memory
         std::vector<BackingBuffer> m_BackingBuffers;
         std::vector<GPUPage*>      m_FreePages;
         std::vector<GPUPage*>      m_UsedPages;   // includes large-one-shot pages
+        std::vector<GPUPage*>      m_FreeLargePages;  // recycled large-one-shots: VkBuffer kept alive, `used` = capacity, tag cleared
         Luth::SpinLock             m_Lock;        // V1: hot path SpinLock, NOT std::mutex
         u64                        m_MinAlignment = 16;
     };
