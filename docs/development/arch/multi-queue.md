@@ -79,16 +79,16 @@ Frame F, N views queued (typical N = 1 or 2):
 
 Empty gA / gB / compute primaries are valid no-op submits. Per-view 3-submit means 3·N submits per frame (typical N = 2 → 6 submits, ~60–300 µs/frame Windows submit overhead, dwarfed by intra-frame compute-overlap gains).
 
-`AcquireImage` reclaim — block-wait the retiring frame (backpressure), then a **direct completion sweep**. The submit labeled `L` consumed all data tagged `L-1` (Bridge Lemma: `SubmitView` is driven with the *game* index, so `IsFrameComplete(L)` ⇒ tag `L-1` is GPU-done). Bound at `frameIndex-1` since frame `frameIndex` hasn't submitted (its cache slot is stale):
+`AcquireImage` reclaim — block-wait the retiring frame (backpressure), then a **direct completion sweep**. The retiring slot uses `+1`: a per-frame UAB descriptor is read at `renderFrameIndex%N`, one frame ahead of the cmd-buffer slot, so the wait must cover the slot's prior *reader* (frame N-3), not just its cmd-buffer prior user (N-4) — else a game-stage slot rewrite races an older in-flight reader under GPU-behind load (skinned-pose ghost). The submit labeled `L` consumed all data tagged `L-1` (Bridge Lemma: `SubmitView` is driven with the *game* index, so `IsFrameComplete(L)` ⇒ tag `L-1` is GPU-done). Bound at `frameIndex-1` since frame `frameIndex` hasn't submitted (its cache slot is stale):
 
 ```cpp
-const u32 retiringSlot = (frameIndex - MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+const u32 retiringSlot = (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) % MAX_FRAMES_IN_FLIGHT;  // +1 covers the descriptor prior reader
 m_FrameTimeline.Wait(m_LastGraphicsValuePerFrame[retiringSlot]);
 if (m_LastComputeValuePerFrame[retiringSlot] > 0)
     m_ComputeTimeline.Wait(m_LastComputeValuePerFrame[retiringSlot]);
 
 // Free tag (label-1) for each consuming frame `label` that is GPU-complete. The block-wait guarantees
-// label (frameIndex - MAX_FRAMES_IN_FLIGHT) is done, so this never frees less than the legacy formula.
+// label (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) is done, so this never frees less than the legacy formula.
 for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label) {
     if (!IsFrameComplete(label)) break;
     const u32 freeTag = (u32)(label - 1);
