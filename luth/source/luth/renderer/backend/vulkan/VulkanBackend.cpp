@@ -72,7 +72,12 @@ namespace Luth
         // of each timeline at end of the previous frame N-2; AcquireImage waits on exactly those.
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
         {
-            const u32 retiringSlot = (u32)((frameIndex - MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT);
+            // +1: per-frame UAB descriptor slots are read at renderFrameIndex%N — one frame ahead of the
+            // cmd-buffer slot (gameFrameIndex%N) the cmd-buffer reset gates. Wait the slot's prior DESCRIPTOR
+            // reader (frame N-3), not just its cmd-buffer prior user (N-4), so a game-stage slot rewrite can't
+            // race an older in-flight reader under GPU-behind load (skinned-pose ghost). Monotone ⇒ still
+            // covers cmd-buffer reset. see arch/multi-queue.md
+            const u32 retiringSlot = (u32)((frameIndex - MAX_FRAMES_IN_FLIGHT + 1) % MAX_FRAMES_IN_FLIGHT);
             const u64 gfxWait     = m_LastGraphicsValuePerFrame[retiringSlot];
             const u64 computeWait = m_LastComputeValuePerFrame [retiringSlot];
 
@@ -82,7 +87,7 @@ namespace Luth
             // Direct ND reclaim (HasFrameCompleted): the submit labeled L consumed all data tagged L-1, so
             // free tag (label-1) for each consuming frame `label` that is GPU-complete. Bound at frameIndex-1
             // (frame `frameIndex` hasn't submitted → stale cache slot). The block-wait above guarantees label
-            // (frameIndex - MAX_FRAMES_IN_FLIGHT) is complete, so this never frees less than the legacy
+            // (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) is complete, so this never frees less than the legacy
             // FreeTag(frameIndex-4); a faster GPU retires newer labels too. see arch/memory.md
             for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label)
             {
