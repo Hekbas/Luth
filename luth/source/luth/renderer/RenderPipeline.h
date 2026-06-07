@@ -222,6 +222,12 @@ namespace Luth
         // motion samplers + reservoir SSBOs + DI storage image.
         Memory::GPUSubRegion restirReservoir[2]{};
         u32 restirReservoirTag[2] = { 0, 0 };
+        // Spatial-reuse output — a SINGLE Garlic device-local buffer (not ping-pong): fully
+        // overwritten then consumed each frame. The spatial pass reads b2 (temporal output) for
+        // self+neighbours and writes here (Set 2 b6); shade reads it. Reserved high tag, freed only
+        // on resize/destroy. The temporal ping-pong (b2) stays intact as next frame's history.
+        Memory::GPUSubRegion restirSpatial{};
+        u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
     };

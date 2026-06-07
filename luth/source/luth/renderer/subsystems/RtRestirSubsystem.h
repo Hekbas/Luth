@@ -15,9 +15,10 @@ namespace Luth
     struct ViewResources;
 
     // ReSTIR DI (Bitterli 2020) — spatiotemporal reservoir resampling for the point lights.
-    // Owns 3 compute pipelines (initial RIS+visibility, temporal reuse, demodulated shade) + the
-    // pass-local descriptor layout. Reservoir ping-pong pair + DI image are per-view (allocated in
-    // ViewResources). rayQuery-in-compute reads the TLAS via Set 0 binding 6. see arch/rendering-pipeline.md
+    // Owns 4 compute pipelines (initial RIS+visibility, temporal reuse, spatial reuse, demodulated
+    // shade) + the pass-local descriptor layout. Reservoir ping-pong pair + spatial-output buffer +
+    // DI image are per-view (allocated in ViewResources). rayQuery-in-compute reads the TLAS via
+    // Set 0 binding 6. see arch/rendering-pipeline.md
     class RtRestirSubsystem
     {
     public:
@@ -35,9 +36,9 @@ namespace Luth
         // slots. Must run before AddPasses each frame.
         void WriteReservoirBindings(ViewResources& vr);
 
-        // Initial RIS + visibility, temporal reuse, then demodulated shade. Returns the DI image
-        // handle (demodulated diffuse irradiance) consumed by GeometryPass. No-op handle when
-        // disabled / no TLAS. slimMotion feeds the temporal pass's reprojection.
+        // Initial RIS + visibility, temporal reuse, spatial reuse, then demodulated shade. Returns
+        // the DI image handle (demodulated diffuse irradiance) consumed by GeometryPass. No-op handle
+        // when disabled / no TLAS. slimMotion feeds the temporal pass's reprojection.
         RG::ResourceHandle AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth,
                                      RG::ResourceHandle slimNormal, RG::ResourceHandle slimMotion);
 
@@ -56,6 +57,7 @@ namespace Luth
 
         std::unique_ptr<VKComputePipeline> m_InitialPipeline;
         std::unique_ptr<VKComputePipeline> m_TemporalPipeline;
+        std::unique_ptr<VKComputePipeline> m_SpatialPipeline;
         std::unique_ptr<VKComputePipeline> m_ShadePipeline;
 
         VkSampler             m_Sampler   = VK_NULL_HANDLE;
@@ -63,6 +65,7 @@ namespace Luth
 
         std::vector<u32> m_InitialSpv;
         std::vector<u32> m_TemporalSpv;
+        std::vector<u32> m_SpatialSpv;
         std::vector<u32> m_ShadeSpv;
 
         u32  m_NextTag = 0xFFFF0000u;  // reserved range for persistent reservoir allocations

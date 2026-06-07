@@ -44,10 +44,24 @@ namespace Luth
         };
         static_assert(sizeof(RestirTemporalPC) == 80, "RestirTemporalPC must match restir_temporal.comp push_constant");
 
+        // Spatial-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so all four
+        // pipelines share the existing pcRange; only the field meanings differ (neighbour disk + reject).
+        struct RestirSpatialPC {
+            Mat4 invViewProj;
+            u32  neighbourCount;
+            u32  radius;
+            u32  frameSeed;
+            f32  depthThreshold;
+        };
+        static_assert(sizeof(RestirSpatialPC) == 80, "RestirSpatialPC must match restir_spatial.comp push_constant");
+
         constexpr u32 k_DefaultCandidateCount = 32;
         constexpr u32 k_TemporalMCap          = 20;
         constexpr f32 k_DepthThreshold        = 0.05f;
         constexpr f32 k_NormalThreshold       = 0.9f;
+        constexpr u32 k_SpatialNeighbours     = 5;
+        constexpr u32 k_SpatialRadius         = 16;
+        constexpr f32 k_SpatialDepthThreshold = 0.1f;
     }
 
     void RtRestirSubsystem::Init(RenderPipeline& pipeline)
@@ -65,10 +79,11 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir CURR (r/w SSBO),
-        // b3 DI storage image, b4 reservoir PREV (read SSBO), b5 motion sampler. initial uses
-        // b0/b1/b2; temporal uses b0/b1/b2/b4/b5; shade uses b0/b1/b2/b3. b2/b4 swap each frame.
-        VkDescriptorSetLayoutBinding bindings[6]{};
+        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir CURR/temporal-out
+        // (r/w SSBO), b3 DI storage image, b4 reservoir PREV (read SSBO), b5 motion sampler, b6
+        // spatial-output reservoir (write SSBO). initial uses b0/b1/b2; temporal uses b0/b1/b2/b4/b5;
+        // spatial uses b0/b1/b2(read)/b6(write); shade uses b0/b1/b6(read)/b3. b2/b4 swap each frame.
+        VkDescriptorSetLayoutBinding bindings[7]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount = 1;
@@ -93,28 +108,33 @@ namespace Luth
         bindings[5].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[5].descriptorCount = 1;
         bindings[5].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[6].binding         = 6;
+        bindings[6].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[6].descriptorCount = 1;
+        bindings[6].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
         // cycled slots may still be pending on the GPU. UAB satisfies VUID-vkUpdateDescriptorSets-
-        // None-03047 — mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5 are stable
-        // per-view, written once at WriteView time, so they stay flag-less.
-        VkDescriptorBindingFlags bindingFlags[6] = {
+        // None-03047 — mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5/b6 are stable
+        // per-view, written once at WriteView time, so they stay flag-less (b6's buffer is per-view).
+        VkDescriptorBindingFlags bindingFlags[7] = {
             0,                                            // b0 depth sampler
             0,                                            // b1 normal sampler
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir curr
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir curr / temporal out
             0,                                            // b3 DI storage image
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b4 reservoir prev
             0,                                            // b5 motion sampler
+            0,                                            // b6 spatial output reservoir
         };
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsCI.bindingCount  = 6;
+        bindingFlagsCI.bindingCount  = 7;
         bindingFlagsCI.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         layoutCI.pNext        = &bindingFlagsCI;
         layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutCI.bindingCount = 6;
+        layoutCI.bindingCount = 7;
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
@@ -122,11 +142,13 @@ namespace Luth
             m_InitialSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_temporal.comp"))
             m_TemporalSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_spatial.comp"))
+            m_SpatialSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_shade.comp"))
             m_ShadeSpv = sh->GetSpirV();
-        if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_ShadeSpv.empty())
+        if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_SpatialSpv.empty() || m_ShadeSpv.empty())
         {
-            LH_CORE_ERROR("RtRestirSubsystem: failed to load restir_initial/temporal/shade.comp SPIR-V");
+            LH_CORE_ERROR("RtRestirSubsystem: failed to load restir_initial/temporal/spatial/shade.comp SPIR-V");
             return;
         }
 
@@ -142,6 +164,8 @@ namespace Luth
             m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_TemporalPipeline = std::make_unique<VKComputePipeline>(
             m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        m_SpatialPipeline = std::make_unique<VKComputePipeline>(
+            m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
     }
@@ -151,6 +175,7 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InitialPipeline.reset();
         m_TemporalPipeline.reset();
+        m_SpatialPipeline.reset();
         m_ShadePipeline.reset();
         if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
         if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
@@ -158,6 +183,7 @@ namespace Luth
         m_SetLayout = VK_NULL_HANDLE;
         m_InitialSpv.clear();
         m_TemporalSpv.clear();
+        m_SpatialSpv.clear();
         m_ShadeSpv.clear();
         m_Pipeline = nullptr;
     }
@@ -168,8 +194,9 @@ namespace Luth
 
         const bool isInitial  = (name == "restir_initial.comp");
         const bool isTemporal = (name == "restir_temporal.comp");
+        const bool isSpatial  = (name == "restir_spatial.comp");
         const bool isShade    = (name == "restir_shade.comp");
-        if (!isInitial && !isTemporal && !isShade) return false;
+        if (!isInitial && !isTemporal && !isSpatial && !isShade) return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
@@ -197,6 +224,13 @@ namespace Luth
             m_TemporalPipeline = std::make_unique<VKComputePipeline>(
                 m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         }
+        else if (isSpatial)
+        {
+            m_SpatialSpv = spv;
+            deferComp(m_SpatialPipeline);
+            m_SpatialPipeline = std::make_unique<VKComputePipeline>(
+                m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        }
         else
         {
             m_ShadeSpv = spv;
@@ -211,6 +245,7 @@ namespace Luth
     {
         if (vr.restirDescSet[0] == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion() || !vr.restirDI) return;
+        if (!vr.restirSpatial.buffer) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -238,9 +273,13 @@ namespace Luth
         diInfo.imageView   = diView;
         diInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion. b2/b4 (reservoirs)
-        // swap each frame — WriteReservoirBindings owns them.
-        VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT]{};
+        // b6 spatial-output reservoir — single per-view buffer, stable like b0/b1/b3/b5.
+        VkDescriptorBufferInfo spatialInfo{
+            vr.restirSpatial.buffer, vr.restirSpatial.offset, vr.restirSpatial.size };
+
+        // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion, b6 spatial out. b2/b4
+        // (reservoirs) swap each frame — WriteReservoirBindings owns them.
+        VkWriteDescriptorSet writes[5 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
         {
@@ -277,6 +316,14 @@ namespace Luth
             writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[n].descriptorCount = 1;
             writes[n].pImageInfo      = &motionInfo;
+            ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 6;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[n].descriptorCount = 1;
+            writes[n].pBufferInfo     = &spatialInfo;
             ++n;
         }
         vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
@@ -321,11 +368,12 @@ namespace Luth
                                                     RG::ResourceHandle slimNormal,
                                                     RG::ResourceHandle slimMotion)
     {
-        if (!m_Enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_ShadePipeline) return {};
+        if (!m_Enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
 
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || !preflightVr->restirDI
-            || !preflightVr->restirReservoir[0].buffer || !preflightVr->restirReservoir[1].buffer) return {};
+            || !preflightVr->restirReservoir[0].buffer || !preflightVr->restirReservoir[1].buffer
+            || !preflightVr->restirSpatial.buffer) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -333,14 +381,16 @@ namespace Luth
         // before the passes record, so the dispatches see the right ping-pong halves.
         WriteReservoirBindings(*preflightVr);
 
-        // Parity picks curr; prev is last frame's curr. Must match WriteReservoirBindings.
+        // Parity picks curr; prev is last frame's curr. Must match WriteReservoirBindings. The spatial
+        // output is a single per-view buffer (no ping-pong) — fully overwritten + consumed each frame.
         const u32 currIdx = (frameAbs & 1u);
         const u32 prevIdx = currIdx ^ 1u;
-        const Memory::GPUSubRegion currRes = preflightVr->restirReservoir[currIdx];
-        const Memory::GPUSubRegion prevRes = preflightVr->restirReservoir[prevIdx];
+        const Memory::GPUSubRegion currRes    = preflightVr->restirReservoir[currIdx];
+        const Memory::GPUSubRegion prevRes    = preflightVr->restirReservoir[prevIdx];
+        const Memory::GPUSubRegion spatialRes = preflightVr->restirSpatial;
 
-        // Build invViewProj + frameSeed once; initial/shade share RestirPC, temporal uses its own PC
-        // (same 80 B footprint, different field meanings).
+        // Build invViewProj + frameSeed once; initial/shade share RestirPC, temporal + spatial each
+        // use their own PC (same 80 B footprint, different field meanings).
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
         RestirPC pc{};
         pc.invViewProj    = invVP;
@@ -353,6 +403,13 @@ namespace Luth
         tpc.frameSeed       = frameAbs;
         tpc.depthThreshold  = k_DepthThreshold;
         tpc.normalThreshold = k_NormalThreshold;
+
+        RestirSpatialPC spc{};
+        spc.invViewProj    = invVP;
+        spc.neighbourCount = k_SpatialNeighbours;
+        spc.radius         = k_SpatialRadius;
+        spc.frameSeed      = frameAbs;
+        spc.depthThreshold = k_SpatialDepthThreshold;
 
         // Initial pass — RIS over point lights + one visibility ray, writes the CURR reservoir.
         // The curr buffer is imported ONCE here; its handle threads through temporal (read+write)
@@ -460,7 +517,57 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Shade pass — reads the resolved CURR reservoir + depth/normal, writes demodulated DI image.
+        // Spatial pass — merges each pixel's temporal-output reservoir (b2) with a few random disk
+        // neighbours, rejecting dissimilar geometry, into a SEPARATE single output (b6). Reads b2
+        // read-only (neighbour reads must see un-modified values — never in-place) and writes b6, so
+        // the temporal ping-pong stays intact as next frame's history. The curr handle ends here:
+        // ReadBuffer(reservoirHandle) is its last consumer (temporal→spatial RAW barrier). The spatial
+        // buffer is imported ONCE; its handle (spatialHandle) threads into shade's ReadBuffer.
+        struct RestirSpatialData {
+            RG::ResourceHandle depth;
+            RG::ResourceHandle normal;
+            RG::BufferHandle   reservoirIn;
+            RG::BufferHandle   reservoirOut;
+        };
+        RG::BufferHandle spatialHandle{};
+        rg.AddComputePass<RestirSpatialData>(
+            "RestirSpatial",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](RestirSpatialData& data, RG::RenderPassBuilder& builder) {
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+
+                data.reservoirIn = builder.ReadBuffer(reservoirHandle);
+
+                RG::BufferDesc outBd{ "RestirReservoirSpatial", spatialRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                data.reservoirOut = rg.ImportBuffer(outBd, (void*)spatialRes.buffer, RG::ResourceState::Undefined);
+                data.reservoirOut = builder.WriteBuffer(data.reservoirOut);
+                spatialHandle     = data.reservoirOut;
+            },
+            [this, spc](RestirSpatialData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->restirDescSet[0] == VK_NULL_HANDLE) return;
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                m_SpatialPipeline->Bind(cmd);
+                VkDescriptorSet sets[3] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->lightDescSet[slot],
+                    vr->restirDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_SpatialPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_SpatialPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirSpatialPC), &spc);
+
+                const u32 groupX = (vr->width + 7) / 8;
+                const u32 groupY = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+            });
+
+        // Shade pass — reads the SPATIAL-output reservoir (b6) + depth/normal, writes demodulated DI
+        // image. Reads spatialHandle (not the temporal output) — the shader's b6 is the spatial result.
         struct RestirShadeData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -474,7 +581,7 @@ namespace Luth
             [&, this](RestirShadeData& data, RG::RenderPassBuilder& builder) {
                 if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
                 if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
-                data.reservoir = builder.ReadBuffer(reservoirHandle);
+                data.reservoir = builder.ReadBuffer(spatialHandle);
 
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
                 auto diTex = std::static_pointer_cast<VKTexture>(vr->restirDI);

@@ -22,7 +22,9 @@ layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
 
 layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
 layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;
-layout(std430, set = 2, binding = 2) readonly buffer ReservoirBuffer { Reservoir reservoirs[]; };
+// Reads the final reservoir at b6 (spatial-reuse output), not b2 — the temporal buffer stays
+// untouched as next frame's history; the spatial pass writes the per-frame final result here.
+layout(std430, set = 2, binding = 6) readonly buffer ReservoirBuffer { Reservoir reservoirs[]; };
 layout(set = 2, binding = 3, rgba16f) uniform writeonly image2D outDirectLighting;
 
 layout(push_constant) uniform PC {

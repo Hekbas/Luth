@@ -25,7 +25,7 @@ namespace Luth
     static constexpr u32 k_ViewPoolMaxSets              = 112;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 48;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI (cycled)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 112;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 152;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
@@ -284,6 +284,18 @@ namespace Luth
                 vr.restirReservoirTag[i], static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
         }
 
+        // ReSTIR spatial-reuse output — a SINGLE device-local buffer (no ping-pong). The spatial pass
+        // reads b2 (temporal output, read-only) and writes here; shade consumes it. Overwritten +
+        // consumed each frame, so no cross-frame history — one reserved tag, freed on resize/destroy.
+        if (vr.restirSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            vr.restirSpatial = {};
+        }
+        vr.restirSpatialTag = m_Restir.NextReservoirTag();
+        vr.restirSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+            vr.restirSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
+
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
                 halfW, halfH, fmt,
@@ -386,6 +398,12 @@ namespace Luth
                 vr.restirReservoirTag[i] = 0;
                 vr.restirReservoir[i] = {};
             }
+        }
+        if (vr.restirSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            vr.restirSpatialTag = 0;
+            vr.restirSpatial = {};
         }
 
         if (vr.descPool != VK_NULL_HANDLE)
