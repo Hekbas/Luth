@@ -53,6 +53,19 @@ void ReservoirFinalize(inout Reservoir r) {
     r.W = (r.targetPdf > 0.0 && r.M > 0u) ? (r.wSum / (float(r.M) * r.targetPdf)) : 0.0;
 }
 
+// Merge a source reservoir's selected sample into c, weighted by its resampling weight
+// (targetPdf-at-this-pixel * W * M). Confidence-weighted spatiotemporal combine (Bitterli 2020) —
+// targetPdfAtCurr must be re-evaluated at the consuming pixel for reused (prev/neighbor) samples.
+void ReservoirMerge(inout Reservoir c, uint lightIndex, float targetPdfAtCurr, float Wsrc, uint Msrc, float rnd) {
+    float w = targetPdfAtCurr * Wsrc * float(Msrc);
+    c.wSum += w;
+    c.M    += Msrc;
+    if (c.wSum > 0.0 && rnd * c.wSum <= w) {
+        c.lightIndex = lightIndex;
+        c.targetPdf  = targetPdfAtCurr;
+    }
+}
+
 float Luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 // PCG hash → uint; RandFromSeed advances the stream and returns [0,1).

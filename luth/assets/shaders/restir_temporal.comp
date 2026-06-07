@@ -1,0 +1,92 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/restir_common.glsl"
+
+// ReSTIR DI — temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the
+// motion vector and merges the previous final reservoir into this frame's RIS candidate with
+// confidence weights (M-capped). The reservoir self-carries its origin pixel's geometry in the
+// _pad fields (raw depth + oct normal), so validation needs no separate previous-frame G-buffer:
+// the previous reservoir already holds the surface it came from. Runs between initial and shade.
+// Visibility was folded by the initial pass; reused samples keep their prior visibility, refreshed
+// by fresh candidates each frame and bounded by the M-cap.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+layout(set = 2, binding = 0) uniform sampler2D u_CurrDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_CurrNormal;
+layout(std430, set = 2, binding = 2) buffer ReservoirCurr { Reservoir curr[]; };
+layout(std430, set = 2, binding = 4) readonly buffer ReservoirPrev { Reservoir prevRes[]; };
+layout(set = 2, binding = 5) uniform sampler2D u_Motion;
+
+layout(push_constant) uniform PC {
+    mat4  invViewProj;
+    uint  mCap;             // confidence cap on the reprojected reservoir (~20)
+    uint  frameSeed;
+    float depthThreshold;   // relative linear-depth tolerance for history validation
+    float normalThreshold;  // min dot(prevN, currN)
+} pc;
+
+float LinearizeDepth(float d) {
+    return (ubo.nearZ * ubo.farZ) / (ubo.farZ - d * (ubo.farZ - ubo.nearZ));
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    float depth = texelFetch(u_CurrDepth, pixel, 0).r;
+    if (depth >= 1.0) return;  // sky — leave the (empty) candidate untouched
+
+    Reservoir r   = curr[flatIdx];  // this frame's RIS candidate (visibility folded by restir_initial)
+    vec2 octN     = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec3 N        = OctDecode(octN);
+    vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+    vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec3 worldPos = worldH.xyz / worldH.w;
+
+    // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
+    vec2 prevUV = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
+
+    Reservoir pr; ReservoirReset(pr);
+    bool valid = all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)));
+    if (valid) {
+        ivec2 pPix = clamp(ivec2(prevUV * vec2(size)), ivec2(0), size - ivec2(1));
+        pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
+        // Validate against the previous reservoir's stored geometry (pad0 = raw depth, pad1/2 = oct).
+        float currLin = LinearizeDepth(depth);
+        valid = pr.lightIndex != RESTIR_NO_LIGHT && pr.M > 0u
+             && abs(currLin - LinearizeDepth(pr._pad0)) < pc.depthThreshold * currLin
+             && dot(OctDecode(vec2(pr._pad1, pr._pad2)), N) > pc.normalThreshold;
+    }
+
+    uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
+
+    Reservoir c; ReservoirReset(c);
+    ReservoirMerge(c, r.lightIndex, r.targetPdf, r.W, r.M, RandFromSeed(seed));  // current (target already at this pixel)
+
+    if (valid) {
+        PointLightData pl = lights.points[pr.lightIndex];
+        vec3 L; float dist;
+        vec3 Li = PointLightRadiance(pl, worldPos, L, dist);
+        float pHat = Luminance(Li) * max(dot(N, L), 0.0);  // re-evaluate prev's light at THIS pixel
+        ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap), RandFromSeed(seed));
+    }
+
+    ReservoirFinalize(c);
+    // Carry this pixel's geometry forward for next frame's validation.
+    c._pad0 = depth;
+    c._pad1 = octN.x;
+    c._pad2 = octN.y;
+    curr[flatIdx] = c;
+}

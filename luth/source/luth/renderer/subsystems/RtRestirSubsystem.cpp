@@ -31,9 +31,23 @@ namespace Luth
             u32  pad0;
             u32  pad1;
         };
-        static_assert(sizeof(RestirPC) == 80, "RestirPC must be 80 B (matches restir_*.comp push_constant)");
+        static_assert(sizeof(RestirPC) == 80, "RestirPC must be 80 B (matches restir_initial/shade.comp push_constant)");
+
+        // Temporal-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so the two
+        // share the existing pcRange; the field meanings differ (M-cap + validation thresholds).
+        struct RestirTemporalPC {
+            Mat4 invViewProj;
+            u32  mCap;
+            u32  frameSeed;
+            f32  depthThreshold;
+            f32  normalThreshold;
+        };
+        static_assert(sizeof(RestirTemporalPC) == 80, "RestirTemporalPC must match restir_temporal.comp push_constant");
 
         constexpr u32 k_DefaultCandidateCount = 32;
+        constexpr u32 k_TemporalMCap          = 20;
+        constexpr f32 k_DepthThreshold        = 0.05f;
+        constexpr f32 k_NormalThreshold       = 0.9f;
     }
 
     void RtRestirSubsystem::Init(RenderPipeline& pipeline)
@@ -51,8 +65,10 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir SSBO, b3 DI storage image.
-        VkDescriptorSetLayoutBinding bindings[4]{};
+        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir CURR (r/w SSBO),
+        // b3 DI storage image, b4 reservoir PREV (read SSBO), b5 motion sampler. initial uses
+        // b0/b1/b2; temporal uses b0/b1/b2/b4/b5; shade uses b0/b1/b2/b3. b2/b4 swap each frame.
+        VkDescriptorSetLayoutBinding bindings[6]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount = 1;
@@ -69,23 +85,52 @@ namespace Luth
         bindings[3].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         bindings[3].descriptorCount = 1;
         bindings[3].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[4].binding         = 4;
+        bindings[4].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[4].descriptorCount = 1;
+        bindings[4].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[5].binding         = 5;
+        bindings[5].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[5].descriptorCount = 1;
+        bindings[5].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
+        // cycled slots may still be pending on the GPU. UAB satisfies VUID-vkUpdateDescriptorSets-
+        // None-03047 — mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5 are stable
+        // per-view, written once at WriteView time, so they stay flag-less.
+        VkDescriptorBindingFlags bindingFlags[6] = {
+            0,                                            // b0 depth sampler
+            0,                                            // b1 normal sampler
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir curr
+            0,                                            // b3 DI storage image
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b4 reservoir prev
+            0,                                            // b5 motion sampler
+        };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount  = 6;
+        bindingFlagsCI.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutCI.bindingCount = 4;
+        layoutCI.pNext        = &bindingFlagsCI;
+        layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutCI.bindingCount = 6;
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_initial.comp"))
             m_InitialSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_temporal.comp"))
+            m_TemporalSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_shade.comp"))
             m_ShadeSpv = sh->GetSpirV();
-        if (m_InitialSpv.empty() || m_ShadeSpv.empty())
+        if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_ShadeSpv.empty())
         {
-            LH_CORE_ERROR("RtRestirSubsystem: failed to load restir_initial.comp + restir_shade.comp SPIR-V");
+            LH_CORE_ERROR("RtRestirSubsystem: failed to load restir_initial/temporal/shade.comp SPIR-V");
             return;
         }
 
-        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches both shaders.
+        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches all 3 shaders.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
@@ -95,6 +140,8 @@ namespace Luth
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
             m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        m_TemporalPipeline = std::make_unique<VKComputePipeline>(
+            m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
     }
@@ -103,12 +150,14 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InitialPipeline.reset();
+        m_TemporalPipeline.reset();
         m_ShadePipeline.reset();
         if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
         if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
         m_Sampler   = VK_NULL_HANDLE;
         m_SetLayout = VK_NULL_HANDLE;
         m_InitialSpv.clear();
+        m_TemporalSpv.clear();
         m_ShadeSpv.clear();
         m_Pipeline = nullptr;
     }
@@ -117,9 +166,10 @@ namespace Luth
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
-        const bool isInitial = (name == "restir_initial.comp");
-        const bool isShade   = (name == "restir_shade.comp");
-        if (!isInitial && !isShade) return false;
+        const bool isInitial  = (name == "restir_initial.comp");
+        const bool isTemporal = (name == "restir_temporal.comp");
+        const bool isShade    = (name == "restir_shade.comp");
+        if (!isInitial && !isTemporal && !isShade) return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
@@ -140,6 +190,13 @@ namespace Luth
             m_InitialPipeline = std::make_unique<VKComputePipeline>(
                 m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         }
+        else if (isTemporal)
+        {
+            m_TemporalSpv = spv;
+            deferComp(m_TemporalPipeline);
+            m_TemporalPipeline = std::make_unique<VKComputePipeline>(
+                m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        }
         else
         {
             m_ShadeSpv = spv;
@@ -153,12 +210,13 @@ namespace Luth
     void RtRestirSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
         if (vr.restirDescSet[0] == VK_NULL_HANDLE) return;
-        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !vr.restirDI || !vr.restirReservoir.buffer) return;
+        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion() || !vr.restirDI) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
         const VkImageView depthView  = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth())->GetImageView();
         const VkImageView normalView = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal())->GetImageView();
+        const VkImageView motionView = std::static_pointer_cast<VKTexture>(targets.GetSlimMotion())->GetImageView();
         const VkImageView diView     = std::static_pointer_cast<VKTexture>(vr.restirDI)->GetImageView();
 
         VkDescriptorImageInfo depthInfo{};
@@ -171,15 +229,17 @@ namespace Luth
         normalInfo.imageView   = normalView;
         normalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkDescriptorBufferInfo reservoirInfo{};
-        reservoirInfo.buffer = vr.restirReservoir.buffer;
-        reservoirInfo.offset = vr.restirReservoir.offset;
-        reservoirInfo.range  = vr.restirReservoir.size;
+        VkDescriptorImageInfo motionInfo{};
+        motionInfo.sampler     = m_Sampler;
+        motionInfo.imageView   = motionView;
+        motionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkDescriptorImageInfo diInfo{};
         diInfo.imageView   = diView;
         diInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
+        // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion. b2/b4 (reservoirs)
+        // swap each frame — WriteReservoirBindings owns them.
         VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
@@ -205,42 +265,99 @@ namespace Luth
 
             writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writes[n].dstSet          = set;
-            writes[n].dstBinding      = 2;
-            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            writes[n].descriptorCount = 1;
-            writes[n].pBufferInfo     = &reservoirInfo;
-            ++n;
-
-            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            writes[n].dstSet          = set;
             writes[n].dstBinding      = 3;
             writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             writes[n].descriptorCount = 1;
             writes[n].pImageInfo      = &diInfo;
             ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 5;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[n].descriptorCount = 1;
+            writes[n].pImageInfo      = &motionInfo;
+            ++n;
         }
         vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
     }
 
+    void RtRestirSubsystem::WriteReservoirBindings(ViewResources& vr)
+    {
+        if (!vr.restirReservoir[0].buffer || !vr.restirReservoir[1].buffer) return;
+
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
+        if (vr.restirDescSet[slot] == VK_NULL_HANDLE) return;
+
+        // Parity picks curr; prev is the other. Frame N writes curr (initial+temporal) and reads
+        // prev (last frame's curr); N+1 swaps. Must match AddPasses' selection exactly.
+        const u32 currIdx = (frameAbs & 1u);
+        const u32 prevIdx = currIdx ^ 1u;
+
+        VkDescriptorBufferInfo currInfo{
+            vr.restirReservoir[currIdx].buffer, vr.restirReservoir[currIdx].offset, vr.restirReservoir[currIdx].size };
+        VkDescriptorBufferInfo prevInfo{
+            vr.restirReservoir[prevIdx].buffer, vr.restirReservoir[prevIdx].offset, vr.restirReservoir[prevIdx].size };
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[0].dstSet          = vr.restirDescSet[slot];
+        writes[0].dstBinding      = 2;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &currInfo;
+        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        writes[1].dstSet          = vr.restirDescSet[slot];
+        writes[1].dstBinding      = 4;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo     = &prevInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
+    }
+
     RG::ResourceHandle RtRestirSubsystem::AddPasses(RG::RenderGraph& rg,
                                                     RG::ResourceHandle sceneDepth,
-                                                    RG::ResourceHandle slimNormal)
+                                                    RG::ResourceHandle slimNormal,
+                                                    RG::ResourceHandle slimMotion)
     {
-        if (!m_Enabled || !m_InitialPipeline || !m_ShadePipeline) return {};
+        if (!m_Enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_ShadePipeline) return {};
 
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
-        if (!preflightVr || !preflightVr->restirDI || !preflightVr->restirReservoir.buffer) return {};
+        if (!preflightVr || !preflightVr->restirDI
+            || !preflightVr->restirReservoir[0].buffer || !preflightVr->restirReservoir[1].buffer) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
-        // Build invViewProj + frameSeed once; both passes share the same push constants.
-        RestirPC pc{};
-        pc.invViewProj    = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
-        pc.candidateCount = k_DefaultCandidateCount;
-        pc.frameSeed      = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        // Bind the cycled slot's b2/b4 to this frame's curr/prev reservoirs (parity swap). Done here,
+        // before the passes record, so the dispatches see the right ping-pong halves.
+        WriteReservoirBindings(*preflightVr);
 
-        // Initial pass — RIS over point lights + one visibility ray, writes per-pixel reservoir.
-        // The reservoir buffer is imported ONCE here; the handle threads into the shade pass's
-        // ReadBuffer so the RG sees a single VkBuffer (re-importing would alias distinct nodes).
+        // Parity picks curr; prev is last frame's curr. Must match WriteReservoirBindings.
+        const u32 currIdx = (frameAbs & 1u);
+        const u32 prevIdx = currIdx ^ 1u;
+        const Memory::GPUSubRegion currRes = preflightVr->restirReservoir[currIdx];
+        const Memory::GPUSubRegion prevRes = preflightVr->restirReservoir[prevIdx];
+
+        // Build invViewProj + frameSeed once; initial/shade share RestirPC, temporal uses its own PC
+        // (same 80 B footprint, different field meanings).
+        const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
+        RestirPC pc{};
+        pc.invViewProj    = invVP;
+        pc.candidateCount = k_DefaultCandidateCount;
+        pc.frameSeed      = frameAbs;
+
+        RestirTemporalPC tpc{};
+        tpc.invViewProj     = invVP;
+        tpc.mCap            = k_TemporalMCap;
+        tpc.frameSeed       = frameAbs;
+        tpc.depthThreshold  = k_DepthThreshold;
+        tpc.normalThreshold = k_NormalThreshold;
+
+        // Initial pass — RIS over point lights + one visibility ray, writes the CURR reservoir.
+        // The curr buffer is imported ONCE here; its handle threads through temporal (read+write)
+        // and shade (read) so the RG chains the barriers across all three (re-importing would
+        // alias distinct nodes).
         struct RestirInitialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -254,9 +371,8 @@ namespace Luth
                 if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
                 if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
 
-                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-                RG::BufferDesc bd{ "RestirReservoir", vr->restirReservoir.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                data.reservoir  = rg.ImportBuffer(bd, (void*)vr->restirReservoir.buffer, RG::ResourceState::Undefined);
+                RG::BufferDesc bd{ "RestirReservoirCurr", currRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                data.reservoir  = rg.ImportBuffer(bd, (void*)currRes.buffer, RG::ResourceState::Undefined);
                 data.reservoir  = builder.WriteBuffer(data.reservoir);
                 reservoirHandle = data.reservoir;
             },
@@ -294,7 +410,57 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Shade pass — reads the resolved reservoir + depth/normal, writes demodulated DI image.
+        // Temporal pass — reprojects via motion + merges last frame's PREV reservoir into the CURR
+        // RIS candidate in-place. No AS barrier (traces no rays — visibility stays in initial). PREV
+        // is a SEPARATE read-only ImportBuffer (last frame's curr, no within-frame producer — same
+        // cross-frame shape as taaHistory). CURR threads through reservoirHandle as read+write so the
+        // RG inserts the initial→temporal RAW barrier on the same node.
+        struct RestirTemporalData {
+            RG::ResourceHandle depth;
+            RG::ResourceHandle normal;
+            RG::ResourceHandle motion;
+            RG::BufferHandle   reservoirCurr;
+            RG::BufferHandle   reservoirPrev;
+        };
+        rg.AddComputePass<RestirTemporalData>(
+            "RestirTemporal",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](RestirTemporalData& data, RG::RenderPassBuilder& builder) {
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimMotion.IsValid()) data.motion = builder.ReadStorageImage(slimMotion);
+
+                RG::BufferDesc prevBd{ "RestirReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::Undefined);
+                data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
+
+                data.reservoirCurr = builder.ReadBuffer(reservoirHandle);
+                data.reservoirCurr = builder.WriteBuffer(data.reservoirCurr);
+                reservoirHandle    = data.reservoirCurr;
+            },
+            [this, tpc](RestirTemporalData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->restirDescSet[0] == VK_NULL_HANDLE) return;
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                m_TemporalPipeline->Bind(cmd);
+                VkDescriptorSet sets[3] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->lightDescSet[slot],
+                    vr->restirDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_TemporalPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_TemporalPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirTemporalPC), &tpc);
+
+                const u32 groupX = (vr->width + 7) / 8;
+                const u32 groupY = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+            });
+
+        // Shade pass — reads the resolved CURR reservoir + depth/normal, writes demodulated DI image.
         struct RestirShadeData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;

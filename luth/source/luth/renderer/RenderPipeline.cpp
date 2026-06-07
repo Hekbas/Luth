@@ -348,7 +348,7 @@ namespace Luth
         // slim normal, traces the same TLAS the sun-shadow pass uses. Returns an invalid handle when
         // disabled or before the TLAS exists — GeometryPass then skips the Read and pbr.frag's point
         // loop runs instead (the restirParams.x flag gates the consumption).
-        RG::ResourceHandle restirDIHandle = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal);
+        RG::ResourceHandle restirDIHandle = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the

@@ -212,14 +212,16 @@ namespace Luth
         std::shared_ptr<Texture> sunShadowMask;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
 
-        // ReSTIR DI (Bitterli 2020). restirReservoir is a Garlic device-local large-tagged buffer
-        // (w*h*32 B) reused across frames — freed only on resize via FreeTag(restirReservoirTag).
-        // The tag stays in NextReservoirTag's reserved high range, disjoint from the per-frame
-        // FreeTag(N-2) sweep. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated
-        // diffuse irradiance, consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's
-        // depth/normal samplers + reservoir SSBO + DI storage image.
-        Memory::GPUSubRegion restirReservoir{};
-        u32 restirReservoirTag = 0;
+        // ReSTIR DI (Bitterli 2020). restirReservoir[2] is a ping-pong pair of Garlic device-local
+        // large-tagged buffers (w*h*32 B each) reused across frames — freed only on resize via
+        // FreeTag. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
+        // FreeTag(N-2) sweep. Temporal reuse reads last frame's reservoir (prev) while writing this
+        // frame's (curr); parity = frameAbs & 1u picks which slot is curr — Set 2 b2/b4 rebound
+        // per frame to swap. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse
+        // irradiance, consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's depth/normal +
+        // motion samplers + reservoir SSBOs + DI storage image.
+        Memory::GPUSubRegion restirReservoir[2]{};
+        u32 restirReservoirTag[2] = { 0, 0 };
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
     };

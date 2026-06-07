@@ -25,8 +25,8 @@ namespace Luth
     static constexpr u32 k_ViewPoolMaxSets              = 112;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 48;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI (cycled)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 100;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 144;  // + ReSTIR Set 2 depth/normal + Set 3 b5 DI sampler
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 112;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4)
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 152;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -268,17 +268,21 @@ namespace Luth
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
-        // ReSTIR reservoir — Garlic device-local large-tagged, reused across frames. Freed via
-        // FreeTag only on resize; the tag stays in the reserved high range so the per-frame
-        // FreeTag(N-2) sweep never touches it. Re-allocate here because the buffer is sized w*h.
-        if (vr.restirReservoirTag != 0)
+        // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
+        // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
+        // FreeTag(N-2) sweep never touches them. Two distinct tags so temporal reuse can read last
+        // frame's reservoir (prev) while writing this frame's (curr). Re-allocate here — sized w*h.
+        for (u32 i = 0; i < 2; ++i)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag);
-            vr.restirReservoir = {};
+            if (vr.restirReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                vr.restirReservoir[i] = {};
+            }
+            vr.restirReservoirTag[i] = m_Restir.NextReservoirTag();
+            vr.restirReservoir[i] = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+                vr.restirReservoirTag[i], static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
         }
-        vr.restirReservoirTag = m_Restir.NextReservoirTag();
-        vr.restirReservoir = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
-            vr.restirReservoirTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -372,13 +376,16 @@ namespace Luth
         vr.sunShadowMask.reset();
         vr.restirDI.reset();
 
-        // Release the persistent reservoir's reserved-range tag. The page recycles into the
-        // device-local free pool; the high tag keeps it out of the per-frame FreeTag(N-2) sweep.
-        if (vr.restirReservoirTag != 0)
+        // Release both reservoir reserved-range tags. The pages recycle into the device-local free
+        // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.
+        for (u32 i = 0; i < 2; ++i)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag);
-            vr.restirReservoirTag = 0;
-            vr.restirReservoir = {};
+            if (vr.restirReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                vr.restirReservoirTag[i] = 0;
+                vr.restirReservoir[i] = {};
+            }
         }
 
         if (vr.descPool != VK_NULL_HANDLE)
