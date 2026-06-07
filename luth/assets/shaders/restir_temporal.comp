@@ -29,7 +29,7 @@ layout(set = 2, binding = 5) uniform sampler2D u_Motion;
 
 layout(push_constant) uniform PC {
     mat4  invViewProj;
-    uint  mCap;             // confidence cap on the reprojected reservoir (~20)
+    uint  mCap;             // history clamp multiplier — prev.M <= mCap * curr.M (Bitterli ~20)
     uint  frameSeed;
     float depthThreshold;   // relative linear-depth tolerance for history validation
     float normalThreshold;  // min dot(prevN, currN)
@@ -80,7 +80,9 @@ void main() {
         vec3 L; float dist;
         vec3 Li = PointLightRadiance(pl, worldPos, L, dist);
         float pHat = Luminance(Li) * max(dot(N, L), 0.0);  // re-evaluate prev's light at THIS pixel
-        ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap), RandFromSeed(seed));
+        // Relative history clamp (Bitterli 2020): prev confidence capped to mCap x the current
+        // frame's M so accumulated history dominates the single fresh sample without lagging forever.
+        ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap * r.M), RandFromSeed(seed));
     }
 
     ReservoirFinalize(c);
