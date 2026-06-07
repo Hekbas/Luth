@@ -277,6 +277,42 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // SVGF Denoiser — Schied17 spatiotemporal variance-guided filter over the demodulated DI.
+            // Off passes the raw ReSTIR DI straight through (the A/B compare). The knobs take effect as
+            // the reproject / à-trous passes land; the enable toggle + plumbing are live now.
+            if (UI::BeginCollapsingHeader("SVGF Denoiser", true)) {
+                auto& sv = m_RS->GetSvgfSettings();
+                if (UI::BeginProperties("SvgfProps")) {
+                    UI::Property("Enabled", sv.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Denoise the ReSTIR DI signal (Schied 2017 SVGF).\nOff passes the raw ~1-spp DI through unchanged.");
+
+                    int atrousIterations = static_cast<int>(sv.atrousIterations);
+                    if (UI::Property("A-trous Iterations", atrousIterations, 0, 8))
+                        sv.atrousIterations = static_cast<u32>(atrousIterations);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Edge-aware wavelet levels (footprint doubles each level).\nMore = smoother + wider; fewer = sharper + noisier.");
+
+                    int historyCap = static_cast<int>(sv.historyCap);
+                    if (UI::Property("History Cap", historyCap, 1, 64))
+                        sv.historyCap = static_cast<u32>(historyCap);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal accumulation length clamp (alpha floor = 1/cap).\nHigher = more stable, more ghosting under motion.");
+
+                    UI::Property("Luma Sigma", sv.phiColor, 0.1f, 0.1f, 64.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance edge-stopping sigma - the primary tuning knob.\nLower preserves detail; higher blurs across lighting changes.");
+                    UI::Property("Normal Sigma", sv.phiNormal, 1.0f, 1.0f, 256.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Normal edge-stopping exponent (higher = sharper normal edges).");
+                    UI::Property("Depth Sigma", sv.phiDepth, 0.05f, 0.0f, 8.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Depth edge-stopping scale (fwidth-normalized).");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Anti-Aliasing — Karis14 YCoCg-clip TAA + Tokuyoshi19 specular AA. Both gated by their
             // own enable flag; sliders pulled from PostProcessSettings (default-on at sane values).
             if (UI::BeginCollapsingHeader("Anti-Aliasing", true)) {

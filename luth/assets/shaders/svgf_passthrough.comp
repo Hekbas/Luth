@@ -1,0 +1,19 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+// Denoiser scaffolding — a no-op copy of the demodulated DI into the denoiser output image. Proves the
+// RestirShade → denoise → GeometryPass seam (handle re-route + lighting-set rebind) before the real
+// SVGF passes land. Replaced by svgf_reproject.comp's temporal accumulation once reprojection exists.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_DiIn;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outDenoised;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = imageSize(outDenoised);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    imageStore(outDenoised, pixel, texelFetch(u_DiIn, pixel, 0));
+}

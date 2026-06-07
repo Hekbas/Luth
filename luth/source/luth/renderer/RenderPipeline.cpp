@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/RenderPipeline.h"
+#include "luth/renderer/subsystems/SvgfDenoiser.h"
 #include "luth/renderer/debug/FrameDebuggerContext.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
@@ -43,6 +44,7 @@ namespace Luth
     RenderPipeline::RenderPipeline(RenderingSystem& system)
         : m_System(system)
         , m_Debugger(std::make_unique<FrameDebuggerContext>(*this))
+        , m_Denoise(std::make_unique<SvgfDenoiser>())
     {
     }
 
@@ -92,6 +94,7 @@ namespace Luth
         m_Volumetric.Init(*this);
         m_Rt.Init(*this);
         m_Restir.Init(*this);
+        m_Denoise->Init(*this);
         m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -128,7 +131,8 @@ namespace Luth
                               || m_Volumetric.OnShaderReloaded(name, spv)
                               || m_Skinning.OnShaderReloaded(name, spv)
                               || m_Rt.OnShaderReloaded(name, spv)
-                              || m_Restir.OnShaderReloaded(name, spv);
+                              || m_Restir.OnShaderReloaded(name, spv)
+                              || m_Denoise->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -182,6 +186,7 @@ namespace Luth
 
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Skinning.Shutdown();
+        m_Denoise->Shutdown();
         m_Restir.Shutdown();
         m_Rt.Shutdown();
         m_DebugDraw.Shutdown();
@@ -350,6 +355,13 @@ namespace Luth
         // loop runs instead (the restirParams.x flag gates the consumption).
         RG::ResourceHandle restirDIHandle = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
 
+        // Denoise the demodulated DI (SVGF; swappable to NRD/RELAX). Transparent filter — consumes the
+        // ReSTIR DI handle, returns the denoised handle GeometryPass reads + Set 3 b5 binds. Invalid in
+        // (ReSTIR off / pre-TLAS) → invalid out, and pbr.frag falls back to its own cluster light loop.
+        RG::ResourceHandle denoisedDIHandle = m_Denoise->AddPasses(rg, DenoiseInputs{
+            restirDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
+            slimGB.roughness, slimGB.materialID, {}, {} });
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -359,7 +371,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, restirDIHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

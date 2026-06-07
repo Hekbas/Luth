@@ -16,6 +16,7 @@
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
+#include "luth/renderer/settings/SvgfSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -161,6 +162,9 @@ namespace Luth
         RestirSettings& GetRestirSettings() { return m_RestirSettings; }
         const RestirSettings& GetRestirSettings() const { return m_RestirSettings; }
 
+        SvgfSettings& GetSvgfSettings() { return m_SvgfSettings; }
+        const SvgfSettings& GetSvgfSettings() const { return m_SvgfSettings; }
+
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
 
@@ -269,6 +273,7 @@ namespace Luth
         PostProcessSettings m_PostProcessSettings;
         VolumetricSettings  m_VolumetricSettings;
         RestirSettings      m_RestirSettings;
+        SvgfSettings        m_SvgfSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 

@@ -25,6 +25,7 @@
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
+#include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -230,6 +231,14 @@ namespace Luth
         u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
+
+        // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
+        // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag
+        // Set 3 b5 samples THIS (not restirDI), so the denoiser owns the slot whenever ReSTIR is on and
+        // the A/B is denoise-vs-raw with no binding swap. History + per-pass sets grow as the SVGF
+        // passes land. see arch/rendering-pipeline.md
+        std::shared_ptr<Texture> svgfDenoised;
+        VkDescriptorSet svgfPassthroughDescSet = VK_NULL_HANDLE;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -397,6 +406,7 @@ namespace Luth
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
         SkinningSubsystem       m_Skinning;
+        std::unique_ptr<IDenoiser> m_Denoise;  // SVGF today; swappable to NRD/RELAX via the settings toggle
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -407,6 +417,8 @@ namespace Luth
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
+        IDenoiser&                     GetDenoise()              { return *m_Denoise; }
+        const IDenoiser&               GetDenoise()        const { return *m_Denoise; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----

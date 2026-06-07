@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 112;
+    static constexpr u32 k_ViewPoolMaxSets              = 120;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 48;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI (cycled)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 56;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI + SVGF (cycled)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 152;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 160;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler + SVGF inputs
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -93,7 +93,8 @@ namespace Luth
             m_Volumetric.WriteVizView(vr, targets);
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
-            m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 ReSTIR DI to the new images
+            m_Denoise->WriteView(vr, targets);      // re-bind SVGF inputs + output to the new images
+            m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI to the new images
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -222,6 +223,7 @@ namespace Luth
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
+        m_Denoise->AllocateViewSets(vr);
 
         m_PostProcess.WriteView(vr, targets);
         m_PostProcess.WriteTaaResolveView(vr, targets);
@@ -238,6 +240,7 @@ namespace Luth
         m_Volumetric.WriteVizView(vr, targets);
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
+        m_Denoise->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -264,6 +267,14 @@ namespace Luth
         // ReSTIR DI demodulated-irradiance image — viewport-sized RGBA16F. STORAGE for the shade
         // pass's imageStore + SAMPLED (added by the ctor) for pbr.frag's Set 3 b5 read.
         vr.restirDI = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // SVGF denoiser output — same shape as restirDI. The denoiser reads restirDI and writes the
+        // denoised result here; pbr.frag Set 3 b5 samples this. Written before read each frame, so no
+        // bootstrap clear (the read-before-write history buffers get cleared when those passes land).
+        vr.svgfDenoised = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
@@ -387,6 +398,7 @@ namespace Luth
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
         vr.restirDI.reset();
+        vr.svgfDenoised.reset();
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.
