@@ -1,0 +1,59 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/restir_common.glsl"
+
+// ReSTIR DI — final shading. Reads each pixel's resolved reservoir and writes the selected point
+// light's contribution to the direct-lighting image.
+//
+// CONTRACT: this image stores DEMODULATED diffuse irradiance  E = Li * NdotL * W  (no albedo, no
+// 1/PI). pbr.frag remodulates:  Lo += E * (albedo / PI).  A future SVGF pass (C.2) denoises E
+// before remodulation. Keep this contract in lockstep with pbr.frag's restir read.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;
+layout(std430, set = 2, binding = 2) readonly buffer ReservoirBuffer { Reservoir reservoirs[]; };
+layout(set = 2, binding = 3, rgba16f) uniform writeonly image2D outDirectLighting;
+
+layout(push_constant) uniform PC {
+    mat4 invViewProj;
+    uint candidateCount;
+    uint frameSeed;
+    uint _pad0;
+    uint _pad1;
+} pc;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    vec3 E = vec3(0.0);
+
+    float depth = texelFetch(u_SceneDepth, pixel, 0).r;
+    Reservoir r = reservoirs[flatIdx];
+    if (depth < 1.0 && r.lightIndex != RESTIR_NO_LIGHT && r.W > 0.0) {
+        vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+        vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+        vec3 worldPos = worldH.xyz / worldH.w;
+        vec3 N        = OctDecode(texelFetch(u_SlimNormal, pixel, 0).rg);
+
+        PointLightData pl = lights.points[r.lightIndex];
+        vec3 L; float dist;
+        vec3 Li = PointLightRadiance(pl, worldPos, L, dist);
+        E = Li * max(dot(N, L), 0.0) * r.W;
+    }
+
+    imageStore(outDirectLighting, pixel, vec4(E, 1.0));
+}

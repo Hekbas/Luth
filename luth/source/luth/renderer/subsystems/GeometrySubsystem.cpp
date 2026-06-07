@@ -947,7 +947,8 @@ namespace Luth
                                                       RG::BufferHandle indirectBufferHandle,
                                                       RG::ResourceHandle sceneDepth,
                                                       RG::ResourceHandle gtaoFinalAO,
-                                                      RG::ResourceHandle rtShadowMask)
+                                                      RG::ResourceHandle rtShadowMask,
+                                                      RG::ResourceHandle diHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -956,6 +957,7 @@ namespace Luth
             RG::ResourceHandle shadowCascades[k_ShadowCascadeCount];
             RG::ResourceHandle gtaoFinalAO;
             RG::ResourceHandle rtShadowMask;
+            RG::ResourceHandle diHandle;
             RG::BufferHandle   indirectBuf;
         };
         GeometryOutput output;
@@ -1015,6 +1017,13 @@ namespace Luth
                 // dynamically access binding 4, so the descriptor's layout is irrelevant.
                 if (rtShadowMask.IsValid())
                     data.rtShadowMask = builder.Read(rtShadowMask);
+
+                // ReSTIR DI image — Read triggers GENERAL (RestirShade storage write) →
+                // SHADER_READ_ONLY transition before pbr.frag samples it at Set 3 b5. Invalid
+                // handle when ReSTIR is off / no TLAS; pbr.frag's restirParams.x gate then keeps the
+                // descriptor untouched and runs the point loop instead.
+                if (diHandle.IsValid())
+                    data.diHandle = builder.Read(diHandle);
 
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 

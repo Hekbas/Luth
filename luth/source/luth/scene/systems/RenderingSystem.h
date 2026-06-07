@@ -80,6 +80,9 @@ namespace Luth
         // x = shadowingMode (0=RasterCSM, 1=RtShadows), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad.
         // pbr.frag::ComputeShadow dispatches on .x; RT path reads .y/.z for ray-origin biasing (Wächter-Binder).
         Vec4 rtShadowParams;
+        // x = ReSTIR DI enabled (1 when the subsystem is on AND a valid DI image exists). When set,
+        // pbr.frag samples the demodulated DI image (Set 3 b5) instead of running the point-light loop.
+        Vec4 restirParams;
     };
 
     enum class ShadeMode : u8 {

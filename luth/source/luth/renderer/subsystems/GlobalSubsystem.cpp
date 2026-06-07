@@ -190,6 +190,14 @@ namespace Luth
                                   shadowParams.rtNormalEpsilon,
                                   0.0f);
 
+        // ReSTIR DI consumption flag — set only when the subsystem is enabled AND this view's DI
+        // image exists AND a TLAS is available (the conditions under which AddPasses actually writes
+        // the DI). Otherwise pbr.frag must run its own point-light loop, so leave x = 0.
+        const bool restirActive = m_Pipeline->GetRestir().IsEnabled()
+                               && vr && vr->restirDI
+                               && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
+        ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.
         m_CachedViewProj = ubo.viewProjection;

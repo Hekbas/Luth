@@ -36,6 +36,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  taaParams;                 // x = taaEnabled, y = temporalAlpha, zw = currentJitter (pixels)
     vec4  prevJitter;                // xy = prevJitter (pixels), zw pad — source-side de-jitter in slim_gbuffer.frag
     vec4  rtShadowParams;            // x = shadowingMode (0=CSM, 1=RT), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad
+    vec4  restirParams;              // x = ReSTIR DI enabled (1 → sample diIrradiance instead of point loop)
 } ubo;
 
 #endif
