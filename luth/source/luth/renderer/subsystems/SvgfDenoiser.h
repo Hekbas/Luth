@@ -29,13 +29,21 @@ namespace Luth
         bool IsEnabled() const override;
 
     private:
+        // enabled → temporal-accumulating reproject; disabled → raw copy (the A/B). Both write
+        // svgfDenoised and return its handle; an invalid input handle returns invalid.
+        RG::ResourceHandle AddReprojectPass(RG::RenderGraph& rg, const DenoiseInputs& in);
+        RG::ResourceHandle AddPassthroughPass(RG::RenderGraph& rg, const DenoiseInputs& in);
+
         RenderPipeline* m_Pipeline = nullptr;
 
         std::unique_ptr<VKComputePipeline> m_PassthroughPipeline;
+        std::unique_ptr<VKComputePipeline> m_ReprojectPipeline;
 
-        VkSampler             m_Sampler   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_PassLayout = VK_NULL_HANDLE;  // passthrough set: b0 DI in, b1 output
+        VkSampler             m_Sampler        = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_PassLayout      = VK_NULL_HANDLE;  // passthrough set: b0 DI in, b1 out
+        VkDescriptorSetLayout m_ReprojectLayout = VK_NULL_HANDLE;  // reproject set: b0-b3 in, b4-b10 history/out
 
         std::vector<u32> m_PassthroughSpv;
+        std::vector<u32> m_ReprojectSpv;
     };
 }

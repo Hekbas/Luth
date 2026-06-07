@@ -239,6 +239,16 @@ namespace Luth
         // passes land. see arch/rendering-pipeline.md
         std::shared_ptr<Texture> svgfDenoised;
         VkDescriptorSet svgfPassthroughDescSet = VK_NULL_HANDLE;
+
+        // SVGF temporal history — RGBA16F storage images kept in GENERAL, ping-pong by frame parity
+        // (curr = [p], prev = [p^1]). colorHist = integrated color (rgb) + variance (a); moments =
+        // (mu1, mu2, histLen); geom = (linearZ, octN.x, octN.y) for the disocclusion test. Bootstrap-
+        // cleared so frame 0's prev read is well-defined. The two reproject sets are pre-built per
+        // parity (set[p] reads [p^1], writes [p]); AddPasses binds svgfReprojectDescSet[frameAbs & 1].
+        std::shared_ptr<Texture> svgfColorHist[2];
+        std::shared_ptr<Texture> svgfMoments[2];
+        std::shared_ptr<Texture> svgfGeom[2];
+        VkDescriptorSet svgfReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

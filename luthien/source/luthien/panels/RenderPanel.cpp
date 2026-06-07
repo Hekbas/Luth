@@ -287,6 +287,16 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Denoise the ReSTIR DI signal (Schied 2017 SVGF).\nOff passes the raw ~1-spp DI through unchanged.");
 
+                    UI::Property("Color Alpha", sv.alphaColor, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal EMA blend for color at steady state.\nLower = more accumulation / stability, more lag under motion.");
+                    UI::Property("Depth Threshold", sv.depthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative linear-depth tolerance for accepting reprojected history.");
+                    UI::Property("Normal Threshold", sv.normalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min dot(prevN, currN) to accept reprojected history (1 = identical normals).");
+
                     int atrousIterations = static_cast<int>(sv.atrousIterations);
                     if (UI::Property("A-trous Iterations", atrousIterations, 0, 8))
                         sv.atrousIterations = static_cast<u32>(atrousIterations);

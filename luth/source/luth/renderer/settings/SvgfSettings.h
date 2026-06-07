@@ -11,10 +11,16 @@ namespace Luth
     struct SvgfSettings
     {
         bool enabled = true;
+        // Temporal accumulation (reproject pass).
+        f32  alphaColor = 0.2f;          // steady-state EMA alpha (color); per-pixel floor = 1/historyCap
+        f32  alphaMoments = 0.2f;        // steady-state EMA alpha (luminance moments)
+        u32  historyCap = 32;            // max temporal history length (alpha floor = 1/cap)
+        f32  depthThreshold = 0.05f;     // relative linear-depth disocclusion tolerance
+        f32  normalThreshold = 0.9f;     // min dot(prevN, currN) to accept reprojected history
+        // Variance-guided à-trous wavelet (lands with the spatial filter).
         u32  atrousIterations = 5;       // edge-aware wavelet levels (paper 5, Falcor 4)
-        u32  historyCap = 32;            // temporal EMA history-length clamp (alpha floor = 1/cap)
         f32  phiColor = 10.0f;           // luminance edge-stop sigma — the primary per-scene tuning knob
         f32  phiNormal = 128.0f;         // normal edge-stop exponent
-        f32  phiDepth = 1.0f;            // depth edge-stop scale (fwidth-normalized)
+        f32  phiDepth = 1.0f;            // depth edge-stop scale
     };
 }
