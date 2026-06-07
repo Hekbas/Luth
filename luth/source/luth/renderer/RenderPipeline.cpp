@@ -91,6 +91,7 @@ namespace Luth
         m_GTAO.Init(*this);
         m_Volumetric.Init(*this);
         m_Rt.Init(*this);
+        m_Restir.Init(*this);
         m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -126,7 +127,8 @@ namespace Luth
                               || m_GTAO.OnShaderReloaded(name, spv)
                               || m_Volumetric.OnShaderReloaded(name, spv)
                               || m_Skinning.OnShaderReloaded(name, spv)
-                              || m_Rt.OnShaderReloaded(name, spv);
+                              || m_Rt.OnShaderReloaded(name, spv)
+                              || m_Restir.OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -180,6 +182,7 @@ namespace Luth
 
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Skinning.Shutdown();
+        m_Restir.Shutdown();
         m_Rt.Shutdown();
         m_DebugDraw.Shutdown();
         m_EditorOverlays.Shutdown();
@@ -340,6 +343,13 @@ namespace Luth
         if (runRtShadows)
             rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg, prepassDepth, slimGB.normal);
 
+        // ReSTIR DI — shadowed direct lighting for point lights via per-pixel reservoir RIS + one
+        // visibility ray, then a demodulated-irradiance shade. AsyncCompute; reads prepass depth +
+        // slim normal, traces the same TLAS the sun-shadow pass uses. Returns an invalid handle when
+        // disabled or before the TLAS exists — GeometryPass then skips the Read and pbr.frag's point
+        // loop runs instead (the restirParams.x flag gates the consumption).
+        RG::ResourceHandle restirDIHandle = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -349,7 +359,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, restirDIHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

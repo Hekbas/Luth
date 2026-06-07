@@ -14,6 +14,7 @@
 #include "luth/renderer/settings/GTAOSettings.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/VolumetricSettings.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/core/diagnostics/Log.h"
 
 namespace Luth
@@ -21,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 96;
+    static constexpr u32 k_ViewPoolMaxSets              = 112;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 40;  // GTAO + volumetric atlases + RT shadow mask (cycled)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 80;  // Set 3 + cluster + assign + volumetric
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 128;
+    static constexpr u32 k_ViewPoolStorageImageCount    = 48;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI (cycled)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 152;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -91,6 +92,8 @@ namespace Luth
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
+            m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
+            m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 ReSTIR DI to the new images
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -218,6 +221,7 @@ namespace Luth
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
+        allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
 
         m_PostProcess.WriteView(vr, targets);
         m_PostProcess.WriteTaaResolveView(vr, targets);
@@ -233,6 +237,7 @@ namespace Luth
         m_Volumetric.WriteCompositeView(vr, targets);
         m_Volumetric.WriteVizView(vr, targets);
         m_Rt.WriteShadowPassView(vr, targets);
+        m_Restir.WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -255,6 +260,41 @@ namespace Luth
             fullW, fullH, TextureFormat::R8,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // ReSTIR DI demodulated-irradiance image — viewport-sized RGBA16F. STORAGE for the shade
+        // pass's imageStore + SAMPLED (added by the ctor) for pbr.frag's Set 3 b5 read.
+        vr.restirDI = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
+        // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
+        // FreeTag(N-2) sweep never touches them. Two distinct tags so temporal reuse can read last
+        // frame's reservoir (prev) while writing this frame's (curr). Re-allocate here — sized w*h.
+        for (u32 i = 0; i < 2; ++i)
+        {
+            if (vr.restirReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                vr.restirReservoir[i] = {};
+            }
+            vr.restirReservoirTag[i] = m_Restir.NextReservoirTag();
+            vr.restirReservoir[i] = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+                vr.restirReservoirTag[i], static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
+        }
+
+        // ReSTIR spatial-reuse output — a SINGLE device-local buffer (no ping-pong). The spatial pass
+        // reads b2 (temporal output, read-only) and writes here; shade consumes it. Overwritten +
+        // consumed each frame, so no cross-frame history — one reserved tag, freed on resize/destroy.
+        if (vr.restirSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            vr.restirSpatial = {};
+        }
+        vr.restirSpatialTag = m_Restir.NextReservoirTag();
+        vr.restirSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+            vr.restirSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -346,6 +386,25 @@ namespace Luth
         vr.taaHistoryA.reset();
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
+        vr.restirDI.reset();
+
+        // Release both reservoir reserved-range tags. The pages recycle into the device-local free
+        // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.
+        for (u32 i = 0; i < 2; ++i)
+        {
+            if (vr.restirReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                vr.restirReservoirTag[i] = 0;
+                vr.restirReservoir[i] = {};
+            }
+        }
+        if (vr.restirSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            vr.restirSpatialTag = 0;
+            vr.restirSpatial = {};
+        }
 
         if (vr.descPool != VK_NULL_HANDLE)
         {

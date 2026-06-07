@@ -111,6 +111,11 @@ layout(set = 3, binding = 3) uniform sampler2DArrayShadow shadowMap;
 // (e.g., CSM-mode-only frames) don't affect the cascade path.
 layout(set = 3, binding = 4) uniform sampler2D sunShadowMask;
 
+// CONTRACT: diIrradiance stores DEMODULATED diffuse irradiance E = Li * NdotL * W (no albedo,
+// no 1/PI) — see restir_shade.comp. Remodulated here as E * (albedo * (1-metallic) / PI), sampled
+// only when restirParams.x > 0.5; else the per-cluster point-light loop runs.
+layout(set = 3, binding = 5) uniform sampler2D diIrradiance;
+
 uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
     // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
     float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
@@ -465,22 +470,30 @@ void main()
         Lo += CalculateLight(normalize(-lights.dirLight.direction), dirRadiance, V, N, albedo.rgb, metallic, roughness) * sr.shadow;
     }
 
-    // Forward+ point lights: cluster ID from screen position + linearized depth → fetch (offset,
-    // count) → loop only the lights overlapping this cluster.
-    uint  clusterID = ComputeClusterID(gl_FragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
-    uvec2 oc        = clusterGrid.clusters[clusterID];
-    uint  baseIdx   = oc.x;
-    uint  lightCnt  = oc.y;
-    for (uint k = 0u; k < lightCnt; ++k)
+    // Point lights. restirParams.x > 0.5 → sample the demodulated DI image (remodulate by diffuse-
+    // albedo/PI, CONTRACT above); else the unshadowed Forward+ cluster loop.
+    if (ubo.restirParams.x > 0.5)
     {
-        PointLightData pl = lights.points[lightIndex.indices[baseIdx + k]];
-        vec3  toLight   = pl.position - v_WorldPos;
-        float dist      = length(toLight);
-        float atten     = 1.0 / max(dist * dist, 0.0001);
-        float rolloff   = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
-        vec3  ptRadiance = pl.color * pl.intensity * atten * rolloff;
-        if (dot(ptRadiance, ptRadiance) > 0.0001)
-            Lo += CalculateLight(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
+        // Diffuse albedo = baseColor * (1 - metallic); metals carry no Lambertian diffuse.
+        Lo += texture(diIrradiance, gl_FragCoord.xy / ubo.viewportSize).rgb * (albedo.rgb * (1.0 - metallic) / PI);
+    }
+    else
+    {
+        uint  clusterID = ComputeClusterID(gl_FragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
+        uvec2 oc        = clusterGrid.clusters[clusterID];
+        uint  baseIdx   = oc.x;
+        uint  lightCnt  = oc.y;
+        for (uint k = 0u; k < lightCnt; ++k)
+        {
+            PointLightData pl = lights.points[lightIndex.indices[baseIdx + k]];
+            vec3  toLight   = pl.position - v_WorldPos;
+            float dist      = length(toLight);
+            float atten     = 1.0 / max(dist * dist, 0.0001);
+            float rolloff   = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
+            vec3  ptRadiance = pl.color * pl.intensity * atten * rolloff;
+            if (dot(ptRadiance, ptRadiance) > 0.0001)
+                Lo += CalculateLight(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
+        }
     }
 
     // IBL ambient lighting

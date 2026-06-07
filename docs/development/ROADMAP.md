@@ -99,6 +99,7 @@
 | v3.0.10 | `gpu-debug-toolkit` | GPU crash-debugging subsystem: dynamic-load Nsight Aftermath, `LUTH_VALIDATION` runtime tiers (GPU-AV opt-in), per-pass NV checkpoints + device-lost dump; new `arch/gpu-crash-debugging.md` | 2026-05-31 |
 | v3.0.11 | `vulkan-sync-hardening` | Clean sync-val baseline before Phase C: GPU object names + RG pass labels, `LUTH_RG_DUMP`/`LUTH_RG_TRACE` + headless solver tests; loadOp-LOAD, swapchain-acquire, cross-queue-WAW barrier fixes | 2026-06-06 |
 | v3.0.11 | `gpu-device-lost` | Root-caused the recurring skinned `VK_ERROR_DEVICE_LOST`: 4 MiB `BoneMatrixBuffer` took the tagged-heap large-one-shot destroy path; ND-model fix recycles large tagged allocs (never `vkDestroyBuffer`) | 2026-06-06 |
+| v3.0.12 | `restir-di` | Bitterli 2020 ReSTIR DI for point lights: device-local (Garlic) reservoir buffers, rayQuery-in-compute initial RIS + temporal + spatial reuse, demodulated diffuse irradiance remodulated in `pbr.frag`, editor tuning; opens Phase C | 2026-06-07 |
 
 ---
 
@@ -138,7 +139,7 @@ Umbrella issue: [#127](https://github.com/Hekbas/Luth/issues/127) (sub-effort is
 
 | Effort | Issue | Size | Notes |
 |---|---|---|---|
-| C.1 `restir-di` | NEW | XL | Bitterli 2020 — direct lighting reservoir resampling |
+| C.1 `restir-di` ✅ | [#146](https://github.com/Hekbas/Luth/issues/146) | XL | Bitterli 2020 — device-local reservoirs + rayQuery RIS + temporal/spatial reuse + demodulated DI — shipped v3.0.12 |
 | C.2 `svgf-denoiser` | NEW | XL | Schied 2017 + A-SVGF; denoiser abstraction layer for future NRD swap |
 | C.3 `restir-gi` | NEW | XL | Ouyang 2021 — indirect bounce reservoirs |
 

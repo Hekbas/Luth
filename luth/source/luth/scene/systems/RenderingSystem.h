@@ -15,6 +15,7 @@
 #include "luth/renderer/lighting/LightTypes.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/VolumetricSettings.h"
+#include "luth/renderer/settings/RestirSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -80,6 +81,9 @@ namespace Luth
         // x = shadowingMode (0=RasterCSM, 1=RtShadows), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad.
         // pbr.frag::ComputeShadow dispatches on .x; RT path reads .y/.z for ray-origin biasing (Wächter-Binder).
         Vec4 rtShadowParams;
+        // x = ReSTIR DI enabled (1 when the subsystem is on AND a valid DI image exists). When set,
+        // pbr.frag samples the demodulated DI image (Set 3 b5) instead of running the point-light loop.
+        Vec4 restirParams;
     };
 
     enum class ShadeMode : u8 {
@@ -153,6 +157,9 @@ namespace Luth
 
         VolumetricSettings& GetVolumetricSettings() { return m_VolumetricSettings; }
         const VolumetricSettings& GetVolumetricSettings() const { return m_VolumetricSettings; }
+
+        RestirSettings& GetRestirSettings() { return m_RestirSettings; }
+        const RestirSettings& GetRestirSettings() const { return m_RestirSettings; }
 
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
@@ -261,6 +268,7 @@ namespace Luth
         // Editor-facing state.
         PostProcessSettings m_PostProcessSettings;
         VolumetricSettings  m_VolumetricSettings;
+        RestirSettings      m_RestirSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 

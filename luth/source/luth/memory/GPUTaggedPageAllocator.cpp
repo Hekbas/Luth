@@ -59,6 +59,14 @@ namespace Luth::Memory
         }
         m_FreeLargePages.clear();
 
+        for (GPUPage* page : m_FreeLargeDeviceLocalPages)
+        {
+            if (page->oneShotAlloc)
+                VulkanAllocator::FreeBuffer(page->buffer, page->oneShotAlloc);
+            LH_DELETE(Memory::Category::GPU, page);
+        }
+        m_FreeLargeDeviceLocalPages.clear();
+
         for (BackingBuffer& bb : m_BackingBuffers)
         {
             if (bb.buffer)
@@ -191,9 +199,69 @@ namespace Luth::Memory
         return r;
     }
 
+    GPUSubRegion GPUTaggedPageAllocator::AllocateLargeTaggedDeviceLocal(u32 tag, u64 size, u64 alignment)
+    {
+        // Garlic sibling of AllocateLargeTagged: DEVICE_LOCAL + non-mapped, for GPU-only read+write
+        // buffers (ReSTIR reservoirs) that would saturate PCIe in the host-visible Onion heap. Same
+        // recycle-never-destroy lifetime; a separate free pool guarantees a host-visible buffer never
+        // satisfies a device-local request of matching capacity. see arch/memory.md
+        (void)alignment;
+
+        // Reuse a recycled device-local buffer of exact capacity — `used` holds the buffer's full size.
+        {
+            SpinLockGuard lock(m_Lock);
+            for (size_t i = 0; i < m_FreeLargeDeviceLocalPages.size(); ++i)
+            {
+                GPUPage* page = m_FreeLargeDeviceLocalPages[i];
+                if (page->used != size) continue;
+                m_FreeLargeDeviceLocalPages[i] = m_FreeLargeDeviceLocalPages.back();
+                m_FreeLargeDeviceLocalPages.pop_back();
+                page->tag = tag;
+                m_UsedPages.push_back(page);
+                return { page->buffer, 0, size, nullptr };
+            }
+        }
+
+        VkBufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size  = size;
+        // Pure SSBO (no UNIFORM/VERTEX/INDIRECT); TRANSFER_DST for the one-time zero-clear; BDA for heap parity.
+        info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                   | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                   | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        // Reservoirs cross graphics (G-buffer reads) ↔ async-compute (resampling) — CONCURRENT matches the heap.
+        VulkanContext::Get().ApplyConcurrentSharing(info);
+
+        VkBuffer buf = VK_NULL_HANDLE;
+        VmaAllocation a = VulkanAllocator::AllocateBuffer(info, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, buf);
+        if (!a)
+        {
+            LH_CORE_CRITICAL("GPUTaggedPageAllocator::AllocateLargeTaggedDeviceLocal failed for size {0}", size);
+            return {};
+        }
+
+        GPUPage* page = LH_NEW(Memory::Category::GPU, GPUPage);
+        page->isLargeOneShot = true;
+        page->isDeviceLocal  = true;
+        page->oneShotAlloc   = a;
+        page->buffer         = buf;
+        page->basePtr        = nullptr;  // device-local — never CPU-mapped
+        page->baseOffset     = 0;
+        page->used           = size;
+        page->tag            = tag;
+
+        {
+            SpinLockGuard lock(m_Lock);
+            m_UsedPages.push_back(page);
+        }
+
+        return { buf, 0, size, nullptr };
+    }
+
     void GPUTaggedPageAllocator::FlushRegion(const GPUSubRegion& region)
     {
-        if (!region.buffer || region.size == 0) return;
+        // Device-local regions are non-mapped (mappedPtr == nullptr) and never CPU-written — nothing to flush.
+        if (!region.buffer || region.size == 0 || !region.mappedPtr) return;
 
         // Map region.buffer back to its VmaAllocation. Backings carry their alloc;
         // large-one-shot pages carry it on the page. Linear search across backings is
@@ -233,7 +301,8 @@ namespace Luth::Memory
                 {
                     // Recycle, never destroy — keep the VkBuffer alive so a too-early reclaim is stale data, not a fault.
                     page->tag = 0;
-                    m_FreeLargePages.push_back(page);
+                    if (page->isDeviceLocal) m_FreeLargeDeviceLocalPages.push_back(page);
+                    else                     m_FreeLargePages.push_back(page);
                 }
                 else
                 {
@@ -258,7 +327,7 @@ namespace Luth::Memory
         Stats s;
         s.BackingBuffers = static_cast<u32>(m_BackingBuffers.size());
         s.FreePages      = static_cast<u32>(m_FreePages.size());
-        s.FreeLargePages = static_cast<u32>(m_FreeLargePages.size());
+        s.FreeLargePages = static_cast<u32>(m_FreeLargePages.size() + m_FreeLargeDeviceLocalPages.size());
         u64 inFlight = 0;
         u32 active = 0, oneShots = 0;
         for (const GPUPage* page : m_UsedPages)

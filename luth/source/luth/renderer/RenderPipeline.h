@@ -23,6 +23,7 @@
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
+#include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
@@ -210,6 +211,25 @@ namespace Luth
         // descriptor set carries the pass-local bindings (SceneDepth + slimNormal + mask storage).
         std::shared_ptr<Texture> sunShadowMask;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
+
+        // ReSTIR DI (Bitterli 2020). restirReservoir[2] is a ping-pong pair of Garlic device-local
+        // large-tagged buffers (w*h*32 B each) reused across frames — freed only on resize via
+        // FreeTag. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
+        // FreeTag(N-2) sweep. Temporal reuse reads last frame's reservoir (prev) while writing this
+        // frame's (curr); parity = frameAbs & 1u picks which slot is curr — Set 2 b2/b4 rebound
+        // per frame to swap. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse
+        // irradiance, consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's depth/normal +
+        // motion samplers + reservoir SSBOs + DI storage image.
+        Memory::GPUSubRegion restirReservoir[2]{};
+        u32 restirReservoirTag[2] = { 0, 0 };
+        // Spatial-reuse output — a SINGLE Garlic device-local buffer (not ping-pong): fully
+        // overwritten then consumed each frame. The spatial pass reads b2 (temporal output) for
+        // self+neighbours and writes here (Set 2 b6); shade reads it. Reserved high tag, freed only
+        // on resize/destroy. The temporal ping-pong (b2) stays intact as next frame's history.
+        Memory::GPUSubRegion restirSpatial{};
+        u32 restirSpatialTag = 0;
+        std::shared_ptr<Texture> restirDI;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -375,6 +395,7 @@ namespace Luth
         EditorOverlaysSubsystem m_EditorOverlays;
         DebugDrawSubsystem      m_DebugDraw;
         RtSubsystem             m_Rt;
+        RtRestirSubsystem       m_Restir;
         SkinningSubsystem       m_Skinning;
 
     public:
@@ -382,6 +403,8 @@ namespace Luth
         const EditorOverlaysSubsystem& GetEditorOverlays() const { return m_EditorOverlays; }
         RtSubsystem&                   GetRt()                   { return m_Rt; }
         const RtSubsystem&             GetRt()             const { return m_Rt; }
+        RtRestirSubsystem&             GetRestir()               { return m_Restir; }
+        const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
 
