@@ -49,8 +49,12 @@ namespace Luth
         // Reserved high range, disjoint from the per-frame FreeTag(N-2) sweep.
         u32 NextReservoirTag() { return m_NextTag++; }
 
-        bool IsEnabled() const { return m_Enabled; }
-        void SetEnabled(bool e) { m_Enabled = e; }
+        // Backed by RestirSettings::enabled on the RenderingSystem (the editor toggles the setting).
+        // GlobalSubsystem reads IsEnabled() to gate restirParams.x — keep it pointing at the setting
+        // so the consumption flag tracks the same source AddPasses tests. Out-of-line: needs the
+        // RenderingSystem definition, which can't be pulled into this header (RenderPipeline cycle).
+        bool IsEnabled() const;
+        void SetEnabled(bool e);
 
     private:
         RenderPipeline* m_Pipeline = nullptr;
@@ -69,6 +73,5 @@ namespace Luth
         std::vector<u32> m_ShadeSpv;
 
         u32  m_NextTag = 0xFFFF0000u;  // reserved range for persistent reservoir allocations
-        bool m_Enabled = true;
     };
 }

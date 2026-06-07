@@ -4,7 +4,9 @@
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/FrameTargets.h"
+#include "luth/renderer/settings/RestirSettings.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
+#include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/core/FrameData.h"
@@ -54,14 +56,16 @@ namespace Luth
             f32  depthThreshold;
         };
         static_assert(sizeof(RestirSpatialPC) == 80, "RestirSpatialPC must match restir_spatial.comp push_constant");
+    }
 
-        constexpr u32 k_DefaultCandidateCount = 32;
-        constexpr u32 k_TemporalMCap          = 20;
-        constexpr f32 k_DepthThreshold        = 0.05f;
-        constexpr f32 k_NormalThreshold       = 0.9f;
-        constexpr u32 k_SpatialNeighbours     = 5;
-        constexpr u32 k_SpatialRadius         = 16;
-        constexpr f32 k_SpatialDepthThreshold = 0.1f;
+    bool RtRestirSubsystem::IsEnabled() const
+    {
+        return m_Pipeline && m_Pipeline->GetSystem().GetRestirSettings().enabled;
+    }
+
+    void RtRestirSubsystem::SetEnabled(bool e)
+    {
+        if (m_Pipeline) m_Pipeline->GetSystem().GetRestirSettings().enabled = e;
     }
 
     void RtRestirSubsystem::Init(RenderPipeline& pipeline)
@@ -368,7 +372,8 @@ namespace Luth
                                                     RG::ResourceHandle slimNormal,
                                                     RG::ResourceHandle slimMotion)
     {
-        if (!m_Enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
+        const RestirSettings& settings = m_Pipeline->GetSystem().GetRestirSettings();
+        if (!settings.enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
 
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || !preflightVr->restirDI
@@ -394,22 +399,22 @@ namespace Luth
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
         RestirPC pc{};
         pc.invViewProj    = invVP;
-        pc.candidateCount = k_DefaultCandidateCount;
+        pc.candidateCount = settings.candidateCount;
         pc.frameSeed      = frameAbs;
 
         RestirTemporalPC tpc{};
         tpc.invViewProj     = invVP;
-        tpc.mCap            = k_TemporalMCap;
+        tpc.mCap            = settings.temporalMCap;
         tpc.frameSeed       = frameAbs;
-        tpc.depthThreshold  = k_DepthThreshold;
-        tpc.normalThreshold = k_NormalThreshold;
+        tpc.depthThreshold  = settings.temporalDepthThreshold;
+        tpc.normalThreshold = settings.temporalNormalThreshold;
 
         RestirSpatialPC spc{};
         spc.invViewProj    = invVP;
-        spc.neighbourCount = k_SpatialNeighbours;
-        spc.radius         = k_SpatialRadius;
+        spc.neighbourCount = settings.spatialNeighbours;
+        spc.radius         = settings.spatialRadius;
         spc.frameSeed      = frameAbs;
-        spc.depthThreshold = k_SpatialDepthThreshold;
+        spc.depthThreshold = settings.spatialDepthThreshold;
 
         // Initial pass — RIS over point lights + one visibility ray, writes the CURR reservoir.
         // The curr buffer is imported ONCE here; its handle threads through temporal (read+write)

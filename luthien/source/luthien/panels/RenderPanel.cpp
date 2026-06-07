@@ -5,6 +5,7 @@
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
+#include "luth/renderer/settings/RestirSettings.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/widgets/Widgets.h"
 
@@ -224,6 +225,55 @@ namespace Luth
                     UI::EndProperties();
                 }
 
+                UI::EndCollapsingHeader();
+            }
+
+            // ReSTIR DI — Bitterli20 spatiotemporal reservoir resampling for shadowed point lighting.
+            // u32 settings bridge through int locals (UI::Property has no u32 overload); written back
+            // only when the drag changes, matching the GTAO slice-combo pattern above.
+            if (UI::BeginCollapsingHeader("ReSTIR DI", true)) {
+                auto& rs = m_RS->GetRestirSettings();
+                if (UI::BeginProperties("RestirProps")) {
+                    UI::Property("Enabled", rs.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Spatiotemporal reservoir resampling for shadowed point lights.\nOff falls back to the unshadowed Forward+ cluster loop. Requires a TLAS (RT).");
+
+                    int candidateCount = static_cast<int>(rs.candidateCount);
+                    if (UI::Property("Candidate Count (M)", candidateCount, 1, 64))
+                        rs.candidateCount = static_cast<u32>(candidateCount);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Initial RIS candidates sampled per pixel before the visibility ray.\nHigher = less noise, more cost.");
+
+                    int temporalMCap = static_cast<int>(rs.temporalMCap);
+                    if (UI::Property("Temporal M-Cap", temporalMCap, 1, 64))
+                        rs.temporalMCap = static_cast<u32>(temporalMCap);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("History confidence clamp (prev.M <= cap * curr.M).\nLower = more responsive, more noise; higher = more stable, more lag.");
+
+                    UI::Property("Temporal Depth Threshold", rs.temporalDepthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative depth tolerance for accepting the reprojected history reservoir.");
+                    UI::Property("Temporal Normal Threshold", rs.temporalNormalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min N·N dot to accept the reprojected history reservoir (1 = identical normals).");
+
+                    int spatialNeighbours = static_cast<int>(rs.spatialNeighbours);
+                    if (UI::Property("Spatial Neighbours", spatialNeighbours, 0, 16))
+                        rs.spatialNeighbours = static_cast<u32>(spatialNeighbours);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Random disk neighbours merged per pixel in the spatial pass.\n0 = spatial reuse off.");
+
+                    int spatialRadius = static_cast<int>(rs.spatialRadius);
+                    if (UI::Property("Spatial Radius (px)", spatialRadius, 1, 64))
+                        rs.spatialRadius = static_cast<u32>(spatialRadius);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Pixel radius of the spatial neighbour sampling disk.");
+
+                    UI::Property("Spatial Depth Threshold", rs.spatialDepthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative depth tolerance for accepting a spatial neighbour reservoir.");
+                    UI::EndProperties();
+                }
                 UI::EndCollapsingHeader();
             }
 
