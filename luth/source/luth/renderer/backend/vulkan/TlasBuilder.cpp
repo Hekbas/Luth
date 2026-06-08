@@ -39,6 +39,9 @@ namespace Luth
         // Cheap u64 mix — translation-only hash. Catches the common motion case (entities sliding
         // around). Misses rotation-only changes on non-translating meshes — if RT shadows expose
         // this, bump to full 64-byte matrix hash; cost is still < 10 µs for ~100 instances.
+        // materialUUID is folded in because the geometry table (C.3) carries each instance's material
+        // slot — a runtime material reassignment on a static mesh must force a rebuild or GI would
+        // shade the secondary hit with the stale material's albedo. see arch/rendering-pipeline.md
         u64 HashInstances(std::span<const MeshDrawSnapshot> instances)
         {
             u64 h = 0xcbf29ce484222325ull; // FNV-1a basis
@@ -56,9 +59,24 @@ namespace Luth
                 h ^= t2;            h *= 0x100000001b3ull;
                 h ^= static_cast<u64>(inst.meshIndex);
                 h *= 0x100000001b3ull;
+                h ^= inst.materialUUID.GetHalf0(); h *= 0x100000001b3ull;
+                h ^= inst.materialUUID.GetHalf1(); h *= 0x100000001b3ull;
             }
             return h;
         }
+
+        // GPU geometry-table entry — one per packed TLAS instance, indexed by instanceCustomIndex.
+        // Mirrors the GeomEntry buffer_reference struct in restir_gi_initial.comp (std430, 24 B).
+        // BDAs point at the ORIGINAL (full-layout) vertex/index buffers — UVs live there for both
+        // static (52 B) and skinned (84 B) verts; the deformed positions-only VB is BLAS-only.
+        struct GPUGeometryEntry
+        {
+            VkDeviceAddress vertexBDA;     // original VB device address
+            VkDeviceAddress indexBDA;      // uint32 index buffer device address
+            u32             materialSlot;  // index into the Material SSBO
+            u32             vertexStride;  // bytes: sizeof(Vertex)=52 or sizeof(SkinnedVertex)=84
+        };
+        static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match restir_gi_initial.comp GeomEntry (24 B)");
 
         struct ResolvedMesh
         {
@@ -190,7 +208,8 @@ namespace Luth
     TlasBuildResult TlasBuilder::BuildTlas(VkCommandBuffer cmd,
                                            std::span<const MeshDrawSnapshot> instances,
                                            u32 frameAbs,
-                                           const TlasBuildResult& prev)
+                                           const TlasBuildResult& prev,
+                                           const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap)
     {
         const u64 hash = HashInstances(instances);
         if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash)
@@ -204,22 +223,47 @@ namespace Luth
         const auto& rt = ctx.GetRtFn();
         VkDevice device = ctx.GetDevice();
 
-        // Pack instance buffer. One VkAccelerationStructureInstanceKHR per resolved mesh that
-        // has a non-null BLAS — meshes still uploading or with build failures get skipped.
+        // Pack instance buffer + the parallel geometry table in ONE loop so instanceCustomIndex (the
+        // packed index) indexes the table 1:1. One VkAccelerationStructureInstanceKHR per resolved mesh
+        // with a non-null BLAS — meshes still uploading or with build failures get skipped.
+        // CONTRACT (rt-renderer C.3): instanceCustomIndex was the entity id (read by no shader); it is
+        // now the geometry-table index. restir_gi_initial.comp fetches {vertexBDA, indexBDA, materialSlot,
+        // stride} from the table to shade the secondary hit's real material. see arch/rendering-pipeline.md
         std::vector<VkAccelerationStructureInstanceKHR> packed;
+        std::vector<GPUGeometryEntry>                   geomEntries;
         packed.reserve(instances.size());
+        geomEntries.reserve(instances.size());
         for (const auto& inst : instances)
         {
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
+
             VkAccelerationStructureInstanceKHR vkInst{};
             vkInst.transform                              = ToVkTransform(inst.worldMatrix);
-            vkInst.instanceCustomIndex                    = inst.entity & 0x00FFFFFFu;
+            vkInst.instanceCustomIndex                    = static_cast<u32>(packed.size()) & 0x00FFFFFFu;
             vkInst.mask                                   = 0xFF;
             vkInst.instanceShaderBindingTableRecordOffset = 0;
             vkInst.flags                                  = 0;
             vkInst.accelerationStructureReference         = r.blas->GetDeviceAddress();
             packed.push_back(vkInst);
+
+            // Original full-layout VB/IB (UVs at +24 for both static + skinned) — NOT the BLAS's
+            // positions-only deformed VB. Skinned secondary hits read bind-pose attributes (known
+            // approximation; the hit POINT rides the deformed TLAS, only n_s/UV are bind-pose).
+            auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(r.mesh->GetVertexBuffer());
+            auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
+            u32 matSlot = 0;  // slot 0 = reserved white material
+            if (inst.materialUUID.IsValid())
+            {
+                auto it = materialSlotMap.find(inst.materialUUID);
+                if (it != materialSlotMap.end()) matSlot = it->second;
+            }
+            GPUGeometryEntry ge{};
+            ge.vertexBDA    = vb ? vb->GetDeviceAddress() : 0;
+            ge.indexBDA     = ib ? ib->GetDeviceAddress() : 0;
+            ge.materialSlot = matSlot;
+            ge.vertexStride = r.mesh->IsSkinned() ? sizeof(SkinnedVertex) : sizeof(Vertex);
+            geomEntries.push_back(ge);
         }
 
         TlasBuildResult result{};
@@ -253,6 +297,32 @@ namespace Luth
         VulkanContext::Get().PushDeletion([instBuffer, instAlloc]() {
             VulkanAllocator::FreeBuffer(instBuffer, instAlloc);
         });
+
+        // Geometry table (host-visible SSBO, BDA-deref'd by restir_gi_initial.comp). UNLIKE the
+        // instance buffer it is NOT retired here: it shares the TLAS lifetime (read every frame the
+        // TLAS is bound, including hash-skipped frames). Caller PushDeletion-s the prior table only
+        // when a rebuild replaces it — same handling as result.storageBuffer.
+        const VkDeviceSize geomBytes = geomEntries.size() * sizeof(GPUGeometryEntry);
+        VkBufferCreateInfo geomCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        geomCi.size        = geomBytes;
+        geomCi.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        geomCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;  // host-written, read only on AsyncCompute
+        void* geomMapped = nullptr;
+        result.geomTableAlloc = VulkanAllocator::AllocateMappedSequentialBuffer(geomCi, result.geomTableBuffer, &geomMapped);
+        if (!result.geomTableBuffer)
+        {
+            // Geom-table alloc failed (host-visible OOM / fragmentation). Abort the build: return an
+            // empty result so GetTlas() falls back to the persistent empty TLAS. Binding a REAL TLAS
+            // with a null table BDA would let a committed hit deref a null buffer_reference in
+            // restir_gi_initial.comp (device lost). Nothing to free — only the instance buffer was
+            // allocated this call, and it is already PushDeletion-queued above.
+            return TlasBuildResult{};
+        }
+        std::memcpy(geomMapped, geomEntries.data(), geomBytes);
+        VulkanAllocator::FlushSlice(result.geomTableAlloc, 0, geomBytes);
+        VkBufferDeviceAddressInfo geomAddr{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+        geomAddr.buffer     = result.geomTableBuffer;
+        result.geomTableBDA = vkGetBufferDeviceAddress(device, &geomAddr);
 
         // Per-build context heap-allocated so its lifetime extends past BuildTlas's stack frame.
         // Vulkan's vkCmdBuildAccelerationStructuresKHR may keep pointers to the geometry / build /
@@ -319,7 +389,15 @@ namespace Luth
         VkBuffer scratchBuf = VK_NULL_HANDLE;
         VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
             scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
-        if (!scratchBuf) return result;
+        if (!scratchBuf)
+        {
+            // Build-scratch alloc failed: the TLAS handle was never created, so the storage + geom
+            // tables allocated above would never be retired by the caller's tlas-keyed cleanup. Free
+            // them here and return empty (GetTlas() falls back to the persistent empty TLAS).
+            if (result.geomTableBuffer) VulkanAllocator::FreeBuffer(result.geomTableBuffer, result.geomTableAlloc);
+            if (result.storageBuffer)   VulkanAllocator::FreeBuffer(result.storageBuffer, result.storageAlloc);
+            return TlasBuildResult{};
+        }
         VkBufferDeviceAddressInfo scratchAddr{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
         scratchAddr.buffer = scratchBuf;
         const VkDeviceAddress scratchBda = vkGetBufferDeviceAddress(device, &scratchAddr);

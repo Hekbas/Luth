@@ -24,6 +24,7 @@
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
+#include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
@@ -232,6 +233,17 @@ namespace Luth
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
 
+        // ReSTIR GI (Ouyang 2021) — sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
+        // a world-space path vertex, not a light index). Same ping-pong + single spatial-output shape;
+        // tags mint from RtRestirGiSubsystem's disjoint 0xFFFF8000 reserved range. restirGiDI is the
+        // viewport-sized rgba16f STORAGE+SAMPLED demodulated indirect-diffuse image (pbr.frag Set 3 b6).
+        Memory::GPUSubRegion restirGiReservoir[2]{};
+        u32 restirGiReservoirTag[2] = { 0, 0 };
+        Memory::GPUSubRegion restirGiSpatial{};
+        u32 restirGiSpatialTag = 0;
+        std::shared_ptr<Texture> restirGiDI;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirGiDescSet{};
+
         // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
         // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag
         // Set 3 b5 samples THIS (not restirDI), so the denoiser owns the slot whenever ReSTIR is on and
@@ -256,6 +268,19 @@ namespace Luth
         std::shared_ptr<Texture> svgfAtrous[2];
         VkDescriptorSet svgfMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
+        // ReSTIR GI SVGF — flat parallel set to the DI fields above (mirroring restirDI/restirGiDI).
+        // A second SvgfDenoiser instance (DenoiserChannel::Gi) drives these; svgfGiDenoised feeds Set 3
+        // b6. Same shapes/clears as DI. see arch/rendering-pipeline.md
+        std::shared_ptr<Texture> svgfGiDenoised;
+        VkDescriptorSet svgfGiPassthroughDescSet = VK_NULL_HANDLE;
+        std::shared_ptr<Texture> svgfGiColorHist[2];
+        std::shared_ptr<Texture> svgfGiMoments[2];
+        std::shared_ptr<Texture> svgfGiGeom[2];
+        VkDescriptorSet svgfGiReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        std::shared_ptr<Texture> svgfGiAtrous[2];
+        VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -422,8 +447,10 @@ namespace Luth
         DebugDrawSubsystem      m_DebugDraw;
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
+        RtRestirGiSubsystem     m_RestirGi;
         SkinningSubsystem       m_Skinning;
-        std::unique_ptr<IDenoiser> m_Denoise;  // SVGF today; swappable to NRD/RELAX via the settings toggle
+        std::unique_ptr<IDenoiser> m_Denoise;    // DI SVGF; swappable to NRD/RELAX via the settings toggle
+        std::unique_ptr<IDenoiser> m_DenoiseGi;  // GI SVGF — second instance (DenoiserChannel::Gi)
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -432,10 +459,14 @@ namespace Luth
         const RtSubsystem&             GetRt()             const { return m_Rt; }
         RtRestirSubsystem&             GetRestir()               { return m_Restir; }
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
+        RtRestirGiSubsystem&           GetRestirGi()             { return m_RestirGi; }
+        const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
         IDenoiser&                     GetDenoise()              { return *m_Denoise; }
         const IDenoiser&               GetDenoise()        const { return *m_Denoise; }
+        IDenoiser&                     GetDenoiseGi()            { return *m_DenoiseGi; }
+        const IDenoiser&               GetDenoiseGi()      const { return *m_DenoiseGi; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----

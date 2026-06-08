@@ -196,7 +196,11 @@ namespace Luth
         const bool restirActive = m_Pipeline->GetRestir().IsEnabled()
                                && vr && vr->restirDI
                                && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
-        ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+        // .y mirrors .x for the GI path — pbr.frag adds the demodulated indirect-diffuse image when set.
+        const bool restirGiActive = m_Pipeline->GetRestirGi().IsEnabled()
+                                 && vr && vr->restirGiDI
+                                 && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
+        ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, restirGiActive ? 1.0f : 0.0f, 0.0f, 0.0f);
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

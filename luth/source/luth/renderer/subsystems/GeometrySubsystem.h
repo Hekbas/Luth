@@ -62,7 +62,8 @@ namespace Luth
                                            RG::ResourceHandle sceneDepth,
                                            RG::ResourceHandle gtaoFinalAO,
                                            RG::ResourceHandle rtShadowMask,
-                                           RG::ResourceHandle diHandle);
+                                           RG::ResourceHandle diHandle,
+                                           RG::ResourceHandle giDIHandle);
 
         // ---- Accessors ----
         VkDescriptorSetLayout       GetSet5Layout()         const { return m_ObjectSSBODescLayout; }

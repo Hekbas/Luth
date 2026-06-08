@@ -6,6 +6,8 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
+#include "luth/renderer/settings/RestirGiSettings.h"
+#include "luth/renderer/settings/SvgfSettings.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/widgets/Widgets.h"
 
@@ -277,6 +279,66 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // ReSTIR GI — Ouyang21 spatiotemporal reservoir resampling for 1-bounce indirect diffuse.
+            // Reservoirs store a world-space path sample, so reuse carries a reconnection Jacobian (DI's
+            // light-index reservoirs don't). The bounce is added on top of DI under restirParams.y.
+            if (UI::BeginCollapsingHeader("ReSTIR GI", true)) {
+                auto& gi = m_RS->GetRestirGiSettings();
+                if (UI::BeginProperties("RestirGiProps")) {
+                    UI::Property("Enabled", gi.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("1-bounce indirect-diffuse GI via per-pixel path reservoirs.\nAdded on top of direct lighting. Requires a TLAS (RT).");
+
+                    UI::Property("Max Indirect (firefly)", gi.maxIndirect, 0.5f, 0.0f, 100.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance clamp on the secondary-hit radiance before reuse.\nLower kills fireflies harder; higher preserves bright bounces.");
+
+                    int giMCap = static_cast<int>(gi.temporalMCap);
+                    if (UI::Property("Temporal M-Cap", giMCap, 1, 64))
+                        gi.temporalMCap = static_cast<u32>(giMCap);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("History confidence clamp (prev.M <= cap * curr.M).\nLower = more responsive, more noise; higher = more stable, more lag.");
+
+                    int giMaxAge = static_cast<int>(gi.maxReservoirAge);
+                    if (UI::Property("Max Reservoir Age", giMaxAge, 1, 120))
+                        gi.maxReservoirAge = static_cast<u32>(giMaxAge);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Discard temporal samples older than this many frames (staleness cap).");
+
+                    UI::Property("Temporal Depth Threshold", gi.temporalDepthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative depth tolerance for accepting the reprojected history reservoir.");
+                    UI::Property("Temporal Normal Threshold", gi.temporalNormalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min N·N dot to accept the reprojected history reservoir (1 = identical normals).");
+
+                    int giNeighbours = static_cast<int>(gi.spatialNeighbours);
+                    if (UI::Property("Spatial Neighbours", giNeighbours, 0, 16))
+                        gi.spatialNeighbours = static_cast<u32>(giNeighbours);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Random disk neighbours merged per pixel (BASIC bias correction).\n0 = spatial reuse off.");
+
+                    int giRadius = static_cast<int>(gi.spatialRadius);
+                    if (UI::Property("Spatial Radius (px)", giRadius, 1, 64))
+                        gi.spatialRadius = static_cast<u32>(giRadius);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Pixel radius of the spatial neighbour sampling disk.");
+
+                    UI::Property("Spatial Depth Threshold", gi.spatialDepthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative depth tolerance for accepting a spatial neighbour reservoir.");
+                    UI::Property("Spatial Normal Threshold", gi.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min N·N dot to accept a spatial neighbour reservoir.");
+
+                    UI::Property("Secondary Albedo (scaffold)", gi.secondaryAlbedo, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Constant fallback albedo for the secondary hit — only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // SVGF Denoiser — Schied17 spatiotemporal variance-guided filter over the demodulated DI.
             // Off passes the raw ReSTIR DI straight through (the A/B compare). The knobs take effect as
             // the reproject / à-trous passes land; the enable toggle + plumbing are live now.
@@ -316,6 +378,52 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Normal edge-stopping exponent (higher = sharper normal edges).");
                     UI::Property("Depth Sigma", sv.phiDepth, 0.05f, 0.0f, 8.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Depth edge-stopping scale (fwidth-normalized).");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // SVGF (GI) — second SVGF instance over the demodulated GI bounce. Independent tuning from
+            // DI (GI is noisier + lower-frequency): default leans on a shorter history + wider à-trous.
+            // Off passes the raw GI through (the denoise-vs-raw A/B), bound to Set 3 b6 either way.
+            if (UI::BeginCollapsingHeader("SVGF (GI)", true)) {
+                auto& sg = m_RS->GetSvgfGiSettings();
+                if (UI::BeginProperties("SvgfGiProps")) {
+                    UI::Property("Enabled", sg.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Denoise the ReSTIR GI bounce (Schied 2017 SVGF).\nOff passes the raw GI through unchanged (the A/B compare).");
+
+                    UI::Property("Color Alpha", sg.alphaColor, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal EMA blend for color at steady state.\nLower = more accumulation / stability, more lag under motion.");
+                    UI::Property("Depth Threshold", sg.depthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative linear-depth tolerance for accepting reprojected history.");
+                    UI::Property("Normal Threshold", sg.normalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min dot(prevN, currN) to accept reprojected history (1 = identical normals).");
+
+                    int giAtrous = static_cast<int>(sg.atrousIterations);
+                    if (UI::Property("A-trous Iterations", giAtrous, 0, 8))
+                        sg.atrousIterations = static_cast<u32>(giAtrous);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Edge-aware wavelet levels (footprint doubles each level).\nGI defaults higher than DI — the bounce tolerates a wider blur.");
+
+                    int giHistCap = static_cast<int>(sg.historyCap);
+                    if (UI::Property("History Cap", giHistCap, 1, 64))
+                        sg.historyCap = static_cast<u32>(giHistCap);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal accumulation length clamp (alpha floor = 1/cap).\nGI defaults lower than DI — the reservoir already accumulates temporally.");
+
+                    UI::Property("Luma Sigma", sg.phiColor, 0.1f, 0.1f, 64.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance edge-stopping sigma - the primary tuning knob.\nLower preserves detail; higher blurs across lighting changes.");
+                    UI::Property("Normal Sigma", sg.phiNormal, 1.0f, 1.0f, 256.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Normal edge-stopping exponent (higher = sharper normal edges).");
+                    UI::Property("Depth Sigma", sg.phiDepth, 0.05f, 0.0f, 8.0f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Depth edge-stopping scale (fwidth-normalized).");
                     UI::EndProperties();

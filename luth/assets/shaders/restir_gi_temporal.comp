@@ -1,0 +1,99 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/restir_gi_common.glsl"
+
+// ReSTIR GI — temporal reuse (Ouyang 2021). Reprojects each pixel to the previous frame via the
+// motion vector and merges the previous reservoir into this frame's fresh candidate, confidence-
+// weighted (Bitterli relative M-cap) and age-capped. Because a GI reservoir stores a WORLD-SPACE
+// sample point, reusing the previous sample at the current receiver is a reconnection SHIFT — the
+// previous receiver (self-carried visPos) and the current receiver are different endpoints to the
+// shared x_s, so the resampling weight is multiplied by the reconnection Jacobian (Eq. 11). Under
+// exact reprojection it is ~1; integer-pixel rounding makes it deviate, and it corrects that. Runs
+// between initial and shade; the merged result stays in the CURR reservoir (b2). The prev buffer is
+// imported in StorageBufferWrite state (its last-left state) so the RG's read barrier carries a real
+// srcAccess and makes last frame's write visible — Undefined would give srcAccess=0 (stale read).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 2, binding = 0) uniform sampler2D u_CurrDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_CurrNormal;
+layout(std430, set = 2, binding = 2) buffer ReservoirCurr { GIReservoir curr[]; };
+layout(std430, set = 2, binding = 4) readonly buffer ReservoirPrev { GIReservoir prevRes[]; };
+layout(set = 2, binding = 5) uniform sampler2D u_Motion;
+
+layout(push_constant) uniform PC {
+    mat4  invViewProj;
+    uint  mCapMaxAge;       // mCap in low 16 bits, maxReservoirAge in high 16 bits
+    uint  frameSeed;
+    float depthThreshold;   // disocclusion tolerance — fraction of view distance
+    float normalThreshold;  // min dot(prevN, currN)
+} pc;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    float depth = texelFetch(u_CurrDepth, pixel, 0).r;
+    if (depth >= 1.0) return;  // sky — leave the (empty) candidate untouched
+
+    GIReservoir r = curr[flatIdx];  // this frame's fresh candidate (from initial)
+    vec2 octN     = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec3 N        = OctDecode(octN);
+    vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+    vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec3 worldPos = worldH.xyz / worldH.w;
+
+    const uint mCap   = pc.mCapMaxAge & 0xFFFFu;
+    const uint maxAge = pc.mCapMaxAge >> 16;
+
+    uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
+
+    // Start the combined reservoir with this frame's candidate — already at this pixel, identity shift.
+    GIReservoir c; GIReservoirReset(c);
+    if (r.M > 0u) {
+        float pHatCurr = GiTargetFunction(r.samplePos, r.sampleRadiance, worldPos, N);
+        GIReservoirMerge(c, r.samplePos, r.sampleRadiance, r.sampleNormalOct, r.age,
+                         pHatCurr, r.W, r.M, RandFromSeed(seed));
+    }
+
+    // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
+    vec2 prevUV = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
+    if (all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)))) {
+        ivec2 pPix = clamp(ivec2(prevUV * vec2(size)), ivec2(0), size - ivec2(1));
+        GIReservoir pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
+
+        vec3 prevN = OctDecode(unpackHalf2x16(pr.visNormalPacked));
+        // Validate the reprojected history: same surface (world-pos proximity + normal) and not stale.
+        bool valid = pr.M > 0u
+                  && pr.age < maxAge
+                  && dot(prevN, N) > pc.normalThreshold
+                  && length(pr.visPos - worldPos) < pc.depthThreshold * length(worldPos - ubo.cameraPos);
+
+        if (valid) {
+            // Reconnection-shift Jacobian: prev receiver (visPos) → current receiver (worldPos),
+            // shared sample point pr.samplePos. Reject/clamp degenerate reconnections.
+            vec3  sampleN = OctDecode(pr.sampleNormalOct);
+            float jac     = GiReconnectionJacobian(worldPos, pr.visPos, pr.samplePos, sampleN);
+            if (GiValidateJacobian(jac)) {
+                float pHatPrev = GiTargetFunction(pr.samplePos, pr.sampleRadiance, worldPos, N);
+                // Bitterli relative M-cap so accumulated history dominates the single fresh sample
+                // without lagging forever; Jacobian folded into the target (scales the RIS weight).
+                uint  mClamped = min(pr.M, mCap * max(r.M, 1u));
+                GIReservoirMerge(c, pr.samplePos, pr.sampleRadiance, pr.sampleNormalOct, pr.age + 1u,
+                                 pHatPrev * jac, pr.W, mClamped, RandFromSeed(seed));
+            }
+        }
+    }
+
+    // Finalize with the selected sample's target re-evaluated at this pixel, then carry this pixel's
+    // receiver geometry forward for next frame's validation + Jacobian.
+    float pHatSel = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
+    GIReservoirFinalize(c, pHatSel);
+    c.visPos          = worldPos;
+    c.visNormalPacked = packHalf2x16(octN);
+    curr[flatIdx] = c;
+}
