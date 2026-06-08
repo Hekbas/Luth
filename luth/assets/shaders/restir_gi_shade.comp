@@ -1,0 +1,58 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/restir_gi_common.glsl"
+
+// ReSTIR GI — final shading. Reads each pixel's resolved GI reservoir and writes the demodulated
+// indirect-diffuse irradiance.
+//
+// CONTRACT: stores DEMODULATED indirect irradiance  E = L_o * NdotL_v * W  (no primary albedo, no
+// 1/PI). pbr.frag remodulates:  Lo += E * (albedo * (1-metallic) / PI).  SVGF (S4) denoises E before
+// remodulation — same contract as the DI path (restir_shade.comp). L_o already contains the secondary
+// surface's albedo + cosine; only the PRIMARY-vertex cosine (NdotL_v) and W are applied here.
+//
+// S0/S1: reads the initial/temporal reservoir at b2. S2 switches this read to the spatial output (b6).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;
+layout(std430, set = 2, binding = 2) readonly buffer ReservoirBuffer { GIReservoir reservoirs[]; };
+layout(set = 2, binding = 3, rgba16f) uniform writeonly image2D outIndirect;
+
+layout(push_constant) uniform PC {
+    mat4  invViewProj;
+    uint  frameSeed;
+    float secondaryAlbedo;
+    float maxIndirect;
+    uint  _pad1;
+} pc;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    vec3 E = vec3(0.0);
+
+    float depth = texelFetch(u_SceneDepth, pixel, 0).r;
+    GIReservoir r = reservoirs[flatIdx];
+    if (depth < 1.0 && r.M > 0u && r.W > 0.0) {
+        vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+        vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+        vec3 worldPos = worldH.xyz / worldH.w;
+        vec3 Nv       = OctDecode(texelFetch(u_SlimNormal, pixel, 0).rg);
+
+        vec3  L  = r.samplePos - worldPos;
+        float d2 = dot(L, L);
+        if (d2 > 0.0) {
+            L *= inversesqrt(d2);
+            E = r.sampleRadiance * max(dot(Nv, L), 0.0) * r.W;
+        }
+    }
+
+    if (any(isnan(E)) || any(isinf(E))) E = vec3(0.0);   // never poison SVGF / remodulation
+    imageStore(outIndirect, pixel, vec4(E, 1.0));
+}

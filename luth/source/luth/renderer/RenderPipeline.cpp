@@ -94,6 +94,7 @@ namespace Luth
         m_Volumetric.Init(*this);
         m_Rt.Init(*this);
         m_Restir.Init(*this);
+        m_RestirGi.Init(*this);
         m_Denoise->Init(*this);
         m_Skinning.Init(*this);
 
@@ -132,6 +133,7 @@ namespace Luth
                               || m_Skinning.OnShaderReloaded(name, spv)
                               || m_Rt.OnShaderReloaded(name, spv)
                               || m_Restir.OnShaderReloaded(name, spv)
+                              || m_RestirGi.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
@@ -187,6 +189,7 @@ namespace Luth
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Skinning.Shutdown();
         m_Denoise->Shutdown();
+        m_RestirGi.Shutdown();
         m_Restir.Shutdown();
         m_Rt.Shutdown();
         m_DebugDraw.Shutdown();
@@ -362,6 +365,11 @@ namespace Luth
             restirDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
 
+        // ReSTIR GI — 1-bounce indirect diffuse via per-pixel reservoir resampling. Returns the
+        // demodulated GI image GeometryPass reads (Set 3 b6) + restirParams.y gates in pbr.frag.
+        // Invalid handle when disabled / no TLAS. No denoiser yet (S4).
+        RG::ResourceHandle giDIHandle = m_RestirGi.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -371,7 +379,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, giDIHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

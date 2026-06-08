@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 152;
+    static constexpr u32 k_ViewPoolMaxSets              = 158;  // + ReSTIR GI cycled Set 2 (3 slots)
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 120;  // GTAO + volumetric + RT shadow mask + ReSTIR DI + SVGF passthrough + reproject/moments/atrous ping-pong
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 200;  // + ReSTIR Set 2 + Set 3 b5 DI + SVGF passthrough/reproject/moments/atrous inputs
+    static constexpr u32 k_ViewPoolStorageImageCount    = 126;  // GTAO + volumetric + RT shadow mask + ReSTIR DI/GI + SVGF passthrough + reproject/moments/atrous ping-pong
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 122;  // Set 3 + cluster + assign + volumetric + ReSTIR DI/GI reservoir ping-pong (b2+b4) + spatial out (b6)
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 212;  // + ReSTIR DI/GI Set 2 + Set 3 b5 DI + b6 GI + SVGF passthrough/reproject/moments/atrous inputs
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -93,6 +93,7 @@ namespace Luth
             m_Volumetric.WriteVizView(vr, targets);
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
+            m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
             m_Denoise->WriteView(vr, targets);      // re-bind SVGF inputs + output to the new images
             m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI to the new images
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
@@ -223,6 +224,7 @@ namespace Luth
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
+        allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
         m_Denoise->AllocateViewSets(vr);
 
         m_PostProcess.WriteView(vr, targets);
@@ -240,6 +242,7 @@ namespace Luth
         m_Volumetric.WriteVizView(vr, targets);
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
+        m_RestirGi.WriteView(vr, targets);
         m_Denoise->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
@@ -267,6 +270,13 @@ namespace Luth
         // ReSTIR DI demodulated-irradiance image — viewport-sized RGBA16F. STORAGE for the shade
         // pass's imageStore + SAMPLED (added by the ctor) for pbr.frag's Set 3 b5 read.
         vr.restirDI = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // ReSTIR GI demodulated indirect-diffuse image — same shape as restirDI. STORAGE for the GI
+        // shade pass's imageStore + SAMPLED (ctor) for pbr.frag's Set 3 b6 read.
+        vr.restirGiDI = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
@@ -321,6 +331,30 @@ namespace Luth
         vr.restirSpatialTag = m_Restir.NextReservoirTag();
         vr.restirSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
             vr.restirSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
+
+        // ReSTIR GI reservoir ping-pong — same lifecycle as the DI pair but 64 B/pixel (a GIReservoir
+        // is a world-space path vertex). Tags from the GI subsystem's disjoint 0xFFFF8000 range.
+        for (u32 i = 0; i < 2; ++i)
+        {
+            if (vr.restirGiReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiReservoirTag[i]);
+                vr.restirGiReservoir[i] = {};
+            }
+            vr.restirGiReservoirTag[i] = m_RestirGi.NextReservoirTag();
+            vr.restirGiReservoir[i] = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+                vr.restirGiReservoirTag[i], static_cast<u64>(fullW) * static_cast<u64>(fullH) * 64u, 16);
+        }
+
+        // ReSTIR GI spatial-reuse output — single device-local buffer (no ping-pong), 64 B/pixel.
+        if (vr.restirGiSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiSpatialTag);
+            vr.restirGiSpatial = {};
+        }
+        vr.restirGiSpatialTag = m_RestirGi.NextReservoirTag();
+        vr.restirGiSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+            vr.restirGiSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 64u, 16);
 
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
@@ -423,6 +457,7 @@ namespace Luth
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
         vr.restirDI.reset();
+        vr.restirGiDI.reset();
         vr.svgfDenoised.reset();
         for (u32 i = 0; i < 2; ++i)
         {
@@ -449,6 +484,23 @@ namespace Luth
             Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
             vr.restirSpatialTag = 0;
             vr.restirSpatial = {};
+        }
+
+        // ReSTIR GI reserved-range tags — same recycle path as the DI tags above.
+        for (u32 i = 0; i < 2; ++i)
+        {
+            if (vr.restirGiReservoirTag[i] != 0)
+            {
+                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiReservoirTag[i]);
+                vr.restirGiReservoirTag[i] = 0;
+                vr.restirGiReservoir[i] = {};
+            }
+        }
+        if (vr.restirGiSpatialTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiSpatialTag);
+            vr.restirGiSpatialTag = 0;
+            vr.restirGiSpatial = {};
         }
 
         if (vr.descPool != VK_NULL_HANDLE)

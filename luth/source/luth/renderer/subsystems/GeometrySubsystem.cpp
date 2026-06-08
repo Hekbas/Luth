@@ -948,7 +948,8 @@ namespace Luth
                                                       RG::ResourceHandle sceneDepth,
                                                       RG::ResourceHandle gtaoFinalAO,
                                                       RG::ResourceHandle rtShadowMask,
-                                                      RG::ResourceHandle diHandle)
+                                                      RG::ResourceHandle diHandle,
+                                                      RG::ResourceHandle giDIHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -958,6 +959,7 @@ namespace Luth
             RG::ResourceHandle gtaoFinalAO;
             RG::ResourceHandle rtShadowMask;
             RG::ResourceHandle diHandle;
+            RG::ResourceHandle giDIHandle;
             RG::BufferHandle   indirectBuf;
         };
         GeometryOutput output;
@@ -1024,6 +1026,12 @@ namespace Luth
                 // descriptor untouched and runs the point loop instead.
                 if (diHandle.IsValid())
                     data.diHandle = builder.Read(diHandle);
+
+                // ReSTIR GI image — same GENERAL → SHADER_READ_ONLY transition as the DI handle,
+                // before pbr.frag samples it at Set 3 b6. Invalid when GI is off / no TLAS; the
+                // restirParams.y gate then keeps the descriptor untouched.
+                if (giDIHandle.IsValid())
+                    data.giDIHandle = builder.Read(giDIHandle);
 
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 

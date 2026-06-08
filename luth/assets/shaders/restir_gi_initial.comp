@@ -1,0 +1,120 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/restir_gi_common.glsl"
+
+// ReSTIR GI — initial 1-bounce path-sample generation (Ouyang 2021). Per pixel: reconstruct the
+// primary hit x_v, cosine-sample one hemisphere direction, trace it to the secondary hit x_s, shade
+// x_s's outgoing radiance L_o toward x_v (single-light NEE), and store a GI reservoir (M=1). The
+// reconnection Jacobian is applied later (temporal/spatial reuse), never here. AsyncCompute.
+//
+// S0 SCAFFOLD: L_o uses a CONSTANT secondary albedo and a geometry-derived normal (n_s faces the
+// receiver) because the TLAS carries no hit-attribute table yet. S3 swaps in the real bindless
+// material/normal fetch — everything downstream is L_o-agnostic, so that change is additive.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Set 0: Global UBO (b0 via globals.glsl) + TLAS (b6). Both COMPUTE-visible.
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
+
+// Set 1: LightSSBO — LightingSubsystem's Set-3 layout, remapped to set=1 in this pipeline.
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+// Set 2: GI pass-local. b2 = curr GI reservoir (write).
+layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
+layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;   // RG16F oct
+layout(std430, set = 2, binding = 2) buffer ReservoirBuffer { GIReservoir reservoirs[]; };
+
+layout(push_constant) uniform PC {
+    mat4  invViewProj;
+    uint  frameSeed;
+    float secondaryAlbedo;   // S0 scaffold constant (S3: real material albedo)
+    float maxIndirect;       // firefly clamp on L_o luminance
+    uint  _pad1;
+} pc;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    GIReservoir r; GIReservoirReset(r);
+
+    float depth      = texelFetch(u_SceneDepth, pixel, 0).r;
+    uint  lightCount = lights.pointLightCount;
+    if (depth >= 1.0) { reservoirs[flatIdx] = r; return; }   // sky → empty sample
+
+    vec2 octNv    = texelFetch(u_SlimNormal, pixel, 0).rg;
+    vec3 Nv       = OctDecode(octNv);
+    vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+    vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec3 worldPos = worldH.xyz / worldH.w;
+
+    uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
+
+    // Cosine-sample one bounce direction; pdf = cos/pi (solid angle).
+    float pdf;
+    vec3  d = SampleCosHemisphere(Nv, vec2(RandFromSeed(seed), RandFromSeed(seed)), pdf);
+
+    // Trace the bounce to the closest opaque hit (no terminate flag → committed = nearest).
+    float tMin   = ubo.rtShadowParams.y;
+    vec3  origin = worldPos + Nv * ubo.rtShadowParams.z + d * tMin;
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, origin, tMin, d, 1.0e30);
+    while (rayQueryProceedEXT(rq)) {}
+    if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+        reservoirs[flatIdx] = r;   // miss (sky / open) → empty GI sample
+        return;
+    }
+    float t  = rayQueryGetIntersectionTEXT(rq, true);
+    vec3  xs = origin + d * t;
+
+    // S0 scaffold normal: faces back toward the receiver (replaced by the real geometric normal in S3).
+    vec3 ns = normalize(worldPos - xs);
+
+    // L_o at x_s toward x_v = emission + single-light NEE (Lambertian secondary). One light picked
+    // uniformly; * lightCount divides out the 1/lightCount source pdf. Emission is 0 in the scaffold.
+    vec3 Lo = vec3(0.0);
+    if (lightCount > 0u) {
+        uint j = min(uint(RandFromSeed(seed) * float(lightCount)), lightCount - 1u);
+        PointLightData pl = lights.points[j];
+        vec3 Lw; float ld;
+        vec3 Li  = PointLightRadiance(pl, xs, Lw, ld);
+        float ndl = max(dot(ns, Lw), 0.0);
+        if (ndl > 0.0) {
+            float sMin  = ubo.rtShadowParams.y;
+            vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lw * sMin;
+            rayQueryEXT sq;
+            rayQueryInitializeEXT(sq, topLevelAS,
+                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+                sOrig, sMin, Lw, max(ld - 2.0 * sMin, sMin));
+            rayQueryProceedEXT(sq);
+            float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
+            Lo += (pc.secondaryAlbedo / GI_PI) * Li * ndl * vis * float(lightCount);
+        }
+    }
+
+    // Firefly clamp on the secondary radiance before it enters spatiotemporal reuse.
+    float lum = Luminance(Lo);
+    if (lum > pc.maxIndirect) Lo *= pc.maxIndirect / lum;
+
+    // Single-candidate reservoir: W resolves to 1/pdf (target cancels in finalize). targetPdf is
+    // recomputed, not stored. Self-carry the receiver geometry for next frame's temporal validation.
+    float pHat = GiTargetFunction(xs, Lo, worldPos, Nv);
+    float w    = (pdf > 0.0) ? pHat / pdf : 0.0;
+    GIReservoirUpdate(r, xs, Lo, OctEncode(ns), w, 0.5);
+    GIReservoirFinalize(r, pHat);
+    r.age          = 0u;
+    r.visDepth     = depth;
+    r.visNormalOct = octNv;
+
+    reservoirs[flatIdx] = r;
+}

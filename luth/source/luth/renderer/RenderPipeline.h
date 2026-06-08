@@ -24,6 +24,7 @@
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
+#include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
@@ -232,6 +233,17 @@ namespace Luth
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
 
+        // ReSTIR GI (Ouyang 2021) — sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
+        // a world-space path vertex, not a light index). Same ping-pong + single spatial-output shape;
+        // tags mint from RtRestirGiSubsystem's disjoint 0xFFFF8000 reserved range. restirGiDI is the
+        // viewport-sized rgba16f STORAGE+SAMPLED demodulated indirect-diffuse image (pbr.frag Set 3 b6).
+        Memory::GPUSubRegion restirGiReservoir[2]{};
+        u32 restirGiReservoirTag[2] = { 0, 0 };
+        Memory::GPUSubRegion restirGiSpatial{};
+        u32 restirGiSpatialTag = 0;
+        std::shared_ptr<Texture> restirGiDI;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirGiDescSet{};
+
         // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
         // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag
         // Set 3 b5 samples THIS (not restirDI), so the denoiser owns the slot whenever ReSTIR is on and
@@ -422,6 +434,7 @@ namespace Luth
         DebugDrawSubsystem      m_DebugDraw;
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
+        RtRestirGiSubsystem     m_RestirGi;
         SkinningSubsystem       m_Skinning;
         std::unique_ptr<IDenoiser> m_Denoise;  // SVGF today; swappable to NRD/RELAX via the settings toggle
 
@@ -432,6 +445,8 @@ namespace Luth
         const RtSubsystem&             GetRt()             const { return m_Rt; }
         RtRestirSubsystem&             GetRestir()               { return m_Restir; }
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
+        RtRestirGiSubsystem&           GetRestirGi()             { return m_RestirGi; }
+        const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
         IDenoiser&                     GetDenoise()              { return *m_Denoise; }

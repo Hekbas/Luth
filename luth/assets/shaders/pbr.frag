@@ -116,6 +116,10 @@ layout(set = 3, binding = 4) uniform sampler2D sunShadowMask;
 // only when restirParams.x > 0.5; else the per-cluster point-light loop runs.
 layout(set = 3, binding = 5) uniform sampler2D diIrradiance;
 
+// ReSTIR GI demodulated indirect-diffuse irradiance — same contract as diIrradiance. ADDED to Lo
+// (alongside DI, not instead of) when restirParams.y > 0.5; remodulated identically.
+layout(set = 3, binding = 6) uniform sampler2D giIrradiance;
+
 uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
     // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
     float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
@@ -494,6 +498,13 @@ void main()
             if (dot(ptRadiance, ptRadiance) > 0.0001)
                 Lo += CalculateLight(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
         }
+    }
+
+    // ReSTIR GI — demodulated indirect diffuse, ADDED on top of the direct term (independent of the
+    // DI gate). Same remodulation as DI: E * (diffuse-albedo / PI).
+    if (ubo.restirParams.y > 0.5)
+    {
+        Lo += texture(giIrradiance, gl_FragCoord.xy / ubo.viewportSize).rgb * (albedo.rgb * (1.0 - metallic) / PI);
     }
 
     // IBL ambient lighting

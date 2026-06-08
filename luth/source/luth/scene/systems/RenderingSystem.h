@@ -16,6 +16,7 @@
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
+#include "luth/renderer/settings/RestirGiSettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
 
 #include <entt/entt.hpp>
@@ -162,6 +163,9 @@ namespace Luth
         RestirSettings& GetRestirSettings() { return m_RestirSettings; }
         const RestirSettings& GetRestirSettings() const { return m_RestirSettings; }
 
+        RestirGiSettings& GetRestirGiSettings() { return m_RestirGiSettings; }
+        const RestirGiSettings& GetRestirGiSettings() const { return m_RestirGiSettings; }
+
         SvgfSettings& GetSvgfSettings() { return m_SvgfSettings; }
         const SvgfSettings& GetSvgfSettings() const { return m_SvgfSettings; }
 
@@ -273,6 +277,7 @@ namespace Luth
         PostProcessSettings m_PostProcessSettings;
         VolumetricSettings  m_VolumetricSettings;
         RestirSettings      m_RestirSettings;
+        RestirGiSettings    m_RestirGiSettings;
         SvgfSettings        m_SvgfSettings;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
