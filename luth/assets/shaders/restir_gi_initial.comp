@@ -60,9 +60,13 @@ void main() {
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
 
-    // Cosine-sample one bounce direction; pdf = cos/pi (solid angle).
+    // Cosine-sample one bounce direction; pdf = cos/pi (solid angle). Sequence the two stream draws
+    // into locals — GLSL leaves argument evaluation order unspecified, so an inline vec2(rand, rand)
+    // would pick u.x/u.y driver-dependently.
+    float u0 = RandFromSeed(seed);
+    float u1 = RandFromSeed(seed);
     float pdf;
-    vec3  d = SampleCosHemisphere(Nv, vec2(RandFromSeed(seed), RandFromSeed(seed)), pdf);
+    vec3  d = SampleCosHemisphere(Nv, vec2(u0, u1), pdf);
 
     // Trace the bounce to the closest opaque hit (no terminate flag → committed = nearest).
     float tMin   = ubo.rtShadowParams.y;
@@ -112,9 +116,9 @@ void main() {
     float w    = (pdf > 0.0) ? pHat / pdf : 0.0;
     GIReservoirUpdate(r, xs, Lo, OctEncode(ns), w, 0.5);
     GIReservoirFinalize(r, pHat);
-    r.age          = 0u;
-    r.visDepth     = depth;
-    r.visNormalOct = octNv;
+    r.age             = 0u;
+    r.visPos          = worldPos;                              // self-carried receiver pos (temporal Jacobian)
+    r.visNormalPacked = uintBitsToFloat(packHalf2x16(octNv)); // self-carried receiver normal (validation)
 
     reservoirs[flatIdx] = r;
 }

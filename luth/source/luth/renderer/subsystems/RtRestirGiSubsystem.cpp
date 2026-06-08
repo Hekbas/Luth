@@ -21,7 +21,7 @@ namespace Luth
             f32 samplePosX, samplePosY, samplePosZ, W;
             f32 radX, radY, radZ, wSum;
             f32 sampleNormalOctX, sampleNormalOctY; u32 M, age;
-            f32 visNormalOctX, visNormalOctY, visDepth, pad;
+            f32 visPosX, visPosY, visPosZ, visNormalPacked;
         };
         static_assert(sizeof(GPUGIReservoir) == 64, "GPUGIReservoir must match restir_gi_common.glsl GIReservoir (64 B)");
 
@@ -33,6 +33,17 @@ namespace Luth
             u32  pad1;
         };
         static_assert(sizeof(GiPC) == 80, "GiPC must match restir_gi_initial/shade.comp push_constant");
+
+        // Temporal-pass push constants — same 80 B footprint as GiPC (one shared pcRange), different
+        // fields. mCap + maxReservoirAge bit-packed so invViewProj + 4 scalars fit 80 B.
+        struct GiTemporalPC {
+            Mat4 invViewProj;
+            u32  mCapMaxAge;        // mCap (low 16) | maxReservoirAge (high 16)
+            u32  frameSeed;
+            f32  depthThreshold;
+            f32  normalThreshold;
+        };
+        static_assert(sizeof(GiTemporalPC) == 80, "GiTemporalPC must match restir_gi_temporal.comp push_constant");
     }
 
     bool RtRestirGiSubsystem::IsEnabled() const
@@ -120,24 +131,29 @@ namespace Luth
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_initial.comp"))
             m_InitialSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_temporal.comp"))
+            m_TemporalSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_shade.comp"))
             m_ShadeSpv = sh->GetSpirV();
-        if (m_InitialSpv.empty() || m_ShadeSpv.empty())
+        if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_ShadeSpv.empty())
         {
-            LH_CORE_ERROR("RtRestirGiSubsystem: failed to load restir_gi_initial/shade.comp SPIR-V");
+            LH_CORE_ERROR("RtRestirGiSubsystem: failed to load restir_gi_initial/temporal/shade.comp SPIR-V");
             return;
         }
 
-        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches both shaders.
+        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches all 3 shaders.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
             m_SetLayout,
         };
+        // GiPC and GiTemporalPC are both 80 B — one shared range covers all 3 pipelines.
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiPC) };
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
             m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        m_TemporalPipeline = std::make_unique<VKComputePipeline>(
+            m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
     }
@@ -146,12 +162,14 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InitialPipeline.reset();
+        m_TemporalPipeline.reset();
         m_ShadePipeline.reset();
         if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
         if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
         m_Sampler   = VK_NULL_HANDLE;
         m_SetLayout = VK_NULL_HANDLE;
         m_InitialSpv.clear();
+        m_TemporalSpv.clear();
         m_ShadeSpv.clear();
         m_Pipeline = nullptr;
     }
@@ -160,9 +178,10 @@ namespace Luth
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
-        const bool isInitial = (name == "restir_gi_initial.comp");
-        const bool isShade   = (name == "restir_gi_shade.comp");
-        if (!isInitial && !isShade) return false;
+        const bool isInitial  = (name == "restir_gi_initial.comp");
+        const bool isTemporal = (name == "restir_gi_temporal.comp");
+        const bool isShade    = (name == "restir_gi_shade.comp");
+        if (!isInitial && !isTemporal && !isShade) return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
@@ -182,6 +201,13 @@ namespace Luth
             deferComp(m_InitialPipeline);
             m_InitialPipeline = std::make_unique<VKComputePipeline>(
                 m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+        }
+        else if (isTemporal)
+        {
+            m_TemporalSpv = spv;
+            deferComp(m_TemporalPipeline);
+            m_TemporalPipeline = std::make_unique<VKComputePipeline>(
+                m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         }
         else
         {
@@ -317,10 +343,10 @@ namespace Luth
     RG::ResourceHandle RtRestirGiSubsystem::AddPasses(RG::RenderGraph& rg,
                                                       RG::ResourceHandle sceneDepth,
                                                       RG::ResourceHandle slimNormal,
-                                                      RG::ResourceHandle /*slimMotion*/)
+                                                      RG::ResourceHandle slimMotion)
     {
         const RestirGiSettings& settings = m_Pipeline->GetSystem().GetRestirGiSettings();
-        if (!settings.enabled || !m_InitialPipeline || !m_ShadePipeline) return {};
+        if (!settings.enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_ShadePipeline) return {};
 
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || !preflightVr->restirGiDI
@@ -332,15 +358,28 @@ namespace Luth
         // passes record, so the dispatches see the right ping-pong halves.
         WriteReservoirBindings(*preflightVr);
 
+        // Parity picks curr; prev is last frame's curr (read-only by temporal). Must match
+        // WriteReservoirBindings.
         const u32 currIdx = (frameAbs & 1u);
+        const u32 prevIdx = currIdx ^ 1u;
         const Memory::GPUSubRegion currRes = preflightVr->restirGiReservoir[currIdx];
+        const Memory::GPUSubRegion prevRes = preflightVr->restirGiReservoir[prevIdx];
 
-        // Build invViewProj + frameSeed once; both passes share GiPC.
+        // Build invViewProj + frameSeed once; initial/shade share GiPC, temporal uses GiTemporalPC
+        // (same 80 B footprint / shared pcRange, different fields).
+        const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
         GiPC pc{};
-        pc.invViewProj     = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
+        pc.invViewProj     = invVP;
         pc.frameSeed       = frameAbs;
         pc.secondaryAlbedo = settings.secondaryAlbedo;
         pc.maxIndirect     = settings.maxIndirect;
+
+        GiTemporalPC tpc{};
+        tpc.invViewProj     = invVP;
+        tpc.mCapMaxAge      = (settings.temporalMCap & 0xFFFFu) | ((settings.maxReservoirAge & 0xFFFFu) << 16);
+        tpc.frameSeed       = frameAbs;
+        tpc.depthThreshold  = settings.temporalDepthThreshold;
+        tpc.normalThreshold = settings.temporalNormalThreshold;
 
         // Initial pass — cosine-sampled 1-bounce path + single-light NEE, writes the CURR reservoir at
         // b2. The curr buffer is imported ONCE here; its handle threads into shade's ReadBuffer so the
@@ -397,8 +436,58 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Shade pass — reads the initial reservoir (b2, threaded via reservoirHandle so the RG inserts
-        // the initial→shade barrier) + depth/normal, writes the demodulated GI image. The shader's b2
+        // Temporal pass — reprojects via motion + merges last frame's PREV reservoir into the CURR
+        // candidate in-place, reweighted by the reconnection Jacobian. PREV is a SEPARATE read-only
+        // ImportBuffer (last frame's curr, no within-frame producer — cross-frame like taaHistory).
+        // CURR threads through reservoirHandle (read+write) so the RG inserts the initial→temporal RAW
+        // barrier. No AS barrier — temporal traces no rays.
+        struct GiTemporalData {
+            RG::ResourceHandle depth;
+            RG::ResourceHandle normal;
+            RG::ResourceHandle motion;
+            RG::BufferHandle   reservoirCurr;
+            RG::BufferHandle   reservoirPrev;
+        };
+        rg.AddComputePass<GiTemporalData>(
+            "GiTemporal",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](GiTemporalData& data, RG::RenderPassBuilder& builder) {
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimMotion.IsValid()) data.motion = builder.ReadStorageImage(slimMotion);
+
+                RG::BufferDesc prevBd{ "RestirGiReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::Undefined);
+                data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
+
+                data.reservoirCurr = builder.ReadBuffer(reservoirHandle);
+                data.reservoirCurr = builder.WriteBuffer(data.reservoirCurr);
+                reservoirHandle    = data.reservoirCurr;
+            },
+            [this, tpc](GiTemporalData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->restirGiDescSet[0] == VK_NULL_HANDLE) return;
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                m_TemporalPipeline->Bind(cmd);
+                VkDescriptorSet sets[3] = {
+                    vr->globalDescriptorSet[slot],
+                    vr->lightDescSet[slot],
+                    vr->restirGiDescSet[slot],
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_TemporalPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_TemporalPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiTemporalPC), &tpc);
+
+                const u32 groupX = (vr->width + 7) / 8;
+                const u32 groupY = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
+            });
+
+        // Shade pass — reads the resolved reservoir (b2, threaded via reservoirHandle so the RG inserts
+        // the temporal→shade barrier) + depth/normal, writes the demodulated GI image. The shader's b2
         // is already bound to curr by WriteReservoirBindings — do NOT rebind here.
         struct GiShadeData {
             RG::ResourceHandle depth;

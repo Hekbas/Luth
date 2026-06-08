@@ -11,20 +11,20 @@
 const float GI_PI = 3.14159265358979;
 
 // 64 B, std430 — 4 × 16 B blocks. A 1-bounce path sample: secondary hit x_s, its normal n_s (oct),
-// its outgoing radiance L_o toward the receiver, the reservoir state, and the receiver's own depth +
-// normal self-carried for temporal validation + the temporal Jacobian's source-receiver term.
+// its outgoing radiance L_o toward the receiver, the reservoir state, and the receiver's own world
+// position + normal self-carried for temporal validation + the temporal Jacobian's source-receiver term.
 struct GIReservoir {
     vec3  samplePos;       float W;                 // x_s ; unbiased contribution weight (post-finalize)
     vec3  sampleRadiance;  float wSum;              // L_o (HDR, full float) ; running RIS weight sum
     vec2  sampleNormalOct; uint  M; uint age;       // n_s ; confidence ; frames survived
-    vec2  visNormalOct;    float visDepth; float _pad; // receiver n_v (oct) + raw depth (self-carried)
+    vec3  visPos;          float visNormalPacked;   // receiver world pos + packHalf2x16(oct n_v) — self-carried
 };
 
 void GIReservoirReset(out GIReservoir r) {
     r.samplePos = vec3(0.0); r.W = 0.0;
     r.sampleRadiance = vec3(0.0); r.wSum = 0.0;
     r.sampleNormalOct = vec2(0.0); r.M = 0u; r.age = 0u;
-    r.visNormalOct = vec2(0.0); r.visDepth = 0.0; r._pad = 0.0;
+    r.visPos = vec3(0.0); r.visNormalPacked = 0.0;
 }
 
 // Octahedral encode — inverse of restir_common.glsl OctDecode (Cigolle et al. [0,1] mapping).
@@ -48,8 +48,8 @@ void GIReservoirUpdate(inout GIReservoir r, vec3 xs, vec3 Lo, vec2 nsOct, float 
 }
 
 // Merge a source reservoir's selected sample into c. risWeight = targetPdfAtCurr * Wsrc * Msrc, with
-// the reconnection Jacobian already folded into targetPdfAtCurr (spatial) or Wsrc (temporal) by the
-// caller. Confidence-weighted spatiotemporal combine (Ouyang 2021 / Bitterli 2020).
+// the reconnection Jacobian already folded into targetPdfAtCurr by the caller (which factor of the RIS
+// weight carries it is arbitrary). Confidence-weighted spatiotemporal combine (Ouyang 2021 / Bitterli 2020).
 void GIReservoirMerge(inout GIReservoir c, vec3 xs, vec3 Lo, vec2 nsOct, uint ageSrc,
                       float targetPdfAtCurr, float Wsrc, uint Msrc, float rnd) {
     float w = targetPdfAtCurr * Wsrc * float(Msrc);
