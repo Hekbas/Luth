@@ -36,6 +36,12 @@ namespace Luth::RG
         return resource;
     }
 
+    ResourceHandle RenderPassBuilder::ReadStorageImageGeneral(ResourceHandle resource)
+    {
+        m_Graph.RegisterRead(m_PassIndex, resource, ResourceState::ComputeReadStorage);
+        return resource;
+    }
+
     ResourceHandle RenderPassBuilder::WriteStorageImage(ResourceHandle resource)
     {
         return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ComputeWrite);
@@ -526,6 +532,13 @@ namespace Luth::RG
             case ResourceState::ComputeWrite:           return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
                                                               | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                                                                 VK_ACCESS_2_SHADER_WRITE_BIT };
+            // Storage-image read that must stay GENERAL (imageLoad on a UAV-style storage descriptor).
+            // Same stage/access as ComputeRead — only GetLayout differs (GENERAL, no SHADER_READ_ONLY
+            // transition), so a ComputeWrite→ComputeReadStorage hand-off emits a RAW barrier with no
+            // layout change. Used for storage images threaded across compute passes (SVGF chain).
+            case ResourceState::ComputeReadStorage:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                                VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
             case ResourceState::IndirectRead:           return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT };
@@ -556,6 +569,7 @@ namespace Luth::RG
             case ResourceState::Present:                return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
             case ResourceState::ComputeRead:            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             case ResourceState::ComputeWrite:           return VK_IMAGE_LAYOUT_GENERAL;
+            case ResourceState::ComputeReadStorage:     return VK_IMAGE_LAYOUT_GENERAL;
             // Buffer states have no image layout — return UNDEFINED (never used for image barriers)
             default:                                    return VK_IMAGE_LAYOUT_UNDEFINED;
         }
@@ -574,6 +588,7 @@ namespace Luth::RG
             case ResourceState::Present:                    return "Present";
             case ResourceState::ComputeRead:                return "ComputeRead";
             case ResourceState::ComputeWrite:               return "ComputeWrite";
+            case ResourceState::ComputeReadStorage:         return "ComputeReadStorage";
             case ResourceState::StorageBufferRead:          return "StorageBufferRead";
             case ResourceState::StorageBufferWrite:         return "StorageBufferWrite";
             case ResourceState::IndirectRead:               return "IndirectRead";
