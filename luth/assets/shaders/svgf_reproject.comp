@@ -28,10 +28,12 @@ layout(set = 1, binding = 4, rgba16f) uniform readonly image2D u_ColorHistPrev; 
 layout(set = 1, binding = 5, rgba16f) uniform readonly image2D u_MomentsPrev;   // prev (mu1, mu2, histLen)
 layout(set = 1, binding = 6, rgba16f) uniform readonly image2D u_GeomPrev;      // prev (linearZ, octN.x, octN.y)
 
+// outColor (colorHist[curr]) holds the integrated color + temporal variance: the moments pass reads
+// it, then the à-trous feedback level overwrites it as next frame's history. The denoised output the
+// consumer reads is written by the à-trous final level, not here.
 layout(set = 1, binding = 7,  rgba16f) uniform writeonly image2D outColor;     // curr color + variance
 layout(set = 1, binding = 8,  rgba16f) uniform writeonly image2D outMoments;   // curr (mu1, mu2, histLen)
 layout(set = 1, binding = 9,  rgba16f) uniform writeonly image2D outGeom;      // curr (linearZ, octN.x, octN.y)
-layout(set = 1, binding = 10, rgba16f) uniform writeonly image2D outDenoised;  // consumed by GeometryPass
 
 layout(push_constant) uniform PC {
     float alphaColor;       // steady-state EMA alpha (color)
@@ -58,12 +60,14 @@ void main() {
     if (depth >= 1.0) {
         imageStore(outColor,    pixel, vec4(0.0));
         imageStore(outMoments,  pixel, vec4(0.0));
-        imageStore(outDenoised, pixel, vec4(0.0, 0.0, 0.0, 1.0));
         return;
     }
 
-    vec3  di     = texelFetch(u_DiIn, pixel, 0).rgb;
-    float curLum = SvgfLuminance(di);
+    // Clamp the HDR signal to f16 range, and clamp the luminance used for the moments so mu2 = lum^2
+    // stays inside f16 (65504) — an unclamped bright light overflows to +Inf and poisons the variance
+    // channel + the feedback. The variance cap only softens edge-stop strength on very bright pixels.
+    vec3  di     = clamp(texelFetch(u_DiIn, pixel, 0).rgb, 0.0, 65504.0);
+    float curLum = min(SvgfLuminance(di), 255.0);
 
     // Reproject (TAA convention: motion is an NDC delta; UV offset = motion * 0.5).
     vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
@@ -119,8 +123,8 @@ void main() {
         mom     = vec2(curLum, curLum * curLum);
     }
 
-    float variance = max(0.0, mom.y - mom.x * mom.x);
+    float variance = mom.y - mom.x * mom.x;
+    variance = (isinf(variance) || isnan(variance)) ? 0.0 : max(0.0, variance);
     imageStore(outColor,    pixel, vec4(color, variance));
     imageStore(outMoments,  pixel, vec4(mom, histLen, 0.0));
-    imageStore(outDenoised, pixel, vec4(color, 1.0));
 }

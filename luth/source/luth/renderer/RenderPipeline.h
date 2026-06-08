@@ -249,6 +249,13 @@ namespace Luth
         std::shared_ptr<Texture> svgfMoments[2];
         std::shared_ptr<Texture> svgfGeom[2];
         VkDescriptorSet svgfReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
+        // À-trous ping-pong (RGBA16F storage, GENERAL). Moments writes svgfAtrous[0] (à-trous level-0
+        // input); the wavelet levels ping-pong [0]/[1] by iteration parity, the final level also writes
+        // svgfDenoised. Moments/à-trous sets are pre-built per parity, bound by index — no UAB rewrite.
+        std::shared_ptr<Texture> svgfAtrous[2];
+        VkDescriptorSet svgfMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkDescriptorSet svgfAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

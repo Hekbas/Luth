@@ -22,6 +22,23 @@ namespace Luth
             f32 normalThreshold;
         };
         static_assert(sizeof(SvgfReprojectPC) == 20, "SvgfReprojectPC must match svgf_reproject.comp push_constant");
+
+        // Mirrors svgf_moments.comp's push_constant (2 floats = 8 B).
+        struct SvgfMomentsPC {
+            f32 phiDepth;
+            f32 phiNormal;
+        };
+        static_assert(sizeof(SvgfMomentsPC) == 8, "SvgfMomentsPC must match svgf_moments.comp push_constant");
+
+        // Mirrors svgf_atrous.comp's push_constant (2 ints + 3 floats = 20 B).
+        struct SvgfAtrousPC {
+            i32 stepSize;
+            i32 writeFinal;
+            f32 phiColor;
+            f32 phiNormal;
+            f32 phiDepth;
+        };
+        static_assert(sizeof(SvgfAtrousPC) == 20, "SvgfAtrousPC must match svgf_atrous.comp push_constant");
     }
 
     bool SvgfDenoiser::IsEnabled() const
@@ -56,11 +73,12 @@ namespace Luth
 
         // Reproject set (pass-local): b0-b3 current-frame samplers (DI, depth, normal, motion);
         // b4-b6 prev history storage (color+variance, moments+histLen, geom); b7-b9 curr history
-        // storage; b10 denoised output storage. History stays GENERAL (storage), so no UAB / per-frame
-        // rewrite — the two sets are pre-built per parity and bound by frameAbs & 1.
+        // storage. History stays GENERAL (storage), so no UAB / per-frame rewrite — the two sets are
+        // pre-built per parity and bound by frameAbs & 1. The denoised output moved to the à-trous final
+        // level, so the reproject no longer binds it.
         {
-            VkDescriptorSetLayoutBinding b[11]{};
-            for (u32 i = 0; i < 11; ++i)
+            VkDescriptorSetLayoutBinding b[10]{};
+            for (u32 i = 0; i < 10; ++i)
             {
                 b[i].binding         = i;
                 b[i].descriptorCount = 1;
@@ -69,17 +87,59 @@ namespace Luth
                                                : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             }
             VkDescriptorSetLayoutCreateInfo ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            ci.bindingCount = 11; ci.pBindings = b;
+            ci.bindingCount = 10; ci.pBindings = b;
             vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_ReprojectLayout);
+        }
+
+        // Moments set (pass-local): b0 colorHist[curr] storage, b1 moments[curr] storage, b2 depth
+        // sampler, b3 normal sampler, b4 svgfAtrous[0] storage (à-trous level-0 input).
+        {
+            VkDescriptorSetLayoutBinding b[5]{};
+            const VkDescriptorType types[5] = {
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            };
+            for (u32 i = 0; i < 5; ++i)
+            {
+                b[i].binding = i; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                b[i].descriptorType = types[i];
+            }
+            VkDescriptorSetLayoutCreateInfo ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            ci.bindingCount = 5; ci.pBindings = b;
+            vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_MomentsLayout);
+        }
+
+        // À-trous set (pass-local): b0 svgfAtrous[IN] storage, b1 depth sampler, b2 normal sampler,
+        // b3 svgfAtrous[OUT] storage, b4 svgfDenoised storage (final level). Two sets by iter parity.
+        {
+            VkDescriptorSetLayoutBinding b[5]{};
+            const VkDescriptorType types[5] = {
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            };
+            for (u32 i = 0; i < 5; ++i)
+            {
+                b[i].binding = i; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                b[i].descriptorType = types[i];
+            }
+            VkDescriptorSetLayoutCreateInfo ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            ci.bindingCount = 5; ci.pBindings = b;
+            vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_AtrousLayout);
         }
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_passthrough.comp"))
             m_PassthroughSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_reproject.comp"))
             m_ReprojectSpv = sh->GetSpirV();
-        if (m_PassthroughSpv.empty() || m_ReprojectSpv.empty())
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_moments.comp"))
+            m_MomentsSpv = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_atrous.comp"))
+            m_AtrousSpv = sh->GetSpirV();
+        if (m_PassthroughSpv.empty() || m_ReprojectSpv.empty() || m_MomentsSpv.empty() || m_AtrousSpv.empty())
         {
-            LH_CORE_ERROR("SvgfDenoiser: failed to load svgf_passthrough/reproject.comp SPIR-V");
+            LH_CORE_ERROR("SvgfDenoiser: failed to load svgf_passthrough/reproject/moments/atrous.comp SPIR-V");
             return;
         }
 
@@ -87,14 +147,23 @@ namespace Luth
         m_PassthroughPipeline = std::make_unique<VKComputePipeline>(
             m_PassthroughSpv, passLayouts, std::vector<VkPushConstantRange>{});
 
+        VkDescriptorSetLayout globalLayout = m_Pipeline->GetGlobal().GetSetLayout();
+
         // Reproject binds Set 0 (global UBO — nearZ/farZ/viewportSize) + the pass-local set.
-        const std::vector<VkDescriptorSetLayout> reprojLayouts = {
-            m_Pipeline->GetGlobal().GetSetLayout(),
-            m_ReprojectLayout,
-        };
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC) };
+        const std::vector<VkDescriptorSetLayout> reprojLayouts = { globalLayout, m_ReprojectLayout };
+        VkPushConstantRange reprojPc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC) };
         m_ReprojectPipeline = std::make_unique<VKComputePipeline>(
-            m_ReprojectSpv, reprojLayouts, std::vector<VkPushConstantRange>{ pcRange });
+            m_ReprojectSpv, reprojLayouts, std::vector<VkPushConstantRange>{ reprojPc });
+
+        const std::vector<VkDescriptorSetLayout> momentsLayouts = { globalLayout, m_MomentsLayout };
+        VkPushConstantRange momentsPc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfMomentsPC) };
+        m_MomentsPipeline = std::make_unique<VKComputePipeline>(
+            m_MomentsSpv, momentsLayouts, std::vector<VkPushConstantRange>{ momentsPc });
+
+        const std::vector<VkDescriptorSetLayout> atrousLayouts = { globalLayout, m_AtrousLayout };
+        VkPushConstantRange atrousPc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfAtrousPC) };
+        m_AtrousPipeline = std::make_unique<VKComputePipeline>(
+            m_AtrousSpv, atrousLayouts, std::vector<VkPushConstantRange>{ atrousPc });
     }
 
     void SvgfDenoiser::Shutdown()
@@ -102,14 +171,22 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
         m_PassthroughPipeline.reset();
         m_ReprojectPipeline.reset();
+        m_MomentsPipeline.reset();
+        m_AtrousPipeline.reset();
         if (m_Sampler)         vkDestroySampler(device, m_Sampler, nullptr);
         if (m_PassLayout)      vkDestroyDescriptorSetLayout(device, m_PassLayout, nullptr);
         if (m_ReprojectLayout) vkDestroyDescriptorSetLayout(device, m_ReprojectLayout, nullptr);
+        if (m_MomentsLayout)   vkDestroyDescriptorSetLayout(device, m_MomentsLayout, nullptr);
+        if (m_AtrousLayout)    vkDestroyDescriptorSetLayout(device, m_AtrousLayout, nullptr);
         m_Sampler        = VK_NULL_HANDLE;
         m_PassLayout      = VK_NULL_HANDLE;
         m_ReprojectLayout = VK_NULL_HANDLE;
+        m_MomentsLayout   = VK_NULL_HANDLE;
+        m_AtrousLayout    = VK_NULL_HANDLE;
         m_PassthroughSpv.clear();
         m_ReprojectSpv.clear();
+        m_MomentsSpv.clear();
+        m_AtrousSpv.clear();
         m_Pipeline = nullptr;
     }
 
@@ -139,6 +216,30 @@ namespace Luth
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC) };
             m_ReprojectPipeline = std::make_unique<VKComputePipeline>(
                 m_ReprojectSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+            return true;
+        }
+        if (name == "svgf_moments.comp" && m_MomentsLayout != VK_NULL_HANDLE)
+        {
+            if (m_MomentsPipeline)
+                VulkanContext::Get().PushDeletion([p = m_MomentsPipeline.release()]() { delete p; });
+            m_MomentsSpv = spv;
+            const std::vector<VkDescriptorSetLayout> layouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(), m_MomentsLayout };
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfMomentsPC) };
+            m_MomentsPipeline = std::make_unique<VKComputePipeline>(
+                m_MomentsSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+            return true;
+        }
+        if (name == "svgf_atrous.comp" && m_AtrousLayout != VK_NULL_HANDLE)
+        {
+            if (m_AtrousPipeline)
+                VulkanContext::Get().PushDeletion([p = m_AtrousPipeline.release()]() { delete p; });
+            m_AtrousSpv = spv;
+            const std::vector<VkDescriptorSetLayout> layouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(), m_AtrousLayout };
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfAtrousPC) };
+            m_AtrousPipeline = std::make_unique<VKComputePipeline>(
+                m_AtrousSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
         }
         return false;
@@ -177,6 +278,40 @@ namespace Luth
                 VulkanContext::SetDebugName(vr.svgfReprojectDescSet[1], "View.SvgfReproject1");
             }
         }
+
+        if (m_MomentsLayout != VK_NULL_HANDLE)
+        {
+            VkDescriptorSetLayout layouts[2] = { m_MomentsLayout, m_MomentsLayout };
+            VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 2; ai.pSetLayouts = layouts;
+            if (vkAllocateDescriptorSets(device, &ai, vr.svgfMomentsDescSet) != VK_SUCCESS)
+            {
+                LH_CORE_ERROR("SvgfDenoiser: moments sets alloc failed; bump view pool sizes");
+                vr.svgfMomentsDescSet[0] = vr.svgfMomentsDescSet[1] = VK_NULL_HANDLE;
+            }
+            else
+            {
+                VulkanContext::SetDebugName(vr.svgfMomentsDescSet[0], "View.SvgfMoments0");
+                VulkanContext::SetDebugName(vr.svgfMomentsDescSet[1], "View.SvgfMoments1");
+            }
+        }
+
+        if (m_AtrousLayout != VK_NULL_HANDLE)
+        {
+            VkDescriptorSetLayout layouts[2] = { m_AtrousLayout, m_AtrousLayout };
+            VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 2; ai.pSetLayouts = layouts;
+            if (vkAllocateDescriptorSets(device, &ai, vr.svgfAtrousDescSet) != VK_SUCCESS)
+            {
+                LH_CORE_ERROR("SvgfDenoiser: atrous sets alloc failed; bump view pool sizes");
+                vr.svgfAtrousDescSet[0] = vr.svgfAtrousDescSet[1] = VK_NULL_HANDLE;
+            }
+            else
+            {
+                VulkanContext::SetDebugName(vr.svgfAtrousDescSet[0], "View.SvgfAtrous0");
+                VulkanContext::SetDebugName(vr.svgfAtrousDescSet[1], "View.SvgfAtrous1");
+            }
+        }
     }
 
     void SvgfDenoiser::WriteView(ViewResources& vr, FrameTargets& targets)
@@ -202,7 +337,7 @@ namespace Luth
         }
 
         // Reproject sets: pre-build both parities (set[p] reads prev = [p^1], writes curr = [p]).
-        if (vr.svgfReprojectDescSet[0] != VK_NULL_HANDLE && vr.restirDI && vr.svgfDenoised
+        if (vr.svgfReprojectDescSet[0] != VK_NULL_HANDLE && vr.restirDI
             && vr.svgfColorHist[0] && vr.svgfMoments[0] && vr.svgfGeom[0]
             && targets.GetSceneDepth() && targets.GetSlimNormal() && targets.GetSlimMotion())
         {
@@ -210,12 +345,11 @@ namespace Luth
             const VkImageView normalV = viewOf(targets.GetSlimNormal());
             const VkImageView motionV = viewOf(targets.GetSlimMotion());
             const VkImageView diV     = viewOf(vr.restirDI);
-            const VkImageView denV    = viewOf(vr.svgfDenoised);
 
             for (u32 p = 0; p < 2; ++p)
             {
                 const u32 q = p ^ 1u;  // prev parity
-                VkDescriptorImageInfo info[11]{};
+                VkDescriptorImageInfo info[10]{};
                 info[0] = { m_Sampler, diV,     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
                 info[1] = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
                 info[2] = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -226,10 +360,9 @@ namespace Luth
                 info[7] = { VK_NULL_HANDLE, viewOf(vr.svgfColorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
                 info[8] = { VK_NULL_HANDLE, viewOf(vr.svgfMoments[p]),   VK_IMAGE_LAYOUT_GENERAL };
                 info[9] = { VK_NULL_HANDLE, viewOf(vr.svgfGeom[p]),      VK_IMAGE_LAYOUT_GENERAL };
-                info[10]= { VK_NULL_HANDLE, denV,                        VK_IMAGE_LAYOUT_GENERAL };
 
-                VkWriteDescriptorSet w[11]{};
-                for (u32 i = 0; i < 11; ++i)
+                VkWriteDescriptorSet w[10]{};
+                for (u32 i = 0; i < 10; ++i)
                 {
                     w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
                     w[i].dstSet          = vr.svgfReprojectDescSet[p];
@@ -239,7 +372,78 @@ namespace Luth
                     w[i].descriptorCount = 1;
                     w[i].pImageInfo      = &info[i];
                 }
-                vkUpdateDescriptorSets(device, 11, w, 0, nullptr);
+                vkUpdateDescriptorSets(device, 10, w, 0, nullptr);
+            }
+        }
+
+        // Moments sets: per parity p, b0/b1 = colorHist[p]/moments[p] (the reproject's curr output),
+        // b2/b3 depth/normal samplers, b4 svgfAtrous[0] (à-trous level-0 input — shared, not ping-ponged).
+        if (vr.svgfMomentsDescSet[0] != VK_NULL_HANDLE
+            && vr.svgfColorHist[0] && vr.svgfMoments[0] && vr.svgfAtrous[0]
+            && targets.GetSceneDepth() && targets.GetSlimNormal())
+        {
+            const VkImageView depthV  = viewOf(targets.GetSceneDepth());
+            const VkImageView normalV = viewOf(targets.GetSlimNormal());
+            const VkImageView a0V     = viewOf(vr.svgfAtrous[0]);
+
+            for (u32 p = 0; p < 2; ++p)
+            {
+                VkDescriptorImageInfo info[5]{};
+                info[0] = { VK_NULL_HANDLE, viewOf(vr.svgfColorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
+                info[1] = { VK_NULL_HANDLE, viewOf(vr.svgfMoments[p]),   VK_IMAGE_LAYOUT_GENERAL };
+                info[2] = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[3] = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[4] = { VK_NULL_HANDLE, a0V, VK_IMAGE_LAYOUT_GENERAL };
+
+                const VkDescriptorType types[5] = {
+                    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                };
+                VkWriteDescriptorSet w[5]{};
+                for (u32 i = 0; i < 5; ++i)
+                {
+                    w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                    w[i].dstSet = vr.svgfMomentsDescSet[p]; w[i].dstBinding = i;
+                    w[i].descriptorType = types[i]; w[i].descriptorCount = 1; w[i].pImageInfo = &info[i];
+                }
+                vkUpdateDescriptorSets(device, 5, w, 0, nullptr);
+            }
+        }
+
+        // À-trous sets: per iter parity ip, b0 = svgfAtrous[ip] (in), b3 = svgfAtrous[ip^1] (out),
+        // b1/b2 depth/normal samplers, b4 svgfDenoised (final-level output).
+        if (vr.svgfAtrousDescSet[0] != VK_NULL_HANDLE
+            && vr.svgfAtrous[0] && vr.svgfAtrous[1] && vr.svgfDenoised
+            && targets.GetSceneDepth() && targets.GetSlimNormal())
+        {
+            const VkImageView depthV  = viewOf(targets.GetSceneDepth());
+            const VkImageView normalV = viewOf(targets.GetSlimNormal());
+            const VkImageView denV    = viewOf(vr.svgfDenoised);
+
+            for (u32 ip = 0; ip < 2; ++ip)
+            {
+                const u32 op = ip ^ 1u;
+                VkDescriptorImageInfo info[5]{};
+                info[0] = { VK_NULL_HANDLE, viewOf(vr.svgfAtrous[ip]), VK_IMAGE_LAYOUT_GENERAL };
+                info[1] = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[2] = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[3] = { VK_NULL_HANDLE, viewOf(vr.svgfAtrous[op]), VK_IMAGE_LAYOUT_GENERAL };
+                info[4] = { VK_NULL_HANDLE, denV, VK_IMAGE_LAYOUT_GENERAL };
+
+                const VkDescriptorType types[5] = {
+                    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                };
+                VkWriteDescriptorSet w[5]{};
+                for (u32 i = 0; i < 5; ++i)
+                {
+                    w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                    w[i].dstSet = vr.svgfAtrousDescSet[ip]; w[i].dstBinding = i;
+                    w[i].descriptorType = types[i]; w[i].descriptorCount = 1; w[i].pImageInfo = &info[i];
+                }
+                vkUpdateDescriptorSets(device, 5, w, 0, nullptr);
             }
         }
     }
@@ -254,11 +458,205 @@ namespace Luth
         if (!vr || !vr->svgfDenoised) return {};
 
         const bool enabled = m_Pipeline->GetSystem().GetSvgfSettings().enabled;
-        if (enabled && m_ReprojectPipeline && vr->svgfReprojectDescSet[0] != VK_NULL_HANDLE)
-            return AddReprojectPass(rg, in);
+        const bool chainReady = m_ReprojectPipeline && m_MomentsPipeline && m_AtrousPipeline
+            && vr->svgfReprojectDescSet[0] != VK_NULL_HANDLE
+            && vr->svgfMomentsDescSet[0] != VK_NULL_HANDLE
+            && vr->svgfAtrousDescSet[0] != VK_NULL_HANDLE
+            && vr->svgfColorHist[0] && vr->svgfMoments[0] && vr->svgfAtrous[0] && vr->svgfAtrous[1];
+        if (enabled && chainReady)
+            return AddDenoiseChain(rg, in);
         if (m_PassthroughPipeline && vr->svgfPassthroughDescSet != VK_NULL_HANDLE)
             return AddPassthroughPass(rg, in);
         return {};
+    }
+
+    RG::ResourceHandle SvgfDenoiser::AddDenoiseChain(RG::RenderGraph& rg, const DenoiseInputs& in)
+    {
+        const SvgfSettings& s = m_Pipeline->GetSystem().GetSvgfSettings();
+
+        SvgfReprojectPC rpc{};
+        rpc.alphaColor      = s.alphaColor;
+        rpc.alphaMoments    = s.alphaMoments;
+        rpc.historyCap      = static_cast<f32>(s.historyCap);
+        rpc.depthThreshold  = s.depthThreshold;
+        rpc.normalThreshold = s.normalThreshold;
+
+        SvgfMomentsPC mpc{};
+        mpc.phiDepth  = s.phiDepth;
+        mpc.phiNormal = s.phiNormal;
+
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        const u32 fp       = frameAbs & 1u;                       // reproject/moments curr parity
+        const u32 N        = std::max(1u, s.atrousIterations);
+
+        // Import each distinct VkImage at most ONCE per frame — re-importing aliases distinct RG nodes
+        // (a known hazard). colorHist[fp], moments[fp], svgfAtrous[0], svgfAtrous[1], svgfDenoised each
+        // get exactly one ImportResource; their handles thread forward across the chain so the RG inserts
+        // the within-frame barriers. History geom[fp] (reproject b9) stays descriptor-only — cross-frame.
+        auto importTex = [&rg](const std::shared_ptr<Texture>& t, const char* name) {
+            auto vt = std::static_pointer_cast<VKTexture>(t);
+            RG::TextureDesc d;
+            d.name   = name;
+            d.width  = vt->GetWidth();
+            d.height = vt->GetHeight();
+            d.format = RG::TextureFormat::RGBA16_Float;
+            return rg.ImportResource(d, (void*)vt->GetImage(), (void*)vt->GetImageView(),
+                                     RG::ResourceState::Undefined);
+        };
+
+        // Reproject — writes colorHist[fp] (integrated color + temporal variance) + moments[fp]. The
+        // current-frame inputs (DI/depth/normal/motion) come in through the RG; the curr history images
+        // are imported here and their handles (hColor/hMom) thread into the moments read.
+        struct ReprojData {
+            RG::ResourceHandle di, depth, normal, motion;
+            RG::ResourceHandle color, mom;
+        };
+        RG::ResourceHandle hColor{}, hMom{};
+        rg.AddComputePass<ReprojData>(
+            "SvgfReproject",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](ReprojData& data, RG::RenderPassBuilder& builder) {
+                data.di = builder.ReadStorageImage(in.di);
+                if (in.depth.IsValid())  data.depth  = builder.ReadStorageImage(in.depth);
+                if (in.normal.IsValid()) data.normal = builder.ReadStorageImage(in.normal);
+                if (in.motion.IsValid()) data.motion = builder.ReadStorageImage(in.motion);
+
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                data.color = importTex(vr->svgfColorHist[fp], "SvgfColorHistCurr");
+                data.color = builder.WriteStorageImage(data.color);
+                hColor     = data.color;
+                data.mom   = importTex(vr->svgfMoments[fp], "SvgfMomentsCurr");
+                data.mom   = builder.WriteStorageImage(data.mom);
+                hMom       = data.mom;
+            },
+            [this, rpc](ReprojData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+                const u32 fa = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                const u32 parity = fa & 1u;
+                const u32 sl     = fa % MAX_FRAMES_IN_FLIGHT;
+                if (vr->svgfReprojectDescSet[parity] == VK_NULL_HANDLE) return;
+
+                m_ReprojectPipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = { vr->globalDescriptorSet[sl], vr->svgfReprojectDescSet[parity] };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_ReprojectPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_ReprojectPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC), &rpc);
+
+                const u32 gx = (vr->width + 7) / 8;
+                const u32 gy = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, gx, gy, 1);
+            });
+
+        // Moments — reads colorHist[fp] + moments[fp] (threaded hColor/hMom → reproject→moments RAW
+        // barrier), writes svgfAtrous[0]. Depth/normal are descriptor-only (already SHADER_READ_ONLY
+        // from the reproject's RG reads). svgfAtrous[0] is imported ONCE here; hA0 threads into à-trous.
+        struct MomentsData {
+            RG::ResourceHandle color, mom, out;
+        };
+        RG::ResourceHandle hA0{};
+        rg.AddComputePass<MomentsData>(
+            "SvgfMoments",
+            RG::QueueFamily::AsyncCompute,
+            [&, this](MomentsData& data, RG::RenderPassBuilder& builder) {
+                // GENERAL-preserving reads: colorHist/moments are STORAGE images (imageLoad in the
+                // shader), so they must stay GENERAL — ReadStorageImage would transition them to
+                // SHADER_READ_ONLY and mismatch the STORAGE_IMAGE descriptor.
+                data.color = builder.ReadStorageImageGeneral(hColor);
+                data.mom   = builder.ReadStorageImageGeneral(hMom);
+
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                data.out = importTex(vr->svgfAtrous[0], "SvgfAtrous0");
+                data.out = builder.WriteStorageImage(data.out);
+                hA0      = data.out;
+            },
+            [this, mpc](MomentsData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+                const u32 fa = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                const u32 parity = fa & 1u;
+                const u32 sl     = fa % MAX_FRAMES_IN_FLIGHT;
+                if (vr->svgfMomentsDescSet[parity] == VK_NULL_HANDLE) return;
+
+                m_MomentsPipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = { vr->globalDescriptorSet[sl], vr->svgfMomentsDescSet[parity] };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_MomentsPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_MomentsPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfMomentsPC), &mpc);
+
+                const u32 gx = (vr->width + 7) / 8;
+                const u32 gy = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, gx, gy, 1);
+            });
+
+        // À-trous — N levels ping-ponging svgfAtrous[0]/[1] with a doubling step. hA[2] tracks the live
+        // handle per slot: hA[0] starts as the moments output; svgfAtrous[1] is imported ONCE (the first
+        // time it is written, i==0). Each level reads hA[in] and writes hA[out] (threaded → per-level
+        // RAW barrier). The final level also writes svgfDenoised (imported once → hDen).
+        RG::ResourceHandle hA[2] = { hA0, {} };
+        RG::ResourceHandle hDen{};
+        for (u32 i = 0; i < N; ++i)
+        {
+            const u32  inPar   = i & 1u;
+            const u32  outPar  = inPar ^ 1u;
+            const bool isFinal = (i == N - 1);
+            const i32  stepSize = 1 << i;
+
+            SvgfAtrousPC apc{};
+            apc.stepSize   = stepSize;
+            apc.writeFinal = isFinal ? 1 : 0;
+            apc.phiColor   = s.phiColor;
+            apc.phiNormal  = s.phiNormal;
+            apc.phiDepth   = s.phiDepth;
+
+            struct AtrousData {
+                RG::ResourceHandle in, out, den;
+            };
+            rg.AddComputePass<AtrousData>(
+                "SvgfAtrous",
+                RG::QueueFamily::AsyncCompute,
+                [&, this](AtrousData& data, RG::RenderPassBuilder& builder) {
+                    data.in = builder.ReadStorageImageGeneral(hA[inPar]);  // STORAGE imageLoad — keep GENERAL
+
+                    ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                    if (!hA[outPar].IsValid())
+                        hA[outPar] = importTex(vr->svgfAtrous[outPar], "SvgfAtrousAlt");
+                    data.out   = builder.WriteStorageImage(hA[outPar]);
+                    hA[outPar] = data.out;
+
+                    if (isFinal)
+                    {
+                        data.den = importTex(vr->svgfDenoised, "SvgfDenoised");
+                        data.den = builder.WriteStorageImage(data.den);
+                        hDen     = data.den;
+                    }
+                },
+                [this, apc, inPar](AtrousData&, RG::RenderPassContext& ctx) {
+                    VkCommandBuffer cmd = ctx.commandBuffer;
+                    ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                    if (!vr) return;
+                    const u32 sl = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex())
+                                 % MAX_FRAMES_IN_FLIGHT;
+                    if (vr->svgfAtrousDescSet[inPar] == VK_NULL_HANDLE) return;
+
+                    m_AtrousPipeline->Bind(cmd);
+                    VkDescriptorSet sets[2] = { vr->globalDescriptorSet[sl], vr->svgfAtrousDescSet[inPar] };
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        m_AtrousPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+                    vkCmdPushConstants(cmd, m_AtrousPipeline->GetLayout(),
+                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfAtrousPC), &apc);
+
+                    const u32 gx = (vr->width + 7) / 8;
+                    const u32 gy = (vr->height + 7) / 8;
+                    vkCmdDispatch(cmd, gx, gy, 1);
+                });
+        }
+
+        return hDen;
     }
 
     RG::ResourceHandle SvgfDenoiser::AddPassthroughPass(RG::RenderGraph& rg, const DenoiseInputs& in)
@@ -296,76 +694,6 @@ namespace Luth
                 VkDescriptorSet sets[1] = { vr->svgfPassthroughDescSet };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     m_PassthroughPipeline->GetLayout(), 0, 1, sets, 0, nullptr);
-
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
-                vkCmdDispatch(cmd, groupX, groupY, 1);
-            });
-        return outHandle;
-    }
-
-    RG::ResourceHandle SvgfDenoiser::AddReprojectPass(RG::RenderGraph& rg, const DenoiseInputs& in)
-    {
-        const SvgfSettings& s = m_Pipeline->GetSystem().GetSvgfSettings();
-        SvgfReprojectPC pc{};
-        pc.alphaColor      = s.alphaColor;
-        pc.alphaMoments    = s.alphaMoments;
-        pc.historyCap      = static_cast<f32>(s.historyCap);
-        pc.depthThreshold  = s.depthThreshold;
-        pc.normalThreshold = s.normalThreshold;
-
-        // History (svgfColorHist/Moments/Geom) is bound via the descriptor set, not RG-tracked: it
-        // stays GENERAL across frames and the ping-pong + frame timeline make the prev read safe. Only
-        // the cross-pass I/O (current-frame inputs + the denoised output) goes through the RG.
-        struct PassData {
-            RG::ResourceHandle di;
-            RG::ResourceHandle depth;
-            RG::ResourceHandle normal;
-            RG::ResourceHandle motion;
-            RG::ResourceHandle out;
-        };
-        RG::ResourceHandle outHandle{};
-        rg.AddComputePass<PassData>(
-            "SvgfReproject",
-            RG::QueueFamily::AsyncCompute,
-            [&, this](PassData& data, RG::RenderPassBuilder& builder) {
-                data.di = builder.ReadStorageImage(in.di);
-                if (in.depth.IsValid())  data.depth  = builder.ReadStorageImage(in.depth);
-                if (in.normal.IsValid()) data.normal = builder.ReadStorageImage(in.normal);
-                if (in.motion.IsValid()) data.motion = builder.ReadStorageImage(in.motion);
-
-                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-                auto outTex = std::static_pointer_cast<VKTexture>(vr->svgfDenoised);
-                RG::TextureDesc desc;
-                desc.name   = "SvgfDenoised";
-                desc.width  = outTex->GetWidth();
-                desc.height = outTex->GetHeight();
-                desc.format = RG::TextureFormat::RGBA16_Float;
-                data.out = rg.ImportResource(desc,
-                    (void*)outTex->GetImage(), (void*)outTex->GetImageView(),
-                    RG::ResourceState::Undefined);
-                data.out = builder.WriteStorageImage(data.out);
-                outHandle = data.out;
-            },
-            [this, pc](PassData&, RG::RenderPassContext& ctx) {
-                VkCommandBuffer cmd = ctx.commandBuffer;
-                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
-                if (!vr) return;
-
-                const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-                const u32 parity   = frameAbs & 1u;
-                const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
-                if (vr->svgfReprojectDescSet[parity] == VK_NULL_HANDLE) return;
-
-                m_ReprojectPipeline->Bind(cmd);
-                VkDescriptorSet sets[2] = {
-                    vr->globalDescriptorSet[slot],
-                    vr->svgfReprojectDescSet[parity],
-                };
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_ReprojectPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
-                vkCmdPushConstants(cmd, m_ReprojectPipeline->GetLayout(),
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC), &pc);
 
                 const u32 groupX = (vr->width + 7) / 8;
                 const u32 groupY = (vr->height + 7) / 8;

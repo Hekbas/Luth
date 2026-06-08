@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 140;
+    static constexpr u32 k_ViewPoolMaxSets              = 152;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 96;  // GTAO + volumetric + RT shadow mask + ReSTIR DI + SVGF passthrough + reproject ping-pong
+    static constexpr u32 k_ViewPoolStorageImageCount    = 120;  // GTAO + volumetric + RT shadow mask + ReSTIR DI + SVGF passthrough + reproject/moments/atrous ping-pong
     static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 184;  // + ReSTIR Set 2 + Set 3 b5 DI + SVGF passthrough/reproject inputs
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 200;  // + ReSTIR Set 2 + Set 3 b5 DI + SVGF passthrough/reproject/moments/atrous inputs
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -289,6 +289,11 @@ namespace Luth
             vr.svgfGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         }
 
+        // À-trous ping-pong — same shape as the SVGF history. svgfAtrous[0] is the moments output (à-trous
+        // level-0 input); the wavelet levels ping-pong [0]/[1]. Bootstrap-cleared to GENERAL below.
+        vr.svgfAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+
         // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
         // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
         // FreeTag(N-2) sweep never touches them. Two distinct tags so temporal reuse can read last
@@ -347,7 +352,7 @@ namespace Luth
         // pixel content. The volumetric resolve samples volInScatterHist{A,B} and the SVGF reproject
         // imageLoads its prev history on frame 0; without this clear the first read is NaN-prone garbage
         // (and imageLoad needs GENERAL). One-shot submit per view-resize only.
-        VkImage clearTargets[9] = {
+        VkImage clearTargets[11] = {
             std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
@@ -357,8 +362,10 @@ namespace Luth
             std::static_pointer_cast<VKTexture>(vr.svgfMoments[1])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfGeom[0])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfGeom[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfAtrous[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfAtrous[1])->GetImage(),
         };
-        constexpr u32 kClearCount = 9;
+        constexpr u32 kClearCount = 11;
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
             VkImageMemoryBarrier toDst[kClearCount]{};
             for (u32 i = 0; i < kClearCount; ++i)
@@ -423,6 +430,8 @@ namespace Luth
             vr.svgfMoments[i].reset();
             vr.svgfGeom[i].reset();
         }
+        vr.svgfAtrous[0].reset();
+        vr.svgfAtrous[1].reset();
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

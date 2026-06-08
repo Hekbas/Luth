@@ -1,0 +1,105 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/svgf_common.glsl"
+
+// SVGF variance-guided edge-aware à-trous wavelet (Schied 2017). One level of the wavelet transform —
+// dispatched N times with a doubling step size (1,2,4,8,16) for a 65x65 effective footprint. The 5x5
+// cross-bilateral filter is gated by three edge-stopping weights: depth (gradient-normalized),
+// world-normal (power), and luminance (driven by the moment variance). Variance is co-filtered with
+// the SQUARED weights (it's the second moment of the estimator), and the luminance weight uses a 3x3
+// gaussian prefilter of the variance that is NOT propagated. This is a pure post-filter: the temporal
+// feedback is the reproject's integrated color (feedbackTap = -1); the final level (writeFinal) writes
+// the consumed denoised image. Compute has no fwidth, so the depth gradient is a central finite diff.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// set 0 = global UBO (nearZ/farZ for depth linearization).
+layout(set = 1, binding = 0, rgba16f) uniform readonly image2D u_AtrousIn; // color (rgb) + variance (a)
+layout(set = 1, binding = 1) uniform sampler2D u_Depth;
+layout(set = 1, binding = 2) uniform sampler2D u_Normal;
+layout(set = 1, binding = 3, rgba16f) uniform writeonly image2D outAtrous;   // next à-trous level
+layout(set = 1, binding = 4, rgba16f) uniform writeonly image2D outDenoised; // consumed by GeometryPass (final level)
+
+layout(push_constant) uniform PC {
+    int   stepSize;     // à-trous hole size (1, 2, 4, ...)
+    int   writeFinal;   // 1 on the last level — also write the denoised output
+    float phiColor;     // luminance edge-stop sigma
+    float phiNormal;    // normal edge-stop exponent
+    float phiDepth;     // depth edge-stop scale
+} pc;
+
+const float kKernel[3] = float[3](1.0, 2.0 / 3.0, 1.0 / 6.0);  // unnormalized 5-tap B-spline half
+
+float linZAt(ivec2 p) { return SvgfLinearizeDepth(texelFetch(u_Depth, p, 0).r); }
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec4  c    = imageLoad(u_AtrousIn, pixel);
+    float lc   = SvgfLuminance(c.rgb);
+    float depth = texelFetch(u_Depth, pixel, 0).r;
+
+    if (depth >= 1.0) {            // sky — passthrough
+        imageStore(outAtrous, pixel, c);
+        if (pc.writeFinal != 0) imageStore(outDenoised, pixel, vec4(c.rgb, 1.0));
+        return;
+    }
+
+    float lzc = SvgfLinearizeDepth(depth);
+    vec3  Nc  = SvgfOctDecode(texelFetch(u_Normal, pixel, 0).rg);
+
+    // Central-difference linear-depth gradient (compute substitute for fwidth).
+    float dzdx = 0.5 * (linZAt(min(pixel + ivec2(1, 0), size - 1)) - linZAt(max(pixel - ivec2(1, 0), ivec2(0))));
+    float dzdy = 0.5 * (linZAt(min(pixel + ivec2(0, 1), size - 1)) - linZAt(max(pixel - ivec2(0, 1), ivec2(0))));
+
+    // 3x3 gaussian of the variance — drives the luminance weight only (not propagated).
+    float gaussVar = 0.0, gaussW = 0.0;
+    const float g2[3] = float[3](1.0, 2.0, 1.0);
+    for (int yy = -1; yy <= 1; ++yy)
+    for (int xx = -1; xx <= 1; ++xx) {
+        ivec2 q = clamp(pixel + ivec2(xx, yy), ivec2(0), size - 1);
+        float gw = g2[xx + 1] * g2[yy + 1];
+        gaussVar += gw * imageLoad(u_AtrousIn, q).a;
+        gaussW   += gw;
+    }
+    float phiL = pc.phiColor * sqrt(max(0.0, gaussVar / gaussW)) + 1e-8;
+
+    vec3  sumColor = c.rgb;
+    float sumVar   = c.a;
+    float sumW     = 1.0;       // center weight = 1 (kernel[0]*kernel[0]*all-stops = 1)
+    for (int yy = -2; yy <= 2; ++yy)
+    for (int xx = -2; xx <= 2; ++xx) {
+        if (xx == 0 && yy == 0) continue;
+        ivec2 q = pixel + ivec2(xx, yy) * pc.stepSize;
+        if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
+        float dq = texelFetch(u_Depth, q, 0).r;
+        if (dq >= 1.0) continue;
+
+        vec4  cq  = imageLoad(u_AtrousIn, q);
+        float lq  = SvgfLuminance(cq.rgb);
+        float lzq = SvgfLinearizeDepth(dq);
+        vec3  Nq  = SvgfOctDecode(texelFetch(u_Normal, q, 0).rg);
+
+        vec2  off = vec2(xx, yy) * float(pc.stepSize);
+        float expectedDz = abs(dzdx * off.x + dzdy * off.y);
+        float wz = exp(-abs(lzc - lzq) / (pc.phiDepth * expectedDz + 1e-4));
+        float wn = pow(max(0.0, dot(Nc, Nq)), pc.phiNormal);
+        float wl = exp(-abs(lc - lq) / phiL);
+
+        float kernel = kKernel[abs(xx)] * kKernel[abs(yy)];
+        float w = kernel * wz * wn * wl;
+        sumColor += w * cq.rgb;
+        sumVar   += w * w * cq.a;   // variance co-filtered with squared weights
+        sumW     += w;
+    }
+
+    vec3  outColor = sumColor / sumW;
+    float outVar   = sumVar / (sumW * sumW);
+    outVar = (isinf(outVar) || isnan(outVar)) ? 0.0 : outVar;
+    imageStore(outAtrous, pixel, vec4(outColor, outVar));
+    if (pc.writeFinal != 0) imageStore(outDenoised, pixel, vec4(outColor, 1.0));
+}
