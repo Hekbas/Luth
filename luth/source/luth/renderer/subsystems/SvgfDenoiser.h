@@ -12,14 +12,23 @@ namespace Luth
     class FrameTargets;
     class RenderPipeline;
     struct ViewResources;
+    struct SvgfSettings;
 
-    // Custom SVGF (Schied 2017) diffuse denoiser. Consumes ReSTIR DI's demodulated irradiance and
-    // returns a denoised image the GeometryPass reads + the lighting set binds. The first cut ships a
-    // no-op pass-through (copies DI → output) that exercises the full wiring; reproject / variance /
-    // à-trous land incrementally on top, keeping the output contract fixed. see arch/rendering-pipeline.md
+    // Which ReSTIR signal this instance denoises. Selects the ViewResources image/descriptor set
+    // (svgf* vs svgfGi*) + the SvgfSettings instance (GetSvgfSettings vs GetSvgfGiSettings) + the
+    // RG/debug pass names. The shaders + descriptor-set LAYOUTS are channel-agnostic (one set per
+    // channel, distinct images). see arch/rendering-pipeline.md
+    enum class DenoiserChannel { Di, Gi };
+
+    // Custom SVGF (Schied 2017) diffuse denoiser. Consumes a ReSTIR pass's demodulated irradiance
+    // (DI or GI per channel) and returns a denoised image the GeometryPass reads + the lighting set
+    // binds. Disabled → a no-op pass-through (copies input → output) preserving the output contract;
+    // reproject → moments → à-trous chain when enabled. see arch/rendering-pipeline.md
     class SvgfDenoiser : public IDenoiser
     {
     public:
+        explicit SvgfDenoiser(DenoiserChannel channel = DenoiserChannel::Di) : m_Channel(channel) {}
+
         void Init(RenderPipeline& pipeline) override;
         void Shutdown() override;
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv) override;
@@ -34,6 +43,12 @@ namespace Luth
         RG::ResourceHandle AddDenoiseChain(RG::RenderGraph& rg, const DenoiseInputs& in);
         RG::ResourceHandle AddPassthroughPass(RG::RenderGraph& rg, const DenoiseInputs& in);
 
+        // Channel-selected SvgfSettings instance + RG/debug pass names (the ViewResources image/set
+        // selection lives in a file-local Resolve() in the .cpp).
+        const SvgfSettings& Settings() const;
+        const char*         PassName(int which) const;  // 0=reproject 1=moments 2=atrous 3=passthrough
+
+        DenoiserChannel m_Channel = DenoiserChannel::Di;
         RenderPipeline* m_Pipeline = nullptr;
 
         std::unique_ptr<VKComputePipeline> m_PassthroughPipeline;

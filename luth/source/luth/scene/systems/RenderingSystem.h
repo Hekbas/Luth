@@ -169,6 +169,12 @@ namespace Luth
         SvgfSettings& GetSvgfSettings() { return m_SvgfSettings; }
         const SvgfSettings& GetSvgfSettings() const { return m_SvgfSettings; }
 
+        // Separate SVGF tuning for the ReSTIR GI denoiser instance — GI is a noisier, lower-frequency
+        // signal already temporally accumulated by its reservoir, so it leans on wider à-trous + a
+        // shorter SVGF history than DI. Surfaced as the editor's "SVGF (GI)" section.
+        SvgfSettings& GetSvgfGiSettings() { return m_SvgfGiSettings; }
+        const SvgfSettings& GetSvgfGiSettings() const { return m_SvgfGiSettings; }
+
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
 
@@ -279,6 +285,8 @@ namespace Luth
         RestirSettings      m_RestirSettings;
         RestirGiSettings    m_RestirGiSettings;
         SvgfSettings        m_SvgfSettings;
+        // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
+        SvgfSettings        m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 
