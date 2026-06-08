@@ -61,6 +61,7 @@ namespace Luth
 
         std::unique_ptr<VKComputePipeline> m_InitialPipeline;
         std::unique_ptr<VKComputePipeline> m_TemporalPipeline;
+        std::unique_ptr<VKComputePipeline> m_SpatialPipeline;
         std::unique_ptr<VKComputePipeline> m_ShadePipeline;
 
         VkSampler             m_Sampler   = VK_NULL_HANDLE;
@@ -68,6 +69,7 @@ namespace Luth
 
         std::vector<u32> m_InitialSpv;
         std::vector<u32> m_TemporalSpv;
+        std::vector<u32> m_SpatialSpv;
         std::vector<u32> m_ShadeSpv;
 
         u32  m_NextTag = 0xFFFF8000u;  // reserved range for persistent reservoir allocations (disjoint from DI)

@@ -12,13 +12,14 @@
 // remodulation — same contract as the DI path (restir_shade.comp). L_o already contains the secondary
 // surface's albedo + cosine; only the PRIMARY-vertex cosine (NdotL_v) and W are applied here.
 //
-// S0/S1: reads the initial/temporal reservoir at b2. S2 switches this read to the spatial output (b6).
+// Reads the spatial-reuse output reservoir at b6 (the temporal buffer stays intact as next frame's
+// history; the spatial pass writes the per-frame resolved result here).
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
 layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;
-layout(std430, set = 2, binding = 2) readonly buffer ReservoirBuffer { GIReservoir reservoirs[]; };
+layout(std430, set = 2, binding = 6) readonly buffer ReservoirBuffer { GIReservoir reservoirs[]; };
 layout(set = 2, binding = 3, rgba16f) uniform writeonly image2D outIndirect;
 
 layout(push_constant) uniform PC {
