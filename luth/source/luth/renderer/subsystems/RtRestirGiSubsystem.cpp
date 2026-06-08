@@ -9,6 +9,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/core/FrameData.h"
 #include "luth/core/types/LuthMath.h"
 
@@ -31,8 +32,9 @@ namespace Luth
             f32  secondaryAlbedo;
             f32  maxIndirect;
             u32  pad1;
+            u64  geomTableBDA;   // S3: BDA of the per-frame geometry table (secondary-hit material fetch)
         };
-        static_assert(sizeof(GiPC) == 80, "GiPC must match restir_gi_initial/shade.comp push_constant");
+        static_assert(sizeof(GiPC) == 88, "GiPC must match restir_gi_initial.comp push_constant (shade reads the 80 B prefix)");
 
         // Temporal-pass push constants — same 80 B footprint as GiPC (one shared pcRange), different
         // fields. mCap + maxReservoirAge bit-packed so invViewProj + 4 scalars fit 80 B.
@@ -153,17 +155,26 @@ namespace Luth
             return;
         }
 
-        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches all 3 shaders.
+        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. temporal/spatial/shade.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
             m_SetLayout,
         };
-        // GiPC and GiTemporalPC are both 80 B — one shared range covers all 3 pipelines.
+        // Initial adds set 3 = Material SSBO + set 4 = bindless textures (S3 secondary-hit material).
+        // Only the initial pass shades L_o; the others are L_o-agnostic and keep the 3-set layout.
+        const std::vector<VkDescriptorSetLayout> initialLayouts = {
+            m_Pipeline->GetGlobal().GetSetLayout(),
+            m_Pipeline->GetLighting().GetSetLayout(),
+            m_SetLayout,
+            MaterialSystem::GetDescriptorSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
+        };
+        // Shared 88 B range: GiPC carries geomTableBDA; GiTemporalPC/GiSpatialPC push their 80 B subset.
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiPC) };
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
-            m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+            m_InitialSpv, initialLayouts, std::vector<VkPushConstantRange>{ pcRange });
         m_TemporalPipeline = std::make_unique<VKComputePipeline>(
             m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_SpatialPipeline = std::make_unique<VKComputePipeline>(
@@ -214,10 +225,18 @@ namespace Luth
 
         if (isInitial)
         {
+            // Initial keeps its 5-set layout (Material + bindless) — mirror Init.
+            const std::vector<VkDescriptorSetLayout> initialLayouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(),
+                m_Pipeline->GetLighting().GetSetLayout(),
+                m_SetLayout,
+                MaterialSystem::GetDescriptorSetLayout(),
+                VulkanContext::Get().GetBindlessSet().GetLayout(),
+            };
             m_InitialSpv = spv;
             deferComp(m_InitialPipeline);
             m_InitialPipeline = std::make_unique<VKComputePipeline>(
-                m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+                m_InitialSpv, initialLayouts, std::vector<VkPushConstantRange>{ pcRange });
         }
         else if (isTemporal)
         {
@@ -397,6 +416,10 @@ namespace Luth
         pc.frameSeed       = frameAbs;
         pc.secondaryAlbedo = settings.secondaryAlbedo;
         pc.maxIndirect     = settings.maxIndirect;
+        // Geometry-table BDA read at preflight, paired with the same m_LastResult that GlobalSubsystem
+        // binds to Set 0 b6 — so the table's instanceCustomIndex mapping matches the bound TLAS. Zero
+        // until the first real TLAS build (only the empty TLAS exists → all rays miss → never deref'd).
+        pc.geomTableBDA    = m_Pipeline->GetRt().GetGeometryTableBDA();
 
         GiTemporalPC tpc{};
         tpc.invViewProj     = invVP;
@@ -452,13 +475,18 @@ namespace Luth
 
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_InitialPipeline->Bind(cmd);
-                VkDescriptorSet sets[3] = {
+                // Set 3 = Material SSBO (render-frame slot, same convention as the PBR pass), Set 4 =
+                // bindless textures — for the secondary-hit material fetch. Both only deref'd on a
+                // committed hit, so a stale/empty slot on a miss is harmless.
+                VkDescriptorSet sets[5] = {
                     vr->globalDescriptorSet[slot],
                     vr->lightDescSet[slot],
                     vr->restirGiDescSet[slot],
+                    MaterialSystem::GetDescriptorSet(slot),
+                    VulkanContext::Get().GetBindlessSet().GetSet(),
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_InitialPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                    m_InitialPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
                 vkCmdPushConstants(cmd, m_InitialPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiPC), &pc);
 

@@ -279,14 +279,17 @@ namespace Luth
         // long-stable m_LastResult lives until shutdown without ever being deferred.
         if (m_LastResult.tlas != VK_NULL_HANDLE)
         {
-            auto handle = m_LastResult.tlas;
-            auto buf    = m_LastResult.storageBuffer;
-            auto alloc  = m_LastResult.storageAlloc;
-            VulkanContext::Get().PushDeletion([handle, buf, alloc]() {
+            auto handle  = m_LastResult.tlas;
+            auto buf     = m_LastResult.storageBuffer;
+            auto alloc   = m_LastResult.storageAlloc;
+            auto geom    = m_LastResult.geomTableBuffer;
+            auto geomAl  = m_LastResult.geomTableAlloc;
+            VulkanContext::Get().PushDeletion([handle, buf, alloc, geom, geomAl]() {
                 auto& ctx = VulkanContext::Get();
                 if (handle != VK_NULL_HANDLE)
                     ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
-                if (buf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(buf, alloc);
+                if (buf != VK_NULL_HANDLE)  VulkanAllocator::FreeBuffer(buf, alloc);
+                if (geom != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(geom, geomAl);
             });
         }
         m_LastResult = {};
@@ -588,20 +591,25 @@ namespace Luth
                 dep2.pMemoryBarriers    = &mem2;
                 vkCmdPipelineBarrier2(cmd, &dep2);
 
-                // 5. TLAS build with hash-skip. When skip fires, prior TLAS + storage stay alive
-                // — we only PushDeletion when an actual rebuild replaces them.
+                // 5. TLAS build with hash-skip. When skip fires, prior TLAS + storage + geom table
+                // stay alive — we only PushDeletion when an actual rebuild replaces them. The geom
+                // table shares the TLAS lifetime exactly (same retire schedule).
                 TlasBuildResult fresh = TlasBuilder::BuildTlas(
-                    cmd, snapshot.meshes, static_cast<u32>(frameAbs), m_LastResult);
+                    cmd, snapshot.meshes, static_cast<u32>(frameAbs), m_LastResult,
+                    m_Pipeline->GetMaterialSlotMap());
                 if (!fresh.reused && m_LastResult.tlas != VK_NULL_HANDLE)
                 {
-                    auto old      = m_LastResult.tlas;
-                    auto oldBuf   = m_LastResult.storageBuffer;
-                    auto oldAlloc = m_LastResult.storageAlloc;
-                    VulkanContext::Get().PushDeletion([old, oldBuf, oldAlloc]() {
+                    auto old       = m_LastResult.tlas;
+                    auto oldBuf    = m_LastResult.storageBuffer;
+                    auto oldAlloc  = m_LastResult.storageAlloc;
+                    auto oldGeom   = m_LastResult.geomTableBuffer;
+                    auto oldGeomAl = m_LastResult.geomTableAlloc;
+                    VulkanContext::Get().PushDeletion([old, oldBuf, oldAlloc, oldGeom, oldGeomAl]() {
                         auto& ctx2 = VulkanContext::Get();
                         if (old != VK_NULL_HANDLE)
                             ctx2.GetRtFn().vkDestroyAccelerationStructureKHR(ctx2.GetDevice(), old, nullptr);
-                        if (oldBuf != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(oldBuf, oldAlloc);
+                        if (oldBuf != VK_NULL_HANDLE)  VulkanAllocator::FreeBuffer(oldBuf, oldAlloc);
+                        if (oldGeom != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(oldGeom, oldGeomAl);
                     });
                 }
                 m_LastResult = fresh;

@@ -72,6 +72,11 @@ namespace Luth
             return m_LastResult.tlas != VK_NULL_HANDLE ? m_LastResult.tlas : m_PersistentEmptyTlas;
         }
 
+        // Per-frame geometry-table BDA (restir_gi_initial.comp push constant). Built in lockstep with
+        // the TLAS, so it pairs with whatever GetTlas() returns from the same m_LastResult. Zero before
+        // the first real build (only the empty TLAS exists → all rays miss → table never deref'd).
+        VkDeviceAddress GetGeometryTableBDA() const { return m_LastResult.geomTableBDA; }
+
     private:
         void BuildShadowPipeline();
 

@@ -2,9 +2,11 @@
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/UUID.h"
 #include "VulkanAllocator.h"
 
 #include <span>
+#include <unordered_map>
 #include <vulkan/vulkan.h>
 
 namespace Luth
@@ -24,6 +26,13 @@ namespace Luth
         u64                        instanceHash  = 0;
         u32                        instanceCount = 0;
         bool                       reused        = false; // true => prior result returned unchanged
+
+        // Per-frame bindless geometry table, built in lockstep with the packed instances so
+        // instanceCustomIndex indexes it. Host-visible SSBO, deref'd via BDA in restir_gi_initial.comp.
+        // Shares the TLAS lifetime: kept alive across hash-skipped frames, freed on rebuild. see arch/rendering-pipeline.md
+        VkBuffer                   geomTableBuffer = VK_NULL_HANDLE;
+        VmaAllocation              geomTableAlloc  = nullptr;
+        VkDeviceAddress            geomTableBDA    = 0;
     };
 
     class TlasBuilder
@@ -35,14 +44,17 @@ namespace Luth
         //   `frameAbs`   — absolute render-frame index (used for tagged-heap scratch tagging).
         //   `prev`       — last frame's result, returned unchanged on hash match.
         // Caller responsibilities:
-        //   - On hash mismatch: PushDeletion(prev.tlas + prev.storageBuffer + prev.storageAlloc).
-        //   - On hash match:    do NOT delete prev — the same handle is reused for Set 0 binding 6.
+        //   - On hash mismatch: PushDeletion(prev.tlas + prev.storageBuffer + prev.geomTableBuffer + allocs).
+        //   - On hash match:    do NOT delete prev — the same handles are reused (Set 0 b6 + GI geom table).
         //   - The instance buffer used as build input is allocated here + PushDeletion-d
         //     immediately (retires N+2 frames out).
+        // `materialSlotMap` resolves each instance's materialUUID → Material-SSBO slot for the
+        // geometry table (built in the same packed-instance loop). Defaults to slot 0 (white) on miss.
         static TlasBuildResult BuildTlas(VkCommandBuffer cmd,
                                          std::span<const MeshDrawSnapshot> instances,
                                          u32 frameAbs,
-                                         const TlasBuildResult& prev);
+                                         const TlasBuildResult& prev,
+                                         const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap);
 
         // Batched skinned-BLAS refit. Walks `instances` filtering for isSkinned + non-null skinned
         // BLAS, packs one VkAccelerationStructureBuildGeometryInfoKHR per mesh, all sharing a
