@@ -53,6 +53,8 @@ void main() {
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
 
     // Start the combined reservoir with this frame's candidate — already at this pixel, identity shift.
+    // GIReservoirMerge seeds the sample on this first merge even if its weight is 0 (confident-zero
+    // invariant: M>0 ⇒ samplePos valid), so a fully-unlit pixel still carries a real reconnection vertex.
     GIReservoir c; GIReservoirReset(c);
     if (r.M > 0u) {
         float pHatCurr = GiTargetFunction(r.samplePos, r.sampleRadiance, worldPos, N);

@@ -64,17 +64,18 @@ void main() {
     GIReservoir c; GIReservoirReset(c);
     int selDomain = -1;
 
-    // Canonical (this pixel) — identity shift, no Jacobian.
+    // Canonical (this pixel) — identity shift, no Jacobian. ALWAYS seeds the reservoir's sample
+    // (domain 0): valid geometry even when its W=0, so the neighbour reconnection Jacobian + the shade
+    // read get a real x_s, not the reset origin (which biased reuse to the worldPos.z<0 half-space).
     {
         float pHat = GiTargetFunction(canonical.samplePos, canonical.sampleRadiance, worldPos, N);
         domPos[domCount] = worldPos; domN[domCount] = N; domM[domCount] = canonical.M;
         float w = pHat * canonical.W * float(canonical.M);
         c.wSum += w; c.M += canonical.M;
-        if (c.wSum > 0.0 && RandFromSeed(seed) * c.wSum <= w) {
-            c.samplePos = canonical.samplePos; c.sampleRadiance = canonical.sampleRadiance;
-            c.sampleNormalOct = canonical.sampleNormalOct; c.age = canonical.age;
-            selDomain = int(domCount);
-        }
+        RandFromSeed(seed);  // keep the neighbour RNG stream aligned with the prior conditional draw
+        c.samplePos = canonical.samplePos; c.sampleRadiance = canonical.sampleRadiance;
+        c.sampleNormalOct = canonical.sampleNormalOct; c.age = canonical.age;
+        selDomain = int(domCount);
         domCount += 1u;
     }
 

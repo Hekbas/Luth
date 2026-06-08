@@ -37,10 +37,15 @@ vec2 OctEncode(vec3 n) {
 }
 
 // Stream one path-sample candidate into the reservoir (weighted reservoir sampling, Chao 1982).
+// The FIRST candidate (M: 0→1) always seeds the sample even at w=0: an unlit/shadowed hit is a
+// confident ZERO, not an empty reservoir. Leaving samplePos at the reset origin feeds the downstream
+// reconnection Jacobian a garbage vertex + a (0,0,-1) sample normal (OctDecode of zero), which it
+// accepts only on the worldPos.z<0 half-space → a world-plane confidence split. invariant: M>0 ⇒
+// samplePos valid. (For w>0 the rnd test is always true on the first sample, so this only adds the w=0 case.)
 void GIReservoirUpdate(inout GIReservoir r, vec3 xs, vec3 Lo, vec2 nsOct, float w, float rnd) {
     r.wSum += w;
     r.M    += 1u;
-    if (r.wSum > 0.0 && rnd * r.wSum <= w) {
+    if (r.M == 1u || (r.wSum > 0.0 && rnd * r.wSum <= w)) {
         r.samplePos       = xs;
         r.sampleRadiance  = Lo;
         r.sampleNormalOct = nsOct;
@@ -55,7 +60,9 @@ void GIReservoirMerge(inout GIReservoir c, vec3 xs, vec3 Lo, vec2 nsOct, uint ag
     float w = targetPdfAtCurr * Wsrc * float(Msrc);
     c.wSum += w;
     c.M    += Msrc;
-    if (c.wSum > 0.0 && rnd * c.wSum <= w) {
+    // First merged source seeds the sample (see GIReservoirUpdate): c.M == Msrc ⇔ c was empty, so a
+    // zero-weight combine still carries a valid reconnection vertex instead of the reset origin.
+    if (c.M == Msrc || (c.wSum > 0.0 && rnd * c.wSum <= w)) {
         c.samplePos       = xs;
         c.sampleRadiance  = Lo;
         c.sampleNormalOct = nsOct;

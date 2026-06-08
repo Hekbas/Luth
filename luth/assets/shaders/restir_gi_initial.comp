@@ -219,8 +219,10 @@ void main() {
     float lum = Luminance(Lo);
     if (lum > pc.maxIndirect) Lo *= pc.maxIndirect / lum;
 
-    // Single-candidate reservoir: W resolves to 1/pdf (target cancels in finalize). targetPdf is
-    // recomputed, not stored. Self-carry the receiver geometry for next frame's temporal validation.
+    // Single-candidate reservoir. GIReservoirUpdate seeds the sample on the first candidate even at
+    // w=0 (an unlit/shadowed hit is a confident zero with a VALID x_s — the reset origin would feed
+    // the downstream reconnection Jacobian garbage; see restir_gi_common.glsl). W resolves to 1/pdf
+    // when lit (target cancels in finalize), 0 when unlit. targetPdf recomputed, not stored.
     float pHat = GiTargetFunction(xs, Lo, worldPos, Nv);
     float w    = (pdf > 0.0) ? pHat / pdf : 0.0;
     GIReservoirUpdate(r, xs, Lo, OctEncode(ns), w, 0.5);
