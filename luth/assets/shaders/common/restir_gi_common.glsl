@@ -17,14 +17,14 @@ struct GIReservoir {
     vec3  samplePos;       float W;                 // x_s ; unbiased contribution weight (post-finalize)
     vec3  sampleRadiance;  float wSum;              // L_o (HDR, full float) ; running RIS weight sum
     vec2  sampleNormalOct; uint  M; uint age;       // n_s ; confidence ; frames survived
-    vec3  visPos;          float visNormalPacked;   // receiver world pos + packHalf2x16(oct n_v) — self-carried
+    vec3  visPos;          uint  visNormalPacked;   // receiver world pos + packHalf2x16(oct n_v) — self-carried
 };
 
 void GIReservoirReset(out GIReservoir r) {
     r.samplePos = vec3(0.0); r.W = 0.0;
     r.sampleRadiance = vec3(0.0); r.wSum = 0.0;
     r.sampleNormalOct = vec2(0.0); r.M = 0u; r.age = 0u;
-    r.visPos = vec3(0.0); r.visNormalPacked = 0.0;
+    r.visPos = vec3(0.0); r.visNormalPacked = 0u;
 }
 
 // Octahedral encode — inverse of restir_common.glsl OctDecode (Cigolle et al. [0,1] mapping).

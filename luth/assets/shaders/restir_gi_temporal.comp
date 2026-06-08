@@ -11,7 +11,9 @@
 // previous receiver (self-carried visPos) and the current receiver are different endpoints to the
 // shared x_s, so the resampling weight is multiplied by the reconnection Jacobian (Eq. 11). Under
 // exact reprojection it is ~1; integer-pixel rounding makes it deviate, and it corrects that. Runs
-// between initial and shade; the merged result stays in the CURR reservoir (b2).
+// between initial and shade; the merged result stays in the CURR reservoir (b2). The prev buffer is
+// imported in StorageBufferWrite state (its last-left state) so the RG's read barrier carries a real
+// srcAccess and makes last frame's write visible — Undefined would give srcAccess=0 (stale read).
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -64,7 +66,7 @@ void main() {
         ivec2 pPix = clamp(ivec2(prevUV * vec2(size)), ivec2(0), size - ivec2(1));
         GIReservoir pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
 
-        vec3 prevN = OctDecode(unpackHalf2x16(floatBitsToUint(pr.visNormalPacked)));
+        vec3 prevN = OctDecode(unpackHalf2x16(pr.visNormalPacked));
         // Validate the reprojected history: same surface (world-pos proximity + normal) and not stale.
         bool valid = pr.M > 0u
                   && pr.age < maxAge
@@ -92,6 +94,6 @@ void main() {
     float pHatSel = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
     GIReservoirFinalize(c, pHatSel);
     c.visPos          = worldPos;
-    c.visNormalPacked = uintBitsToFloat(packHalf2x16(octN));
+    c.visNormalPacked = packHalf2x16(octN);
     curr[flatIdx] = c;
 }

@@ -117,8 +117,8 @@ void main() {
     GIReservoirUpdate(r, xs, Lo, OctEncode(ns), w, 0.5);
     GIReservoirFinalize(r, pHat);
     r.age             = 0u;
-    r.visPos          = worldPos;                              // self-carried receiver pos (temporal Jacobian)
-    r.visNormalPacked = uintBitsToFloat(packHalf2x16(octNv)); // self-carried receiver normal (validation)
+    r.visPos          = worldPos;              // self-carried receiver pos (temporal Jacobian)
+    r.visNormalPacked = packHalf2x16(octNv);  // self-carried receiver normal as uint (validation)
 
     reservoirs[flatIdx] = r;
 }

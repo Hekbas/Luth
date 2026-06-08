@@ -21,7 +21,7 @@ namespace Luth
             f32 samplePosX, samplePosY, samplePosZ, W;
             f32 radX, radY, radZ, wSum;
             f32 sampleNormalOctX, sampleNormalOctY; u32 M, age;
-            f32 visPosX, visPosY, visPosZ, visNormalPacked;
+            f32 visPosX, visPosY, visPosZ; u32 visNormalPacked;
         };
         static_assert(sizeof(GPUGIReservoir) == 64, "GPUGIReservoir must match restir_gi_common.glsl GIReservoir (64 B)");
 
@@ -457,7 +457,11 @@ namespace Luth
                 if (slimMotion.IsValid()) data.motion = builder.ReadStorageImage(slimMotion);
 
                 RG::BufferDesc prevBd{ "RestirGiReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::Undefined);
+                // Import in the state it was LEFT in last frame (StorageBufferWrite), NOT Undefined: the
+                // RG only makes last frame's write available if the read barrier's src carries a real
+                // access mask. Undefined → srcAccessMask=0 → no availability → the cross-frame read sees
+                // stale/zero data and temporal never accumulates. see arch/rendering-pipeline.md
+                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::StorageBufferWrite);
                 data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
 
                 data.reservoirCurr = builder.ReadBuffer(reservoirHandle);
