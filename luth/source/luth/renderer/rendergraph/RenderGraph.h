@@ -33,8 +33,9 @@ namespace Luth::RG
         // Image resources
         ResourceHandle Read(ResourceHandle resource);
         ResourceHandle ReadTransfer(ResourceHandle resource);
-        ResourceHandle ReadStorageImage(ResourceHandle resource);   // Compute read (sampled)
-        ResourceHandle WriteStorageImage(ResourceHandle resource);  // Compute write (storage)
+        ResourceHandle ReadStorageImage(ResourceHandle resource);        // Compute read, SAMPLED → SHADER_READ_ONLY
+        ResourceHandle ReadStorageImageGeneral(ResourceHandle resource); // Compute read, STORAGE imageLoad → stays GENERAL
+        ResourceHandle WriteStorageImage(ResourceHandle resource);       // Compute write (storage) → GENERAL
 
         ResourceHandle Write(ResourceHandle resource,
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,

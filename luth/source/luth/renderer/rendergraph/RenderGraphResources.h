@@ -37,8 +37,9 @@ namespace Luth::RG
         TransferSrc,                // Copy Source
         TransferDst,                // Copy Dest / Clear
         Present,                    // Swapchain Present
-        ComputeRead,                // Compute shader read (storage image)
-        ComputeWrite,               // Compute shader write (storage image)
+        ComputeRead,                // Compute/RT shader read, SAMPLED — transitions to SHADER_READ_ONLY
+        ComputeWrite,               // Compute shader write (storage image) — GENERAL
+        ComputeReadStorage,         // Compute/RT read of a STORAGE image (imageLoad) — stays GENERAL
         StorageBufferRead,          // Compute shader read (SSBO)
         StorageBufferWrite,         // Compute shader write (SSBO)
         IndirectRead,               // Indirect draw/dispatch command read

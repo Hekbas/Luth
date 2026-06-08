@@ -358,14 +358,16 @@ namespace Luth
             maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 5 (ReSTIR DI) — per-view demodulated diffuse irradiance from vr.restirDI. Reused
-        // mask sampler (linear clamp-to-edge). pbr.frag reads it only when restirParams.x > 0.5; the
-        // RestirShade pass leaves the image in GENERAL, the GeometryPass Read transitions it to
-        // SHADER_READ_ONLY_OPTIMAL ahead of the fragment sample.
+        // Binding 5 (ReSTIR DI) — per-view demodulated diffuse irradiance, post-denoise. Bound to
+        // vr.svgfDenoised (the denoiser output), not vr.restirDI: the denoiser owns this slot whenever
+        // ReSTIR is on (it passes the raw DI through when denoising is toggled off), so the bind is
+        // static and the A/B is denoise-vs-raw with no descriptor swap. Reused mask sampler (linear
+        // clamp-to-edge). pbr.frag reads it only when restirParams.x > 0.5; the denoise pass leaves the
+        // image in GENERAL, the GeometryPass Read transitions it to SHADER_READ_ONLY_OPTIMAL.
         VkDescriptorImageInfo diImgInfo{};
-        if (vr.restirDI)
+        if (vr.svgfDenoised)
         {
-            auto vkDI = std::static_pointer_cast<VKTexture>(vr.restirDI);
+            auto vkDI = std::static_pointer_cast<VKTexture>(vr.svgfDenoised);
             diImgInfo.sampler     = m_SunShadowMaskSampler;
             diImgInfo.imageView   = vkDI->GetImageView();
             diImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

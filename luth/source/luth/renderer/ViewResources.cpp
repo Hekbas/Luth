@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 112;
+    static constexpr u32 k_ViewPoolMaxSets              = 152;
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 48;  // GTAO + volumetric atlases + RT shadow mask + ReSTIR DI (cycled)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 120;  // GTAO + volumetric + RT shadow mask + ReSTIR DI + SVGF passthrough + reproject/moments/atrous ping-pong
     static constexpr u32 k_ViewPoolStorageBufferCount   = 113;  // Set 3 + cluster + assign + volumetric + ReSTIR reservoir ping-pong (b2+b4) + spatial out (b6)
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 152;  // + ReSTIR Set 2 depth/normal/motion + Set 3 b5 DI sampler
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 200;  // + ReSTIR Set 2 + Set 3 b5 DI + SVGF passthrough/reproject/moments/atrous inputs
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -93,7 +93,8 @@ namespace Luth
             m_Volumetric.WriteVizView(vr, targets);
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
-            m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 ReSTIR DI to the new images
+            m_Denoise->WriteView(vr, targets);      // re-bind SVGF inputs + output to the new images
+            m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI to the new images
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
         }
@@ -222,6 +223,7 @@ namespace Luth
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
+        m_Denoise->AllocateViewSets(vr);
 
         m_PostProcess.WriteView(vr, targets);
         m_PostProcess.WriteTaaResolveView(vr, targets);
@@ -238,6 +240,7 @@ namespace Luth
         m_Volumetric.WriteVizView(vr, targets);
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
+        m_Denoise->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -267,6 +270,29 @@ namespace Luth
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // SVGF denoiser output — same shape as restirDI. The denoiser reads restirDI and writes the
+        // denoised result here; pbr.frag Set 3 b5 samples this. Written before read each frame, so no
+        // bootstrap clear needed.
+        vr.svgfDenoised = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // SVGF temporal history (ping-pong) — RGBA16F storage, kept GENERAL. colorHist = color+variance,
+        // moments = (mu1,mu2,histLen), geom = (linearZ, octN.xy). Read-before-write on frame 0 → bootstrap-
+        // cleared with the volumetric history below.
+        for (u32 i = 0; i < 2; ++i)
+        {
+            vr.svgfColorHist[i] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfMoments[i]   = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        }
+
+        // À-trous ping-pong — same shape as the SVGF history. svgfAtrous[0] is the moments output (à-trous
+        // level-0 input); the wavelet levels ping-pong [0]/[1]. Bootstrap-cleared to GENERAL below.
+        vr.svgfAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
         // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
@@ -323,16 +349,26 @@ namespace Luth
         vr.volInScatterHistB   = makeVolume(TextureFormat::RGBA16F);
 
         // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and undefined
-        // pixel content. The resolve pass samples volInScatterHist{A,B} on frame 0; without this
-        // clear the first sample is NaN-prone garbage. One-shot submit per view-resize only.
-        VkImage clearTargets[3] = {
+        // pixel content. The volumetric resolve samples volInScatterHist{A,B} and the SVGF reproject
+        // imageLoads its prev history on frame 0; without this clear the first read is NaN-prone garbage
+        // (and imageLoad needs GENERAL). One-shot submit per view-resize only.
+        VkImage clearTargets[11] = {
             std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfColorHist[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfColorHist[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfMoments[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfMoments[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfGeom[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfGeom[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfAtrous[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfAtrous[1])->GetImage(),
         };
+        constexpr u32 kClearCount = 11;
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            VkImageMemoryBarrier toDst[3]{};
-            for (u32 i = 0; i < 3; ++i)
+            VkImageMemoryBarrier toDst[kClearCount]{};
+            for (u32 i = 0; i < kClearCount; ++i)
             {
                 toDst[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toDst[i].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -345,15 +381,15 @@ namespace Luth
                 toDst[i].dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
             }
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 3, toDst);
+                                 0, 0, nullptr, 0, nullptr, kClearCount, toDst);
 
             VkClearColorValue zero{ { 0.0f, 0.0f, 0.0f, 0.0f } };
             VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-            for (u32 i = 0; i < 3; ++i)
+            for (u32 i = 0; i < kClearCount; ++i)
                 vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
 
-            VkImageMemoryBarrier toGen[3]{};
-            for (u32 i = 0; i < 3; ++i)
+            VkImageMemoryBarrier toGen[kClearCount]{};
+            for (u32 i = 0; i < kClearCount; ++i)
             {
                 toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -366,7 +402,7 @@ namespace Luth
                 toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             }
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 3, toGen);
+                                 0, 0, nullptr, 0, nullptr, kClearCount, toGen);
         });
     }
 
@@ -387,6 +423,15 @@ namespace Luth
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
         vr.restirDI.reset();
+        vr.svgfDenoised.reset();
+        for (u32 i = 0; i < 2; ++i)
+        {
+            vr.svgfColorHist[i].reset();
+            vr.svgfMoments[i].reset();
+            vr.svgfGeom[i].reset();
+        }
+        vr.svgfAtrous[0].reset();
+        vr.svgfAtrous[1].reset();
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

@@ -25,6 +25,7 @@
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
+#include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 
 #include <entt/entt.hpp>
@@ -230,6 +231,31 @@ namespace Luth
         u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
+
+        // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
+        // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag
+        // Set 3 b5 samples THIS (not restirDI), so the denoiser owns the slot whenever ReSTIR is on and
+        // the A/B is denoise-vs-raw with no binding swap. History + per-pass sets grow as the SVGF
+        // passes land. see arch/rendering-pipeline.md
+        std::shared_ptr<Texture> svgfDenoised;
+        VkDescriptorSet svgfPassthroughDescSet = VK_NULL_HANDLE;
+
+        // SVGF temporal history — RGBA16F storage images kept in GENERAL, ping-pong by frame parity
+        // (curr = [p], prev = [p^1]). colorHist = integrated color (rgb) + variance (a); moments =
+        // (mu1, mu2, histLen); geom = (linearZ, octN.x, octN.y) for the disocclusion test. Bootstrap-
+        // cleared so frame 0's prev read is well-defined. The two reproject sets are pre-built per
+        // parity (set[p] reads [p^1], writes [p]); AddPasses binds svgfReprojectDescSet[frameAbs & 1].
+        std::shared_ptr<Texture> svgfColorHist[2];
+        std::shared_ptr<Texture> svgfMoments[2];
+        std::shared_ptr<Texture> svgfGeom[2];
+        VkDescriptorSet svgfReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
+        // À-trous ping-pong (RGBA16F storage, GENERAL). Moments writes svgfAtrous[0] (à-trous level-0
+        // input); the wavelet levels ping-pong [0]/[1] by iteration parity, the final level also writes
+        // svgfDenoised. Moments/à-trous sets are pre-built per parity, bound by index — no UAB rewrite.
+        std::shared_ptr<Texture> svgfAtrous[2];
+        VkDescriptorSet svgfMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkDescriptorSet svgfAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -397,6 +423,7 @@ namespace Luth
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
         SkinningSubsystem       m_Skinning;
+        std::unique_ptr<IDenoiser> m_Denoise;  // SVGF today; swappable to NRD/RELAX via the settings toggle
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -407,6 +434,8 @@ namespace Luth
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
+        IDenoiser&                     GetDenoise()              { return *m_Denoise; }
+        const IDenoiser&               GetDenoise()        const { return *m_Denoise; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----
