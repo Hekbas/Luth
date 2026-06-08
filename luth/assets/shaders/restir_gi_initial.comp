@@ -196,6 +196,25 @@ void main() {
         }
     }
 
+    // Sun (directional) NEE — evaluated deterministically (not folded into the random point pick): a
+    // single dominant light is lower-noise sampled every path. Diffuse only, same form as the point
+    // term + pbr.frag's dirRadiance convention (color·intensity, no 1/d²). One shadow ray to infinity.
+    if (lights.dirLight.intensity > 0.0) {
+        vec3  Lsun   = normalize(-lights.dirLight.direction);   // toward the sun
+        float ndlSun = max(dot(ns, Lsun), 0.0);
+        if (ndlSun > 0.0) {
+            float sMin  = ubo.rtShadowParams.y;
+            vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lsun * sMin;
+            rayQueryEXT sq;
+            rayQueryInitializeEXT(sq, topLevelAS,
+                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+                sOrig, sMin, Lsun, 1.0e30);
+            rayQueryProceedEXT(sq);
+            float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
+            Lo += (baseColor / GI_PI) * lights.dirLight.color * lights.dirLight.intensity * ndlSun * vis;
+        }
+    }
+
     // Firefly clamp on the secondary radiance before it enters spatiotemporal reuse.
     float lum = Luminance(Lo);
     if (lum > pc.maxIndirect) Lo *= pc.maxIndirect / lum;
