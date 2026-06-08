@@ -451,6 +451,10 @@ namespace Luth
             const u32 vizMode = (shadeMode == ShadeMode::VolumetricDensity) ? 0u : 1u;
             ldrOutput = m_Volumetric.AddVizPass(rg, ldrOutput, injectOut.density, volResolvedHandle, prepassDepth, vizMode);
         }
+        else if (shadeMode == ShadeMode::RestirGiReservoir && m_RestirGi.IsEnabled() && m_CurrentViewResources)
+        {
+            ldrOutput = m_RestirGi.AddReservoirVizPass(rg, ldrOutput, prepassDepth);
+        }
 
         RG::ResourceHandle finalOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)

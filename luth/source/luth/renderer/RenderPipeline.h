@@ -243,6 +243,7 @@ namespace Luth
         u32 restirGiSpatialTag = 0;
         std::shared_ptr<Texture> restirGiDI;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirGiDescSet{};
+        VkDescriptorSet giReservoirVizDescSet = VK_NULL_HANDLE;  // ShadeMode::RestirGiReservoir debug viz (b0 depth, b1 spatial reservoir)
 
         // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
         // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag

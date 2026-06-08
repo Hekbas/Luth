@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 165;  // + GI SVGF 7 sets (passthrough + reproject/moments/atrous ×2)
+    static constexpr u32 k_ViewPoolMaxSets              = 166;  // + GI reservoir-viz 1 set
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 151;  // + GI SVGF 25 storage-image descriptors (passthrough 1 + reproject 12 + moments 6 + atrous 6)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 122;  // Set 3 + cluster + assign + volumetric + ReSTIR DI/GI reservoir ping-pong (b2+b4) + spatial out (b6)
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 229;  // + GI SVGF 17 sampler descriptors (passthrough 1 + reproject 8 + moments 4 + atrous 4)
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 230;  // + GI reservoir-viz b0 depth sampler
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -94,6 +94,7 @@ namespace Luth
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
+            m_RestirGi.WriteReservoirVizView(vr, targets);  // re-bind GI reservoir-viz depth + spatial reservoir
             m_Denoise->WriteView(vr, targets);      // re-bind DI SVGF inputs + output to the new images
             m_DenoiseGi->WriteView(vr, targets);    // re-bind GI SVGF inputs + output to the new images
             m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI + b6 denoised GI
@@ -226,6 +227,7 @@ namespace Luth
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
+        allocSingle(m_RestirGi.GetReservoirVizLayout(),  vr.giReservoirVizDescSet,"View.GiReservoirViz");
         m_Denoise->AllocateViewSets(vr);
         m_DenoiseGi->AllocateViewSets(vr);
 
@@ -245,6 +247,7 @@ namespace Luth
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
         m_RestirGi.WriteView(vr, targets);
+        m_RestirGi.WriteReservoirVizView(vr, targets);
         m_Denoise->WriteView(vr, targets);
         m_DenoiseGi->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.

@@ -98,7 +98,9 @@ namespace Luth
         ClustersDensity,
         // Volumetric fog atlas viz — samples SceneDepth to derive the Wronski slice, then reads
         // the per-view fog atlas. Two modes: density heat-map and integrated in-scatter radiance.
-        VolumetricDensity, VolumetricInScatter
+        VolumetricDensity, VolumetricInScatter,
+        // ReSTIR GI reservoir viz — heat-maps the spatial reservoir's M (confidence) + age (staleness).
+        RestirGiReservoir
     };
 
     struct GeometryOutput {

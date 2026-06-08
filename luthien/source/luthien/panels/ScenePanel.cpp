@@ -207,7 +207,8 @@ namespace Luth
                                         || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID)
                                         || (curMode == (int)ShadeMode::ClustersDensity)
                                         || (curMode == (int)ShadeMode::VolumetricDensity)
-                                        || (curMode == (int)ShadeMode::VolumetricInScatter);
+                                        || (curMode == (int)ShadeMode::VolumetricInScatter)
+                                        || (curMode == (int)ShadeMode::RestirGiReservoir);
                     bool dbgState = dbgActive;
                     if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
                         [&]() {
@@ -253,6 +254,12 @@ namespace Luth
                             if (ImGui::RadioButton("Vol In-Scatter",    curMode == (int)ShadeMode::VolumetricInScatter)) {
                                 settings.lastDebugMode = (u8)ShadeMode::VolumetricInScatter;
                                 m_RenderingSystem->SetShadeMode(ShadeMode::VolumetricInScatter);
+                            }
+                            ImGui::Separator();
+                            ImGui::TextDisabled("ReSTIR GI");
+                            if (ImGui::RadioButton("GI Reservoir (M/age)", curMode == (int)ShadeMode::RestirGiReservoir)) {
+                                settings.lastDebugMode = (u8)ShadeMode::RestirGiReservoir;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::RestirGiReservoir);
                             }
                             ImGui::PopFont();
                         }))

@@ -181,6 +181,35 @@ namespace Luth
             m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+
+        // Reservoir debug-viz graphics pipeline (ShadeMode::RestirGiReservoir). One set: b0 depth
+        // sampler, b1 spatial-reservoir SSBO. Fullscreen triangle → heat-map blended over LDR.
+        {
+            VkDescriptorSetLayoutBinding vb[2]{};
+            vb[0].binding = 0; vb[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; vb[0].descriptorCount = 1; vb[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            vb[1].binding = 1; vb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;          vb[1].descriptorCount = 1; vb[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            VkDescriptorSetLayoutCreateInfo vci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            vci.bindingCount = 2; vci.pBindings = vb;
+            vkCreateDescriptorSetLayout(device, &vci, nullptr, &m_ReservoirVizSetLayout);
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))              m_FullscreenVertSpv   = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_reservoir_viz.frag")) m_ReservoirVizFragSpv = sh->GetSpirV();
+            if (!m_FullscreenVertSpv.empty() && !m_ReservoirVizFragSpv.empty())
+            {
+                std::vector<VkDescriptorSetLayout> vlayouts = { m_ReservoirVizSetLayout };
+                VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };  // vec2 viewport + mCap + ageCap
+                PipelineConfig cfg;
+                cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
+                cfg.depthFormat        = VK_FORMAT_UNDEFINED;
+                cfg.depthTest          = false;
+                cfg.depthWrite         = false;
+                cfg.blendEnabled       = true;
+                cfg.cullMode           = VK_CULL_MODE_NONE;
+                cfg.pushConstantRanges = { vpc };
+                m_ReservoirVizPipeline = std::make_unique<VKPipeline>(
+                    cfg, m_FullscreenVertSpv, m_ReservoirVizFragSpv, vlayouts);
+            }
+        }
     }
 
     void RtRestirGiSubsystem::Shutdown()
@@ -190,20 +219,48 @@ namespace Luth
         m_TemporalPipeline.reset();
         m_SpatialPipeline.reset();
         m_ShadePipeline.reset();
-        if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
-        if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
-        m_Sampler   = VK_NULL_HANDLE;
-        m_SetLayout = VK_NULL_HANDLE;
+        m_ReservoirVizPipeline.reset();
+        if (m_Sampler)               vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_SetLayout)             vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
+        if (m_ReservoirVizSetLayout) vkDestroyDescriptorSetLayout(device, m_ReservoirVizSetLayout, nullptr);
+        m_Sampler               = VK_NULL_HANDLE;
+        m_SetLayout             = VK_NULL_HANDLE;
+        m_ReservoirVizSetLayout = VK_NULL_HANDLE;
         m_InitialSpv.clear();
         m_TemporalSpv.clear();
         m_SpatialSpv.clear();
         m_ShadeSpv.clear();
+        m_FullscreenVertSpv.clear();
+        m_ReservoirVizFragSpv.clear();
         m_Pipeline = nullptr;
     }
 
     bool RtRestirGiSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
+
+        // Reservoir debug-viz graphics pipeline (its own frag + the shared fullscreen vert). Rebuilt
+        // with the same config as Init; the old pipeline defers a frame (an in-flight frame may bind it).
+        if ((name == "restir_gi_reservoir_viz.frag" || name == "fullscreen.vert") && m_ReservoirVizSetLayout != VK_NULL_HANDLE)
+        {
+            if (name == "restir_gi_reservoir_viz.frag") m_ReservoirVizFragSpv = spv;
+            else                                        m_FullscreenVertSpv   = spv;
+            if (m_ReservoirVizPipeline)
+                VulkanContext::Get().PushDeletion([p = m_ReservoirVizPipeline.release()]() { delete p; });
+            std::vector<VkDescriptorSetLayout> vlayouts = { m_ReservoirVizSetLayout };
+            VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };
+            PipelineConfig cfg;
+            cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
+            cfg.depthFormat        = VK_FORMAT_UNDEFINED;
+            cfg.depthTest          = false;
+            cfg.depthWrite         = false;
+            cfg.blendEnabled       = true;
+            cfg.cullMode           = VK_CULL_MODE_NONE;
+            cfg.pushConstantRanges = { vpc };
+            m_ReservoirVizPipeline = std::make_unique<VKPipeline>(
+                cfg, m_FullscreenVertSpv, m_ReservoirVizFragSpv, vlayouts);
+            return true;
+        }
 
         const bool isInitial  = (name == "restir_gi_initial.comp");
         const bool isTemporal = (name == "restir_gi_temporal.comp");
@@ -654,5 +711,77 @@ namespace Luth
             });
 
         return diHandle;
+    }
+
+    void RtRestirGiSubsystem::WriteReservoirVizView(ViewResources& vr, FrameTargets& targets)
+    {
+        if (vr.giReservoirVizDescSet == VK_NULL_HANDLE) return;
+        if (!targets.GetSceneDepth() || !vr.restirGiSpatial.buffer) return;
+
+        VkDescriptorImageInfo depthInfo{};
+        depthInfo.sampler     = m_Sampler;
+        depthInfo.imageView   = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth())->GetImageView();
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorBufferInfo resInfo{
+            vr.restirGiSpatial.buffer, vr.restirGiSpatial.offset, vr.restirGiSpatial.size };
+
+        VkWriteDescriptorSet w[2]{};
+        w[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        w[0].dstSet = vr.giReservoirVizDescSet; w[0].dstBinding = 0;
+        w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[0].descriptorCount = 1; w[0].pImageInfo = &depthInfo;
+        w[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        w[1].dstSet = vr.giReservoirVizDescSet; w[1].dstBinding = 1;
+        w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[1].descriptorCount = 1; w[1].pBufferInfo = &resInfo;
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, w, 0, nullptr);
+    }
+
+    RG::ResourceHandle RtRestirGiSubsystem::AddReservoirVizPass(RG::RenderGraph& rg,
+                                                               RG::ResourceHandle ldrInput,
+                                                               RG::ResourceHandle sceneDepth)
+    {
+        if (!m_ReservoirVizPipeline) return ldrInput;
+        ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        if (!preflightVr || preflightVr->giReservoirVizDescSet == VK_NULL_HANDLE
+            || !preflightVr->restirGiSpatial.buffer) return ldrInput;
+
+        // Settings captured by value → stable at record time. mCap approximates the max merged M
+        // (temporal cap × the spatial neighbour fan-in + the pixel's own sample).
+        const RestirGiSettings& s = m_Pipeline->GetSystem().GetRestirGiSettings();
+
+        struct VizData { RG::ResourceHandle output; RG::ResourceHandle depth; };
+        RG::ResourceHandle outHandle{};
+        rg.AddPass<VizData>("GiReservoirVizPass",
+            [&, ldrInput, sceneDepth](VizData& d, RG::RenderPassBuilder& builder) {
+                VkClearValue clearVal{ { { 0.f, 0.f, 0.f, 1.f } } };
+                d.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, clearVal);
+                if (sceneDepth.IsValid()) d.depth = builder.Read(sceneDepth);
+                outHandle = d.output;
+            },
+            [this, s](VizData&, RG::RenderPassContext& ctx) {
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                if (!vr || vr->giReservoirVizDescSet == VK_NULL_HANDLE) return;
+                VkCommandBuffer cmd = ctx.commandBuffer;
+
+                m_ReservoirVizPipeline->Bind(cmd);
+                VkDescriptorSet sets[1] = { vr->giReservoirVizDescSet };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_ReservoirVizPipeline->GetLayout(), 0, 1, sets, 0, nullptr);
+
+                struct VizPC { float vx, vy, mCap, ageCap; } pc{};
+                pc.vx     = static_cast<float>(vr->width);
+                pc.vy     = static_cast<float>(vr->height);
+                pc.mCap   = static_cast<float>(s.temporalMCap * (s.spatialNeighbours + 1u) + 1u);
+                pc.ageCap = static_cast<float>(s.maxReservoirAge);
+                vkCmdPushConstants(cmd, m_ReservoirVizPipeline->GetLayout(),
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VizPC), &pc);
+
+                VkViewport vp{}; vp.width = (float)vr->width; vp.height = (float)vr->height; vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &vp);
+                VkRect2D sc{}; sc.extent = { vr->width, vr->height };
+                vkCmdSetScissor(cmd, 0, 1, &sc);
+                vkCmdDraw(cmd, 3, 1, 0, 0);
+            });
+        return outHandle;
     }
 }

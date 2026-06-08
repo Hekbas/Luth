@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanPipeline.h"
 
 #include <memory>
 #include <string>
@@ -46,6 +47,14 @@ namespace Luth
         VkSampler             GetSampler()   const { return m_Sampler; }
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
 
+        // Debug-viz (ShadeMode::RestirGiReservoir): a fullscreen graphics pass heat-mapping the spatial
+        // reservoir's M (confidence) + age (staleness) over LDR. Its own 1-set layout (b0 depth sampler,
+        // b1 spatial-reservoir SSBO — the buffer is CONCURRENT, so the graphics-queue read is sync-safe).
+        VkDescriptorSetLayout GetReservoirVizLayout() const { return m_ReservoirVizSetLayout; }
+        void WriteReservoirVizView(ViewResources& vr, FrameTargets& targets);
+        RG::ResourceHandle AddReservoirVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
+                                               RG::ResourceHandle sceneDepth);
+
         // Per-view persistent reservoir buffer tag — Garlic large-tagged, freed only on resize. Reserved
         // high range DISJOINT from DI's 0xFFFF0000 — both subsystems mint into the same heap.
         u32 NextReservoirTag() { return m_NextTag++; }
@@ -71,6 +80,12 @@ namespace Luth
         std::vector<u32> m_TemporalSpv;
         std::vector<u32> m_SpatialSpv;
         std::vector<u32> m_ShadeSpv;
+
+        // Reservoir debug-viz graphics pipeline (fullscreen.vert + restir_gi_reservoir_viz.frag).
+        std::unique_ptr<VKPipeline> m_ReservoirVizPipeline;
+        VkDescriptorSetLayout       m_ReservoirVizSetLayout = VK_NULL_HANDLE;
+        std::vector<u32>            m_FullscreenVertSpv;
+        std::vector<u32>            m_ReservoirVizFragSpv;
 
         u32  m_NextTag = 0xFFFF8000u;  // reserved range for persistent reservoir allocations (disjoint from DI)
     };
