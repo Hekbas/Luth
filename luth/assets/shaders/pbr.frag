@@ -459,6 +459,7 @@ void main()
         outColor = vec4(idColor, 1.0);
         return;
     }
+    if (v_ShadeMode == 13u) { outColor = vec4(emission, 1.0); return; }  // Emission (ShadeMode::Emission)
 
     // --- Ambient Occlusion ---
     // Material-baked AO * screen-space GTAO. GTAO term is fetched

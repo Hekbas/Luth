@@ -118,7 +118,9 @@ namespace Luth
         // the per-view fog atlas. Two modes: density heat-map and integrated in-scatter radiance.
         VolumetricDensity, VolumetricInScatter,
         // ReSTIR GI reservoir viz — heat-maps the spatial reservoir's M (confidence) + age (staleness).
-        RestirGiReservoir
+        RestirGiReservoir,
+        // Emissive radiance only — in-shader override in pbr.frag; isolates emission for raster==RT A/B.
+        Emission
     };
 
     struct GeometryOutput {
