@@ -294,6 +294,9 @@ namespace Luth
         std::shared_ptr<Texture> ptColor;
         VkDescriptorSet          ptDescSet = VK_NULL_HANDLE;
         u32                      ptSampleCount = 0;
+        // FNV hash of the reset inputs (camera VP + scene instances + lights + settings + manual salt)
+        // at the last accumulating frame. A mismatch this frame zeroes the accumulation. 0 → frame 0 resets.
+        u64                      ptResetHash = 0;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

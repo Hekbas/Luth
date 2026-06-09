@@ -45,11 +45,20 @@ namespace Luth
         // can't be pulled into this header (RenderPipeline include cycle).
         bool IsEnabled() const;
 
+        // Editor "Reset" button → forces the accumulation to restart next frame across all views (the
+        // salt folds into the per-view reset hash, so a multi-view setup resets coherently).
+        void RequestReset() { ++m_ResetSalt; }
+
     private:
+        // FNV-1a over the radiance-affecting state (camera VP + scene instances + lights + settings +
+        // manual salt). Compared against ViewResources::ptResetHash each frame; a mismatch resets.
+        u64 ComputeResetHash() const;
+
         RenderPipeline* m_Pipeline = nullptr;
 
         std::unique_ptr<VKComputePipeline> m_PtPipeline;
         VkDescriptorSetLayout              m_SetLayout = VK_NULL_HANDLE;   // Set 2 (pass-local)
         std::vector<u32>                   m_Spv;
+        u32                                m_ResetSalt = 0;               // bumped by RequestReset()
     };
 }

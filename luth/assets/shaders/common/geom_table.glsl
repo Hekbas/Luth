@@ -1,0 +1,92 @@
+// Shared geometry-table deref for rayQuery hit-point material lookup. Used by ReSTIR GI (secondary
+// hit) + the path tracer (every bounce) — single source of truth for the GeomEntry layout so the two
+// consumers can't silently drift from TlasBuilder's GPUGeometryEntry (24 B; static_assert'd C++-side).
+// The table's BDA arrives in a push constant; instanceCustomIndex indexes it. Requires
+// GL_EXT_buffer_reference2 + GL_EXT_nonuniform_qualifier. Set 3 = Material SSBO, Set 4 = bindless
+// textures (PBR's Set 2 / Set 1 b0 remapped per-pipeline). see arch/rendering-pipeline.md
+
+#ifndef LUTH_SHADERS_COMMON_GEOM_TABLE
+#define LUTH_SHADERS_COMMON_GEOM_TABLE
+
+// vbuf/ibuf are the ORIGINAL full-layout buffers (positions @float 0, TexCoord0 @float 6, TexCoord1
+// @float 8 — for both Vertex 52 B + SkinnedVertex 84 B). Skinned hits read bind-pose attributes (the
+// hit POINT rides the deformed TLAS; only n_s/UV are bind-pose — fine for diffuse-dominant bounces).
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer GtVerts   { float f[]; };
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer GtIndices { uint  i[]; };
+struct GtGeomEntry {
+    GtVerts   vbuf;
+    GtIndices ibuf;
+    uint      materialSlot;
+    uint      vertexStride;   // bytes
+};
+layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GtGeomEntry e[]; };
+
+// Mirrors GPUMaterialData (renderer/material). 64 B std430.
+struct GtMaterial {
+    vec4  color;
+    uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
+    uint  emissiveIndex, alphaIndex, specularIndex, thicknessIndex;
+    float metalness, roughness, alphaCutoff;
+    uint  flags;           // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
+};
+layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
+layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
+
+const uint GT_FLAG_HAS_DIFFUSE   = (1u << 3);
+const uint GT_FLAG_HAS_EMISSIVE  = (1u << 4);
+const uint GT_UV_SHIFT_DIFFUSE   = 16u;
+
+// Surface attributes resolved at a rayQuery COMMITTED hit.
+struct HitSurface {
+    vec3  ns;          // world-space geometric normal, faced against the incoming ray
+    vec3  baseColor;   // diffuse albedo (material color × diffuse map)
+    vec3  emission;
+    float metalness;
+    float roughness;
+};
+
+// customIndex/primIndex/bary/o2w come from rayQueryGetIntersection*EXT(rq, true); rayDir = the ray dir
+// (to face the geometric normal back toward the ray).
+HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex, vec2 bary, mat4x3 o2w, vec3 rayDir) {
+    HitSurface s;
+    GtGeomEntry ge = geomTable.e[customIndex];
+    uint sF = ge.vertexStride >> 2u;    // stride in floats (52→13, 84→21)
+    uint i0 = ge.ibuf.i[primIndex * 3u + 0u];
+    uint i1 = ge.ibuf.i[primIndex * 3u + 1u];
+    uint i2 = ge.ibuf.i[primIndex * 3u + 2u];
+
+    // Object-space positions → world-space geometric normal (handles non-uniform scale via o2w).
+    vec3 p0 = vec3(ge.vbuf.f[i0*sF + 0u], ge.vbuf.f[i0*sF + 1u], ge.vbuf.f[i0*sF + 2u]);
+    vec3 p1 = vec3(ge.vbuf.f[i1*sF + 0u], ge.vbuf.f[i1*sF + 1u], ge.vbuf.f[i1*sF + 2u]);
+    vec3 p2 = vec3(ge.vbuf.f[i2*sF + 0u], ge.vbuf.f[i2*sF + 1u], ge.vbuf.f[i2*sF + 2u]);
+    vec3 wp0 = o2w * vec4(p0, 1.0);
+    vec3 wp1 = o2w * vec4(p1, 1.0);
+    vec3 wp2 = o2w * vec4(p2, 1.0);
+    s.ns = normalize(cross(wp1 - wp0, wp2 - wp0));
+    if (dot(s.ns, rayDir) > 0.0) s.ns = -s.ns;
+
+    // Barycentric UVs. bary = (b1, b2); w0 = 1-b1-b2. TexCoord0 @float 6, TexCoord1 @float 8.
+    vec3 wgt = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
+    vec2 uv0 = wgt.x*vec2(ge.vbuf.f[i0*sF + 6u], ge.vbuf.f[i0*sF + 7u])
+             + wgt.y*vec2(ge.vbuf.f[i1*sF + 6u], ge.vbuf.f[i1*sF + 7u])
+             + wgt.z*vec2(ge.vbuf.f[i2*sF + 6u], ge.vbuf.f[i2*sF + 7u]);
+    vec2 uv1 = wgt.x*vec2(ge.vbuf.f[i0*sF + 8u], ge.vbuf.f[i0*sF + 9u])
+             + wgt.y*vec2(ge.vbuf.f[i1*sF + 8u], ge.vbuf.f[i1*sF + 9u])
+             + wgt.z*vec2(ge.vbuf.f[i2*sF + 8u], ge.vbuf.f[i2*sF + 9u]);
+
+    GtMaterial m = gtMaterials[ge.materialSlot];
+    s.baseColor = m.color.rgb;
+    s.metalness = m.metalness;
+    s.roughness = m.roughness;
+    s.emission  = vec3(0.0);
+    if ((m.flags & GT_FLAG_HAS_DIFFUSE) != 0u) {
+        vec2 uvd = (((m.flags >> GT_UV_SHIFT_DIFFUSE) & 3u) == 0u) ? uv0 : uv1;
+        s.baseColor *= textureLod(gtTextures[nonuniformEXT(m.diffuseIndex)], uvd, 0.0).rgb;
+    }
+    if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
+        s.emission = textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
+    }
+    return s;
+}
+
+#endif
