@@ -40,7 +40,8 @@ const uint GT_UV_SHIFT_METALROUGH = 20u;
 
 // Surface attributes resolved at a rayQuery COMMITTED hit.
 struct HitSurface {
-    vec3  ns;          // world-space geometric normal, faced against the incoming ray
+    vec3  ns;          // SHADING normal: smooth barycentric vertex normals (matches raster v_Normal) — for the BRDF
+    vec3  ng;          // GEOMETRIC (face) normal, faced against the ray — for robust ray-origin offsets + side
     vec3  baseColor;   // diffuse albedo (material color × diffuse map)
     vec3  emission;
     float metalness;
@@ -57,18 +58,31 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     uint i1 = ge.ibuf.i[primIndex * 3u + 1u];
     uint i2 = ge.ibuf.i[primIndex * 3u + 2u];
 
-    // Object-space positions → world-space geometric normal (handles non-uniform scale via o2w).
+    vec3 wgt = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
+
+    // Geometric (face) normal — cross of world-space edges (handles non-uniform scale exactly), faced
+    // against the ray. Used for ray-origin offsets + to orient the shading normal's side.
     vec3 p0 = vec3(ge.vbuf.f[i0*sF + 0u], ge.vbuf.f[i0*sF + 1u], ge.vbuf.f[i0*sF + 2u]);
     vec3 p1 = vec3(ge.vbuf.f[i1*sF + 0u], ge.vbuf.f[i1*sF + 1u], ge.vbuf.f[i1*sF + 2u]);
     vec3 p2 = vec3(ge.vbuf.f[i2*sF + 0u], ge.vbuf.f[i2*sF + 1u], ge.vbuf.f[i2*sF + 2u]);
     vec3 wp0 = o2w * vec4(p0, 1.0);
     vec3 wp1 = o2w * vec4(p1, 1.0);
     vec3 wp2 = o2w * vec4(p2, 1.0);
-    s.ns = normalize(cross(wp1 - wp0, wp2 - wp0));
-    if (dot(s.ns, rayDir) > 0.0) s.ns = -s.ns;
+    s.ng = normalize(cross(wp1 - wp0, wp2 - wp0));
+    if (dot(s.ng, rayDir) > 0.0) s.ng = -s.ng;
 
-    // Barycentric UVs. bary = (b1, b2); w0 = 1-b1-b2. TexCoord0 @float 6, TexCoord1 @float 8.
-    vec3 wgt = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
+    // Smooth SHADING normal — barycentric vertex normals (floats 3-5), matching pbr.frag's interpolated
+    // v_Normal so the reference isn't faceted. o2w 3x3 transform (drops the inverse-transpose skew under
+    // non-uniform scale — negligible), kept on the geometric side; fall back to ng if normals are absent.
+    vec3 vn0 = vec3(ge.vbuf.f[i0*sF + 3u], ge.vbuf.f[i0*sF + 4u], ge.vbuf.f[i0*sF + 5u]);
+    vec3 vn1 = vec3(ge.vbuf.f[i1*sF + 3u], ge.vbuf.f[i1*sF + 4u], ge.vbuf.f[i1*sF + 5u]);
+    vec3 vn2 = vec3(ge.vbuf.f[i2*sF + 3u], ge.vbuf.f[i2*sF + 4u], ge.vbuf.f[i2*sF + 5u]);
+    vec3 nsObj = wgt.x * vn0 + wgt.y * vn1 + wgt.z * vn2;
+    s.ns = mat3(o2w) * nsObj;
+    s.ns = (dot(s.ns, s.ns) > 1.0e-12) ? normalize(s.ns) : s.ng;
+    if (dot(s.ns, s.ng) < 0.0) s.ns = -s.ns;
+
+    // Barycentric UVs. TexCoord0 @float 6, TexCoord1 @float 8.
     vec2 uv0 = wgt.x*vec2(ge.vbuf.f[i0*sF + 6u], ge.vbuf.f[i0*sF + 7u])
              + wgt.y*vec2(ge.vbuf.f[i1*sF + 6u], ge.vbuf.f[i1*sF + 7u])
              + wgt.z*vec2(ge.vbuf.f[i2*sF + 6u], ge.vbuf.f[i2*sF + 7u]);

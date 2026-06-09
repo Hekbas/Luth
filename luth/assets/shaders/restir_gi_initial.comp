@@ -107,7 +107,7 @@ void main() {
     vec2   bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
     mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
     HitSurface hs = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, d);
-    ns        = hs.ns;
+    ns        = hs.ng;   // GI keeps the geometric secondary normal (unchanged from before the shared helper)
     baseColor = hs.baseColor;
     emission  = hs.emission;
 #endif
