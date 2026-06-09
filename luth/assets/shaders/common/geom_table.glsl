@@ -109,6 +109,7 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
         s.metalness = mr.b;
     }
     s.roughness = clamp(s.roughness, 0.04, 1.0);   // 0.04 floor — zero roughness → NaN in GGX (pbr.frag)
+    // Emissive has no UV-set bit in the flags schema (16-23 = diffuse/normal/metalrough/occlusion) — always UV0.
     if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
         s.emission = textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
     }

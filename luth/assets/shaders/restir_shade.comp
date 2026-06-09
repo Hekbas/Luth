@@ -8,8 +8,8 @@
 // light's contribution to the direct-lighting image.
 //
 // CONTRACT: this image stores DEMODULATED diffuse irradiance  E = Li * NdotL * W  (no albedo, no
-// 1/PI). pbr.frag remodulates:  Lo += E * (albedo / PI).  A future SVGF pass (C.2) denoises E
-// before remodulation. Keep this contract in lockstep with pbr.frag's restir read.
+// 1/PI). pbr.frag remodulates:  Lo += E * (albedo * (1-metallic) / PI)  (metals carry no Lambertian
+// diffuse). SVGF denoises E before remodulation. Keep this contract in lockstep with pbr.frag's read.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
