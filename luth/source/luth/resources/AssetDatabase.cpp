@@ -560,13 +560,14 @@ namespace Luth
                     fs::path metaPath = path; metaPath += ".meta";
                     u64 newHash = CalculateAssetHash(path, metaPath);
 
+                    // Editor-originated write (autosave): the in-memory asset is the source of truth; a
+                    // reimport would evict the live instance the inspector edits. Consume BEFORE the
+                    // hash-dedup early-out so a deduped event can't leak the token, and refresh the
+                    // recorded hash so a later genuine external edit still reimports.
+                    if (ConsumeSelfWrite(uuid)) { s_ArtifactHashes[uuid] = newHash; continue; }
+
                     if (s_ArtifactHashes[uuid] == newHash) continue;
                     s_ArtifactHashes[uuid] = newHash;
-
-                    // Editor-originated write (autosave): the in-memory asset is already the source of
-                    // truth; evicting + reimporting would drop the live instance the inspector edits.
-                    // The hash is recorded above, so a later genuine external edit still reimports.
-                    if (ConsumeSelfWrite(uuid)) continue;
 
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);
