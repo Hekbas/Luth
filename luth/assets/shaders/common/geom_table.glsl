@@ -32,9 +32,11 @@ struct GtMaterial {
 layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
 
-const uint GT_FLAG_HAS_DIFFUSE   = (1u << 3);
-const uint GT_FLAG_HAS_EMISSIVE  = (1u << 4);
-const uint GT_UV_SHIFT_DIFFUSE   = 16u;
+const uint GT_FLAG_HAS_METALROUGH = (1u << 1);
+const uint GT_FLAG_HAS_DIFFUSE    = (1u << 3);
+const uint GT_FLAG_HAS_EMISSIVE   = (1u << 4);
+const uint GT_UV_SHIFT_DIFFUSE    = 16u;
+const uint GT_UV_SHIFT_METALROUGH = 20u;
 
 // Surface attributes resolved at a rayQuery COMMITTED hit.
 struct HitSurface {
@@ -83,6 +85,16 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
         vec2 uvd = (((m.flags >> GT_UV_SHIFT_DIFFUSE) & 3u) == 0u) ? uv0 : uv1;
         s.baseColor *= textureLod(gtTextures[nonuniformEXT(m.diffuseIndex)], uvd, 0.0).rgb;
     }
+    // glTF metal-rough map (G = roughness, B = metallic) — matches pbr.frag. Consumed only by the path
+    // tracer's full BRDF (S3); ReSTIR GI ignores metalness/roughness (diffuse-only secondary), so this
+    // is an additive fetch on that path.
+    if ((m.flags & GT_FLAG_HAS_METALROUGH) != 0u) {
+        vec2 uvm = (((m.flags >> GT_UV_SHIFT_METALROUGH) & 3u) == 0u) ? uv0 : uv1;
+        vec3 mr  = textureLod(gtTextures[nonuniformEXT(m.metalRoughIndex)], uvm, 0.0).rgb;
+        s.roughness = mr.g;
+        s.metalness = mr.b;
+    }
+    s.roughness = clamp(s.roughness, 0.04, 1.0);   // 0.04 floor — zero roughness → NaN in GGX (pbr.frag)
     if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
         s.emission = textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
     }
