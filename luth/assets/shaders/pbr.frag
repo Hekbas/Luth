@@ -120,6 +120,12 @@ layout(set = 3, binding = 5) uniform sampler2D diIrradiance;
 // (alongside DI, not instead of) when restirParams.y > 0.5; remodulated identically.
 layout(set = 3, binding = 6) uniform sampler2D giIrradiance;
 
+// CONTRACT: reflRadiance stores the DEMODULATED lobe-mean reflected radiance (rt_reflections.comp) — the
+// same space as prefilteredColor. Composited into the specular IBL below by SWAPPING it in for
+// prefilteredColor (gated on reflParams.x, roughness-faded), then the split-sum env-BRDF (F·brdf.x +
+// brdf.y) applies ONCE. The denoiser owns the slot; reflParams.x gates the consumption.
+layout(set = 3, binding = 7) uniform sampler2D reflRadiance;
+
 uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
     // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
     float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
@@ -516,12 +522,20 @@ void main()
     vec3 irradiance = texture(irradianceMap, N).rgb;
     vec3 diffuseIBL = irradiance * albedo.rgb;
 
-    // Specular IBL
+    // Specular IBL — RT reflections (D.1) swap in for the prefiltered env below the roughness cutoff
+    // (smoothstep fade to IBL); the split-sum env-BRDF (F·brdf.x + brdf.y) then applies once to whichever.
     const float MAX_REFLECTION_LOD = 4.0;
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilteredMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec3 specSource = prefilteredColor;
+    if (ubo.reflParams.x > 0.5)
+    {
+        float reflWeight = 1.0 - smoothstep(ubo.reflParams.y, ubo.reflParams.z, roughness);
+        vec3  reflRad    = texture(reflRadiance, gl_FragCoord.xy / ubo.viewportSize).rgb;
+        specSource = mix(prefilteredColor, reflRad, reflWeight);
+    }
     vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-    vec3 specularIBL = prefilteredColor * (F * brdf.x + brdf.y);
+    vec3 specularIBL = specSource * (F * brdf.x + brdf.y);
 
     vec3 ambient = (kD * diffuseIBL + specularIBL) * ao * ubo.iblIntensity;
 

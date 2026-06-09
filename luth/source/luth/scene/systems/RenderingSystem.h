@@ -93,6 +93,10 @@ namespace Luth
         // samplesPerFrame, z = maxBounces, w = accumulated sample count. PT bypasses pbr.frag entirely
         // (it overwrites the post chain's HDR input), so this is informational/debug, not a pbr.frag gate.
         Vec4 pathTraceParams;
+        // RT reflections (rt-renderer D.1). x = enabled (1 → pbr.frag composites the denoised reflection
+        // into the split-sum specular IBL), y = roughnessFadeStart, z = roughnessFadeEnd (full RT below
+        // Start, smoothstep to prefiltered-env IBL, pure IBL above End), w pad.
+        Vec4 reflParams;
     };
 
     // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the

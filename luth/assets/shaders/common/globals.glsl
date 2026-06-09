@@ -39,6 +39,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  rtShadowParams;            // x = shadowingMode (0=CSM, 1=RT), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad
     vec4  restirParams;              // x = ReSTIR DI enabled (1 → sample diIrradiance instead of point loop), y = ReSTIR GI enabled (1 → add giIrradiance)
     vec4  pathTraceParams;           // x = PathTrace enabled, y = samplesPerFrame, z = maxBounces, w = accumulated sample count
+    vec4  reflParams;                // x = RT reflections enabled, y = roughnessFadeStart, z = roughnessFadeEnd, w pad
 } ubo;
 
 #endif

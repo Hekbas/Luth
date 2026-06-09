@@ -478,6 +478,83 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // RT Reflections (rt-renderer D.1) — stochastic GGX reflection rays from the slim G-buffer,
+            // shaded at the hit + denoised, composited into the specular IBL below a roughness cutoff.
+            if (UI::BeginCollapsingHeader("RT Reflections", true)) {
+                auto& rf = m_RS->GetReflectionsSettings();
+                if (UI::BeginProperties("ReflectionsProps")) {
+                    UI::Property("Enabled", rf.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Ray-traced specular reflections (supersedes SSR).\nComposited into the specular IBL below the roughness cutoff. Requires a TLAS (RT).");
+
+                    UI::Property("Roughness Fade Start", rf.roughnessFadeStart, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Full RT reflection at or below this roughness.");
+                    UI::Property("Roughness Fade End", rf.roughnessFadeEnd, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Pure prefiltered-env IBL above this roughness; smoothstep blend between Start and End.");
+
+                    UI::Property("Max Ray Distance", rf.maxRayDistance, 1.0f, 0.0f, 10000.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Reflection-ray tMax; a miss past this samples the environment.");
+                    UI::Property("Firefly Clamp", rf.fireflyClamp, 0.5f, 0.0f, 100.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance clamp on the 1-spp radiance before the denoiser.");
+
+                    UI::Property("Denoise", rf.denoise);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Run the specular denoiser. Off = raw 1-spp reflection (the A/B compare).");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // SVGF (Specular) — third SVGF instance over the RT reflection. Hit-distance virtual
+            // reprojection (vs the diffuse motion-vector reproject) + fewer à-trous levels (preserve mirror
+            // sharpness). Off passes the raw reflection through (the A/B), bound to Set 3 b7 either way.
+            if (UI::BeginCollapsingHeader("SVGF (Specular)", true)) {
+                auto& ss = m_RS->GetSvgfSpecSettings();
+                if (UI::BeginProperties("SvgfSpecProps")) {
+                    UI::Property("Enabled", ss.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Denoise the RT reflection (hit-distance virtual reprojection).\nOff passes the raw 1-spp reflection through (the A/B compare).");
+
+                    UI::Property("Color Alpha", ss.alphaColor, 0.01f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal EMA blend for color at steady state.\nLower = more accumulation / stability, more lag.");
+                    UI::Property("Depth Threshold", ss.depthThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Relative linear-depth tolerance for accepting reprojected history.\nAlso gates reflected-depth (hitDist) continuity, loosened by roughness.");
+                    UI::Property("Normal Threshold", ss.normalThreshold, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Min dot(prevN, currN) to accept reprojected history.");
+
+                    int spAtrous = static_cast<int>(ss.atrousIterations);
+                    if (UI::Property("A-trous Iterations", spAtrous, 0, 8))
+                        ss.atrousIterations = static_cast<u32>(spAtrous);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Edge-aware wavelet levels. Specular defaults lower than diffuse — preserve mirror sharpness.");
+
+                    int spHistCap = static_cast<int>(ss.historyCap);
+                    if (UI::Property("History Cap", spHistCap, 1, 64))
+                        ss.historyCap = static_cast<u32>(spHistCap);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Temporal accumulation length clamp (alpha floor = 1/cap).");
+
+                    UI::Property("Luma Sigma", ss.phiColor, 0.1f, 0.1f, 64.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance edge-stopping sigma - the primary tuning knob.");
+                    UI::Property("Normal Sigma", ss.phiNormal, 1.0f, 1.0f, 256.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Normal edge-stopping exponent.");
+                    UI::Property("Depth Sigma", ss.phiDepth, 0.05f, 0.0f, 8.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Depth edge-stopping scale.");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // Anti-Aliasing — Karis14 YCoCg-clip TAA + Tokuyoshi19 specular AA. Both gated by their
             // own enable flag; sliders pulled from PostProcessSettings (default-on at sane values).
             if (UI::BeginCollapsingHeader("Anti-Aliasing", true)) {

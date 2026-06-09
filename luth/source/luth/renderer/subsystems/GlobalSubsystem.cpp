@@ -215,6 +215,12 @@ namespace Luth
         ubo.pathTraceParams = Vec4(ptActive ? 1.0f : 0.0f, static_cast<f32>(ptS.samplesPerFrame),
                                    static_cast<f32>(ptS.maxBounces), static_cast<f32>(ptSamples));
 
+        // RT reflections (D.1) — gate the pbr.frag composite on enabled AND a valid TLAS (the reflection
+        // pass + denoiser no-op before the first build, leaving svgfSpecDenoised stale).
+        const ReflectionsSettings& reflS = m_Pipeline->GetSystem().GetReflectionsSettings();
+        const bool reflActive = reflS.enabled && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
+        ubo.reflParams = Vec4(reflActive ? 1.0f : 0.0f, reflS.roughnessFadeStart, reflS.roughnessFadeEnd, 0.0f);
+
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.
         m_CachedViewProj = ubo.viewProjection;

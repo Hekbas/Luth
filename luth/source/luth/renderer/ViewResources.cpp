@@ -26,7 +26,7 @@ namespace Luth
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 183;  // + Reflections trace 1 + spec SVGF 25 (passthrough 1 + reproject 12 + moments 6 + atrous 6)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 250;  // + Reflections trace b1-b3 + spec SVGF 17 (passthrough 1 + reproject 8 + moments 4 + atrous 4)
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 253;  // + Reflections trace b1-b3 + spec SVGF 17 + Set 3 b7 reflection sampler (×MAX_FRAMES_IN_FLIGHT)
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
