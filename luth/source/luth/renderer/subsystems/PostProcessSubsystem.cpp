@@ -789,10 +789,17 @@ namespace Luth
             return;
 
         const auto& pps  = m_Pipeline->GetSystem().GetPostProcessSettings();
-        const bool taaOn = pps.taaEnabled && vr.taaHistoryA && vr.taaHistoryB;
+        // Path-traced reference mode (rt-renderer C.5) takes priority: bloom + composite sample the PT
+        // display image (ptColor), the megakernel's HDR output, in place of the raster sceneColor / TAA.
+        const bool ptOn  = m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace && vr.ptColor;
+        const bool taaOn = !ptOn && pps.taaEnabled && vr.taaHistoryA && vr.taaHistoryB;
 
         VkImageView srcView = VK_NULL_HANDLE;
-        if (taaOn)
+        if (ptOn)
+        {
+            srcView = std::static_pointer_cast<VKTexture>(vr.ptColor)->GetImageView();
+        }
+        else if (taaOn)
         {
             // Parity rule matches AddTaaResolvePass — parity=0 writes taaHistoryA, =1 writes B.
             // Bloom + grid + composite all read the same VkImage; RG inserts barriers so bloom

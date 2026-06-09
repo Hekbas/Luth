@@ -18,6 +18,7 @@
 #include "luth/renderer/settings/RestirSettings.h"
 #include "luth/renderer/settings/RestirGiSettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
+#include "luth/renderer/settings/PathTraceSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -86,7 +87,16 @@ namespace Luth
         // x = ReSTIR DI enabled (1 when the subsystem is on AND a valid DI image exists). When set,
         // pbr.frag samples the demodulated DI image (Set 3 b5) instead of running the point-light loop.
         Vec4 restirParams;
+        // Path-traced reference mode (rt-renderer C.5). x = enabled (RenderMode::PathTrace), y =
+        // samplesPerFrame, z = maxBounces, w = accumulated sample count. PT bypasses pbr.frag entirely
+        // (it overwrites the post chain's HDR input), so this is informational/debug, not a pbr.frag gate.
+        Vec4 pathTraceParams;
     };
+
+    // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the
+    // brute-force ground-truth reference (rt-renderer C.5). An A/B compare toggle like ShadowingMode /
+    // TonemapOperator — distinct from ShadeMode (post-tonemap debug-viz blits, not a path replacement).
+    enum class RenderMode : u8 { Raster = 0, PathTrace = 1 };
 
     enum class ShadeMode : u8 {
         Lit = 0, Unlit, Wireframe, Normals, EntityID,
@@ -176,6 +186,14 @@ namespace Luth
         // shorter SVGF history than DI. Surfaced as the editor's "SVGF (GI)" section.
         SvgfSettings& GetSvgfGiSettings() { return m_SvgfGiSettings; }
         const SvgfSettings& GetSvgfGiSettings() const { return m_SvgfGiSettings; }
+
+        PathTraceSettings& GetPathTraceSettings() { return m_PathTraceSettings; }
+        const PathTraceSettings& GetPathTraceSettings() const { return m_PathTraceSettings; }
+
+        // Top-level render path (Raster / PathTrace). PathTraceSubsystem::IsEnabled() reads this; the
+        // editor RenderPanel toggles it. Switching modes resets the PT accumulation on the next frame.
+        RenderMode GetRenderMode() const { return m_RenderMode; }
+        void SetRenderMode(RenderMode mode) { m_RenderMode = mode; }
 
         u64 GetFrameAllocatorUsage() const { return m_FrameAllocator->GetUsedMemory(); }
         u64 GetFrameAllocatorTotal() const { return m_FrameAllocator->GetTotalSize(); }
@@ -289,6 +307,8 @@ namespace Luth
         SvgfSettings        m_SvgfSettings;
         // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
         SvgfSettings        m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
+        PathTraceSettings   m_PathTraceSettings;
+        RenderMode          m_RenderMode   = RenderMode::Raster;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 

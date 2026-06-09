@@ -1,0 +1,45 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+
+// Path-traced reference mode (rt-renderer C.5) — megakernel. S0 is a SEAM STUB: it writes a
+// recognizable HDR test pattern to the display image (b1) so the RenderMode::PathTrace bypass can be
+// validated end-to-end (PT output → bloom → tonemap → present) before the path tracer itself lands in
+// S1+. The fp32 accumulator (b0) is unused until S1 wires the running mean. see arch/rendering-pipeline.md
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Set 2 (pass-local): b0 = fp32 progressive accumulator (in-place running mean, S1), b1 = fp16 display
+// color the post chain samples. Both GENERAL storage images, persistent per-view.
+layout(set = 2, binding = 0, rgba32f) uniform image2D u_Accum;
+layout(set = 2, binding = 1, rgba16f) uniform image2D u_Color;
+
+layout(push_constant) uniform PC {
+    mat4  invViewProj;
+    uint  frameSeed;
+    uint  sampleCount;       // accumulated paths so far (running-mean weight, S1)
+    uint  samplesPerFrame;
+    uint  maxBounces;
+    uint  rrStartDepth;
+    uint  reset;             // 1 → discard the accumulator this frame (S1)
+    float fireflyClamp;
+    float pad0;
+} pc;
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+
+    // Seam test pattern: an HDR gradient + a bright central spot. The >1.0 values exercise the bloom
+    // threshold + tonemap so a correct seam shows a tonemapped gradient with a blooming core.
+    vec3 col = vec3(uv, 0.5) * 1.5;
+    float d  = distance(uv, vec2(0.5));
+    col += vec3(3.0) * smoothstep(0.12, 0.0, d);
+
+    imageStore(u_Color, pixel, vec4(col, 1.0));
+}

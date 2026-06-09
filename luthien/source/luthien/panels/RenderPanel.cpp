@@ -339,6 +339,21 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Path Trace Reference — the ground-truth oracle (rt-renderer C.5). A brute-force megakernel
+            // that bypasses raster + ReSTIR; progressively accumulates a physically-correct image (resets
+            // on camera/scene change). Full tuning (bounces / samples / RR / reset) lands in S4.
+            if (UI::BeginCollapsingHeader("Path Trace Reference", true)) {
+                bool ptOn = m_RS->GetRenderMode() == RenderMode::PathTrace;
+                if (UI::BeginProperties("PathTraceProps")) {
+                    if (UI::Property("Reference Mode", ptOn))
+                        m_RS->SetRenderMode(ptOn ? RenderMode::PathTrace : RenderMode::Raster);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Replace the real-time render with a ground-truth path tracer.\nBypasses raster + ReSTIR; accumulates a reference image when the camera is parked.");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // SVGF Denoiser — Schied17 spatiotemporal variance-guided filter over the demodulated DI.
             // Off passes the raw ReSTIR DI straight through (the A/B compare). The knobs take effect as
             // the reproject / à-trous passes land; the enable toggle + plumbing are live now.

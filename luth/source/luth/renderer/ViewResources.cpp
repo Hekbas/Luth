@@ -22,9 +22,9 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 166;  // + GI reservoir-viz 1 set
+    static constexpr u32 k_ViewPoolMaxSets              = 170;  // + GI reservoir-viz 1 set + PathTrace 1 set + margin
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 151;  // + GI SVGF 25 storage-image descriptors (passthrough 1 + reproject 12 + moments 6 + atrous 6)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 157;  // + GI SVGF 25 storage-image descriptors (passthrough 1 + reproject 12 + moments 6 + atrous 6) + PathTrace 2 (accum + color)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 230;  // + GI reservoir-viz b0 depth sampler
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
@@ -95,6 +95,7 @@ namespace Luth
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
             m_RestirGi.WriteReservoirVizView(vr, targets);  // re-bind GI reservoir-viz depth + spatial reservoir
+            m_PathTrace.WriteView(vr);              // re-bind PT accumulator + display image (recreated on resize)
             m_Denoise->WriteView(vr, targets);      // re-bind DI SVGF inputs + output to the new images
             m_DenoiseGi->WriteView(vr, targets);    // re-bind GI SVGF inputs + output to the new images
             m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI + b6 denoised GI
@@ -228,6 +229,7 @@ namespace Luth
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
         allocSingle(m_RestirGi.GetReservoirVizLayout(),  vr.giReservoirVizDescSet,"View.GiReservoirViz");
+        allocSingle(m_PathTrace.GetSetLayout(),          vr.ptDescSet,            "View.PathTrace");
         m_Denoise->AllocateViewSets(vr);
         m_DenoiseGi->AllocateViewSets(vr);
 
@@ -248,6 +250,7 @@ namespace Luth
         m_Restir.WriteView(vr, targets);
         m_RestirGi.WriteView(vr, targets);
         m_RestirGi.WriteReservoirVizView(vr, targets);
+        m_PathTrace.WriteView(vr);
         m_Denoise->WriteView(vr, targets);
         m_DenoiseGi->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
@@ -283,6 +286,19 @@ namespace Luth
         // ReSTIR GI demodulated indirect-diffuse image — same shape as restirDI. STORAGE for the GI
         // shade pass's imageStore + SAMPLED (ctor) for pbr.frag's Set 3 b6 read.
         vr.restirGiDI = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // Path-traced reference mode (rt-renderer C.5). ptAccum = viewport-sized RGBA32F STORAGE — the
+        // in-place fp32 progressive running mean, kept GENERAL, only ever touched by the PT megakernel
+        // (read-before-write cross-frame → bootstrap-cleared below). ptColor = RGBA16F STORAGE+SAMPLED
+        // display copy the post chain samples; fully written each frame → no clear (svgfDenoised pattern).
+        vr.ptAccum = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA32F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.ptColor = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
@@ -403,7 +419,7 @@ namespace Luth
         // pixel content. The volumetric resolve samples volInScatterHist{A,B} and the SVGF reproject
         // imageLoads its prev history on frame 0; without this clear the first read is NaN-prone garbage
         // (and imageLoad needs GENERAL). One-shot submit per view-resize only.
-        VkImage clearTargets[19] = {
+        VkImage clearTargets[20] = {
             std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
@@ -424,8 +440,10 @@ namespace Luth
             std::static_pointer_cast<VKTexture>(vr.svgfGiGeom[1])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfGiAtrous[0])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfGiAtrous[1])->GetImage(),
+            // PathTrace fp32 accumulator — read-before-write cross-frame, so zero it to GENERAL on resize.
+            std::static_pointer_cast<VKTexture>(vr.ptAccum)->GetImage(),
         };
-        constexpr u32 kClearCount = 19;
+        constexpr u32 kClearCount = 20;
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
             VkImageMemoryBarrier toDst[kClearCount]{};
             for (u32 i = 0; i < kClearCount; ++i)
@@ -502,6 +520,8 @@ namespace Luth
         }
         vr.svgfGiAtrous[0].reset();
         vr.svgfGiAtrous[1].reset();
+        vr.ptAccum.reset();
+        vr.ptColor.reset();
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

@@ -25,6 +25,7 @@
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
+#include "luth/renderer/subsystems/PathTraceSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
@@ -282,6 +283,17 @@ namespace Luth
         std::shared_ptr<Texture> svgfGiAtrous[2];
         VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
+        // Path-traced reference mode (rt-renderer C.5). ptAccum = viewport-sized RGBA32F STORAGE — the
+        // in-place fp32 progressive running mean, kept GENERAL, only ever touched by the PT megakernel
+        // (never sampled, so fp32 precision survives thousands of samples). ptColor = RGBA16F
+        // STORAGE+SAMPLED display copy the post chain (bloom/tonemap) samples; written fresh each frame.
+        // ptSampleCount is the CPU-side accumulated path count (running-mean weight); reset on
+        // camera/scene change. ptDescSet binds b0=ptAccum, b1=ptColor — stable, single (not cycled).
+        std::shared_ptr<Texture> ptAccum;
+        std::shared_ptr<Texture> ptColor;
+        VkDescriptorSet          ptDescSet = VK_NULL_HANDLE;
+        u32                      ptSampleCount = 0;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -449,6 +461,7 @@ namespace Luth
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
         RtRestirGiSubsystem     m_RestirGi;
+        PathTraceSubsystem      m_PathTrace;
         SkinningSubsystem       m_Skinning;
         std::unique_ptr<IDenoiser> m_Denoise;    // DI SVGF; swappable to NRD/RELAX via the settings toggle
         std::unique_ptr<IDenoiser> m_DenoiseGi;  // GI SVGF — second instance (DenoiserChannel::Gi)
@@ -462,6 +475,8 @@ namespace Luth
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         RtRestirGiSubsystem&           GetRestirGi()             { return m_RestirGi; }
         const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
+        PathTraceSubsystem&            GetPathTrace()            { return m_PathTrace; }
+        const PathTraceSubsystem&      GetPathTrace()      const { return m_PathTrace; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
         IDenoiser&                     GetDenoise()              { return *m_Denoise; }
