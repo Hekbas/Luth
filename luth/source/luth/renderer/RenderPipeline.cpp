@@ -321,17 +321,20 @@ namespace Luth
         // guard inside RtSubsystem short-circuits the second view (TLAS is scene-global).
         const bool runRtShadows = (m_Global.GetShadowParams().mode == ShadowingMode::RtShadows)
                                && m_Global.GetShadowParams().castShadows;
+        // Per-view fog toggle — also gates the volumetric term in needTlas, so a fog-off view doesn't
+        // build a TLAS the (then-unregistered) scatter pass would never read.
+        const bool volumetricEnabled = view.camera.enableVolumetricFog;
         // Build the TLAS whenever ANY RT consumer needs it — RT shadows / ReSTIR DI/GI / PathTrace /
         // reflections / volumetric RT fog shadows. The RT sun-shadow trace below stays runRtShadows-only.
         const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled()
-                            || m_PathTrace.IsEnabled() || m_Reflections.IsEnabled() || m_Volumetric.IsRtShadowsEnabled();
+                            || m_PathTrace.IsEnabled() || m_Reflections.IsEnabled()
+                            || (volumetricEnabled && m_Volumetric.IsRtShadowsEnabled());
         if (needTlas)
             m_Rt.AddTlasBuildPass(rg);
 
         // Volumetric chain — gated by per-view editor toggle. When off the inject + integrate +
         // composite passes skip entirely; sceneColor flows through unchanged. injectOut hoisted
         // to outer scope so the debug viz pass below can reference the density atlas handle.
-        const bool volumetricEnabled = view.camera.enableVolumetricFog;
         VolumetricSubsystem::InjectOutputs injectOut{};
         RG::ResourceHandle volInScatterHandle{};  // post-integrate scratch (viz mode 1 samples this)
         RG::ResourceHandle volResolvedHandle{};   // post-resolve (composite + viz sample)
