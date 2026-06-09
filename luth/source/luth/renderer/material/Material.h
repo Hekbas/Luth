@@ -201,6 +201,12 @@ namespace Luth
         f32  GetEmissiveStrength() const { return m_GPUData.emissive.a; }
         void SetEmissiveStrength(f32 s) { m_GPUData.emissive.a = s; }
 
+        // Metalness / roughness (direct access — like color/emissive; the u_* uniform channel is dead).
+        f32  GetMetalness() const { return m_GPUData.metalness; }
+        void SetMetalness(f32 m) { m_GPUData.metalness = m; }
+        f32  GetRoughness() const { return m_GPUData.roughness; }
+        void SetRoughness(f32 r) { m_GPUData.roughness = r; }
+
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }
         void UpdateGPUData(); // Updates m_GPUData from internal state/maps

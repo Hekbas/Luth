@@ -177,7 +177,7 @@ namespace Luth
                     bool enabled = material.IsUseMapEnabled(type);
                     ImGui::Text("%s", label);
 
-                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness);
+                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness && type != MapType::Emissive);
                     
                     // 2. Texture slot
                     ImGui::TableNextColumn();
@@ -286,17 +286,17 @@ namespace Luth
                 DrawSurfaceInput(MapType::Normal, "Normal", nullptr);
 
                 DrawSurfaceInput(MapType::Metalness, "Metallic", [&]() {
-                    float met = material.Get<float>("u_Metalness", 0.0f);
+                    float met = material.GetMetalness();
                     if (ImGui::SliderFloat("##Met", &met, 0.0f, 1.0f, "%.2f")) {
-                        material.Set("u_Metalness", met);
+                        material.SetMetalness(met);
                         material.MarkDirty();
                     }
                 });
 
                 DrawSurfaceInput(MapType::Roughness, "Roughness", [&]() {
-                    float ro = material.Get<float>("u_Roughness", 0.5f);
+                    float ro = material.GetRoughness();
                     if (ImGui::SliderFloat("##Rou", &ro, 0.0f, 1.0f, "%.2f")) {
-                        material.Set("u_Roughness", ro);
+                        material.SetRoughness(ro);
                         material.MarkDirty();
                     }
                 });
