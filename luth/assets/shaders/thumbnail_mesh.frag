@@ -11,6 +11,7 @@ layout(push_constant) uniform PC {
     mat4 viewProj;
     vec4 albedo;
     uint diffuseIndex;
+    vec4 emissive;   // rgb = factor (linear), a = HDR strength
 } pc;
 
 layout(location = 0) in vec3 vNormal;
@@ -27,5 +28,7 @@ void main()
     const vec3 L  = normalize(vec3(0.5, 1.0, 0.7));
     float diffuse = max(dot(normalize(vNormal), L), 0.0);
     vec3  ambient = base * 0.25;
-    outColor = vec4(ambient + diffuse * base * 0.75, 1.0);
+    // Factor*strength only (no emissive texture in the mini-preview) — enough to preview the slider.
+    vec3  emission = pc.emissive.rgb * pc.emissive.a;
+    outColor = vec4(ambient + diffuse * base * 0.75 + emission, 1.0);
 }

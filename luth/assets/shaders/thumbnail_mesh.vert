@@ -16,6 +16,7 @@ layout(push_constant) uniform PC {
     mat4 viewProj;
     vec4 albedo;
     uint diffuseIndex;
+    vec4 emissive;   // rgb = factor (linear), a = HDR strength — read in the frag; block parity only
 } pc;
 
 layout(location = 0) out vec3 vNormal;
