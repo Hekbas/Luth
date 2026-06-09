@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 170;  // + GI reservoir-viz 1 set + PathTrace 1 set + margin
+    static constexpr u32 k_ViewPoolMaxSets              = 171;  // + GI reservoir-viz 1 set + PathTrace 1 set + Reflections 1 set + margin
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 157;  // + GI SVGF 25 storage-image descriptors (passthrough 1 + reproject 12 + moments 6 + atrous 6) + PathTrace 2 (accum + color)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 158;  // + GI SVGF 25 + PathTrace 2 (accum + color) + Reflections 1 (b0 output)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 230;  // + GI reservoir-viz b0 depth sampler
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 233;  // + GI reservoir-viz b0 depth + Reflections b1-b3 (depth/normal/roughness)
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -96,6 +96,7 @@ namespace Luth
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
             m_RestirGi.WriteReservoirVizView(vr, targets);  // re-bind GI reservoir-viz depth + spatial reservoir
             m_PathTrace.WriteView(vr);              // re-bind PT accumulator + display image (recreated on resize)
+            m_Reflections.WriteView(vr, targets);   // re-bind reflection output + slim G-buffer samplers
             m_Denoise->WriteView(vr, targets);      // re-bind DI SVGF inputs + output to the new images
             m_DenoiseGi->WriteView(vr, targets);    // re-bind GI SVGF inputs + output to the new images
             m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI + b6 denoised GI
@@ -230,6 +231,7 @@ namespace Luth
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
         allocSingle(m_RestirGi.GetReservoirVizLayout(),  vr.giReservoirVizDescSet,"View.GiReservoirViz");
         allocSingle(m_PathTrace.GetSetLayout(),          vr.ptDescSet,            "View.PathTrace");
+        allocSingle(m_Reflections.GetSetLayout(),        vr.reflDescSet,          "View.Reflections");
         m_Denoise->AllocateViewSets(vr);
         m_DenoiseGi->AllocateViewSets(vr);
 
@@ -251,6 +253,7 @@ namespace Luth
         m_RestirGi.WriteView(vr, targets);
         m_RestirGi.WriteReservoirVizView(vr, targets);
         m_PathTrace.WriteView(vr);
+        m_Reflections.WriteView(vr, targets);
         m_Denoise->WriteView(vr, targets);
         m_DenoiseGi->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
@@ -299,6 +302,14 @@ namespace Luth
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
         vr.ptColor = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // RT specular reflections (rt-renderer D.1) — viewport-sized RGBA16F. STORAGE for the trace's
+        // imageStore + SAMPLED (ctor) for pbr.frag's Set 3 b7 read. rgb = demodulated specular radiance,
+        // a = hitDist. Fully written each frame (reflection or env fallback) → no bootstrap clear.
+        vr.reflRadiance = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
@@ -522,6 +533,7 @@ namespace Luth
         vr.svgfGiAtrous[1].reset();
         vr.ptAccum.reset();
         vr.ptColor.reset();
+        vr.reflRadiance.reset();
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

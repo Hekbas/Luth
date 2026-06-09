@@ -26,6 +26,7 @@
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
 #include "luth/renderer/subsystems/PathTraceSubsystem.h"
+#include "luth/renderer/subsystems/ReflectionsSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
@@ -297,6 +298,15 @@ namespace Luth
         // FNV hash of the reset inputs (camera VP + scene instances + lights + settings + manual salt)
         // at the last accumulating frame. A mismatch this frame zeroes the accumulation. 0 → frame 0 resets.
         u64                      ptResetHash = 0;
+
+        // RT specular reflections (rt-renderer D.1). reflRadiance = viewport-sized RGBA16F STORAGE+SAMPLED
+        // — rgb = demodulated specular radiance (Li·F·G1 / Fenv), a = hitDist. The trace writes every
+        // pixel each frame (reflection or env fallback), so no cross-frame read → no bootstrap clear.
+        // reflDescSet binds Set 2 b0 = reflRadiance (GENERAL) + b1-b3 = depth/slimNormal/slimRoughness
+        // samplers — stable per-view (single, not cycled). The specular denoiser's svgfSpec* history
+        // (D.1 S3) lands beside the GI SVGF fields above.
+        std::shared_ptr<Texture> reflRadiance;
+        VkDescriptorSet          reflDescSet = VK_NULL_HANDLE;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -465,6 +475,7 @@ namespace Luth
         RtRestirSubsystem       m_Restir;
         RtRestirGiSubsystem     m_RestirGi;
         PathTraceSubsystem      m_PathTrace;
+        ReflectionsSubsystem    m_Reflections;
         SkinningSubsystem       m_Skinning;
         std::unique_ptr<IDenoiser> m_Denoise;    // DI SVGF; swappable to NRD/RELAX via the settings toggle
         std::unique_ptr<IDenoiser> m_DenoiseGi;  // GI SVGF — second instance (DenoiserChannel::Gi)
@@ -480,6 +491,8 @@ namespace Luth
         const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
         PathTraceSubsystem&            GetPathTrace()            { return m_PathTrace; }
         const PathTraceSubsystem&      GetPathTrace()      const { return m_PathTrace; }
+        ReflectionsSubsystem&          GetReflections()          { return m_Reflections; }
+        const ReflectionsSubsystem&    GetReflections()    const { return m_Reflections; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
         IDenoiser&                     GetDenoise()              { return *m_Denoise; }

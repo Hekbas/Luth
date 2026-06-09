@@ -1,0 +1,37 @@
+#version 460
+#extension GL_EXT_ray_query            : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+// RT specular reflections (rt-renderer D.1) — one GGX-VNDF-importance-sampled reflection ray per opaque
+// pixel from the slim G-buffer, shaded at the hit (NEE + emission + ambient) and DEMODULATED by the
+// primary surface's integrated env-BRDF, so pbr.frag re-modulates with the same split-sum DFG factor.
+//
+// CONTRACT (rt_reflections.comp <-> pbr.frag) — see arch/rendering-pipeline.md "cross-pass numerical
+// contracts". specRadiance = Li * f*cos/pdf = Li * F(VdotH) * G1(l) (full 1-spp specular MC estimate);
+// Fenv = F*brdf.x + brdf.y (integrated env-BRDF at the PRIMARY surface). This pass OUTPUTS demod =
+// specRadiance / max(Fenv, eps); pbr.frag REMODULATES specularIBL = mix(prefiltered, demod, reflWeight)*Fenv.
+//
+// S0 = stub test pattern (this) — proves the subsystem seam + per-view image + AS barrier wire up clean.
+// S2 = real GGX-VNDF trace + NEE hit shading + demod output. S3 = specular denoiser.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Set 2 (pass-local): b0 reflection output (rgb = demod specular radiance, a = hitDist), b1 depth,
+// b2 slim oct-normal, b3 slim roughness. S0 stub writes b0 only; b1-b3 land in S2.
+layout(set = 2, binding = 0, rgba16f) uniform image2D u_Refl;
+
+void main()
+{
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 sz  = imageSize(u_Refl);
+    if (pix.x >= sz.x || pix.y >= sz.y) return;
+
+    // S0 stub: a recognizable UV gradient so the seam is visible in the frame debugger (NamedTexture
+    // "Reflections"). Every pixel is written — the real trace must do the same (persistent image, no
+    // bootstrap clear), so a roughness-cutoff skip writes the env fallback, never leaves a stale pixel.
+    vec2 uv = (vec2(pix) + 0.5) / vec2(sz);
+    imageStore(u_Refl, pix, vec4(uv, 0.25, 0.0));
+}
