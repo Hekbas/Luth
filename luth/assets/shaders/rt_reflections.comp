@@ -22,11 +22,12 @@
 // approximates) — exact only under the split-sum's radiance/BRDF decorrelation, so it is accurate at low
 // roughness and the cutoff fades to IBL before it loses accuracy. (The VNDF kernel differs slightly from
 // the LUT's D-weighting; the exact Li·F·G1 form would need the primary F0 the slim G-buffer omits.)
-// pbr.frag REMODULATES:
-//   specularIBL = mix(prefilteredColor, denoised_demod, reflWeight) * (F*brdf.x + brdf.y)
-// — swapping the RT lobe-mean radiance in for the prefiltered env, applying the split-sum env-BRDF ONCE
-// (F0 lives only in pbr.frag's Fenv; the slim G-buffer carries no albedo/metalness). Env-on-miss is
-// SHARP (LOD 0): the VNDF sample already spread R by roughness; a roughness-LOD prefilter would double it.
+// pbr.frag REMODULATES (additive, SUPERSEDING the IBL specular above the cutoff):
+//   color += (reflRad * envBRDF - specularIBL * iblIntensity) * ao * reflWeight
+// — applies the split-sum env-BRDF ONCE (F0 lives only in pbr.frag's envBRDF; the slim G-buffer carries no
+// albedo/metalness). reflRad is a DIRECT traced reflection (scene-lit + ray-occluded), so it is NOT scaled
+// by iblIntensity — point-lit surroundings reflect even when the env is dim. Env-on-miss is SHARP (LOD 0,
+// the VNDF already spread R) and × iblIntensity so sky reflections stay consistent across the RT↔IBL fade.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -144,7 +145,9 @@ void main() {
     float hitDist;
     if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
         // Miss → SHARP environment radiance along R (LOD 0 — R is already roughness-spread by the VNDF).
-        Li      = (pc.envReady != 0u) ? textureLod(u_PrefilteredEnv, R, 0.0).rgb * ubo.skyboxIntensity : vec3(0.0);
+        // Scaled by iblIntensity (NOT skyboxIntensity) so a sky reflection matches the IBL specular it
+        // blends with in pbr.frag; skyboxIntensity drives only the visible skybox pass, not reflections.
+        Li      = (pc.envReady != 0u) ? textureLod(u_PrefilteredEnv, R, 0.0).rgb * ubo.iblIntensity : vec3(0.0);
         hitDist = pc.maxRayDistance;
     } else {
         float tHit = rayQueryGetIntersectionTEXT(rq, true);
