@@ -304,11 +304,20 @@ namespace Luth
                 DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
-                    Vec3 emColor = material.Get<Vec3>("u_EmissiveColor", Vec3(0.0f));
-                    if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_NoInputs)) {
-                        material.Set("u_EmissiveColor", emColor);
-                        material.MarkDirty();
+                    // Direct GPUData accessors (like Albedo) — the u_* uniform channel never reached
+                    // the GPU. Swatch = LDR factor, drag = HDR strength multiplier (feeds bloom).
+                    Vec3 emColor = material.GetEmissiveColor();
+                    f32  emStr   = material.GetEmissiveStrength();
+                    bool changed = false;
+                    if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_NoInputs)) {
+                        material.SetEmissiveColor(emColor); changed = true;
                     }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##EmissiveStrength", &emStr, 0.05f, 0.0f, 100.0f, "%.2f")) {
+                        material.SetEmissiveStrength(emStr); changed = true;
+                    }
+                    if (changed) material.MarkDirty();
                 });
 
                 DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
@@ -333,7 +342,7 @@ namespace Luth
                         for (const auto& [name, uniform] : buffer.Uniforms)
                         {
                             // Skip uniforms already displayed in Surface Inputs
-                            if (name == "u_Metalness" || name == "u_Roughness" || name == "u_EmissiveColor")
+                            if (name == "u_Metalness" || name == "u_Roughness")
                                 continue;
 
                             switch (uniform.Type)
