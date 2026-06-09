@@ -94,6 +94,13 @@ consistent with the rest of the RT path.
   — sub-pixel jitter wobble in the virtual reprojection (the matrices carry mismatched frame-N/N-1 Halton
   jitter) — is bounded + absorbed by the bilinear+EMA; deferred (fix = un-jittered VP) unless the smoke
   test shows mirror shimmer under camera motion.
+- **Skybox white / no reflections (smoke-test regression, the gate's catch).** `invViewProjection` was
+  first inserted MID-`GlobalUniforms` (after `prevViewProjection`), shifting every later field +64 B. The
+  shaders that declare an INLINE `GlobalUniforms` prefix — skybox.frag/.vert, grid.frag, the `.vert` set;
+  they don't `#include globals.glsl` — kept reading the old offsets → garbage `skyboxIntensity`/`iblIntensity`
+  → white skybox + broken IBL/reflections. Fix: **append** `invViewProjection` at the struct end (new UBO
+  fields MUST append — the inline prefixes only stay valid because every prior addition appended). Neither
+  adversarial review caught it (they reviewed the reflection logic, not the UBO-vs-inline-struct interaction).
 
 ---
 
@@ -116,8 +123,8 @@ Shaders `path_trace.comp` (#include brdf.glsl), `pbr.frag` (Set 3 b7 composite),
 
 Build clean (Debug x64, luth → luthien → Runtime), no new warnings; all `.comp`/`.frag` pass
 `glslc --target-env=vulkan1.3`. S1 SPIR-V equivalence proven (ID-normalized instruction streams identical).
-Two adversarial review workflows (S2 trace/contract, S3/S4 denoiser/composite). Runtime smoke-test pending
-before merge.
+Two adversarial review workflows (S2 trace/contract, S3/S4 denoiser/composite). Runtime smoke-test caught +
+fixed a UBO-layout regression (skybox white — see Bugs caught); re-smoke pending before merge.
 
 ---
 

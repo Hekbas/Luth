@@ -35,7 +35,6 @@ namespace Luth
     struct GlobalUniforms {
         Mat4 viewProjection;
         Mat4 prevViewProjection;  // frame N reads frame N-1's VP (motion vectors + TAA reprojection)
-        Mat4 invViewProjection;   // depth → world (RT-reflection denoiser virtual reprojection)
         Mat4 view;
         Mat4 projection;
         Vec3 cameraPos;
@@ -97,6 +96,9 @@ namespace Luth
         // into the split-sum specular IBL), y = roughnessFadeStart, z = roughnessFadeEnd (full RT below
         // Start, smoothstep to prefiltered-env IBL, pure IBL above End), w pad.
         Vec4 reflParams;
+        // depth → world for the RT-reflection denoiser's virtual reprojection. APPENDED at the end — never
+        // insert mid-struct: shaders with an inline GlobalUniforms prefix (skybox.frag etc.) would desync.
+        Mat4 invViewProjection;
     };
 
     // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the

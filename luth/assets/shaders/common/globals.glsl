@@ -7,7 +7,6 @@
 layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 viewProjection;
     mat4 prevViewProjection;
-    mat4 invViewProjection;   // depth → world reconstruction (RT-reflection denoiser virtual reprojection)
     mat4 view;
     mat4 projection;
     vec3 cameraPos;
@@ -40,6 +39,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     vec4  restirParams;              // x = ReSTIR DI enabled (1 → sample diIrradiance instead of point loop), y = ReSTIR GI enabled (1 → add giIrradiance)
     vec4  pathTraceParams;           // x = PathTrace enabled, y = samplesPerFrame, z = maxBounces, w = accumulated sample count
     vec4  reflParams;                // x = RT reflections enabled, y = roughnessFadeStart, z = roughnessFadeEnd, w pad
+    mat4  invViewProjection;         // depth → world (RT-reflection denoiser virtual reprojection). APPENDED — never insert mid-struct: shaders with an inline GlobalUniforms prefix (skybox.frag etc.) would desync.
 } ubo;
 
 #endif
