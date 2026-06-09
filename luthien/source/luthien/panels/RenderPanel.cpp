@@ -167,6 +167,9 @@ namespace Luth
                     UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Steps for sun light-path absorption ray-march through fog.\n0 = disabled; 4 = quality default. Higher = more accurate dense-fog self-shadowing.");
+                    UI::Property("RT Shadows", vs.rtShadows);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Ray-traced fog shadows: one shadow ray per froxel per cluster point light + the sun.\nGives point lights + arbitrary occluders the fog shadows the CSM-only sun path lacks.\nCostly (millions of rays at High) — enable for the showcase, leave off for perf.");
                     UI::EndProperties();
                 }
 
