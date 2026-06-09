@@ -7,6 +7,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_gi_common.glsl"
+#include "common/geom_table.glsl"   // shared GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
 
 // ReSTIR GI — initial 1-bounce path-sample generation (Ouyang 2021). Per pixel: reconstruct the
 // primary hit x_v, cosine-sample one hemisphere direction, trace it to the secondary hit x_s, shade
@@ -40,41 +41,8 @@ layout(set = 2, binding = 0) uniform sampler2D u_SceneDepth;
 layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;   // RG16F oct
 layout(std430, set = 2, binding = 2) buffer ReservoirBuffer { GIReservoir reservoirs[]; };
 
-// Set 3: Material SSBO (PBR's Set 2, remapped). Set 4: bindless textures (PBR's Set 1 b0, remapped).
-struct GPUMaterialData {
-    vec4  color;
-    uint  diffuseIndex;
-    uint  normalIndex;
-    uint  metalRoughIndex;
-    uint  occlusionIndex;
-    uint  emissiveIndex;
-    uint  alphaIndex;
-    uint  specularIndex;
-    uint  thicknessIndex;
-    float metalness;
-    float roughness;
-    float alphaCutoff;
-    uint  flags;           // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
-};
-layout(std430, set = 3, binding = 0) readonly buffer MaterialBuffer { GPUMaterialData materials[]; };
-layout(set = 4, binding = 0) uniform sampler2D globalTextures[];
-
-const uint FLAG_HAS_DIFFUSE  = (1u << 3);
-const uint FLAG_HAS_EMISSIVE = (1u << 4);
-const uint UV_SHIFT_DIFFUSE  = 16u;
-
-// Geometry table (BDA in pc) — one entry per packed TLAS instance, indexed by instanceCustomIndex.
-// Mirrors GPUGeometryEntry in TlasBuilder.cpp (std430, 24 B). vbuf/ibuf are the ORIGINAL full-layout
-// buffers (positions @0, TexCoord0 @byte 24, TexCoord1 @byte 32 — for both Vertex 52 B + SkinnedVertex 84 B).
-layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Verts   { float f[]; };
-layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Indices { uint  i[]; };
-struct GeomEntry {
-    Verts   vbuf;
-    Indices ibuf;
-    uint    materialSlot;
-    uint    vertexStride;   // bytes
-};
-layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GeomEntry e[]; };
+// Set 3 (Material SSBO) + Set 4 (bindless textures) + the GeomTable buffer_reference layout + the
+// hit-surface deref all live in common/geom_table.glsl (shared with path_trace.comp).
 
 layout(push_constant) uniform PC {
     mat4      invViewProj;
@@ -134,44 +102,14 @@ void main() {
     ns        = normalize(worldPos - xs);    // faces back toward the receiver
     baseColor = vec3(pc.secondaryAlbedo);
 #else
-    GeomEntry ge = pc.geomTable.e[uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true))];
-    uint sF      = ge.vertexStride >> 2u;    // stride in floats (52→13, 84→21)
-    uint prim    = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
-    uint i0 = ge.ibuf.i[prim * 3u + 0u];
-    uint i1 = ge.ibuf.i[prim * 3u + 1u];
-    uint i2 = ge.ibuf.i[prim * 3u + 2u];
-
-    // Positions (object space, float offset 0) → world-space geometric normal (handles non-uniform
-    // scale via the per-instance object-to-world transform). Flip to face the incoming ray.
-    vec3 p0 = vec3(ge.vbuf.f[i0*sF + 0u], ge.vbuf.f[i0*sF + 1u], ge.vbuf.f[i0*sF + 2u]);
-    vec3 p1 = vec3(ge.vbuf.f[i1*sF + 0u], ge.vbuf.f[i1*sF + 1u], ge.vbuf.f[i1*sF + 2u]);
-    vec3 p2 = vec3(ge.vbuf.f[i2*sF + 0u], ge.vbuf.f[i2*sF + 1u], ge.vbuf.f[i2*sF + 2u]);
+    uint   ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
+    uint   pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
+    vec2   bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
     mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
-    vec3 wp0 = o2w * vec4(p0, 1.0);
-    vec3 wp1 = o2w * vec4(p1, 1.0);
-    vec3 wp2 = o2w * vec4(p2, 1.0);
-    ns = normalize(cross(wp1 - wp0, wp2 - wp0));
-    if (dot(ns, d) > 0.0) ns = -ns;
-
-    // Barycentric UVs (TexCoord0 @float 6, TexCoord1 @float 8). bary = (b1, b2); w0 = 1-b1-b2.
-    vec2 bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
-    vec3 wgt = vec3(1.0 - bc.x - bc.y, bc.x, bc.y);
-    vec2 uv0 = wgt.x*vec2(ge.vbuf.f[i0*sF + 6u], ge.vbuf.f[i0*sF + 7u])
-             + wgt.y*vec2(ge.vbuf.f[i1*sF + 6u], ge.vbuf.f[i1*sF + 7u])
-             + wgt.z*vec2(ge.vbuf.f[i2*sF + 6u], ge.vbuf.f[i2*sF + 7u]);
-    vec2 uv1 = wgt.x*vec2(ge.vbuf.f[i0*sF + 8u], ge.vbuf.f[i0*sF + 9u])
-             + wgt.y*vec2(ge.vbuf.f[i1*sF + 8u], ge.vbuf.f[i1*sF + 9u])
-             + wgt.z*vec2(ge.vbuf.f[i2*sF + 8u], ge.vbuf.f[i2*sF + 9u]);
-
-    GPUMaterialData m = materials[ge.materialSlot];
-    baseColor = m.color.rgb;
-    if ((m.flags & FLAG_HAS_DIFFUSE) != 0u) {
-        vec2 uvd = (((m.flags >> UV_SHIFT_DIFFUSE) & 3u) == 0u) ? uv0 : uv1;
-        baseColor *= textureLod(globalTextures[nonuniformEXT(m.diffuseIndex)], uvd, 0.0).rgb;
-    }
-    if ((m.flags & FLAG_HAS_EMISSIVE) != 0u) {
-        emission = textureLod(globalTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
-    }
+    HitSurface hs = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, d);
+    ns        = hs.ng;   // GI keeps the geometric secondary normal (unchanged from before the shared helper)
+    baseColor = hs.baseColor;
+    emission  = hs.emission;
 #endif
 
     // L_o at x_s toward x_v = emission + single-light NEE (Lambertian secondary). One light picked

@@ -96,6 +96,7 @@ namespace Luth
         m_Rt.Init(*this);
         m_Restir.Init(*this);
         m_RestirGi.Init(*this);
+        m_PathTrace.Init(*this);
         m_Denoise->Init(*this);
         m_DenoiseGi->Init(*this);
         m_Skinning.Init(*this);
@@ -136,6 +137,7 @@ namespace Luth
                               || m_Rt.OnShaderReloaded(name, spv)
                               || m_Restir.OnShaderReloaded(name, spv)
                               || m_RestirGi.OnShaderReloaded(name, spv)
+                              || m_PathTrace.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
                               || m_DenoiseGi->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
@@ -193,6 +195,7 @@ namespace Luth
         m_Skinning.Shutdown();
         m_DenoiseGi->Shutdown();
         m_Denoise->Shutdown();
+        m_PathTrace.Shutdown();
         m_RestirGi.Shutdown();
         m_Restir.Shutdown();
         m_Rt.Shutdown();
@@ -344,9 +347,19 @@ namespace Luth
         // Build the TLAS whenever ANY RT consumer needs it — RT shadows OR ReSTIR DI OR ReSTIR GI.
         // Gating on runRtShadows alone made DI/GI silently no-op under CSM (they ran against the empty
         // TLAS and produced nothing). The RT sun-shadow trace below stays runRtShadows-only.
-        const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled();
+        const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled() || m_PathTrace.IsEnabled();
         if (needTlas)
             m_Rt.AddTlasBuildPass(rg);
+
+        // Path-traced reference mode (rt-renderer C.5) — a megakernel that bypasses the entire raster +
+        // ReSTIR chain. When active, its HDR output (ptColor) feeds the post chain in place of the raster
+        // sceneColor; every raster/RT-GI pass below produces handles nothing consumes, so the RG dead-pass
+        // culls them. AsyncCompute, after the TLAS build (which the needTlas gate above keeps alive).
+        const bool usePathTrace = m_PathTrace.IsEnabled() && m_CurrentViewResources;
+        RG::ResourceHandle ptColorHandle{};
+        if (usePathTrace)
+            ptColorHandle = m_PathTrace.AddPasses(rg);
+        const bool ptActive = usePathTrace && ptColorHandle.IsValid();
 
         // RT sun-shadow trace — per-view (each view's depth/camera/mask differ), so this runs on
         // every view's RG. Writes per-view R8 mask, consumed by GeometryPass via Read(handle).
@@ -409,32 +422,37 @@ namespace Luth
         // color. Per-frame WriteTaaResolvePerFrame rebinds the parity-picked history-prev sampler;
         // the resolve pass writes to the parity-picked history-curr (bound as color attachment).
         const PostProcessSettings& pps = m_System.GetPostProcessSettings();
-        const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources;
+        // PT does its own progressive AA via accumulation, so TAA is off in PT mode (both ping-pong on
+        // frameAbs parity — running them together would cross-contaminate the history).
+        const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources && !ptActive;
         if (m_CurrentViewResources)
         {
             const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
             if (taaEnabled)
                 m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources, frameAbs);
-            // Per-frame rebind of bloom-extract + composite binding 0 so downstream consumes the
-            // TAA chain's actual output texture (taaHistoryCurr) when TAA is on. Without this the
-            // bindings statically reference SceneColor (set in WriteView) and TAA's output is
-            // dropped — bloom and composite read the pre-TAA scene, grid lines disappear.
+            // Per-frame rebind of bloom-extract + composite binding 0 so downstream consumes the actual
+            // HDR source: the PT display image when PT is active, else the TAA chain output (taaHistoryCurr)
+            // when TAA is on, else SceneColor. Without this the bindings statically reference SceneColor.
             m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets, frameAbs);
         }
         RG::ResourceHandle taaColor    = taaEnabled
                                          ? m_PostProcess.AddTaaResolvePass(rg, fogColor, slimGB.motion, prepassDepth)
                                          : fogColor;
-        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, taaColor); // bloom reads PRE-grid color so grid lines don't bloom
-        RG::ResourceHandle gridColor   = view.drawGrid
-                                         ? m_EditorOverlays.AddGridPass(rg, taaColor, geoOutput.depth)
-                                         : taaColor;
+        // HDR source for the post chain: the PT megakernel output replaces the raster sceneColor when PT
+        // is active (the raster chain above is then dead-pass-culled). Grid is editor-overlay-only → off in PT.
+        RG::ResourceHandle hdrForPost  = ptActive ? ptColorHandle : taaColor;
+        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, hdrForPost); // bloom reads PRE-grid color so grid lines don't bloom
+        RG::ResourceHandle gridColor   = (view.drawGrid && !ptActive)
+                                         ? m_EditorOverlays.AddGridPass(rg, hdrForPost, geoOutput.depth)
+                                         : hdrForPost;
         RG::ResourceHandle ldrOutput = m_PostProcess.AddCompositePass(rg, gridColor, bloomResult);
 
         // Slim G-buffer ShadeMode toggles overwrite LDROutput with a decoded attachment.
         // Mode index = enum offset from ShadeMode::SlimNormal (0..3). Motion scale hardcoded —
         // the frame-debugger panel exposes a slider for per-capture tuning; live viz uses a
-        // sensible default matching the existing thumbnail UX.
-        const ShadeMode shadeMode = m_System.GetShadeMode();
+        // sensible default matching the existing thumbnail UX. PT mode forces Lit (the debug-viz
+        // blits read the culled G-buffer / cluster / reservoir state — meaningless over the PT image).
+        const ShadeMode shadeMode = ptActive ? ShadeMode::Lit : m_System.GetShadeMode();
         if (shadeMode >= ShadeMode::SlimNormal && shadeMode <= ShadeMode::SlimMaterialID)
         {
             const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);
@@ -456,10 +474,12 @@ namespace Luth
             ldrOutput = m_RestirGi.AddReservoirVizPass(rg, ldrOutput, prepassDepth);
         }
 
-        RG::ResourceHandle finalOutput = view.drawSelectionOutline
+        // Selection outline + debug shapes need the raster G-buffer (entityID mask + scene depth), which
+        // PT culls — so both are off in PT mode (the reference is an offline-accumulation view, not interactive).
+        RG::ResourceHandle finalOutput = (view.drawSelectionOutline && !ptActive)
                                          ? m_EditorOverlays.AddOutlinePass(rg, ldrOutput, maskOutput, geoOutput.depth)
                                          : ldrOutput;
-        if (view.drawDebugShapes)
+        if (view.drawDebugShapes && !ptActive)
             finalOutput = m_DebugDraw.AddDebugDrawPass(rg, finalOutput);
         if (view.emitImGuiPass)
             AddImGuiPass(rg, finalOutput);

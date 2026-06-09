@@ -110,8 +110,12 @@ namespace Luth
         // compute. All rendered passes (DepthPrepass, SlimGBuffer, Geometry, Shadow, Skybox) use the
         // jittered projection; motion vectors naturally absorb the jitter delta (standard Karis recipe).
         // Disabled when TAA is off so users don't see pure shimmer with no resolve pass to integrate it.
+        // Also disabled in PathTrace mode: the reference accumulates over a STATIC view-projection (the
+        // megakernel does its own per-sample jitter), so a moving Halton jitter would restart the
+        // accumulation every frame (it feeds the PT reset hash via m_CachedViewProj).
+        const bool ptMode = m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace;
         Vec2 thisFrameJitter{ 0.0f, 0.0f };
-        if (vr && pps.taaEnabled && vr->width > 0 && vr->height > 0)
+        if (vr && pps.taaEnabled && !ptMode && vr->width > 0 && vr->height > 0)
         {
             const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
             thisFrameJitter    = TAA::SampleHalton(frameAbs);
@@ -201,6 +205,14 @@ namespace Luth
                                  && vr && vr->restirGiDI
                                  && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
         ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, restirGiActive ? 1.0f : 0.0f, 0.0f, 0.0f);
+
+        // Path-traced reference mode (informational — PT bypasses pbr.frag; the megakernel reads its own
+        // push constants). x gates nothing in pbr.frag; carried for debug viz + frame-debugger UBO dumps.
+        const bool ptActive = m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace;
+        const PathTraceSettings& ptS = m_Pipeline->GetSystem().GetPathTraceSettings();
+        const u32 ptSamples = (ptActive && vr) ? vr->ptSampleCount : 0u;
+        ubo.pathTraceParams = Vec4(ptActive ? 1.0f : 0.0f, static_cast<f32>(ptS.samplesPerFrame),
+                                   static_cast<f32>(ptS.maxBounces), static_cast<f32>(ptSamples));
 
         // m_CachedViewProj is read this frame by cull-compute (frustum) and the frame debugger.
         // Per-view; gets overwritten on each view's UpdateUBO and consumed by the same view's Execute.

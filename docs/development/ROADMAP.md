@@ -103,6 +103,7 @@
 | v3.0.13 | `svgf-denoiser` | Schied 2017 SVGF over the demodulated ReSTIR DI: reproject (temporal EMA + moments) → variance (7×7 spatial fallback) → edge-aware à-trous, behind an `IDenoiser` abstraction; per-view image history + a GENERAL-preserving RG storage read; feedbackTap=−1, A-SVGF deferred | 2026-06-07 |
 | v3.0.14 | `restir-gi` | Ouyang 2021 ReSTIR GI: per-pixel 1-bounce path reservoirs + reconnection Jacobian (temporal/spatial reuse, RTXDI BASIC); real bindless secondary-hit material via a per-frame geometry table (`instanceCustomIndex` contract change + buffer_reference deref); second channel-parameterized SVGF instance denoises the bounce; editor tuning | 2026-06-08 |
 | v3.0.15 | `gi-polish` | Post-restir-gi follow-ups: TLAS builds for any RT consumer (DI/GI no longer dark under CSM), sun light added to the GI bounce, GI reservoir M·age debug view, and a zero-weight-reservoir fix (unlit hits keep a valid sample point — killed a world-plane confidence split + latent shadowed-region reuse bias) | 2026-06-09 |
+| v3.0.16 | `path-trace-reference` | Ground-truth path-traced reference mode: a rayQuery-in-compute megakernel reusing the TLAS + bindless materials, multi-bounce NEE + full Cook-Torrance BRDF + GGX VNDF lobe-MIS, fp32 progressive accumulation reset-on-change, `RenderMode` toggle + editor convergence UI; validates ReSTIR DI/GI convergence | 2026-06-09 |
 
 ---
 
@@ -150,7 +151,7 @@ Umbrella issue: [#127](https://github.com/Hekbas/Luth/issues/127) (sub-effort is
 
 | Effort | Issue | Size | Notes |
 |---|---|---|---|
-| C.5 `path-trace-reference` | NEW | M | Ground-truth PT mode reusing C.* infrastructure; validates RT GI convergence |
+| C.5 `path-trace-reference` ✅ | [#148](https://github.com/Hekbas/Luth/issues/148) | M | rayQuery megakernel + multi-bounce NEE + full Cook-Torrance BRDF + GGX VNDF lobe-MIS + fp32 progressive accumulation; `RenderMode` toggle — shipped v3.0.16 |
 
 **Phase D — RT reflections + atmospheric polish**
 

@@ -339,6 +339,53 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Path Trace Reference — the ground-truth oracle (rt-renderer C.5). A brute-force megakernel
+            // that bypasses raster + ReSTIR; progressively accumulates a physically-correct image (resets
+            // on camera/scene change). The A/B against the real-time path validates ReSTIR DI/GI.
+            if (UI::BeginCollapsingHeader("Path Trace Reference", true)) {
+                bool  ptOn = m_RS->GetRenderMode() == RenderMode::PathTrace;
+                auto& pt   = m_RS->GetPathTraceSettings();
+                if (UI::BeginProperties("PathTraceProps")) {
+                    if (UI::Property("Reference Mode", ptOn))
+                        m_RS->SetRenderMode(ptOn ? RenderMode::PathTrace : RenderMode::Raster);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Replace the real-time render with a ground-truth path tracer.\nBypasses raster + ReSTIR; accumulates a reference image when the camera is parked.");
+
+                    int spp = static_cast<int>(pt.samplesPerFrame);
+                    if (UI::Property("Samples / Frame", spp, 1, 4))
+                        pt.samplesPerFrame = static_cast<u32>(spp);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Paths per pixel dispatched each frame. Higher converges faster but a\nlong megakernel risks a GPU TDR on heavy scenes — accumulate over frames instead.");
+
+                    int mb = static_cast<int>(pt.maxBounces);
+                    if (UI::Property("Max Bounces", mb, 1, 16))
+                        pt.maxBounces = static_cast<u32>(mb);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Path-length cap. More bounces resolve deeper indirect light at a higher cost.");
+
+                    int rr = static_cast<int>(pt.rrStartDepth);
+                    if (UI::Property("RR Start Depth", rr, 1, 16))
+                        pt.rrStartDepth = static_cast<u32>(rr);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Russian roulette begins after this bounce depth (unbiased path termination).");
+
+                    UI::Property("Firefly Clamp", pt.fireflyClamp, 1.0f, 1.0f, 10000.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Luminance clamp on INDIRECT bounce contributions (primary stays unbiased).\nSet high for a true, unclamped ground-truth reference.");
+
+                    UI::Property("Accumulate", pt.accumulate);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Progressive accumulation (resets on camera/scene change).\nOff = single-frame noisy preview.");
+                    UI::EndProperties();
+                }
+                // Manual reset + live convergence readout.
+                if (ImGui::Button("Reset Accumulation"))
+                    m_RS->GetPipeline().GetPathTrace().RequestReset();
+                ImGui::SameLine();
+                ImGui::Text("%u spp accumulated", m_RS->GetPipeline().GetPathTrace().GetLastSampleCount());
+                UI::EndCollapsingHeader();
+            }
+
             // SVGF Denoiser — Schied17 spatiotemporal variance-guided filter over the demodulated DI.
             // Off passes the raw ReSTIR DI straight through (the A/B compare). The knobs take effect as
             // the reproject / à-trous passes land; the enable toggle + plumbing are live now.

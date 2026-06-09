@@ -1,0 +1,275 @@
+#version 460
+#extension GL_EXT_ray_query           : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "common/globals.glsl"
+#include "common/restir_gi_common.glsl"   // PcgHash/RandFromSeed/Luminance/OctDecode/light structs/PointLightRadiance + SampleCosHemisphere (S2) + GI_PI
+#include "common/geom_table.glsl"          // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
+
+// Path-traced reference mode (rt-renderer C.5) — megakernel. Traces its OWN jittered primary camera rays
+// (no G-buffer dependency → free anti-aliasing as it converges) then a multi-bounce path with NEE per
+// vertex, cosine-importance-sampled diffuse bounces, Russian-roulette termination, and emission +
+// environment-on-miss, progressively accumulated to an fp32 running mean (reset on camera/scene change).
+// S1 = primary + direct; S2 = multi-bounce + RR (here); S3 = full Cook-Torrance BRDF. see arch/rendering-pipeline.md
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform samplerCube u_PrefilteredEnv;   // IBL prefiltered env (LOD 0 ≈ sky radiance)
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
+
+// Set 1: LightSSBO — LightingSubsystem's Set-3 layout, remapped to set=1 in this pipeline.
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+// Set 2 (pass-local): b0 fp32 progressive accumulator (in-place running mean, GENERAL), b1 fp16 display
+// copy the post chain samples.
+layout(set = 2, binding = 0, rgba32f) uniform image2D u_Accum;
+layout(set = 2, binding = 1, rgba16f) uniform image2D u_Color;
+
+layout(push_constant) uniform PC {
+    mat4      invViewProj;
+    uint      frameSeed;
+    uint      sampleCount;       // paths accumulated BEFORE this frame (running-mean weight)
+    uint      samplesPerFrame;
+    uint      maxBounces;        // S2
+    uint      rrStartDepth;      // S2
+    uint      reset;             // 1 → ignore the accumulator this frame
+    float     fireflyClamp;      // S2 (per-bounce indirect clamp)
+    float     pad0;
+    uint      envReady;          // 1 → IBL prefiltered env bound (else miss returns black)
+    uint      pad1;
+    GeomTable  geomTable;
+} pc;
+
+vec3 SampleEnv(vec3 dir) {
+    if (pc.envReady == 0u) return vec3(0.0);
+    return textureLod(u_PrefilteredEnv, dir, 0.0).rgb * ubo.skyboxIntensity;
+}
+
+// Shadow ray: true iff `dir` is unoccluded from x up to maxDist. offsetN = geometric normal (origin
+// offset to avoid self-intersection — Wächter-Binder).
+bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
+    float sMin  = ubo.rtShadowParams.y;
+    vec3  sOrig = x + offsetN * (ubo.rtShadowParams.z * 0.5) + dir * sMin;
+    rayQueryEXT sq;
+    rayQueryInitializeEXT(sq, topLevelAS,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        sOrig, sMin, dir, max(maxDist, sMin));
+    rayQueryProceedEXT(sq);
+    return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+// ── Cook-Torrance BRDF (MUST match pbr.frag's DistributionGGX / GeometrySmith / FresnelSchlick /
+// CalculateLight — the reference is only valid if it integrates the same material model). ──
+
+float PtD_GGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness * roughness; float a2 = a * a;       // GGX alpha = roughness^2
+    float NdotH = max(dot(N, H), 0.0); float NdotH2 = NdotH * NdotH;
+    float d = NdotH2 * (a2 - 1.0) + 1.0;
+    return a2 / max(GI_PI * d * d, 1.0e-7);
+}
+float PtG_SchlickGGX(float NdotX, float roughness) {
+    float r = roughness + 1.0; float k = (r * r) / 8.0;       // direct-lighting k (pbr.frag)
+    return NdotX / (NdotX * (1.0 - k) + k);
+}
+float PtG_Smith(vec3 N, vec3 V, vec3 L, float roughness) {
+    return PtG_SchlickGGX(max(dot(N, V), 0.0), roughness) * PtG_SchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+vec3 PtF_Schlick(float cosT, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
+}
+// f(V,L)·NdotL·radiance — identical algebra to pbr.frag CalculateLight (radiance=1 yields f·NdotL).
+vec3 PtBRDFTimesNdotL(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
+    vec3 H  = normalize(V + L);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    float D = PtD_GGX(N, H, roughness);
+    float G = PtG_Smith(N, V, L, roughness);
+    vec3  F = PtF_Schlick(max(dot(H, V), 0.0), F0);
+    vec3 spec = (D * G * F) / (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1.0e-4);
+    vec3 kD   = (vec3(1.0) - F) * (1.0 - metallic);
+    return (kD * albedo / GI_PI + spec) * radiance * max(dot(N, L), 0.0);
+}
+
+// Full-BRDF NEE at (x, surface s) with view dir V. One random point light (× count undoes the 1/count
+// pick pdf) + deterministic sun, each shadow-rayed.
+vec3 DirectLighting(vec3 x, vec3 V, HitSurface s, inout uint seed) {
+    vec3 Lo = vec3(0.0);
+    uint lc = lights.pointLightCount;
+    if (lc > 0u) {
+        uint j = min(uint(RandFromSeed(seed) * float(lc)), lc - 1u);
+        PointLightData pl = lights.points[j];
+        vec3 Lw; float ld;
+        vec3 Li = PointLightRadiance(pl, x, Lw, ld);
+        if (dot(s.ns, Lw) > 0.0 && Visible(x, s.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
+            Lo += PtBRDFTimesNdotL(Lw, Li * float(lc), V, s.ns, s.baseColor, s.metalness, s.roughness);
+    }
+    if (lights.dirLight.intensity > 0.0) {
+        vec3 Lsun = normalize(-lights.dirLight.direction);
+        if (dot(s.ns, Lsun) > 0.0 && Visible(x, s.ng, Lsun, 1.0e30))
+            Lo += PtBRDFTimesNdotL(Lsun, lights.dirLight.color * lights.dirLight.intensity, V, s.ns, s.baseColor, s.metalness, s.roughness);
+    }
+    return Lo;
+}
+
+// ── BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS. ──
+
+// Analytic Smith G1 for GGX alpha (for the unbiased VNDF pdf — distinct from the BRDF's approximate G).
+float PtG1_GGX(float NdotX, float alpha) {
+    float a2 = alpha * alpha;
+    return 2.0 * NdotX / max(NdotX + sqrt(a2 + (1.0 - a2) * NdotX * NdotX), 1.0e-6);
+}
+// Sample a VNDF half-vector (Heitz 2018) given the tangent-space view Ve (N = +Z); alpha = roughness^2.
+vec3 SampleGGXVNDF(vec3 Ve, float alpha, float u1, float u2) {
+    vec3  Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    vec3  T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+    vec3  T2 = cross(Vh, T1);
+    float r = sqrt(u1); float phi = 2.0 * GI_PI * u2;
+    float t1 = r * cos(phi); float t2 = r * sin(phi);
+    float sl = 0.5 * (1.0 + Vh.z);
+    t2 = (1.0 - sl) * sqrt(max(0.0, 1.0 - t1 * t1)) + sl * t2;
+    vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+    return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(1.0e-6, Nh.z)));
+}
+// Solid-angle pdfs of the two strategies, evaluated at a world direction L (V is the view dir).
+float PdfDiffuse(vec3 N, vec3 L) { return max(dot(N, L), 0.0) / GI_PI; }
+float PdfSpec(vec3 N, vec3 V, vec3 L, float roughness) {
+    vec3  H = normalize(V + L);
+    float NdotV = max(dot(N, V), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+    float alpha = roughness * roughness;
+    float Dv = PtG1_GGX(NdotV, alpha) * VdotH * PtD_GGX(N, H, roughness) / max(NdotV, 1.0e-4);
+    return Dv / (4.0 * max(VdotH, 1.0e-4));
+}
+
+// Returns the next ray direction; multiplies `tp` by f·cos/pdf (one-sample lobe MIS). false → dead path.
+bool SampleBSDF(vec3 V, HitSurface s, inout uint seed, out vec3 newDir, inout vec3 tp) {
+    vec3  F0    = mix(vec3(0.04), s.baseColor, s.metalness);
+    float wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
+    float wSpec = Luminance(F0);
+    // Lobe-selection probability. The [0.1,0.9] clamp is unbiased — one-sample MIS is unbiased for ANY
+    // p in (0,1) as long as the SAME p weights the combined pdf below; the clamp only trades a little
+    // variance to never starve the rare-but-bright specular highlight (or a metal's diffuse 10%).
+    float pSpec = clamp(wSpec / max(wDiff + wSpec, 1.0e-4), 0.1, 0.9);
+
+    vec3 t, bt; BranchlessONB(s.ns, t, bt);
+    if (RandFromSeed(seed) < pSpec) {
+        // Specular: VNDF half-vector → reflect V.
+        vec3 Vt = vec3(dot(V, t), dot(V, bt), dot(V, s.ns));
+        vec3 Ht = SampleGGXVNDF(Vt, s.roughness * s.roughness, RandFromSeed(seed), RandFromSeed(seed));
+        vec3 H  = Ht.x * t + Ht.y * bt + Ht.z * s.ns;
+        newDir  = reflect(-V, H);
+    } else {
+        // Diffuse: cosine hemisphere.
+        float pdf;
+        newDir = SampleCosHemisphere(s.ns, vec2(RandFromSeed(seed), RandFromSeed(seed)), pdf);
+    }
+
+    float NdotL = dot(s.ns, newDir);
+    if (NdotL <= 0.0) return false;   // below the surface → terminate
+
+    vec3  fCos = PtBRDFTimesNdotL(newDir, vec3(1.0), V, s.ns, s.baseColor, s.metalness, s.roughness);
+    float pdf  = pSpec * PdfSpec(s.ns, V, newDir, s.roughness) + (1.0 - pSpec) * PdfDiffuse(s.ns, newDir);
+    if (pdf <= 0.0) return false;
+    tp *= fCos / pdf;
+    return true;
+}
+
+// One full sample path: jittered primary ray, then a multi-bounce NEE walk. Each vertex adds its
+// emission + single-light NEE (disjoint from punctual NEE → no double count: punctual lights via NEE
+// only, emissive surfaces via BSDF hit only, environment via miss only — so no cross-technique MIS
+// weights are needed at this engine's light model). Continues along a cosine-diffuse bounce until a
+// miss, Russian-roulette termination, or the bounce cap.
+vec3 SamplePath(ivec2 pixel, ivec2 size, inout uint seed) {
+    // Jittered primary ray — sub-pixel offset varies per sample → progressive AA on accumulation.
+    vec2 jit = vec2(RandFromSeed(seed), RandFromSeed(seed)) - 0.5;
+    vec2 uv  = (vec2(pixel) + 0.5 + jit) / vec2(size);
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec4 farH = pc.invViewProj * vec4(ndc, 1.0, 1.0);
+    vec3 farP = farH.xyz / farH.w;
+    vec3 ro   = ubo.cameraPos;
+    vec3 rd   = normalize(farP - ro);
+
+    float tMin       = ubo.rtShadowParams.y;
+    vec3  radiance   = vec3(0.0);
+    vec3  throughput = vec3(1.0);
+
+    for (uint bounce = 0u; bounce < pc.maxBounces; ++bounce) {
+        rayQueryEXT rq;
+        rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, rd, 1.0e30);
+        while (rayQueryProceedEXT(rq)) {}
+        if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+            radiance += throughput * SampleEnv(rd);
+            break;
+        }
+
+        float t = rayQueryGetIntersectionTEXT(rq, true);
+        vec3  x = ro + rd * t;
+        uint  ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
+        uint  pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
+        vec2  bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
+        mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+        HitSurface s = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, rd);
+
+        vec3 V = -rd;   // toward the previous vertex / camera
+        // Radiance leaving x toward the previous vertex: emission + full Cook-Torrance NEE.
+        vec3 contrib = throughput * (s.emission + DirectLighting(x, V, s, seed));
+        // Firefly clamp on INDIRECT contributions only (the primary direct/emission stays unbiased).
+        // fireflyClamp set high (editor) makes this a no-op → true ground truth.
+        if (bounce > 0u) {
+            float lum = Luminance(contrib);
+            if (lum > pc.fireflyClamp) contrib *= pc.fireflyClamp / lum;
+        }
+        radiance += contrib;
+
+        // Sample the BSDF for the next bounce; throughput *= f·cos/pdf (one-sample lobe MIS). A path
+        // sampled below the surface (or with a degenerate pdf) is dead → stop here.
+        vec3 newDir;
+        if (!SampleBSDF(V, s, seed, newDir, throughput)) break;
+
+        // Russian roulette after a few guaranteed bounces — ÷survival keeps the estimator unbiased.
+        if (bounce >= pc.rrStartDepth) {
+            float p = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 1.0);
+            if (RandFromSeed(seed) > p) break;
+            throughput /= p;
+        }
+
+        ro = x + s.ng * (ubo.rtShadowParams.z * 0.5) + newDir * tMin;   // offset along the geometric normal
+        rd = newDir;
+    }
+    return radiance;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+
+    uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
+    uint spp  = max(pc.samplesPerFrame, 1u);
+
+    vec3 sum = vec3(0.0);
+    for (uint i = 0u; i < spp; ++i)
+        sum += SamplePath(pixel, size, seed);
+
+    // Unbiased running mean. On reset (camera/scene change) or the first frame, this frame's samples
+    // seed the accumulator; otherwise blend with the prior mean weighted by its accumulated count.
+    vec3 result;
+    if (pc.reset != 0u || pc.sampleCount == 0u) {
+        result = sum / float(spp);
+    } else {
+        vec3  old = imageLoad(u_Accum, pixel).rgb;
+        float n   = float(pc.sampleCount);
+        result = (old * n + sum) / (n + float(spp));
+    }
+    imageStore(u_Accum, pixel, vec4(result, 0.0));
+    imageStore(u_Color, pixel, vec4(result, 1.0));
+}

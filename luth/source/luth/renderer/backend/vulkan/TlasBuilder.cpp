@@ -76,7 +76,7 @@ namespace Luth
             u32             materialSlot;  // index into the Material SSBO
             u32             vertexStride;  // bytes: sizeof(Vertex)=52 or sizeof(SkinnedVertex)=84
         };
-        static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match restir_gi_initial.comp GeomEntry (24 B)");
+        static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match common/geom_table.glsl GtGeomEntry (24 B)");
 
         struct ResolvedMesh
         {
