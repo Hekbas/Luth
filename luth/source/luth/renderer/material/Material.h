@@ -70,7 +70,14 @@ namespace Luth
         f32 roughness = 0.5f;
         f32 alphaCutoff = 0.5f;
         u32 flags = 0;
+
+        // Emissive: rgb = factor (linear), a = HDR strength. Emission = rgb * a, modulated by the
+        // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
+        Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
     };
+    // std430 stride must stay in lockstep with the GLSL mirrors (pbr.frag, slim_gbuffer.frag,
+    // common/geom_table.glsl::GtMaterial) — a desync silently corrupts every material index > 0.
+    static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
 
     class Material : public Asset
     {
@@ -187,6 +194,12 @@ namespace Luth
         // Albedo color (direct access — bypasses uniform storage)
         Vec4 GetColor() const { return m_GPUData.color; }
         void SetColor(const Vec4& color) { m_GPUData.color = color; }
+
+        // Emissive (direct access — same pattern as color). rgb = linear factor, a = HDR strength.
+        Vec3 GetEmissiveColor() const { return Vec3(m_GPUData.emissive); }
+        void SetEmissiveColor(const Vec3& c) { m_GPUData.emissive = Vec4(c, m_GPUData.emissive.a); }
+        f32  GetEmissiveStrength() const { return m_GPUData.emissive.a; }
+        void SetEmissiveStrength(f32 s) { m_GPUData.emissive.a = s; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }

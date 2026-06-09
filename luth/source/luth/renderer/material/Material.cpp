@@ -79,6 +79,10 @@ namespace Luth
         // Serialize color
         json["color"] = { m_GPUData.color.r, m_GPUData.color.g, m_GPUData.color.b, m_GPUData.color.a };
 
+        // Serialize emissive (rgb = linear factor, a = HDR strength) — direct GPUData field like color.
+        json["emissive"] = { m_GPUData.emissive.r, m_GPUData.emissive.g,
+                             m_GPUData.emissive.b, m_GPUData.emissive.a };
+
         // Serialize Uniforms
         nlohmann::json uniformsJson;
         auto shader = GetShader();
@@ -151,6 +155,25 @@ namespace Luth
             tex.uvIndex = texJson["uv"].get<u32>();
             tex.useTexture = static_cast<bool>(texJson.value("useTexture", 0));
             m_Maps.push_back(tex);
+        }
+
+        // Emissive factor (rgb) + HDR strength (a). Direct GPUData field, mirrors color.
+        if (json.contains("emissive") && json["emissive"].is_array() && json["emissive"].size() == 4)
+        {
+            m_GPUData.emissive = Vec4(json["emissive"][0], json["emissive"][1],
+                                      json["emissive"][2], json["emissive"][3]);
+        }
+        else
+        {
+            // Migration for files predating the emissive field. Preserve the prior "emissive texture
+            // emits at full" behavior so existing emissive-textured assets don't go dark in the RT
+            // path; default to no emission otherwise. Gated on key-absence only — never overrides a
+            // deliberate factor from a newer save (those always carry the "emissive" key).
+            bool hasEmissiveTex = false;
+            for (const auto& m : m_Maps)
+                if (m.type == MapType::Emissive && m.Uuid.IsValid()) { hasEmissiveTex = true; break; }
+            m_GPUData.emissive = hasEmissiveTex ? Vec4(1.0f, 1.0f, 1.0f, 1.0f)
+                                                : Vec4(0.0f, 0.0f, 0.0f, 1.0f);
         }
     }
 

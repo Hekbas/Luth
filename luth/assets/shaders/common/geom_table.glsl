@@ -21,13 +21,14 @@ struct GtGeomEntry {
 };
 layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GtGeomEntry e[]; };
 
-// Mirrors GPUMaterialData (renderer/material). 64 B std430.
+// Mirrors GPUMaterialData (renderer/material). 80 B std430.
 struct GtMaterial {
     vec4  color;
     uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
     uint  emissiveIndex, alphaIndex, specularIndex, thicknessIndex;
     float metalness, roughness, alphaCutoff;
     uint  flags;           // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
+    vec4  emissive;        // rgb = factor (linear), a = HDR strength
 };
 layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];

@@ -60,6 +60,7 @@ struct GPUMaterialData {
     float roughness;
     float alphaCutoff;
     uint  flags;
+    vec4  emissive;    // rgb = factor (linear), a = HDR strength
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
