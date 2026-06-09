@@ -493,7 +493,9 @@ namespace Luth
                 if (slimMotion.IsValid()) data.motion = builder.ReadStorageImage(slimMotion);
 
                 RG::BufferDesc prevBd{ "RestirReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::Undefined);
+                // Import in its true last-left state (StorageBufferWrite), NOT Undefined: Undefined → srcAccess=0
+                // → no cross-frame availability → stale temporal read (mirrors the GI prev import). see arch/rendering-pipeline.md
+                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::StorageBufferWrite);
                 data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
 
                 data.reservoirCurr = builder.ReadBuffer(reservoirHandle);
