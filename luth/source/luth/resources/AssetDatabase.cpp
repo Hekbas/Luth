@@ -23,6 +23,9 @@ namespace Luth
 
     std::unordered_map<UUID, u64, UUIDHash> AssetDatabase::s_ArtifactHashes;
 
+    std::unordered_set<UUID, UUIDHash> AssetDatabase::s_SelfWrites;
+    std::mutex AssetDatabase::s_SelfWriteMutex;
+
     // ── Phase 1: Engine-only init (register shaders, fonts) ──
 
     void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
@@ -497,6 +500,18 @@ namespace Luth
         s_ChangeCallbacks.push_back(std::move(cb));
     }
 
+    void AssetDatabase::SuppressNextReimport(const UUID& uuid)
+    {
+        std::lock_guard<std::mutex> lock(s_SelfWriteMutex);
+        s_SelfWrites.insert(uuid);
+    }
+
+    bool AssetDatabase::ConsumeSelfWrite(const UUID& uuid)
+    {
+        std::lock_guard<std::mutex> lock(s_SelfWriteMutex);
+        return s_SelfWrites.erase(uuid) > 0;
+    }
+
     void AssetDatabase::ProcessPendingChanges()
     {
         std::vector<std::pair<fs::path, FileWatcher::FileStatus>> batch;
@@ -547,6 +562,11 @@ namespace Luth
 
                     if (s_ArtifactHashes[uuid] == newHash) continue;
                     s_ArtifactHashes[uuid] = newHash;
+
+                    // Editor-originated write (autosave): the in-memory asset is already the source of
+                    // truth; evicting + reimporting would drop the live instance the inspector edits.
+                    // The hash is recorded above, so a later genuine external edit still reimports.
+                    if (ConsumeSelfWrite(uuid)) continue;
 
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);

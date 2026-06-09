@@ -476,10 +476,13 @@ namespace Luth
         nlohmann::json json;
         material.Serialize(json);
 
-        // Write source .mat file (async)
+        // Write source .mat file (async). Tell the asset DB this is a self-write so the file watcher
+        // doesn't bounce it back as a reimport — that would evict the live material being edited and
+        // leave the inspector pointing at a stale instance (edits stop showing live).
         auto sourcePath = AssetDatabase::GetMetadata(material.Handle).Path;
         if (!sourcePath.empty())
         {
+            AssetDatabase::SuppressNextReimport(material.Handle);
             std::string jsonStr = json.dump(4);
             std::vector<u8> buf(jsonStr.begin(), jsonStr.end());
             IOThread::WriteFile(sourcePath.string(), std::move(buf));
