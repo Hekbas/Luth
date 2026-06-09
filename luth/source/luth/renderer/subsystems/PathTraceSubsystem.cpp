@@ -318,6 +318,7 @@ namespace Luth
         // 1/(n+1) from collapsing to fp32 epsilon over a very long parked-camera session).
         if (accumulate)
             vr->ptSampleCount = std::min(vr->ptSampleCount + pc.samplesPerFrame, 65536u);
+        m_LastSampleCount = vr->ptSampleCount;   // editor convergence readout
 
         return colorHandle;
     }

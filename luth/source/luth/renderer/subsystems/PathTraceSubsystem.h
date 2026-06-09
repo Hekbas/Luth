@@ -49,6 +49,9 @@ namespace Luth
         // salt folds into the per-view reset hash, so a multi-view setup resets coherently).
         void RequestReset() { ++m_ResetSalt; }
 
+        // Accumulated sample count of the last view dispatched this frame — the editor's convergence readout.
+        u32 GetLastSampleCount() const { return m_LastSampleCount; }
+
     private:
         // FNV-1a over the radiance-affecting state (camera VP + scene instances + lights + settings +
         // manual salt). Compared against ViewResources::ptResetHash each frame; a mismatch resets.
@@ -60,5 +63,6 @@ namespace Luth
         VkDescriptorSetLayout              m_SetLayout = VK_NULL_HANDLE;   // Set 2 (pass-local)
         std::vector<u32>                   m_Spv;
         u32                                m_ResetSalt = 0;               // bumped by RequestReset()
+        u32                                m_LastSampleCount = 0;         // editor convergence readout
     };
 }
