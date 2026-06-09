@@ -51,6 +51,10 @@ namespace Luth
 
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv);
 
+        // RT fog shadows toggle gate (VolumetricSettings::rtShadows). Read by RenderPipeline's needTlas
+        // gate + the scatter pass's AS-build→read barrier. Out-of-line: needs the RenderingSystem def.
+        bool IsRtShadowsEnabled() const;
+
         // Allocates a FogVolume SSBO region from GPUTaggedPageAllocator and copies the gathered
         // header + flexible array. Returns the region; caches m_LastFogVolumeRegion for the
         // injection pass binding. Returns an empty region when no JobContext (off the fiber path)

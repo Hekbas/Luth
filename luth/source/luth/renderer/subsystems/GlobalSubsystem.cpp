@@ -180,7 +180,8 @@ namespace Luth
         ubo.volNoiseWind            = Vec4(vs.noiseWind, 0.0f);
         ubo.volScatterParams        = Vec4(vs.scatteringIntensity,
                                            vs.blueNoiseDither ? 1.0f : 0.0f,
-                                           0.0f, 0.0f);
+                                           vs.rtShadows ? 1.0f : 0.0f,   // .z = RT fog shadows (D.2)
+                                           0.0f);
 
         // Image-quality toggles. Tail of GlobalUniforms — pbr.frag's common/globals.glsl mirrors
         // the std140 layout exactly so offsets stay in lockstep.

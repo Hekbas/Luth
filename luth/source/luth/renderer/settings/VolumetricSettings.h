@@ -47,6 +47,11 @@ namespace Luth
         // the light path (proper sun-self-shadowing in dense fog). 0 = disabled; 2 = balanced.
         i32  sunFogAbsorptionSteps = 2;
 
+        // RT fog shadows (rt-renderer D.2): one shadow ray per froxel per cluster point light + the sun,
+        // giving point-light + arbitrary-occluder fog shadows the CSM-only path lacks. Default off — it's
+        // a per-froxel ray cost (millions of rays at High); enable for the showcase.
+        bool rtShadows = false;
+
         // Multiplier on volumetric fog opacity at sky pixels. 1.0 = full fog on sky (skybox can be
         // entirely hidden in dense fog); 0.0 = sky bypasses volumetric fog. Decoupled from the
         // analytic distance fog max opacity.

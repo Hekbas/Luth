@@ -1,5 +1,6 @@
-#version 450
+#version 460
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_ray_query            : require
 
 // Volumetric fog inject — scatter pass. Reads volDensity (density.r + tint.gba) for the current
 // voxel + samples the density atlas along the sun ray for proper density-aware absorption (god
@@ -25,6 +26,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
 
 // Set 0 binding 1 = IBL irradiance cubemap (multi-scatter ambient term, Wronski/Frostbite shape).
 layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
+// Set 0 binding 6 = scene TLAS (RT fog shadows — point lights + arbitrary occluders, gated by rtFog).
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
 
 // Set 1 — scatter pass state.
 layout(set = 1, binding = 0)          uniform sampler3D       volDensity;     // .r density, .gba tint
@@ -142,6 +145,21 @@ float SunFogTransmittance(vec3 worldPos, int steps)
     return exp(-opticalDepth);
 }
 
+// RT shadow ray (opaque-only): true iff `dir` is unoccluded from the froxel center up to maxDist. The
+// froxel is free space (no surface) → no Wächter-Binder normal offset, the dir·sMin nudge suffices.
+// Mirrors the surface RT consumers' Visible() (rt_reflections.comp). The returned visibility multiplies
+// J's per-light L term — it does NOT touch the σ_t/density path, so the CONTRACT above is unchanged.
+bool Visible(vec3 x, vec3 dir, float maxDist) {
+    float sMin  = ubo.rtShadowParams.y;
+    vec3  sOrig = x + dir * sMin;
+    rayQueryEXT sq;
+    rayQueryInitializeEXT(sq, topLevelAS,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        sOrig, sMin, dir, max(maxDist, sMin));
+    rayQueryProceedEXT(sq);
+    return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
 void main() {
     ivec3 voxel = ivec3(gl_GlobalInvocationID);
     if (any(greaterThanEqual(voxel, VOL_DIM))) return;
@@ -169,14 +187,18 @@ void main() {
 
     float gAniso   = ubo.volTemporalParams.x;
     int   sunSteps = int(ubo.volTemporalParams.z);
+    bool  rtFog    = ubo.volScatterParams.z > 0.5;   // RT fog shadows (point lights + sun) toggle
 
     // Dir light: CSM shadow × HG forward-scatter × density-aware sun absorption.
     // cosTheta uses dirLight.direction (incident, sun→scene) vs -viewDirWorld (outgoing, voxel→cam)
     // so HG forward peak (cosθ = +1) hits when the camera looks toward the sun through the voxel.
     vec3 dirContrib = vec3(0.0);
     if (lights.dirLight.intensity > 0.0) {
-        uint cascade   = SelectCascade(viewZ);
-        float shadow   = SampleCSM(worldPos, cascade);
+        // RT mode: one shadow ray toward the sun (arbitrary occluders); else the CSM cascade. The sunAbs
+        // density-march below stays in BOTH modes — it's in-medium extinction, distinct from occlusion.
+        float shadow   = rtFog
+            ? (Visible(worldPos, -lights.dirLight.direction, 1.0e30) ? 1.0 : 0.0)
+            : SampleCSM(worldPos, SelectCascade(viewZ));
         float cosTheta = dot(lights.dirLight.direction, -viewDirWorld);
         float phase    = HenyeyGreenstein(cosTheta, gAniso);
         float sunAbs   = SunFogTransmittance(worldPos, sunSteps);
@@ -206,6 +228,8 @@ void main() {
             vec3  incident = -toLight / max(dist, 1e-4);
             float cosTheta = dot(incident, -viewDirWorld);
             float phase    = HenyeyGreenstein(cosTheta, gAniso);
+            // RT shadow ray toward the light (-incident = froxel→light). Off → unshadowed (today's path).
+            if (rtFog && !Visible(worldPos, -incident, dist - 2.0 * ubo.rtShadowParams.y)) continue;
             pointContrib += p.color * p.intensity * atten * phase;
         }
     }

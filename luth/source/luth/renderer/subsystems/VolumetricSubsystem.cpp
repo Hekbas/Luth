@@ -1383,6 +1383,11 @@ namespace Luth
         return outputHandle;
     }
 
+    bool VolumetricSubsystem::IsRtShadowsEnabled() const
+    {
+        return m_Pipeline && m_Pipeline->GetSystem().GetVolumetricSettings().rtShadows;
+    }
+
     RG::ResourceHandle VolumetricSubsystem::AddInjectScatterPass(RG::RenderGraph& rg,
         RG::ResourceHandle density,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount])
@@ -1442,6 +1447,23 @@ namespace Luth
                 {
                     sys.GetFrameDebugger().EndCapturePass();
                     return;
+                }
+
+                // RT fog shadows read the TLAS via rayQuery → order the per-frame TLAS build (same
+                // AsyncCompute primary, registered earlier) before this dispatch. dstStage = COMPUTE_SHADER
+                // (NOT RAY_TRACING — rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap). Gated
+                // so the off path emits nothing.
+                if (IsRtShadowsEnabled())
+                {
+                    VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+                    asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                    asBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                    asBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                    asBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                    VkDependencyInfo asDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                    asDep.memoryBarrierCount = 1;
+                    asDep.pMemoryBarriers    = &asBarrier;
+                    vkCmdPipelineBarrier2(cmd, &asDep);
                 }
 
                 m_InjectScatterPipeline->Bind(cmd);
