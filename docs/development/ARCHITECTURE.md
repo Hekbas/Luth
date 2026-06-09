@@ -54,22 +54,22 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  │    ├── Input .................. Keyboard/mouse state (queries editor capture via EditorHooks)
  │    └── FileDialog ............. Native open/save dialogs
  │
- ├── [Renderer (Vulkan 1.3)]
- │    ├── RenderGraph ............ DAG compile → barrier inject → execute
- │    ├── RenderPipeline ......... ~780-LOC orchestrator — Initialize / Shutdown / Execute / OnResize / CaptureSnapshot; Init* / Update* helpers + CreatePipelines live in sibling topic files
- │    ├── FrameTargets ........... SceneColor / SceneDepth / EntityID / LDROutput / Selection {mask,depth}
+ ├── [Renderer (Vulkan 1.3 + hardware RT)]
+ │    ├── RenderPipeline ......... ~650-LOC orchestrator — holds the subsystem instances, dispatches Init/Shutdown/Update/Add*Pass in dependency order, owns per-view scratch + named-texture registry + shader-reload dispatch
+ │    ├── rendergraph/ ........... RenderGraph (DAG compile → barrier inject → execute) + FrameCapture / ArchivedImage / RenderResourceCache
+ │    ├── subsystems/ ............ Per-Set / per-feature lifecycle hosts. Raster: Global, Lighting, Geometry, GTAO, PostProcess, EditorOverlays, Skinning, DebugDraw. RT: Rt (BLAS/TLAS), RtRestir (DI), RtRestirGi (GI), Reflections, PathTrace. Denoise/atmos: SvgfDenoiser (IDenoiser), Volumetric
+ │    ├── FrameTargets ........... SceneColor / SceneDepth / slim G-buffer (normal/roughness/motion/matID) / EntityID / LDROutput / Selection {mask,depth}
  │    ├── DrawListBuilder ........ ECS walk → opaque/cutout/transparent buckets
- │    ├── Backend ................ VulkanContext, VulkanBackend, Timeline Semaphores
- │    ├── passes/ ................ Shadow, DepthPrepass, AO (GTAO + AOInit), Cull, Geometry, Selection, Skybox, Grid, Bloom, PostProcess, Outline, ImGui
- │    ├── lighting/ .............. LightGatherer, CascadeBuilder, IBLPrecompute, LightTypes, ShadowInit, IBLInit
- │    ├── postprocess/ ........... PostProcessInit (bloom textures + PP UBO + outline/grid descriptors)
- │    ├── gpu/ ................... GPUObjectBuffers (object SSBO + indirect buffer + cull pipeline + per-frame fill)
- │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4 bone SSBO), GlobalUniforms
- │    ├── material/ .............. Material, MaterialSystem
+ │    ├── TaaJitter / QueueRecorders / CameraParams .. per-view Halton jitter, per-queue cmd recorders, camera POD
+ │    ├── Backend ................ VulkanContext (RT extensions + PFN cache), VulkanBackend, Timeline Semaphores
+ │    ├── lighting/ .............. LightGatherer, CascadeBuilder, FogVolumeGatherer, IBLPrecompute, LightTypes
+ │    ├── resources/ ............. Texture, Mesh, Model, Buffer, Skeleton, AnimationClip, BoneMatrixBuffer (Set 4), GlobalUniforms, per-view ViewResources (RT/denoise/volumetric atlases)
+ │    ├── material/ .............. Material, MaterialSystem (GPUMaterialData SSBO, Set 2)
  │    ├── shader/ ................ Shader, ShaderCompiler, ShaderLibrary, ShaderWatcher (hot-reload service owned by RenderPipeline)
- │    ├── pipeline/ .............. PipelineManager, PipelineFactory (8 per-family pipeline builders: PBR / Shadow / DepthPrepass / Selection / Skybox / Post / Outline / Grid)
- │    ├── settings/ .............. GTAOSettings, PostProcessSettings
+ │    ├── pipeline/ .............. PipelineManager (lazy variant creation, disk-persisted VkPipelineCache, keyed by shader+mode)
+ │    ├── settings/ .............. GTAO, PostProcess, Volumetric, Restir (DI), RestirGi, Svgf, Reflections, PathTrace
  │    ├── draw/ .................. DrawCommand
+ │    ├── passes/ ................ ImGuiPass (remaining standalone pass; the rest moved into subsystems/)
  │    ├── debug/ ................. FrameDebuggerContext (preview textures + blit pass + per-draw replay-then-copy + depth archive blit)
  │    ├── FrameDebugger .......... Archive + state machine (owned by RenderingSystem); render-side infrastructure in debug/FrameDebuggerContext
  │    └── Renderer ............... High-level BeginFrame/EndFrame façade
@@ -110,23 +110,30 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 
 | System | State |
 |--------|-------|
-| RenderGraph | DAG compile, barrier injection, dead-pass cull, serial execution |
-| GeometryPass | PBR forward pass — 3 pipeline variants (Opaque/Cutout/Transparent) |
-| Shader | Cook-Torrance BRDF (GGX + Smith + Fresnel-Schlick) |
-| Material | `GPUMaterialData` SSBO (Set 2), 9 map types, JSON serialization |
-| Lighting | `LightUBO` (Set 3): 1 directional + 64 point lights from ECS |
-| Shadows | `ShadowPass` (2048² D32) + 4-cascade PSSM (Sascha Willems bounding-sphere fit), PCF 3×3 via `sampler2DShadow` |
+| RenderGraph | DAG compile, barrier injection, dead-pass cull, serial execution; per-pass secondary-cmd recording |
+| Geometry | Clustered Forward+ PBR (Olsson log-slice clusters); slim G-buffer prepass (normal RG16F / roughness R8 / motion RG16F / matID R16U); 3 render-mode variants |
+| Shader | Cook-Torrance BRDF (GGX + Smith + Fresnel-Schlick); shared raster/RT eval via `common/brdf.glsl` |
+| Material | `GPUMaterialData` SSBO (Set 2), 8 bindless maps + flag bitfield, JSON `.mat` |
+| Lighting | Clustered Forward+ — 1 directional + clustered point lights; per-view cluster grid + light-index SSBOs (Set 3) |
+| Shadows | RT ray-query sun shadows (default) + per-view mask; 4-cascade PSSM CSM retained as an A/B `ShadowingMode` toggle |
+| RT foundation | KHR ray query + acceleration structure (RT-mandatory); per-mesh BLAS (static + skinned refit), per-frame TLAS rebuild on async compute; bindless geometry table (`instanceCustomIndex` → BDA deref) |
+| RT global illumination | ReSTIR DI (Bitterli 2020) + ReSTIR GI (Ouyang 2021) — device-local reservoir reuse, reconnection Jacobian, demodulated + denoised |
+| RT reflections | Stochastic GGX-VNDF specular rays from the slim G-buffer + dedicated specular denoiser; supersedes SSR |
+| Denoising | SVGF (Schied 2017) — three channel-parameterized instances (DI / GI / specular) behind an `IDenoiser` interface |
+| Path tracing | Reference path-traced mode (`RenderMode::PathTrace`) — rayQuery megakernel, multi-bounce NEE + GGX-VNDF lobe MIS, progressive fp32 accumulation |
+| Volumetric fog | Wronski froxel grid — density/scatter inject → integrate → temporal resolve → composite; optional per-froxel RT fog shadows |
 | AO | GTAO half-res compute chain (prefilter → horizon integral → bilateral denoise), Jimenez 2016 slice integral |
 | GPU culling | Compute frustum cull per shadow cascade + main scene, `GPUObjectData` SSBO (Set 5), `vkCmdDrawIndexedIndirect` |
 | Animation | Fiber-parallel keyframe sampling, GPU skinning via `BoneMatrixBuffer` SSBO (Set 4), SQT blending, crossfade, layered override, root motion |
-| Post-processing | HDR (RGBA16F), bloom, tonemapping (4 operators), vignette, grain, CA |
+| AA | TAA (Karis14 YCoCg-clip recipe) + specular AA (Tokuyoshi 2019) |
+| Post-processing | HDR (RGBA16F), bloom, tonemapping (ACES variants + AgX / AgX Punchy), vignette, grain, CA |
+| Bindless | BDA enabled; Set 1 — 16384-texture array + 32-slot sampler array (UPDATE_AFTER_BIND, partially-bound); integer material/texture indices |
 | Shader system | Single-stage shader assets (.vert/.frag/.comp each one artifact + UUID); `ShaderLibrary::LoadEngine` routes engine shaders through the asset pipeline; hot-reload via `FileWatcher` on any stage; SPIRV-Cross reflection |
-| Frame Debugger | GPU timers, pass tree, pipeline state, texture preview |
+| Frame Debugger | GPU timers, pass tree, pipeline state, per-draw replay, texture preview |
 | Mipmaps | `vkCmdBlitImage` chain, per-texture `.meta` settings |
 | Scene serialization | JSON `.luth` format, native file dialogs |
 | Pipeline cache | VkPipelineCache disk persistence + PipelineManager (lazy, keyed by shader+mode) |
 | Skybox / IBL | HDR equirect→cubemap, irradiance convolution, pre-filtered env (5 mips), BRDF LUT, split-sum ambient |
-| AA | Not started |
 
 > For descriptor set layout, pass order, and memory budget, see [`arch/rendering-pipeline.md`](arch/rendering-pipeline.md).
 
@@ -140,10 +147,13 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | Memory (allocators, tracker, STL gap) | [`arch/memory.md`](arch/memory.md) | Working on allocators or memory budgets |
 | Profiling (Tracy + GPUTimerPool) | [`arch/profiling.md`](arch/profiling.md) | Adding instrumentation or chasing perf |
 | Vulkan validation layers | [`arch/validation-layers.md`](arch/validation-layers.md) | Vulkan setup, debug callback, build-define overrides |
+| GPU crash debugging (Aftermath, device-lost) | [`arch/gpu-crash-debugging.md`](arch/gpu-crash-debugging.md) | Chasing `VK_ERROR_DEVICE_LOST` / GPU hangs |
 | Version markers (V1-V6) | [`arch/version-glossary.md`](arch/version-glossary.md) | Reading `Vn` source comments — JobSystem hazards vs asset format versions |
 | Rendering pipeline (descriptor sets, pass order) | [`arch/rendering-pipeline.md`](arch/rendering-pipeline.md) | Working on renderer |
+| Multi-queue (async compute, queue families) | [`arch/multi-queue.md`](arch/multi-queue.md) | Working on async compute / queue submission |
 | Frame pipeline (triple-buffer model) | [`arch/frame-pipeline.md`](arch/frame-pipeline.md) | Working on frame pipeline |
 | Asset pipeline (importers, loading, caching) | [`arch/asset-pipeline.md`](arch/asset-pipeline.md) | Working on assets/resources |
 | Scene & ECS (components, systems, serialization) | [`arch/scene-ecs.md`](arch/scene-ecs.md) | Working on scene/ECS |
 | Animation (clips, skeleton, GPU skinning, blending) | [`arch/animation-system.md`](arch/animation-system.md) | Working on animation |
+| Physics (Jolt integration, jobified) | [`arch/physics.md`](arch/physics.md) | Working on physics / colliders |
 | Editor (panels, IEditorHooks, selection, UI) | [`arch/editor.md`](arch/editor.md) | Working on editor |

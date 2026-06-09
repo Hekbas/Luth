@@ -53,7 +53,8 @@ So, I started Luth from scratch to explore high-performance architecture: fiber-
 **Prerequisites:**
 - **OS**: Windows 10 / 11
 - **Compiler**: MSVC (v143+) or Clang (C++20-compliant)
-- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com). Needs `dynamicRendering`, `timelineSemaphore`, and descriptor indexing with UBO update-after-bind (any GPU 2018+)
+- **GPU**: Hardware ray tracing required (`VK_KHR_ray_query` + acceleration structures) — NVIDIA RTX 20-series+, AMD RX 6000+, or Intel Arc
+- **SDK**: [Vulkan SDK 1.3+](https://vulkan.lunarg.com). Needs `dynamicRendering`, `timelineSemaphore`, descriptor indexing with UBO update-after-bind, and the KHR ray-tracing extensions
 
 **Steps:**
 1.  **Clone with submodules**
@@ -121,7 +122,7 @@ Persistent SSBOs (Material Set 2, Light Set 3, Object Set 5) are triple-buffered
 
 ### 4. Vulkan 1.3 Backend
 Modern hardware, minimal driver overhead.
-* **Bindless Descriptors:** `VK_EXT_descriptor_indexing` binds all engine textures to one global array (`Set 0`). Materials store an integer index — any draw call can sample any texture without rebinding.
+* **Bindless Descriptors:** `VK_EXT_descriptor_indexing` binds all engine textures to one global array (`Set 1`), alongside a 32-slot sampler array and buffer device addresses for the RT geometry table. Materials store an integer index — any draw call can sample any texture without rebinding.
 * **Dynamic Rendering:** No `VkRenderPass` / `VkFramebuffer` — passes use `vkCmdBeginRendering` directly.
 * **Timeline Semaphores:** Replace `vkWaitForFences`. A dedicated **Poller Job** queries semaphore values and wakes dependent fibers only when the GPU finishes their workload.
 * **Update-After-Bind:** Per-frame UBO/SSBO descriptor sets are rewritten each frame as their backing GPU pages cycle, eliminating CPU-GPU sync on those bindings.
@@ -152,13 +153,19 @@ Passes execute in topological order; command-buffer recording inside each pass p
 
 | | |
 |---|---|
+| **Real-Time Ray Tracing** | Hardware KHR ray query — RT sun shadows, ReSTIR DI + GI (Bitterli 2020 / Ouyang 2021), stochastic RT reflections; per-frame TLAS, bindless geometry table |
+| **Path-Traced Reference** | rayQuery megakernel — multi-bounce NEE + GGX-VNDF lobe MIS, progressive fp32 accumulation; ground-truth A/B against the raster path |
+| **Denoising** | SVGF (Schied 2017) — three channels (diffuse DI / indirect GI / specular) behind an `IDenoiser` interface |
+| **Clustered Forward+** | Olsson log-slice clusters, slim G-buffer prepass; 1 directional + clustered point lights, ECS-driven |
 | **PBR** | Cook-Torrance BRDF, metallic/roughness, render-mode variants (Opaque/Cutout/Transparent) |
-| **Lighting** | 1 directional + up to 64 point lights, ECS-driven |
-| **Shadows** | 4-cascade PSSM, per-cascade GPU cull, PCF, cascade blending |
+| **Shadows** | RT ray-query sun shadows (default); 4-cascade PSSM CSM retained as an A/B toggle (per-cascade GPU cull, PCF) |
+| **Volumetric Fog** | Wronski froxel grid — light injection → integrate → temporal resolve; optional per-froxel RT fog shadows |
 | **Ambient Occlusion** | GTAO half-res compute (prefilter → integrate → bilateral denoise) |
-| **GPU Culling** | Compute frustum cull per cascade + main scene, indirect draws everywhere |
 | **IBL** | HDR skybox, diffuse irradiance + pre-filtered specular + BRDF LUT, split-sum ambient |
-| **Post-Processing** | HDR pipeline, bloom, 4 tonemap operators, vignette, grain, chromatic aberration |
+| **Anti-Aliasing** | TAA (Karis14 YCoCg-clip recipe) + specular AA (Tokuyoshi 2019) |
+| **GPU Culling** | Compute frustum cull per cascade + main scene, indirect draws everywhere |
+| **Bindless** | Buffer device address + one global 16384-texture array + 32-slot sampler array; integer material/texture indices |
+| **Post-Processing** | HDR pipeline, bloom, ACES + AgX / AgX Punchy tonemap operators, vignette, grain, chromatic aberration |
 | **Shaders** | Single-stage SPIR-V asset pipeline with UUIDs, hot-reload, SPIRV-Cross reflection |
 | **Pipeline Cache** | Disk-persisted, lazy variant creation, targeted hot-reload invalidation |
 | **Mipmaps** | Per-texture pipeline with sampler maxLod control |
@@ -218,11 +225,11 @@ See the full [development roadmap](docs/development/ROADMAP.md) for completed ph
 
 ### Future Ideas
 
-**Rendering** — Forward+ clustered lighting, FXAA/TAA, deferred GBuffer, global illumination, volumetric fog, SSR
+**Rendering** — Material system overhaul (transparency, cutout, emissive, unified raster/RT eval), GPU particle system
 
-**Gameplay** — Scripting (C#/Lua), prefab system, ragdoll, GPU particle system, animation blend trees & IK
+**Gameplay** — Scripting (C#/Lua), prefab system, ragdoll, animation blend trees & IK
 
-**Editor** — Asset streaming, visual shader editor
+**Editor** — Asset streaming, node-based material editor
 
 ---
 
