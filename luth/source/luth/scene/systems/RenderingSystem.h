@@ -19,6 +19,7 @@
 #include "luth/renderer/settings/RestirGiSettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luth/renderer/settings/PathTraceSettings.h"
+#include "luth/renderer/settings/ReflectionsSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -91,6 +92,13 @@ namespace Luth
         // samplesPerFrame, z = maxBounces, w = accumulated sample count. PT bypasses pbr.frag entirely
         // (it overwrites the post chain's HDR input), so this is informational/debug, not a pbr.frag gate.
         Vec4 pathTraceParams;
+        // RT reflections (rt-renderer D.1). x = enabled (1 → pbr.frag composites the denoised reflection
+        // into the split-sum specular IBL), y = roughnessFadeStart, z = roughnessFadeEnd (full RT below
+        // Start, smoothstep to prefiltered-env IBL, pure IBL above End), w pad.
+        Vec4 reflParams;
+        // depth → world for the RT-reflection denoiser's virtual reprojection. APPENDED at the end — never
+        // insert mid-struct: shaders with an inline GlobalUniforms prefix (skybox.frag etc.) would desync.
+        Mat4 invViewProjection;
     };
 
     // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the
@@ -187,8 +195,19 @@ namespace Luth
         SvgfSettings& GetSvgfGiSettings() { return m_SvgfGiSettings; }
         const SvgfSettings& GetSvgfGiSettings() const { return m_SvgfGiSettings; }
 
+        // Specular (RT-reflection) denoiser tuning — a sharper, view-dependent signal than diffuse GI, so
+        // fewer à-trous levels (less smear on mirrors) + the hit-distance virtual reprojection carries the
+        // temporal stability. Surfaced as the editor's "SVGF (Specular)" section.
+        SvgfSettings& GetSvgfSpecSettings() { return m_SvgfSpecSettings; }
+        const SvgfSettings& GetSvgfSpecSettings() const { return m_SvgfSpecSettings; }
+
         PathTraceSettings& GetPathTraceSettings() { return m_PathTraceSettings; }
         const PathTraceSettings& GetPathTraceSettings() const { return m_PathTraceSettings; }
+
+        // RT specular reflections (rt-renderer D.1). ReflectionsSubsystem::IsEnabled reads .enabled;
+        // GlobalSubsystem packs the fade band into reflParams (pbr.frag composite gate). Editor "Reflections".
+        ReflectionsSettings& GetReflectionsSettings() { return m_ReflectionsSettings; }
+        const ReflectionsSettings& GetReflectionsSettings() const { return m_ReflectionsSettings; }
 
         // Top-level render path (Raster / PathTrace). PathTraceSubsystem::IsEnabled() reads this; the
         // editor RenderPanel toggles it. Switching modes resets the PT accumulation on the next frame.
@@ -307,7 +326,10 @@ namespace Luth
         SvgfSettings        m_SvgfSettings;
         // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
         SvgfSettings        m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
+        // Specular denoiser: fewer à-trous levels (preserve mirror sharpness), moderate temporal alpha.
+        SvgfSettings        m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
         PathTraceSettings   m_PathTraceSettings;
+        ReflectionsSettings m_ReflectionsSettings;
         RenderMode          m_RenderMode   = RenderMode::Raster;
         ShadeMode           m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;

@@ -1,0 +1,169 @@
+#version 460
+#extension GL_EXT_ray_query            : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "common/globals.glsl"
+#include "common/restir_gi_common.glsl"   // PcgHash/RandFromSeed/Luminance/OctDecode/BranchlessONB/PointLightRadiance/light structs/GI_PI
+#include "common/geom_table.glsl"          // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
+#include "common/brdf.glsl"                // SampleGGXVNDF (Heitz 2018)
+
+// RT specular reflections (rt-renderer D.1). One GGX-VNDF reflection ray per opaque pixel below a
+// roughness cutoff, traced from the slim G-buffer, shaded at the hit (NEE + emission + diffuse IBL
+// ambient) or the sharp environment on miss. Output is the lobe-mean incoming radiance; a dedicated
+// specular denoiser (S3) converges the 1-spp signal; pbr.frag composites it (S4). Opaque-only.
+//
+// CONTRACT (rt_reflections.comp <-> pbr.frag) — see arch/rendering-pipeline.md "cross-pass numerical
+// contracts". This pass OUTPUTS demod = Li, the VNDF-sampled incoming radiance (rgb) + WORLD-space
+// hitDist (a, for the specular denoiser's virtual reprojection). One GGX-VNDF sample is a
+// consistent-in-the-mean estimate of the GGX-lobe-mean radiance (the quantity prefilteredColor
+// approximates) — exact only under the split-sum's radiance/BRDF decorrelation, so it is accurate at low
+// roughness and the cutoff fades to IBL before it loses accuracy. (The VNDF kernel differs slightly from
+// the LUT's D-weighting; the exact Li·F·G1 form would need the primary F0 the slim G-buffer omits.)
+// pbr.frag REMODULATES (additive, SUPERSEDING the IBL specular above the cutoff):
+//   color += (reflRad * envBRDF - specularIBL * iblIntensity) * ao * reflWeight
+// — applies the split-sum env-BRDF ONCE (F0 lives only in pbr.frag's envBRDF; the slim G-buffer carries no
+// albedo/metalness). reflRad is a DIRECT traced reflection (scene-lit + ray-occluded), so it is NOT scaled
+// by iblIntensity — point-lit surroundings reflect even when the env is dim. Env-on-miss is SHARP (LOD 0,
+// the VNDF already spread R) and × iblIntensity so sky reflections stay consistent across the RT↔IBL fade.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Set 0: Global UBO (b0 via globals.glsl) + IBL irradiance (b1) + prefiltered env (b2) + TLAS (b6).
+layout(set = 0, binding = 1) uniform samplerCube u_IrradianceMap;
+layout(set = 0, binding = 2) uniform samplerCube u_PrefilteredEnv;
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
+
+// Set 1: LightSSBO — LightingSubsystem's Set-3 layout remapped to set=1 (NEE at the reflection hit).
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+// Set 2 (pass-local): b0 reflection output (rgb = radiance, a = hitDist), b1 depth, b2 slim oct-normal,
+// b3 slim roughness.
+layout(set = 2, binding = 0, rgba16f) uniform image2D u_Refl;
+layout(set = 2, binding = 1) uniform sampler2D u_SceneDepth;
+layout(set = 2, binding = 2) uniform sampler2D u_SlimNormal;     // RG16F oct
+layout(set = 2, binding = 3) uniform sampler2D u_SlimRoughness;  // R8
+
+layout(push_constant) uniform PC {
+    mat4      invViewProj;
+    uint      frameSeed;
+    float     roughnessCutoff;   // skip the trace above this (rough → prefiltered-env IBL fallback in pbr.frag)
+    float     maxRayDistance;    // reflection-ray tMax
+    float     fireflyClamp;      // luminance clamp on the 1-spp radiance
+    uint      envReady;          // 1 → IBL prefiltered env bound (else miss returns black)
+    uint      _pad0; uint _pad1; uint _pad2;
+    GeomTable geomTable;         // secondary-hit material fetch (paired with the bound TLAS)
+} pc;
+
+// Shadow ray: true iff `dir` is unoccluded from x up to maxDist (Wächter-Binder geometric-normal offset).
+bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
+    float sMin  = ubo.rtShadowParams.y;
+    vec3  sOrig = x + offsetN * (ubo.rtShadowParams.z * 0.5) + dir * sMin;
+    rayQueryEXT sq;
+    rayQueryInitializeEXT(sq, topLevelAS,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        sOrig, sMin, dir, max(maxDist, sMin));
+    rayQueryProceedEXT(sq);
+    return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+// Outgoing radiance toward the receiver at the reflection hit: emission + point+sun NEE (Lambertian) +
+// a cheap diffuse-IBL ambient (so a shadowed reflected surface isn't pure black). Recursive specular at
+// the hit is out of scope (1 bounce). Smooth shading normal for lighting, geometric for ray offsets.
+vec3 ShadeHit(vec3 xs, HitSurface hs, inout uint seed) {
+    vec3 ns      = hs.ns;
+    vec3 diffAlb = hs.baseColor * (1.0 - hs.metalness);   // metals carry no Lambertian diffuse
+    vec3 Lo      = hs.emission;
+
+    uint lc = lights.pointLightCount;
+    if (lc > 0u) {
+        uint j = min(uint(RandFromSeed(seed) * float(lc)), lc - 1u);
+        PointLightData pl = lights.points[j];
+        vec3 Lw; float ld;
+        vec3 Li  = PointLightRadiance(pl, xs, Lw, ld);
+        float ndl = max(dot(ns, Lw), 0.0);
+        if (ndl > 0.0 && Visible(xs, hs.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
+            Lo += (diffAlb / GI_PI) * Li * ndl * float(lc);   // * count undoes the 1/count pick pdf
+    }
+    if (lights.dirLight.intensity > 0.0) {
+        vec3  Lsun   = normalize(-lights.dirLight.direction);
+        float ndlSun = max(dot(ns, Lsun), 0.0);
+        if (ndlSun > 0.0 && Visible(xs, hs.ng, Lsun, 1.0e30))
+            Lo += (diffAlb / GI_PI) * lights.dirLight.color * lights.dirLight.intensity * ndlSun;
+    }
+    Lo += texture(u_IrradianceMap, ns).rgb * diffAlb * ubo.iblIntensity;
+    return Lo;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = ivec2(ubo.viewportSize);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    // Every pixel is written (persistent image, no bootstrap clear): sky / rough / below-horizon write
+    // zero, and pbr.frag's roughness-driven reflWeight falls back to the prefiltered-env IBL there.
+    float depth = texelFetch(u_SceneDepth, pixel, 0).r;
+    if (depth >= 1.0)                  { imageStore(u_Refl, pixel, vec4(0.0)); return; }
+    float rough = texelFetch(u_SlimRoughness, pixel, 0).r;
+    if (rough > pc.roughnessCutoff)    { imageStore(u_Refl, pixel, vec4(0.0)); return; }
+
+    vec3 N        = OctDecode(texelFetch(u_SlimNormal, pixel, 0).rg);
+    vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
+    vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec3 worldPos = worldH.xyz / worldH.w;
+    vec3 V        = normalize(ubo.cameraPos - worldPos);
+
+    uint seed = PcgHash((uint(pixel.y) * uint(size.x) + uint(pixel.x)) ^ (pc.frameSeed * 2654435761u));
+
+    // GGX-VNDF reflection ray: sample a visible half-vector in tangent space (N = +Z), reflect V.
+    // Mirror (roughness→0) → H≈N → R = perfect mirror; glossy spreads R (denoised by S3).
+    vec3 t, bt; BranchlessONB(N, t, bt);
+    vec3 Vt = vec3(dot(V, t), dot(V, bt), dot(V, N));
+    vec3 Ht = SampleGGXVNDF(Vt, rough * rough, RandFromSeed(seed), RandFromSeed(seed));
+    vec3 H  = Ht.x * t + Ht.y * bt + Ht.z * N;
+    vec3 R  = reflect(-V, H);
+    if (dot(N, R) <= 0.0)              { imageStore(u_Refl, pixel, vec4(0.0)); return; }   // below horizon
+
+    // Trace the reflection ray to the nearest opaque hit (no terminate flag → committed = nearest). The
+    // origin offset grows as R grazes (dot(N,R)→0): the slim normal is the shading normal, which can
+    // diverge from the geometric surface, so a flat offset can leave a grazing ray below it (self-hit
+    // → glossy-grazing flicker). dot(N,R) > 0 here (horizon-checked above), so R always points outward.
+    float tMin = ubo.rtShadowParams.y;
+    vec3  ro   = worldPos + N * (ubo.rtShadowParams.z * (2.0 - dot(N, R))) + R * tMin;
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, R, pc.maxRayDistance);
+    while (rayQueryProceedEXT(rq)) {}
+
+    vec3  Li;
+    float hitDist;
+    if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+        // Miss → SHARP environment radiance along R (LOD 0 — R is already roughness-spread by the VNDF).
+        // Scaled by iblIntensity (NOT skyboxIntensity) so a sky reflection matches the IBL specular it
+        // blends with in pbr.frag; skyboxIntensity drives only the visible skybox pass, not reflections.
+        Li      = (pc.envReady != 0u) ? textureLod(u_PrefilteredEnv, R, 0.0).rgb * ubo.iblIntensity : vec3(0.0);
+        hitDist = pc.maxRayDistance;
+    } else {
+        float tHit = rayQueryGetIntersectionTEXT(rq, true);
+        vec3  xs   = ro + R * tHit;
+        uint   ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
+        uint   pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
+        vec2   bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
+        mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+        HitSurface hs = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, R);
+        Li      = ShadeHit(xs, hs, seed);
+        hitDist = tHit;
+    }
+
+    // Firefly clamp the 1-spp radiance before it enters the temporal denoiser.
+    float lum = Luminance(Li);
+    if (lum > pc.fireflyClamp) Li *= pc.fireflyClamp / lum;
+
+    imageStore(u_Refl, pixel, vec4(Li, hitDist));
+}

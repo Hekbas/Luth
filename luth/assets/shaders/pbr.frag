@@ -120,6 +120,12 @@ layout(set = 3, binding = 5) uniform sampler2D diIrradiance;
 // (alongside DI, not instead of) when restirParams.y > 0.5; remodulated identically.
 layout(set = 3, binding = 6) uniform sampler2D giIrradiance;
 
+// CONTRACT: reflRadiance stores the DEMODULATED reflected radiance (rt_reflections.comp). Composited below
+// as a DIRECT specular reflection that supersedes the prefiltered-env IBL specular above the roughness
+// cutoff — added at full strength (×ao, ×reflWeight), NOT scaled by iblIntensity (it's a traced scene
+// reflection, not an IBL approximation). The denoiser owns the slot; reflParams.x gates the consumption.
+layout(set = 3, binding = 7) uniform sampler2D reflRadiance;
+
 uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
     // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
     float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
@@ -516,16 +522,30 @@ void main()
     vec3 irradiance = texture(irradianceMap, N).rgb;
     vec3 diffuseIBL = irradiance * albedo.rgb;
 
-    // Specular IBL
+    // Specular IBL — RT reflections (D.1) swap in for the prefiltered env below the roughness cutoff
+    // (smoothstep fade to IBL); the split-sum env-BRDF (F·brdf.x + brdf.y) then applies once to whichever.
     const float MAX_REFLECTION_LOD = 4.0;
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilteredMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-    vec3 specularIBL = prefilteredColor * (F * brdf.x + brdf.y);
+    vec3 envBRDF = F * brdf.x + brdf.y;
+    vec3 specularIBL = prefilteredColor * envBRDF;
 
     vec3 ambient = (kD * diffuseIBL + specularIBL) * ao * ubo.iblIntensity;
-
     vec3 color = ambient + Lo;
+
+    // RT specular reflection (D.1) — reflRad is the actual traced reflected radiance (scene-lit by its own
+    // NEE + occluded by the ray), so it is DECOUPLED from iblIntensity (the IBL artistic knob): point-lit
+    // surroundings reflect at full strength even when the env intensity is low. It SUPERSEDES the
+    // prefiltered-env IBL specular above the roughness cutoff — add reflRad·envBRDF and subtract the
+    // iblSpecular it replaces, both ×ao (contact) ×reflWeight (roughness fade). reflRad's env-on-miss
+    // already tracks iblIntensity, so sky reflections stay consistent across the RT↔IBL fade.
+    if (ubo.reflParams.x > 0.5)
+    {
+        float reflWeight = 1.0 - smoothstep(ubo.reflParams.y, ubo.reflParams.z, roughness);
+        vec3  reflRad    = texture(reflRadiance, gl_FragCoord.xy / ubo.viewportSize).rgb;
+        color += (reflRad * envBRDF - specularIBL * ubo.iblIntensity) * ao * reflWeight;
+    }
 
     // Debug viz: replace final color with the raw AO buffer so the user can
     // see the GTAO result in isolation (togglable from the Render panel).

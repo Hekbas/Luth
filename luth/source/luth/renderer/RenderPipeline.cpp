@@ -46,6 +46,7 @@ namespace Luth
         , m_Debugger(std::make_unique<FrameDebuggerContext>(*this))
         , m_Denoise(std::make_unique<SvgfDenoiser>(DenoiserChannel::Di))
         , m_DenoiseGi(std::make_unique<SvgfDenoiser>(DenoiserChannel::Gi))
+        , m_DenoiseRefl(std::make_unique<SvgfDenoiser>(DenoiserChannel::Reflections))
     {
     }
 
@@ -97,8 +98,10 @@ namespace Luth
         m_Restir.Init(*this);
         m_RestirGi.Init(*this);
         m_PathTrace.Init(*this);
+        m_Reflections.Init(*this);
         m_Denoise->Init(*this);
         m_DenoiseGi->Init(*this);
+        m_DenoiseRefl->Init(*this);
         m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -138,8 +141,10 @@ namespace Luth
                               || m_Restir.OnShaderReloaded(name, spv)
                               || m_RestirGi.OnShaderReloaded(name, spv)
                               || m_PathTrace.OnShaderReloaded(name, spv)
+                              || m_Reflections.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
-                              || m_DenoiseGi->OnShaderReloaded(name, spv);
+                              || m_DenoiseGi->OnShaderReloaded(name, spv)
+                              || m_DenoiseRefl->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -193,8 +198,10 @@ namespace Luth
 
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Skinning.Shutdown();
+        m_DenoiseRefl->Shutdown();
         m_DenoiseGi->Shutdown();
         m_Denoise->Shutdown();
+        m_Reflections.Shutdown();
         m_PathTrace.Shutdown();
         m_RestirGi.Shutdown();
         m_Restir.Shutdown();
@@ -347,7 +354,7 @@ namespace Luth
         // Build the TLAS whenever ANY RT consumer needs it — RT shadows OR ReSTIR DI OR ReSTIR GI.
         // Gating on runRtShadows alone made DI/GI silently no-op under CSM (they ran against the empty
         // TLAS and produced nothing). The RT sun-shadow trace below stays runRtShadows-only.
-        const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled() || m_PathTrace.IsEnabled();
+        const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled() || m_PathTrace.IsEnabled() || m_Reflections.IsEnabled();
         if (needTlas)
             m_Rt.AddTlasBuildPass(rg);
 
@@ -397,6 +404,17 @@ namespace Luth
             giDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
 
+        // RT specular reflections (rt-renderer D.1) — one GGX-VNDF ray/pixel from the slim G-buffer, then
+        // a dedicated specular SVGF (3rd instance, DenoiserChannel::Reflections). The DenoiseInputs.motion
+        // slot carries slim ROUGHNESS (the spec reproject's b3 — it computes the reflection's motion
+        // internally via hit-distance virtual reprojection; hitDist rides reflRadiance's alpha).
+        // denoisedReflHandle feeds GeometryPass (the pbr.frag Set 3 b7 composite lands in S4). AsyncCompute,
+        // after the TLAS build (needTlas gate includes Reflections).
+        RG::ResourceHandle reflHandle = m_Reflections.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.roughness);
+        RG::ResourceHandle denoisedReflHandle = m_DenoiseRefl->AddPasses(rg, DenoiseInputs{
+            reflHandle, prepassDepth, slimGB.normal, slimGB.roughness,
+            slimGB.roughness, slimGB.materialID, {}, {} });
+
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
         // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
@@ -406,7 +424,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};
@@ -834,6 +852,7 @@ namespace Luth
             if (it->second.volInScatter)        m_NamedTextures["VolInScatter"]         = it->second.volInScatter;
             if (it->second.volInScatterHistA)   m_NamedTextures["VolInScatterHistA"]   = it->second.volInScatterHistA;
             if (it->second.volInScatterHistB)   m_NamedTextures["VolInScatterHistB"]   = it->second.volInScatterHistB;
+            if (it->second.reflRadiance)        m_NamedTextures["Reflections"]         = it->second.reflRadiance;
         }
         if (m_Lighting.GetIrradianceMap())  m_NamedTextures["IrradianceMap"]  = m_Lighting.GetIrradianceMap();
         if (m_Lighting.GetPrefilteredMap()) m_NamedTextures["PrefilteredMap"] = m_Lighting.GetPrefilteredMap();

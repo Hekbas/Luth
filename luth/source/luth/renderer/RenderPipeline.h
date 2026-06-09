@@ -26,6 +26,7 @@
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
 #include "luth/renderer/subsystems/PathTraceSubsystem.h"
+#include "luth/renderer/subsystems/ReflectionsSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
 #include "luth/renderer/subsystems/IDenoiser.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
@@ -284,6 +285,21 @@ namespace Luth
         VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 
+        // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
+        // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance
+        // virtual-reprojection spec reproject; svgfSpecDenoised feeds pbr.frag Set 3 b7 (the composite, S4).
+        // The geom-history's spare channel carries hitDist for reflected-depth disocclusion (vs the diffuse
+        // geom's unused .a). Same shapes/clears as the GI SVGF.
+        std::shared_ptr<Texture> svgfSpecDenoised;
+        VkDescriptorSet svgfSpecPassthroughDescSet = VK_NULL_HANDLE;
+        std::shared_ptr<Texture> svgfSpecColorHist[2];
+        std::shared_ptr<Texture> svgfSpecMoments[2];
+        std::shared_ptr<Texture> svgfSpecGeom[2];
+        VkDescriptorSet svgfSpecReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        std::shared_ptr<Texture> svgfSpecAtrous[2];
+        VkDescriptorSet svgfSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkDescriptorSet svgfSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
         // Path-traced reference mode (rt-renderer C.5). ptAccum = viewport-sized RGBA32F STORAGE — the
         // in-place fp32 progressive running mean, kept GENERAL, only ever touched by the PT megakernel
         // (never sampled, so fp32 precision survives thousands of samples). ptColor = RGBA16F
@@ -297,6 +313,15 @@ namespace Luth
         // FNV hash of the reset inputs (camera VP + scene instances + lights + settings + manual salt)
         // at the last accumulating frame. A mismatch this frame zeroes the accumulation. 0 → frame 0 resets.
         u64                      ptResetHash = 0;
+
+        // RT specular reflections (rt-renderer D.1). reflRadiance = viewport-sized RGBA16F STORAGE+SAMPLED
+        // — rgb = demodulated specular radiance (Li·F·G1 / Fenv), a = hitDist. The trace writes every
+        // pixel each frame (reflection or env fallback), so no cross-frame read → no bootstrap clear.
+        // reflDescSet binds Set 2 b0 = reflRadiance (GENERAL) + b1-b3 = depth/slimNormal/slimRoughness
+        // samplers — stable per-view (single, not cycled). The specular denoiser's svgfSpec* history
+        // (D.1 S3) lands beside the GI SVGF fields above.
+        std::shared_ptr<Texture> reflRadiance;
+        VkDescriptorSet          reflDescSet = VK_NULL_HANDLE;
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
@@ -465,9 +490,11 @@ namespace Luth
         RtRestirSubsystem       m_Restir;
         RtRestirGiSubsystem     m_RestirGi;
         PathTraceSubsystem      m_PathTrace;
+        ReflectionsSubsystem    m_Reflections;
         SkinningSubsystem       m_Skinning;
-        std::unique_ptr<IDenoiser> m_Denoise;    // DI SVGF; swappable to NRD/RELAX via the settings toggle
-        std::unique_ptr<IDenoiser> m_DenoiseGi;  // GI SVGF — second instance (DenoiserChannel::Gi)
+        std::unique_ptr<IDenoiser> m_Denoise;     // DI SVGF; swappable to NRD/RELAX via the settings toggle
+        std::unique_ptr<IDenoiser> m_DenoiseGi;   // GI SVGF — second instance (DenoiserChannel::Gi)
+        std::unique_ptr<IDenoiser> m_DenoiseRefl; // specular SVGF — third instance (DenoiserChannel::Reflections)
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -480,12 +507,16 @@ namespace Luth
         const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
         PathTraceSubsystem&            GetPathTrace()            { return m_PathTrace; }
         const PathTraceSubsystem&      GetPathTrace()      const { return m_PathTrace; }
+        ReflectionsSubsystem&          GetReflections()          { return m_Reflections; }
+        const ReflectionsSubsystem&    GetReflections()    const { return m_Reflections; }
         SkinningSubsystem&             GetSkinning()             { return m_Skinning; }
         const SkinningSubsystem&       GetSkinning()       const { return m_Skinning; }
         IDenoiser&                     GetDenoise()              { return *m_Denoise; }
         const IDenoiser&               GetDenoise()        const { return *m_Denoise; }
         IDenoiser&                     GetDenoiseGi()            { return *m_DenoiseGi; }
         const IDenoiser&               GetDenoiseGi()      const { return *m_DenoiseGi; }
+        IDenoiser&                     GetDenoiseRefl()          { return *m_DenoiseRefl; }
+        const IDenoiser&               GetDenoiseRefl()    const { return *m_DenoiseRefl; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----

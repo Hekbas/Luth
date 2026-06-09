@@ -8,6 +8,7 @@
 #include "common/globals.glsl"
 #include "common/restir_gi_common.glsl"   // PcgHash/RandFromSeed/Luminance/OctDecode/light structs/PointLightRadiance + SampleCosHemisphere (S2) + GI_PI
 #include "common/geom_table.glsl"          // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
+#include "common/brdf.glsl"                 // PtD_GGX/PtG_Smith/PtF_Schlick/PtBRDFTimesNdotL + GGX-VNDF sampling (shared with rt_reflections)
 
 // Path-traced reference mode (rt-renderer C.5) — megakernel. Traces its OWN jittered primary camera rays
 // (no G-buffer dependency → free anti-aliasing as it converges) then a multi-bounce path with NEE per
@@ -66,36 +67,7 @@ bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
-// ── Cook-Torrance BRDF (MUST match pbr.frag's DistributionGGX / GeometrySmith / FresnelSchlick /
-// CalculateLight — the reference is only valid if it integrates the same material model). ──
-
-float PtD_GGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness; float a2 = a * a;       // GGX alpha = roughness^2
-    float NdotH = max(dot(N, H), 0.0); float NdotH2 = NdotH * NdotH;
-    float d = NdotH2 * (a2 - 1.0) + 1.0;
-    return a2 / max(GI_PI * d * d, 1.0e-7);
-}
-float PtG_SchlickGGX(float NdotX, float roughness) {
-    float r = roughness + 1.0; float k = (r * r) / 8.0;       // direct-lighting k (pbr.frag)
-    return NdotX / (NdotX * (1.0 - k) + k);
-}
-float PtG_Smith(vec3 N, vec3 V, vec3 L, float roughness) {
-    return PtG_SchlickGGX(max(dot(N, V), 0.0), roughness) * PtG_SchlickGGX(max(dot(N, L), 0.0), roughness);
-}
-vec3 PtF_Schlick(float cosT, vec3 F0) {
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
-}
-// f(V,L)·NdotL·radiance — identical algebra to pbr.frag CalculateLight (radiance=1 yields f·NdotL).
-vec3 PtBRDFTimesNdotL(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
-    vec3 H  = normalize(V + L);
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float D = PtD_GGX(N, H, roughness);
-    float G = PtG_Smith(N, V, L, roughness);
-    vec3  F = PtF_Schlick(max(dot(H, V), 0.0), F0);
-    vec3 spec = (D * G * F) / (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1.0e-4);
-    vec3 kD   = (vec3(1.0) - F) * (1.0 - metallic);
-    return (kD * albedo / GI_PI + spec) * radiance * max(dot(N, L), 0.0);
-}
+// Cook-Torrance BRDF (PtD_GGX/PtG_Smith/PtF_Schlick/PtBRDFTimesNdotL) → common/brdf.glsl.
 
 // Full-BRDF NEE at (x, surface s) with view dir V. One random point light (× count undoes the 1/count
 // pick pdf) + deterministic sun, each shadow-rayed.
@@ -118,36 +90,8 @@ vec3 DirectLighting(vec3 x, vec3 V, HitSurface s, inout uint seed) {
     return Lo;
 }
 
-// ── BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS. ──
-
-// Analytic Smith G1 for GGX alpha (for the unbiased VNDF pdf — distinct from the BRDF's approximate G).
-float PtG1_GGX(float NdotX, float alpha) {
-    float a2 = alpha * alpha;
-    return 2.0 * NdotX / max(NdotX + sqrt(a2 + (1.0 - a2) * NdotX * NdotX), 1.0e-6);
-}
-// Sample a VNDF half-vector (Heitz 2018) given the tangent-space view Ve (N = +Z); alpha = roughness^2.
-vec3 SampleGGXVNDF(vec3 Ve, float alpha, float u1, float u2) {
-    vec3  Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
-    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
-    vec3  T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
-    vec3  T2 = cross(Vh, T1);
-    float r = sqrt(u1); float phi = 2.0 * GI_PI * u2;
-    float t1 = r * cos(phi); float t2 = r * sin(phi);
-    float sl = 0.5 * (1.0 + Vh.z);
-    t2 = (1.0 - sl) * sqrt(max(0.0, 1.0 - t1 * t1)) + sl * t2;
-    vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
-    return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(1.0e-6, Nh.z)));
-}
-// Solid-angle pdfs of the two strategies, evaluated at a world direction L (V is the view dir).
-float PdfDiffuse(vec3 N, vec3 L) { return max(dot(N, L), 0.0) / GI_PI; }
-float PdfSpec(vec3 N, vec3 V, vec3 L, float roughness) {
-    vec3  H = normalize(V + L);
-    float NdotV = max(dot(N, V), 0.0);
-    float VdotH = max(dot(V, H), 0.0);
-    float alpha = roughness * roughness;
-    float Dv = PtG1_GGX(NdotV, alpha) * VdotH * PtD_GGX(N, H, roughness) / max(NdotV, 1.0e-4);
-    return Dv / (4.0 * max(VdotH, 1.0e-4));
-}
+// BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS.
+// GGX-VNDF sampler + lobe pdfs (PtG1_GGX/SampleGGXVNDF/PdfDiffuse/PdfSpec) → common/brdf.glsl.
 
 // Returns the next ray direction; multiplies `tp` by f·cos/pdf (one-sample lobe MIS). false → dead path.
 bool SampleBSDF(vec3 V, HitSurface s, inout uint seed, out vec3 newDir, inout vec3 tp) {

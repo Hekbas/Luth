@@ -56,6 +56,11 @@ namespace Luth
             VkDescriptorSet*          atrousSet;    // [2]
         };
         ChannelRefs Resolve(DenoiserChannel ch, ViewResources& vr) {
+            if (ch == DenoiserChannel::Reflections)
+                return { vr.svgfSpecColorHist, vr.svgfSpecMoments, vr.svgfSpecGeom, vr.svgfSpecAtrous,
+                         &vr.svgfSpecDenoised, &vr.reflRadiance,
+                         &vr.svgfSpecPassthroughDescSet, vr.svgfSpecReprojectDescSet,
+                         vr.svgfSpecMomentsDescSet, vr.svgfSpecAtrousDescSet };
             if (ch == DenoiserChannel::Gi)
                 return { vr.svgfGiColorHist, vr.svgfGiMoments, vr.svgfGiGeom, vr.svgfGiAtrous,
                          &vr.svgfGiDenoised, &vr.restirGiDI,
@@ -71,6 +76,7 @@ namespace Luth
     const SvgfSettings& SvgfDenoiser::Settings() const
     {
         auto& sys = m_Pipeline->GetSystem();
+        if (m_Channel == DenoiserChannel::Reflections) return sys.GetSvgfSpecSettings();
         return m_Channel == DenoiserChannel::Gi ? sys.GetSvgfGiSettings() : sys.GetSvgfSettings();
     }
 
@@ -78,6 +84,8 @@ namespace Luth
     {
         static const char* di[] = { "SvgfReproject", "SvgfMoments", "SvgfAtrous", "SvgfPassthrough" };
         static const char* gi[] = { "SvgfGiReproject", "SvgfGiMoments", "SvgfGiAtrous", "SvgfGiPassthrough" };
+        static const char* sp[] = { "SvgfSpecReproject", "SvgfSpecMoments", "SvgfSpecAtrous", "SvgfSpecPassthrough" };
+        if (m_Channel == DenoiserChannel::Reflections) return sp[which];
         return (m_Channel == DenoiserChannel::Gi ? gi : di)[which];
     }
 
@@ -169,9 +177,13 @@ namespace Luth
             vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_AtrousLayout);
         }
 
+        // Reflections denoises a specular signal → a SPECULAR reproject variant (hit-distance virtual
+        // reprojection); same layout/pcRange as the diffuse reproject. Moments/à-trous/passthrough shared.
+        const char* reprojShader = (m_Channel == DenoiserChannel::Reflections)
+            ? "shaders/svgf_spec_reproject.comp" : "shaders/svgf_reproject.comp";
         if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_passthrough.comp"))
             m_PassthroughSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_reproject.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine(reprojShader))
             m_ReprojectSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_moments.comp"))
             m_MomentsSpv = sh->GetSpirV();
@@ -246,7 +258,9 @@ namespace Luth
                 m_PassthroughSpv, layouts, std::vector<VkPushConstantRange>{});
             return true;
         }
-        if (name == "svgf_reproject.comp" && m_ReprojectLayout != VK_NULL_HANDLE)
+        const char* myReproj = (m_Channel == DenoiserChannel::Reflections)
+            ? "svgf_spec_reproject.comp" : "svgf_reproject.comp";
+        if (name == myReproj && m_ReprojectLayout != VK_NULL_HANDLE)
         {
             if (m_ReprojectPipeline)
                 VulkanContext::Get().PushDeletion([p = m_ReprojectPipeline.release()]() { delete p; });
@@ -380,13 +394,17 @@ namespace Luth
         }
 
         // Reproject sets: pre-build both parities (set[p] reads prev = [p^1], writes curr = [p]).
+        // Reproject b3: DI/GI bind slim MOTION; the specular variant binds slim ROUGHNESS (it computes
+        // the reflection's own motion internally via hit-distance virtual reprojection).
+        const std::shared_ptr<Texture> b3Tex = (m_Channel == DenoiserChannel::Reflections)
+            ? targets.GetSlimRoughness() : targets.GetSlimMotion();
         if (c.reprojectSet[0] != VK_NULL_HANDLE && *c.noisy
             && c.colorHist[0] && c.moments[0] && c.geom[0]
-            && targets.GetSceneDepth() && targets.GetSlimNormal() && targets.GetSlimMotion())
+            && targets.GetSceneDepth() && targets.GetSlimNormal() && b3Tex)
         {
             const VkImageView depthV  = viewOf(targets.GetSceneDepth());
             const VkImageView normalV = viewOf(targets.GetSlimNormal());
-            const VkImageView motionV = viewOf(targets.GetSlimMotion());
+            const VkImageView motionV = viewOf(b3Tex);
             const VkImageView diV     = viewOf(*c.noisy);
 
             for (u32 p = 0; p < 2; ++p)
