@@ -230,7 +230,7 @@ namespace Luth
         pc.frameSeed       = frameAbs;
         pc.sampleCount     = vr->ptSampleCount;
         pc.samplesPerFrame = std::max(s.samplesPerFrame, 1u);
-        pc.maxBounces      = s.maxBounces;
+        pc.maxBounces      = std::max(s.maxBounces, 1u);   // ≥1 → at least the primary hit
         pc.rrStartDepth    = s.rrStartDepth;
         pc.reset           = reset ? 1u : 0u;
         pc.fireflyClamp    = s.fireflyClamp;

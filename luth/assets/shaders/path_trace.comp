@@ -9,11 +9,11 @@
 #include "common/restir_gi_common.glsl"   // PcgHash/RandFromSeed/Luminance/OctDecode/light structs/PointLightRadiance + SampleCosHemisphere (S2) + GI_PI
 #include "common/geom_table.glsl"          // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
 
-// Path-traced reference mode (rt-renderer C.5) — megakernel. S1: primary camera rays + direct lighting
-// (point + sun NEE, Lambertian) + emission + environment-on-miss, progressively accumulated to an fp32
-// running mean (reset on camera/scene change, signalled by pc.reset). Traces its OWN primary rays from
-// invViewProj (no G-buffer dependency) with per-sample sub-pixel jitter → free anti-aliasing as it
-// converges. Multi-bounce indirect (S2) + full Cook-Torrance BRDF (S3) build on this. see arch/rendering-pipeline.md
+// Path-traced reference mode (rt-renderer C.5) — megakernel. Traces its OWN jittered primary camera rays
+// (no G-buffer dependency → free anti-aliasing as it converges) then a multi-bounce path with NEE per
+// vertex, cosine-importance-sampled diffuse bounces, Russian-roulette termination, and emission +
+// environment-on-miss, progressively accumulated to an fp32 running mean (reset on camera/scene change).
+// S1 = primary + direct; S2 = multi-bounce + RR (here); S3 = full Cook-Torrance BRDF. see arch/rendering-pipeline.md
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -88,7 +88,11 @@ vec3 DirectLighting(vec3 x, vec3 ns, vec3 albedo, inout uint seed) {
     return Lo;
 }
 
-// One sample path. S1 = primary visibility + direct lighting (0-bounce indirect).
+// One full sample path: jittered primary ray, then a multi-bounce NEE walk. Each vertex adds its
+// emission + single-light NEE (disjoint from punctual NEE → no double count: punctual lights via NEE
+// only, emissive surfaces via BSDF hit only, environment via miss only — so no cross-technique MIS
+// weights are needed at this engine's light model). Continues along a cosine-diffuse bounce until a
+// miss, Russian-roulette termination, or the bounce cap.
 vec3 SamplePath(ivec2 pixel, ivec2 size, inout uint seed) {
     // Jittered primary ray — sub-pixel offset varies per sample → progressive AA on accumulation.
     vec2 jit = vec2(RandFromSeed(seed), RandFromSeed(seed)) - 0.5;
@@ -99,24 +103,54 @@ vec3 SamplePath(ivec2 pixel, ivec2 size, inout uint seed) {
     vec3 ro   = ubo.cameraPos;
     vec3 rd   = normalize(farP - ro);
 
-    float tMin = ubo.rtShadowParams.y;
-    rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, rd, 1.0e30);
-    while (rayQueryProceedEXT(rq)) {}
-    if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT)
-        return SampleEnv(rd);
+    float tMin       = ubo.rtShadowParams.y;
+    vec3  radiance   = vec3(0.0);
+    vec3  throughput = vec3(1.0);
 
-    float t = rayQueryGetIntersectionTEXT(rq, true);
-    vec3  x = ro + rd * t;
-    uint  ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
-    uint  pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
-    vec2  bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
-    mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
-    HitSurface s = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, rd);
+    for (uint bounce = 0u; bounce < pc.maxBounces; ++bounce) {
+        rayQueryEXT rq;
+        rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, rd, 1.0e30);
+        while (rayQueryProceedEXT(rq)) {}
+        if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+            radiance += throughput * SampleEnv(rd);
+            break;
+        }
 
-    vec3 L = s.emission;                                 // directly-viewed emitter
-    L += DirectLighting(x, s.ns, s.baseColor, seed);     // NEE: point + sun
-    return L;
+        float t = rayQueryGetIntersectionTEXT(rq, true);
+        vec3  x = ro + rd * t;
+        uint  ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
+        uint  pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
+        vec2  bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
+        mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+        HitSurface s = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, rd);
+
+        // Radiance leaving x toward the previous vertex: emission + NEE.
+        vec3 contrib = throughput * (s.emission + DirectLighting(x, s.ns, s.baseColor, seed));
+        // Firefly clamp on INDIRECT contributions only (the primary direct/emission stays unbiased).
+        // fireflyClamp set high (editor) makes this a no-op → true ground truth.
+        if (bounce > 0u) {
+            float lum = Luminance(contrib);
+            if (lum > pc.fireflyClamp) contrib *= pc.fireflyClamp / lum;
+        }
+        radiance += contrib;
+
+        // Cosine-importance-sampled diffuse bounce. Lambertian throughput update cancels the pdf:
+        // BRDF·cos/pdf = (albedo/π)·cos / (cos/π) = albedo.
+        float pdf;
+        vec3  newDir = SampleCosHemisphere(s.ns, vec2(RandFromSeed(seed), RandFromSeed(seed)), pdf);
+        throughput *= s.baseColor;
+
+        // Russian roulette after a few guaranteed bounces — ÷survival keeps the estimator unbiased.
+        if (bounce >= pc.rrStartDepth) {
+            float p = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 1.0);
+            if (RandFromSeed(seed) > p) break;
+            throughput /= p;
+        }
+
+        ro = x + s.ns * (ubo.rtShadowParams.z * 0.5) + newDir * tMin;
+        rd = newDir;
+    }
+    return radiance;
 }
 
 void main() {
