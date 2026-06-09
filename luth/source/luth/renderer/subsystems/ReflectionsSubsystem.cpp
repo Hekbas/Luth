@@ -11,9 +11,27 @@
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/core/FrameData.h"
+#include "luth/core/types/LuthMath.h"
 
 namespace Luth
 {
+    namespace {
+        // Reflection trace push constants. Mirrors rt_reflections.comp's push_constant block; the fixed
+        // 128 B range leaves tail headroom so growing this never touches the pipeline layout.
+        struct ReflPC {
+            Mat4 invViewProj;
+            u32  frameSeed;
+            f32  roughnessCutoff;   // skip the trace above this (rough → prefiltered-env IBL fallback)
+            f32  maxRayDistance;
+            f32  fireflyClamp;
+            u32  envReady;          // 1 → IBL prefiltered env bound
+            u32  pad0; u32 pad1; u32 pad2;
+            u64  geomTableBDA;      // secondary-hit material fetch (paired with the bound TLAS)
+        };
+        static_assert(sizeof(ReflPC) == 104, "ReflPC must match rt_reflections.comp push_constant");
+        constexpr u32 k_ReflPCSize = 128;   // fixed range — tail headroom
+    }
+
     bool ReflectionsSubsystem::IsEnabled() const
     {
         return m_Pipeline && m_Pipeline->GetSystem().GetReflectionsSettings().enabled;
@@ -73,8 +91,9 @@ namespace Luth
             MaterialSystem::GetDescriptorSetLayout(),
             VulkanContext::Get().GetBindlessSet().GetLayout(),
         };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_ReflPCSize };
         m_ReflPipeline = std::make_unique<VKComputePipeline>(
-            m_Spv, layouts, std::vector<VkPushConstantRange>{});
+            m_Spv, layouts, std::vector<VkPushConstantRange>{ pcRange });
     }
 
     void ReflectionsSubsystem::Shutdown()
@@ -104,8 +123,9 @@ namespace Luth
         m_Spv = spv;
         if (auto* raw = m_ReflPipeline.release(); raw)
             VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_ReflPCSize };
         m_ReflPipeline = std::make_unique<VKComputePipeline>(
-            m_Spv, layouts, std::vector<VkPushConstantRange>{});
+            m_Spv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         return true;
     }
 
@@ -159,6 +179,17 @@ namespace Luth
         if (!preflightVr || !preflightVr->reflRadiance || preflightVr->reflDescSet == VK_NULL_HANDLE) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
+        const ReflectionsSettings& s = m_Pipeline->GetSystem().GetReflectionsSettings();
+        ReflPC pc{};
+        pc.invViewProj     = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
+        pc.frameSeed       = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        pc.roughnessCutoff = s.roughnessFadeEnd;   // skip above the fade band; pbr.frag blends within it
+        pc.maxRayDistance  = s.maxRayDistance;
+        pc.fireflyClamp    = s.fireflyClamp;
+        pc.envReady        = m_Pipeline->GetLighting().IsIBLReady() ? 1u : 0u;
+        // Geometry-table BDA paired with the bound TLAS at preflight (same m_LastResult Set 0 b6 binds).
+        pc.geomTableBDA    = m_Pipeline->GetRt().GetGeometryTableBDA();
+
         struct ReflData { RG::ResourceHandle refl; RG::ResourceHandle depth; RG::ResourceHandle normal; RG::ResourceHandle rough; };
         RG::ResourceHandle reflHandle{};
         rg.AddComputePass<ReflData>(
@@ -190,7 +221,7 @@ namespace Luth
                 // dead-pass-culled so the seam runs + validates (NamedTexture "Reflections" inspects it).
                 builder.SetHasSideEffect();
             },
-            [this](ReflData&, RG::RenderPassContext& ctx) {
+            [this, pc](ReflData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 ViewResources*  v   = m_Pipeline->GetCurrentViewResources();
                 if (!v || v->reflDescSet == VK_NULL_HANDLE) return;
@@ -218,6 +249,8 @@ namespace Luth
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     m_ReflPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
+                vkCmdPushConstants(cmd, m_ReflPipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflPC), &pc);
 
                 const u32 groupX = (v->width + 7) / 8;
                 const u32 groupY = (v->height + 7) / 8;
