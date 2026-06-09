@@ -101,6 +101,13 @@ consistent with the rest of the RT path.
   → white skybox + broken IBL/reflections. Fix: **append** `invViewProjection` at the struct end (new UBO
   fields MUST append — the inline prefixes only stay valid because every prior addition appended). Neither
   adversarial review caught it (they reviewed the reflection logic, not the UBO-vs-inline-struct interaction).
+- **Reflections wrongly coupled to `iblIntensity` + AO (smoke-test design fix).** The S4 composite mixed
+  `reflRad` into `specSource` then rode the `ambient·ao·iblIntensity` term, so point-lit *surroundings*
+  reflections died with the IBL artistic knob (and sky-miss was double-scaled `skybox×ibl`). An RT
+  reflection is a DIRECT traced reflection (scene-lit by its own NEE + ray-occluded), so it's now a
+  separate additive term superseding the IBL specular: `color += (reflRad·envBRDF − specularIBL·iblIntensity)·ao·reflWeight`
+  — full strength, decoupled from `iblIntensity`. Env-on-miss tracks `iblIntensity` (not `skyboxIntensity`)
+  so sky reflections stay consistent across the RT↔IBL fade; `skyboxIntensity` now drives only the visible skybox.
 
 ---
 
@@ -123,8 +130,10 @@ Shaders `path_trace.comp` (#include brdf.glsl), `pbr.frag` (Set 3 b7 composite),
 
 Build clean (Debug x64, luth → luthien → Runtime), no new warnings; all `.comp`/`.frag` pass
 `glslc --target-env=vulkan1.3`. S1 SPIR-V equivalence proven (ID-normalized instruction streams identical).
-Two adversarial review workflows (S2 trace/contract, S3/S4 denoiser/composite). Runtime smoke-test caught +
-fixed a UBO-layout regression (skybox white — see Bugs caught); re-smoke pending before merge.
+Two adversarial review workflows (S2 trace/contract, S3/S4 denoiser/composite). Runtime smoke-test passed —
+it caught + fixed two issues the reviews missed (the UBO-layout skybox regression + the iblIntensity/AO
+reflection coupling; see Bugs caught). Reflections confirmed on the damp floor / altar metal, decoupled
+from the env intensity knobs.
 
 ---
 
