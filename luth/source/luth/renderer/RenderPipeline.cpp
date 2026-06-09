@@ -46,6 +46,7 @@ namespace Luth
         , m_Debugger(std::make_unique<FrameDebuggerContext>(*this))
         , m_Denoise(std::make_unique<SvgfDenoiser>(DenoiserChannel::Di))
         , m_DenoiseGi(std::make_unique<SvgfDenoiser>(DenoiserChannel::Gi))
+        , m_DenoiseRefl(std::make_unique<SvgfDenoiser>(DenoiserChannel::Reflections))
     {
     }
 
@@ -100,6 +101,7 @@ namespace Luth
         m_Reflections.Init(*this);
         m_Denoise->Init(*this);
         m_DenoiseGi->Init(*this);
+        m_DenoiseRefl->Init(*this);
         m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -141,7 +143,8 @@ namespace Luth
                               || m_PathTrace.OnShaderReloaded(name, spv)
                               || m_Reflections.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
-                              || m_DenoiseGi->OnShaderReloaded(name, spv);
+                              || m_DenoiseGi->OnShaderReloaded(name, spv)
+                              || m_DenoiseRefl->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -195,6 +198,7 @@ namespace Luth
 
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Skinning.Shutdown();
+        m_DenoiseRefl->Shutdown();
         m_DenoiseGi->Shutdown();
         m_Denoise->Shutdown();
         m_Reflections.Shutdown();
@@ -400,11 +404,16 @@ namespace Luth
             giDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
 
-        // RT specular reflections (rt-renderer D.1) — one GGX-VNDF ray/pixel from the slim G-buffer,
-        // shaded + demodulated; a dedicated specular denoiser (S3) cleans it, pbr.frag composites it (S4).
-        // S0 produces the image with no consumer yet (kept alive via SetHasSideEffect). AsyncCompute,
-        // after the TLAS build (needTlas gate above includes Reflections).
-        m_Reflections.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.roughness);
+        // RT specular reflections (rt-renderer D.1) — one GGX-VNDF ray/pixel from the slim G-buffer, then
+        // a dedicated specular SVGF (3rd instance, DenoiserChannel::Reflections). The DenoiseInputs.motion
+        // slot carries slim ROUGHNESS (the spec reproject's b3 — it computes the reflection's motion
+        // internally via hit-distance virtual reprojection; hitDist rides reflRadiance's alpha).
+        // denoisedReflHandle feeds GeometryPass (the pbr.frag Set 3 b7 composite lands in S4). AsyncCompute,
+        // after the TLAS build (needTlas gate includes Reflections).
+        RG::ResourceHandle reflHandle = m_Reflections.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.roughness);
+        RG::ResourceHandle denoisedReflHandle = m_DenoiseRefl->AddPasses(rg, DenoiseInputs{
+            reflHandle, prepassDepth, slimGB.normal, slimGB.roughness,
+            slimGB.roughness, slimGB.materialID, {}, {} });
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
@@ -415,7 +424,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

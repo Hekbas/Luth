@@ -949,7 +949,8 @@ namespace Luth
                                                       RG::ResourceHandle gtaoFinalAO,
                                                       RG::ResourceHandle rtShadowMask,
                                                       RG::ResourceHandle diHandle,
-                                                      RG::ResourceHandle giDIHandle)
+                                                      RG::ResourceHandle giDIHandle,
+                                                      RG::ResourceHandle reflHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -960,6 +961,7 @@ namespace Luth
             RG::ResourceHandle rtShadowMask;
             RG::ResourceHandle diHandle;
             RG::ResourceHandle giDIHandle;
+            RG::ResourceHandle reflHandle;
             RG::BufferHandle   indirectBuf;
         };
         GeometryOutput output;
@@ -1032,6 +1034,11 @@ namespace Luth
                 // restirParams.y gate then keeps the descriptor untouched.
                 if (giDIHandle.IsValid())
                     data.giDIHandle = builder.Read(giDIHandle);
+
+                // Denoised RT reflection radiance (D.1) — keeps the reflection trace + specular denoiser
+                // alive (no pbr.frag sampler until the Set 3 b7 composite, S4). Read-only dependency.
+                if (reflHandle.IsValid())
+                    data.reflHandle = builder.Read(reflHandle);
 
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 

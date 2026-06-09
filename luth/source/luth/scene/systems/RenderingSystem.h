@@ -35,6 +35,7 @@ namespace Luth
     struct GlobalUniforms {
         Mat4 viewProjection;
         Mat4 prevViewProjection;  // frame N reads frame N-1's VP (motion vectors + TAA reprojection)
+        Mat4 invViewProjection;   // depth → world (RT-reflection denoiser virtual reprojection)
         Mat4 view;
         Mat4 projection;
         Vec3 cameraPos;
@@ -188,6 +189,12 @@ namespace Luth
         SvgfSettings& GetSvgfGiSettings() { return m_SvgfGiSettings; }
         const SvgfSettings& GetSvgfGiSettings() const { return m_SvgfGiSettings; }
 
+        // Specular (RT-reflection) denoiser tuning — a sharper, view-dependent signal than diffuse GI, so
+        // fewer à-trous levels (less smear on mirrors) + the hit-distance virtual reprojection carries the
+        // temporal stability. Surfaced as the editor's "SVGF (Specular)" section.
+        SvgfSettings& GetSvgfSpecSettings() { return m_SvgfSpecSettings; }
+        const SvgfSettings& GetSvgfSpecSettings() const { return m_SvgfSpecSettings; }
+
         PathTraceSettings& GetPathTraceSettings() { return m_PathTraceSettings; }
         const PathTraceSettings& GetPathTraceSettings() const { return m_PathTraceSettings; }
 
@@ -313,6 +320,8 @@ namespace Luth
         SvgfSettings        m_SvgfSettings;
         // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
         SvgfSettings        m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
+        // Specular denoiser: fewer à-trous levels (preserve mirror sharpness), moderate temporal alpha.
+        SvgfSettings        m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
         PathTraceSettings   m_PathTraceSettings;
         ReflectionsSettings m_ReflectionsSettings;
         RenderMode          m_RenderMode   = RenderMode::Raster;

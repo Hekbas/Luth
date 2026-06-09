@@ -7,6 +7,7 @@
 layout(set = 0, binding = 0) uniform GlobalUniforms {
     mat4 viewProjection;
     mat4 prevViewProjection;
+    mat4 invViewProjection;   // depth → world reconstruction (RT-reflection denoiser virtual reprojection)
     mat4 view;
     mat4 projection;
     vec3 cameraPos;

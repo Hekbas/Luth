@@ -14,11 +14,13 @@ namespace Luth
     struct ViewResources;
     struct SvgfSettings;
 
-    // Which ReSTIR signal this instance denoises. Selects the ViewResources image/descriptor set
-    // (svgf* vs svgfGi*) + the SvgfSettings instance (GetSvgfSettings vs GetSvgfGiSettings) + the
-    // RG/debug pass names. The shaders + descriptor-set LAYOUTS are channel-agnostic (one set per
-    // channel, distinct images). see arch/rendering-pipeline.md
-    enum class DenoiserChannel { Di, Gi };
+    // Which signal this instance denoises. Selects the ViewResources image/descriptor set (svgf* /
+    // svgfGi* / svgfSpec*) + the SvgfSettings instance + the RG/debug pass names. Di/Gi denoise a
+    // demodulated diffuse irradiance; Reflections denoises the RT specular radiance (rt-renderer D.1) —
+    // same layouts, but its reproject is a SPECULAR variant (svgf_spec_reproject.comp) doing hit-distance
+    // virtual reprojection, and its reproject b3 binds slim roughness instead of motion (the spec shader
+    // computes the reflection's motion internally). see arch/rendering-pipeline.md
+    enum class DenoiserChannel { Di, Gi, Reflections };
 
     // Custom SVGF (Schied 2017) diffuse denoiser. Consumes a ReSTIR pass's demodulated irradiance
     // (DI or GI per channel) and returns a denoised image the GeometryPass reads + the lighting set

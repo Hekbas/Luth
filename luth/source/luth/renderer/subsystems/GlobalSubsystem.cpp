@@ -121,7 +121,8 @@ namespace Luth
             thisFrameJitter    = TAA::SampleHalton(frameAbs);
             ubo.projection     = TAA::ApplyJitter(ubo.projection, thisFrameJitter, vr->width, vr->height);
         }
-        ubo.viewProjection = ubo.projection * ubo.view;
+        ubo.viewProjection    = ubo.projection * ubo.view;
+        ubo.invViewProjection = Math::Inverse(ubo.viewProjection);
 
         if (vr) {
             ubo.prevViewProjection = vr->prevViewProj;
