@@ -106,6 +106,7 @@
 | v3.0.16 | `path-trace-reference` | Ground-truth path-traced reference mode: a rayQuery-in-compute megakernel reusing the TLAS + bindless materials, multi-bounce NEE + full Cook-Torrance BRDF + GGX VNDF lobe-MIS, fp32 progressive accumulation reset-on-change, `RenderMode` toggle + editor convergence UI; validates ReSTIR DI/GI convergence | 2026-06-09 |
 | v3.0.17 | `rt-reflections` | Stochastic RT specular reflections: GGX-VNDF rays from the slim G-buffer, NEE hit shading via the geometry table, demodulated split-sum composite in `pbr.frag` below a roughness cutoff; dedicated specular denoiser (SvgfDenoiser Reflections channel, hit-distance virtual reprojection); shared `common/brdf.glsl`. Supersedes SSR; opens Phase D | 2026-06-09 |
 | v3.0.18 | `volumetric-rt-shadows` | Per-froxel RT shadow rays in the fog inject-scatter pass: point lights + arbitrary occluders now cast fog shadows (sun swaps CSM→RT ray), 1-spp softened by the existing temporal resolve (no denoiser), default-off toggle; TLAS-build hoisted before the volumetric chain for registration-order correctness; folds two post-D.1 ReSTIR-DI audit fixes | 2026-06-09 |
+| v3.1.0 | `emissive-parity` | Opens the material-system arc: emissive factor + HDR strength, identical raster (`pbr.frag`) + RT (`geom_table.glsl`) emission closing the raster≠RT bug, editor controls + import bridge + inspector preview + `ShadeMode::Emission`; folds material-authoring fixes — metal/rough/color reach the GPU via direct fields, textureless emissive editable, no autosave reimport bounce | 2026-06-09 |
 
 ---
 
@@ -113,7 +114,9 @@
 
 Effort scale (scope/difficulty, not calendar time): **S** = small, contained · **M** = some design decisions · **L** = significant refactor or new system · **XL** = full new subsystem.
 
-### Active series — `rt-renderer` (Mode A, v3.0.0)
+### Closed series — `rt-renderer` (Mode A, v3.0.0 → v3.0.18) ✅
+
+**CLOSED** — milestone Release "RT Renderer" published; every effort is in the completed table above.
 
 RT-first renderer modernization arc. Clustered Forward+ with bindless throughout, hardware ray tracing for shadows / GI / reflections, full Wronski volumetrics, ReSTIR + SVGF denoising, path-traced reference mode. Target showcase: Bhaal Temple, fully RT-lit. RT-mandatory (raises minimum HW to RT-capable GPU — counted toward the MAJOR bump).
 
@@ -161,7 +164,6 @@ Umbrella issue: [#127](https://github.com/Hekbas/Luth/issues/127) (sub-effort is
 |---|---|---|---|
 | D.1 `rt-reflections` ✅ | [#149](https://github.com/Hekbas/Luth/issues/149) | L | GGX-VNDF reflections from the slim G-buffer + specular denoiser (hit-distance virtual reprojection) + pbr split-sum composite — shipped v3.0.17 |
 | D.2 `volumetric-rt-shadows` ✅ | [#150](https://github.com/Hekbas/Luth/issues/150) | M | Per-froxel RT shadow rays in the inject-scatter pass — **point-light + arbitrary-occluder** fog shadows; sun swaps CSM→RT ray; 1-spp softened by the temporal resolve (no denoiser); default-off toggle — shipped v3.0.18 |
-| D.3 `gpu-particles` | [#57](https://github.com/Hekbas/Luth/issues/57) | L | Compute sim; showcase-sized scope (fire / ember / smoke / motes in god ray) |
 
 **Out of arc (deferred to follow-up series)**
 
@@ -169,12 +171,29 @@ Umbrella issue: [#127](https://github.com/Hekbas/Luth/issues/127) (sub-effort is
 - `gpu-driven` — mesh shaders + meshlet baker + HiZ occlusion (Framework 5 alignment)
 - `virtual-geometry` — Nanite-class virtualized geometry; long-tail
 
+### Active series — `material-system` (Mode A, v3.1.0)
+
+Extends the uber-shader and factors a shared evaluate-at-surface-point seam that both `pbr.frag` and the RT hit (`geom_table.glsl`) call, retiring the hand-duplicated BRDF. Node-graph deferred to a later authoring layer over the seam. Mode A — series-open MINOR bump to `3.1.0` (`emissive-parity`); intermediate efforts PATCH-bump, tag-only; milestone Release at series end.
+
+Umbrella issue: [#151](https://github.com/Hekbas/Luth/issues/151) (sub-effort issues created on demand; commits use `Part of #151`).
+
+| Effort | Issue | Size | Notes |
+|---|---|---|---|
+| M.1 `emissive-parity` ✅ | [#152](https://github.com/Hekbas/Luth/issues/152) | S–M | Emissive factor + HDR strength; raster==RT emission; editor/import/preview + `ShadeMode::Emission` — shipped v3.1.0 |
+| M.2 `material-eval-seam` | NEW | M | Collapse the hand-duplicated BRDF into one shared raster/RT evaluate-at-surface-point seam |
+| M.3 `cutout-rt` | NEW | M | Per-instance non-opaque BLAS + anyhit alpha — cutout correct in RT shadows / GI / reflections |
+| M.4 `transparency-tier` | [#32](https://github.com/Hekbas/Luth/issues/32) | S→M | Back-to-front sort in DrawListBuilder; WBOIT only if layered; RT-excluded |
+
+Deferred: `emissive-as-area-lights` (L); a Slang `IMaterial` research spike (M).
+
+> `gpu-particles` ([#57](https://github.com/Hekbas/Luth/issues/57), L) — compute sim, showcase-sized (fire / ember / smoke / motes in god ray). **Parallelizable — not a material-system dependency**; drop into any renderer slot.
+
 ### Gameplay enablement
 
 | Pri | Epic | Issue | Target | Effort | Deps |
 |---|---|---|---|---|---|
-| 4 | `scripting` (C# or Lua) | NEW | v3.1.0 | XL | `rt-renderer` |
-| 5 | `prefab-system` | NEW | v3.1.x | M | `scripting` |
+| 4 | `scripting` (C# or Lua) | NEW | v3.2.0 | XL | `rt-renderer` ✅ |
+| 5 | `prefab-system` | NEW | v3.2.x | M | `scripting` |
 
 Scripting unblocks the `PlayerControllerSystem` stub deletion and is the prerequisite for most gameplay-side future ideas.
 
