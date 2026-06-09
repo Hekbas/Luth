@@ -95,7 +95,7 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     s.baseColor = m.color.rgb;
     s.metalness = m.metalness;
     s.roughness = m.roughness;
-    s.emission  = vec3(0.0);
+    s.emission  = m.emissive.rgb * m.emissive.a;   // factor(linear) * strength — CONTRACT at the texture mod below
     if ((m.flags & GT_FLAG_HAS_DIFFUSE) != 0u) {
         vec2 uvd = (((m.flags >> GT_UV_SHIFT_DIFFUSE) & 3u) == 0u) ? uv0 : uv1;
         s.baseColor *= textureLod(gtTextures[nonuniformEXT(m.diffuseIndex)], uvd, 0.0).rgb;
@@ -110,9 +110,11 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
         s.metalness = mr.b;
     }
     s.roughness = clamp(s.roughness, 0.04, 1.0);   // 0.04 floor — zero roughness → NaN in GGX (pbr.frag)
-    // Emissive has no UV-set bit in the flags schema (16-23 = diffuse/normal/metalrough/occlusion) — always UV0.
+    // CONTRACT: emissive radiance — MUST match pbr.frag (raster==RT): factor*strength (set above),
+    // modulated by the emissive texture when GT_FLAG_HAS_EMISSIVE is set. UV0 always (emissive has no
+    // UV-set bit in the flags schema 16-23). see arch/rendering-pipeline.md
     if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
-        s.emission = textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
+        s.emission *= textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
     }
     return s;
 }

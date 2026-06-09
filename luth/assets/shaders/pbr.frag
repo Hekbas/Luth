@@ -401,6 +401,14 @@ void main()
     if (albedo.a < mat.alphaCutoff)
         discard;
 
+    // CONTRACT: emissive radiance — MUST stay algebraically identical to common/geom_table.glsl's
+    // FetchHitSurface (raster==RT). factor(linear) * strength, modulated by the emissive texture
+    // (UV0 — emissive has no UV-set bit) when FLAG_HAS_EMISSIVE is set. Raster texture() vs RT
+    // textureLod(.,0) is an accepted LOD asymmetry, not algebraic divergence. see arch/rendering-pipeline.md
+    vec3 emission = mat.emissive.rgb * mat.emissive.a;
+    if ((mat.flags & FLAG_HAS_EMISSIVE) != 0u)
+        emission *= texture(globalTextures[nonuniformEXT(mat.emissiveIndex)], v_TexCoord0).rgb;
+
     // --- Normal ---
     vec3 N;
     if ((mat.flags & FLAG_HAS_NORMAL) != 0u)
@@ -582,5 +590,5 @@ void main()
         }
     }
 
-    outColor = vec4(color, albedo.a);
+    outColor = vec4(color + emission, albedo.a);
 }
