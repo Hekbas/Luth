@@ -16,9 +16,13 @@
 // specular denoiser (S3) converges the 1-spp signal; pbr.frag composites it (S4). Opaque-only.
 //
 // CONTRACT (rt_reflections.comp <-> pbr.frag) — see arch/rendering-pipeline.md "cross-pass numerical
-// contracts". This pass OUTPUTS demod = Li, the VNDF-sampled incoming radiance (rgb) + hitDist (a).
-// One GGX-VNDF sample is an unbiased estimate of the GGX-lobe-mean radiance (the SAME quantity
-// prefilteredColor approximates), so pbr.frag REMODULATES:
+// contracts". This pass OUTPUTS demod = Li, the VNDF-sampled incoming radiance (rgb) + WORLD-space
+// hitDist (a, for the specular denoiser's virtual reprojection). One GGX-VNDF sample is a
+// consistent-in-the-mean estimate of the GGX-lobe-mean radiance (the quantity prefilteredColor
+// approximates) — exact only under the split-sum's radiance/BRDF decorrelation, so it is accurate at low
+// roughness and the cutoff fades to IBL before it loses accuracy. (The VNDF kernel differs slightly from
+// the LUT's D-weighting; the exact Li·F·G1 form would need the primary F0 the slim G-buffer omits.)
+// pbr.frag REMODULATES:
 //   specularIBL = mix(prefilteredColor, denoised_demod, reflWeight) * (F*brdf.x + brdf.y)
 // — swapping the RT lobe-mean radiance in for the prefiltered env, applying the split-sum env-BRDF ONCE
 // (F0 lives only in pbr.frag's Fenv; the slim G-buffer carries no albedo/metalness). Env-on-miss is
@@ -126,9 +130,12 @@ void main() {
     vec3 R  = reflect(-V, H);
     if (dot(N, R) <= 0.0)              { imageStore(u_Refl, pixel, vec4(0.0)); return; }   // below horizon
 
-    // Trace the reflection ray to the nearest opaque hit (no terminate flag → committed = nearest).
+    // Trace the reflection ray to the nearest opaque hit (no terminate flag → committed = nearest). The
+    // origin offset grows as R grazes (dot(N,R)→0): the slim normal is the shading normal, which can
+    // diverge from the geometric surface, so a flat offset can leave a grazing ray below it (self-hit
+    // → glossy-grazing flicker). dot(N,R) > 0 here (horizon-checked above), so R always points outward.
     float tMin = ubo.rtShadowParams.y;
-    vec3  ro   = worldPos + N * ubo.rtShadowParams.z + R * tMin;
+    vec3  ro   = worldPos + N * (ubo.rtShadowParams.z * (2.0 - dot(N, R))) + R * tMin;
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, R, pc.maxRayDistance);
     while (rayQueryProceedEXT(rq)) {}
