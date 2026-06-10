@@ -44,8 +44,9 @@ namespace Luth::UI::ThumbnailPreviewScene
             Vec4 albedo;
             u32  diffuseIndex;
             u32  _pad[3]; // pad to 16-byte align (push-constant ranges are size-rounded)
+            Vec4 emissive; // rgb = factor (linear), a = HDR strength
         };
-        static_assert(sizeof(PushConstants) == 96, "thumbnail PC layout drift");
+        static_assert(sizeof(PushConstants) == 112, "thumbnail PC layout drift");
 
         // Two pipelines share the same shaders (Position@0 + Normal@12 + UV@24
         // are at identical offsets in Vertex and SkinnedVertex); only the
@@ -633,7 +634,8 @@ namespace Luth::UI::ThumbnailPreviewScene
         ImTextureID RenderInspectorInternal(const std::shared_ptr<Model>& model,
                                             Vec4 albedo,
                                             const ThumbnailPreviewScene::OrbitCamera& orb,
-                                            u32 diffuseIndex)
+                                            u32 diffuseIndex,
+                                            Vec4 emissive)
         {
             if (!s_Initialized || !model) return s_LastGoodInspectorTex;
             if (!EnsureInspectorRing())   return s_LastGoodInspectorTex;
@@ -674,6 +676,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.viewProj     = proj * view;
             pc.albedo       = albedo;
             pc.diffuseIndex = diffuseIndex;
+            pc.emissive     = emissive;
 
             // Pick slot; wait on its previous submission so its cmd buffer is safe to overwrite.
             // The engine-wide bindless set carries the texture across submissions — no per-slot
@@ -805,7 +808,7 @@ namespace Luth::UI::ThumbnailPreviewScene
     {
         if (!s_Initialized || !model) return (ImTextureID)0;
         return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam,
-                                       ResolveBindlessIndex(s_WhiteTexture));
+                                       ResolveBindlessIndex(s_WhiteTexture), Vec4(0.0f));
     }
 
     ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material, const OrbitCamera& cam)
@@ -839,7 +842,8 @@ namespace Luth::UI::ThumbnailPreviewScene
 
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
         return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam,
-                                       ResolveBindlessIndex(albedo));
+                                       ResolveBindlessIndex(albedo),
+                                       Vec4(material->GetEmissiveColor(), material->GetEmissiveStrength()));
     }
 
     u32 GetInspectorSize() { return kInspectorSize; }

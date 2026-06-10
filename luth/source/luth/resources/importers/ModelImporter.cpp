@@ -681,19 +681,16 @@ namespace Luth
         matJson["shader"] = pbrUUID.IsValid() ? pbrUUID.ToString() : "";
         matJson["render_mode"] = 0; // Opaque
 
-        // Properties
-        nlohmann::json uniforms;
+        // Material factors -> direct keys (color/metalness/roughness). The u_* uniform channel never
+        // reached the GPU (no Set-1 block in pbr), so importing into it silently dropped the factors.
         aiColor4D color;
-        if (aiMat->Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS) {
-            uniforms["u_AlbedoColor"] = { color.r, color.g, color.b, color.a };
-        } else if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
-            uniforms["u_AlbedoColor"] = { color.r, color.g, color.b, color.a };
-        }
+        if (aiMat->Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS ||
+            aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
+            matJson["color"] = { color.r, color.g, color.b, color.a };
 
         float floatVal;
-        if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS) uniforms["u_Metalness"] = floatVal;
-        if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) uniforms["u_Roughness"] = floatVal;
-        matJson["uniforms"] = uniforms;
+        if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS)  matJson["metalness"] = floatVal;
+        if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) matJson["roughness"] = floatVal;
 
         // Textures
         matJson["textures"] = nlohmann::json::array();
@@ -750,6 +747,22 @@ namespace Luth
         TryAddTexture(aiTextureType_METALNESS, MapType::Metalness);
         TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Roughness);
         TryAddTexture(aiTextureType_EMISSIVE, MapType::Emissive);
+
+        // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
+        // uniform channel. Default to white when only a resolved emissive texture is present, so glTF
+        // assets that leave the factor at default but ship a texture still emit.
+        {
+            aiColor3D emissive(0.0f, 0.0f, 0.0f);
+            bool srcFactor = aiMat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS
+                          && (emissive.r > 0.0f || emissive.g > 0.0f || emissive.b > 0.0f);
+            bool hasEmissiveNode = false;
+            for (const auto& t : matJson["textures"])
+                if (t["type"].get<int>() == (int)MapType::Emissive) { hasEmissiveNode = true; break; }
+            if (srcFactor)
+                matJson["emissive"] = { emissive.r, emissive.g, emissive.b, 1.0f };
+            else if (hasEmissiveNode)
+                matJson["emissive"] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        }
 
         // Save Material
         if (!fs::exists(ctx.MaterialDir)) fs::create_directories(ctx.MaterialDir);

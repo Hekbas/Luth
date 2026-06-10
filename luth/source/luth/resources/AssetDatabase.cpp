@@ -23,6 +23,9 @@ namespace Luth
 
     std::unordered_map<UUID, u64, UUIDHash> AssetDatabase::s_ArtifactHashes;
 
+    std::unordered_set<UUID, UUIDHash> AssetDatabase::s_SelfWrites;
+    std::mutex AssetDatabase::s_SelfWriteMutex;
+
     // ── Phase 1: Engine-only init (register shaders, fonts) ──
 
     void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
@@ -497,6 +500,18 @@ namespace Luth
         s_ChangeCallbacks.push_back(std::move(cb));
     }
 
+    void AssetDatabase::SuppressNextReimport(const UUID& uuid)
+    {
+        std::lock_guard<std::mutex> lock(s_SelfWriteMutex);
+        s_SelfWrites.insert(uuid);
+    }
+
+    bool AssetDatabase::ConsumeSelfWrite(const UUID& uuid)
+    {
+        std::lock_guard<std::mutex> lock(s_SelfWriteMutex);
+        return s_SelfWrites.erase(uuid) > 0;
+    }
+
     void AssetDatabase::ProcessPendingChanges()
     {
         std::vector<std::pair<fs::path, FileWatcher::FileStatus>> batch;
@@ -544,6 +559,12 @@ namespace Luth
 
                     fs::path metaPath = path; metaPath += ".meta";
                     u64 newHash = CalculateAssetHash(path, metaPath);
+
+                    // Editor-originated write (autosave): the in-memory asset is the source of truth; a
+                    // reimport would evict the live instance the inspector edits. Consume BEFORE the
+                    // hash-dedup early-out so a deduped event can't leak the token, and refresh the
+                    // recorded hash so a later genuine external edit still reimports.
+                    if (ConsumeSelfWrite(uuid)) { s_ArtifactHashes[uuid] = newHash; continue; }
 
                     if (s_ArtifactHashes[uuid] == newHash) continue;
                     s_ArtifactHashes[uuid] = newHash;

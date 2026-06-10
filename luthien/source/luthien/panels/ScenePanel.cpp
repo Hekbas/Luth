@@ -204,6 +204,7 @@ namespace Luth
                 {
                     const bool dbgActive = (curMode == (int)ShadeMode::Normals)
                                         || (curMode == (int)ShadeMode::EntityID)
+                                        || (curMode == (int)ShadeMode::Emission)
                                         || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID)
                                         || (curMode == (int)ShadeMode::ClustersDensity)
                                         || (curMode == (int)ShadeMode::VolumetricDensity)
@@ -220,6 +221,10 @@ namespace Luth
                             if (ImGui::RadioButton("EntityID", curMode == (int)ShadeMode::EntityID)) {
                                 settings.lastDebugMode = (u8)ShadeMode::EntityID;
                                 m_RenderingSystem->SetShadeMode(ShadeMode::EntityID);
+                            }
+                            if (ImGui::RadioButton("Emission", curMode == (int)ShadeMode::Emission)) {
+                                settings.lastDebugMode = (u8)ShadeMode::Emission;
+                                m_RenderingSystem->SetShadeMode(ShadeMode::Emission);
                             }
                             ImGui::Separator();
                             ImGui::TextDisabled("Slim G-buffer");

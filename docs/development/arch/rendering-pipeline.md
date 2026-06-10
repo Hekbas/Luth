@@ -193,7 +193,7 @@ Pass splits where one pass precomputes a value the next pass integrates must pub
 
 | Buffer | Size |
 |--------|------|
-| Material SSBO | 16384 × 64B = 1 MB |
+| Material SSBO | 16384 × 80B = 1.25 MB |
 | Light UBO | 64 × 32B + 16B ≈ 2.1 KB |
 | Global UBO | 3×mat4 + vec3 + float ≈ 200B |
 | Shadow Map | 2048² × 4B = 16 MB |

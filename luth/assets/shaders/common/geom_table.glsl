@@ -21,13 +21,14 @@ struct GtGeomEntry {
 };
 layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GtGeomEntry e[]; };
 
-// Mirrors GPUMaterialData (renderer/material). 64 B std430.
+// Mirrors GPUMaterialData (renderer/material). 80 B std430.
 struct GtMaterial {
     vec4  color;
     uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
     uint  emissiveIndex, alphaIndex, specularIndex, thicknessIndex;
     float metalness, roughness, alphaCutoff;
     uint  flags;           // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
+    vec4  emissive;        // rgb = factor (linear), a = HDR strength
 };
 layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
@@ -94,7 +95,7 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     s.baseColor = m.color.rgb;
     s.metalness = m.metalness;
     s.roughness = m.roughness;
-    s.emission  = vec3(0.0);
+    s.emission  = m.emissive.rgb * m.emissive.a;   // factor(linear) * strength — CONTRACT at the texture mod below
     if ((m.flags & GT_FLAG_HAS_DIFFUSE) != 0u) {
         vec2 uvd = (((m.flags >> GT_UV_SHIFT_DIFFUSE) & 3u) == 0u) ? uv0 : uv1;
         s.baseColor *= textureLod(gtTextures[nonuniformEXT(m.diffuseIndex)], uvd, 0.0).rgb;
@@ -109,9 +110,11 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
         s.metalness = mr.b;
     }
     s.roughness = clamp(s.roughness, 0.04, 1.0);   // 0.04 floor — zero roughness → NaN in GGX (pbr.frag)
-    // Emissive has no UV-set bit in the flags schema (16-23 = diffuse/normal/metalrough/occlusion) — always UV0.
+    // CONTRACT: emissive radiance — MUST match pbr.frag (raster==RT): factor*strength (set above),
+    // modulated by the emissive texture when GT_FLAG_HAS_EMISSIVE is set. UV0 always (emissive has no
+    // UV-set bit in the flags schema 16-23). see arch/rendering-pipeline.md
     if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
-        s.emission = textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
+        s.emission *= textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
     }
     return s;
 }

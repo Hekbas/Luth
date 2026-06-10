@@ -177,7 +177,7 @@ namespace Luth
                     bool enabled = material.IsUseMapEnabled(type);
                     ImGui::Text("%s", label);
 
-                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness);
+                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness && type != MapType::Emissive);
                     
                     // 2. Texture slot
                     ImGui::TableNextColumn();
@@ -286,17 +286,17 @@ namespace Luth
                 DrawSurfaceInput(MapType::Normal, "Normal", nullptr);
 
                 DrawSurfaceInput(MapType::Metalness, "Metallic", [&]() {
-                    float met = material.Get<float>("u_Metalness", 0.0f);
+                    float met = material.GetMetalness();
                     if (ImGui::SliderFloat("##Met", &met, 0.0f, 1.0f, "%.2f")) {
-                        material.Set("u_Metalness", met);
+                        material.SetMetalness(met);
                         material.MarkDirty();
                     }
                 });
 
                 DrawSurfaceInput(MapType::Roughness, "Roughness", [&]() {
-                    float ro = material.Get<float>("u_Roughness", 0.5f);
+                    float ro = material.GetRoughness();
                     if (ImGui::SliderFloat("##Rou", &ro, 0.0f, 1.0f, "%.2f")) {
-                        material.Set("u_Roughness", ro);
+                        material.SetRoughness(ro);
                         material.MarkDirty();
                     }
                 });
@@ -304,11 +304,20 @@ namespace Luth
                 DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
-                    Vec3 emColor = material.Get<Vec3>("u_EmissiveColor", Vec3(0.0f));
-                    if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_NoInputs)) {
-                        material.Set("u_EmissiveColor", emColor);
-                        material.MarkDirty();
+                    // Direct GPUData accessors (like Albedo) — the u_* uniform channel never reached
+                    // the GPU. Swatch = LDR factor, drag = HDR strength multiplier (feeds bloom).
+                    Vec3 emColor = material.GetEmissiveColor();
+                    f32  emStr   = material.GetEmissiveStrength();
+                    bool changed = false;
+                    if (ImGui::ColorEdit3("##EmissiveColor", &emColor.x, ImGuiColorEditFlags_NoInputs)) {
+                        material.SetEmissiveColor(emColor); changed = true;
                     }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##EmissiveStrength", &emStr, 0.05f, 0.0f, 100.0f, "%.2f")) {
+                        material.SetEmissiveStrength(emStr); changed = true;
+                    }
+                    if (changed) material.MarkDirty();
                 });
 
                 DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
@@ -333,7 +342,7 @@ namespace Luth
                         for (const auto& [name, uniform] : buffer.Uniforms)
                         {
                             // Skip uniforms already displayed in Surface Inputs
-                            if (name == "u_Metalness" || name == "u_Roughness" || name == "u_EmissiveColor")
+                            if (name == "u_Metalness" || name == "u_Roughness")
                                 continue;
 
                             switch (uniform.Type)
@@ -467,10 +476,13 @@ namespace Luth
         nlohmann::json json;
         material.Serialize(json);
 
-        // Write source .mat file (async)
+        // Write source .mat file (async). Tell the asset DB this is a self-write so the file watcher
+        // doesn't bounce it back as a reimport — that would evict the live material being edited and
+        // leave the inspector pointing at a stale instance (edits stop showing live).
         auto sourcePath = AssetDatabase::GetMetadata(material.Handle).Path;
         if (!sourcePath.empty())
         {
+            AssetDatabase::SuppressNextReimport(material.Handle);
             std::string jsonStr = json.dump(4);
             std::vector<u8> buf(jsonStr.begin(), jsonStr.end());
             IOThread::WriteFile(sourcePath.string(), std::move(buf));

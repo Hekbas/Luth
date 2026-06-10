@@ -67,6 +67,10 @@ namespace Luth
         static void ProcessPendingChanges();
         static void AddChangeCallback(ChangeCallback cb);
 
+        // Editor self-write hint: the next file-change event for this asset is the editor saving its
+        // own in-memory state — skip the reimport (which would evict the live instance being edited).
+        static void SuppressNextReimport(const UUID& uuid);
+
     private:
         static void LoadLibraryState_Unlocked();
         static void SaveLibraryState_Unlocked();
@@ -88,6 +92,11 @@ namespace Luth
         static std::vector<std::pair<fs::path, FileWatcher::FileStatus>> s_PendingChanges;
         static std::mutex s_PendingMutex;
         static std::vector<ChangeCallback> s_ChangeCallbacks;
+
+        // Self-write suppression (see SuppressNextReimport) — consumed in ProcessPendingChanges.
+        static std::unordered_set<UUID, UUIDHash> s_SelfWrites;
+        static std::mutex s_SelfWriteMutex;
+        static bool ConsumeSelfWrite(const UUID& uuid);
 
         static fs::path s_ProjectRoot;
         static fs::path s_EngineAssetsRoot;
