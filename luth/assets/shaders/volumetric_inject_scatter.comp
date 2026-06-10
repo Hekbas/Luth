@@ -1,6 +1,9 @@
 #version 460
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_ray_query            : require
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 // Volumetric fog inject — scatter pass. Reads volDensity (density.r + tint.gba) for the current
 // voxel + samples the density atlas along the sun ray for proper density-aware absorption (god
@@ -21,6 +24,7 @@
 // Adding it back would double-apply σ_t and dim the fog by σ_t (≈ 10× at density 0.1).
 
 #include "common/globals.glsl"
+#include "common/geom_table.glsl"   // GeomTable + RtConfirmAlphaCandidates (Set 3 Material + Set 4 bindless)
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
 
@@ -59,6 +63,7 @@ layout(push_constant) uniform PC {
     uint volDimY;
     uint volDimZ;
     uint _pad;
+    GeomTable geomTable;   // cutout alpha-test material fetch (paired with the bound TLAS); 0 = none
 } pc;
 
 #define VOL_DIM ivec3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ))
@@ -145,18 +150,20 @@ float SunFogTransmittance(vec3 worldPos, int steps)
     return exp(-opticalDepth);
 }
 
-// RT shadow ray (opaque-only): true iff `dir` is unoccluded from the froxel center up to maxDist. The
-// froxel is free space (no surface) → no Wächter-Binder normal offset, the dir·sMin nudge suffices.
-// Mirrors the surface RT consumers' Visible() (rt_reflections.comp). The returned visibility multiplies
-// J's per-light L term — it does NOT touch the σ_t/density path, so the CONTRACT above is unchanged.
+// RT shadow ray: true iff `dir` is unoccluded from the froxel center up to maxDist. The froxel is free
+// space (no surface) → no Wächter-Binder normal offset, the dir·sMin nudge suffices. Mirrors the surface
+// RT consumers' Visible() (rt_reflections.comp): drops gl_RayFlagsOpaqueEXT so FORCE_NO_OPAQUE cutout
+// instances surface as candidates, alpha-tested in RtConfirmAlphaCandidates (god rays carve leaf holes).
+// The returned visibility multiplies J's per-light L term — it does NOT touch the σ_t/density path, so
+// the CONTRACT above is unchanged.
 bool Visible(vec3 x, vec3 dir, float maxDist) {
     float sMin  = ubo.rtShadowParams.y;
     vec3  sOrig = x + dir * sMin;
     rayQueryEXT sq;
     rayQueryInitializeEXT(sq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
         sOrig, sMin, dir, max(maxDist, sMin));
-    rayQueryProceedEXT(sq);
+    RtConfirmAlphaCandidates(sq, pc.geomTable);
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
