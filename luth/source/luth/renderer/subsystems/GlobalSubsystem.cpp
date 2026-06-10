@@ -23,10 +23,10 @@ namespace Luth
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
-        // COMPUTE added so VolumetricSubsystem's inject pass can sample camera/CSM uniforms.
-        // RAYGEN added so rt_sun_shadows.rgen can read ubo.viewProjection / ubo.rtShadowParams.
+        // COMPUTE added so VolumetricSubsystem's inject pass + rt_sun_shadows.comp can sample
+        // camera/CSM uniforms (viewProjection / rtShadowParams) via rayQuery-in-compute.
         bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-                               | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+                               | VK_SHADER_STAGE_COMPUTE_BIT;
 
         for (u32 i = 1; i <= 4; ++i)
         {

@@ -8,8 +8,10 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanRayTracingPipeline.h"
 #include "luth/renderer/backend/vulkan/RtShaderBindingTable.h"
+#include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderCompiler.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
@@ -30,8 +32,8 @@ namespace Luth
     namespace
     {
         // Build a 0-instance TLAS, persistent for the lifetime of RtSubsystem. Seeds Set 0 binding 6
-        // before any per-frame TlasBuildPass runs — required from B.3 onward since rt_sun_shadows.rgen
-        // statically reads `topLevelAS` at binding 6 and a null handle there violates the descriptor
+        // before any per-frame TlasBuildPass runs — rt_sun_shadows.comp statically reads `topLevelAS`
+        // at binding 6, and a null handle there violates the descriptor
         // rules even with PARTIALLY_BOUND (validation interprets static use conservatively). The empty
         // TLAS is geometrically valid — vkCmdBuild with instanceCount=0 is legal per spec; rayQuery
         // against it always misses (no instances to intersect), yielding visibility=1.0.
@@ -153,36 +155,34 @@ namespace Luth
         samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_ShadowPassSampler);
 
-        // Pass-local descriptor layout (set 2 in the RT pipeline-layout).
+        // Pass-local descriptor layout (Set 2 in the compute pipeline-layout).
         VkDescriptorSetLayoutBinding shadowBindings[3] = {};
         shadowBindings[0].binding         = 0;  // SceneDepth sampler
         shadowBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         shadowBindings[0].descriptorCount = 1;
-        shadowBindings[0].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
         shadowBindings[1].binding         = 1;  // SlimNormal sampler
         shadowBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         shadowBindings[1].descriptorCount = 1;
-        shadowBindings[1].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
         shadowBindings[2].binding         = 2;  // sunShadowMask storage image (write)
         shadowBindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         shadowBindings[2].descriptorCount = 1;
-        shadowBindings[2].stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        shadowBindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         VkDescriptorSetLayoutCreateInfo shadowLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         shadowLayoutInfo.bindingCount = 3;
         shadowLayoutInfo.pBindings    = shadowBindings;
         vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &shadowLayoutInfo, nullptr, &m_ShadowPassSetLayout);
 
-        // Load production RT shader SPV. ShaderLibrary::LoadEngine routes through the standard
-        // asset path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives the
-        // .rgen / .rmiss when they change on disk.
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rgen"))
-            m_RaygenSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.rmiss"))
-            m_MissSpv = sh->GetSpirV();
-        if (m_RaygenSpv.empty() || m_MissSpv.empty())
+        // Load the sun-shadow compute SPV. ShaderLibrary::LoadEngine routes through the standard asset
+        // path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives rt_sun_shadows.comp
+        // when it changes on disk.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.comp"))
+            m_ShadowSpv = sh->GetSpirV();
+        if (m_ShadowSpv.empty())
         {
-            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.rgen + .rmiss SPIR-V");
+            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.comp SPIR-V");
         }
         else
         {
@@ -256,12 +256,10 @@ namespace Luth
             m_PersistentEmptyTlasAlloc = nullptr;
         }
 
-        // RT shadow pipeline + SBT retire here (RAII). Caller fence drain in the backend Shutdown
-        // catches in-flight cmd buffers referencing the SBT/pipeline.
-        m_SunShadowsSBT.reset();
+        // Sun-shadow compute pipeline retires here (RAII). Caller fence drain in the backend Shutdown
+        // catches in-flight cmd buffers referencing the pipeline.
         m_SunShadowsPipeline.reset();
-        m_RaygenSpv.clear();
-        m_MissSpv.clear();
+        m_ShadowSpv.clear();
 
         if (m_ShadowPassSetLayout != VK_NULL_HANDLE)
         {
@@ -299,87 +297,39 @@ namespace Luth
 
     void RtSubsystem::BuildShadowPipeline()
     {
-        if (m_RaygenSpv.empty() || m_MissSpv.empty()) return;
+        if (m_ShadowSpv.empty()) return;
         if (!m_Pipeline) return;
 
-        // Stages: index 0 = raygen, index 1 = miss. Groups: matching general groups by stage index.
-        RayTracingStages stages;
-        stages.stages.push_back({ VK_SHADER_STAGE_RAYGEN_BIT_KHR, m_RaygenSpv, "main" });
-        stages.stages.push_back({ VK_SHADER_STAGE_MISS_BIT_KHR,   m_MissSpv,   "main" });
-        RayTracingShaderGroup raygenGroup{};
-        raygenGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-        raygenGroup.generalShader = 0;
-        stages.groups.push_back(raygenGroup);
-        RayTracingShaderGroup missGroup{};
-        missGroup.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-        missGroup.generalShader = 1;
-        stages.groups.push_back(missGroup);
-
-        // Empty triangle hit group — required even when ray flags skip any-hit/closest-hit
-        // invocation. The GPU's SBT lookup happens before flag-based shader skipping; a missing
-        // hit-group entry causes the GPU to dereference an undefined SBT region on any potential
-        // hit (TerminateOnFirstHit | Opaque still triggers SBT lookup, just not invocation). All
-        // shaders left as VK_SHADER_UNUSED_KHR per spec for "no-op" hit group.
-        RayTracingShaderGroup hitGroup{};
-        hitGroup.type              = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-        hitGroup.generalShader     = VK_SHADER_UNUSED_KHR;
-        hitGroup.closestHitShader  = VK_SHADER_UNUSED_KHR;
-        hitGroup.anyHitShader      = VK_SHADER_UNUSED_KHR;
-        stages.groups.push_back(hitGroup);
-
-        // Set 0 = GlobalSubsystem layout (TLAS at binding 6 + GlobalUniforms at 0).
-        // Set 1 = LightingSubsystem layout — same VkDescriptorSetLayout PBR binds at its Set 3;
-        // we remap to set=1 in the RT pipeline-layout for tighter set-numbering. The raygen
-        // shader's `set = 1` declaration matches this remap.
-        // Set 2 = pass-local (depth + normal + mask).
-        std::vector<VkDescriptorSetLayout> rtLayouts = {
+        // Set 0 = Global (TLAS b6 + UBO b0), Set 1 = Light SSBO (PBR's Set 3 remapped to Set 1; the
+        // shader's `set = 1` matches), Set 2 = pass-local (depth + normal + mask), Set 3 = Material SSBO +
+        // Set 4 = bindless textures for geom_table.glsl's cutout alpha-test. The geom-table BDA rides a
+        // push constant; all other RT-shadow params still come from GlobalUniforms.rtShadowParams.
+        std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
             m_ShadowPassSetLayout,
+            MaterialSystem::GetDescriptorSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
         };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress) };
 
-        // No push constants for B.3 — all RT-shadow params ride GlobalUniforms.rtShadowParams.
-        m_SunShadowsPipeline = std::make_unique<VKRayTracingPipeline>(stages, rtLayouts, std::vector<VkPushConstantRange>{}, /*maxRecursionDepth*/ 1);
-
-        if (m_SunShadowsPipeline->GetPipeline() == VK_NULL_HANDLE)
-        {
-            LH_CORE_ERROR("RtSubsystem: BuildShadowPipeline failed (vkCreateRayTracingPipelinesKHR returned null)");
-            m_SunShadowsPipeline.reset();
-            return;
-        }
-
-        RtSbtCounts counts; counts.raygenCount = 1; counts.missCount = 1; counts.hitCount = 1;
-        m_SunShadowsSBT = std::make_unique<RtShaderBindingTable>(*m_SunShadowsPipeline, counts);
+        m_SunShadowsPipeline = std::make_unique<VKComputePipeline>(
+            m_ShadowSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
     }
 
     bool RtSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
-        if (name == "rt_sun_shadows.rgen")
-        {
-            m_RaygenSpv = spv;
-        }
-        else if (name == "rt_sun_shadows.rmiss")
-        {
-            m_MissSpv = spv;
-        }
-        else
-        {
-            return false;
-        }
+        if (name != "rt_sun_shadows.comp") return false;
+        m_ShadowSpv = spv;
 
-        // Defer-destroy the old pipeline + SBT — in-flight cmd buffers may still reference them.
+        // Defer-destroy the old pipeline — in-flight cmd buffers may still reference it.
         if (m_SunShadowsPipeline)
         {
             auto* oldPipe = m_SunShadowsPipeline.release();
             VulkanContext::Get().PushDeletion([oldPipe]() { delete oldPipe; });
         }
-        if (m_SunShadowsSBT)
-        {
-            auto* oldSbt = m_SunShadowsSBT.release();
-            VulkanContext::Get().PushDeletion([oldSbt]() { delete oldSbt; });
-        }
         BuildShadowPipeline();
-        LH_CORE_INFO("RtSubsystem: RT shadow pipeline rebuilt after shader reload ({})", name);
+        LH_CORE_INFO("RtSubsystem: sun-shadow pipeline rebuilt after shader reload ({})", name);
         return true;
     }
 
@@ -446,7 +396,7 @@ namespace Luth
     {
         // Pre-flight: pipeline must exist (shaders loaded). Mask must exist (view allocated).
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
-        if (!m_SunShadowsPipeline || !m_SunShadowsSBT || !preflightVr || !preflightVr->sunShadowMask)
+        if (!m_SunShadowsPipeline || !preflightVr || !preflightVr->sunShadowMask)
             return {};
 
         struct RtSunShadowsData {
@@ -493,12 +443,13 @@ namespace Luth
                 const u32 slot     = static_cast<u32>(frameAbs % MAX_FRAMES_IN_FLIGHT);
 
                 // AS-build → AS-read barrier. TlasBuildPass (same AsyncCompute primary) emits
-                // BLAS→TLAS-build barriers internally but not the final AS-write → ray-tracing-read
-                // hop. Without this, the raygen may sample a TLAS that's still being built.
+                // BLAS→TLAS-build barriers internally but not the final AS-write → read hop. Without
+                // this, the dispatch may sample a TLAS that's still being built. dstStage = COMPUTE_SHADER
+                // (NOT RAY_TRACING — rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap).
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 asBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-                asBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                asBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                 asBarrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
                 VkDependencyInfo asDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
                 asDep.memoryBarrierCount = 1;
@@ -507,26 +458,26 @@ namespace Luth
 
                 m_SunShadowsPipeline->Bind(cmd);
 
-                // Sets: 0 = global (TLAS + UBO), 1 = light SSBO (PBR's Set 3 remapped to RT's Set 1),
-                // 2 = per-view pass-local (depth + normal + mask).
-                VkDescriptorSet sets[3] = {
+                // Sets: 0 = global (TLAS + UBO), 1 = light SSBO (PBR's Set 3 remapped to Set 1), 2 = per-view
+                // pass-local (depth + normal + mask), 3 = Material SSBO, 4 = bindless (cutout alpha-test).
+                VkDescriptorSet sets[5] = {
                     vr->globalDescriptorSet[slot],
                     vr->lightDescSet[slot],
                     vr->rtShadowPassDescSet[slot],
+                    MaterialSystem::GetDescriptorSet(slot),
+                    VulkanContext::Get().GetBindlessSet().GetSet(),
                 };
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                         m_SunShadowsPipeline->GetLayout(),
-                                        /*firstSet*/ 0, 3, sets, 0, nullptr);
+                                        /*firstSet*/ 0, 5, sets, 0, nullptr);
 
-                const auto& sbt = *m_SunShadowsSBT;
-                const VkStridedDeviceAddressRegionKHR emptyCallable{};
-                VulkanContext::Get().GetRtFn().vkCmdTraceRaysKHR(
-                    cmd,
-                    &sbt.GetRaygenRegion(),
-                    &sbt.GetMissRegion(),
-                    &sbt.GetHitRegion(),  // FIX: was emptyRegion — empty hit table caused TDR
-                    &emptyCallable,        // callable: not used
-                    vr->width, vr->height, 1);
+                const VkDeviceAddress geomTableBDA = GetGeometryTableBDA();
+                vkCmdPushConstants(cmd, m_SunShadowsPipeline->GetLayout(),
+                                   VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(geomTableBDA), &geomTableBDA);
+
+                const u32 groupX = (vr->width  + 7) / 8;
+                const u32 groupY = (vr->height + 7) / 8;
+                vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
         return outputHandle;
