@@ -140,4 +140,17 @@ bool AlphaTestCandidateHit(GeomTable geomTable, uint customIndex, uint primIndex
     return alpha >= m.alphaCutoff;
 }
 
+// Run a rayQuery to completion, confirming only alpha-passing candidate hits (cutout). Caller initializes
+// `rq` WITHOUT gl_RayFlagsOpaqueEXT (so FORCE_NO_OPAQUE cutout instances surface as candidates; opaque
+// instances are hardware-auto-confirmed and never appear here), then reads the committed result.
+void RtConfirmAlphaCandidates(rayQueryEXT rq, GeomTable geomTable) {
+    while (rayQueryProceedEXT(rq))
+        if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+            && AlphaTestCandidateHit(geomTable,
+                   uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false)),
+                   uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, false)),
+                   rayQueryGetIntersectionBarycentricsEXT(rq, false)))
+            rayQueryConfirmIntersectionEXT(rq);
+}
+
 #endif
