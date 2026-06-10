@@ -9,6 +9,7 @@
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/resources/Mesh.h"
+#include "luth/renderer/material/Material.h"
 #include "luth/resources/AssetManager.h"
 
 #include <vma/vk_mem_alloc.h>
@@ -61,6 +62,11 @@ namespace Luth
                 h *= 0x100000001b3ull;
                 h ^= inst.materialUUID.GetHalf0(); h *= 0x100000001b3ull;
                 h ^= inst.materialUUID.GetHalf1(); h *= 0x100000001b3ull;
+                // Fold RenderMode so an in-place opaque<->cutout edit (same UUID) forces a rebuild —
+                // the per-instance TLAS opaque flag (ST1) depends on it.
+                if (inst.materialUUID.IsValid())
+                    if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
+                    { h ^= static_cast<u64>(mat->GetRenderMode()); h *= 0x100000001b3ull; }
             }
             return h;
         }
@@ -238,12 +244,27 @@ namespace Luth
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
 
+            // Resolve the material once: slot (geom table) + cutout (per-instance opaque flag).
+            u32  matSlot = 0;  // slot 0 = reserved white material
+            bool cutout  = false;
+            if (inst.materialUUID.IsValid())
+            {
+                auto it = materialSlotMap.find(inst.materialUUID);
+                if (it != materialSlotMap.end()) matSlot = it->second;
+                if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
+                    cutout = mat->GetRenderMode() == Material::RenderMode::Cutout;
+            }
+
             VkAccelerationStructureInstanceKHR vkInst{};
             vkInst.transform                              = ToVkTransform(inst.worldMatrix);
             vkInst.instanceCustomIndex                    = static_cast<u32>(packed.size()) & 0x00FFFFFFu;
             vkInst.mask                                   = 0xFF;
             vkInst.instanceShaderBindingTableRecordOffset = 0;
-            vkInst.flags                                  = 0;
+            // Cutout -> FORCE_NO_OPAQUE so rayQuery yields candidates for the shader alpha test; everything
+            // else -> FORCE_OPAQUE to hardware-auto-confirm (the rays drop gl_RayFlagsOpaqueEXT in ST3+).
+            vkInst.flags                                  = cutout
+                ? VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR
+                : VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
             vkInst.accelerationStructureReference         = r.blas->GetDeviceAddress();
             packed.push_back(vkInst);
 
@@ -252,12 +273,6 @@ namespace Luth
             // approximation; the hit POINT rides the deformed TLAS, only n_s/UV are bind-pose).
             auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(r.mesh->GetVertexBuffer());
             auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
-            u32 matSlot = 0;  // slot 0 = reserved white material
-            if (inst.materialUUID.IsValid())
-            {
-                auto it = materialSlotMap.find(inst.materialUUID);
-                if (it != materialSlotMap.end()) matSlot = it->second;
-            }
             GPUGeometryEntry ge{};
             ge.vertexBDA    = vb ? vb->GetDeviceAddress() : 0;
             ge.indexBDA     = ib ? ib->GetDeviceAddress() : 0;
