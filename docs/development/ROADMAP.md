@@ -108,6 +108,7 @@
 | v3.0.18 | `volumetric-rt-shadows` | Per-froxel RT shadow rays in the fog inject-scatter pass: point lights + arbitrary occluders now cast fog shadows (sun swaps CSM→RT ray), 1-spp softened by the existing temporal resolve (no denoiser), default-off toggle; TLAS-build hoisted before the volumetric chain for registration-order correctness; folds two post-D.1 ReSTIR-DI audit fixes | 2026-06-09 |
 | v3.1.0 | `emissive-parity` | Opens the material-system arc: emissive factor + HDR strength, identical raster (`pbr.frag`) + RT (`geom_table.glsl`) emission closing the raster≠RT bug, editor controls + import bridge + inspector preview + `ShadeMode::Emission`; folds material-authoring fixes — metal/rough/color reach the GPU via direct fields, textureless emissive editable, no autosave reimport bounce | 2026-06-09 |
 | v3.1.1 | `material-eval-seam` | Retires `pbr.frag`'s hand-duplicated Cook-Torrance onto the shared `common/brdf.glsl` seam — raster==RT BRDF parity now structural (single source); neutral-renamed the `Pt*` functions; fp32-identical output | 2026-06-10 |
+| v3.1.2 | `cutout-rt` | Alpha-cutout materials hole correctly in every RT path: per-instance TLAS opaque flag (cutout→FORCE_NO_OPAQUE) + a shared `geom_table.glsl` candidate-loop alpha-test across PT/GI/reflections/ReSTIR-DI/volumetric fog; rewrites the lone RT-pipeline sun-shadow pass to rayQuery-compute, deleting the SBT/rgen/rmiss | 2026-06-11 |
 
 ---
 
@@ -182,7 +183,7 @@ Umbrella issue: [#151](https://github.com/Hekbas/Luth/issues/151) (sub-effort is
 |---|---|---|---|
 | M.1 `emissive-parity` ✅ | [#152](https://github.com/Hekbas/Luth/issues/152) | S–M | Emissive factor + HDR strength; raster==RT emission; editor/import/preview + `ShadeMode::Emission` — shipped v3.1.0 |
 | M.2 `material-eval-seam` ✅ | — | S | `pbr.frag` migrated onto the existing `common/brdf.glsl` seam (`rt-reflections` built it); `Pt*` renamed; raster==RT BRDF parity structural — shipped v3.1.1 |
-| M.3 `cutout-rt` | NEW | M | Per-instance non-opaque BLAS + anyhit alpha — cutout correct in RT shadows / GI / reflections |
+| M.3 `cutout-rt` ✅ | — | M | Per-instance TLAS opaque flag + shared candidate-loop alpha-test (rayQuery-centric, not anyhit BLAS); cutout correct in RT shadows / GI / reflections / DI / fog; lone RT-pipeline sun-shadow pass rewritten to rayQuery-compute — shipped v3.1.2 |
 | M.4 `transparency-tier` | [#32](https://github.com/Hekbas/Luth/issues/32) | S→M | Back-to-front sort in DrawListBuilder; WBOIT only if layered; RT-excluded |
 
 Deferred: `emissive-as-area-lights` (L); a Slang `IMaterial` research spike (M).
