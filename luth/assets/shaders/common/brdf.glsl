@@ -1,40 +1,44 @@
-// Shared Cook-Torrance BRDF + GGX-VNDF importance sampling (Heitz 2018). Lifted verbatim from
-// path_trace.comp so the path tracer and the RT reflection shader integrate the SAME material model.
-// MUST stay algebraically identical to pbr.frag's DistributionGGX / GeometrySmith / FresnelSchlick /
-// CalculateLight — the references are only valid if every path samples the same BRDF.
+// Canonical Cook-Torrance BRDF + GGX-VNDF importance sampling (Heitz 2018) — the single source of truth
+// for the engine's surface BRDF, included by pbr.frag (raster) and path_trace/rt_reflections (RT). One
+// shared definition is what keeps the raster==RT references valid: there is no hand-maintained "stay
+// algebraically identical" copy to drift.
 //
-// CONTRACT: the includer must define GI_PI before including this (restir_gi_common.glsl provides it).
+// CONTRACT: the includer must define GI_PI before including this (restir_gi_common.glsl provides it;
+// pbr.frag defines it inline).
 
-float PtD_GGX(vec3 N, vec3 H, float roughness) {
+#ifndef LUTH_SHADERS_COMMON_BRDF
+#define LUTH_SHADERS_COMMON_BRDF
+
+float D_GGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness; float a2 = a * a;       // GGX alpha = roughness^2
     float NdotH = max(dot(N, H), 0.0); float NdotH2 = NdotH * NdotH;
     float d = NdotH2 * (a2 - 1.0) + 1.0;
     return a2 / max(GI_PI * d * d, 1.0e-7);
 }
-float PtG_SchlickGGX(float NdotX, float roughness) {
-    float r = roughness + 1.0; float k = (r * r) / 8.0;       // direct-lighting k (pbr.frag)
+float G_SchlickGGX(float NdotX, float roughness) {
+    float r = roughness + 1.0; float k = (r * r) / 8.0;       // direct-lighting k (matches pbr.frag)
     return NdotX / (NdotX * (1.0 - k) + k);
 }
-float PtG_Smith(vec3 N, vec3 V, vec3 L, float roughness) {
-    return PtG_SchlickGGX(max(dot(N, V), 0.0), roughness) * PtG_SchlickGGX(max(dot(N, L), 0.0), roughness);
+float G_Smith(vec3 N, vec3 V, vec3 L, float roughness) {
+    return G_SchlickGGX(max(dot(N, V), 0.0), roughness) * G_SchlickGGX(max(dot(N, L), 0.0), roughness);
 }
-vec3 PtF_Schlick(float cosT, vec3 F0) {
+vec3 F_Schlick(float cosT, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
 }
-// f(V,L)·NdotL·radiance — identical algebra to pbr.frag CalculateLight (radiance=1 yields f·NdotL).
-vec3 PtBRDFTimesNdotL(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
+// f(V,L)·NdotL·radiance — the shared "evaluate-at-surface-point" seam (radiance=1 yields f·NdotL).
+vec3 EvalBRDFTimesNdotL(vec3 L, vec3 radiance, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
     vec3 H  = normalize(V + L);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float D = PtD_GGX(N, H, roughness);
-    float G = PtG_Smith(N, V, L, roughness);
-    vec3  F = PtF_Schlick(max(dot(H, V), 0.0), F0);
+    float D = D_GGX(N, H, roughness);
+    float G = G_Smith(N, V, L, roughness);
+    vec3  F = F_Schlick(max(dot(H, V), 0.0), F0);
     vec3 spec = (D * G * F) / (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1.0e-4);
     vec3 kD   = (vec3(1.0) - F) * (1.0 - metallic);
     return (kD * albedo / GI_PI + spec) * radiance * max(dot(N, L), 0.0);
 }
 
 // Analytic Smith G1 for GGX alpha (for the unbiased VNDF pdf — distinct from the BRDF's approximate G).
-float PtG1_GGX(float NdotX, float alpha) {
+float G1_GGX(float NdotX, float alpha) {
     float a2 = alpha * alpha;
     return 2.0 * NdotX / max(NdotX + sqrt(a2 + (1.0 - a2) * NdotX * NdotX), 1.0e-6);
 }
@@ -58,6 +62,8 @@ float PdfSpec(vec3 N, vec3 V, vec3 L, float roughness) {
     float NdotV = max(dot(N, V), 0.0);
     float VdotH = max(dot(V, H), 0.0);
     float alpha = roughness * roughness;
-    float Dv = PtG1_GGX(NdotV, alpha) * VdotH * PtD_GGX(N, H, roughness) / max(NdotV, 1.0e-4);
+    float Dv = G1_GGX(NdotV, alpha) * VdotH * D_GGX(N, H, roughness) / max(NdotV, 1.0e-4);
     return Dv / (4.0 * max(VdotH, 1.0e-4));
 }
+
+#endif

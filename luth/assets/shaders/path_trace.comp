@@ -8,7 +8,7 @@
 #include "common/globals.glsl"
 #include "common/restir_gi_common.glsl"   // PcgHash/RandFromSeed/Luminance/OctDecode/light structs/PointLightRadiance + SampleCosHemisphere (S2) + GI_PI
 #include "common/geom_table.glsl"          // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
-#include "common/brdf.glsl"                 // PtD_GGX/PtG_Smith/PtF_Schlick/PtBRDFTimesNdotL + GGX-VNDF sampling (shared with rt_reflections)
+#include "common/brdf.glsl"                 // D_GGX/G_Smith/F_Schlick/EvalBRDFTimesNdotL + GGX-VNDF sampling (shared with pbr.frag + rt_reflections)
 
 // Path-traced reference mode (rt-renderer C.5) — megakernel. Traces its OWN jittered primary camera rays
 // (no G-buffer dependency → free anti-aliasing as it converges) then a multi-bounce path with NEE per
@@ -67,7 +67,7 @@ bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
-// Cook-Torrance BRDF (PtD_GGX/PtG_Smith/PtF_Schlick/PtBRDFTimesNdotL) → common/brdf.glsl.
+// Cook-Torrance BRDF (D_GGX/G_Smith/F_Schlick/EvalBRDFTimesNdotL) → common/brdf.glsl.
 
 // Full-BRDF NEE at (x, surface s) with view dir V. One random point light (× count undoes the 1/count
 // pick pdf) + deterministic sun, each shadow-rayed.
@@ -80,18 +80,18 @@ vec3 DirectLighting(vec3 x, vec3 V, HitSurface s, inout uint seed) {
         vec3 Lw; float ld;
         vec3 Li = PointLightRadiance(pl, x, Lw, ld);
         if (dot(s.ns, Lw) > 0.0 && Visible(x, s.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
-            Lo += PtBRDFTimesNdotL(Lw, Li * float(lc), V, s.ns, s.baseColor, s.metalness, s.roughness);
+            Lo += EvalBRDFTimesNdotL(Lw, Li * float(lc), V, s.ns, s.baseColor, s.metalness, s.roughness);
     }
     if (lights.dirLight.intensity > 0.0) {
         vec3 Lsun = normalize(-lights.dirLight.direction);
         if (dot(s.ns, Lsun) > 0.0 && Visible(x, s.ng, Lsun, 1.0e30))
-            Lo += PtBRDFTimesNdotL(Lsun, lights.dirLight.color * lights.dirLight.intensity, V, s.ns, s.baseColor, s.metalness, s.roughness);
+            Lo += EvalBRDFTimesNdotL(Lsun, lights.dirLight.color * lights.dirLight.intensity, V, s.ns, s.baseColor, s.metalness, s.roughness);
     }
     return Lo;
 }
 
 // BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS.
-// GGX-VNDF sampler + lobe pdfs (PtG1_GGX/SampleGGXVNDF/PdfDiffuse/PdfSpec) → common/brdf.glsl.
+// GGX-VNDF sampler + lobe pdfs (G1_GGX/SampleGGXVNDF/PdfDiffuse/PdfSpec) → common/brdf.glsl.
 
 // Returns the next ray direction; multiplies `tp` by f·cos/pdf (one-sample lobe MIS). false → dead path.
 bool SampleBSDF(vec3 V, HitSurface s, inout uint seed, out vec3 newDir, inout vec3 tp) {
@@ -119,7 +119,7 @@ bool SampleBSDF(vec3 V, HitSurface s, inout uint seed, out vec3 newDir, inout ve
     float NdotL = dot(s.ns, newDir);
     if (NdotL <= 0.0) return false;   // below the surface → terminate
 
-    vec3  fCos = PtBRDFTimesNdotL(newDir, vec3(1.0), V, s.ns, s.baseColor, s.metalness, s.roughness);
+    vec3  fCos = EvalBRDFTimesNdotL(newDir, vec3(1.0), V, s.ns, s.baseColor, s.metalness, s.roughness);
     float pdf  = pSpec * PdfSpec(s.ns, V, newDir, s.roughness) + (1.0 - pSpec) * PdfDiffuse(s.ns, newDir);
     if (pdf <= 0.0) return false;
     tp *= fCos / pdf;
