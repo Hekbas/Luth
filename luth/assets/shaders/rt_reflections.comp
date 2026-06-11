@@ -68,9 +68,9 @@ bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
     vec3  sOrig = x + offsetN * (ubo.rtShadowParams.z * 0.5) + dir * sMin;
     rayQueryEXT sq;
     rayQueryInitializeEXT(sq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
         sOrig, sMin, dir, max(maxDist, sMin));
-    rayQueryProceedEXT(sq);
+    RtConfirmAlphaCandidates(sq, pc.geomTable);
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
@@ -138,8 +138,8 @@ void main() {
     float tMin = ubo.rtShadowParams.y;
     vec3  ro   = worldPos + N * (ubo.rtShadowParams.z * (2.0 - dot(N, R))) + R * tMin;
     rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, R, pc.maxRayDistance);
-    while (rayQueryProceedEXT(rq)) {}
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, 0xFFu, ro, tMin, R, pc.maxRayDistance);
+    RtConfirmAlphaCandidates(rq, pc.geomTable);
 
     vec3  Li;
     float hitDist;

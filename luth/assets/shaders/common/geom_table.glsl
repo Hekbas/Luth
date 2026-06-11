@@ -119,4 +119,38 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     return s;
 }
 
+// Alpha test at a rayQuery CANDIDATE hit (cutout materials). Mirrors pbr.frag: alpha = color.a *
+// diffuse.a, KEEP when alpha >= alphaCutoff; opaque materials (alphaCutoff <= 0) always pass. The RT
+// candidate loops confirm a hit only when this returns true. see arch/rendering-pipeline.md
+bool AlphaTestCandidateHit(GeomTable geomTable, uint customIndex, uint primIndex, vec2 bary) {
+    GtGeomEntry ge = geomTable.e[customIndex];
+    GtMaterial  m  = gtMaterials[ge.materialSlot];
+    if (m.alphaCutoff <= 0.0) return true;                  // opaque material — always passes
+    float alpha = m.color.a;
+    if ((m.flags & GT_FLAG_HAS_DIFFUSE) != 0u) {
+        uint sF  = ge.vertexStride >> 2u;
+        uint off = (((m.flags >> GT_UV_SHIFT_DIFFUSE) & 3u) == 0u) ? 6u : 8u;  // TexCoord0@6, TexCoord1@8
+        uint i0 = ge.ibuf.i[primIndex*3u+0u], i1 = ge.ibuf.i[primIndex*3u+1u], i2 = ge.ibuf.i[primIndex*3u+2u];
+        vec3 wgt = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
+        vec2 uv = wgt.x*vec2(ge.vbuf.f[i0*sF+off], ge.vbuf.f[i0*sF+off+1u])
+                + wgt.y*vec2(ge.vbuf.f[i1*sF+off], ge.vbuf.f[i1*sF+off+1u])
+                + wgt.z*vec2(ge.vbuf.f[i2*sF+off], ge.vbuf.f[i2*sF+off+1u]);
+        alpha *= textureLod(gtTextures[nonuniformEXT(m.diffuseIndex)], uv, 0.0).a;
+    }
+    return alpha >= m.alphaCutoff;
+}
+
+// Run a rayQuery to completion, confirming only alpha-passing candidate hits (cutout). Caller initializes
+// `rq` WITHOUT gl_RayFlagsOpaqueEXT (so FORCE_NO_OPAQUE cutout instances surface as candidates; opaque
+// instances are hardware-auto-confirmed and never appear here), then reads the committed result.
+void RtConfirmAlphaCandidates(rayQueryEXT rq, GeomTable geomTable) {
+    while (rayQueryProceedEXT(rq))
+        if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+            && AlphaTestCandidateHit(geomTable,
+                   uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false)),
+                   uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, false)),
+                   rayQueryGetIntersectionBarycentricsEXT(rq, false)))
+            rayQueryConfirmIntersectionEXT(rq);
+}
+
 #endif

@@ -85,8 +85,8 @@ void main() {
     float tMin   = ubo.rtShadowParams.y;
     vec3  origin = worldPos + Nv * ubo.rtShadowParams.z + d * tMin;
     rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, origin, tMin, d, 1.0e30);
-    while (rayQueryProceedEXT(rq)) {}
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, 0xFFu, origin, tMin, d, 1.0e30);
+    RtConfirmAlphaCandidates(rq, pc.geomTable);
     if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
         reservoirs[flatIdx] = r;   // miss (sky / open) → empty GI sample
         return;
@@ -126,9 +126,9 @@ void main() {
             vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lw * sMin;
             rayQueryEXT sq;
             rayQueryInitializeEXT(sq, topLevelAS,
-                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+                gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
                 sOrig, sMin, Lw, max(ld - 2.0 * sMin, sMin));
-            rayQueryProceedEXT(sq);
+            RtConfirmAlphaCandidates(sq, pc.geomTable);
             float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
             Lo += (baseColor / GI_PI) * Li * ndl * vis * float(lightCount);
         }
@@ -145,9 +145,9 @@ void main() {
             vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lsun * sMin;
             rayQueryEXT sq;
             rayQueryInitializeEXT(sq, topLevelAS,
-                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+                gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
                 sOrig, sMin, Lsun, 1.0e30);
-            rayQueryProceedEXT(sq);
+            RtConfirmAlphaCandidates(sq, pc.geomTable);
             float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
             Lo += (baseColor / GI_PI) * lights.dirLight.color * lights.dirLight.intensity * ndlSun * vis;
         }

@@ -1,9 +1,13 @@
 #version 460
 #extension GL_EXT_ray_query : require
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/geom_table.glsl"   // Set 3 Material + Set 4 bindless + AlphaTestCandidateHit/RtConfirmAlphaCandidates
 
 // ReSTIR DI — initial candidate generation (Bitterli 2020). Per pixel: RIS over M uniformly-sampled
 // point lights using an unshadowed diffuse target, then ONE rayQuery shadow ray to the selected
@@ -29,11 +33,10 @@ layout(set = 2, binding = 1) uniform sampler2D u_SlimNormal;   // RG16F oct
 layout(std430, set = 2, binding = 2) buffer ReservoirBuffer { Reservoir reservoirs[]; };
 
 layout(push_constant) uniform PC {
-    mat4 invViewProj;     // inverse(viewProjection), CPU-side once per view
-    uint candidateCount;  // M
-    uint frameSeed;       // per-frame decorrelation
-    uint _pad0;
-    uint _pad1;
+    mat4      invViewProj;     // inverse(viewProjection), CPU-side once per view
+    uint      candidateCount;  // M
+    uint      frameSeed;       // per-frame decorrelation
+    GeomTable geomTable;       // cutout alpha-test material fetch (paired with the bound TLAS)
 } pc;
 
 void main() {
@@ -81,9 +84,9 @@ void main() {
 
         rayQueryEXT rq;
         rayQueryInitializeEXT(rq, topLevelAS,
-            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+            gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
             origin, tMin, L, max(dist - 2.0 * tMin, tMin));
-        rayQueryProceedEXT(rq);
+        RtConfirmAlphaCandidates(rq, pc.geomTable);
         if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT)
             r.W = 0.0;
     }

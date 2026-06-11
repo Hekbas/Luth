@@ -593,12 +593,11 @@ namespace Luth
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[0].descriptorCount = 1;
-        // RAYGEN added so rt_sun_shadows.rgen can read lights.dirLight.direction. COMPUTE added so
-        // the ReSTIR DI passes (restir_initial/shade.comp) can read points[] + pointLightCount when
-        // this layout binds as their Set 1. Cluster grid + light index (b1, b2) intentionally stay
-        // fragment-only; neither raygen nor ReSTIR iterates clusters.
-        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR
-                               | VK_SHADER_STAGE_COMPUTE_BIT;
+        // COMPUTE added so the ReSTIR DI passes (restir_initial/shade.comp) + rt_sun_shadows.comp can
+        // read dirLight.direction / points[] / pointLightCount when this layout binds as their Set 1.
+        // Cluster grid + light index (b1, b2) intentionally stay fragment-only; neither ReSTIR nor the
+        // shadow pass iterates clusters.
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         bindings[1].binding = 1;
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[1].descriptorCount = 1;

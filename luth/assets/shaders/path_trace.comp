@@ -61,9 +61,9 @@ bool Visible(vec3 x, vec3 offsetN, vec3 dir, float maxDist) {
     vec3  sOrig = x + offsetN * (ubo.rtShadowParams.z * 0.5) + dir * sMin;
     rayQueryEXT sq;
     rayQueryInitializeEXT(sq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
         sOrig, sMin, dir, max(maxDist, sMin));
-    rayQueryProceedEXT(sq);
+    RtConfirmAlphaCandidates(sq, pc.geomTable);   // cutout: alpha-test candidates before they occlude
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
@@ -147,8 +147,8 @@ vec3 SamplePath(ivec2 pixel, ivec2 size, inout uint seed) {
 
     for (uint bounce = 0u; bounce < pc.maxBounces; ++bounce) {
         rayQueryEXT rq;
-        rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsOpaqueEXT, 0xFFu, ro, tMin, rd, 1.0e30);
-        while (rayQueryProceedEXT(rq)) {}
+        rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, 0xFFu, ro, tMin, rd, 1.0e30);
+        RtConfirmAlphaCandidates(rq, pc.geomTable);
         if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
             radiance += throughput * SampleEnv(rd);
             break;

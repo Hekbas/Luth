@@ -9,6 +9,7 @@
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/core/FrameData.h"
 #include "luth/core/types/LuthMath.h"
 
@@ -30,8 +31,7 @@ namespace Luth
             Mat4 invViewProj;
             u32  candidateCount;
             u32  frameSeed;
-            u32  pad0;
-            u32  pad1;
+            u64  geomTableBDA;   // cutout alpha-test material fetch (paired with the bound TLAS); 0 = none
         };
         static_assert(sizeof(RestirPC) == 80, "RestirPC must be 80 B (matches restir_initial/shade.comp push_constant)");
 
@@ -156,16 +156,21 @@ namespace Luth
             return;
         }
 
-        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. Matches all 3 shaders.
+        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. The initial pass adds
+        // Set 3 (Material SSBO) + Set 4 (bindless) for the cutout alpha-test (geom_table.glsl); the
+        // temporal/spatial/shade passes trace no rays, so they keep the 3-set layout.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
             m_SetLayout,
         };
+        std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
+        layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
+        layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
-            m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+            m_InitialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
         m_TemporalPipeline = std::make_unique<VKComputePipeline>(
             m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_SpatialPipeline = std::make_unique<VKComputePipeline>(
@@ -207,6 +212,9 @@ namespace Luth
             m_Pipeline->GetLighting().GetSetLayout(),
             m_SetLayout,
         };
+        std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
+        layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
+        layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
 
         auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
@@ -219,7 +227,7 @@ namespace Luth
             m_InitialSpv = spv;
             deferComp(m_InitialPipeline);
             m_InitialPipeline = std::make_unique<VKComputePipeline>(
-                m_InitialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+                m_InitialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
         }
         else if (isTemporal)
         {
@@ -401,6 +409,7 @@ namespace Luth
         pc.invViewProj    = invVP;
         pc.candidateCount = settings.candidateCount;
         pc.frameSeed      = frameAbs;
+        pc.geomTableBDA   = m_Pipeline->GetRt().GetGeometryTableBDA();
 
         RestirTemporalPC tpc{};
         tpc.invViewProj     = invVP;
@@ -457,13 +466,15 @@ namespace Luth
 
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_InitialPipeline->Bind(cmd);
-                VkDescriptorSet sets[3] = {
+                VkDescriptorSet sets[5] = {
                     vr->globalDescriptorSet[slot],
                     vr->lightDescSet[slot],
                     vr->restirDescSet[slot],
+                    MaterialSystem::GetDescriptorSet(slot),
+                    VulkanContext::Get().GetBindlessSet().GetSet(),
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_InitialPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                    m_InitialPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
                 vkCmdPushConstants(cmd, m_InitialPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC), &pc);
 

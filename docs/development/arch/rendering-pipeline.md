@@ -51,7 +51,7 @@ ShadowPass (depth-only)   ─┘
 
 DepthPrepass (depth-only, main view, indirect draw)
   ↓
-SlimGBufferPass (normal RG16F + roughness R8 + motion RG16F + matID R16U; reads prepass depth via EQUAL test, opaque-only)
+SlimGBufferPass (normal RG16F + roughness R8 + motion RG16F + matID R16U; opaque reads prepass depth via EQUAL test; cutout alpha-tests + writes its own depth via LESS_OR_EQUAL so RT shadows/reflections + GTAO reconstruct from the holed surface)
   ↓
 ClusterBuildPass (compute, AsyncCompute) — per-cluster view-space AABB via Olsson log depth slicing
   ↓

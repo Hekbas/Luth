@@ -128,10 +128,14 @@ namespace Luth
         std::vector<u32>            m_DepthPrepassVertSpv;
         std::vector<u32>            m_DepthPrepassSkinnedVertSpv;
 
-        // Slim G-buffer pipelines + SPV. Depth-EQUAL against prepass depth, no depth write,
-        // full PBR vtx stride. Opaque-only iteration; cutouts deferred.
+        // Slim G-buffer pipelines + SPV. Opaque: depth-EQUAL against prepass depth, no depth write.
+        // Cutout: shares the shaders but tests LESS_OR_EQUAL + writes its own depth (the opaque-only
+        // prepass omits cutout) + alpha-tests in slim_gbuffer.frag — so RT shadows/reflections + GTAO
+        // reconstruct from the holed cutout surface, not the geometry behind it. Full PBR vtx stride.
         std::unique_ptr<VKPipeline> m_SlimGBufferPipeline;
         std::unique_ptr<VKPipeline> m_SlimGBufferSkinnedPipeline;
+        std::unique_ptr<VKPipeline> m_SlimGBufferCutoutPipeline;
+        std::unique_ptr<VKPipeline> m_SlimGBufferCutoutSkinnedPipeline;
         std::vector<u32>            m_SlimGBufferVertSpv;
         std::vector<u32>            m_SlimGBufferSkinnedVertSpv;
         std::vector<u32>            m_SlimGBufferFragSpv;

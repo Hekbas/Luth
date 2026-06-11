@@ -275,7 +275,7 @@ namespace Luth
         vr.taaHistoryA = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
         vr.taaHistoryB = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
 
-        // RT sun-shadow mask — viewport-sized R8 storage. Written by rt_sun_shadows.rgen on
+        // RT sun-shadow mask — viewport-sized R8 storage. Written by rt_sun_shadows.comp on
         // AsyncCompute, sampled by pbr.frag (Set 3 binding 4) when ShadowingMode == RtShadows.
         vr.sunShadowMask = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::R8,

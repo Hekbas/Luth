@@ -7,6 +7,7 @@
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/draw/DrawCommand.h"
 #include "luth/renderer/lighting/FogVolumeGatherer.h"
+#include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -25,7 +26,9 @@ namespace Luth
         {
             Mat4 invView;             // 64 B — push once per dispatch; avoids per-voxel inverse(ubo.view).
             u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims, runtime-set per quality.
+            u64  geomTableBDA;        // 8 B — scatter-only cutout alpha-test fetch; density ignores it.
         };
+        static_assert(sizeof(InjectPC) == 88, "InjectPC: invView(64) + dims(16) + geomTableBDA(8)");
 
         struct IntegratePC
         {
@@ -145,6 +148,11 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectScatterDescLayout);
 
+            // Empty Set 2 placeholder — geom_table.glsl pins Material to Set 3 + bindless to Set 4, but the
+            // scatter pipeline has no pass-local Set 2. A 0-binding layout fills the gap; it's never bound.
+            VkDescriptorSetLayoutCreateInfo emptyCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            vkCreateDescriptorSetLayout(device, &emptyCI, nullptr, &m_EmptySet2Layout);
+
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
 
             if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_scatter.comp"))
@@ -154,11 +162,15 @@ namespace Luth
                 LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.comp!");
                 return;
             }
+            // Cutout 5-set layout: Set 3 Material + Set 4 bindless feed geom_table's RT alpha-test.
             m_InjectScatterPipeline = std::make_unique<VKComputePipeline>(
                 m_InjectScatterSpv,
                 std::vector<VkDescriptorSetLayout>{
                     pipeline.GetGlobal().GetSetLayout(),
                     m_InjectScatterDescLayout,
+                    m_EmptySet2Layout,
+                    MaterialSystem::GetDescriptorSetLayout(),
+                    VulkanContext::Get().GetBindlessSet().GetLayout(),
                 },
                 std::vector<VkPushConstantRange>{ pcRange });
         }
@@ -581,6 +593,7 @@ namespace Luth
         m_VizPipeline.reset();
         if (m_InjectDensityDescLayout) vkDestroyDescriptorSetLayout(device, m_InjectDensityDescLayout, nullptr);
         if (m_InjectScatterDescLayout) vkDestroyDescriptorSetLayout(device, m_InjectScatterDescLayout, nullptr);
+        if (m_EmptySet2Layout)         vkDestroyDescriptorSetLayout(device, m_EmptySet2Layout, nullptr);
         if (m_IntegrateDescLayout)     vkDestroyDescriptorSetLayout(device, m_IntegrateDescLayout, nullptr);
         if (m_ResolveDescLayout)       vkDestroyDescriptorSetLayout(device, m_ResolveDescLayout, nullptr);
         if (m_CompositeDescLayout)     vkDestroyDescriptorSetLayout(device, m_CompositeDescLayout, nullptr);
@@ -592,6 +605,7 @@ namespace Luth
         m_BlueNoise2D.reset();
         m_InjectDensityDescLayout = VK_NULL_HANDLE;
         m_InjectScatterDescLayout = VK_NULL_HANDLE;
+        m_EmptySet2Layout         = VK_NULL_HANDLE;
         m_IntegrateDescLayout     = VK_NULL_HANDLE;
         m_ResolveDescLayout       = VK_NULL_HANDLE;
         m_CompositeDescLayout     = VK_NULL_HANDLE;
@@ -630,6 +644,9 @@ namespace Luth
                 std::vector<VkDescriptorSetLayout>{
                     m_Pipeline->GetGlobal().GetSetLayout(),
                     m_InjectScatterDescLayout,
+                    m_EmptySet2Layout,
+                    MaterialSystem::GetDescriptorSetLayout(),
+                    VulkanContext::Get().GetBindlessSet().GetLayout(),
                 },
                 std::vector<VkPushConstantRange>{ pc });
             return true;
@@ -1467,16 +1484,26 @@ namespace Luth
                 }
 
                 m_InjectScatterPipeline->Bind(cmd);
-                VkDescriptorSet sets[2] = {
+                // Sets 0-1 (global, scatter state) then Sets 3-4 (Material, bindless) — two binds straddle
+                // the empty Set 2. Set 3/4 are statically referenced by geom_table.glsl, so they bind every
+                // dispatch even when RT fog is off (validation requires bound sets for static references).
+                VkDescriptorSet sets01[2] = {
                     vr->globalDescriptorSet[slot],
                     vr->volInjectScatterDescSet[slot],
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_InjectScatterPipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+                    m_InjectScatterPipeline->GetLayout(), 0, 2, sets01, 0, nullptr);
+                VkDescriptorSet sets34[2] = {
+                    MaterialSystem::GetDescriptorSet(slot),
+                    VulkanContext::Get().GetBindlessSet().GetSet(),
+                };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_InjectScatterPipeline->GetLayout(), 3, 2, sets34, 0, nullptr);
 
                 InjectPC pc{};
-                pc.invView = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
+                pc.invView      = Math::Inverse(m_Pipeline->GetCurrentView()->camera.view);
                 pc.volDimX = vr->volDimX; pc.volDimY = vr->volDimY; pc.volDimZ = vr->volDimZ;
+                pc.geomTableBDA = m_Pipeline->GetRt().GetGeometryTableBDA();
                 vkCmdPushConstants(cmd, m_InjectScatterPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC), &pc);
 
