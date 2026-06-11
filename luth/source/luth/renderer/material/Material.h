@@ -61,8 +61,8 @@ namespace Luth
         u32 metalRoughIndex = 0;
         u32 occlusionIndex = 0;
         u32 emissiveIndex = 0;
-        u32 alphaIndex = 0;
-        u32 specularIndex = 0;
+        u32 alphaIndex = 0;      // reserved — written by UpdateGPUData, unsampled by any shader
+        u32 specularIndex = 0;   // (no dedicated-opacity / spec-gloss / thickness-SSS path yet)
         u32 thicknessIndex = 0;
 
         // Factors

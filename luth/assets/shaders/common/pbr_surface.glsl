@@ -30,7 +30,7 @@ struct GPUMaterialData {
     uint  metalRoughIndex;
     uint  occlusionIndex;
     uint  emissiveIndex;
-    uint  alphaIndex;
+    uint  alphaIndex;       // reserved — importer-written, unsampled (no opacity-map / spec-gloss / SSS path)
     uint  specularIndex;
     uint  thicknessIndex;
     float metalness;
