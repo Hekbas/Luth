@@ -228,12 +228,21 @@ Pass splits where one pass precomputes a value the next pass integrates must pub
 
 ## Memory Budget
 
+Indicative at 1920×1080, single view. The per-view RT / denoiser / transparency buffers below dominate
+VRAM and multiply by active view count (Scene + Game panels).
+
 | Buffer | Size |
 |--------|------|
 | Material SSBO | 16384 × 80B = 1.25 MB |
-| Light UBO | 64 × 32B + 16B ≈ 2.1 KB |
-| Global UBO | 3×mat4 + vec3 + float ≈ 200B |
-| Shadow Map | 2048² × 4B = 16 MB |
-| GBuffer (4 RTs) | 1920×1080 × (8+8+4+4)B ≈ 50 MB |
-| SSAO noise tex | 4×4 × 12B = negligible |
-| BRDF LUT | 512² × 8B = 2 MB |
+| Light SSBO + Cluster grid + Light index (Set 3) | per-view, dynamic from `GPUTaggedPageAllocator` (replaced the 64-light UBO in `forward-plus`) |
+| Global UBO | view/proj + prevViewProj + IBL/GTAO/RT/restir params ≈ <1 KB |
+| CSM shadow array | 2048² × D32 × 4 cascades = 64 MB (raster path; RT sun-shadow R8 mask is default) |
+| Slim G-buffer | normal RG16F + rough R8 + motion RG16F + matID R16U ≈ 23 MB |
+| HDR sceneColor | RGBA16F ≈ 16.6 MB |
+| Volumetric froxel volume | 160×90×128 RGBA16F ≈ 14 MB/atlas, per view |
+| TAA history | RGBA16F A/B ping-pong, per view ≈ 33 MB |
+| OIT (PPLL) | heads R32U 8.3 MB + node pool ≈ 133 MB at `avgLayersBudget` 4, per view |
+| ReSTIR DI/GI reservoirs | device-local Garlic ping-pong + spatial (GI reservoir 64 B/px), per view |
+| SVGF history | color/moments/geom + à-trous ping-pong RGBA16F, ×2 channels (DI+GI), per view |
+| BoneMatrixBuffer | dual-region (curr + prev-frame bones for skinned motion), per skinned entity |
+| IBL | irradiance + prefiltered env (5 mips) + BRDF LUT 512² × 8B = 2 MB |
