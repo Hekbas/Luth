@@ -3,6 +3,8 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common/globals.glsl"
+#include "common/pbr_surface.glsl"
+#include "common/pbr_lighting.glsl"
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -16,12 +18,10 @@ layout(location = 9) flat in uint v_EntityID;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out uint outEntityID;
 
-// ---------- Descriptor Sets ----------
-
-// Set 0: IBL textures
-layout(set = 0, binding = 1) uniform samplerCube irradianceMap;
-layout(set = 0, binding = 2) uniform samplerCube prefilteredMap;
-layout(set = 0, binding = 3) uniform sampler2D   brdfLUT;
+// ---------- Opaque-only descriptor bindings ----------
+// Everything below is screen-space state computed from the OPAQUE depth prepass — correct here,
+// wrong for any surface at a different depth. The transparent-pass shaders consume only the
+// pbr_surface/pbr_lighting seams and never declare these.
 
 // Set 0: GTAO final AO buffer (half-res R8) + settings
 layout(set = 0, binding = 4) uniform sampler2D   gtaoTex;
@@ -38,74 +38,7 @@ layout(set = 0, binding = 5, std140) uniform GTAOUBO {
     vec2  invFullResolution;
 } gtao;
 
-// Set 1: Bindless Textures (combined image-samplers) + canonical sampler array.
-// Binding 1 is declared so future shader paths (per-map sampler selection) can index it;
-// today's PBR sampling still goes through binding 0's per-texture baked samplers.
-layout(set = 1, binding = 0) uniform sampler2D globalTextures[];
-layout(set = 1, binding = 1) uniform sampler   bindlessSamplers[];
-
-// Set 2: Material SSBO
-// flags layout: bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each).
-struct GPUMaterialData {
-    vec4  color;
-    uint  diffuseIndex;
-    uint  normalIndex;
-    uint  metalRoughIndex;
-    uint  occlusionIndex;
-    uint  emissiveIndex;
-    uint  alphaIndex;
-    uint  specularIndex;
-    uint  thicknessIndex;
-    float metalness;
-    float roughness;
-    float alphaCutoff;
-    uint  flags;
-    vec4  emissive;    // rgb = factor (linear), a = HDR strength
-};
-
-layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
-    GPUMaterialData materials[];
-};
-
-// Set 3: Forward+ lighting. b0 = LightSSBO (header + flexible point-light array, std430), b1 =
-// ClusterGrid (uvec2 offset+count per cluster), b2 = LightIndex (flat indices into points[]),
-// b3 = shadow sampler. Cluster ID layout matches cluster_build.comp / light_assign.comp.
-struct DirectionalLightData {
-    vec3  direction;
-    float intensity;
-    vec3  color;
-    float _pad;
-};
-
-struct PointLightData {
-    vec3  position;
-    float range;
-    vec3  color;
-    float intensity;
-};
-
-const uint k_ClusterTilesX  = 16u;
-const uint k_ClusterTilesY  =  9u;
-const uint k_ClusterSlicesZ = 48u;
-
-layout(std430, set = 3, binding = 0) readonly buffer LightBuffer {
-    DirectionalLightData dirLight;
-    uint                 pointLightCount;
-    uint                 _pad[3];
-    PointLightData       points[];
-} lights;
-
-layout(std430, set = 3, binding = 1) readonly buffer ClusterBuffer {
-    uvec2 clusters[];   // (offset, count) into LightIndex
-} clusterGrid;
-
-layout(std430, set = 3, binding = 2) readonly buffer LightIndexBuffer {
-    uint indices[];
-} lightIndex;
-
-layout(set = 3, binding = 3) uniform sampler2DArrayShadow shadowMap;
-
-// RT-traced sun-shadow mask — written by rt_sun_shadows.rgen when ShadowingMode::RtShadows is
+// RT-traced sun-shadow mask — written by rt_sun_shadows.comp when ShadowingMode::RtShadows is
 // active. Sampled at screen UV (gl_FragCoord.xy / viewportSize). Single R8 channel = visibility
 // (0 = in shadow, 1 = unshadowed). Reads only happen on the RT branch of ComputeShadow below; the
 // CSM branch never dynamically accesses this binding so layout/initialization quirks of the mask
@@ -127,185 +60,9 @@ layout(set = 3, binding = 6) uniform sampler2D giIrradiance;
 // reflection, not an IBL approximation). The denoiser owns the slot; reflParams.x gates the consumption.
 layout(set = 3, binding = 7) uniform sampler2D reflRadiance;
 
-uint ComputeClusterID(vec4 fragCoord, vec2 viewportPx, float nearZ, float farZ) {
-    // Linearize the perspective depth in fragCoord.z; Olsson logarithmic slice index.
-    float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));
-    uint slice = uint(floor(log(max(linDepth, nearZ) / nearZ) / log(farZ / nearZ) * float(k_ClusterSlicesZ)));
-    slice = clamp(slice, 0u, k_ClusterSlicesZ - 1u);
-
-    uvec2 tile = uvec2(fragCoord.xy / (viewportPx / vec2(k_ClusterTilesX, k_ClusterTilesY)));
-    tile.x = min(tile.x, k_ClusterTilesX - 1u);
-    tile.y = min(tile.y, k_ClusterTilesY - 1u);
-
-    return slice * k_ClusterTilesX * k_ClusterTilesY + tile.y * k_ClusterTilesX + tile.x;
-}
-
-// ---------- Flag Constants ----------
-
-const uint FLAG_HAS_NORMAL     = (1u << 0);
-const uint FLAG_HAS_METALROUGH = (1u << 1);
-const uint FLAG_HAS_OCCLUSION  = (1u << 2);
-const uint FLAG_HAS_DIFFUSE    = (1u << 3);
-const uint FLAG_HAS_EMISSIVE   = (1u << 4);
-const uint FLAG_HAS_ALPHA      = (1u << 5);
-const uint FLAG_HAS_SPECULAR   = (1u << 6);
-const uint FLAG_HAS_THICKNESS  = (1u << 7);
-
-// UV index bit positions within flags (2 bits each, values 0-3)
-const uint UV_SHIFT_DIFFUSE    = 16u;
-const uint UV_SHIFT_NORMAL     = 18u;
-const uint UV_SHIFT_METALROUGH = 20u;
-const uint UV_SHIFT_OCCLUSION  = 22u;
-
-vec2 selectUV(uint flags, uint shift) {
-    uint idx = (flags >> shift) & 0x3u;
-    return (idx == 0u) ? v_TexCoord0 : v_TexCoord1;
-}
-
-const float GI_PI = 3.14159265358979;
-
-// Cook-Torrance BRDF (D_GGX/G_Smith/F_Schlick/EvalBRDFTimesNdotL) + GGX-VNDF sampling: the single
-// shared seam, byte-identical in raster and RT. Requires GI_PI (above) per the brdf.glsl contract.
-#include "common/brdf.glsl"
-
-// Fresnel-Schlick with roughness (for IBL — accounts for rough surfaces reducing reflections)
-vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
-{
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-// ---------- PCF Shadow ----------
-
-// Project a world position into cascade `c`. Returns projected xy (remapped to [0,1]) and depth,
-// plus an `inside` flag that's true when the ENTIRE 3×3 PCF footprint fits inside the cascade's
-// ortho box. The shadow sampler is CLAMP_TO_BORDER + OPAQUE_WHITE — any PCF tap that spills past
-// the edge returns 1.0 (lit), which produces a bright seam right before a cascade boundary. By
-// insetting the inside-test by 2×texelSize (covers the 3×3 neighborhood we sample), we force
-// fall-through into the next (larger) cascade early enough that every tap lands on real data.
-// `depthBias` is reserved on the near Z-boundary so that after SamplePCF subtracts it, the
-// reference depth can't slip below 0 and cause border-clamp false positives (light leaks).
-struct CascadeProj { vec3 proj; bool inside; };
-
-CascadeProj ProjectInCascade(vec3 worldPos, int c, vec2 texelSize, float depthBias)
-{
-    vec4 lsPos = ubo.lightSpaceMatrix[c] * vec4(worldPos, 1.0);
-    vec3 proj  = lsPos.xyz / lsPos.w;
-    proj.xy    = proj.xy * 0.5 + 0.5;
-
-    // XY inset matches the 3×3 PCF footprint (2 texels on each axis, round up).
-    vec2  xyLo    = vec2(2.0 * texelSize);
-    vec2  xyHi    = vec2(1.0) - xyLo;
-    bool  insideXY = all(greaterThanEqual(proj.xy, xyLo)) &&
-                     all(lessThanEqual   (proj.xy, xyHi));
-    // Reserve depthBias worth of headroom at the near plane. proj.z >= 1.0 is still valid —
-    // hardware compare (LESS) will mark it lit, which matches "no caster in front" semantics.
-    bool  insideZ  = (proj.z >= max(depthBias, 0.0)) && (proj.z <= 1.0);
-    return CascadeProj(proj, insideXY && insideZ);
-}
-
-// 3x3 PCF using a pre-computed projection (see ProjectInCascade).
-// Depth bias is slope-scaled: surfaces at grazing angle to the light need a larger
-// offset to avoid self-shadowing (acne). The bias is multiplied by clamp(tan(θ), 1, 10)
-// where θ is the angle between the surface normal and the light direction.
-float SamplePCF(vec3 proj, int cascade, float depthBias, float NdotL, vec2 texelSize)
-{
-    float slopeFactor = clamp(tan(acos(NdotL)), 1.0, 10.0);
-    proj.z -= depthBias * slopeFactor;
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x)
-    {
-        for (int y = -1; y <= 1; ++y)
-        {
-            vec4 sampleCoord = vec4(proj.xy + vec2(x, y) * texelSize, float(cascade), proj.z);
-            shadow += texture(shadowMap, sampleCoord);
-        }
-    }
-    return shadow / 9.0;
-}
-
-// Cascade selection:
-//  1) viewZ picks the slice-appropriate cascade (by construction the fragment is spatially inside).
-//  2) If that cascade's PCF footprint escapes the ortho box (edge taps would read the border),
-//     step up to a larger cascade until one fits or we exhaust all four.
-//  3) Blend into cascade+1 over the last `cascadeBlendWidth` of the slice's viewZ range.
-// Normal bias nudges the sample along N to mitigate acne on grazing surfaces.
-// `outCascade` receives the chosen cascade index (0–3) or -1 for debug visualization.
-struct ShadowResult { float shadow; int cascade; };
-
-ShadowResult ComputeShadowCSM(vec3 worldPos, vec3 N)
-{
-    // Negative bias[0] = shadows globally disabled (CastShadows=false sentinel).
-    if (ubo.shadowBias.x < 0.0)
-        return ShadowResult(1.0, -1);
-
-    float NdotL     = max(dot(N, normalize(-lights.dirLight.direction)), 0.0);
-    vec2  texelSize = 1.0 / vec2(textureSize(shadowMap, 0).xy);
-    float viewZ     = abs((ubo.view * vec4(worldPos, 1.0)).z);
-
-    // viewZ → slice cascade. cascadeSplitsViewZ holds FAR viewZ per cascade.
-    int primary = 3;
-    for (int i = 0; i < 3; ++i)
-    {
-        if (viewZ <= ubo.cascadeSplitsViewZ[i]) { primary = i; break; }
-    }
-
-    // Upgrade to larger cascade if the (normal-biased) projection escapes primary's ortho box.
-    // Normal bias is expressed in TEXELS and scaled by each cascade's world-space texel size so
-    // the offset produces equivalent pixel-space nudges across cascades of very different extents
-    // (cascade 3 can be ~8× cascade 0 yet share the same shadow resolution).
-    int  chosen = -1;
-    vec3 projChosen;
-    for (int i = primary; i < 4; ++i)
-    {
-        float nBias  = ubo.shadowNormalBias[i] * ubo.cascadeTexelSize[i] * (1.0 - NdotL);
-        vec3  biased = worldPos + N * nBias;
-        CascadeProj p = ProjectInCascade(biased, i, texelSize, ubo.shadowBias[i]);
-        if (p.inside)
-        {
-            chosen     = i;
-            projChosen = p.proj;
-            break;
-        }
-    }
-
-    // Fragment escapes every cascade from primary up. Sampler would border-clamp to lit anyway,
-    // so return 1.0 and let the fragment be fully lit (rare — implies world extent > cascade 3).
-    if (chosen < 0)
-        return ShadowResult(1.0, -1);
-
-    float sA = SamplePCF(projChosen, chosen, ubo.shadowBias[chosen], NdotL, texelSize);
-
-    // Blend into next cascade near the far edge of THIS slice's viewZ range (only when the
-    // fragment was served by its primary cascade — fall-through cases are already oversized).
-    float blendStart = 1.0 - ubo.cascadeBlendWidth;
-    if (chosen == primary && chosen < 3)
-    {
-        float nearSplit = (chosen == 0) ? 0.0 : ubo.cascadeSplitsViewZ[chosen - 1];
-        float farSplit  = ubo.cascadeSplitsViewZ[chosen];
-        float t         = (viewZ - nearSplit) / max(farSplit - nearSplit, 1e-4);
-        float blend     = smoothstep(blendStart, 1.0, t);
-
-        if (blend > 0.0)
-        {
-            int   next      = chosen + 1;
-            float nBiasNext = ubo.shadowNormalBias[next] * ubo.cascadeTexelSize[next] * (1.0 - NdotL);
-            vec3  nextPos   = worldPos + N * nBiasNext;
-            CascadeProj pN  = ProjectInCascade(nextPos, next, texelSize, ubo.shadowBias[next]);
-            if (pN.inside)
-            {
-                float sB = SamplePCF(pN.proj, next, ubo.shadowBias[next], NdotL, texelSize);
-                return ShadowResult(mix(sA, sB, blend), chosen);
-            }
-        }
-    }
-
-    return ShadowResult(sA, chosen);
-}
-
-// RT sun-shadow visibility — samples the per-view R8 mask written by rt_sun_shadows.rgen at the
-// current pixel's screen UV. Returns cascade=-1 since RT mode has no cascade selection (debug viz
-// reuses the flag for an RT-specific overlay below). 1-spp hard shadows; soft shadows (sun-disk
-// sampling + denoise) arrive in Phase C with ReSTIR DI / SVGF.
+// RT sun-shadow visibility — samples the per-view R8 mask at the current pixel's screen UV.
+// Returns cascade=-1 since RT mode has no cascade selection (debug viz reuses the flag for an
+// RT-specific overlay below).
 ShadowResult ComputeShadowRT(vec2 uv)
 {
     if (ubo.shadowBias.x < 0.0)
@@ -327,57 +84,13 @@ ShadowResult ComputeShadow(vec3 worldPos, vec3 N, vec2 uv)
 void main()
 {
     GPUMaterialData mat = materials[v_MaterialIndex];
+    PbrSurface s = EvalPbrSurface(mat, v_TexCoord0, v_TexCoord1, v_TBN, v_Normal, gl_FrontFacing);
 
-    // --- Albedo ---
-    vec4 albedo = mat.color;
-    if ((mat.flags & FLAG_HAS_DIFFUSE) != 0u)
-    {
-        vec4 texColor = texture(globalTextures[nonuniformEXT(mat.diffuseIndex)], selectUV(mat.flags, UV_SHIFT_DIFFUSE));
-        albedo *= texColor;
-    }
-
-    // --- Alpha cutoff (Cutout mode: alphaCutoff > 0; Opaque: alphaCutoff == 0) ---
-    if (albedo.a < mat.alphaCutoff)
-        discard;
-
-    // CONTRACT: emissive radiance — MUST stay algebraically identical to common/geom_table.glsl's
-    // FetchHitSurface (raster==RT). factor(linear) * strength, modulated by the emissive texture
-    // (UV0 — emissive has no UV-set bit) when FLAG_HAS_EMISSIVE is set. Raster texture() vs RT
-    // textureLod(.,0) is an accepted LOD asymmetry, not algebraic divergence. see arch/rendering-pipeline.md
-    vec3 emission = mat.emissive.rgb * mat.emissive.a;
-    if ((mat.flags & FLAG_HAS_EMISSIVE) != 0u)
-        emission *= texture(globalTextures[nonuniformEXT(mat.emissiveIndex)], v_TexCoord0).rgb;
-
-    // --- Normal ---
-    vec3 N;
-    if ((mat.flags & FLAG_HAS_NORMAL) != 0u)
-    {
-        vec3 tangentNormal = texture(globalTextures[nonuniformEXT(mat.normalIndex)], selectUV(mat.flags, UV_SHIFT_NORMAL)).rgb;
-        tangentNormal = tangentNormal * 2.0 - 1.0;
-        N = normalize(v_TBN * tangentNormal);
-    }
-    else
-    {
-        N = normalize(v_Normal);
-    }
-
-    // Two-sided lighting — flip the shading normal to face the viewer on back faces (matches the RT path,
-    // which faces its geometric normal against the ray). Single-sided materials cull back faces, so
-    // gl_FrontFacing is always true there and this is a no-op; needed for cull-None cutout foliage.
-    if (!gl_FrontFacing)
-        N = -N;
-
-    // --- Metallic / Roughness ---
-    float metallic  = mat.metalness;
-    float roughness = mat.roughness;
-    if ((mat.flags & FLAG_HAS_METALROUGH) != 0u)
-    {
-        // glTF convention: G = roughness, B = metallic
-        vec3 mrSample = texture(globalTextures[nonuniformEXT(mat.metalRoughIndex)], selectUV(mat.flags, UV_SHIFT_METALROUGH)).rgb;
-        roughness = mrSample.g;
-        metallic  = mrSample.b;
-    }
-    roughness = clamp(roughness, 0.04, 1.0); // 0.04 floor — zero roughness produces NaN in GGX
+    vec4  albedo    = s.albedo;
+    vec3  emission  = s.emission;
+    vec3  N         = s.N;
+    float metallic  = s.metallic;
+    float roughness = s.roughness;
 
     // Tokuyoshi 2019 "Improved Geometric Specular Antialiasing" (HPG). Screen-space normal curvature
     // adds variance to BRDF roughness — kills high-freq specular sparkle on curved surfaces at glancing
@@ -410,11 +123,7 @@ void main()
     // Material-baked AO * screen-space GTAO. GTAO term is fetched
     // from a half-res R8 buffer via bilinear sampling; when the pass is
     // disabled at runtime, gtao.enabled == 0 and we skip the texture read.
-    float ao = 1.0;
-    if ((mat.flags & FLAG_HAS_OCCLUSION) != 0u)
-    {
-        ao = texture(globalTextures[nonuniformEXT(mat.occlusionIndex)], selectUV(mat.flags, UV_SHIFT_OCCLUSION)).r;
-    }
+    float ao = s.materialAO;
     if (gtao.enabled != 0)
     {
         vec2 gtaoUV = gl_FragCoord.xy * gtao.invFullResolution;
@@ -444,21 +153,7 @@ void main()
     }
     else
     {
-        uint  clusterID = ComputeClusterID(gl_FragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
-        uvec2 oc        = clusterGrid.clusters[clusterID];
-        uint  baseIdx   = oc.x;
-        uint  lightCnt  = oc.y;
-        for (uint k = 0u; k < lightCnt; ++k)
-        {
-            PointLightData pl = lights.points[lightIndex.indices[baseIdx + k]];
-            vec3  toLight   = pl.position - v_WorldPos;
-            float dist      = length(toLight);
-            float atten     = 1.0 / max(dist * dist, 0.0001);
-            float rolloff   = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
-            vec3  ptRadiance = pl.color * pl.intensity * atten * rolloff;
-            if (dot(ptRadiance, ptRadiance) > 0.0001)
-                Lo += EvalBRDFTimesNdotL(normalize(toLight), ptRadiance, V, N, albedo.rgb, metallic, roughness);
-        }
+        Lo += EvalClusteredPointLights(gl_FragCoord, v_WorldPos, V, N, albedo.rgb, metallic, roughness);
     }
 
     // ReSTIR GI — demodulated indirect diffuse, ADDED on top of the direct term (independent of the
@@ -469,25 +164,8 @@ void main()
     }
 
     // IBL ambient lighting
-    vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
-    vec3 F  = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    vec3 kD = (1.0 - F) * (1.0 - metallic);
-
-    // Diffuse IBL
-    vec3 irradiance = texture(irradianceMap, N).rgb;
-    vec3 diffuseIBL = irradiance * albedo.rgb;
-
-    // Specular IBL — RT reflections (D.1) swap in for the prefiltered env below the roughness cutoff
-    // (smoothstep fade to IBL); the split-sum env-BRDF (F·brdf.x + brdf.y) then applies once to whichever.
-    const float MAX_REFLECTION_LOD = 4.0;
-    vec3 R = reflect(-V, N);
-    vec3 prefilteredColor = textureLod(prefilteredMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-    vec3 envBRDF = F * brdf.x + brdf.y;
-    vec3 specularIBL = prefilteredColor * envBRDF;
-
-    vec3 ambient = (kD * diffuseIBL + specularIBL) * ao * ubo.iblIntensity;
-    vec3 color = ambient + Lo;
+    IblResult ibl = EvalIblAmbient(N, V, albedo.rgb, metallic, roughness, ao, ubo.iblIntensity);
+    vec3 color = ibl.ambient + Lo;
 
     // RT specular reflection (D.1) — reflRad is the actual traced reflected radiance (scene-lit by its own
     // NEE + occluded by the ray), so it is DECOUPLED from iblIntensity (the IBL artistic knob): point-lit
@@ -499,7 +177,7 @@ void main()
     {
         float reflWeight = 1.0 - smoothstep(ubo.reflParams.y, ubo.reflParams.z, roughness);
         vec3  reflRad    = texture(reflRadiance, gl_FragCoord.xy / ubo.viewportSize).rgb;
-        color += (reflRad * envBRDF - specularIBL * ubo.iblIntensity) * ao * reflWeight;
+        color += (reflRad * ibl.envBRDF - ibl.specularIBL * ubo.iblIntensity) * ao * reflWeight;
     }
 
     // Debug viz: replace final color with the raw AO buffer so the user can
