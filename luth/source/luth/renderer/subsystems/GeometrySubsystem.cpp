@@ -355,8 +355,9 @@ namespace Luth
             auto cfg = makeConfig(bindings, attribs);
             cfg.depthWrite     = true;
             cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-            return cfg;
-        };
+            cfg.cullMode       = VK_CULL_MODE_NONE;   // cutout foliage is two-sided — back faces must reach
+            return cfg;                               // the slim G-buffer (slim_gbuffer.frag flips the normal),
+        };                                            // else RT shadows/reflections read the geometry behind it
 
         if (!m_SlimGBufferVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
         {

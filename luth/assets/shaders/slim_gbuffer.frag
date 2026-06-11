@@ -99,6 +99,12 @@ void main()
     {
         N = normalize(v_TBN[2]);
     }
+
+    // Two-sided: flip to the viewer-facing normal on back faces so RT reflections/shadows reconstruct the
+    // correct hemisphere for cull-None cutout (foliage). No-op for back-face-culled opaque.
+    if (!gl_FrontFacing)
+        N = -N;
+
     outNormal = OctEncode(N);
 
     // glTF convention — roughness sits in the G channel of the metalRough texture. Clamp matches pbr.frag.

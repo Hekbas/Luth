@@ -361,6 +361,12 @@ void main()
         N = normalize(v_Normal);
     }
 
+    // Two-sided lighting — flip the shading normal to face the viewer on back faces (matches the RT path,
+    // which faces its geometric normal against the ray). Single-sided materials cull back faces, so
+    // gl_FrontFacing is always true there and this is a no-op; needed for cull-None cutout foliage.
+    if (!gl_FrontFacing)
+        N = -N;
+
     // --- Metallic / Roughness ---
     float metallic  = mat.metalness;
     float roughness = mat.roughness;
