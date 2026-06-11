@@ -20,6 +20,10 @@ namespace Luth
         VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
 
         bool blendEnabled = false;
+        // Color blend factors (alpha factors stay ONE/ZERO). Defaults reproduce the engine's
+        // standard alpha recipe; integer-format attachments force blendEnable off regardless.
+        VkBlendFactor srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        VkBlendFactor dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 
         // Vertex Input
         std::vector<VkVertexInputBindingDescription> bindingDescriptions;

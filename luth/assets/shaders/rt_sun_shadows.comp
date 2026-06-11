@@ -116,7 +116,7 @@ void main()
     // so occluded = committed != None (matches the rgen payload: 0 on hit, 1 on miss).
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
         origin, 0.0, L, 10000.0);
     RtConfirmAlphaCandidates(rq, pc.geomTable);
     float visibility =

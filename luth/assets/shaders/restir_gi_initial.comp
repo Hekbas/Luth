@@ -85,7 +85,7 @@ void main() {
     float tMin   = ubo.rtShadowParams.y;
     vec3  origin = worldPos + Nv * ubo.rtShadowParams.z + d * tMin;
     rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, 0xFFu, origin, tMin, d, 1.0e30);
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, GT_VIS_ALL, origin, tMin, d, 1.0e30);
     RtConfirmAlphaCandidates(rq, pc.geomTable);
     if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
         reservoirs[flatIdx] = r;   // miss (sky / open) → empty GI sample
@@ -126,7 +126,7 @@ void main() {
             vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lw * sMin;
             rayQueryEXT sq;
             rayQueryInitializeEXT(sq, topLevelAS,
-                gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+                gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
                 sOrig, sMin, Lw, max(ld - 2.0 * sMin, sMin));
             RtConfirmAlphaCandidates(sq, pc.geomTable);
             float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
@@ -145,7 +145,7 @@ void main() {
             vec3  sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lsun * sMin;
             rayQueryEXT sq;
             rayQueryInitializeEXT(sq, topLevelAS,
-                gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+                gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
                 sOrig, sMin, Lsun, 1.0e30);
             RtConfirmAlphaCandidates(sq, pc.geomTable);
             float vis = (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;

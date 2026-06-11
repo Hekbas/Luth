@@ -42,6 +42,8 @@ namespace Luth::RG
         ComputeReadStorage,         // Compute/RT read of a STORAGE image (imageLoad) — stays GENERAL
         StorageBufferRead,          // Compute shader read (SSBO)
         StorageBufferWrite,         // Compute shader write (SSBO)
+        FragmentStorageRead,        // Fragment-shader storage read (image stays GENERAL) — PPLL resolve
+        FragmentStorageWrite,       // Fragment-shader storage write, RMW access for atomics — PPLL store
         IndirectRead,               // Indirect draw/dispatch command read
         AccelerationStructureBuild, // vkCmdBuildAccelerationStructuresKHR write
         AccelerationStructureRead,  // Ray-query / RT-pipeline / fragment-shader read of AS

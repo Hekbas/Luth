@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 178;  // + Reflections trace 1 + spec SVGF 7 sets (passthrough 1 + reproject 2 + moments 2 + atrous 2)
+    static constexpr u32 k_ViewPoolMaxSets              = 181;  // + Transparency Set 6 ×3 (cycled)
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 183;  // + Reflections trace 1 + spec SVGF 25 (passthrough 1 + reproject 12 + moments 6 + atrous 6)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 253;  // + Reflections trace b1-b3 + spec SVGF 17 + Set 3 b7 reflection sampler (×MAX_FRAMES_IN_FLIGHT)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 186;  // + Transparency b1 OIT heads ×3
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes ×3
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 256;  // + Transparency b0 fog atlas ×3
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -73,7 +73,8 @@ namespace Luth
             AllocateViewResources(vr, targets);
         }
         else if (vr.width != newW || vr.height != newH ||
-                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality))
+                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality) ||
+                 vr.oitLayersCached != m_System.GetTransparencySettings().avgLayersBudget)
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -91,6 +92,7 @@ namespace Luth
             m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
+            m_Transparency.WriteOitView(vr);        // re-bind Set 6 b1/b2 + resolve set to the new heads image + pool
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
@@ -226,7 +228,9 @@ namespace Luth
         allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
+        allocCycled(m_Transparency.GetSetLayout(),       vr.transparentDescSet,   "View.Transparent");
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
+        allocSingle(m_Transparency.GetResolveSetLayout(), vr.oitResolveDescSet,   "View.OitResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
@@ -250,6 +254,7 @@ namespace Luth
         m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);
         m_Volumetric.WriteVizView(vr, targets);
+        m_Transparency.WriteOitView(vr);
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
         m_RestirGi.WriteView(vr, targets);
@@ -415,6 +420,26 @@ namespace Luth
         vr.restirGiSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
             vr.restirGiSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 64u, 16);
 
+        // PPLL OIT heads — R32_Uint storage, cleared by OITClear each frame (no bootstrap clear:
+        // the per-frame Undefined import + transfer clear defines layout and content together).
+        vr.oitHeads = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::R32_Uint,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // PPLL OIT node pool — `{count, pad[3], OITNode[W*H*budget]}`, 16 B/node, Garlic device-local
+        // with a reserved tag (reservoir lifecycle: freed only here on realloc, or on view release).
+        if (vr.oitNodesTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            vr.oitNodes = {};
+        }
+        const u32 oitBudget = m_System.GetTransparencySettings().avgLayersBudget;
+        vr.oitLayersCached  = oitBudget;
+        vr.oitNodesTag      = m_Transparency.NextNodePoolTag();
+        vr.oitNodes = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+            vr.oitNodesTag, 16ull + static_cast<u64>(fullW) * static_cast<u64>(fullH) * oitBudget * 16ull, 16);
+
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
                 halfW, halfH, fmt,
@@ -501,21 +526,41 @@ namespace Luth
             for (u32 i = 0; i < kClearCount; ++i)
                 vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
 
-            VkImageMemoryBarrier toGen[kClearCount]{};
-            for (u32 i = 0; i < kClearCount; ++i)
+            // OIT heads — uint image, separate clear value (OIT_EMPTY = 0xFFFFFFFF). Bootstrapping to
+            // GENERAL here makes the per-frame import's claimed initial state (FragmentStorageRead)
+            // true on frame 0; the cross-frame WAR ordering relies on that claimed src stage.
+            VkImage headsImg = std::static_pointer_cast<VKTexture>(vr.oitHeads)->GetImage();
+            VkImageMemoryBarrier headsToDst{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+            headsToDst.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            headsToDst.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            headsToDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            headsToDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            headsToDst.image               = headsImg;
+            headsToDst.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            headsToDst.srcAccessMask       = 0;
+            headsToDst.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &headsToDst);
+            VkClearColorValue headsClear{};
+            headsClear.uint32[0] = 0xFFFFFFFFu;
+            vkCmdClearColorImage(cmd, headsImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &headsClear, 1, &range);
+
+            VkImageMemoryBarrier toGen[kClearCount + 1]{};
+            for (u32 i = 0; i < kClearCount + 1; ++i)
             {
                 toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
                 toGen[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
                 toGen[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 toGen[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                toGen[i].image               = clearTargets[i];
+                toGen[i].image               = (i < kClearCount) ? clearTargets[i] : headsImg;
                 toGen[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
                 toGen[i].srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
                 toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             }
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, kClearCount, toGen);
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, kClearCount + 1, toGen);
         });
     }
 
@@ -567,6 +612,15 @@ namespace Luth
         }
         vr.svgfSpecAtrous[0].reset();
         vr.svgfSpecAtrous[1].reset();
+        vr.oitHeads.reset();
+
+        // OIT node-pool reserved tag — same recycle path as the reservoir tags below.
+        if (vr.oitNodesTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            vr.oitNodesTag = 0;
+            vr.oitNodes = {};
+        }
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

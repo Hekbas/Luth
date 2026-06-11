@@ -1223,9 +1223,9 @@ namespace Luth
                     }
                 };
 
-                DrawBatch(sys.GetDrawList().opaque,      Material::RenderMode::Opaque);
-                DrawBatch(sys.GetDrawList().cutout,      Material::RenderMode::Cutout);
-                DrawBatch(sys.GetDrawList().transparent, Material::RenderMode::Transparent);
+                // Transparent moved to TransparencySubsystem's pass after skybox + fog composite.
+                DrawBatch(sys.GetDrawList().opaque, Material::RenderMode::Opaque);
+                DrawBatch(sys.GetDrawList().cutout, Material::RenderMode::Cutout);
 
                 sys.GetFrameDebugger().EndCapturePass();
             }

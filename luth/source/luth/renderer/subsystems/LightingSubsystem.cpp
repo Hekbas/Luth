@@ -895,9 +895,9 @@ namespace Luth
                     }
                 };
 
+                // Transparent casts no shadows — matches its TLAS exclusion (RT-excluded tier).
                 DrawBatch(sys.GetDrawList().opaque);
                 DrawBatch(sys.GetDrawList().cutout);
-                DrawBatch(sys.GetDrawList().transparent);
 
                 sys.GetFrameDebugger().EndCapturePass();
             }

@@ -84,7 +84,7 @@ void main() {
 
         rayQueryEXT rq;
         rayQueryInitializeEXT(rq, topLevelAS,
-            gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+            gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
             origin, tMin, L, max(dist - 2.0 * tMin, tMin));
         RtConfirmAlphaCandidates(rq, pc.geomTable);
         if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT)

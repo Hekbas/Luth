@@ -8,6 +8,14 @@
 #ifndef LUTH_SHADERS_COMMON_GEOM_TABLE
 #define LUTH_SHADERS_COMMON_GEOM_TABLE
 
+// TLAS visibility masks — mirrored by TlasBuilder.cpp's instance masks. Shadow-class rays
+// (sun/light visibility, fog shadows) cull to SOLID so transparent never blocks light; world-class
+// rays (GI bounce, reflections, PT) trace ALL and commit glass like a surface (instances are
+// FORCE_OPAQUE) — emissive glass feeds the GI bounce and shows in reflections as an unblended
+// surface approximation.
+#define GT_VIS_SOLID 0x01u
+#define GT_VIS_ALL   0x03u
+
 // vbuf/ibuf are the ORIGINAL full-layout buffers (positions @float 0, TexCoord0 @float 6, TexCoord1
 // @float 8 — for both Vertex 52 B + SkinnedVertex 84 B). Skinned hits read bind-pose attributes (the
 // hit POINT rides the deformed TLAS; only n_s/UV are bind-pose — fine for diffuse-dominant bounces).
@@ -21,7 +29,10 @@ struct GtGeomEntry {
 };
 layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GtGeomEntry e[]; };
 
-// Mirrors GPUMaterialData (renderer/material). 80 B std430.
+// Mirrors GPUMaterialData (renderer/material). 80 B std430. Consumers whose pipeline layout
+// already occupies sets 3/4 (the geometry layout: Light/Bones) define GT_NO_RESOURCE_DECLS and
+// alias GtMaterial/gtMaterials/gtTextures onto their own declarations (see pbr_transparent.frag).
+#ifndef GT_NO_RESOURCE_DECLS
 struct GtMaterial {
     vec4  color;
     uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
@@ -32,6 +43,7 @@ struct GtMaterial {
 };
 layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
+#endif
 
 const uint GT_FLAG_HAS_METALROUGH = (1u << 1);
 const uint GT_FLAG_HAS_DIFFUSE    = (1u << 3);
