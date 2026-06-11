@@ -33,6 +33,14 @@ namespace Luth
         // Set 6 b0 ← parity-picked resolved fog atlas (the volumetric composite's b1 rule).
         void WritePerFrame(ViewResources& vr, u32 frameAbs);
 
+        // Set 6 b1/b2 (heads + nodes, all cycled slots) + the resolve set ← the view's OIT
+        // resources. Called from AllocateViewResources + on resize/budget reallocation.
+        void WriteOitView(ViewResources& vr);
+
+        // Reserved Garlic tag range for per-view OIT node pools — disjoint from ReSTIR DI
+        // (0xFFFF0000+) and GI (0xFFFF8000+); outside the per-frame FreeTag(N-2) sweep.
+        u32 NextNodePoolTag() { return m_NextNodePoolTag++; }
+
         // Contributes the transparent pass(es) after the volumetric composite. sceneColor/entityID/
         // sceneDepth are GeometryPass-chain handles (same nodes — never re-imported); fogResolved is
         // the post-resolve atlas handle (invalid when volumetric is off → fog flag cleared).
@@ -44,7 +52,8 @@ namespace Luth
                                      RG::ResourceHandle fogResolved,
                                      RG::BufferHandle indirectBufferHandle);
 
-        VkDescriptorSetLayout GetSetLayout() const { return m_TransparentSetLayout; }
+        VkDescriptorSetLayout GetSetLayout()        const { return m_TransparentSetLayout; }
+        VkDescriptorSetLayout GetResolveSetLayout() const { return m_ResolveSetLayout; }
 
     private:
         RG::ResourceHandle AddSortedPass(RG::RenderGraph& rg,
@@ -69,9 +78,13 @@ namespace Luth
         // storage image + b2 OIT nodes SSBO (UAB + partially-bound — written when the PPLL lands;
         // the sorted pipeline never statically uses them).
         VkDescriptorSetLayout m_TransparentSetLayout = VK_NULL_HANDLE;
+        // OIT resolve pass-local (Set 1 of the fullscreen pipeline): b0 heads, b1 nodes.
+        VkDescriptorSetLayout m_ResolveSetLayout = VK_NULL_HANDLE;
 
         PipelineManager  m_SortedPm;
         PipelineManager  m_SortedSkinnedPm;
         std::vector<u32> m_TransparentFragSpv;
+
+        u32 m_NextNodePoolTag = 0xFFFFC000u;
     };
 }

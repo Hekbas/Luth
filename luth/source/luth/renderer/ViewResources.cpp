@@ -73,7 +73,8 @@ namespace Luth
             AllocateViewResources(vr, targets);
         }
         else if (vr.width != newW || vr.height != newH ||
-                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality))
+                 vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality) ||
+                 vr.oitLayersCached != m_System.GetTransparencySettings().avgLayersBudget)
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -91,6 +92,7 @@ namespace Luth
             m_Volumetric.WriteResolveView(vr);
             m_Volumetric.WriteCompositeView(vr, targets);
             m_Volumetric.WriteVizView(vr, targets);
+            m_Transparency.WriteOitView(vr);        // re-bind Set 6 b1/b2 + resolve set to the new heads image + pool
             m_Rt.WriteShadowPassView(vr, targets);  // re-bind binding 2 (mask storage) to the new viewport-sized image
             m_Restir.WriteView(vr, targets);        // re-bind Set 2 depth/normal + reservoir + new DI image
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
@@ -228,6 +230,7 @@ namespace Luth
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
         allocCycled(m_Transparency.GetSetLayout(),       vr.transparentDescSet,   "View.Transparent");
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
+        allocSingle(m_Transparency.GetResolveSetLayout(), vr.oitResolveDescSet,   "View.OitResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
@@ -251,6 +254,7 @@ namespace Luth
         m_Volumetric.WriteResolveView(vr);
         m_Volumetric.WriteCompositeView(vr, targets);
         m_Volumetric.WriteVizView(vr, targets);
+        m_Transparency.WriteOitView(vr);
         m_Rt.WriteShadowPassView(vr, targets);
         m_Restir.WriteView(vr, targets);
         m_RestirGi.WriteView(vr, targets);
@@ -416,6 +420,26 @@ namespace Luth
         vr.restirGiSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
             vr.restirGiSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 64u, 16);
 
+        // PPLL OIT heads — R32_Uint storage, cleared by OITClear each frame (no bootstrap clear:
+        // the per-frame Undefined import + transfer clear defines layout and content together).
+        vr.oitHeads = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::R32_Uint,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // PPLL OIT node pool — `{count, pad[3], OITNode[W*H*budget]}`, 16 B/node, Garlic device-local
+        // with a reserved tag (reservoir lifecycle: freed only here on realloc, or on view release).
+        if (vr.oitNodesTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            vr.oitNodes = {};
+        }
+        const u32 oitBudget = m_System.GetTransparencySettings().avgLayersBudget;
+        vr.oitLayersCached  = oitBudget;
+        vr.oitNodesTag      = m_Transparency.NextNodePoolTag();
+        vr.oitNodes = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
+            vr.oitNodesTag, 16ull + static_cast<u64>(fullW) * static_cast<u64>(fullH) * oitBudget * 16ull, 16);
+
         auto makeStorage = [&](TextureFormat fmt) {
             return std::make_shared<VKTexture>(
                 halfW, halfH, fmt,
@@ -568,6 +592,15 @@ namespace Luth
         }
         vr.svgfSpecAtrous[0].reset();
         vr.svgfSpecAtrous[1].reset();
+        vr.oitHeads.reset();
+
+        // OIT node-pool reserved tag — same recycle path as the reservoir tags below.
+        if (vr.oitNodesTag != 0)
+        {
+            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            vr.oitNodesTag = 0;
+            vr.oitNodes = {};
+        }
 
         // Release both reservoir reserved-range tags. The pages recycle into the device-local free
         // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.

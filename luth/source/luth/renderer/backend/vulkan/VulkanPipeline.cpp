@@ -117,8 +117,8 @@ namespace Luth
 
             att.blendEnable = (config.blendEnabled && !isIntegerFormat) ? VK_TRUE : VK_FALSE;
             if (att.blendEnable) {
-                att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-                att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                att.srcColorBlendFactor = config.srcColorBlendFactor;
+                att.dstColorBlendFactor = config.dstColorBlendFactor;
                 att.colorBlendOp = VK_BLEND_OP_ADD;
                 att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
                 att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;

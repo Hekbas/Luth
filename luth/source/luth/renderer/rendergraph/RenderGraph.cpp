@@ -47,6 +47,17 @@ namespace Luth::RG
         return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ComputeWrite);
     }
 
+    ResourceHandle RenderPassBuilder::ReadStorageImageFragment(ResourceHandle resource)
+    {
+        m_Graph.RegisterRead(m_PassIndex, resource, ResourceState::FragmentStorageRead);
+        return resource;
+    }
+
+    ResourceHandle RenderPassBuilder::WriteStorageImageFragment(ResourceHandle resource)
+    {
+        return m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::FragmentStorageWrite);
+    }
+
     ResourceHandle RenderPassBuilder::Write(ResourceHandle resource, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue)
     {
         ResourceHandle newHandle = m_Graph.RegisterWrite(m_PassIndex, resource, ResourceState::ColorAttachment);
@@ -80,6 +91,22 @@ namespace Luth::RG
     BufferHandle RenderPassBuilder::WriteBuffer(BufferHandle buffer)
     {
         return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::StorageBufferWrite);
+    }
+
+    BufferHandle RenderPassBuilder::ReadBufferFragment(BufferHandle buffer)
+    {
+        m_Graph.RegisterBufferRead(m_PassIndex, buffer, ResourceState::FragmentStorageRead);
+        return buffer;
+    }
+
+    BufferHandle RenderPassBuilder::WriteBufferFragment(BufferHandle buffer)
+    {
+        return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::FragmentStorageWrite);
+    }
+
+    BufferHandle RenderPassBuilder::WriteBufferTransfer(BufferHandle buffer)
+    {
+        return m_Graph.RegisterBufferWrite(m_PassIndex, buffer, ResourceState::TransferDst);
     }
 
     void RenderPassBuilder::SetHasSideEffect()
@@ -541,6 +568,10 @@ namespace Luth::RG
                                                                 VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
+            // Fragment-stage storage (PPLL). Write carries READ too — the store path is RMW
+            // (imageAtomicExchange on heads, atomicAdd on the node counter).
+            case ResourceState::FragmentStorageRead:    return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
+            case ResourceState::FragmentStorageWrite:   return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::IndirectRead:           return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT };
             case ResourceState::AccelerationStructureBuild:
                 return { VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
@@ -570,6 +601,8 @@ namespace Luth::RG
             case ResourceState::ComputeRead:            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             case ResourceState::ComputeWrite:           return VK_IMAGE_LAYOUT_GENERAL;
             case ResourceState::ComputeReadStorage:     return VK_IMAGE_LAYOUT_GENERAL;
+            case ResourceState::FragmentStorageRead:    return VK_IMAGE_LAYOUT_GENERAL;
+            case ResourceState::FragmentStorageWrite:   return VK_IMAGE_LAYOUT_GENERAL;
             // Buffer states have no image layout — return UNDEFINED (never used for image barriers)
             default:                                    return VK_IMAGE_LAYOUT_UNDEFINED;
         }
@@ -591,6 +624,8 @@ namespace Luth::RG
             case ResourceState::ComputeReadStorage:         return "ComputeReadStorage";
             case ResourceState::StorageBufferRead:          return "StorageBufferRead";
             case ResourceState::StorageBufferWrite:         return "StorageBufferWrite";
+            case ResourceState::FragmentStorageRead:        return "FragmentStorageRead";
+            case ResourceState::FragmentStorageWrite:       return "FragmentStorageWrite";
             case ResourceState::IndirectRead:               return "IndirectRead";
             case ResourceState::AccelerationStructureBuild: return "AccelerationStructureBuild";
             case ResourceState::AccelerationStructureRead:  return "AccelerationStructureRead";

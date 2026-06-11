@@ -78,6 +78,23 @@ namespace Luth
         layoutCI.bindingCount = 3;
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_TransparentSetLayout);
+
+        // OIT resolve layout — b0 heads (storage image), b1 nodes (SSBO). Stable per-view; rewritten
+        // only by WriteOitView on alloc/resize, so no UAB flags needed.
+        VkDescriptorSetLayoutBinding resolveBindings[2]{};
+        resolveBindings[0].binding         = 0;
+        resolveBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        resolveBindings[0].descriptorCount = 1;
+        resolveBindings[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        resolveBindings[1].binding         = 1;
+        resolveBindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        resolveBindings[1].descriptorCount = 1;
+        resolveBindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo resolveCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        resolveCI.bindingCount = 2;
+        resolveCI.pBindings    = resolveBindings;
+        vkCreateDescriptorSetLayout(device, &resolveCI, nullptr, &m_ResolveSetLayout);
     }
 
     void TransparencySubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -133,10 +150,16 @@ namespace Luth
     {
         m_SortedPm.Shutdown();
         m_SortedSkinnedPm.Shutdown();
+        VkDevice device = VulkanContext::Get().GetDevice();
         if (m_TransparentSetLayout != VK_NULL_HANDLE)
         {
-            vkDestroyDescriptorSetLayout(VulkanContext::Get().GetDevice(), m_TransparentSetLayout, nullptr);
+            vkDestroyDescriptorSetLayout(device, m_TransparentSetLayout, nullptr);
             m_TransparentSetLayout = VK_NULL_HANDLE;
+        }
+        if (m_ResolveSetLayout != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorSetLayout(device, m_ResolveSetLayout, nullptr);
+            m_ResolveSetLayout = VK_NULL_HANDLE;
         }
     }
 
@@ -190,6 +213,62 @@ namespace Luth
         write.descriptorCount = 1;
         write.pImageInfo      = &scatInfo;
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+    }
+
+    void TransparencySubsystem::WriteOitView(ViewResources& vr)
+    {
+        if (m_TransparentSetLayout == VK_NULL_HANDLE) return;
+        if (!vr.oitHeads || vr.oitNodes.buffer == VK_NULL_HANDLE) return;
+
+        auto vkHeads = std::static_pointer_cast<VKTexture>(vr.oitHeads);
+
+        VkDescriptorImageInfo headsInfo{};
+        headsInfo.imageView   = vkHeads->GetImageView();
+        headsInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        // Bind through the producer's GPUSubRegion {buffer, offset, size} — RG BufferHandles are
+        // barrier bookkeeping only. see arch/rendering-pipeline.md (hazard 3)
+        VkDescriptorBufferInfo nodesInfo{};
+        nodesInfo.buffer = vr.oitNodes.buffer;
+        nodesInfo.offset = vr.oitNodes.offset;
+        nodesInfo.range  = vr.oitNodes.size;
+
+        std::vector<VkWriteDescriptorSet> writes;
+        writes.reserve(MAX_FRAMES_IN_FLIGHT * 2 + 2);
+        for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
+        {
+            if (vr.transparentDescSet[slot] == VK_NULL_HANDLE) continue;
+            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            w.dstSet          = vr.transparentDescSet[slot];
+            w.dstBinding      = 1;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            w.descriptorCount = 1;
+            w.pImageInfo      = &headsInfo;
+            writes.push_back(w);
+            w.dstBinding      = 2;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            w.pImageInfo      = nullptr;
+            w.pBufferInfo     = &nodesInfo;
+            writes.push_back(w);
+        }
+        if (vr.oitResolveDescSet != VK_NULL_HANDLE)
+        {
+            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            w.dstSet          = vr.oitResolveDescSet;
+            w.dstBinding      = 0;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            w.descriptorCount = 1;
+            w.pImageInfo      = &headsInfo;
+            writes.push_back(w);
+            w.dstBinding      = 1;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            w.pImageInfo      = nullptr;
+            w.pBufferInfo     = &nodesInfo;
+            writes.push_back(w);
+        }
+        if (!writes.empty())
+            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(),
+                static_cast<u32>(writes.size()), writes.data(), 0, nullptr);
     }
 
     RG::ResourceHandle TransparencySubsystem::AddPasses(RG::RenderGraph& rg,

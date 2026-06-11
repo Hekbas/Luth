@@ -36,6 +36,10 @@ namespace Luth::RG
         ResourceHandle ReadStorageImage(ResourceHandle resource);        // Compute read, SAMPLED → SHADER_READ_ONLY
         ResourceHandle ReadStorageImageGeneral(ResourceHandle resource); // Compute read, STORAGE imageLoad → stays GENERAL
         ResourceHandle WriteStorageImage(ResourceHandle resource);       // Compute write (storage) → GENERAL
+        // Fragment-stage storage variants — the Compute* states above emit COMPUTE-stage barriers,
+        // which under-synchronize a fragment-shader producer/consumer (PPLL store/resolve).
+        ResourceHandle ReadStorageImageFragment(ResourceHandle resource);  // Fragment imageLoad → stays GENERAL
+        ResourceHandle WriteStorageImageFragment(ResourceHandle resource); // Fragment storage write (atomics) → GENERAL
 
         ResourceHandle Write(ResourceHandle resource,
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -53,6 +57,9 @@ namespace Luth::RG
         // Buffer resources
         BufferHandle ReadBuffer(BufferHandle buffer);          // StorageBufferRead
         BufferHandle WriteBuffer(BufferHandle buffer);         // StorageBufferWrite
+        BufferHandle ReadBufferFragment(BufferHandle buffer);  // FragmentStorageRead
+        BufferHandle WriteBufferFragment(BufferHandle buffer); // FragmentStorageWrite
+        BufferHandle WriteBufferTransfer(BufferHandle buffer); // TransferDst (vkCmdFillBuffer / copy)
         BufferHandle ReadIndirectBuffer(BufferHandle buffer);  // IndirectRead
 
         // Mark this pass as having engine-side side effects (state mutations outside the RG).

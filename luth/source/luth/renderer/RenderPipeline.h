@@ -183,6 +183,17 @@ namespace Luth
         // frame like volCompositeDescSet's b1; b1/b2 (OIT heads + nodes) written when the PPLL lands.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> transparentDescSet{};
 
+        // PPLL OIT — heads: R32_Uint storage image (per-pixel list head; cleared per frame by
+        // OITClear, so no bootstrap clear). nodes: Garlic device-local large-tagged buffer
+        // `{count, pad[3], OITNode[W*H*budget]}` — ReSTIR-reservoir lifecycle (reserved tag, freed
+        // only on resize / budget change / release). oitLayersCached mirrors volQualityCached so a
+        // runtime budget change reallocates. Resolve set: b0 heads + b1 nodes (single, stable).
+        std::shared_ptr<Texture> oitHeads;
+        Memory::GPUSubRegion     oitNodes{};
+        u32                      oitNodesTag = 0;
+        u32                      oitLayersCached = ~0u;
+        VkDescriptorSet          oitResolveDescSet = VK_NULL_HANDLE;
+
         // Cluster debug viz: single set, 1 binding = SceneDepth sampler. Stable per-view; written
         // by WriteClusterVizView at AllocateViewResources time.
         VkDescriptorSet clusterVizDescSet = VK_NULL_HANDLE;
