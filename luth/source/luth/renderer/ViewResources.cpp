@@ -526,21 +526,41 @@ namespace Luth
             for (u32 i = 0; i < kClearCount; ++i)
                 vkCmdClearColorImage(cmd, clearTargets[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range);
 
-            VkImageMemoryBarrier toGen[kClearCount]{};
-            for (u32 i = 0; i < kClearCount; ++i)
+            // OIT heads — uint image, separate clear value (OIT_EMPTY = 0xFFFFFFFF). Bootstrapping to
+            // GENERAL here makes the per-frame import's claimed initial state (FragmentStorageRead)
+            // true on frame 0; the cross-frame WAR ordering relies on that claimed src stage.
+            VkImage headsImg = std::static_pointer_cast<VKTexture>(vr.oitHeads)->GetImage();
+            VkImageMemoryBarrier headsToDst{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+            headsToDst.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            headsToDst.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            headsToDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            headsToDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            headsToDst.image               = headsImg;
+            headsToDst.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            headsToDst.srcAccessMask       = 0;
+            headsToDst.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &headsToDst);
+            VkClearColorValue headsClear{};
+            headsClear.uint32[0] = 0xFFFFFFFFu;
+            vkCmdClearColorImage(cmd, headsImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &headsClear, 1, &range);
+
+            VkImageMemoryBarrier toGen[kClearCount + 1]{};
+            for (u32 i = 0; i < kClearCount + 1; ++i)
             {
                 toGen[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                 toGen[i].oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
                 toGen[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
                 toGen[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 toGen[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                toGen[i].image               = clearTargets[i];
+                toGen[i].image               = (i < kClearCount) ? clearTargets[i] : headsImg;
                 toGen[i].subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
                 toGen[i].srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
                 toGen[i].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             }
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, kClearCount, toGen);
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, kClearCount + 1, toGen);
         });
     }
 

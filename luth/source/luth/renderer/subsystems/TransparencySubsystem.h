@@ -63,6 +63,19 @@ namespace Luth
                                          RG::ResourceHandle fogResolved,
                                          RG::BufferHandle indirectBufferHandle);
 
+        // OITClear (transfer: heads → OIT_EMPTY, node count → 0) → OITStore (shade + list push) →
+        // OITResolve (fullscreen sort-K + composite). Heads/nodes are imported once in OITClear in
+        // their end-of-frame state (FragmentStorageRead) so the clear orders after last frame's
+        // resolve reads (cross-frame WAR); downstream passes reuse the returned handles.
+        RG::ResourceHandle AddOitPasses(RG::RenderGraph& rg,
+                                        RG::ResourceHandle sceneColor,
+                                        RG::ResourceHandle entityID,
+                                        RG::ResourceHandle sceneDepth,
+                                        RG::ResourceHandle fogResolved,
+                                        RG::BufferHandle indirectBufferHandle);
+
+        void BuildResolvePipeline();
+
         // Matches pbr_transparent_shading.glsl's push-constant block (16 B, FRAGMENT).
         struct TransparentPC
         {
@@ -83,7 +96,14 @@ namespace Luth
 
         PipelineManager  m_SortedPm;
         PipelineManager  m_SortedSkinnedPm;
+        PipelineManager  m_OitPm;
+        PipelineManager  m_OitSkinnedPm;
         std::vector<u32> m_TransparentFragSpv;
+        std::vector<u32> m_OitStoreFragSpv;
+        std::vector<u32> m_FullscreenVertSpv;
+        std::vector<u32> m_ResolveFragSpv;
+
+        std::unique_ptr<VKPipeline> m_ResolvePipeline;
 
         u32 m_NextNodePoolTag = 0xFFFFC000u;
     };

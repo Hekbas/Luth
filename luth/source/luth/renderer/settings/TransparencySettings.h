@@ -14,7 +14,7 @@ namespace Luth
     // nearest fragments the resolve exact-sorts per pixel (extras tail-merge into the farthest slot).
     struct TransparencySettings
     {
-        TransparencyMode mode = TransparencyMode::Sorted;  // OIT becomes the default once the PPLL passes land
+        TransparencyMode mode = TransparencyMode::OIT;
         u32 avgLayersBudget = 4;   // node pool budget, average layers per pixel (1-16)
         u32 maxResolveK     = 8;   // exact-sorted layers per pixel in the resolve (1-16)
     };
