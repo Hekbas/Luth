@@ -36,7 +36,7 @@ layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer Geo
 struct GtMaterial {
     vec4  color;
     uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    uint  emissiveIndex, alphaIndex, specularIndex, thicknessIndex;
+    uint  emissiveIndex, alphaIndex, specularIndex, thicknessIndex;   // alpha/specular/thickness reserved — unsampled
     float metalness, roughness, alphaCutoff;
     uint  flags;           // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     vec4  emissive;        // rgb = factor (linear), a = HDR strength
@@ -45,20 +45,25 @@ layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMateri
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
 #endif
 
+const uint GT_FLAG_HAS_NORMAL     = (1u << 0);
 const uint GT_FLAG_HAS_METALROUGH = (1u << 1);
+const uint GT_FLAG_HAS_OCCLUSION  = (1u << 2);
 const uint GT_FLAG_HAS_DIFFUSE    = (1u << 3);
 const uint GT_FLAG_HAS_EMISSIVE   = (1u << 4);
 const uint GT_UV_SHIFT_DIFFUSE    = 16u;
+const uint GT_UV_SHIFT_NORMAL     = 18u;
 const uint GT_UV_SHIFT_METALROUGH = 20u;
+const uint GT_UV_SHIFT_OCCLUSION  = 22u;
 
 // Surface attributes resolved at a rayQuery COMMITTED hit.
 struct HitSurface {
-    vec3  ns;          // SHADING normal: smooth barycentric vertex normals (matches raster v_Normal) — for the BRDF
+    vec3  ns;          // SHADING normal: vertex normals (inverse-transpose) perturbed by the normal map — for the BRDF
     vec3  ng;          // GEOMETRIC (face) normal, faced against the ray — for robust ray-origin offsets + side
     vec3  baseColor;   // diffuse albedo (material color × diffuse map)
     vec3  emission;
     float metalness;
     float roughness;
+    float ao;          // baked occlusion map term (1.0 if absent) — caller applies to ambient/IBL, matching raster
 };
 
 // customIndex/primIndex/bary/o2w come from rayQueryGetIntersection*EXT(rq, true); rayDir = the ray dir
@@ -85,15 +90,21 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     if (dot(s.ng, rayDir) > 0.0) s.ng = -s.ng;
 
     // Smooth SHADING normal — barycentric vertex normals (floats 3-5), matching pbr.frag's interpolated
-    // v_Normal so the reference isn't faceted. o2w 3x3 transform (drops the inverse-transpose skew under
-    // non-uniform scale — negligible), kept on the geometric side; fall back to ng if normals are absent.
+    // v_Normal. Inverse-transpose object→world (pbr.vert's normalMatrix) keeps non-uniform scale raster==RT;
+    // fall back to ng if absent, face to ng's side AFTER the normal-map perturb. see arch/rendering-pipeline.md
     vec3 vn0 = vec3(ge.vbuf.f[i0*sF + 3u], ge.vbuf.f[i0*sF + 4u], ge.vbuf.f[i0*sF + 5u]);
     vec3 vn1 = vec3(ge.vbuf.f[i1*sF + 3u], ge.vbuf.f[i1*sF + 4u], ge.vbuf.f[i1*sF + 5u]);
     vec3 vn2 = vec3(ge.vbuf.f[i2*sF + 3u], ge.vbuf.f[i2*sF + 4u], ge.vbuf.f[i2*sF + 5u]);
     vec3 nsObj = wgt.x * vn0 + wgt.y * vn1 + wgt.z * vn2;
-    s.ns = mat3(o2w) * nsObj;
-    s.ns = (dot(s.ns, s.ns) > 1.0e-12) ? normalize(s.ns) : s.ng;
-    if (dot(s.ns, s.ng) < 0.0) s.ns = -s.ns;
+    mat3 nrmM  = mat3(transpose(inverse(mat3(o2w))));   // inverse-transpose normal matrix — see pbr.vert
+    vec3 nsW   = nrmM * nsObj;
+    nsW = (dot(nsW, nsW) > 1.0e-12) ? normalize(nsW) : s.ng;
+
+    // Object-space vertex tangent (floats 10-12, present in both layouts) for the normal-map TBN below.
+    vec3 vt0 = vec3(ge.vbuf.f[i0*sF + 10u], ge.vbuf.f[i0*sF + 11u], ge.vbuf.f[i0*sF + 12u]);
+    vec3 vt1 = vec3(ge.vbuf.f[i1*sF + 10u], ge.vbuf.f[i1*sF + 11u], ge.vbuf.f[i1*sF + 12u]);
+    vec3 vt2 = vec3(ge.vbuf.f[i2*sF + 10u], ge.vbuf.f[i2*sF + 11u], ge.vbuf.f[i2*sF + 12u]);
+    vec3 tanObj = wgt.x * vt0 + wgt.y * vt1 + wgt.z * vt2;
 
     // Barycentric UVs. TexCoord0 @float 6, TexCoord1 @float 8.
     vec2 uv0 = wgt.x*vec2(ge.vbuf.f[i0*sF + 6u], ge.vbuf.f[i0*sF + 7u])
@@ -128,6 +139,26 @@ HitSurface FetchHitSurface(GeomTable geomTable, uint customIndex, uint primIndex
     if ((m.flags & GT_FLAG_HAS_EMISSIVE) != 0u) {
         s.emission *= textureLod(gtTextures[nonuniformEXT(m.emissiveIndex)], uv0, 0.0).rgb;
     }
+    // Normal map — TBN (world tangent Gram-Schmidt vs nsW, B = cross(nsW, T), no handedness w) perturbs nsW,
+    // mirroring pbr.vert. textureLod 0, UV-set per flags, tangent-guarded so a tangentless mesh can't poison
+    // PT accumulation. see arch/rendering-pipeline.md
+    if ((m.flags & GT_FLAG_HAS_NORMAL) != 0u && dot(tanObj, tanObj) > 1.0e-12) {
+        vec3 T   = normalize(mat3(o2w) * tanObj);
+        T        = normalize(T - dot(T, nsW) * nsW);
+        vec2 uvn = (((m.flags >> GT_UV_SHIFT_NORMAL) & 3u) == 0u) ? uv0 : uv1;
+        vec3 tn  = textureLod(gtTextures[nonuniformEXT(m.normalIndex)], uvn, 0.0).rgb * 2.0 - 1.0;
+        nsW = normalize(mat3(T, cross(nsW, T), nsW) * tn);
+    }
+    // Baked occlusion (mirrors pbr_surface.glsl); the caller applies s.ao to ambient/IBL only, like raster.
+    s.ao = 1.0;
+    if ((m.flags & GT_FLAG_HAS_OCCLUSION) != 0u) {
+        vec2 uvo = (((m.flags >> GT_UV_SHIFT_OCCLUSION) & 3u) == 0u) ? uv0 : uv1;
+        s.ao = textureLod(gtTextures[nonuniformEXT(m.occlusionIndex)], uvo, 0.0).r;
+    }
+    // Face the (possibly perturbed) shading normal to the geometric side — RT analog of pbr.frag's
+    // two-sided gl_FrontFacing flip; ng is already faced against the ray.
+    if (dot(nsW, s.ng) < 0.0) nsW = -nsW;
+    s.ns = nsW;
     return s;
 }
 

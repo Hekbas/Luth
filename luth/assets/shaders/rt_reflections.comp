@@ -98,7 +98,7 @@ vec3 ShadeHit(vec3 xs, HitSurface hs, inout uint seed) {
         if (ndlSun > 0.0 && Visible(xs, hs.ng, Lsun, 1.0e30))
             Lo += (diffAlb / GI_PI) * lights.dirLight.color * lights.dirLight.intensity * ndlSun;
     }
-    Lo += texture(u_IrradianceMap, ns).rgb * diffAlb * ubo.iblIntensity;
+    Lo += texture(u_IrradianceMap, ns).rgb * diffAlb * ubo.iblIntensity * hs.ao;
     return Lo;
 }
 
