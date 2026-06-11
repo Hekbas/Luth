@@ -77,6 +77,9 @@ namespace Luth
         // Geometry owns Set 5 + cull + PBR + DepthPrepass. Init creates layouts +
         // descriptors + cull pipeline; pipelines that need geoLayouts build below.
         m_Geometry.Init(*this);
+        // Transparency's Set 6 layout must exist before its BuildPipelines below appends it
+        // to geoLayouts (same Init-before-BuildPipelines invariant as Geometry's Set 5).
+        m_Transparency.Init(*this);
 
         // Shadow / skybox / PBR / DepthPrepass pipelines all need the shared 6-layout vector.
         std::vector<VkDescriptorSetLayout> geoLayouts = {
@@ -89,6 +92,7 @@ namespace Luth
         };
         m_Lighting.BuildPipelines(geoLayouts);
         m_Geometry.BuildPipelines(geoLayouts);
+        m_Transparency.BuildPipelines(geoLayouts);
         m_EditorOverlays.BuildPipelines(geoLayouts);
         m_DebugDraw.BuildPipelines();
 
@@ -132,6 +136,9 @@ namespace Luth
             // Subsystems handle their own shaders + pipeline rebuilds. Order ensures fullscreen.vert
             // reaches both PostProcess and EditorOverlays (PostProcess returns false for it; EditorOverlays
             // returns true). Debug shaders + IBL precompute remain RP residual.
+            // Transparency runs OUTSIDE the || chain (overlays precedent): it must also see
+            // pbr.vert / pbr_skinned.vert (handled = true by Geometry) to invalidate its variants.
+            const bool transparencyHandled = m_Transparency.OnShaderReloaded(name, spv);
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
@@ -150,7 +157,7 @@ namespace Luth
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
             const bool overlaysHandled = m_EditorOverlays.OnShaderReloaded(name, spv, geoLayouts);
             const bool debugHandled    = m_DebugDraw.OnShaderReloaded(name, spv);
-            if (handled || ppHandled || overlaysHandled || debugHandled)
+            if (handled || ppHandled || overlaysHandled || debugHandled || transparencyHandled)
             {
                 if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
                 else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
@@ -197,6 +204,7 @@ namespace Luth
         m_System.GetFrameDebugger().Shutdown(device);
 
         // Subsystems own their layouts/pools/samplers/pipelines.
+        m_Transparency.Shutdown();
         m_Skinning.Shutdown();
         m_DenoiseRefl->Shutdown();
         m_DenoiseGi->Shutdown();
@@ -440,6 +448,17 @@ namespace Luth
         RG::ResourceHandle fogColor    = (volumetricEnabled && m_CurrentViewResources)
                                          ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
                                          : skyboxColor;
+        // Transparent tier — after the fog composite so glass blends over the fogged background
+        // (its own fog is per-fragment at the glass depth, sampled from the resolved atlas inside
+        // pbr_transparent.frag). Skipped in PT mode: the raster chain is dead-pass-culled there.
+        RG::ResourceHandle transparentColor = fogColor;
+        if (!ptActive && m_CurrentViewResources)
+        {
+            const u32 frameAbsT = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+            m_Transparency.WritePerFrame(*m_CurrentViewResources, frameAbsT);
+            transparentColor = m_Transparency.AddPasses(rg, fogColor, geoOutput.entityID, geoOutput.depth,
+                volumetricEnabled ? volResolvedHandle : RG::ResourceHandle{}, hIndirectBuf);
+        }
         // TAA Resolve — Karis14 YCoCg-clip. Runs AFTER volumetric composite, BEFORE bloom + grid
         // (HDR-domain TAA per Karis recipe). Bloom + grid + composite then consume the resolved
         // color. Per-frame WriteTaaResolvePerFrame rebinds the parity-picked history-prev sampler;
@@ -459,8 +478,8 @@ namespace Luth
             m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets, frameAbs);
         }
         RG::ResourceHandle taaColor    = taaEnabled
-                                         ? m_PostProcess.AddTaaResolvePass(rg, fogColor, slimGB.motion, prepassDepth)
-                                         : fogColor;
+                                         ? m_PostProcess.AddTaaResolvePass(rg, transparentColor, slimGB.motion, prepassDepth)
+                                         : transparentColor;
         // HDR source for the post chain: the PT megakernel output replaces the raster sceneColor when PT
         // is active (the raster chain above is then dead-pass-culled). Grid is editor-overlay-only → off in PT.
         RG::ResourceHandle hdrForPost  = ptActive ? ptColorHandle : taaColor;

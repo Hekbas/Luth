@@ -233,6 +233,33 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Transparency tier — Transparent/Fade draw in a dedicated pass after skybox + fog.
+            if (UI::BeginCollapsingHeader("Transparency", true)) {
+                auto& ts = m_RS->GetTransparencySettings();
+                if (UI::BeginProperties("TransparencyProps")) {
+                    const char* modeItems[] = { "Sorted (back-to-front)", "OIT (per-pixel linked list)" };
+                    int modeIdx = static_cast<int>(ts.mode);
+                    if (UI::PropertyCombo("Mode", modeIdx, modeItems, IM_ARRAYSIZE(modeItems)))
+                        ts.mode = static_cast<Luth::TransparencyMode>(modeIdx);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Sorted: per-mesh back-to-front alpha blend (overlapping/interpenetrating\nmeshes can still misorder per-pixel). OIT: per-pixel linked-list store +\nexact sorted resolve, order-independent up to the node budget.");
+
+                    int budget = static_cast<int>(ts.avgLayersBudget);
+                    if (UI::Property("OIT Layer Budget (avg)", budget, 1, 16))
+                        ts.avgLayersBudget = static_cast<u32>(budget);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Node pool = width * height * budget * 16 B per view (1080p @ 4 = ~133 MB).\nAverage transparent layers per pixel; overflow drops fragments. Reallocates on change.");
+
+                    int resolveK = static_cast<int>(ts.maxResolveK);
+                    if (UI::Property("OIT Resolve Layers (K)", resolveK, 1, 16))
+                        ts.maxResolveK = static_cast<u32>(resolveK);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Nearest fragments exact-sorted per pixel in the resolve;\ndeeper fragments tail-merge into the farthest slot.");
+                    UI::EndProperties();
+                }
+                UI::EndCollapsingHeader();
+            }
+
             // ReSTIR DI — Bitterli20 spatiotemporal reservoir resampling for shadowed point lighting.
             // u32 settings bridge through int locals (UI::Property has no u32 overload); written back
             // only when the drag changes, matching the GTAO slice-combo pattern above.

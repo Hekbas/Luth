@@ -19,6 +19,7 @@
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/renderer/subsystems/GTAOSubsystem.h"
 #include "luth/renderer/subsystems/VolumetricSubsystem.h"
+#include "luth/renderer/subsystems/TransparencySubsystem.h"
 #include "luth/renderer/subsystems/PostProcessSubsystem.h"
 #include "luth/renderer/subsystems/EditorOverlaysSubsystem.h"
 #include "luth/renderer/subsystems/DebugDrawSubsystem.h"
@@ -177,6 +178,10 @@ namespace Luth
         // also lives in a per-view tagged-heap region. b3 (shadow sampler) written once at view
         // alloc time, propagates to all slots. b0/b1/b2 rebound each frame by UploadLightingResources.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightDescSet{};
+
+        // Set 6 (transparent pass-local). Cycled — b0 (fog atlas sampler3D) parity-rewrites per
+        // frame like volCompositeDescSet's b1; b1/b2 (OIT heads + nodes) written when the PPLL lands.
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> transparentDescSet{};
 
         // Cluster debug viz: single set, 1 binding = SceneDepth sampler. Stable per-view; written
         // by WriteClusterVizView at AllocateViewResources time.
@@ -423,6 +428,10 @@ namespace Luth
         const GeometrySubsystem& GetGeometry() const { return m_Geometry; }
         GTAOSubsystem&           GetGTAO()         { return m_GTAO; }
         const GTAOSubsystem&     GetGTAO()   const { return m_GTAO; }
+        VolumetricSubsystem&         GetVolumetric()        { return m_Volumetric; }
+        const VolumetricSubsystem&   GetVolumetric()  const { return m_Volumetric; }
+        TransparencySubsystem&       GetTransparency()       { return m_Transparency; }
+        const TransparencySubsystem& GetTransparency() const { return m_Transparency; }
         PostProcessSubsystem&       GetPostProcess()       { return m_PostProcess; }
         const PostProcessSubsystem& GetPostProcess() const { return m_PostProcess; }
 
@@ -483,6 +492,7 @@ namespace Luth
         GeometrySubsystem       m_Geometry;
         GTAOSubsystem           m_GTAO;
         VolumetricSubsystem     m_Volumetric;
+        TransparencySubsystem   m_Transparency;
         PostProcessSubsystem    m_PostProcess;
         EditorOverlaysSubsystem m_EditorOverlays;
         DebugDrawSubsystem      m_DebugDraw;

@@ -574,9 +574,9 @@ namespace Luth
                 }
             };
 
-            ReplayBatch(sys.GetDrawList().opaque,      Material::RenderMode::Opaque);
-            ReplayBatch(sys.GetDrawList().cutout,      Material::RenderMode::Cutout);
-            ReplayBatch(sys.GetDrawList().transparent, Material::RenderMode::Transparent);
+            // No transparent batch — the live GeometryPass draws opaque + cutout only.
+            ReplayBatch(sys.GetDrawList().opaque, Material::RenderMode::Opaque);
+            ReplayBatch(sys.GetDrawList().cutout, Material::RenderMode::Cutout);
 
             DynamicRendering::EndRendering(cmd);
 

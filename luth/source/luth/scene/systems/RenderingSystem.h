@@ -17,6 +17,7 @@
 #include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
 #include "luth/renderer/settings/RestirGiSettings.h"
+#include "luth/renderer/settings/TransparencySettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luth/renderer/settings/PathTraceSettings.h"
 #include "luth/renderer/settings/ReflectionsSettings.h"
@@ -182,6 +183,9 @@ namespace Luth
         VolumetricSettings& GetVolumetricSettings() { return m_VolumetricSettings; }
         const VolumetricSettings& GetVolumetricSettings() const { return m_VolumetricSettings; }
 
+        TransparencySettings& GetTransparencySettings() { return m_TransparencySettings; }
+        const TransparencySettings& GetTransparencySettings() const { return m_TransparencySettings; }
+
         RestirSettings& GetRestirSettings() { return m_RestirSettings; }
         const RestirSettings& GetRestirSettings() const { return m_RestirSettings; }
 
@@ -321,19 +325,20 @@ namespace Luth
         std::unique_ptr<RenderPipeline> m_Pipeline;
 
         // Editor-facing state.
-        PostProcessSettings m_PostProcessSettings;
-        VolumetricSettings  m_VolumetricSettings;
-        RestirSettings      m_RestirSettings;
-        RestirGiSettings    m_RestirGiSettings;
-        SvgfSettings        m_SvgfSettings;
+        PostProcessSettings  m_PostProcessSettings;
+        VolumetricSettings   m_VolumetricSettings;
+        TransparencySettings m_TransparencySettings;
+        RestirSettings       m_RestirSettings;
+        RestirGiSettings     m_RestirGiSettings;
+        SvgfSettings         m_SvgfSettings;
         // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
-        SvgfSettings        m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
+        SvgfSettings         m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
         // Specular denoiser: fewer à-trous levels (preserve mirror sharpness), moderate temporal alpha.
-        SvgfSettings        m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
-        PathTraceSettings   m_PathTraceSettings;
-        ReflectionsSettings m_ReflectionsSettings;
-        RenderMode          m_RenderMode   = RenderMode::Raster;
-        ShadeMode           m_ShadeMode    = ShadeMode::Lit;
+        SvgfSettings         m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
+        PathTraceSettings    m_PathTraceSettings;
+        ReflectionsSettings  m_ReflectionsSettings;
+        RenderMode           m_RenderMode   = RenderMode::Raster;
+        ShadeMode            m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;
 
         // Frame debugger runtime state (capture state machine + archives).

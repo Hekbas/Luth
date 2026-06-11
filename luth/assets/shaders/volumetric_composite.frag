@@ -10,6 +10,7 @@
 // where fogOpacity = 1 - volTransmit and fogColor = volScatter / fogOpacity (protected against /0).
 
 #include "common/globals.glsl"
+#include "common/froxel.glsl"
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 outColor;
@@ -22,26 +23,15 @@ layout(push_constant) uniform PC {
     mat4 invView;          // reserved for future view-space sampling paths; unused today
 } pc;
 
-float DepthToViewZ(float ndcDepth) {
-    // Inverse of glm::perspectiveRH_ZO (Vulkan depth range 0..1).
-    return (ubo.nearZ * ubo.farZ) / (ndcDepth * (ubo.nearZ - ubo.farZ) + ubo.farZ);
-}
-
-// Slicing math replicated from volumetric_inject_density.comp.
-float ViewZToAtlasSlice(float viewZ) {
-    return clamp(log(max(viewZ, ubo.nearZ) / ubo.nearZ)
-               / log(ubo.farZ / ubo.nearZ), 0.0, 1.0);
-}
-
 void main() {
     float ndcDepth = texture(sceneDepth, v_TexCoord).r;
-    float viewZ    = DepthToViewZ(ndcDepth);
+    float viewZ    = FroxelDepthToViewZ(ndcDepth, ubo.nearZ, ubo.farZ);
     bool  isSky    = ndcDepth >= 0.9999;
 
     // Sample the integrated + resolved atlas. Blue-noise jitter on sliceW breaks up Wronski's
     // log-slice Z-banding by ±0.5 slices per fragment. Without TAA this shows as grain; with TAA
     // the dither integrates over ~6 frames into smooth gradients. Toggle via volScatterParams.y.
-    float sliceW = ViewZToAtlasSlice(viewZ);
+    float sliceW = FroxelViewZToSlice(viewZ, ubo.nearZ, ubo.farZ);
     if (ubo.volScatterParams.y != 0.0)
     {
         float dither = texture(blueNoise, gl_FragCoord.xy / 64.0).r;

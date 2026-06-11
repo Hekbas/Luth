@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 178;  // + Reflections trace 1 + spec SVGF 7 sets (passthrough 1 + reproject 2 + moments 2 + atrous 2)
+    static constexpr u32 k_ViewPoolMaxSets              = 181;  // + Transparency Set 6 ×3 (cycled)
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 183;  // + Reflections trace 1 + spec SVGF 25 (passthrough 1 + reproject 12 + moments 6 + atrous 6)
-    static constexpr u32 k_ViewPoolStorageBufferCount   = 123;  // + GI reservoir-viz b1 spatial reservoir
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 253;  // + Reflections trace b1-b3 + spec SVGF 17 + Set 3 b7 reflection sampler (×MAX_FRAMES_IN_FLIGHT)
+    static constexpr u32 k_ViewPoolStorageImageCount    = 186;  // + Transparency b1 OIT heads ×3
+    static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes ×3
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 256;  // + Transparency b0 fog atlas ×3
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -226,6 +226,7 @@ namespace Luth
         allocCycled(m_Volumetric.GetResolveLayout(),     vr.volResolveDescSet,    "View.VolResolve");
         allocCycled(m_Volumetric.GetCompositeLayout(),   vr.volCompositeDescSet,  "View.VolComposite");
         allocCycled(m_Volumetric.GetVizLayout(),         vr.volVizDescSet,        "View.VolViz");
+        allocCycled(m_Transparency.GetSetLayout(),       vr.transparentDescSet,   "View.Transparent");
         allocCycled(m_PostProcess.GetTaaResolveDescSetLayout(), vr.taaResolveDescSet, "View.TaaResolve");
         allocCycled(m_Rt.GetShadowPassLayout(),          vr.rtShadowPassDescSet,  "View.RtShadowPass");
         allocCycled(m_Restir.GetSetLayout(),             vr.restirDescSet,        "View.Restir");

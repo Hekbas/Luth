@@ -21,7 +21,10 @@ struct GtGeomEntry {
 };
 layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer GeomTable { GtGeomEntry e[]; };
 
-// Mirrors GPUMaterialData (renderer/material). 80 B std430.
+// Mirrors GPUMaterialData (renderer/material). 80 B std430. Consumers whose pipeline layout
+// already occupies sets 3/4 (the geometry layout: Light/Bones) define GT_NO_RESOURCE_DECLS and
+// alias GtMaterial/gtMaterials/gtTextures onto their own declarations (see pbr_transparent.frag).
+#ifndef GT_NO_RESOURCE_DECLS
 struct GtMaterial {
     vec4  color;
     uint  diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
@@ -32,6 +35,7 @@ struct GtMaterial {
 };
 layout(std430, set = 3, binding = 0) readonly buffer GtMaterialBuffer { GtMaterial gtMaterials[]; };
 layout(set = 4, binding = 0) uniform sampler2D gtTextures[];
+#endif
 
 const uint GT_FLAG_HAS_METALROUGH = (1u << 1);
 const uint GT_FLAG_HAS_DIFFUSE    = (1u << 3);
