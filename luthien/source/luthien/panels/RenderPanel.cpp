@@ -270,6 +270,12 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Spatiotemporal reservoir resampling for shadowed point lights.\nOff falls back to the unshadowed Forward+ cluster loop. Requires a TLAS (RT).");
 
+                    UI::Property("Specular", rs.specular);  // #154
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Demodulated point-light specular (metals/highlights) via a dedicated SVGF channel + combined RIS target.\nOff = diffuse-only DI.");
+                    if (rs.specular)
+                        UI::Property("Specular Intensity", rs.specularIntensity, 0.01f, 0.0f, 4.0f);
+
                     int candidateCount = static_cast<int>(rs.candidateCount);
                     if (UI::Property("Candidate Count (M)", candidateCount, 1, 64))
                         rs.candidateCount = static_cast<u32>(candidateCount);

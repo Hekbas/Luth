@@ -207,6 +207,10 @@ namespace Luth
         SvgfSettings& GetSvgfSpecSettings() { return m_SvgfSpecSettings; }
         const SvgfSettings& GetSvgfSpecSettings() const { return m_SvgfSpecSettings; }
 
+        // ReSTIR-DI specular denoiser tuning (#154) — same shape as the reflection spec denoiser.
+        SvgfSettings& GetSvgfDiSpecSettings() { return m_SvgfDiSpecSettings; }
+        const SvgfSettings& GetSvgfDiSpecSettings() const { return m_SvgfDiSpecSettings; }
+
         PathTraceSettings& GetPathTraceSettings() { return m_PathTraceSettings; }
         const PathTraceSettings& GetPathTraceSettings() const { return m_PathTraceSettings; }
 
@@ -335,6 +339,7 @@ namespace Luth
         SvgfSettings         m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
         // Specular denoiser: fewer à-trous levels (preserve mirror sharpness), moderate temporal alpha.
         SvgfSettings         m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
+        SvgfSettings         m_SvgfDiSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };  // #154 ReSTIR-DI specular
         PathTraceSettings    m_PathTraceSettings;
         ReflectionsSettings  m_ReflectionsSettings;
         RenderMode           m_RenderMode   = RenderMode::Raster;

@@ -206,7 +206,10 @@ namespace Luth
         const bool restirGiActive = m_Pipeline->GetRestirGi().IsEnabled()
                                  && vr && vr->restirGiDI
                                  && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
-        ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, restirGiActive ? 1.0f : 0.0f, 0.0f, 0.0f);
+        // .z = ReSTIR-DI specular gate × intensity (#154); 0 when DI inactive or the specular toggle is off.
+        const RestirSettings& restirS = m_Pipeline->GetSystem().GetRestirSettings();
+        const float specZ = (restirActive && restirS.specular) ? restirS.specularIntensity : 0.0f;
+        ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, restirGiActive ? 1.0f : 0.0f, specZ, 0.0f);
 
         // Path-traced reference mode (informational — PT bypasses pbr.frag; the megakernel reads its own
         // push constants). x gates nothing in pbr.frag; carried for debug viz + frame-debugger UBO dumps.

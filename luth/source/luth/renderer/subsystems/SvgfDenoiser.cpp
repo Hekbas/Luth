@@ -61,6 +61,11 @@ namespace Luth
                          &vr.svgfSpecDenoised, &vr.reflRadiance,
                          &vr.svgfSpecPassthroughDescSet, vr.svgfSpecReprojectDescSet,
                          vr.svgfSpecMomentsDescSet, vr.svgfSpecAtrousDescSet };
+            if (ch == DenoiserChannel::DiSpecular)
+                return { vr.svgfDiSpecColorHist, vr.svgfDiSpecMoments, vr.svgfDiSpecGeom, vr.svgfDiSpecAtrous,
+                         &vr.svgfDiSpecDenoised, &vr.restirDISpec,
+                         &vr.svgfDiSpecPassthroughDescSet, vr.svgfDiSpecReprojectDescSet,
+                         vr.svgfDiSpecMomentsDescSet, vr.svgfDiSpecAtrousDescSet };
             if (ch == DenoiserChannel::Gi)
                 return { vr.svgfGiColorHist, vr.svgfGiMoments, vr.svgfGiGeom, vr.svgfGiAtrous,
                          &vr.svgfGiDenoised, &vr.restirGiDI,
@@ -77,6 +82,7 @@ namespace Luth
     {
         auto& sys = m_Pipeline->GetSystem();
         if (m_Channel == DenoiserChannel::Reflections) return sys.GetSvgfSpecSettings();
+        if (m_Channel == DenoiserChannel::DiSpecular)  return sys.GetSvgfDiSpecSettings();
         return m_Channel == DenoiserChannel::Gi ? sys.GetSvgfGiSettings() : sys.GetSvgfSettings();
     }
 
@@ -85,7 +91,9 @@ namespace Luth
         static const char* di[] = { "SvgfReproject", "SvgfMoments", "SvgfAtrous", "SvgfPassthrough" };
         static const char* gi[] = { "SvgfGiReproject", "SvgfGiMoments", "SvgfGiAtrous", "SvgfGiPassthrough" };
         static const char* sp[] = { "SvgfSpecReproject", "SvgfSpecMoments", "SvgfSpecAtrous", "SvgfSpecPassthrough" };
+        static const char* ds[] = { "SvgfDiSpecReproject", "SvgfDiSpecMoments", "SvgfDiSpecAtrous", "SvgfDiSpecPassthrough" };
         if (m_Channel == DenoiserChannel::Reflections) return sp[which];
+        if (m_Channel == DenoiserChannel::DiSpecular)  return ds[which];
         return (m_Channel == DenoiserChannel::Gi ? gi : di)[which];
     }
 

@@ -3,6 +3,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 RestirTargetPdf (brdf + GI_PI — DI-only)
 
 // ReSTIR DI — temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the
 // motion vector and merges the previous final reservoir into this frame's RIS candidate with
@@ -26,6 +27,7 @@ layout(set = 2, binding = 1) uniform sampler2D u_CurrNormal;
 layout(std430, set = 2, binding = 2) buffer ReservoirCurr { Reservoir curr[]; };
 layout(std430, set = 2, binding = 4) readonly buffer ReservoirPrev { Reservoir prevRes[]; };
 layout(set = 2, binding = 5) uniform sampler2D u_Motion;
+layout(set = 2, binding = 7) uniform sampler2D u_SlimRoughness;   // #154 combined diffuse+spec target
 
 layout(push_constant) uniform PC {
     mat4  invViewProj;
@@ -54,6 +56,8 @@ void main() {
     vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
     vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec3 worldPos = worldH.xyz / worldH.w;
+    vec3 V        = normalize(ubo.cameraPos - worldPos);            // #154 combined target
+    float rough   = texelFetch(u_SlimRoughness, pixel, 0).r;
 
     // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
     vec2 prevUV = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
@@ -79,7 +83,7 @@ void main() {
         PointLightData pl = lights.points[pr.lightIndex];
         vec3 L; float dist;
         vec3 Li = PointLightRadiance(pl, worldPos, L, dist);
-        float pHat = Luminance(Li) * max(dot(N, L), 0.0);  // re-evaluate prev's light at THIS pixel
+        float pHat = RestirTargetPdf(N, V, L, Li, rough);  // re-evaluate prev's light at THIS pixel (#154)
         // Relative history clamp (Bitterli 2020): prev confidence capped to mCap x the current
         // frame's M so accumulated history dominates the single fresh sample without lagging forever.
         ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap * r.M), RandFromSeed(seed));

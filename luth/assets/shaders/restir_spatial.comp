@@ -3,6 +3,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 RestirTargetPdf (brdf + GI_PI — DI-only)
 
 // ReSTIR DI — spatial reuse (Bitterli 2020). Each pixel merges its own reservoir with a few random
 // neighbours inside a disk, rejecting geometrically dissimilar ones (linear depth + normal). Punctual
@@ -24,6 +25,7 @@ layout(set = 2, binding = 0) uniform sampler2D u_Depth;
 layout(set = 2, binding = 1) uniform sampler2D u_Normal;
 layout(std430, set = 2, binding = 2) readonly buffer ReservoirIn  { Reservoir resIn[]; };
 layout(std430, set = 2, binding = 6) writeonly buffer ReservoirOut { Reservoir resOut[]; };
+layout(set = 2, binding = 7) uniform sampler2D u_SlimRoughness;   // #154 combined diffuse+spec target
 
 layout(push_constant) uniform PC {
     mat4  invViewProj;
@@ -54,6 +56,8 @@ void main() {
     vec4  worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec3  worldPos = worldH.xyz / worldH.w;
     float currLin  = LinearizeDepth(depth);
+    vec3  V        = normalize(ubo.cameraPos - worldPos);          // #154 combined target
+    float rough    = texelFetch(u_SlimRoughness, pixel, 0).r;
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
 
@@ -79,7 +83,7 @@ void main() {
         PointLightData pl = lights.points[nr.lightIndex];
         vec3 L; float dist;
         vec3 Li = PointLightRadiance(pl, worldPos, L, dist);
-        float pHat = Luminance(Li) * max(dot(N, L), 0.0);
+        float pHat = RestirTargetPdf(N, V, L, Li, rough);  // (#154 combined target)
         ReservoirMerge(c, nr.lightIndex, pHat, nr.W, nr.M, RandFromSeed(seed));
     }
 

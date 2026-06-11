@@ -64,7 +64,8 @@ namespace Luth
                                            RG::ResourceHandle rtShadowMask,
                                            RG::ResourceHandle diHandle,
                                            RG::ResourceHandle giDIHandle,
-                                           RG::ResourceHandle reflHandle);
+                                           RG::ResourceHandle reflHandle,
+                                           RG::ResourceHandle diSpecHandle);
 
         // ---- Accessors ----
         VkDescriptorSetLayout       GetSet5Layout()         const { return m_ObjectSSBODescLayout; }

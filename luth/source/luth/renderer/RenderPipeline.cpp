@@ -47,6 +47,7 @@ namespace Luth
         , m_Denoise(std::make_unique<SvgfDenoiser>(DenoiserChannel::Di))
         , m_DenoiseGi(std::make_unique<SvgfDenoiser>(DenoiserChannel::Gi))
         , m_DenoiseRefl(std::make_unique<SvgfDenoiser>(DenoiserChannel::Reflections))
+        , m_DenoiseDiSpec(std::make_unique<SvgfDenoiser>(DenoiserChannel::DiSpecular))
     {
     }
 
@@ -106,6 +107,7 @@ namespace Luth
         m_Denoise->Init(*this);
         m_DenoiseGi->Init(*this);
         m_DenoiseRefl->Init(*this);
+        m_DenoiseDiSpec->Init(*this);
         m_Skinning.Init(*this);
 
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
@@ -151,7 +153,8 @@ namespace Luth
                               || m_Reflections.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
                               || m_DenoiseGi->OnShaderReloaded(name, spv)
-                              || m_DenoiseRefl->OnShaderReloaded(name, spv);
+                              || m_DenoiseRefl->OnShaderReloaded(name, spv)
+                              || m_DenoiseDiSpec->OnShaderReloaded(name, spv);
             // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
@@ -206,6 +209,7 @@ namespace Luth
         // Subsystems own their layouts/pools/samplers/pipelines.
         m_Transparency.Shutdown();
         m_Skinning.Shutdown();
+        m_DenoiseDiSpec->Shutdown();
         m_DenoiseRefl->Shutdown();
         m_DenoiseGi->Shutdown();
         m_Denoise->Shutdown();
@@ -396,13 +400,21 @@ namespace Luth
         // slim normal, traces the same TLAS the sun-shadow pass uses. Returns an invalid handle when
         // disabled or before the TLAS exists — GeometryPass then skips the Read and pbr.frag's point
         // loop runs instead (the restirParams.x flag gates the consumption).
-        RG::ResourceHandle restirDIHandle = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
+        RtRestirSubsystem::Outputs restirOut = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion, slimGB.roughness);
+        RG::ResourceHandle restirDIHandle = restirOut.di;
 
         // Denoise the demodulated DI (SVGF; swappable to NRD/RELAX). Transparent filter — consumes the
         // ReSTIR DI handle, returns the denoised handle GeometryPass reads + Set 3 b5 binds. Invalid in
         // (ReSTIR off / pre-TLAS) → invalid out, and pbr.frag falls back to its own cluster light loop.
         RG::ResourceHandle denoisedDIHandle = m_Denoise->AddPasses(rg, DenoiseInputs{
             restirDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
+            slimGB.roughness, slimGB.materialID, {}, {} });
+
+        // Denoise the demodulated ReSTIR-DI specular (#154; 4th SVGF, DenoiserChannel::DiSpecular). Surface-
+        // motion reproject (direct point-light specular is surface-attached, not a reflection's virtual
+        // image). svgfDiSpecDenoised feeds pbr.frag Set 3 b8; restirParams.z gates + scales the composite.
+        RG::ResourceHandle denoisedDiSpecHandle = m_DenoiseDiSpec->AddPasses(rg, DenoiseInputs{
+            restirOut.spec, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
 
         // ReSTIR GI — 1-bounce indirect diffuse via per-pixel reservoir resampling. Returns the
@@ -437,7 +449,7 @@ namespace Luth
         RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
         RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle);
+        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle, denoisedDiSpecHandle);
         SelectionMaskOutput maskOutput = view.drawSelectionOutline
                                          ? m_EditorOverlays.AddSelectionMaskPass(rg)
                                          : SelectionMaskOutput{};

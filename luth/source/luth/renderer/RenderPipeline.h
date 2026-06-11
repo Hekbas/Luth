@@ -249,6 +249,10 @@ namespace Luth
         Memory::GPUSubRegion restirSpatial{};
         u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
+        // Demodulated specular DI (#154) — rgb = Li·[D·G/(4·NoL·NoV)]·NdotL·W (F0-free, remodulated by
+        // pbr.frag's split-sum envBRDF at Set 3 b8). Shade writes it at Set 2 b8; the DiSpecular SVGF
+        // channel denoises it. Same shape as restirDI; written every frame so no bootstrap clear.
+        std::shared_ptr<Texture> restirDISpec;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
 
         // ReSTIR GI (Ouyang 2021) — sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
@@ -315,6 +319,21 @@ namespace Luth
         std::shared_ptr<Texture> svgfSpecAtrous[2];
         VkDescriptorSet svgfSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+
+        // ReSTIR-DI specular SVGF (#154) — flat parallel to the spec fields above. A 4th SvgfDenoiser
+        // instance (DenoiserChannel::DiSpecular) denoises restirDISpec via the SURFACE-MOTION reproject
+        // (direct point-light specular is surface-attached, not a reflection's virtual image — so it reuses
+        // svgf_reproject.comp, not the hit-distance spec variant); svgfDiSpecDenoised feeds pbr.frag Set 3
+        // b8. Same shapes/clears as the GI SVGF. see arch/rendering-pipeline.md
+        std::shared_ptr<Texture> svgfDiSpecDenoised;
+        VkDescriptorSet svgfDiSpecPassthroughDescSet = VK_NULL_HANDLE;
+        std::shared_ptr<Texture> svgfDiSpecColorHist[2];
+        std::shared_ptr<Texture> svgfDiSpecMoments[2];
+        std::shared_ptr<Texture> svgfDiSpecGeom[2];
+        VkDescriptorSet svgfDiSpecReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        std::shared_ptr<Texture> svgfDiSpecAtrous[2];
+        VkDescriptorSet svgfDiSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkDescriptorSet svgfDiSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 
         // Path-traced reference mode (rt-renderer C.5). ptAccum = viewport-sized RGBA32F STORAGE — the
         // in-place fp32 progressive running mean, kept GENERAL, only ever touched by the PT megakernel
@@ -516,6 +535,7 @@ namespace Luth
         std::unique_ptr<IDenoiser> m_Denoise;     // DI SVGF; swappable to NRD/RELAX via the settings toggle
         std::unique_ptr<IDenoiser> m_DenoiseGi;   // GI SVGF — second instance (DenoiserChannel::Gi)
         std::unique_ptr<IDenoiser> m_DenoiseRefl; // specular SVGF — third instance (DenoiserChannel::Reflections)
+        std::unique_ptr<IDenoiser> m_DenoiseDiSpec; // ReSTIR-DI specular SVGF — 4th instance (DenoiserChannel::DiSpecular)
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -538,6 +558,8 @@ namespace Luth
         const IDenoiser&               GetDenoiseGi()      const { return *m_DenoiseGi; }
         IDenoiser&                     GetDenoiseRefl()          { return *m_DenoiseRefl; }
         const IDenoiser&               GetDenoiseRefl()    const { return *m_DenoiseRefl; }
+        IDenoiser&                     GetDenoiseDiSpec()        { return *m_DenoiseDiSpec; }
+        const IDenoiser&               GetDenoiseDiSpec()  const { return *m_DenoiseDiSpec; }
 
     private:
         // ---- Graph snapshot + GPU timers + named-texture registry ----

@@ -111,6 +111,7 @@
 | v3.1.2 | `cutout-rt` | Alpha-cutout materials hole correctly in every RT path: per-instance TLAS opaque flag (cutout→FORCE_NO_OPAQUE) + a shared `geom_table.glsl` candidate-loop alpha-test across PT/GI/reflections/ReSTIR-DI/volumetric fog; rewrites the lone RT-pipeline sun-shadow pass to rayQuery-compute, deleting the SBT/rgen/rmiss | 2026-06-11 |
 | v3.1.3 | `transparency-tier` | Transparent tier after the fog composite (fixes #32 skybox compositing): PPLL OIT default (per-view heads image + Garlic node pool, sort-K resolve) + per-view sorted A/B; corrected transparent shading — rayQuery sun shadow, cluster lights, fragment-depth froxel fog; TLAS cull masks make glass shadow-ray-invisible yet GI/reflection/PT-visible | 2026-06-11 |
 | v3.1.4 | `rt-normal-maps` | RT hits sample the normal map (TBN at the rayQuery hit, inverse-transpose normal matrix matching `pbr.vert`) + the occlusion map (`HitSurface.ao` → rt-reflections' IBL ambient; PT omits it — geometric occlusion); GI keeps its geometric secondary normal; dead alpha/specular/thickness indices marked reserved | 2026-06-11 |
+| v3.1.5 | `restir-di-specular` | ReSTIR DI gains specular: combined diffuse+spec RIS target (initial/temporal/spatial), demodulated F0-free specular from the shade pass, a dedicated 4th SVGF channel (surface-motion reproject), and pbr.frag F0-remodulation under `restirParams.z`; fixes metals/specular getting ~nothing from point lights | 2026-06-11 |
 
 ---
 
@@ -188,6 +189,7 @@ Umbrella issue: [#151](https://github.com/Hekbas/Luth/issues/151) (sub-effort is
 | M.3 `cutout-rt` ✅ | — | M | Per-instance TLAS opaque flag + shared candidate-loop alpha-test (rayQuery-centric, not anyhit BLAS); cutout correct in RT shadows / GI / reflections / DI / fog; lone RT-pipeline sun-shadow pass rewritten to rayQuery-compute — shipped v3.1.2 |
 | M.4 `transparency-tier` ✅ | [#32](https://github.com/Hekbas/Luth/issues/32) | M→L | Dedicated pass after the fog composite: PPLL OIT default + per-view sorted A/B, rayQuery sun shadow + fragment-depth fog, cull-masked RT visibility (shadow-ray-excluded, GI/reflection-visible; scope override: true OIT from the start, superseding "WBOIT only if layered") — shipped v3.1.3 |
 | M.5 `rt-normal-maps` ✅ | [#153](https://github.com/Hekbas/Luth/issues/153) | S | RT-hit normal-map TBN + occlusion parity (inverse-transpose normal matrix); applied in PT + rt-reflections, GI keeps its geometric secondary normal; folds the dead-index audit comment — shipped v3.1.4 |
+| M.6 `restir-di-specular` ✅ | [#154](https://github.com/Hekbas/Luth/issues/154) | M→L | ReSTIR DI specular: combined diffuse+spec RIS target + demodulated F0-free shade output + dedicated 4th SVGF channel (surface-motion reproject) + pbr.frag F0-remod (not envBRDF — point-spec lobe applied at shade); research-backed (NRD/RTXDI/Bevy Solari) — shipped v3.1.5 |
 
 Deferred: `emissive-as-area-lights` (L); a Slang `IMaterial` research spike (M).
 

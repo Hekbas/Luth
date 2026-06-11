@@ -60,6 +60,10 @@ layout(set = 3, binding = 6) uniform sampler2D giIrradiance;
 // reflection, not an IBL approximation). The denoiser owns the slot; reflParams.x gates the consumption.
 layout(set = 3, binding = 7) uniform sampler2D reflRadiance;
 
+// #154 — demodulated ReSTIR-DI specular (F0-free lobe response). Remodulated by F0, NOT envBRDF: this is a
+// single-direction point-light specular (lobe already applied at shade), not a lobe-integrated reflection.
+layout(set = 3, binding = 8) uniform sampler2D diSpecular;
+
 // RT sun-shadow visibility — samples the per-view R8 mask at the current pixel's screen UV.
 // Returns cascade=-1 since RT mode has no cascade selection (debug viz reuses the flag for an
 // RT-specific overlay below).
@@ -161,6 +165,14 @@ void main()
     if (ubo.restirParams.y > 0.5)
     {
         Lo += texture(giIrradiance, gl_FragCoord.xy / ubo.viewportSize).rgb * (albedo.rgb * (1.0 - metallic) / GI_PI);
+    }
+
+    // ReSTIR-DI specular (#154) — demodulated F0-free spec lobe, remodulated by F0 (peak-Fresnel approx).
+    // restirParams.z gates + scales (specularIntensity); 0 when ReSTIR DI or the specular toggle is off.
+    if (ubo.restirParams.z > 0.0)
+    {
+        vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+        Lo += texture(diSpecular, gl_FragCoord.xy / ubo.viewportSize).rgb * F0 * ubo.restirParams.z;
     }
 
     // IBL ambient lighting

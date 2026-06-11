@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 181;  // + Transparency Set 6 ×3 (cycled)
+    static constexpr u32 k_ViewPoolMaxSets              = 191;  // + DiSpecular SVGF ×7 (#154)
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 186;  // + Transparency b1 OIT heads ×3
+    static constexpr u32 k_ViewPoolStorageImageCount    = 226;  // + DiSpecular SVGF + restir Set 2 b8 (#154)
     static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes ×3
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 256;  // + Transparency b0 fog atlas ×3
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 286;  // + DiSpecular SVGF + restir Set 2 b7 (#154)
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -102,6 +102,7 @@ namespace Luth
             m_Denoise->WriteView(vr, targets);      // re-bind DI SVGF inputs + output to the new images
             m_DenoiseGi->WriteView(vr, targets);    // re-bind GI SVGF inputs + output to the new images
             m_DenoiseRefl->WriteView(vr, targets);  // re-bind specular SVGF inputs + output to the new images
+            m_DenoiseDiSpec->WriteView(vr, targets);// re-bind ReSTIR-DI specular SVGF (#154)
             m_Lighting.WriteShadowView(vr);         // re-bind Set 3 b4 sun mask + b5 denoised DI + b6 denoised GI
             // Set 0 bindings 1-4 reference the (re)created IBL + GTAO textures.
             m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
@@ -240,6 +241,7 @@ namespace Luth
         m_Denoise->AllocateViewSets(vr);
         m_DenoiseGi->AllocateViewSets(vr);
         m_DenoiseRefl->AllocateViewSets(vr);
+        m_DenoiseDiSpec->AllocateViewSets(vr);
 
         m_PostProcess.WriteView(vr, targets);
         m_PostProcess.WriteTaaResolveView(vr, targets);
@@ -264,6 +266,7 @@ namespace Luth
         m_Denoise->WriteView(vr, targets);
         m_DenoiseGi->WriteView(vr, targets);
         m_DenoiseRefl->WriteView(vr, targets);
+        m_DenoiseDiSpec->WriteView(vr, targets);
         // Global writes last — reads vr.gtaoFinal view that GTAO writes set up.
         m_Global.WriteView(vr, MakeGlobalCtx(*this, vr));
     }
@@ -290,6 +293,13 @@ namespace Luth
         // ReSTIR DI demodulated-irradiance image — viewport-sized RGBA16F. STORAGE for the shade
         // pass's imageStore + SAMPLED (added by the ctor) for pbr.frag's Set 3 b5 read.
         vr.restirDI = std::make_shared<VKTexture>(
+            fullW, fullH, TextureFormat::RGBA16F,
+            /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+            VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // ReSTIR-DI demodulated SPECULAR image (#154) — same shape as restirDI; shade's b8 imageStore +
+        // SAMPLED (ctor) for the DiSpecular denoiser. Written each frame → no bootstrap clear.
+        vr.restirDISpec = std::make_shared<VKTexture>(
             fullW, fullH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
@@ -367,6 +377,18 @@ namespace Luth
         }
         vr.svgfSpecAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         vr.svgfSpecAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+
+        // ReSTIR-DI specular SVGF history (#154) — flat parallel to the reflection-spec SVGF above.
+        // Bootstrap-cleared below (cross-frame temporal read).
+        vr.svgfDiSpecDenoised = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        for (u32 i = 0; i < 2; ++i)
+        {
+            vr.svgfDiSpecColorHist[i] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfDiSpecMoments[i]   = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfDiSpecGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        }
+        vr.svgfDiSpecAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfDiSpecAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
         // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
@@ -470,7 +492,7 @@ namespace Luth
         // pixel content. The volumetric resolve samples volInScatterHist{A,B} and the SVGF reproject
         // imageLoads its prev history on frame 0; without this clear the first read is NaN-prone garbage
         // (and imageLoad needs GENERAL). One-shot submit per view-resize only.
-        VkImage clearTargets[28] = {
+        VkImage clearTargets[36] = {
             std::static_pointer_cast<VKTexture>(vr.volInScatter)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistA)->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.volInScatterHistB)->GetImage(),
@@ -502,8 +524,17 @@ namespace Luth
             std::static_pointer_cast<VKTexture>(vr.svgfSpecGeom[1])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfSpecAtrous[0])->GetImage(),
             std::static_pointer_cast<VKTexture>(vr.svgfSpecAtrous[1])->GetImage(),
+            // ReSTIR-DI specular SVGF history (#154) — frame 0's prev imageLoad must be well-defined.
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecColorHist[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecColorHist[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecMoments[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecMoments[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecGeom[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecGeom[1])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecAtrous[0])->GetImage(),
+            std::static_pointer_cast<VKTexture>(vr.svgfDiSpecAtrous[1])->GetImage(),
         };
-        constexpr u32 kClearCount = 28;
+        constexpr u32 kClearCount = 36;
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
             VkImageMemoryBarrier toDst[kClearCount]{};
             for (u32 i = 0; i < kClearCount; ++i)
@@ -581,6 +612,7 @@ namespace Luth
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
         vr.restirDI.reset();
+        vr.restirDISpec.reset();
         vr.restirGiDI.reset();
         vr.svgfDenoised.reset();
         for (u32 i = 0; i < 2; ++i)
@@ -612,6 +644,15 @@ namespace Luth
         }
         vr.svgfSpecAtrous[0].reset();
         vr.svgfSpecAtrous[1].reset();
+        vr.svgfDiSpecDenoised.reset();
+        for (u32 i = 0; i < 2; ++i)
+        {
+            vr.svgfDiSpecColorHist[i].reset();
+            vr.svgfDiSpecMoments[i].reset();
+            vr.svgfDiSpecGeom[i].reset();
+        }
+        vr.svgfDiSpecAtrous[0].reset();
+        vr.svgfDiSpecAtrous[1].reset();
         vr.oitHeads.reset();
 
         // OIT node-pool reserved tag — same recycle path as the reservoir tags below.
