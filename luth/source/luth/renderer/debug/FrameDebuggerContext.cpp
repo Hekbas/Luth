@@ -808,9 +808,9 @@ namespace Luth
                 }
             };
 
+            // No transparent batch — the live ShadowPass excludes it (RT-excluded tier).
             ReplayBatch(sys.GetDrawList().opaque);
             ReplayBatch(sys.GetDrawList().cutout);
-            ReplayBatch(sys.GetDrawList().transparent);
 
             DynamicRendering::EndRendering(cmd);
 

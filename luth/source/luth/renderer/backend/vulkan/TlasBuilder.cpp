@@ -245,6 +245,9 @@ namespace Luth
             if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
 
             // Resolve the material once: slot (geom table) + cutout (per-instance opaque flag).
+            // Transparent/Fade never pack — the RT-excluded tier: glass neither occludes nor appears
+            // in any RT consumer (shadows/DI/GI/reflections/fog/PT). HashInstances folds RenderMode,
+            // so a runtime mode flip re-includes/-excludes via the rebuild. see arch/rendering-pipeline.md
             u32  matSlot = 0;  // slot 0 = reserved white material
             bool cutout  = false;
             if (inst.materialUUID.IsValid())
@@ -252,7 +255,12 @@ namespace Luth
                 auto it = materialSlotMap.find(inst.materialUUID);
                 if (it != materialSlotMap.end()) matSlot = it->second;
                 if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
-                    cutout = mat->GetRenderMode() == Material::RenderMode::Cutout;
+                {
+                    const Material::RenderMode mode = mat->GetRenderMode();
+                    if (mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade)
+                        continue;
+                    cutout = mode == Material::RenderMode::Cutout;
+                }
             }
 
             VkAccelerationStructureInstanceKHR vkInst{};
