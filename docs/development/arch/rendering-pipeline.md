@@ -10,6 +10,7 @@
 | 3 | LightSSBO (header + flexible PointLightData[], std430) + ClusterGrid SSBO (uvec2 offset+count per cluster) + LightIndex SSBO (flat indices) + shadow map sampler (4 bindings) | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots; **per-view** (cluster grid + index differ between Scene + Game panel views — see `forward-plus` v3.0.2) |
 | 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 5 | `GPUObjectData` SSBO — per-draw transforms/IDs for indirect dispatch | Per render stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
+| 6 | Transparent pass-local (`TransparencySubsystem`): b0 fog atlas sampler3D + b1 OIT heads storage image + b2 OIT nodes SSBO | b0 parity-rewritten per frame (UAB, volComposite rule); b1/b2 rewritten on view alloc/resize/budget change (UAB + partially-bound — the sorted pipeline never statically uses them) |
 
 > Set 0 expanded from 4 → 6 bindings across `csm` (v1.3.0 — cascade array) and `gtao` (v1.5.0 — AO sampler + settings UBO). Set 4 added by `animation-gpu-skinning`; Set 5 by `compute-gpu-culling` (v1.2.0). Sets 2/4/5 moved to per-stage rebind in `gpu-tagged-heap` (v2.8.10) — backing storage allocated each frame from `GPUTaggedPageAllocator`, descriptors rewritten via `vkUpdateDescriptorSets`. The cull descriptor (binding into Set 5 + Indirect Buffer for compute) follows the same pattern. Set 1 bindless registration moved from synchronous-in-VKTexture-ctor to a `UploadContext` pending-bind pump in `texture-async-uploads` (v2.8.14) — `VKTexture` ctor pushes `{outIndex, view, sampler, fence}`; pump drains in `AssetManager::Update` once `IsComplete(fence)` and writes the slot through `outIndex`. Until then `m_BindlessIndex == INVALID_BINDLESS_SLOT` and `Material::BindlessOrNull` keeps shaders on reserved white slot 0. `~VKTexture` cancels by view-handle. Set 1 second binding (`rt-renderer.1-bindless`) adds a 32-slot pure-sampler array — canonical samplers (linear/nearest × repeat/clamp) live at fixed slots 0-3 for shader paths that want to pick a sampler independently of the texture's baked one; `BindSampler/UnbindSampler` LIFO-vend the remaining slots for ad-hoc registrations. Today's PBR sampling still rides binding 0's combined image-samplers; `slim-gbuffer` (A.2) and downstream consumers wire actual sampler-by-index usage.
 
@@ -61,13 +62,21 @@ GTAO: PrefilterPass → MainPass → DenoisePass (all on AsyncCompute, sequentia
   ↓
 CullComputePass (main scene) — populates per-draw indirect args
   ↓
-GeometryPass (PBR forward — opaque/cutout/transparent variants; reads prepass depth + AO + shadows + LightSSBO/ClusterGrid/LightIndex via per-view Set 3; specular AA inline via dFdx(N)/dFdy(N) curvature variance)
+GeometryPass (PBR forward — opaque/cutout only; reads prepass depth + AO + shadows + LightSSBO/ClusterGrid/LightIndex via per-view Set 3; specular AA inline via dFdx(N)/dFdy(N) curvature variance)
   ↓
 SelectionMaskPass (entity-ID → mask for outline)
   ↓
 SkyboxPass (depth = 1.0 trick, HDR)
   ↓
 VolumetricCompositePass (alpha-blends fog into HDR sceneColor)
+  ↓
+Transparent tier (TransparencySubsystem; skipped when the transparent bucket is empty or in PT mode):
+  Sorted mode — TransparentPass (per-view back-to-front indirect draws, depth-test-no-write, alpha blend)
+  OIT mode    — OITClear (heads → OIT_EMPTY + node-count → 0) → OITStore (depth-only raster; shades once,
+                pushes PPLL nodes via Set 6 atomics) → OITResolve (fullscreen sort-K + ONE/SRC_ALPHA composite)
+  Both shade via pbr_transparent_shading.glsl: rayQuery sun shadow (geom_table candidate loop) / CSM by
+  ShadowingMode, cluster point-light loop, IBL ambient, froxel fog at the FRAGMENT's depth; never the
+  opaque-coupled screen-space inputs (RT mask / ReSTIR DI / GI / GTAO). Writes EntityID (picking parity).
   ↓
 TaaResolvePass (Karis14 YCoCg-clip — reads HDR sceneColor + slim G-buffer motion + parity-picked taaHistoryPrev; writes parity-picked taaHistoryCurr. Output flows through grid + bloom + composite.)
   ↓
@@ -119,7 +128,8 @@ GeometryPass (forward, clustered light loop, reads RT direct + GI, samples volum
   ↓
 SkyboxPass (depth = 1.0 trick, HDR)
   ↓
-TransparentPass (forward, reads depth, reads/writes HDR; cluster lights + volumetric)
+TransparentPass — SHIPPED as the transparency tier (v3.1.3): runs after the volumetric composite,
+Sorted or PPLL-OIT (see the current-order listing above); RT/shadow/TLAS-excluded
   ↓
 RtReflectionsPass (stochastic ray dispatch + dedicated denoise)
   ↓
@@ -180,6 +190,28 @@ Four RG patterns surfaced during recent renderer work — worth knowing before a
 - **Per-view render state stored on a per-pipeline subsystem causes multi-view contamination.** A single `Mat4` on a subsystem (e.g., `GlobalSubsystem::m_CachedViewProj`) is fine when only one view renders per frame, but breaks the moment another view's `RecordView` runs in the same frame — the second view's read sees the first view's write, not its own previous value. **Pattern:** per-view state lives on `ViewResources` (or any per-view container). `m_CachedViewProj` still works for its existing role (frustum cull within one view's render) because write + read alternate per-view; cross-frame caching does not.
 - **`BufferHandle` is for barrier tracking, not descriptor binding** (`forward-plus` smoke). `RG::BufferHandle` carries `index + version` of an internal `BufferNode`; the node stores only the backing `VkBuffer` pointer (not the sub-region offset within that backing). For tagged-heap-backed buffers, multiple `ImportBuffer` calls on the same `VkBuffer` at different offsets create multiple nodes that all map to the same physical buffer. Resolving a downstream pass's binding via `rg.GetBuffers()[handle.index - 1]` only gives you the `VkBuffer`; the offset must come from the producer's `GPUSubRegion`. **Pattern:** producer returns its `BufferHandle` *plus* `GPUSubRegion(s)` in the output struct; consumer's `VkDescriptorBufferInfo` uses `subRegion.buffer + subRegion.offset + subRegion.size`. Existing `GeometrySubsystem::BuildGPUObjectBuffer` already follows this — internal RG sites do `m_Buffers[handle.index - 1]` only for barrier-solve bookkeeping, never for binding offsets.
 - **Image barriers must set `srcQueueFamilyIndex = dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED` explicitly, not rely on zero-init** (`rg-depth-handoff` smoke). A zero-initialized `VkImageMemoryBarrier2` leaves both fields at 0 (= the graphics family index on most hardware). For images created with `VK_SHARING_MODE_CONCURRENT` (the policy at `arch/multi-queue.md`), the spec requires both indices to be `VK_QUEUE_FAMILY_IGNORED` per `VUID-VkImageMemoryBarrier2-image-04071`. Passing 0/0 violates the spec; the observed symptom was `VUID-vkCmdDraw-None-09600` firing several passes downstream at a descriptor-sampling draw, with the solver trace confirming every prior barrier was decided and emitted as expected (so the issue is at emission, not state tracking). **Pattern:** every image-barrier emission site sets both indices to `VK_QUEUE_FAMILY_IGNORED` explicitly. Buffer barriers in `RenderGraph::Execute` already do this; image barriers must match.
+
+> **Transparency tier (`transparency-tier` v3.1.3).** Transparent/Fade is its own pass slot after the
+> volumetric composite — GeometryPass draws opaque + cutout only. Two runtime modes
+> (`TransparencySettings::mode`): **Sorted** (per-view back-to-front over the shared bucket via a
+> LinearAllocator index array — indirect slots are keyed by `gpuObjectIndex`, so sorted ITERATION alone
+> reorders submission) and **PPLL OIT** (default): per-pixel linked list — R32_Uint heads image
+> (per-view, `ViewResources`) + a Garlic `AllocateLargeTaggedDeviceLocal` node pool (16 B nodes
+> `{colorRGB9E5, depth24|alpha8, entityID, next}`, reserved tags `0xFFFFC000+`, freed on
+> resize/budget/release), cleared per frame, resolved by a fullscreen K-nearest insertion sort with
+> order-independent tail merge, composited `src=ONE dst=SRC_ALPHA`. Transparent shading deliberately
+> consumes NO opaque-depth-coupled screen-space input — sun shadow is a per-fragment alpha-tested
+> rayQuery (the `geom_table.glsl` seam; CSM branch in CSM mode), point lights via the cluster loop,
+> fog via the froxel atlas at the fragment's depth (`common/froxel.glsl`). Transparent instances are
+> excluded from the TLAS and the CSM shadow batches — glass neither occludes nor appears in any RT
+> consumer (reflections/PT included; PT transparency is a future follow-up).
+> **New RG states:** `FragmentStorageRead/Write` (GENERAL + FRAGMENT stage; write carries
+> SHADER_READ for RMW atomics) — the `Compute*` states emit COMPUTE-stage barriers and would
+> under-synchronize fragment-stage storage producers/consumers. **Cross-frame import rule:** the
+> heads image + node pool are reused across frames, so OITClear imports them in their END-of-frame
+> state (`FragmentStorageRead`) — an `Undefined` import carries srcStage TOP and lets the clear race
+> the previous frame's resolve reads (WAR); the heads image is bootstrap-transitioned to GENERAL at
+> creation so the frame-0 claim holds.
 
 ### Cross-pass numerical contracts
 
