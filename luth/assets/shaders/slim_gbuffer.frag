@@ -51,6 +51,8 @@ layout(std430, set = 2, binding = 0) readonly buffer MaterialBuffer {
 // Flag bits — mirror pbr.frag.
 const uint FLAG_HAS_NORMAL     = (1u << 0);
 const uint FLAG_HAS_METALROUGH = (1u << 1);
+const uint FLAG_HAS_DIFFUSE    = (1u << 3);
+const uint UV_SHIFT_DIFFUSE    = 16u;
 const uint UV_SHIFT_NORMAL     = 18u;
 const uint UV_SHIFT_METALROUGH = 20u;
 
@@ -71,6 +73,17 @@ vec2 OctEncode(vec3 n)
 void main()
 {
     GPUMaterialData mat = materials[v_MaterialIndex];
+
+    // Cutout alpha test — mirrors pbr.frag (alpha = color.a × diffuse.a, discard below alphaCutoff).
+    // Opaque materials carry alphaCutoff == 0 and never discard. Without this, cutout holes would write
+    // a solid slim G-buffer, and RT shadow/reflection reconstruction + GTAO would sample the card instead
+    // of the surface behind the holes. see arch/rendering-pipeline.md
+    float cutoutAlpha = mat.color.a;
+    if ((mat.flags & FLAG_HAS_DIFFUSE) != 0u)
+        cutoutAlpha *= texture(globalTextures[nonuniformEXT(mat.diffuseIndex)],
+                               SelectUV(mat.flags, UV_SHIFT_DIFFUSE)).a;
+    if (cutoutAlpha < mat.alphaCutoff)
+        discard;
 
     // Sample the tangent-space normal map (if present) and rotate via TBN to world space.
     // Falls back to the interpolated world normal (v_TBN column 2) otherwise.

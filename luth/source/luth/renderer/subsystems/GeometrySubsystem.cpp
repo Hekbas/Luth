@@ -348,6 +348,16 @@ namespace Luth
             return cfg;
         };
 
+        // Cutout variant: same shaders, but writes its own depth (LESS_OR_EQUAL) because the opaque-only
+        // prepass omits cutout — the EQUAL opaque config would reject every cutout fragment (prepass cleared
+        // those pixels to 1.0 or holds the surface behind). slim_gbuffer.frag alpha-tests the holes away.
+        auto makeCutoutConfig = [&](auto bindings, auto attribs) {
+            auto cfg = makeConfig(bindings, attribs);
+            cfg.depthWrite     = true;
+            cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+            return cfg;
+        };
+
         if (!m_SlimGBufferVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
         {
             auto pbrLayout = MakePBRVertexLayout();
@@ -355,6 +365,9 @@ namespace Luth
             auto pbrAttribs  = pbrLayout.GetAttributeDescriptions();
             m_SlimGBufferPipeline = std::make_unique<VKPipeline>(
                 makeConfig(pbrBindings, pbrAttribs),
+                m_SlimGBufferVertSpv, m_SlimGBufferFragSpv, geoLayouts);
+            m_SlimGBufferCutoutPipeline = std::make_unique<VKPipeline>(
+                makeCutoutConfig(pbrBindings, pbrAttribs),
                 m_SlimGBufferVertSpv, m_SlimGBufferFragSpv, geoLayouts);
         }
         if (!m_SlimGBufferSkinnedVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
@@ -365,6 +378,9 @@ namespace Luth
             m_SlimGBufferSkinnedPipeline = std::make_unique<VKPipeline>(
                 makeConfig(skinnedBindings, skinnedAttribs),
                 m_SlimGBufferSkinnedVertSpv, m_SlimGBufferFragSpv, geoLayouts);
+            m_SlimGBufferCutoutSkinnedPipeline = std::make_unique<VKPipeline>(
+                makeCutoutConfig(skinnedBindings, skinnedAttribs),
+                m_SlimGBufferSkinnedVertSpv, m_SlimGBufferFragSpv, geoLayouts);
         }
     }
 
@@ -372,6 +388,8 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
+        m_SlimGBufferCutoutSkinnedPipeline.reset();
+        m_SlimGBufferCutoutPipeline.reset();
         m_SlimGBufferSkinnedPipeline.reset();
         m_SlimGBufferPipeline.reset();
         m_DepthPrepassSkinnedPipeline.reset();
@@ -428,6 +446,8 @@ namespace Luth
         {
             deferGfx(m_SlimGBufferPipeline);
             deferGfx(m_SlimGBufferSkinnedPipeline);
+            deferGfx(m_SlimGBufferCutoutPipeline);
+            deferGfx(m_SlimGBufferCutoutSkinnedPipeline);
             BuildSlimGBufferPipelines(geoLayouts);
         }
         else
@@ -883,8 +903,8 @@ namespace Luth
 
                 bool currentSkinned = false;
 
-                // Opaque-only — cutout fragments fail the EQUAL depth test (their depth never
-                // reached prepass which clears to 1.0). See arch/rendering-pipeline.md.
+                // Opaque pass — EQUAL against prepass depth, no depth write. Cutout follows in its own
+                // loop below (writes depth + alpha-tests). See arch/rendering-pipeline.md.
                 for (const auto& dc : sys.GetDrawList().opaque)
                 {
                     auto mesh = dc.model->GetMesh(dc.meshIndex);
@@ -932,6 +952,61 @@ namespace Luth
                             entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
                             { "slim_gbuffer", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
                               VK_POLYGON_MODE_FILL, dc.isSkinned, true, false, false });
+                    }
+                }
+
+                // Cutout — alpha-tested into the slim G-buffer as alpha-tested-opaque. Writes its own
+                // depth (LESS_OR_EQUAL) so SceneDepth + SlimNormal carry the holed surface; RT sun shadows /
+                // reflections + GTAO then reconstruct from it instead of the geometry behind the holes.
+                if (m_SlimGBufferCutoutPipeline && !sys.GetDrawList().cutout.empty())
+                {
+                    currentSkinned = false;
+                    m_SlimGBufferCutoutPipeline->Bind(cmd);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        m_SlimGBufferCutoutPipeline->GetLayout(), 0, 6, sets, 0, nullptr);
+
+                    for (const auto& dc : sys.GetDrawList().cutout)
+                    {
+                        auto mesh = dc.model->GetMesh(dc.meshIndex);
+                        auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                        auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
+                        if (!vb || !ib) continue;
+
+                        if (dc.isSkinned != currentSkinned)
+                        {
+                            currentSkinned = dc.isSkinned;
+                            VKPipeline* p = (currentSkinned && m_SlimGBufferCutoutSkinnedPipeline)
+                                ? m_SlimGBufferCutoutSkinnedPipeline.get()
+                                : m_SlimGBufferCutoutPipeline.get();
+                            p->Bind(cmd);
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                p->GetLayout(), 0, 6, sets, 0, nullptr);
+                        }
+
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                        const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
+                        const u32 cmdIndex = viewBaseRegion * RenderPipeline::k_IndirectRegionStride + dc.gpuObjectIndex;
+                        VkDeviceSize indirectOffset = m_IndirectRegion.offset + cmdIndex * sizeof(VkDrawIndexedIndirectCommand);
+                        vkCmdDrawIndexedIndirect(cmd, m_IndirectRegion.buffer, indirectOffset, 1,
+                            sizeof(VkDrawIndexedIndirectCommand));
+
+                        if (sys.GetFrameDebugger().state == DebuggerState::CaptureRequested)
+                        {
+                            std::string entName = "Entity";
+                            const auto& tags = sys.GetActiveSnapshot().tagsByEntity;
+                            u32 idx = entt::to_entity(dc.entity);
+                            if (idx < tags.size() && tags[idx])
+                                entName = tags[idx];
+                            sys.GetFrameDebugger().CaptureIndirectDraw("SlimGBufferPass",
+                                dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
+                                entName, dc.entityIndex, ib->GetCount(), dc.gpuObjectIndex, indirectOffset,
+                                { "slim_gbuffer", 0, static_cast<u32>(VK_CULL_MODE_BACK_BIT),
+                                  VK_POLYGON_MODE_FILL, dc.isSkinned, true, true, false });
+                        }
                     }
                 }
 
