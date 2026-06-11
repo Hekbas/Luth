@@ -1,7 +1,7 @@
 # material-system.M.4 — transparency-tier
 
 **Date:** 2026-06-11
-**Commits:** on `feat/transparency-tier` — `4f8032a` (shader seams), `37d4c2a` (TLAS/shadow exclusion), `44dbc20` (sorted pass), `e609ac9` (PPLL infra), `a5a55dc` (PPLL passes), wrap-up
+**Commits:** on `feat/transparency-tier` — `4f8032a` (shader seams), `37d4c2a` (TLAS/shadow exclusion), `44dbc20` (sorted pass), `e609ac9` (PPLL infra), `a5a55dc` (PPLL passes), `59b40e1` (wrap-up docs), + cull-mask visibility (post-smoke-gate)
 **Umbrella:** [#151](https://github.com/Hekbas/Luth/issues/151) · **Closes:** [#32](https://github.com/Hekbas/Luth/issues/32)
 **Series:** `material-system`, M.4. Mode A — **v3.1.3** PATCH bump, tag-only.
 
@@ -63,7 +63,8 @@ PipelineManager variants, the `geom_table.glsl` rayQuery seam, the froxel mappin
 | ST3 | `44dbc20` | `feat(renderer)`: `TransparencySubsystem` (Set 6 layout, sorted + skinned PipelineManagers, per-view sort, DrawBatch-shaped pass after the fog composite); `pbr_transparent.frag` + shared `pbr_transparent_shading.glsl`; `froxel.glsl` extracted from the composite; `geom_table.glsl` gains the `GT_NO_RESOURCE_DECLS` alias guard; `TransparencySettings` + RenderPanel header; GeometryPass + geometry replay drop transparent |
 | ST4 | `e609ac9` | `feat(renderer)`: RG `FragmentStorageRead/Write` states + fragment/transfer builder methods; `PipelineConfig` configurable color blend factors (defaults byte-identical); per-view `oitHeads` (R32_Uint storage) + Garlic node pool (reserved tags `0xFFFFC000+`, realloc on budget change); Set 6 b1/b2 + resolve-set writes; `oit_common.glsl` |
 | ST5 | `a5a55dc` | `feat(renderer)`: `pbr_oit_store.frag` (early_fragment_tests + atomics push) + `oit_resolve.frag` (K-nearest insertion sort + tail merge + `ONE/SRC_ALPHA` under-composite + nearest-entity → EntityID); OITClear/Store/Resolve passes; default mode flips to OIT; hot-reload for both shaders |
-| ST6 | wrap-up | arch docs (pass order, Set 6 row, transparency-tier note, Garlic consumer + reserved ranges), ROADMAP M.4 ✅ + completed row, this file, `Version.h` → 3.1.3, CLAUDE.md version line |
+| ST6 | `59b40e1` | wrap-up — arch docs (pass order, Set 6 row, transparency-tier note, Garlic consumer + reserved ranges), ROADMAP M.4 ✅ + completed row, this file, `Version.h` → 3.1.3, CLAUDE.md version line |
+| ST7 | post-gate | `feat(rt)`: per-ray-class TLAS visibility — transparent re-packs with the GLASS mask + FORCE_OPAQUE; 8 shadow-class rayQuery sites cull to `GT_VIS_SOLID`, 3 world-class sites trace `GT_VIS_ALL`; restores emissive-glass GI + reflections presence (smoke-gate finding) |
 
 ---
 
@@ -116,11 +117,27 @@ Per view at 1080p: heads 8.3 MB + node pool `16 + W·H·budget·16` B (~133 MB a
 recreate condition). Reserved Garlic tag range `0xFFFFC000+`, freed only on resize/budget/release —
 the ReSTIR-reservoir lifecycle exactly.
 
+## RT visibility revision (post-smoke-gate)
+
+The first smoke pass caught two regressions from the strict ST2 TLAS exclusion: **emissive transparent
+stopped lighting neighbors** (emissive feeds the scene through the ReSTIR GI bounce — no
+emissive-as-area-lights yet — and GI rays could no longer hit glass) and **glass vanished from
+reflections** (flagged at wrap-up, but "nothing" reads worse than the old opaque blob). The fix is
+per-ray-class TLAS visibility via instance **cull masks** (`GT_VIS_SOLID 0x01` / `GT_VIS_ALL 0x03`,
+mirrored in TlasBuilder): transparent instances pack with mask `GLASS (0x02)` + `FORCE_OPAQUE`;
+shadow-class rays (sun shadows, ReSTIR-DI visibility, GI-bounce NEE ×2, reflection NEE, PT NEE, fog
+shadows, the transparent fragment's own sun ray — 8 sites) trace `GT_VIS_SOLID`, so glass still never
+blocks light; world-class rays (GI bounce, reflection ray, PT bounce — 3 sites) trace `GT_VIS_ALL`
+and auto-confirm glass as a surface. Restores emissive-glass GI glow and glass-in-reflections
+(unblended surface approximation) while keeping every shadow fix.
+
 ## Behavior changes (flagged for smoke test)
 
-- Glass casts **no** shadows (CSM or RT) and no longer occludes RT shadows/DI/GI/reflections/fog.
-- Glass is **absent from** RT reflections and the PT reference (was an opaque blob) — the RT-excluded
-  contract; PT transparency is a possible future follow-up.
+- Glass casts **no** shadows (CSM or RT) and never blocks light rays (cull-masked out of every
+  shadow-class ray).
+- Glass **appears in** RT reflections / GI / PT as an opaque-ish emissive surface (committed hit —
+  not blended with what's behind it); emissive glass lights neighbors through the GI bounce again.
+  True blended/refractive RT transparency remains a future follow-up.
 - ShadeMode debug overrides on transparent (Unlit/Normals/EntityID/Emission) keep their pre-split
   alpha-1.0 look.
 

@@ -8,6 +8,14 @@
 #ifndef LUTH_SHADERS_COMMON_GEOM_TABLE
 #define LUTH_SHADERS_COMMON_GEOM_TABLE
 
+// TLAS visibility masks — mirrored by TlasBuilder.cpp's instance masks. Shadow-class rays
+// (sun/light visibility, fog shadows) cull to SOLID so transparent never blocks light; world-class
+// rays (GI bounce, reflections, PT) trace ALL and commit glass like a surface (instances are
+// FORCE_OPAQUE) — emissive glass feeds the GI bounce and shows in reflections as an unblended
+// surface approximation.
+#define GT_VIS_SOLID 0x01u
+#define GT_VIS_ALL   0x03u
+
 // vbuf/ibuf are the ORIGINAL full-layout buffers (positions @float 0, TexCoord0 @float 6, TexCoord1
 // @float 8 — for both Vertex 52 B + SkinnedVertex 84 B). Skinned hits read bind-pose attributes (the
 // hit POINT rides the deformed TLAS; only n_s/UV are bind-pose — fine for diffuse-dominant bounces).

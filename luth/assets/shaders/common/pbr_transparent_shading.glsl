@@ -66,7 +66,7 @@ float TraceSunShadow(vec3 worldPos, vec3 N)
 
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
         origin, 0.0, L, 10000.0);
     RtConfirmAlphaCandidates(rq, pc.geomTable);
     return (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionNoneEXT) ? 1.0 : 0.0;

@@ -109,7 +109,7 @@
 | v3.1.0 | `emissive-parity` | Opens the material-system arc: emissive factor + HDR strength, identical raster (`pbr.frag`) + RT (`geom_table.glsl`) emission closing the raster≠RT bug, editor controls + import bridge + inspector preview + `ShadeMode::Emission`; folds material-authoring fixes — metal/rough/color reach the GPU via direct fields, textureless emissive editable, no autosave reimport bounce | 2026-06-09 |
 | v3.1.1 | `material-eval-seam` | Retires `pbr.frag`'s hand-duplicated Cook-Torrance onto the shared `common/brdf.glsl` seam — raster==RT BRDF parity now structural (single source); neutral-renamed the `Pt*` functions; fp32-identical output | 2026-06-10 |
 | v3.1.2 | `cutout-rt` | Alpha-cutout materials hole correctly in every RT path: per-instance TLAS opaque flag (cutout→FORCE_NO_OPAQUE) + a shared `geom_table.glsl` candidate-loop alpha-test across PT/GI/reflections/ReSTIR-DI/volumetric fog; rewrites the lone RT-pipeline sun-shadow pass to rayQuery-compute, deleting the SBT/rgen/rmiss | 2026-06-11 |
-| v3.1.3 | `transparency-tier` | Transparent tier after the fog composite (fixes #32 skybox compositing): PPLL OIT default (per-view heads image + Garlic node pool, sort-K resolve) + per-view sorted A/B; corrected transparent shading — rayQuery sun shadow, cluster lights, fragment-depth froxel fog; transparent excluded from TLAS + shadow batches | 2026-06-11 |
+| v3.1.3 | `transparency-tier` | Transparent tier after the fog composite (fixes #32 skybox compositing): PPLL OIT default (per-view heads image + Garlic node pool, sort-K resolve) + per-view sorted A/B; corrected transparent shading — rayQuery sun shadow, cluster lights, fragment-depth froxel fog; TLAS cull masks make glass shadow-ray-invisible yet GI/reflection/PT-visible | 2026-06-11 |
 
 ---
 
@@ -185,7 +185,7 @@ Umbrella issue: [#151](https://github.com/Hekbas/Luth/issues/151) (sub-effort is
 | M.1 `emissive-parity` ✅ | [#152](https://github.com/Hekbas/Luth/issues/152) | S–M | Emissive factor + HDR strength; raster==RT emission; editor/import/preview + `ShadeMode::Emission` — shipped v3.1.0 |
 | M.2 `material-eval-seam` ✅ | — | S | `pbr.frag` migrated onto the existing `common/brdf.glsl` seam (`rt-reflections` built it); `Pt*` renamed; raster==RT BRDF parity structural — shipped v3.1.1 |
 | M.3 `cutout-rt` ✅ | — | M | Per-instance TLAS opaque flag + shared candidate-loop alpha-test (rayQuery-centric, not anyhit BLAS); cutout correct in RT shadows / GI / reflections / DI / fog; lone RT-pipeline sun-shadow pass rewritten to rayQuery-compute — shipped v3.1.2 |
-| M.4 `transparency-tier` ✅ | [#32](https://github.com/Hekbas/Luth/issues/32) | M→L | Dedicated pass after the fog composite: PPLL OIT default + per-view sorted A/B, rayQuery sun shadow + fragment-depth fog, TLAS/shadow-excluded (scope override: true OIT from the start, superseding "WBOIT only if layered") — shipped v3.1.3 |
+| M.4 `transparency-tier` ✅ | [#32](https://github.com/Hekbas/Luth/issues/32) | M→L | Dedicated pass after the fog composite: PPLL OIT default + per-view sorted A/B, rayQuery sun shadow + fragment-depth fog, cull-masked RT visibility (shadow-ray-excluded, GI/reflection-visible; scope override: true OIT from the start, superseding "WBOIT only if layered") — shipped v3.1.3 |
 
 Deferred: `emissive-as-area-lights` (L); a Slang `IMaterial` research spike (M).
 

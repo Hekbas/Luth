@@ -129,7 +129,8 @@ GeometryPass (forward, clustered light loop, reads RT direct + GI, samples volum
 SkyboxPass (depth = 1.0 trick, HDR)
   ↓
 TransparentPass — SHIPPED as the transparency tier (v3.1.3): runs after the volumetric composite,
-Sorted or PPLL-OIT (see the current-order listing above); RT/shadow/TLAS-excluded
+Sorted or PPLL-OIT (see the current-order listing above); shadow-ray-excluded via TLAS cull masks,
+visible to GI/reflections/PT as a committed surface
   ↓
 RtReflectionsPass (stochastic ray dispatch + dedicated denoise)
   ↓
@@ -202,9 +203,13 @@ Four RG patterns surfaced during recent renderer work — worth knowing before a
 > order-independent tail merge, composited `src=ONE dst=SRC_ALPHA`. Transparent shading deliberately
 > consumes NO opaque-depth-coupled screen-space input — sun shadow is a per-fragment alpha-tested
 > rayQuery (the `geom_table.glsl` seam; CSM branch in CSM mode), point lights via the cluster loop,
-> fog via the froxel atlas at the fragment's depth (`common/froxel.glsl`). Transparent instances are
-> excluded from the TLAS and the CSM shadow batches — glass neither occludes nor appears in any RT
-> consumer (reflections/PT included; PT transparency is a future follow-up).
+> fog via the froxel atlas at the fragment's depth (`common/froxel.glsl`). **RT visibility is
+> per-ray-class via TLAS instance cull masks** (`GT_VIS_SOLID 0x01` / `GT_VIS_ALL 0x03` in
+> geom_table.glsl, mirrored by TlasBuilder): transparent instances pack with mask GLASS (0x02) +
+> FORCE_OPAQUE — shadow-class rays (sun/light visibility, fog shadows) cull to SOLID so glass never
+> blocks light, while world-class rays (GI bounce / reflections / PT) trace ALL and commit glass as
+> an unblended surface (emissive glass feeds the GI bounce, glass shows in reflections). Glass is
+> also dropped from the CSM shadow batches. Blended/refractive RT transparency = future follow-up.
 > **New RG states:** `FragmentStorageRead/Write` (GENERAL + FRAGMENT stage; write carries
 > SHADER_READ for RMW atomics) — the `Compute*` states emit COMPUTE-stage barriers and would
 > under-synchronize fragment-stage storage producers/consumers. **Cross-frame import rule:** the

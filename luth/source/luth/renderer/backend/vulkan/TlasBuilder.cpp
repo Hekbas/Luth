@@ -244,12 +244,17 @@ namespace Luth
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
 
-            // Resolve the material once: slot (geom table) + cutout (per-instance opaque flag).
-            // Transparent/Fade never pack — the RT-excluded tier: glass neither occludes nor appears
-            // in any RT consumer (shadows/DI/GI/reflections/fog/PT). HashInstances folds RenderMode,
-            // so a runtime mode flip re-includes/-excludes via the rebuild. see arch/rendering-pipeline.md
-            u32  matSlot = 0;  // slot 0 = reserved white material
-            bool cutout  = false;
+            // Resolve the material once: slot (geom table) + render mode → visibility mask + opaque flag.
+            // Transparent/Fade pack with the GLASS mask only — shadow-class rays cull to SOLID (glass
+            // never blocks light), world-class rays (GI bounce / reflections / PT) trace SOLID|GLASS and
+            // auto-confirm glass as a surface: emissive glass feeds the GI bounce and shows in reflections
+            // (unblended approximation). Masks mirror common/geom_table.glsl's GT_VIS_*. HashInstances
+            // folds RenderMode, so a runtime mode flip re-masks via the rebuild. see arch/rendering-pipeline.md
+            constexpr u32 kVisSolid = 0x01;
+            constexpr u32 kVisGlass = 0x02;
+            u32  matSlot     = 0;  // slot 0 = reserved white material
+            bool cutout      = false;
+            bool transparent = false;
             if (inst.materialUUID.IsValid())
             {
                 auto it = materialSlotMap.find(inst.materialUUID);
@@ -257,19 +262,18 @@ namespace Luth
                 if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
                 {
                     const Material::RenderMode mode = mat->GetRenderMode();
-                    if (mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade)
-                        continue;
-                    cutout = mode == Material::RenderMode::Cutout;
+                    transparent = mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade;
+                    cutout      = mode == Material::RenderMode::Cutout;
                 }
             }
 
             VkAccelerationStructureInstanceKHR vkInst{};
             vkInst.transform                              = ToVkTransform(inst.worldMatrix);
             vkInst.instanceCustomIndex                    = static_cast<u32>(packed.size()) & 0x00FFFFFFu;
-            vkInst.mask                                   = 0xFF;
+            vkInst.mask                                   = transparent ? kVisGlass : (kVisSolid | kVisGlass);
             vkInst.instanceShaderBindingTableRecordOffset = 0;
             // Cutout -> FORCE_NO_OPAQUE so rayQuery yields candidates for the shader alpha test; everything
-            // else -> FORCE_OPAQUE to hardware-auto-confirm (the rays drop gl_RayFlagsOpaqueEXT in ST3+).
+            // else (transparent included) -> FORCE_OPAQUE to hardware-auto-confirm.
             vkInst.flags                                  = cutout
                 ? VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR
                 : VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;

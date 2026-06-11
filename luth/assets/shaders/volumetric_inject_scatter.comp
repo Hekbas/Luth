@@ -161,7 +161,7 @@ bool Visible(vec3 x, vec3 dir, float maxDist) {
     vec3  sOrig = x + dir * sMin;
     rayQueryEXT sq;
     rayQueryInitializeEXT(sq, topLevelAS,
-        gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
+        gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID,
         sOrig, sMin, dir, max(maxDist, sMin));
     RtConfirmAlphaCandidates(sq, pc.geomTable);
     return rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT;
