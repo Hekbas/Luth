@@ -99,21 +99,4 @@ vec3 PointLightRadiance(PointLightData pl, vec3 worldPos, out vec3 L, out float 
     return pl.color * pl.intensity * atten * rolloff;
 }
 
-// Combined diffuse+spec RIS target (#154). F0-/albedo-free, proportional to the integrand magnitude so
-// RIS importance-samples BOTH lobes (canonical ReSTIR target = full BSDF; a diffuse-only target adds
-// specular variance). specLobe = π·D·G/(4·NoV) balances the diffuse term's dropped 1/π, so
-// pHat = Luminance(Li)·(NoL + specLobe) reduces to the old diffuse target when specLobe→0.
-// see arch/rendering-pipeline.md
-#ifndef GI_PI
-#define GI_PI 3.14159265359
-#endif
-#include "common/brdf.glsl"
-float RestirTargetPdf(vec3 N, vec3 V, vec3 L, vec3 Li, float roughness) {
-    float NoL  = max(dot(N, L), 0.0);
-    vec3  H    = normalize(V + L);
-    float NoV  = max(dot(N, V), 1.0e-4);
-    float spec = GI_PI * D_GGX(N, H, roughness) * G_Smith(N, V, L, roughness) / (4.0 * NoV);
-    return Luminance(Li) * (NoL + spec);
-}
-
 #endif

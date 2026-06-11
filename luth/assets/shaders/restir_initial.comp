@@ -7,6 +7,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 RestirTargetPdf (brdf + GI_PI — DI-only, not the shared header)
 #include "common/geom_table.glsl"   // Set 3 Material + Set 4 bindless + AlphaTestCandidateHit/RtConfirmAlphaCandidates
 
 // ReSTIR DI — initial candidate generation (Bitterli 2020). Per pixel: RIS over M uniformly-sampled

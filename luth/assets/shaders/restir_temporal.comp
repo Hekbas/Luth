@@ -3,6 +3,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 RestirTargetPdf (brdf + GI_PI — DI-only)
 
 // ReSTIR DI — temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the
 // motion vector and merges the previous final reservoir into this frame's RIS candidate with

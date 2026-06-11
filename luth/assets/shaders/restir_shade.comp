@@ -3,6 +3,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 brdf (D_GGX/G_Smith) + GI_PI for the specular shade
 
 // ReSTIR DI — final shading. Reads each pixel's resolved reservoir and writes the selected point
 // light's contribution to the direct-lighting image.

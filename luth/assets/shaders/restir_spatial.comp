@@ -3,6 +3,7 @@
 
 #include "common/globals.glsl"
 #include "common/restir_common.glsl"
+#include "common/restir_di_target.glsl"   // #154 RestirTargetPdf (brdf + GI_PI — DI-only)
 
 // ReSTIR DI — spatial reuse (Bitterli 2020). Each pixel merges its own reservoir with a few random
 // neighbours inside a disk, rejecting geometrically dissimilar ones (linear depth + normal). Punctual

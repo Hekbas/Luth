@@ -77,7 +77,11 @@ demodulate→remodulate-in-`pbr.frag` seam.
 
 ## Verification
 
-- `glslc --target-env=vulkan1.3` clean on the 5 touched shaders + the 2 transparent aliasers.
+- `glslc --target-env=vulkan1.3` clean on the full DI+GI shader surface (14 entry points). A first pass
+  validated only the DI shaders + transparents and missed that the shared `restir_common.glsl` is included
+  by `restir_gi_common.glsl` — putting `#define GI_PI` + the brdf pull-in there clashed with the GI path's
+  `const float GI_PI` (broke `path_trace` + every GI shader at first smoke). Fixed by moving the DI target
+  helper (GI_PI + brdf + `RestirTargetPdf`) into its own DI-only `restir_di_target.glsl`.
 - Debug x64 MSBuild clean (Luth.lib + Luthien.lib + Luthien.exe), validated in three incremental stages
   (scaffolding, shading, UI).
 - Runtime smoke (pending user gate): metal + glossy dielectric under a point light, ReSTIR DI on — specular
