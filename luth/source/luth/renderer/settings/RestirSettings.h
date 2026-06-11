@@ -18,5 +18,7 @@ namespace Luth
         u32  spatialNeighbours = 5;
         u32  spatialRadius = 16;
         f32  spatialDepthThreshold = 0.1f;
+        bool specular = true;            // #154 — demodulated specular DI (metals/specular from point lights)
+        f32  specularIntensity = 1.0f;   // composite scale, baked into restirParams.z (pbr.frag remod)
     };
 }

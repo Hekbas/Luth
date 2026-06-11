@@ -87,7 +87,7 @@ namespace Luth
         // (r/w SSBO), b3 DI storage image, b4 reservoir PREV (read SSBO), b5 motion sampler, b6
         // spatial-output reservoir (write SSBO). initial uses b0/b1/b2; temporal uses b0/b1/b2/b4/b5;
         // spatial uses b0/b1/b2(read)/b6(write); shade uses b0/b1/b6(read)/b3. b2/b4 swap each frame.
-        VkDescriptorSetLayoutBinding bindings[7]{};
+        VkDescriptorSetLayoutBinding bindings[9]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount = 1;
@@ -116,12 +116,20 @@ namespace Luth
         bindings[6].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[6].descriptorCount = 1;
         bindings[6].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[7].binding         = 7;   // slimRoughness sampler (#154 combined target + spec shade)
+        bindings[7].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[7].descriptorCount = 1;
+        bindings[7].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[8].binding         = 8;   // restirDISpec storage image (#154 demodulated specular out)
+        bindings[8].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        bindings[8].descriptorCount = 1;
+        bindings[8].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
         // cycled slots may still be pending on the GPU. UAB satisfies VUID-vkUpdateDescriptorSets-
         // None-03047 — mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5/b6 are stable
         // per-view, written once at WriteView time, so they stay flag-less (b6's buffer is per-view).
-        VkDescriptorBindingFlags bindingFlags[7] = {
+        VkDescriptorBindingFlags bindingFlags[9] = {
             0,                                            // b0 depth sampler
             0,                                            // b1 normal sampler
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir curr / temporal out
@@ -129,16 +137,18 @@ namespace Luth
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b4 reservoir prev
             0,                                            // b5 motion sampler
             0,                                            // b6 spatial output reservoir
+            0,                                            // b7 slimRoughness sampler
+            0,                                            // b8 restirDISpec storage image
         };
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsCI.bindingCount  = 7;
+        bindingFlagsCI.bindingCount  = 9;
         bindingFlagsCI.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         layoutCI.pNext        = &bindingFlagsCI;
         layoutCI.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutCI.bindingCount = 7;
+        layoutCI.bindingCount = 9;
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
@@ -256,7 +266,8 @@ namespace Luth
     void RtRestirSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
         if (vr.restirDescSet[0] == VK_NULL_HANDLE) return;
-        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion() || !vr.restirDI) return;
+        if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion()
+            || !targets.GetSlimRoughness() || !vr.restirDI || !vr.restirDISpec) return;
         if (!vr.restirSpatial.buffer) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -265,6 +276,8 @@ namespace Luth
         const VkImageView normalView = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal())->GetImageView();
         const VkImageView motionView = std::static_pointer_cast<VKTexture>(targets.GetSlimMotion())->GetImageView();
         const VkImageView diView     = std::static_pointer_cast<VKTexture>(vr.restirDI)->GetImageView();
+        const VkImageView roughView  = std::static_pointer_cast<VKTexture>(targets.GetSlimRoughness())->GetImageView();
+        const VkImageView specView   = std::static_pointer_cast<VKTexture>(vr.restirDISpec)->GetImageView();
 
         VkDescriptorImageInfo depthInfo{};
         depthInfo.sampler     = m_Sampler;
@@ -285,13 +298,22 @@ namespace Luth
         diInfo.imageView   = diView;
         diInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
+        VkDescriptorImageInfo roughInfo{};
+        roughInfo.sampler     = m_Sampler;
+        roughInfo.imageView   = roughView;
+        roughInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo specInfo{};
+        specInfo.imageView   = specView;   // restirDISpec — GENERAL (storage write from shade)
+        specInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
         // b6 spatial-output reservoir — single per-view buffer, stable like b0/b1/b3/b5.
         VkDescriptorBufferInfo spatialInfo{
             vr.restirSpatial.buffer, vr.restirSpatial.offset, vr.restirSpatial.size };
 
         // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion, b6 spatial out. b2/b4
         // (reservoirs) swap each frame — WriteReservoirBindings owns them.
-        VkWriteDescriptorSet writes[5 * MAX_FRAMES_IN_FLIGHT]{};
+        VkWriteDescriptorSet writes[7 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
         {
@@ -337,6 +359,22 @@ namespace Luth
             writes[n].descriptorCount = 1;
             writes[n].pBufferInfo     = &spatialInfo;
             ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 7;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[n].descriptorCount = 1;
+            writes[n].pImageInfo      = &roughInfo;
+            ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 8;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[n].descriptorCount = 1;
+            writes[n].pImageInfo      = &specInfo;
+            ++n;
         }
         vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
     }
@@ -375,10 +413,11 @@ namespace Luth
         vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
     }
 
-    RG::ResourceHandle RtRestirSubsystem::AddPasses(RG::RenderGraph& rg,
+    RtRestirSubsystem::Outputs RtRestirSubsystem::AddPasses(RG::RenderGraph& rg,
                                                     RG::ResourceHandle sceneDepth,
                                                     RG::ResourceHandle slimNormal,
-                                                    RG::ResourceHandle slimMotion)
+                                                    RG::ResourceHandle slimMotion,
+                                                    RG::ResourceHandle slimRoughness)
     {
         const RestirSettings& settings = m_Pipeline->GetSystem().GetRestirSettings();
         if (!settings.enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
@@ -432,6 +471,7 @@ namespace Luth
         struct RestirInitialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
+            RG::ResourceHandle rough;
             RG::BufferHandle   reservoir;
         };
         RG::BufferHandle reservoirHandle{};
@@ -439,8 +479,9 @@ namespace Luth
             "RestirInitial",
             RG::QueueFamily::AsyncCompute,
             [&, this](RestirInitialData& data, RG::RenderPassBuilder& builder) {
-                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
-                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                if (sceneDepth.IsValid())    data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
                 RG::BufferDesc bd{ "RestirReservoirCurr", currRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
                 data.reservoir  = rg.ImportBuffer(bd, (void*)currRes.buffer, RG::ResourceState::Undefined);
@@ -492,6 +533,7 @@ namespace Luth
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
             RG::ResourceHandle motion;
+            RG::ResourceHandle rough;
             RG::BufferHandle   reservoirCurr;
             RG::BufferHandle   reservoirPrev;
         };
@@ -499,9 +541,10 @@ namespace Luth
             "RestirTemporal",
             RG::QueueFamily::AsyncCompute,
             [&, this](RestirTemporalData& data, RG::RenderPassBuilder& builder) {
-                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
-                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
-                if (slimMotion.IsValid()) data.motion = builder.ReadStorageImage(slimMotion);
+                if (sceneDepth.IsValid())    data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimMotion.IsValid())    data.motion = builder.ReadStorageImage(slimMotion);
+                if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
                 RG::BufferDesc prevBd{ "RestirReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
                 // Import in its true last-left state (StorageBufferWrite), NOT Undefined: Undefined → srcAccess=0
@@ -544,6 +587,7 @@ namespace Luth
         struct RestirSpatialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
+            RG::ResourceHandle rough;
             RG::BufferHandle   reservoirIn;
             RG::BufferHandle   reservoirOut;
         };
@@ -552,8 +596,9 @@ namespace Luth
             "RestirSpatial",
             RG::QueueFamily::AsyncCompute,
             [&, this](RestirSpatialData& data, RG::RenderPassBuilder& builder) {
-                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
-                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                if (sceneDepth.IsValid())    data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
                 data.reservoirIn = builder.ReadBuffer(reservoirHandle);
 
@@ -589,20 +634,25 @@ namespace Luth
         struct RestirShadeData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
+            RG::ResourceHandle rough;
             RG::ResourceHandle di;
+            RG::ResourceHandle spec;
             RG::BufferHandle   reservoir;
         };
         RG::ResourceHandle diHandle{};
+        RG::ResourceHandle specHandle{};
         rg.AddComputePass<RestirShadeData>(
             "RestirShade",
             RG::QueueFamily::AsyncCompute,
             [&, this](RestirShadeData& data, RG::RenderPassBuilder& builder) {
-                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
-                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+                if (sceneDepth.IsValid())    data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
+                if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
                 data.reservoir = builder.ReadBuffer(spatialHandle);
 
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
-                auto diTex = std::static_pointer_cast<VKTexture>(vr->restirDI);
+                auto diTex   = std::static_pointer_cast<VKTexture>(vr->restirDI);
+                auto specTex = std::static_pointer_cast<VKTexture>(vr->restirDISpec);
                 RG::TextureDesc desc;
                 desc.name   = "RestirDI";
                 desc.width  = diTex->GetWidth();
@@ -613,6 +663,19 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.di  = builder.WriteStorageImage(data.di);
                 diHandle = data.di;
+
+                // #154 — second output: demodulated specular (b8). Imported once here; its handle feeds
+                // the DiSpecular SVGF denoiser. Mirrors the DI import above (same shape, GENERAL storage).
+                RG::TextureDesc specDesc;
+                specDesc.name   = "RestirDISpec";
+                specDesc.width  = specTex->GetWidth();
+                specDesc.height = specTex->GetHeight();
+                specDesc.format = RG::TextureFormat::RGBA16_Float;
+                data.spec  = rg.ImportResource(specDesc,
+                    (void*)specTex->GetImage(), (void*)specTex->GetImageView(),
+                    RG::ResourceState::Undefined);
+                data.spec  = builder.WriteStorageImage(data.spec);
+                specHandle = data.spec;
             },
             [this, pc](RestirShadeData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;
@@ -636,6 +699,6 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        return diHandle;
+        return { diHandle, specHandle };
     }
 }

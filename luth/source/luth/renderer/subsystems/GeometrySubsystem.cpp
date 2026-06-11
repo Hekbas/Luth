@@ -1026,7 +1026,8 @@ namespace Luth
                                                       RG::ResourceHandle rtShadowMask,
                                                       RG::ResourceHandle diHandle,
                                                       RG::ResourceHandle giDIHandle,
-                                                      RG::ResourceHandle reflHandle)
+                                                      RG::ResourceHandle reflHandle,
+                                                      RG::ResourceHandle diSpecHandle)
     {
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
@@ -1038,6 +1039,7 @@ namespace Luth
             RG::ResourceHandle diHandle;
             RG::ResourceHandle giDIHandle;
             RG::ResourceHandle reflHandle;
+            RG::ResourceHandle diSpecHandle;
             RG::BufferHandle   indirectBuf;
         };
         GeometryOutput output;
@@ -1115,6 +1117,11 @@ namespace Luth
                 // alive (no pbr.frag sampler until the Set 3 b7 composite, S4). Read-only dependency.
                 if (reflHandle.IsValid())
                     data.reflHandle = builder.Read(reflHandle);
+
+                // Denoised ReSTIR-DI specular (#154) — barrier-only read; pbr.frag samples it at Set 3 b8
+                // under the restirParams.z gate. Invalid when DI / specular off.
+                if (diSpecHandle.IsValid())
+                    data.diSpecHandle = builder.Read(diSpecHandle);
 
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
 

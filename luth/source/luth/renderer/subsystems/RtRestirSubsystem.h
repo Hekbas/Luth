@@ -36,11 +36,13 @@ namespace Luth
         // slots. Must run before AddPasses each frame.
         void WriteReservoirBindings(ViewResources& vr);
 
-        // Initial RIS + visibility, temporal reuse, spatial reuse, then demodulated shade. Returns
-        // the DI image handle (demodulated diffuse irradiance) consumed by GeometryPass. No-op handle
-        // when disabled / no TLAS. slimMotion feeds the temporal pass's reprojection.
-        RG::ResourceHandle AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth,
-                                     RG::ResourceHandle slimNormal, RG::ResourceHandle slimMotion);
+        // Initial RIS + visibility, temporal reuse, spatial reuse, then demodulated shade. Returns the
+        // demodulated diffuse (di) + specular (spec, #154) DI image handles consumed by GeometryPass +
+        // the SVGF denoisers. No-op handles when disabled / no TLAS. slimMotion feeds temporal
+        // reprojection; slimRoughness feeds the combined diffuse+spec RIS target + the specular shade.
+        struct Outputs { RG::ResourceHandle di; RG::ResourceHandle spec; };
+        Outputs AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal,
+                          RG::ResourceHandle slimMotion, RG::ResourceHandle slimRoughness);
 
         VkSampler             GetSampler()   const { return m_Sampler; }
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
