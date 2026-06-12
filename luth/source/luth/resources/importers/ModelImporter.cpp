@@ -601,6 +601,19 @@ namespace Luth
         }
     }
 
+    // Decompose a node's local matrix to TRS for its entity Transform. Deliberately uses
+    // Math::Decompose (raw glm::decompose) and NOT Luth::DecomposeTransform: the latter's trailing
+    // glm::conjugate inverts the rotation in this glm version, which renders imported nodes facing the
+    // wrong way (the error scales with rotation angle; only axis-aligned nodes look right). The conjugate
+    // is latent/masked elsewhere — animation drives skinning from the bone-matrix buffer and physics
+    // reads quaternions directly, so neither round-trips a rotation through the entity Transform the way
+    // node import does. Verified with a decompose->euler->reconstruct round-trip (see commit history).
+    static void DecomposeNodeLocal(const Mat4& m, Vec3& t, Quat& r, Vec3& s)
+    {
+        Vec3 skew; Vec4 persp;
+        Math::Decompose(m, s, r, t, skew, persp);
+    }
+
     // Static-model path: preserve the DCC node hierarchy as a topological node list, store meshes
     // un-baked (mesh-local — the entity tree composes world transforms), and extract cameras + lights.
     // Axis correction + scale factor fold onto the root node's transform (mirrors how the skinned path
@@ -662,7 +675,7 @@ namespace Luth
 
             Mat4 local = AiMat4ToGLM(node->mTransformation);
             if (parentIndex < 0) local = rootCorrection * local;
-            DecomposeTransform(local, mn.Translation, mn.Rotation, mn.Scale);
+            DecomposeNodeLocal(local, mn.Translation, mn.Rotation, mn.Scale);
 
             for (unsigned int i = 0; i < node->mNumMeshes; ++i)
                 mn.MeshIndices.push_back(node->mMeshes[i]);
