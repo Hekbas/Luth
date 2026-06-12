@@ -489,6 +489,11 @@ namespace Luth
             else
                 vertex.TexCoord0 = Vec2(0.0f);
 
+            if (mesh->mTextureCoords[1])
+                vertex.TexCoord1 = Vec2(mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y);
+            else
+                vertex.TexCoord1 = Vec2(0.0f);
+
             if (mesh->HasTangentsAndBitangents())
                 vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
@@ -538,6 +543,11 @@ namespace Luth
                 vertex.TexCoord0 = Vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
             else
                 vertex.TexCoord0 = Vec2(0.0f);
+
+            if (mesh->mTextureCoords[1])
+                vertex.TexCoord1 = Vec2(mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y);
+            else
+                vertex.TexCoord1 = Vec2(0.0f);
 
             if (mesh->HasTangentsAndBitangents())
                 vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
@@ -679,14 +689,42 @@ namespace Luth
         nlohmann::json matJson;
         UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
         matJson["shader"] = pbrUUID.IsValid() ? pbrUUID.ToString() : "";
-        matJson["render_mode"] = 0; // Opaque
+        // Render mode (Opaque=0/Cutout=1/Transparent=2; Fade=3 is editor-only): glTF alphaMode wins,
+        // else opacity<1 → Transparent. The opacity>0.001 floor dodges the FBX "0 means default" quirk.
+        int renderMode = 0;
+        float opacity = 1.0f;
+        aiMat->Get(AI_MATKEY_OPACITY, opacity);
+        bool translucentOpacity = (opacity > 0.001f && opacity < 1.0f);
+
+        aiString alphaMode;
+        if (aiMat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode) == AI_SUCCESS) {
+            std::string mode = alphaMode.C_Str();
+            if (mode == "MASK")       renderMode = 1;
+            else if (mode == "BLEND") renderMode = 2;
+        }
+        else if (translucentOpacity) {
+            renderMode = 2;
+        }
+        matJson["render_mode"] = renderMode;
+
+        float alphaCutoff;
+        if (aiMat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+            matJson["alpha_cutoff"] = alphaCutoff;
+
+        // Two-sided → CullMode::None (Back=0, Front=1, None=2). Leave the default (Back) otherwise.
+        int twoSided = 0;
+        if (aiMat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+            matJson["cull_mode"] = 2;
 
         // Material factors -> direct keys (color/metalness/roughness). The u_* uniform channel never
         // reached the GPU (no Set-1 block in pbr), so importing into it silently dropped the factors.
         aiColor4D color;
         if (aiMat->Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS ||
-            aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
-            matJson["color"] = { color.r, color.g, color.b, color.a };
+            aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
+            // Fold a separate opacity scalar (FBX/OBJ) into base-color alpha when the source carries one.
+            float a = translucentOpacity ? opacity : color.a;
+            matJson["color"] = { color.r, color.g, color.b, a };
+        }
 
         float floatVal;
         if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS)  matJson["metalness"] = floatVal;
@@ -696,6 +734,11 @@ namespace Luth
         matJson["textures"] = nlohmann::json::array();
 
         auto TryAddTexture = [&](aiTextureType aiType, MapType luthType) {
+            // Skip if this slot is already filled — glTF exposes metal-rough under both METALNESS and
+            // DIFFUSE_ROUGHNESS (same file), and occlusion under AMBIENT_OCCLUSION and LIGHTMAP.
+            for (const auto& existing : matJson["textures"])
+                if (existing["type"].get<int>() == (int)luthType) return;
+
             if (aiMat->GetTextureCount(aiType) > 0) {
                 aiString path;
                 if (aiMat->GetTexture(aiType, 0, &path) == AI_SUCCESS) {
@@ -730,10 +773,14 @@ namespace Luth
                     }
 
                     if (texUUID.IsValid()) {
+                        // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
+                        int uvChannel = 0;
+                        aiMat->Get(AI_MATKEY_UVWSRC(aiType, 0), uvChannel);
+
                         nlohmann::json texNode;
                         texNode["type"] = (int)luthType;
                         texNode["uuid"] = texUUID.ToString();
-                        texNode["uv"] = 0;
+                        texNode["uv"] = (uvChannel <= 0) ? 0 : 1;
                         texNode["useTexture"] = true;
                         matJson["textures"].push_back(texNode);
                     }
@@ -744,9 +791,13 @@ namespace Luth
         TryAddTexture(aiTextureType_DIFFUSE, MapType::Diffuse);
         TryAddTexture(aiTextureType_BASE_COLOR, MapType::Diffuse);
         TryAddTexture(aiTextureType_NORMALS, MapType::Normal);
+        // metalRoughIndex samples MapType::Metalness only; glTF's combined map arrives under either
+        // METALNESS or DIFFUSE_ROUGHNESS (same file), so both target Metalness and the dedupe keeps one.
         TryAddTexture(aiTextureType_METALNESS, MapType::Metalness);
-        TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Roughness);
+        TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Metalness);
         TryAddTexture(aiTextureType_EMISSIVE, MapType::Emissive);
+        TryAddTexture(aiTextureType_AMBIENT_OCCLUSION, MapType::Occlusion);
+        TryAddTexture(aiTextureType_LIGHTMAP, MapType::Occlusion);
 
         // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
         // uniform channel. Default to white when only a resolved emissive texture is present, so glTF
