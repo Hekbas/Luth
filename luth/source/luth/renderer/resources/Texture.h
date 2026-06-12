@@ -19,7 +19,9 @@ namespace Luth
         R32_Float,                    // Compute storage (GTAO linear depth, etc.)
         D32_Float, D24_Unorm_S8_Uint, // Added Depth formats
         R32_Uint,
-        R16_Uint                      // Slim G-buffer material ID (16-bit, fits 16384-entry material SSBO)
+        R16_Uint,                     // Slim G-buffer material ID (16-bit, fits 16384-entry material SSBO)
+        // Appended (never insert mid-enum): texture artifacts store this value and have no version gate.
+        RGBA8_SRGB                    // Color textures (albedo/emissive); hardware sRGB->linear on sample
     };
 
     enum class TextureWrapMode {
