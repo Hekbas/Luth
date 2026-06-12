@@ -24,16 +24,14 @@ namespace Luth
             m_MinFilter = (int)texture.GetFilterMode().first;
             m_MagFilter = (int)texture.GetFilterMode().second;
 
-            // Read generate_mipmaps + srgb from .meta
+            // Read generate_mipmaps from .meta
             m_GenerateMipmaps = true;
-            m_Srgb = true;
             fs::path metaPath = texture.GetPath().string() + ".meta";
             MetaFile meta(texture.Handle);
             if (meta.Load(metaPath))
             {
                 auto& ts = meta.GetTypeSettings();
                 if (ts.contains("generate_mipmaps")) m_GenerateMipmaps = ts["generate_mipmaps"].get<bool>();
-                if (ts.contains("srgb"))             m_Srgb = ts["srgb"].get<bool>();
             }
         }
 
@@ -91,7 +89,6 @@ namespace Luth
 
                 if (UI::BeginProperties("TextureSettings")) {
                     UI::Property("Generate Mipmaps", m_GenerateMipmaps);
-                    UI::Property("sRGB (color)", m_Srgb);
                     UI::PropertyCombo("Wrap Mode",  m_WrapMode,  wrapModes,   IM_ARRAYSIZE(wrapModes));
                     UI::PropertyCombo("Min Filter", m_MinFilter, filterModes, IM_ARRAYSIZE(filterModes));
                     UI::PropertyCombo("Mag Filter", m_MagFilter, filterModes, IM_ARRAYSIZE(filterModes));
@@ -110,7 +107,6 @@ namespace Luth
                     {
                         auto& ts = meta.GetTypeSettings();
                         ts["generate_mipmaps"] = m_GenerateMipmaps;
-                        ts["srgb"] = m_Srgb;
                         ts["wrap_mode"] = m_WrapMode;
                         ts["filter_min"] = m_MinFilter;
                         ts["filter_mag"] = m_MagFilter;

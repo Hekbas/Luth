@@ -12,7 +12,6 @@ namespace Luth
 
         // Read import settings from .meta file
         TextureSettings settings;
-        bool srgb = true; // color default; the model importer tags data maps (normal/MR/AO) srgb=false
         fs::path metaPath = source.string() + ".meta";
         MetaFile meta(UUID{});
         if (meta.Load(metaPath))
@@ -22,7 +21,6 @@ namespace Luth
             if (ts.contains("wrap_mode"))        settings.WrapMode = (TextureWrapMode)ts["wrap_mode"].get<int>();
             if (ts.contains("filter_min"))       settings.MinFilter = (TextureFilterMode)ts["filter_min"].get<int>();
             if (ts.contains("filter_mag"))       settings.MagFilter = (TextureFilterMode)ts["filter_mag"].get<int>();
-            if (ts.contains("srgb"))             srgb = ts["srgb"].get<bool>();
         }
 
         Image::LoadResult8 img = Image::Load(source);
@@ -34,7 +32,7 @@ namespace Luth
         TextureAssetData texData;
         texData.Width    = static_cast<int>(img.width);
         texData.Height   = static_cast<int>(img.height);
-        texData.Format   = srgb ? TextureFormat::RGBA8_SRGB : TextureFormat::RGBA8;
+        texData.Format   = TextureFormat::RGBA8;
         texData.Settings = settings;
         texData.Pixels   = std::move(img.pixels);
 

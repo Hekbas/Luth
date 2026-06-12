@@ -706,36 +706,6 @@ namespace Luth
         }
     }
 
-    // Albedo/emissive decode from sRGB; normal/metal-rough/AO/etc. are linear data.
-    static bool IsColorMap(MapType type)
-    {
-        return type == MapType::Diffuse || type == MapType::Emissive;
-    }
-
-    // Tag a freshly-registered texture's .meta with the color space its material slot needs, before the
-    // texture is ever imported, so TextureImporter selects RGBA8_SRGB vs RGBA8 on first load. When the
-    // value actually changes (e.g. a re-import flips a normal map off sRGB), drop the stale artifact so
-    // the correction takes effect — texture artifacts have no version gate.
-    static void TagTextureColorSpace(const UUID& texUUID, MapType type)
-    {
-        fs::path src = AssetDatabase::GetMetadata(texUUID).Path;
-        if (src.empty()) return;
-
-        fs::path metaPath = src.string() + ".meta";
-        MetaFile meta(texUUID);
-        if (!meta.Load(metaPath)) return;
-
-        const bool want = IsColorMap(type);
-        if (meta.GetTypeSettings().value("srgb", true) == want) return;
-
-        meta.GetTypeSettings()["srgb"] = want;
-        meta.Save(metaPath);
-
-        std::error_code ec;
-        fs::path artifact = AssetDatabase::GetArtifactPath(texUUID);
-        if (fs::exists(artifact, ec)) fs::remove(artifact, ec);
-    }
-
     // --- Importer Logic ---
 
     struct ImportContext {
@@ -897,8 +867,6 @@ namespace Luth
                     }
 
                     if (texUUID.IsValid()) {
-                        TagTextureColorSpace(texUUID, luthType);
-
                         // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
                         int uvChannel = 0;
                         aiMat->Get(AI_MATKEY_UVWSRC(aiType, 0), uvChannel);

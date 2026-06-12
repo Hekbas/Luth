@@ -20,6 +20,5 @@ namespace Luth
         int  m_MinFilter = 0;
         int  m_MagFilter = 0;
         bool m_GenerateMipmaps = true;
-        bool m_Srgb = true;
     };
 }
