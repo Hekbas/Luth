@@ -100,6 +100,12 @@ namespace Luth
                 if (UI::PropertyCombo("Bake Mode", physicsBakeInt, physicsBakeModes, IM_ARRAYSIZE(physicsBakeModes)))
                     m_Settings.PhysicsBake = static_cast<ModelImportSettings::PhysicsBakeMode>(physicsBakeInt);
 
+                ImGui::Separator();
+                ImGui::TextDisabled("Scene (static models)");
+
+                UI::Property("Import Cameras", m_Settings.ImportCameras);
+                UI::Property("Import Lights", m_Settings.ImportLights);
+
                 UI::EndProperties();
             }
 

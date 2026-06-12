@@ -42,6 +42,8 @@ namespace Luth
         s.BakeAxisConversion           = j.value("bake_axis_conversion", true);
         s.SkinMeshTransform            = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
         s.ExtractClipsAsSeparateAssets = j.value("extract_clips_as_separate_assets", true);
+        s.ImportCameras                = j.value("import_cameras", true);
+        s.ImportLights                 = j.value("import_lights", true);
         s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
         return s;
     }
@@ -57,6 +59,8 @@ namespace Luth
             { "bake_axis_conversion",            BakeAxisConversion },
             { "skin_mesh_transform",             static_cast<int>(SkinMeshTransform) },
             { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets },
+            { "import_cameras",                  ImportCameras },
+            { "import_lights",                   ImportLights },
             { "physics_bake",                    static_cast<int>(PhysicsBake) }
         };
     }
@@ -602,7 +606,7 @@ namespace Luth
     // Axis correction + scale factor fold onto the root node's transform (mirrors how the skinned path
     // applies axis correction to the root bone, so descendants inherit it through the hierarchy).
     static void BuildStaticSceneGraph(const aiScene* scene, const Mat4& rootCorrection,
-        ModelAssetData& modelData)
+        bool importCameras, bool importLights, ModelAssetData& modelData)
     {
         // Every scene mesh processed once, un-baked. Node MeshIndices reference these by global index.
         modelData.Meshes.reserve(scene->mNumMeshes);
@@ -612,7 +616,7 @@ namespace Luth
         // Cameras + lights → defs, keyed by node name (Assimp links them to nodes by name).
         std::unordered_map<std::string, i32> cameraByName, lightByName;
 
-        for (unsigned int i = 0; i < scene->mNumCameras; ++i) {
+        for (unsigned int i = 0; importCameras && i < scene->mNumCameras; ++i) {
             const aiCamera* cam = scene->mCameras[i];
             ModelCamera mc;
             mc.Aspect  = (cam->mAspect > 1e-4f) ? cam->mAspect : (16.0f / 9.0f);
@@ -624,7 +628,7 @@ namespace Luth
             modelData.Cameras.push_back(mc);
         }
 
-        for (unsigned int i = 0; i < scene->mNumLights; ++i) {
+        for (unsigned int i = 0; importLights && i < scene->mNumLights; ++i) {
             const aiLight* light = scene->mLights[i];
             ModelLight ml;
             switch (light->mType) {
@@ -1084,7 +1088,7 @@ namespace Luth
         if (isSkinned)
             ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
         else
-            BuildStaticSceneGraph(scene, axisCorrection, modelData);
+            BuildStaticSceneGraph(scene, axisCorrection, settings.ImportCameras, settings.ImportLights, modelData);
 
         modelData.Materials = ctx.MaterialUUIDs;
 
