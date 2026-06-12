@@ -55,6 +55,11 @@ namespace Luth
         Skeleton SkeletonData;
         std::vector<UUID> AnimationClipUUIDs;
         bool IsSkinned = false;
+
+        // V4 scene graph — populated for static models only (skinned models stay empty).
+        std::vector<ModelNode>   Nodes;
+        std::vector<ModelCamera> Cameras;
+        std::vector<ModelLight>  Lights;
     };
 
     class ModelImporter : public AssetImporter

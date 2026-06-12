@@ -597,6 +597,83 @@ namespace Luth
         }
     }
 
+    // Static-model path: preserve the DCC node hierarchy as a topological node list, store meshes
+    // un-baked (mesh-local — the entity tree composes world transforms), and extract cameras + lights.
+    // Axis correction + scale factor fold onto the root node's transform (mirrors how the skinned path
+    // applies axis correction to the root bone, so descendants inherit it through the hierarchy).
+    static void BuildStaticSceneGraph(const aiScene* scene, const Mat4& rootCorrection,
+        ModelAssetData& modelData)
+    {
+        // Every scene mesh processed once, un-baked. Node MeshIndices reference these by global index.
+        modelData.Meshes.reserve(scene->mNumMeshes);
+        for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
+            modelData.Meshes.push_back(ProcessStaticMesh(scene->mMeshes[i], scene, Mat4(1.0f)));
+
+        // Cameras + lights → defs, keyed by node name (Assimp links them to nodes by name).
+        std::unordered_map<std::string, i32> cameraByName, lightByName;
+
+        for (unsigned int i = 0; i < scene->mNumCameras; ++i) {
+            const aiCamera* cam = scene->mCameras[i];
+            ModelCamera mc;
+            mc.Aspect  = (cam->mAspect > 1e-4f) ? cam->mAspect : (16.0f / 9.0f);
+            // mHorizontalFOV is the half horizontal angle (radians); convert to full vertical degrees.
+            mc.FovYDeg = Math::Degrees(2.0f * std::atan(std::tan(cam->mHorizontalFOV) / mc.Aspect));
+            mc.NearClip = cam->mClipPlaneNear;
+            mc.FarClip  = cam->mClipPlaneFar;
+            cameraByName[cam->mName.C_Str()] = (i32)modelData.Cameras.size();
+            modelData.Cameras.push_back(mc);
+        }
+
+        for (unsigned int i = 0; i < scene->mNumLights; ++i) {
+            const aiLight* light = scene->mLights[i];
+            ModelLight ml;
+            switch (light->mType) {
+                case aiLightSource_DIRECTIONAL: ml.Type = 0; break;
+                case aiLightSource_POINT:       ml.Type = 1; break;
+                case aiLightSource_SPOT:
+                    ml.Type = 1;
+                    LH_CORE_WARN("ModelImporter: spot light '{}' imported as point (cone dropped)",
+                        light->mName.C_Str());
+                    break;
+                default:
+                    LH_CORE_WARN("ModelImporter: unsupported light type ('{}') skipped", light->mName.C_Str());
+                    continue;
+            }
+            // Assimp folds intensity into the color magnitude; split it back out for a sane editor range.
+            Vec3 color(light->mColorDiffuse.r, light->mColorDiffuse.g, light->mColorDiffuse.b);
+            float maxc = std::max({ color.x, color.y, color.z });
+            if (maxc > 1.0f) { ml.Intensity = maxc; color /= maxc; }
+            ml.Color = color;
+            if (ml.Type == 1 && light->mAttenuationQuadratic > 1e-4f)
+                ml.Range = std::clamp(std::sqrt(1.0f / (0.01f * light->mAttenuationQuadratic)), 1.0f, 10000.0f);
+            lightByName[light->mName.C_Str()] = (i32)modelData.Lights.size();
+            modelData.Lights.push_back(ml);
+        }
+
+        // Walk the hierarchy depth-first → topological order (parent always precedes its children).
+        std::function<void(const aiNode*, i32)> walk = [&](const aiNode* node, i32 parentIndex) {
+            ModelNode mn;
+            mn.Name = node->mName.C_Str();
+            mn.ParentIndex = parentIndex;
+
+            Mat4 local = AiMat4ToGLM(node->mTransformation);
+            if (parentIndex < 0) local = rootCorrection * local;
+            DecomposeTransform(local, mn.Translation, mn.Rotation, mn.Scale);
+
+            for (unsigned int i = 0; i < node->mNumMeshes; ++i)
+                mn.MeshIndices.push_back(node->mMeshes[i]);
+            if (auto it = cameraByName.find(mn.Name); it != cameraByName.end()) mn.CameraIndex = it->second;
+            if (auto it = lightByName.find(mn.Name);  it != lightByName.end())  mn.LightIndex  = it->second;
+
+            i32 myIndex = (i32)modelData.Nodes.size();
+            modelData.Nodes.push_back(std::move(mn));
+
+            for (unsigned int i = 0; i < node->mNumChildren; ++i)
+                walk(node->mChildren[i], myIndex);
+        };
+        walk(scene->mRootNode, -1);
+    }
+
     static MapType AssimpToLuthMapType(aiTextureType type)
     {
         switch (type) {
@@ -1002,8 +1079,13 @@ namespace Luth
             }
         }
 
-        // 4. Process Geometry
-        ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
+        // 4. Process Geometry — skinned keeps the baked/flattened path (verts in skeleton space,
+        // bone-driven); static reconstructs the node graph with un-baked meshes + cameras + lights.
+        if (isSkinned)
+            ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
+        else
+            BuildStaticSceneGraph(scene, axisCorrection, modelData);
+
         modelData.Materials = ctx.MaterialUUIDs;
 
         return AssetSerializer::SerializeModel(destination, modelData);

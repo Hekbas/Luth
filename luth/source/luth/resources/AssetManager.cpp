@@ -230,8 +230,9 @@ namespace Luth
             auto* d = static_cast<ModelAssetData*>(data);
             if (d->IsSkinned)
                 return Model::Create(d->Meshes, d->Materials, d->SkeletonData, d->AnimationClipUUIDs, true);
-            else
-                return Model::Create(d->Meshes, d->Materials);
+            auto model = Model::Create(d->Meshes, d->Materials);
+            model->SetSceneGraph(std::move(d->Nodes), std::move(d->Cameras), std::move(d->Lights));
+            return model;
         }
         else if (type == AssetType::Material) {
             auto* d = static_cast<MaterialAssetData*>(data);

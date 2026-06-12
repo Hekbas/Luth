@@ -368,6 +368,49 @@ namespace Luth::UI::ThumbnailPreviewScene
                                 ResolveBindlessIndex(albedo));
     }
 
+    // One sub-mesh draw plus the node-tree world matrix that places it (identity if no node tree).
+    struct ThumbDraw { VkBuffer vb; VkBuffer ib; u32 indexCount; Mat4 model; };
+
+    static void ExpandByTransformedAABB(AABB& out, const Mat4& m, const AABB& box)
+    {
+        const Vec3 mn = box.Min, mx = box.Max;
+        for (int i = 0; i < 8; ++i)
+            out.Expand(Vec3(m * Vec4((i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y, (i & 4) ? mx.z : mn.z, 1.0f)));
+    }
+
+    // Sub-mesh draw list + framing AABB in model space. V4 node-tree models place each mesh by its
+    // node's world transform (verts are un-baked); skinned / legacy models draw flat at identity.
+    static void BuildModelDraws(const std::shared_ptr<Model>& model,
+        std::vector<ThumbDraw>& draws, AABB& aabb)
+    {
+        const auto& meshes   = model->GetMeshes();
+        const auto& meshData = model->GetMeshesData();
+
+        auto pushDraw = [&](u32 meshIdx, const Mat4& world) {
+            if (meshIdx >= meshes.size() || !meshes[meshIdx]) return;
+            auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(meshes[meshIdx]->GetVertexBuffer());
+            auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(meshes[meshIdx]->GetIndexBuffer());
+            if (!vkVB || !vkIB) return;
+            VkBuffer vb = vkVB->GetVulkanBuffer(), ib = vkIB->GetVulkanBuffer();
+            u32 ic = vkIB->GetCount();
+            if (vb == VK_NULL_HANDLE || ib == VK_NULL_HANDLE || ic == 0) return;
+            draws.push_back({ vb, ib, ic, world });
+            if (meshIdx < meshData.size() && meshData[meshIdx].BindPoseAABB.IsValid())
+                ExpandByTransformedAABB(aabb, world, meshData[meshIdx].BindPoseAABB);
+        };
+
+        if (model->HasNodeTree()) {
+            const auto worlds = model->ComputeNodeWorldTransforms();
+            const auto& nodes = model->GetNodes();
+            for (size_t n = 0; n < nodes.size(); ++n)
+                for (u32 mi : nodes[n].MeshIndices)
+                    pushDraw(mi, worlds[n]);
+        } else {
+            for (u32 i = 0; i < (u32)meshes.size(); ++i)
+                pushDraw(i, Mat4(1.0f));
+        }
+    }
+
     static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex)
     {
         Image::LoadResult8 out;
@@ -376,35 +419,11 @@ namespace Luth::UI::ThumbnailPreviewScene
         // Collect every sub-mesh (FBX / GLTF assets routinely split a single
         // model across body / hair / glass / wheels / etc.). Single bake pass
         // binds pipeline + push constants once and switches VBO/IBO per draw.
-        struct DrawEntry { VkBuffer vb; VkBuffer ib; u32 indexCount; };
-        std::vector<DrawEntry> draws;
-        const auto& meshes = model->GetMeshes();
-        draws.reserve(meshes.size());
-        for (const auto& meshPtr : meshes) {
-            if (!meshPtr) continue;
-            auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(meshPtr->GetVertexBuffer());
-            auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(meshPtr->GetIndexBuffer());
-            if (!vkVB || !vkIB) continue;
-            VkBuffer vbBuf = vkVB->GetVulkanBuffer();
-            VkBuffer ibBuf = vkIB->GetVulkanBuffer();
-            u32      ic    = vkIB->GetCount();
-            if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || ic == 0) continue;
-            draws.push_back({ vbBuf, ibBuf, ic });
-        }
-        if (draws.empty()) return out;
-
-        // Combined bind-pose AABB drives camera orbit fit — model-wide, not
-        // first-mesh-only, so multi-mesh models frame correctly.
+        // Node-aware draws + model-space framing AABB (un-baked V4 meshes placed by node transforms).
+        std::vector<ThumbDraw> draws;
         AABB aabb;
-        for (const auto& md : model->GetMeshesData()) {
-            if (!md.BindPoseAABB.IsValid()) continue;
-            if (!aabb.IsValid()) {
-                aabb = md.BindPoseAABB;
-            } else {
-                aabb.Expand(md.BindPoseAABB.Min);
-                aabb.Expand(md.BindPoseAABB.Max);
-            }
-        }
+        BuildModelDraws(model, draws, aabb);
+        if (draws.empty()) return out;
         if (!aabb.IsValid()) aabb = AABB{ Vec3(-0.5f), Vec3(0.5f) };
 
         // Camera fit: use the AABB's largest half-axis, not the bounding-sphere
@@ -491,12 +510,14 @@ namespace Luth::UI::ThumbnailPreviewScene
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
 
-            vkCmdPushConstants(cmd, pipeline->GetLayout(),
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                0, sizeof(pc), &pc);
-
+            // Per-draw push: fold each sub-mesh's node-world matrix into viewProj (no shader change).
+            const Mat4 baseViewProj = pc.viewProj;
             VkDeviceSize offsets[] = { 0 };
             for (const auto& d : draws) {
+                pc.viewProj = baseViewProj * d.model;
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(pc), &pc);
                 vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
                 vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
                 vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
@@ -640,29 +661,10 @@ namespace Luth::UI::ThumbnailPreviewScene
             if (!s_Initialized || !model) return s_LastGoodInspectorTex;
             if (!EnsureInspectorRing())   return s_LastGoodInspectorTex;
 
-            struct DrawEntry { VkBuffer vb; VkBuffer ib; u32 indexCount; };
-            std::vector<DrawEntry> draws;
-            const auto& meshes = model->GetMeshes();
-            draws.reserve(meshes.size());
-            for (const auto& meshPtr : meshes) {
-                if (!meshPtr) continue;
-                auto vkVB = std::dynamic_pointer_cast<VKVertexBuffer>(meshPtr->GetVertexBuffer());
-                auto vkIB = std::dynamic_pointer_cast<VKIndexBuffer>(meshPtr->GetIndexBuffer());
-                if (!vkVB || !vkIB) continue;
-                VkBuffer vbBuf = vkVB->GetVulkanBuffer();
-                VkBuffer ibBuf = vkIB->GetVulkanBuffer();
-                u32      ic    = vkIB->GetCount();
-                if (vbBuf == VK_NULL_HANDLE || ibBuf == VK_NULL_HANDLE || ic == 0) continue;
-                draws.push_back({ vbBuf, ibBuf, ic });
-            }
-            if (draws.empty()) return s_LastGoodInspectorTex;
-
+            std::vector<ThumbDraw> draws;
             AABB aabb;
-            for (const auto& md : model->GetMeshesData()) {
-                if (!md.BindPoseAABB.IsValid()) continue;
-                if (!aabb.IsValid()) aabb = md.BindPoseAABB;
-                else { aabb.Expand(md.BindPoseAABB.Min); aabb.Expand(md.BindPoseAABB.Max); }
-            }
+            BuildModelDraws(model, draws, aabb);
+            if (draws.empty()) return s_LastGoodInspectorTex;
             if (!aabb.IsValid()) aabb = AABB{ Vec3(-0.5f), Vec3(0.5f) };
 
             const f32 fov = Math::Radians(45.0f);
@@ -747,12 +749,14 @@ namespace Luth::UI::ThumbnailPreviewScene
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
-            vkCmdPushConstants(cmd, pipeline->GetLayout(),
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                0, sizeof(pc), &pc);
-
+            // Per-draw push: fold each sub-mesh's node-world matrix into viewProj (no shader change).
+            const Mat4 baseViewProj = pc.viewProj;
             VkDeviceSize offsets[] = { 0 };
             for (const auto& d : draws) {
+                pc.viewProj = baseViewProj * d.model;
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(pc), &pc);
                 vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
                 vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
                 vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
