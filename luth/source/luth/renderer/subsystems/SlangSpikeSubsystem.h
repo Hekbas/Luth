@@ -38,6 +38,11 @@ namespace Luth
         bool IsEnabled() const;
 
     private:
+        // Lazy one-time setup: compile the GLSL + Slang + diff shaders, build pipelines, create layouts/
+        // pool/sets, run the link-spec probe. Deferred to the first enabled AddPass so nothing loads
+        // slang-compiler.dll while the spike is off. Returns false (and logs once) on Slang failure.
+        bool EnsureInitialized();
+        void RunLinkSpecCheck();   // #156 item 6 / slang#9578 — CompileModuleEntries(compute+fragment)
         void EnsureResources(u32 width, u32 height);
         void DestroyResources();
         void ReadbackDiff();   // map the host-visible diff buffer into the settings readout (1 frame stale)
@@ -63,7 +68,8 @@ namespace Luth
         std::vector<u32> m_GlslSpv;
         std::vector<u32> m_SlangSpv;
         std::vector<u32> m_DiffSpv;
-        bool m_SlangOk = false;   // in-process Slang compile + pipeline build succeeded
+        bool m_Initialized = false;   // EnsureInitialized ran (success or failure)
+        bool m_InitOk      = false;   // in-process Slang compile + pipeline build succeeded
 
         u32 m_Width = 0, m_Height = 0;
         u64 m_LastRunFrame = ~0ull;   // multi-view guard — A/B runs on the first view only

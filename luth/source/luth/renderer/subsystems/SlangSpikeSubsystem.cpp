@@ -59,7 +59,13 @@ namespace Luth
 
     void SlangSpikeSubsystem::Init(RenderPipeline& pipeline)
     {
-        m_Pipeline = &pipeline;
+        m_Pipeline = &pipeline;   // lazy: the Slang compile + pipeline build defer to the first enable
+    }
+
+    bool SlangSpikeSubsystem::EnsureInitialized()
+    {
+        if (m_Initialized) return m_InitOk;
+        m_Initialized = true;
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // GLSL reference + diff reducer through the existing libshaderc path.
@@ -74,12 +80,12 @@ namespace Luth
         if (m_GlslSpv.empty() || m_DiffSpv.empty())
         {
             LH_CORE_ERROR("SlangSpike: missing slang_spike_gi.comp / slang_spike_diff.comp SPIR-V");
-            return;
+            return false;
         }
         if (m_SlangSpv.empty())
         {
             LH_CORE_ERROR("SlangSpike: in-process Slang compile FAILED — A/B disabled (NO-GO signal for #156)");
-            return;
+            return false;
         }
         LH_CORE_INFO("SlangSpike: Slang compiled slang_spike_gi.slang -> {} SPIR-V words", m_SlangSpv.size());
 
@@ -142,7 +148,39 @@ namespace Luth
         ai.pSetLayouts        = &m_DiffSetLayout;
         vkAllocateDescriptorSets(device, &ai, &m_DiffSet);
 
-        m_SlangOk = true;
+        m_InitOk = true;
+        RunLinkSpecCheck();   // #156 item 6 — exercise link-time spec across 2 entry-point stages
+        return m_InitOk;
+    }
+
+    // Compose the compute + fragment entries of slang_spike_link.slang into ONE linked program and emit
+    // each (CompileModuleEntries). PASS = both stages produce SPIR-V that loads as a VkShaderModule; the
+    // validation layer (Debug) vets the modules. Offline spirv-val corroborates in the writeup. slang#9578.
+    void SlangSpikeSubsystem::RunLinkSpecCheck()
+    {
+        const fs::path linkPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_link.slang";
+        const std::vector<SlangCompiler::EntryReq> entries = {
+            { "csMain", ShaderStage::Compute },
+            { "fsMain", ShaderStage::Fragment },
+        };
+        auto blobs = SlangCompiler::CompileModuleEntries(linkPath, entries);
+
+        bool ok = (blobs.size() == 2) && !blobs[0].empty() && !blobs[1].empty();
+        if (ok)
+        {
+            VkDevice device = VulkanContext::Get().GetDevice();
+            for (const auto& spv : blobs)
+            {
+                VkShaderModuleCreateInfo mci{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+                mci.codeSize = spv.size() * sizeof(u32);
+                mci.pCode    = spv.data();
+                VkShaderModule mod = VK_NULL_HANDLE;
+                if (vkCreateShaderModule(device, &mci, nullptr, &mod) != VK_SUCCESS) { ok = false; break; }
+                vkDestroyShaderModule(device, mod, nullptr);
+            }
+        }
+        LH_CORE_INFO("SlangSpike link-spec (#9578): compute+fragment from one linked generic -> {}",
+                     ok ? "PASS" : "FAIL");
     }
 
     void SlangSpikeSubsystem::DestroyResources()
@@ -169,13 +207,14 @@ namespace Luth
         m_OutSetLayout = m_DiffSetLayout = VK_NULL_HANDLE;
         m_GlslSet = m_SlangSet = m_DiffSet = VK_NULL_HANDLE;
         m_GlslSpv.clear(); m_SlangSpv.clear(); m_DiffSpv.clear();
-        m_SlangOk  = false;
-        m_Pipeline = nullptr;
+        m_InitOk      = false;
+        m_Initialized = false;
+        m_Pipeline    = nullptr;
     }
 
     bool SlangSpikeSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
-        if (!m_SlangOk) return false;
+        if (!m_InitOk) return false;
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpikePC) };
         auto defer = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release()) VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -259,7 +298,8 @@ namespace Luth
 
     void SlangSpikeSubsystem::AddPass(RG::RenderGraph& rg)
     {
-        if (!m_SlangOk || !IsEnabled() || !m_GlslPipeline || !m_SlangPipeline || !m_DiffPipeline) return;
+        if (!IsEnabled() || !EnsureInitialized()) return;   // first enable lazily loads + builds Slang
+        if (!m_GlslPipeline || !m_SlangPipeline || !m_DiffPipeline) return;
 
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->width == 0 || vr->height == 0) return;
