@@ -102,7 +102,7 @@ namespace Luth
         m_Rt.Init(*this);
         m_Restir.Init(*this);
         m_RestirGi.Init(*this);
-        m_SlangSpike.Init(*this);
+        m_SlangParity.Init(*this);
         m_PathTrace.Init(*this);
         m_Reflections.Init(*this);
         m_Denoise->Init(*this);
@@ -150,7 +150,7 @@ namespace Luth
                               || m_Rt.OnShaderReloaded(name, spv)
                               || m_Restir.OnShaderReloaded(name, spv)
                               || m_RestirGi.OnShaderReloaded(name, spv)
-                              || m_SlangSpike.OnShaderReloaded(name, spv)
+                              || m_SlangParity.OnShaderReloaded(name, spv)
                               || m_PathTrace.OnShaderReloaded(name, spv)
                               || m_Reflections.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
@@ -217,7 +217,7 @@ namespace Luth
         m_Denoise->Shutdown();
         m_Reflections.Shutdown();
         m_PathTrace.Shutdown();
-        m_SlangSpike.Shutdown();
+        m_SlangParity.Shutdown();
         m_RestirGi.Shutdown();
         m_Restir.Shutdown();
         m_Rt.Shutdown();
@@ -343,7 +343,7 @@ namespace Luth
         // reflections / volumetric RT fog shadows. The RT sun-shadow trace below stays runRtShadows-only.
         const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled()
                             || m_PathTrace.IsEnabled() || m_Reflections.IsEnabled()
-                            || m_SlangSpike.IsEnabled()
+                            || m_SlangParity.IsEnabled()
                             || (volumetricEnabled && m_Volumetric.IsRtShadowsEnabled());
         if (needTlas)
             m_Rt.AddTlasBuildPass(rg);
@@ -429,7 +429,7 @@ namespace Luth
         // Slang Phase-0 spike A/B (#156, default-OFF): dispatches the GLSL + Slang variants of the
         // hot-path shader + a diff reduce, after the TLAS build (needTlas gate includes it). Self-
         // contained engine-owned outputs (SetHasSideEffect keeps it past the culler).
-        m_SlangSpike.AddPass(rg);
+        m_SlangParity.AddPass(rg);
 
         // Denoise the demodulated GI (second SVGF instance, DenoiserChannel::Gi). Same transparent-
         // filter contract as DI: consumes the GI handle, returns the denoised handle GeometryPass reads

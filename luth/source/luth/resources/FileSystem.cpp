@@ -192,6 +192,9 @@ namespace Luth
             { ".rahit",   AssetType::Shader   },
             { ".rint",    AssetType::Shader   },
             { ".rcall",   AssetType::Shader   },
+            // .slang carries its stage in a [shader("...")] attribute, not the extension; the importer
+            // resolves it via reflection. Coexists with the GLSL stage extensions above.
+            { ".slang",   AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             { ".luth",    AssetType::Scene    },
             { ".anim",    AssetType::Animation },

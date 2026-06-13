@@ -21,5 +21,12 @@ namespace Luth
         // Compile GLSL source to SPIR-V. Stage is inferred from extension.
         // Returns empty vector on failure.
         static std::vector<u32> Compile(const std::filesystem::path& sourcePath, bool optimize = false);
+
+        // Compile + resolve the pipeline stage together, for the asset importer. GLSL infers the stage
+        // from the extension; .slang reads it from the [shader("...")] attribute via reflection (the
+        // extension can't carry it). An empty spirv or Unknown stage means "not a single-stage shader
+        // asset", so the importer skips it instead of writing a stage-less artifact.
+        struct StagedSpirv { std::vector<u32> spirv; ShaderStage stage = ShaderStage::Unknown; };
+        static StagedSpirv CompileStaged(const std::filesystem::path& sourcePath, bool optimize = false);
     };
 }

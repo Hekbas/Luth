@@ -1,16 +1,14 @@
 #include "luthpch.h"
-#include "luth/renderer/subsystems/SlangSpikeSubsystem.h"
+#include "luth/renderer/subsystems/SlangParityGuard.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
-#include "luth/renderer/shader/SlangCompiler.h"
 #include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/settings/SlangSpikeSettings.h"
+#include "luth/renderer/settings/SlangParitySettings.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/resources/FileSystem.h"
 #include "luth/core/FrameData.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/types/LuthMath.h"
@@ -29,6 +27,38 @@ namespace Luth
             u64  geomTableBDA;  //  8 B — geometry-table BDA, same slot as restir_gi_initial
         };
         static_assert(sizeof(SpikePC) == 72, "SpikePC must match slang_spike_gi.{comp,slang} push_constant");
+
+        // Minimal SPIR-V walk for the bindless-codegen regression signals (slang#10525): count the
+        // NonUniform decorations and verify the capabilities that make them valid. No full parse, no dep.
+        struct SpirvScan { u32 nonUniform = 0; bool caps = false; };
+        SpirvScan ScanBindlessSpirv(const std::vector<u32>& spv)
+        {
+            SpirvScan r{};
+            if (spv.size() < 5 || spv[0] != 0x07230203u) return r;   // SPIR-V magic word
+            bool nonUni = false, runtimeArr = false, psb = false, rayQuery = false;
+            for (size_t i = 5; i < spv.size(); )                     // skip the 5-word header
+            {
+                const u32 word = spv[i];
+                const u32 wc   = word >> 16;
+                const u32 op   = word & 0xFFFFu;
+                if (wc == 0 || i + wc > spv.size()) break;           // malformed — stop walking
+                if (op == 17u && wc >= 2u)                           // OpCapability
+                {
+                    switch (spv[i + 1])
+                    {
+                        case 5301u: nonUni     = true; break;        // ShaderNonUniform
+                        case 5302u: runtimeArr = true; break;        // RuntimeDescriptorArray
+                        case 5347u: psb        = true; break;        // PhysicalStorageBufferAddresses
+                        case 4472u: rayQuery   = true; break;        // RayQueryKHR
+                    }
+                }
+                else if (op == 71u && wc >= 3u && spv[i + 2] == 5300u) ++r.nonUniform;   // OpDecorate NonUniform
+                else if (op == 72u && wc >= 4u && spv[i + 3] == 5300u) ++r.nonUniform;   // OpMemberDecorate NonUniform
+                i += wc;
+            }
+            r.caps = nonUni && runtimeArr && psb && rayQuery;
+            return r;
+        }
 
         void TransitionToGeneral(VkImage img)
         {
@@ -52,42 +82,41 @@ namespace Luth
         }
     }
 
-    bool SlangSpikeSubsystem::IsEnabled() const
+    bool SlangParityGuard::IsEnabled() const
     {
-        return m_Pipeline && m_Pipeline->GetSystem().GetSlangSpikeSettings().enabled;
+        return m_Pipeline && m_Pipeline->GetSystem().GetSlangParitySettings().enabled;
     }
 
-    void SlangSpikeSubsystem::Init(RenderPipeline& pipeline)
+    void SlangParityGuard::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;   // lazy: the Slang compile + pipeline build defer to the first enable
     }
 
-    bool SlangSpikeSubsystem::EnsureInitialized()
+    bool SlangParityGuard::EnsureInitialized()
     {
         if (m_Initialized) return m_InitOk;
         m_Initialized = true;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // GLSL reference + diff reducer through the existing libshaderc path.
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.comp"))   m_GlslSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_diff.comp"))  m_DiffSpv = sh->GetSpirV();
-
-        // Slang port through the in-process compiler — the first call creates the global session, so
-        // this is the runtime check that slang-compiler.dll + siblings load (spike item 1).
-        const fs::path slangPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_gi.slang";
-        m_SlangSpv = SlangCompiler::Compile(slangPath, "main");
+        // All three shaders ride the asset pipeline: the .comp pair via libshaderc, the .slang via the
+        // in-process Slang backend. LoadEngine gives the Slang port a UUID + artifact so it hot-reloads
+        // through ShaderWatcher exactly like the GLSL reference, and its first import loads slang-compiler.dll.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.comp"))   m_GlslSpv  = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_diff.comp")) m_DiffSpv  = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.slang"))  m_SlangSpv = sh->GetSpirV();
 
         if (m_GlslSpv.empty() || m_DiffSpv.empty())
         {
-            LH_CORE_ERROR("SlangSpike: missing slang_spike_gi.comp / slang_spike_diff.comp SPIR-V");
+            LH_CORE_ERROR("SlangParity: missing slang_spike_gi.comp / slang_spike_diff.comp SPIR-V");
             return false;
         }
         if (m_SlangSpv.empty())
         {
-            LH_CORE_ERROR("SlangSpike: in-process Slang compile FAILED — A/B disabled (NO-GO signal for #156)");
+            LH_CORE_ERROR("SlangParity: Slang compile of slang_spike_gi.slang FAILED — A/B disabled");
             return false;
         }
-        LH_CORE_INFO("SlangSpike: Slang compiled slang_spike_gi.slang -> {} SPIR-V words", m_SlangSpv.size());
+        LH_CORE_INFO("SlangParity: Slang gi.slang -> {} SPIR-V words", m_SlangSpv.size());
+        CheckSlangSpirv();   // the deterministic gate — runs regardless of whether the A/B can dispatch
 
         // Set 2 (pass-local) — single binding: the per-variant output storage image.
         VkDescriptorSetLayoutBinding outBind{};
@@ -149,41 +178,30 @@ namespace Luth
         vkAllocateDescriptorSets(device, &ai, &m_DiffSet);
 
         m_InitOk = true;
-        RunLinkSpecCheck();   // #156 item 6 — exercise link-time spec across 2 entry-point stages
         return m_InitOk;
     }
 
-    // Compose the compute + fragment entries of slang_spike_link.slang into ONE linked program and emit
-    // each (CompileModuleEntries). PASS = both stages produce SPIR-V that loads as a VkShaderModule; the
-    // validation layer (Debug) vets the modules. Offline spirv-val corroborates in the writeup. slang#9578.
-    void SlangSpikeSubsystem::RunLinkSpecCheck()
+    // Scan the compiled Slang SPIR-V for the bindless-codegen signals slang#10525-class bugs break — the
+    // NonUniform decorations on the bindless texture accesses and the caps that make them valid. Sets the
+    // verdict; logs once per check (INFO on pass, WARN on regression). Deterministic — no GPU, no frame.
+    void SlangParityGuard::CheckSlangSpirv()
     {
-        const fs::path linkPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_link.slang";
-        const std::vector<SlangCompiler::EntryReq> entries = {
-            { "csMain", ShaderStage::Compute },
-            { "fsMain", ShaderStage::Fragment },
-        };
-        auto blobs = SlangCompiler::CompileModuleEntries(linkPath, entries);
+        SpirvScan scan = ScanBindlessSpirv(m_SlangSpv);
+        SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
+        s.spirvChecked    = true;
+        s.nonUniformCount = scan.nonUniform;
+        s.capsOk          = scan.caps;
+        s.spirvPass       = scan.caps && scan.nonUniform > 0;
 
-        bool ok = (blobs.size() == 2) && !blobs[0].empty() && !blobs[1].empty();
-        if (ok)
-        {
-            VkDevice device = VulkanContext::Get().GetDevice();
-            for (const auto& spv : blobs)
-            {
-                VkShaderModuleCreateInfo mci{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-                mci.codeSize = spv.size() * sizeof(u32);
-                mci.pCode    = spv.data();
-                VkShaderModule mod = VK_NULL_HANDLE;
-                if (vkCreateShaderModule(device, &mci, nullptr, &mod) != VK_SUCCESS) { ok = false; break; }
-                vkDestroyShaderModule(device, mod, nullptr);
-            }
-        }
-        LH_CORE_INFO("SlangSpike link-spec (#9578): compute+fragment from one linked generic -> {}",
-                     ok ? "PASS" : "FAIL");
+        if (s.spirvPass)
+            LH_CORE_INFO("SlangParity: Slang bindless SPIR-V OK — {} NonUniform decorations, caps present",
+                         scan.nonUniform);
+        else
+            LH_CORE_WARN("SlangParity: SPIR-V REGRESSION — caps {}, {} NonUniform decorations (slang#10525?)",
+                         scan.caps ? "present" : "MISSING", scan.nonUniform);
     }
 
-    void SlangSpikeSubsystem::DestroyResources()
+    void SlangParityGuard::DestroyResources()
     {
         m_ImgGlsl.reset();
         m_ImgSlang.reset();
@@ -193,7 +211,7 @@ namespace Luth
         m_Width = m_Height = 0;
     }
 
-    void SlangSpikeSubsystem::Shutdown()
+    void SlangParityGuard::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         m_GlslPipeline.reset();
@@ -212,27 +230,36 @@ namespace Luth
         m_Pipeline    = nullptr;
     }
 
-    bool SlangSpikeSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
+    bool SlangParityGuard::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         if (!m_InitOk) return false;
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpikePC) };
         auto defer = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release()) VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
-        // Only the GLSL-side shaders ride ShaderWatcher (.comp); the .slang variant is Init-only (the
-        // watcher has no .slang dispatch yet — Phase 1). Rebuilding the GLSL reference still A/B-validates.
+        // Both rayQuery variants now ride ShaderWatcher (.comp via libshaderc, .slang via the in-process
+        // Slang backend); either reload rebuilds its pipeline against the shared 5-set layout and the diff
+        // re-validates parity on the next frame.
+        const std::vector<VkDescriptorSetLayout> spikeLayouts = {
+            m_Pipeline->GetGlobal().GetSetLayout(),
+            m_Pipeline->GetLighting().GetSetLayout(),
+            m_OutSetLayout,
+            MaterialSystem::GetDescriptorSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
+        };
         if (name == "slang_spike_gi.comp")
         {
-            const std::vector<VkDescriptorSetLayout> spikeLayouts = {
-                m_Pipeline->GetGlobal().GetSetLayout(),
-                m_Pipeline->GetLighting().GetSetLayout(),
-                m_OutSetLayout,
-                MaterialSystem::GetDescriptorSetLayout(),
-                VulkanContext::Get().GetBindlessSet().GetLayout(),
-            };
             m_GlslSpv = spv;
             defer(m_GlslPipeline);
             m_GlslPipeline = std::make_unique<VKComputePipeline>(m_GlslSpv, spikeLayouts, std::vector<VkPushConstantRange>{ pcRange });
+            return true;
+        }
+        if (name == "slang_spike_gi.slang")
+        {
+            m_SlangSpv = spv;
+            CheckSlangSpirv();   // re-run the gate against the hot-reloaded SPIR-V
+            defer(m_SlangPipeline);
+            m_SlangPipeline = std::make_unique<VKComputePipeline>(m_SlangSpv, spikeLayouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
         }
         if (name == "slang_spike_diff.comp")
@@ -245,7 +272,7 @@ namespace Luth
         return false;
     }
 
-    void SlangSpikeSubsystem::EnsureResources(u32 width, u32 height)
+    void SlangParityGuard::EnsureResources(u32 width, u32 height)
     {
         if (m_ImgGlsl && m_Width == width && m_Height == height) return;
         if (m_ImgGlsl) { vkDeviceWaitIdle(VulkanContext::Get().GetDevice()); DestroyResources(); }   // resize — rare, stall ok
@@ -277,7 +304,7 @@ namespace Luth
         m_Height = height;
     }
 
-    void SlangSpikeSubsystem::ReadbackDiff()
+    void SlangParityGuard::ReadbackDiff()
     {
         if (!m_DiffBuf) return;
         u32 vals[4] = { 0, 0, 0, 0 };
@@ -285,18 +312,15 @@ namespace Luth
         std::memcpy(vals, mapped, sizeof(vals));
         VulkanAllocator::Unmap(m_DiffAlloc);
 
-        SlangSpikeSettings& s = m_Pipeline->GetSystem().GetSlangSpikeSettings();
+        // Diagnostic only — the gate is CheckSlangSpirv(), not these pixels (see SlangParitySettings).
+        SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
         s.lastMaxAbsDiff  = std::bit_cast<f32>(vals[0]);
         s.lastDifferingPx = vals[1];
         s.lastMaxUlp      = vals[2];
         s.lastCoveredPx   = vals[3];
-
-        if ((m_LogThrottle++ & 63u) == 0u)
-            LH_CORE_INFO("SlangSpike A/B: covered={} differing={} maxUlp={} maxAbsDiff={:.6f}",
-                         s.lastCoveredPx, s.lastDifferingPx, s.lastMaxUlp, s.lastMaxAbsDiff);
     }
 
-    void SlangSpikeSubsystem::AddPass(RG::RenderGraph& rg)
+    void SlangParityGuard::AddPass(RG::RenderGraph& rg)
     {
         if (!IsEnabled() || !EnsureInitialized()) return;   // first enable lazily loads + builds Slang
         if (!m_GlslPipeline || !m_SlangPipeline || !m_DiffPipeline) return;
@@ -318,7 +342,7 @@ namespace Luth
 
         struct SpikeData {};
         rg.AddComputePass<SpikeData>(
-            "SlangSpikeAB",
+            "SlangParityAB",
             RG::QueueFamily::AsyncCompute,
             [](SpikeData&, RG::RenderPassBuilder& builder) {
                 builder.SetHasSideEffect();   // engine-owned outputs (images + host SSBO) — keep past culling

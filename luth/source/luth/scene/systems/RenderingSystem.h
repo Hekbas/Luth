@@ -17,7 +17,7 @@
 #include "luth/renderer/settings/VolumetricSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
 #include "luth/renderer/settings/RestirGiSettings.h"
-#include "luth/renderer/settings/SlangSpikeSettings.h"
+#include "luth/renderer/settings/SlangParitySettings.h"
 #include "luth/renderer/settings/TransparencySettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luth/renderer/settings/PathTraceSettings.h"
@@ -193,8 +193,8 @@ namespace Luth
         RestirGiSettings& GetRestirGiSettings() { return m_RestirGiSettings; }
         const RestirGiSettings& GetRestirGiSettings() const { return m_RestirGiSettings; }
 
-        SlangSpikeSettings& GetSlangSpikeSettings() { return m_SlangSpikeSettings; }
-        const SlangSpikeSettings& GetSlangSpikeSettings() const { return m_SlangSpikeSettings; }
+        SlangParitySettings& GetSlangParitySettings() { return m_SlangParitySettings; }
+        const SlangParitySettings& GetSlangParitySettings() const { return m_SlangParitySettings; }
 
         SvgfSettings& GetSvgfSettings() { return m_SvgfSettings; }
         const SvgfSettings& GetSvgfSettings() const { return m_SvgfSettings; }
@@ -338,7 +338,7 @@ namespace Luth
         TransparencySettings m_TransparencySettings;
         RestirSettings       m_RestirSettings;
         RestirGiSettings     m_RestirGiSettings;
-        SlangSpikeSettings   m_SlangSpikeSettings;
+        SlangParitySettings   m_SlangParitySettings;
         SvgfSettings         m_SvgfSettings;
         // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
         SvgfSettings         m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
