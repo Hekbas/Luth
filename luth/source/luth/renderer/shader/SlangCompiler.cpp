@@ -93,6 +93,11 @@ namespace Luth
                   { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_NONE, 0, nullptr, nullptr } },
                 { slang::CompilerOptionName::VulkanUseEntryPointName,
                   { slang::CompilerOptionValueKind::Int, 1, 0, nullptr, nullptr } },
+                // 41012 = "profile auto-upgraded to include the caps the entry point needs" — always
+                // benign for our hot-path shaders (rayQuery + the texture caps beyond bare spirv_1_5);
+                // spirv-val is the real correctness gate. Suppress so it can't read as an engine error.
+                { slang::CompilerOptionName::DisableWarning,
+                  { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
             };
 
             std::string searchDir = FileSystem::EngineAssetsPath("shaders").string();
@@ -139,8 +144,7 @@ namespace Luth
         std::string moduleName = sourcePath.stem().string();
         slang::IModule* module = session->loadModuleFromSourceString(
             moduleName.c_str(), sourcePath.string().c_str(), source.c_str(), diag.writeRef());
-        LogDiag(diag, sourcePath);
-        if (!module) return {};
+        if (!module) { LogDiag(diag, sourcePath); return {}; }   // LogDiag only on failure (the diag is the error)
 
         // Entry point: with a known stage use findAndCheckEntryPoint (works without a [shader] attr);
         // otherwise the function's own [shader("...")] attribute supplies the stage.
@@ -210,8 +214,7 @@ namespace Luth
         std::string moduleName = sourcePath.stem().string();
         slang::IModule* module = session->loadModuleFromSourceString(
             moduleName.c_str(), sourcePath.string().c_str(), source.c_str(), diag.writeRef());
-        LogDiag(diag, sourcePath);
-        if (!module) return result;
+        if (!module) { LogDiag(diag, sourcePath); return result; }   // LogDiag only on failure
 
         // Compose EVERY entry into one program so link-time specialization spans the stages — the exact
         // shape Phase 2's shared IMaterial eval needs. getEntryPointCode below emits each stage from it.
