@@ -1,0 +1,106 @@
+#version 460
+#extension GL_EXT_ray_query             : require
+#extension GL_GOOGLE_include_directive  : enable
+#extension GL_EXT_buffer_reference      : require
+#extension GL_EXT_buffer_reference2     : require
+#extension GL_EXT_nonuniform_qualifier  : require
+
+#include "common/restir_common.glsl"   // DirectionalLightData/PointLightData + PointLightRadiance
+#include "common/geom_table.glsl"      // GeomTable + FetchHitSurface (Set 3 Material SSBO + Set 4 bindless)
+
+// Slang Phase-0 spike — GLSL REFERENCE (the A/B baseline). Deterministic by construction (no RNG, no
+// reservoir): per pixel it casts ONE primary camera ray, derefs the hit through the geometry table
+// (buffer_reference verts/indices + nonuniform bindless material/textures), then shades emission + sun
+// + ordered point lights + flat ambient into linear RGBA32F. slang_spike_gi.slang must reproduce this
+// bit-for-bit on the integer-derived channels and within a few ULP on the FP shade. see spike #156
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 6) uniform accelerationStructureEXT topLevelAS;
+
+layout(std430, set = 1, binding = 0) readonly buffer LightBuffer {
+    DirectionalLightData dirLight;
+    uint                 pointLightCount;
+    uint                 _hdrPad[3];
+    PointLightData       points[];
+} lights;
+
+layout(set = 2, binding = 0, rgba32f) uniform image2D u_OutImage;
+
+layout(push_constant) uniform PC {
+    mat4      invViewProj;   // column-major Mat4 canary — wrong layout => garbage rays => diff explodes
+    GeomTable geomTable;     // 64-bit BDA, like the real restir_gi_initial push constant
+} pc;
+
+const float kTMin      = 1.0e-3;
+const float kNormalEps = 1.0e-3;
+const float kPi        = 3.14159265358979;
+const uint  kMaxPoints = 8u;   // ordered cap keeps the point-light loop deterministic
+
+// 1 = blocked. Shared by sun + point shadow rays; SOLID mask so glass never blocks (geom_table contract).
+float Shadowed(vec3 origin, vec3 dir, float tMax) {
+    rayQueryEXT sq;
+    rayQueryInitializeEXT(sq, topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, GT_VIS_SOLID, origin, kTMin, dir, tMax);
+    RtConfirmAlphaCandidates(sq, pc.geomTable);
+    return (rayQueryGetIntersectionTypeEXT(sq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 1.0 : 0.0;
+}
+
+void main() {
+    ivec2 size  = imageSize(u_OutImage);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    // Primary camera ray reconstructed from the inverse view-projection.
+    vec2 ndc    = ((vec2(pixel) + 0.5) / vec2(size)) * 2.0 - 1.0;
+    vec4 nearH  = pc.invViewProj * vec4(ndc, 0.0, 1.0);
+    vec4 farH   = pc.invViewProj * vec4(ndc, 1.0, 1.0);
+    vec3 origin = nearH.xyz / nearH.w;
+    vec3 dir    = normalize(farH.xyz / farH.w - origin);
+
+    vec3 outColor = vec3(0.0);
+
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, topLevelAS, gl_RayFlagsNoneEXT, GT_VIS_ALL, origin, kTMin, dir, 1.0e30);
+    RtConfirmAlphaCandidates(rq, pc.geomTable);
+    if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+        uint   ci  = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true));
+        uint   pi  = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rq, true));
+        vec2   bc  = rayQueryGetIntersectionBarycentricsEXT(rq, true);
+        mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+        float  t   = rayQueryGetIntersectionTEXT(rq, true);
+        vec3   xs  = origin + dir * t;
+        HitSurface hs = FetchHitSurface(pc.geomTable, ci, pi, bc, o2w, dir);
+
+        vec3 Lo = hs.emission;
+
+        // Sun NEE — one shadow ray to infinity.
+        if (lights.dirLight.intensity > 0.0) {
+            vec3  Lsun = normalize(-lights.dirLight.direction);
+            float ndl  = max(dot(hs.ns, Lsun), 0.0);
+            if (ndl > 0.0) {
+                vec3 sOrig = xs + hs.ng * (kNormalEps * 0.5) + Lsun * kTMin;
+                float vis  = 1.0 - Shadowed(sOrig, Lsun, 1.0e30);
+                Lo += (hs.baseColor / kPi) * lights.dirLight.color * lights.dirLight.intensity * ndl * vis;
+            }
+        }
+
+        // Point lights — ORDERED, capped (deterministic; no random pick).
+        uint count = min(lights.pointLightCount, kMaxPoints);
+        for (uint j = 0u; j < count; ++j) {
+            PointLightData pl = lights.points[j];
+            vec3  Lw; float ld;
+            vec3  Li  = PointLightRadiance(pl, xs, Lw, ld);
+            float ndl = max(dot(hs.ns, Lw), 0.0);
+            if (ndl > 0.0) {
+                vec3 sOrig = xs + hs.ng * (kNormalEps * 0.5) + Lw * kTMin;
+                float vis  = 1.0 - Shadowed(sOrig, Lw, max(ld - 2.0 * kTMin, kTMin));
+                Lo += (hs.baseColor / kPi) * Li * ndl * vis;
+            }
+        }
+
+        Lo += hs.baseColor * hs.ao * 0.03;   // flat ambient term
+        outColor = Lo;
+    }
+
+    imageStore(u_OutImage, pixel, vec4(outColor, 1.0));
+}

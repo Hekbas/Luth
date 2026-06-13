@@ -315,6 +315,24 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
+            // Slang Phase-0 spike (#156) — A/B of the GLSL vs in-process-Slang hot-path shader. Default
+            // OFF; when on it dispatches both compilers' output + a GPU diff. The readout proves runtime
+            // pixel parity: maxUlp 0 + differing 0 over the covered pixels = bit-identical.
+            if (UI::BeginCollapsingHeader("Slang Spike (A/B)", true)) {
+                auto& sp = m_RS->GetSlangSpikeSettings();
+                if (UI::BeginProperties("SlangSpikeProps")) {
+                    UI::Property("Enabled", sp.enabled);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Dispatch the GLSL + Slang variants of the rayQuery hot-path shader\nand diff them on the GPU. Requires a TLAS (RT). Costs a frame; default off.");
+                    UI::EndProperties();
+                }
+                ImGui::Text("covered px : %u", sp.lastCoveredPx);
+                ImGui::Text("differing  : %u", sp.lastDifferingPx);
+                ImGui::Text("max ULP    : %u", sp.lastMaxUlp);
+                ImGui::Text("max |diff| : %.6f", sp.lastMaxAbsDiff);
+                UI::EndCollapsingHeader();
+            }
+
             // ReSTIR GI — Ouyang21 spatiotemporal reservoir resampling for 1-bounce indirect diffuse.
             // Reservoirs store a world-space path sample, so reuse carries a reconnection Jacobian (DI's
             // light-index reservoirs don't). The bounce is added on top of DI under restirParams.y.

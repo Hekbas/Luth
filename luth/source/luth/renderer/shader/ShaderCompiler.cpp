@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "ShaderCompiler.h"
+#include "SlangCompiler.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/resources/FileSystem.h"
 #include <shaderc/shaderc.hpp>
@@ -111,6 +112,11 @@ namespace Luth
 
     std::vector<u32> ShaderCompiler::Compile(const fs::path& sourcePath, bool optimize)
     {
+        // .slang dispatches to the in-process Slang backend (coexists with libshaderc, no removals); the
+        // entry's [shader("...")] attribute supplies the stage. see SlangCompiler / spike #156
+        if (sourcePath.extension() == ".slang")
+            return SlangCompiler::Compile(sourcePath, "main");
+
         ShaderStage stage = InferStage(sourcePath);
         if (stage == ShaderStage::Unknown)
         {

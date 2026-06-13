@@ -82,6 +82,7 @@ project "Luth"
       "Tracy",
       "vulkan-1",
       "shaderc_shared",
+      "slang-compiler",
       "spirv-cross",
       "Jolt",
       "ws2_32",
