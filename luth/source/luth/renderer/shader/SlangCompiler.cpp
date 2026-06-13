@@ -7,28 +7,26 @@
 #include <slang/slang-com-ptr.h>
 #include <slang/slang-tag-version.h>
 #include <fstream>
+#include <mutex>
 
 namespace Luth
 {
     namespace
     {
-        // Lazily-created, process-global. The magic-static init runs once (thread-safe); the session
-        // object itself is shared, which is fine because compiles are serialized at subsystem init (the
-        // same single-threaded-compile contract ShaderCompiler relies on). Returns nullptr if the
-        // prebuilt DLLs failed to load or the core module wasn't found.
-        slang::IGlobalSession* GetGlobalSession()
+        // invariant: a FRESH global session per compile, never shared. slang::IGlobalSession is not safe for
+        // concurrent module loading; the asset pipeline compiles .slang on multiple threads, so a shared
+        // session races (key-already-exists corruption + crashes). Per-compile isolation is the lock-free fix
+        // (no worker-thread OS-sync blocking — see arch/fiber-system.md). createGlobalSession is thread-safe.
+        bool CreateGlobal(Slang::ComPtr<slang::IGlobalSession>& out)
         {
-            static Slang::ComPtr<slang::IGlobalSession> s_Global = []() {
-                Slang::ComPtr<slang::IGlobalSession> g;
-                if (SLANG_FAILED(slang::createGlobalSession(g.writeRef())) || !g)
-                {
-                    LH_CORE_ERROR("Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
-                    return Slang::ComPtr<slang::IGlobalSession>();
-                }
-                LH_CORE_INFO("Slang in-process compiler ready ({})", SLANG_TAG_VERSION);
-                return g;
-            }();
-            return s_Global.get();
+            if (SLANG_FAILED(slang::createGlobalSession(out.writeRef())) || !out)
+            {
+                LH_CORE_ERROR("Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
+                return false;
+            }
+            static std::once_flag s_ready;
+            std::call_once(s_ready, []() { LH_CORE_INFO("Slang in-process compiler ready ({})", SLANG_TAG_VERSION); });
+            return true;
         }
 
         SlangStage ToSlangStage(ShaderStage s)
@@ -93,7 +91,7 @@ namespace Luth
         // One SPIR-V target + the two load-bearing parity knobs (column-major matrices match our std430
         // Mat4 push constants; precise fp blocks FMA reassociation so the GLSL A/B closes to a few ULP).
         // Debug info + direct-SPIRV backend (kDefaultTargetFlags) are the codegen path under test.
-        bool MakeSession(slang::IGlobalSession* global, Slang::ComPtr<slang::ISession>& out)
+        bool MakeSession(slang::IGlobalSession* global, const fs::path& srcDir, Slang::ComPtr<slang::ISession>& out)
         {
             slang::TargetDesc target{};
             target.format = SLANG_SPIRV;
@@ -117,10 +115,10 @@ namespace Luth
                   { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
             };
 
-            // Two roots so a .slang can `import material;` from common/ — mirrors GLSL's "common/…" includes.
-            std::string searchDir = FileSystem::EngineAssetsPath("shaders").string();
+            // Import roots: the primary's own dir (loadModule finds it by name) + common/ for shared modules.
+            std::string srcDirStr = srcDir.string();
             std::string commonDir = FileSystem::EngineAssetsPath("shaders/common").string();
-            const char* searchPaths[] = { searchDir.c_str(), commonDir.c_str() };
+            const char* searchPaths[] = { srcDirStr.c_str(), commonDir.c_str() };
 
             slang::SessionDesc desc{};
             desc.targets = &target;
@@ -137,10 +135,12 @@ namespace Luth
         // Shared front half of every compile: global session + source read + a fresh per-compile session
         // + module load. Returns the module (owned by outSession, which the caller must keep alive) or
         // nullptr on failure (already logged). Keeps the three public entry points from triplicating it.
-        slang::IModule* PrepareModule(const fs::path& src, Slang::ComPtr<slang::ISession>& outSession)
+        // outGlobal is created here and must outlive outSession (the caller keeps both alive).
+        slang::IModule* PrepareModule(const fs::path& src,
+                                      Slang::ComPtr<slang::IGlobalSession>& outGlobal,
+                                      Slang::ComPtr<slang::ISession>& outSession)
         {
-            slang::IGlobalSession* global = GetGlobalSession();
-            if (!global) return nullptr;
+            if (!CreateGlobal(outGlobal)) return nullptr;
 
             std::string source = ReadFile(src);
             if (source.empty())
@@ -148,30 +148,32 @@ namespace Luth
                 LH_CORE_ERROR("SlangCompiler: cannot read source '{}'", src.string());
                 return nullptr;
             }
-            if (!MakeSession(global, outSession))
+            if (!MakeSession(outGlobal.get(), src.parent_path(), outSession))
             {
                 LH_CORE_ERROR("SlangCompiler: createSession failed for '{}'", src.string());
                 return nullptr;
             }
 
+            // Load the primary by name (file-based, like slangc); imports resolve from the search paths.
             Slang::ComPtr<slang::IBlob> diag;
             std::string moduleName = src.stem().string();
-            slang::IModule* module = outSession->loadModuleFromSourceString(
-                moduleName.c_str(), src.string().c_str(), source.c_str(), diag.writeRef());
-            if (!module) { LogDiag(diag, src); return nullptr; }   // LogDiag only on failure (the diag is the error)
+            slang::IModule* module = outSession->loadModule(moduleName.c_str(), diag.writeRef());
+            if (!module) { LogDiag(diag, src); return nullptr; }
             return module;
         }
     }
 
     bool SlangCompiler::Available()
     {
-        return GetGlobalSession() != nullptr;
+        Slang::ComPtr<slang::IGlobalSession> g;
+        return CreateGlobal(g);
     }
 
     std::vector<u32> SlangCompiler::Compile(const fs::path& sourcePath, const char* entryPoint, ShaderStage stage)
     {
+        Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
         Slang::ComPtr<slang::ISession> session;
-        slang::IModule* module = PrepareModule(sourcePath, session);
+        slang::IModule* module = PrepareModule(sourcePath, global, session);
         if (!module) return {};
 
         Slang::ComPtr<slang::IBlob> diag;
@@ -226,8 +228,9 @@ namespace Luth
     {
         CompileOutput out;
 
+        Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
         Slang::ComPtr<slang::ISession> session;
-        slang::IModule* module = PrepareModule(sourcePath, session);
+        slang::IModule* module = PrepareModule(sourcePath, global, session);
         if (!module) return out;
 
         // No such entry → not a single-'main' shader (a multi-entry probe, or a module). Skip quietly so
@@ -276,8 +279,9 @@ namespace Luth
         std::vector<std::vector<u32>> result;
         if (entries.empty()) return result;
 
+        Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
         Slang::ComPtr<slang::ISession> session;
-        slang::IModule* module = PrepareModule(sourcePath, session);
+        slang::IModule* module = PrepareModule(sourcePath, global, session);
         if (!module) return result;
 
         Slang::ComPtr<slang::IBlob> diag;
