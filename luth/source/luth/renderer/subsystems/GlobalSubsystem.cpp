@@ -9,6 +9,8 @@
 #include "luth/core/time/Time.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/renderer/material/MaterialLayoutGuard.h"
+#include "luth/resources/FileSystem.h"
 
 namespace Luth
 {
@@ -16,6 +18,24 @@ namespace Luth
     {
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
+
+        // Loud init-time guard: GlobalUniforms (Set 0 UBO) must stay byte-identical to globals.slang's
+        // std140 mirror — a reordered/inserted field silently desyncs every shader that reads the UBO.
+        #define LH_GU(f) MaterialLayoutGuard::CppField{ #f, offsetof(GlobalUniforms, f) }
+        static constexpr MaterialLayoutGuard::CppField kGuFields[] = {
+            LH_GU(viewProjection), LH_GU(prevViewProjection), LH_GU(view), LH_GU(projection),
+            LH_GU(cameraPos), LH_GU(time), LH_GU(lightSpaceMatrix), LH_GU(cascadeSplitsViewZ),
+            LH_GU(shadowBias), LH_GU(shadowNormalBias), LH_GU(cascadeTexelSize), LH_GU(iblIntensity),
+            LH_GU(skyboxIntensity), LH_GU(debugVisualizeCascades), LH_GU(cascadeBlendWidth), LH_GU(viewportSize),
+            LH_GU(nearZ), LH_GU(farZ), LH_GU(distanceFogColorDensity), LH_GU(distanceFogParams),
+            LH_GU(heightFogColorDensity), LH_GU(heightFogParams), LH_GU(volTemporalParams), LH_GU(prevViewParams),
+            LH_GU(volNoiseParams), LH_GU(volNoiseWind), LH_GU(volScatterParams), LH_GU(specAaParams),
+            LH_GU(taaParams), LH_GU(prevJitter), LH_GU(rtShadowParams), LH_GU(restirParams),
+            LH_GU(pathTraceParams), LH_GU(reflParams), LH_GU(invViewProjection),
+        };
+        #undef LH_GU
+        MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/globals.slang"),
+                                      "GlobalUniforms", kGuFields, sizeof(GlobalUniforms));
 
         // Set 0 layout: 0 = GlobalUBO, 1-3 = IBL samplers, 4 = GTAO sampler, 5 = GTAO UBO, 6 = TLAS.
         VkDescriptorSetLayoutBinding bindings[7] = {};

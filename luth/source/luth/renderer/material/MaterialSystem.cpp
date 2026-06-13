@@ -6,6 +6,8 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/renderer/material/MaterialLayoutGuard.h"
+#include "luth/resources/FileSystem.h"
 
 namespace Luth
 {
@@ -24,6 +26,27 @@ namespace Luth
         m_Slots.resize(MAX_MATERIALS);
         for (u32 i = 0; i < MAX_MATERIALS; ++i)
             m_FreeIndices.push_back(i);
+
+        // Loud init-time guard: GPUMaterialData must stay byte-identical to material.slang's std430 mirror —
+        // a silent stride drift corrupts every material index > 0. Field names match the Slang struct.
+        static constexpr MaterialLayoutGuard::CppField kFields[] = {
+            { "color",           offsetof(GPUMaterialData, color) },
+            { "diffuseIndex",    offsetof(GPUMaterialData, diffuseIndex) },
+            { "normalIndex",     offsetof(GPUMaterialData, normalIndex) },
+            { "metalRoughIndex", offsetof(GPUMaterialData, metalRoughIndex) },
+            { "occlusionIndex",  offsetof(GPUMaterialData, occlusionIndex) },
+            { "emissiveIndex",   offsetof(GPUMaterialData, emissiveIndex) },
+            { "alphaIndex",      offsetof(GPUMaterialData, alphaIndex) },
+            { "specularIndex",   offsetof(GPUMaterialData, specularIndex) },
+            { "thicknessIndex",  offsetof(GPUMaterialData, thicknessIndex) },
+            { "metalness",       offsetof(GPUMaterialData, metalness) },
+            { "roughness",       offsetof(GPUMaterialData, roughness) },
+            { "alphaCutoff",     offsetof(GPUMaterialData, alphaCutoff) },
+            { "flags",           offsetof(GPUMaterialData, flags) },
+            { "emissive",        offsetof(GPUMaterialData, emissive) },
+        };
+        MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
+                                      "GPUMaterialData", kFields, sizeof(GPUMaterialData));
 
         LH_CORE_INFO("Material System Initialized (Max Materials: {0})", MAX_MATERIALS);
     }
