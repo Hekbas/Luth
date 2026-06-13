@@ -4,13 +4,11 @@
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
-#include "luth/renderer/shader/SlangCompiler.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/settings/SlangParitySettings.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/scene/systems/RenderingSystem.h"
-#include "luth/resources/FileSystem.h"
 #include "luth/core/FrameData.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/types/LuthMath.h"
@@ -68,26 +66,24 @@ namespace Luth
         m_Initialized = true;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // GLSL reference + diff reducer through the existing libshaderc path.
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.comp"))   m_GlslSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_diff.comp"))  m_DiffSpv = sh->GetSpirV();
-
-        // Slang port through the in-process compiler — the first call creates the global session, so
-        // this is the runtime check that slang-compiler.dll + siblings load (spike item 1).
-        const fs::path slangPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_gi.slang";
-        m_SlangSpv = SlangCompiler::Compile(slangPath, "main");
+        // All three shaders ride the asset pipeline: the .comp pair via libshaderc, the .slang via the
+        // in-process Slang backend. LoadEngine gives the Slang port a UUID + artifact so it hot-reloads
+        // through ShaderWatcher exactly like the GLSL reference, and its first import loads slang-compiler.dll.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.comp"))   m_GlslSpv  = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_diff.comp")) m_DiffSpv  = sh->GetSpirV();
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/slang_spike_gi.slang"))  m_SlangSpv = sh->GetSpirV();
 
         if (m_GlslSpv.empty() || m_DiffSpv.empty())
         {
-            LH_CORE_ERROR("SlangSpike: missing slang_spike_gi.comp / slang_spike_diff.comp SPIR-V");
+            LH_CORE_ERROR("SlangParity: missing slang_spike_gi.comp / slang_spike_diff.comp SPIR-V");
             return false;
         }
         if (m_SlangSpv.empty())
         {
-            LH_CORE_ERROR("SlangSpike: in-process Slang compile FAILED — A/B disabled (NO-GO signal for #156)");
+            LH_CORE_ERROR("SlangParity: Slang compile of slang_spike_gi.slang FAILED — A/B disabled");
             return false;
         }
-        LH_CORE_INFO("SlangSpike: Slang compiled slang_spike_gi.slang -> {} SPIR-V words", m_SlangSpv.size());
+        LH_CORE_INFO("SlangParity: Slang gi.slang -> {} SPIR-V words", m_SlangSpv.size());
 
         // Set 2 (pass-local) — single binding: the per-variant output storage image.
         VkDescriptorSetLayoutBinding outBind{};
@@ -149,38 +145,7 @@ namespace Luth
         vkAllocateDescriptorSets(device, &ai, &m_DiffSet);
 
         m_InitOk = true;
-        RunLinkSpecCheck();   // #156 item 6 — exercise link-time spec across 2 entry-point stages
         return m_InitOk;
-    }
-
-    // Compose the compute + fragment entries of slang_spike_link.slang into ONE linked program and emit
-    // each (CompileModuleEntries). PASS = both stages produce SPIR-V that loads as a VkShaderModule; the
-    // validation layer (Debug) vets the modules. Offline spirv-val corroborates in the writeup. slang#9578.
-    void SlangParityGuard::RunLinkSpecCheck()
-    {
-        const fs::path linkPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_link.slang";
-        const std::vector<SlangCompiler::EntryReq> entries = {
-            { "csMain", ShaderStage::Compute },
-            { "fsMain", ShaderStage::Fragment },
-        };
-        auto blobs = SlangCompiler::CompileModuleEntries(linkPath, entries);
-
-        bool ok = (blobs.size() == 2) && !blobs[0].empty() && !blobs[1].empty();
-        if (ok)
-        {
-            VkDevice device = VulkanContext::Get().GetDevice();
-            for (const auto& spv : blobs)
-            {
-                VkShaderModuleCreateInfo mci{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-                mci.codeSize = spv.size() * sizeof(u32);
-                mci.pCode    = spv.data();
-                VkShaderModule mod = VK_NULL_HANDLE;
-                if (vkCreateShaderModule(device, &mci, nullptr, &mod) != VK_SUCCESS) { ok = false; break; }
-                vkDestroyShaderModule(device, mod, nullptr);
-            }
-        }
-        LH_CORE_INFO("SlangSpike link-spec (#9578): compute+fragment from one linked generic -> {}",
-                     ok ? "PASS" : "FAIL");
     }
 
     void SlangParityGuard::DestroyResources()
@@ -219,20 +184,28 @@ namespace Luth
         auto defer = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release()) VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
-        // Only the GLSL-side shaders ride ShaderWatcher (.comp); the .slang variant is Init-only (the
-        // watcher has no .slang dispatch yet — Phase 1). Rebuilding the GLSL reference still A/B-validates.
+        // Both rayQuery variants now ride ShaderWatcher (.comp via libshaderc, .slang via the in-process
+        // Slang backend); either reload rebuilds its pipeline against the shared 5-set layout and the diff
+        // re-validates parity on the next frame.
+        const std::vector<VkDescriptorSetLayout> spikeLayouts = {
+            m_Pipeline->GetGlobal().GetSetLayout(),
+            m_Pipeline->GetLighting().GetSetLayout(),
+            m_OutSetLayout,
+            MaterialSystem::GetDescriptorSetLayout(),
+            VulkanContext::Get().GetBindlessSet().GetLayout(),
+        };
         if (name == "slang_spike_gi.comp")
         {
-            const std::vector<VkDescriptorSetLayout> spikeLayouts = {
-                m_Pipeline->GetGlobal().GetSetLayout(),
-                m_Pipeline->GetLighting().GetSetLayout(),
-                m_OutSetLayout,
-                MaterialSystem::GetDescriptorSetLayout(),
-                VulkanContext::Get().GetBindlessSet().GetLayout(),
-            };
             m_GlslSpv = spv;
             defer(m_GlslPipeline);
             m_GlslPipeline = std::make_unique<VKComputePipeline>(m_GlslSpv, spikeLayouts, std::vector<VkPushConstantRange>{ pcRange });
+            return true;
+        }
+        if (name == "slang_spike_gi.slang")
+        {
+            m_SlangSpv = spv;
+            defer(m_SlangPipeline);
+            m_SlangPipeline = std::make_unique<VKComputePipeline>(m_SlangSpv, spikeLayouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
         }
         if (name == "slang_spike_diff.comp")

@@ -15,13 +15,13 @@ namespace Luth
     class RenderPipeline;
     class VKTexture;
 
-    // Slang Phase-0 spike A/B harness (#156, default-OFF). Builds TWO compute pipelines from the SAME
+    // Bindless-SPIR-V parity regression guard (default-OFF). Builds TWO compute pipelines from the SAME
     // descriptor layouts + push constant — one from slang_spike_gi.comp (libshaderc) and one from
     // slang_spike_gi.slang (in-process Slang) — dispatches both into separate RGBA32F images, then a
     // diff reducer into a host-visible SSBO. The only variable is the compiler, so the readback proves
-    // pixel parity at runtime. One RG compute pass after the GI passes (TLAS / geom-table / bindless all
-    // live); SetHasSideEffect keeps it past the dead-pass culler despite engine-owned outputs. Mirrors
-    // RtRestirGiSubsystem's 5-set wiring. see spike #156
+    // the Slang bindless rayQuery path stays byte-for-byte equal to GLSL. One RG compute pass after the
+    // GI passes (TLAS / geom-table / bindless all live); SetHasSideEffect keeps it past the dead-pass
+    // culler despite engine-owned outputs. Mirrors RtRestirGiSubsystem's 5-set wiring.
     class SlangParityGuard
     {
     public:
@@ -38,11 +38,10 @@ namespace Luth
         bool IsEnabled() const;
 
     private:
-        // Lazy one-time setup: compile the GLSL + Slang + diff shaders, build pipelines, create layouts/
-        // pool/sets, run the link-spec probe. Deferred to the first enabled AddPass so nothing loads
-        // slang-compiler.dll while the spike is off. Returns false (and logs once) on Slang failure.
+        // Lazy one-time setup: load the GLSL + Slang + diff shaders through ShaderLibrary, build the
+        // pipelines, create layouts/pool/sets. Deferred to the first enabled AddPass so a disabled guard
+        // costs nothing at runtime. Returns false (and logs once) on Slang failure.
         bool EnsureInitialized();
-        void RunLinkSpecCheck();   // #156 item 6 / slang#9578 — CompileModuleEntries(compute+fragment)
         void EnsureResources(u32 width, u32 height);
         void DestroyResources();
         void ReadbackDiff();   // map the host-visible diff buffer into the settings readout (1 frame stale)
