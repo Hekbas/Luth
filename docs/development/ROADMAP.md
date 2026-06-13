@@ -113,6 +113,7 @@
 | v3.1.4 | `rt-normal-maps` | RT hits sample the normal map (TBN at the rayQuery hit, inverse-transpose normal matrix matching `pbr.vert`) + the occlusion map (`HitSurface.ao` → rt-reflections' IBL ambient; PT omits it — geometric occlusion); GI keeps its geometric secondary normal; dead alpha/specular/thickness indices marked reserved | 2026-06-11 |
 | v3.1.5 | `restir-di-specular` | ReSTIR DI gains specular: combined diffuse+spec RIS target (initial/temporal/spatial), demodulated F0-free specular from the shade pass, a dedicated 4th SVGF channel (surface-motion reproject), and pbr.frag F0-remodulation under `restirParams.z`; fixes metals/specular getting ~nothing from point lights | 2026-06-11 |
 | v3.1.6 | `model-import-fidelity` | Importer fidelity: faithful DCC node graph → entity tree (Model V4, un-baked static meshes), camera + light import, render-mode/cutout/cull/occlusion/UV1 from Assimp, engine-side `Scene::InstantiateModel`; fixes a node-rotation decompose-conjugate inversion; sRGB attempt reverted (editor not sRGB-aware) | 2026-06-12 |
+| v3.2.0 | `slang-spike` | Opens the `slang-material` series — Phase-0 gate GO: in-process `SlangCompiler` (Slang 2026.1) coexisting with libshaderc, one rayQuery+BDA+nonuniform-bindless shader ported, in-engine A/B bit-identical, link-spec valid across 2 stages; slang#10525/#9578 clear; default-off harness merged as the regression guard | 2026-06-13 |
 
 ---
 
@@ -192,9 +193,26 @@ Umbrella issue: [#151](https://github.com/Hekbas/Luth/issues/151) (sub-effort is
 | M.5 `rt-normal-maps` ✅ | [#153](https://github.com/Hekbas/Luth/issues/153) | S | RT-hit normal-map TBN + occlusion parity (inverse-transpose normal matrix); applied in PT + rt-reflections, GI keeps its geometric secondary normal; folds the dead-index audit comment — shipped v3.1.4 |
 | M.6 `restir-di-specular` ✅ | [#154](https://github.com/Hekbas/Luth/issues/154) | M→L | ReSTIR DI specular: combined diffuse+spec RIS target + demodulated F0-free shade output + dedicated 4th SVGF channel (surface-motion reproject) + pbr.frag F0-remod (not envBRDF — point-spec lobe applied at shade); research-backed (NRD/RTXDI/Bevy Solari) — shipped v3.1.5 |
 
-Deferred: `emissive-as-area-lights` (L); a Slang `IMaterial` research spike (M).
+Deferred: `emissive-as-area-lights` (L). The Slang `IMaterial` spike → **GO (v3.2.0)**, opening the `slang-material` series below — the deferred node-graph authoring lands there.
 
 > `gpu-particles` ([#57](https://github.com/Hekbas/Luth/issues/57), L) — compute sim, showcase-sized (fire / ember / smoke / motes in god ray). **Parallelizable — not a material-system dependency**; drop into any renderer slot.
+
+### Active series — `slang-material` (Mode A, v3.2.0)
+
+GLSL→Slang migration + a bounded `IMaterial` surface (link-time specialization) shared across raster / RT / path-trace, plus a node-graph authoring layer emitting into that surface — continues `material-system`'s deferred node-graph. Mode A — series-open MINOR bump to `3.2.0` (the `slang-spike` gate); intermediate efforts PATCH-bump, tag-only; milestone Release at series end. Detailed design: local `docs/development/epics/slang-material.md`.
+
+Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort issues on demand; commits use `Part of #157`).
+
+| Phase | Effort | Size | Notes |
+|---|---|---|---|
+| 0 ✅ | `slang-spike` | M | Phase-0 gate GO — in-process compiler + rayQuery/BDA/bindless A/B + link-spec, all green — shipped v3.2.0 |
+| 1 | `slang-toolchain` | M | Full `.slang` asset-pipeline dispatch + ShaderWatcher `.slang` hot-reload + bindless SPIR-V regression guard (promote the spike harness) |
+| 2 | `slang-imaterial` | L | `MaterialInputs` + one generic Slang eval; convert `pbr.frag` + RT hit; retire the struct triplet; two-tier eval — the keystone |
+| 3 | packed-texture routing | S–M | Import-side ORM / spec-gloss / separate / inverted → `MaterialInputs` (the original pain) |
+| 4 | composable effect layer | L | Link-specialized effect stack |
+| 5 | node editor → bounded surface | XL | Blender-like UX emitting into `IMaterial` |
+
+> Next: Phase 1 (`slang-toolchain`). `gpu-particles` (#57) stays parallelizable — slot it independently.
 
 ### Gameplay enablement
 
