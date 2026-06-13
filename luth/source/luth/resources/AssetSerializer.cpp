@@ -185,6 +185,51 @@ namespace Luth
         for (u32 ci = 0; ci < clipCount; ++ci) ReadAnimationClip(in, clips[ci]);
     }
 
+    // --- Scene-graph binary helpers (V4) ---
+
+    static void WriteSceneGraph(std::ofstream& out, const ModelAssetData& data)
+    {
+        for (const auto& node : data.Nodes) {
+            WriteString(out, node.Name);
+            out.write((const char*)&node.ParentIndex, sizeof(i32));
+            out.write((const char*)&node.Translation, sizeof(Vec3));
+            out.write((const char*)&node.Rotation, sizeof(Quat));
+            out.write((const char*)&node.Scale, sizeof(Vec3));
+            u32 meshCount = (u32)node.MeshIndices.size();
+            out.write((const char*)&meshCount, sizeof(u32));
+            out.write((const char*)node.MeshIndices.data(), meshCount * sizeof(u32));
+            out.write((const char*)&node.CameraIndex, sizeof(i32));
+            out.write((const char*)&node.LightIndex, sizeof(i32));
+        }
+        // ModelCamera / ModelLight are trivially-copyable PODs (round-trips with the matching read).
+        for (const auto& cam : data.Cameras)   out.write((const char*)&cam,   sizeof(ModelCamera));
+        for (const auto& light : data.Lights)  out.write((const char*)&light, sizeof(ModelLight));
+    }
+
+    static void ReadSceneGraph(std::ifstream& in, ModelAssetData& data,
+        u32 nodeCount, u32 cameraCount, u32 lightCount)
+    {
+        data.Nodes.resize(nodeCount);
+        for (u32 i = 0; i < nodeCount; ++i) {
+            auto& node = data.Nodes[i];
+            node.Name = ReadString(in);
+            in.read((char*)&node.ParentIndex, sizeof(i32));
+            in.read((char*)&node.Translation, sizeof(Vec3));
+            in.read((char*)&node.Rotation, sizeof(Quat));
+            in.read((char*)&node.Scale, sizeof(Vec3));
+            u32 meshCount = 0;
+            in.read((char*)&meshCount, sizeof(u32));
+            node.MeshIndices.resize(meshCount);
+            in.read((char*)node.MeshIndices.data(), meshCount * sizeof(u32));
+            in.read((char*)&node.CameraIndex, sizeof(i32));
+            in.read((char*)&node.LightIndex, sizeof(i32));
+        }
+        data.Cameras.resize(cameraCount);
+        for (u32 i = 0; i < cameraCount; ++i) in.read((char*)&data.Cameras[i], sizeof(ModelCamera));
+        data.Lights.resize(lightCount);
+        for (u32 i = 0; i < lightCount; ++i)  in.read((char*)&data.Lights[i], sizeof(ModelLight));
+    }
+
     // --- Model Serialization ---
 
     bool AssetSerializer::SerializeModel(const fs::path& path, const ModelAssetData& data)
@@ -193,7 +238,7 @@ namespace Luth
         if (!out.is_open()) return false;
 
         AssetHeader header;
-        header.Version = 3; // V3: clips referenced by UUID (was inline AnimationClips in V2)
+        header.Version = 4; // V4: scene-graph nodes + cameras + lights (was V3 clips-by-UUID)
         header.Type = AssetType::Model;
         out.write((const char*)&header, sizeof(AssetHeader));
 
@@ -203,6 +248,9 @@ namespace Luth
         modelHeader.IsSkinned = data.IsSkinned ? 1 : 0;
         modelHeader.BoneCount = data.SkeletonData.BoneCount();
         modelHeader.AnimationCount = (u32)data.AnimationClipUUIDs.size();
+        modelHeader.NodeCount = (u32)data.Nodes.size();
+        modelHeader.CameraCount = (u32)data.Cameras.size();
+        modelHeader.LightCount = (u32)data.Lights.size();
         out.write((const char*)&modelHeader, sizeof(ModelHeader));
 
         // Write Materials
@@ -242,6 +290,9 @@ namespace Luth
                 modelHeader.AnimationCount * sizeof(UUID));
         }
 
+        // V4: scene graph (nodes + cameras + lights) — appended last
+        WriteSceneGraph(out, data);
+
         return true;
     }
 
@@ -254,10 +305,9 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Model) return false;
 
-        // V3 schema: clips by UUID. V1/V2 artifacts are rejected so they get
-        // re-imported under the new schema on first load (mirrors the Shader
-        // V1->V2 reject pattern below).
-        if (header.Version != 3) return false;
+        // V4 schema: scene-graph nodes + cameras + lights. Older artifacts are rejected so they get
+        // re-imported under the new schema on first load (mirrors the Shader V1->V2 reject pattern).
+        if (header.Version != 4) return false;
 
         ModelHeader modelHeader;
         in.read((char*)&modelHeader, sizeof(ModelHeader));
@@ -307,6 +357,9 @@ namespace Luth
             in.read((char*)outData.AnimationClipUUIDs.data(),
                 modelHeader.AnimationCount * sizeof(UUID));
         }
+
+        // V4: scene graph (nodes + cameras + lights)
+        ReadSceneGraph(in, outData, modelHeader.NodeCount, modelHeader.CameraCount, modelHeader.LightCount);
 
         return true;
     }

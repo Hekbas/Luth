@@ -3,6 +3,7 @@
 #include "luth/scene/Components.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 
 namespace Luth
@@ -60,6 +61,116 @@ namespace Luth
         LH_CORE_TRACE("Created entity: {0}", name);
         IncrementHierarchyVersion();
         return entity;
+    }
+
+    Entity Scene::InstantiateModel(const std::shared_ptr<Model>& model, Entity parent)
+    {
+        if (!model) return {};
+        const UUID modelUUID = model->Handle;
+
+        // Attach a MeshRenderer for `meshIdx` to `e`, wiring the material + kicking its async load.
+        auto attachMesh = [&](Entity e, u32 meshIdx) {
+            auto& mr = e.AddComponent<MeshRenderer>();
+            mr.ModelUUID = modelUUID;
+            mr.MeshIndex = meshIdx;
+            mr.isSkinned = model->IsSkinned();
+            const auto& info = model->GetCachedModelInfo();
+            const auto& materials = model->GetMaterials();
+            u32 materialIdx = (meshIdx < info.Meshes.size()) ? info.Meshes[meshIdx].MaterialIndex : 0;
+            if (materialIdx < materials.size() && materials[materialIdx].IsValid()) {
+                mr.MaterialUUID = materials[materialIdx];
+                AssetManager::LoadAsync(mr.MaterialUUID);
+            }
+        };
+
+        if (model->HasNodeTree()) {
+            // Static: faithful node hierarchy. Nodes are topological, so a parent entity always exists
+            // before its children reference it. Transforms decompose to the Transform component's
+            // Euler-degrees convention (matches AnimationSystem's DecomposeTransform write-back).
+            const auto& nodes   = model->GetNodes();
+            const auto& cameras = model->GetCameras();
+            const auto& lights  = model->GetLights();
+            std::vector<Entity> nodeEntities(nodes.size());
+
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                const auto& n = nodes[i];
+                Entity e = CreateEntity(n.Name.empty() ? "Node" : n.Name);
+                nodeEntities[i] = e;
+
+                auto& t = e.GetComponent<Transform>();
+                t.Position = n.Translation;
+                t.Rotation = Math::Degrees(Math::EulerAngles(n.Rotation));
+                t.Scale    = n.Scale;
+                t.IsDirty  = true;
+
+                if (n.ParentIndex >= 0)            e.SetParent(nodeEntities[n.ParentIndex]);
+                else if (parent && parent.IsValid()) e.SetParent(parent);
+
+                // One mesh rides on the node entity; extra meshes become identity-local children.
+                if (n.MeshIndices.size() == 1) {
+                    attachMesh(e, n.MeshIndices[0]);
+                } else {
+                    for (u32 mi : n.MeshIndices) {
+                        Entity child = CreateEntity(model->GetCachedModelInfo().Meshes[mi].Name);
+                        child.SetParent(e);
+                        attachMesh(child, mi);
+                    }
+                }
+
+                if (n.CameraIndex >= 0 && n.CameraIndex < (i32)cameras.size()) {
+                    const auto& mc = cameras[n.CameraIndex];
+                    auto& cam = e.AddComponent<Camera>();
+                    cam.VerticalFOV = mc.FovYDeg;
+                    cam.NearClip    = mc.NearClip;
+                    cam.FarClip     = mc.FarClip;
+                    cam.AspectRatio = mc.Aspect;
+                    cam.IsDirty     = true;
+                }
+
+                if (n.LightIndex >= 0 && n.LightIndex < (i32)lights.size()) {
+                    const auto& ml = lights[n.LightIndex];
+                    if (ml.Type == 0) {
+                        auto& dl = e.AddComponent<DirectionalLight>();
+                        dl.Color = ml.Color;
+                        dl.Intensity = ml.Intensity;
+                    } else {
+                        auto& pl = e.AddComponent<PointLight>();
+                        pl.Color = ml.Color;
+                        pl.Intensity = ml.Intensity;
+                        pl.Range = ml.Range;
+                    }
+                }
+            }
+
+            return nodes.empty() ? Entity{} : nodeEntities[0];
+        }
+
+        // Skinned / legacy no-tree: root + flat mesh children + bone-entity hierarchy (prior behavior).
+        Entity root = CreateEntity(model->GetName());
+        if (parent && parent.IsValid()) root.SetParent(parent);
+        if (model->IsSkinned()) root.AddComponent<Animation>(modelUUID);
+
+        const auto& meshes = model->GetMeshes();
+        for (size_t i = 0; i < meshes.size(); i++) {
+            Entity child = CreateEntity(model->GetCachedModelInfo().Meshes[i].Name);
+            child.SetParent(root);
+            attachMesh(child, (u32)i);
+        }
+
+        if (model->IsSkinned() && !model->GetSkeleton().IsEmpty()) {
+            const auto& skeleton = model->GetSkeleton();
+            u32 boneCount = skeleton.BoneCount();
+            std::vector<Entity> boneEntities(boneCount);
+            for (u32 i = 0; i < boneCount; i++) {
+                Entity boneEntity = CreateEntity(skeleton.Bones[i].Name);
+                boneEntities[i] = boneEntity;
+                i32 parentIdx = skeleton.Bones[i].ParentIndex;
+                boneEntity.SetParent((parentIdx >= 0 && parentIdx < (i32)boneCount)
+                    ? boneEntities[parentIdx] : root);
+            }
+        }
+
+        return root;
     }
 
     void Scene::DestroyEntity(Entity entity)

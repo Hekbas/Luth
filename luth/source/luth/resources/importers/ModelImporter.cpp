@@ -42,6 +42,8 @@ namespace Luth
         s.BakeAxisConversion           = j.value("bake_axis_conversion", true);
         s.SkinMeshTransform            = static_cast<MeshTransformMode>(j.value("skin_mesh_transform", 0));
         s.ExtractClipsAsSeparateAssets = j.value("extract_clips_as_separate_assets", true);
+        s.ImportCameras                = j.value("import_cameras", true);
+        s.ImportLights                 = j.value("import_lights", true);
         s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
         return s;
     }
@@ -57,6 +59,8 @@ namespace Luth
             { "bake_axis_conversion",            BakeAxisConversion },
             { "skin_mesh_transform",             static_cast<int>(SkinMeshTransform) },
             { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets },
+            { "import_cameras",                  ImportCameras },
+            { "import_lights",                   ImportLights },
             { "physics_bake",                    static_cast<int>(PhysicsBake) }
         };
     }
@@ -489,6 +493,11 @@ namespace Luth
             else
                 vertex.TexCoord0 = Vec2(0.0f);
 
+            if (mesh->mTextureCoords[1])
+                vertex.TexCoord1 = Vec2(mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y);
+            else
+                vertex.TexCoord1 = Vec2(0.0f);
+
             if (mesh->HasTangentsAndBitangents())
                 vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
@@ -539,6 +548,11 @@ namespace Luth
             else
                 vertex.TexCoord0 = Vec2(0.0f);
 
+            if (mesh->mTextureCoords[1])
+                vertex.TexCoord1 = Vec2(mesh->mTextureCoords[1][i].x, mesh->mTextureCoords[1][i].y);
+            else
+                vertex.TexCoord1 = Vec2(0.0f);
+
             if (mesh->HasTangentsAndBitangents())
                 vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
             else
@@ -585,6 +599,96 @@ namespace Luth
         for (unsigned int i = 0; i < node->mNumChildren; i++) {
             ProcessNode(node->mChildren[i], scene, transform, outMeshes, isSkinned, skeleton);
         }
+    }
+
+    // Decompose a node's local matrix to TRS for its entity Transform. Deliberately uses
+    // Math::Decompose (raw glm::decompose) and NOT Luth::DecomposeTransform: the latter's trailing
+    // glm::conjugate inverts the rotation in this glm version, which renders imported nodes facing the
+    // wrong way (the error scales with rotation angle; only axis-aligned nodes look right). The conjugate
+    // is latent/masked elsewhere — animation drives skinning from the bone-matrix buffer and physics
+    // reads quaternions directly, so neither round-trips a rotation through the entity Transform the way
+    // node import does. Verified with a decompose->euler->reconstruct round-trip (see commit history).
+    static void DecomposeNodeLocal(const Mat4& m, Vec3& t, Quat& r, Vec3& s)
+    {
+        Vec3 skew; Vec4 persp;
+        Math::Decompose(m, s, r, t, skew, persp);
+    }
+
+    // Static-model path: preserve the DCC node hierarchy as a topological node list, store meshes
+    // un-baked (mesh-local — the entity tree composes world transforms), and extract cameras + lights.
+    // Axis correction + scale factor fold onto the root node's transform (mirrors how the skinned path
+    // applies axis correction to the root bone, so descendants inherit it through the hierarchy).
+    static void BuildStaticSceneGraph(const aiScene* scene, const Mat4& rootCorrection,
+        bool importCameras, bool importLights, ModelAssetData& modelData)
+    {
+        // Every scene mesh processed once, un-baked. Node MeshIndices reference these by global index.
+        modelData.Meshes.reserve(scene->mNumMeshes);
+        for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
+            modelData.Meshes.push_back(ProcessStaticMesh(scene->mMeshes[i], scene, Mat4(1.0f)));
+
+        // Cameras + lights → defs, keyed by node name (Assimp links them to nodes by name).
+        std::unordered_map<std::string, i32> cameraByName, lightByName;
+
+        for (unsigned int i = 0; importCameras && i < scene->mNumCameras; ++i) {
+            const aiCamera* cam = scene->mCameras[i];
+            ModelCamera mc;
+            mc.Aspect  = (cam->mAspect > 1e-4f) ? cam->mAspect : (16.0f / 9.0f);
+            // mHorizontalFOV is the half horizontal angle (radians); convert to full vertical degrees.
+            mc.FovYDeg = Math::Degrees(2.0f * std::atan(std::tan(cam->mHorizontalFOV) / mc.Aspect));
+            mc.NearClip = cam->mClipPlaneNear;
+            mc.FarClip  = cam->mClipPlaneFar;
+            cameraByName[cam->mName.C_Str()] = (i32)modelData.Cameras.size();
+            modelData.Cameras.push_back(mc);
+        }
+
+        for (unsigned int i = 0; importLights && i < scene->mNumLights; ++i) {
+            const aiLight* light = scene->mLights[i];
+            ModelLight ml;
+            switch (light->mType) {
+                case aiLightSource_DIRECTIONAL: ml.Type = 0; break;
+                case aiLightSource_POINT:       ml.Type = 1; break;
+                case aiLightSource_SPOT:
+                    ml.Type = 1;
+                    LH_CORE_WARN("ModelImporter: spot light '{}' imported as point (cone dropped)",
+                        light->mName.C_Str());
+                    break;
+                default:
+                    LH_CORE_WARN("ModelImporter: unsupported light type ('{}') skipped", light->mName.C_Str());
+                    continue;
+            }
+            // Assimp folds intensity into the color magnitude; split it back out for a sane editor range.
+            Vec3 color(light->mColorDiffuse.r, light->mColorDiffuse.g, light->mColorDiffuse.b);
+            float maxc = std::max({ color.x, color.y, color.z });
+            if (maxc > 1.0f) { ml.Intensity = maxc; color /= maxc; }
+            ml.Color = color;
+            if (ml.Type == 1 && light->mAttenuationQuadratic > 1e-4f)
+                ml.Range = std::clamp(std::sqrt(1.0f / (0.01f * light->mAttenuationQuadratic)), 1.0f, 10000.0f);
+            lightByName[light->mName.C_Str()] = (i32)modelData.Lights.size();
+            modelData.Lights.push_back(ml);
+        }
+
+        // Walk the hierarchy depth-first → topological order (parent always precedes its children).
+        std::function<void(const aiNode*, i32)> walk = [&](const aiNode* node, i32 parentIndex) {
+            ModelNode mn;
+            mn.Name = node->mName.C_Str();
+            mn.ParentIndex = parentIndex;
+
+            Mat4 local = AiMat4ToGLM(node->mTransformation);
+            if (parentIndex < 0) local = rootCorrection * local;
+            DecomposeNodeLocal(local, mn.Translation, mn.Rotation, mn.Scale);
+
+            for (unsigned int i = 0; i < node->mNumMeshes; ++i)
+                mn.MeshIndices.push_back(node->mMeshes[i]);
+            if (auto it = cameraByName.find(mn.Name); it != cameraByName.end()) mn.CameraIndex = it->second;
+            if (auto it = lightByName.find(mn.Name);  it != lightByName.end())  mn.LightIndex  = it->second;
+
+            i32 myIndex = (i32)modelData.Nodes.size();
+            modelData.Nodes.push_back(std::move(mn));
+
+            for (unsigned int i = 0; i < node->mNumChildren; ++i)
+                walk(node->mChildren[i], myIndex);
+        };
+        walk(scene->mRootNode, -1);
     }
 
     static MapType AssimpToLuthMapType(aiTextureType type)
@@ -679,14 +783,42 @@ namespace Luth
         nlohmann::json matJson;
         UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
         matJson["shader"] = pbrUUID.IsValid() ? pbrUUID.ToString() : "";
-        matJson["render_mode"] = 0; // Opaque
+        // Render mode (Opaque=0/Cutout=1/Transparent=2; Fade=3 is editor-only): glTF alphaMode wins,
+        // else opacity<1 → Transparent. The opacity>0.001 floor dodges the FBX "0 means default" quirk.
+        int renderMode = 0;
+        float opacity = 1.0f;
+        aiMat->Get(AI_MATKEY_OPACITY, opacity);
+        bool translucentOpacity = (opacity > 0.001f && opacity < 1.0f);
+
+        aiString alphaMode;
+        if (aiMat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode) == AI_SUCCESS) {
+            std::string mode = alphaMode.C_Str();
+            if (mode == "MASK")       renderMode = 1;
+            else if (mode == "BLEND") renderMode = 2;
+        }
+        else if (translucentOpacity) {
+            renderMode = 2;
+        }
+        matJson["render_mode"] = renderMode;
+
+        float alphaCutoff;
+        if (aiMat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+            matJson["alpha_cutoff"] = alphaCutoff;
+
+        // Two-sided → CullMode::None (Back=0, Front=1, None=2). Leave the default (Back) otherwise.
+        int twoSided = 0;
+        if (aiMat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+            matJson["cull_mode"] = 2;
 
         // Material factors -> direct keys (color/metalness/roughness). The u_* uniform channel never
         // reached the GPU (no Set-1 block in pbr), so importing into it silently dropped the factors.
         aiColor4D color;
         if (aiMat->Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS ||
-            aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
-            matJson["color"] = { color.r, color.g, color.b, color.a };
+            aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
+            // Fold a separate opacity scalar (FBX/OBJ) into base-color alpha when the source carries one.
+            float a = translucentOpacity ? opacity : color.a;
+            matJson["color"] = { color.r, color.g, color.b, a };
+        }
 
         float floatVal;
         if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS)  matJson["metalness"] = floatVal;
@@ -696,6 +828,11 @@ namespace Luth
         matJson["textures"] = nlohmann::json::array();
 
         auto TryAddTexture = [&](aiTextureType aiType, MapType luthType) {
+            // Skip if this slot is already filled — glTF exposes metal-rough under both METALNESS and
+            // DIFFUSE_ROUGHNESS (same file), and occlusion under AMBIENT_OCCLUSION and LIGHTMAP.
+            for (const auto& existing : matJson["textures"])
+                if (existing["type"].get<int>() == (int)luthType) return;
+
             if (aiMat->GetTextureCount(aiType) > 0) {
                 aiString path;
                 if (aiMat->GetTexture(aiType, 0, &path) == AI_SUCCESS) {
@@ -730,10 +867,14 @@ namespace Luth
                     }
 
                     if (texUUID.IsValid()) {
+                        // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
+                        int uvChannel = 0;
+                        aiMat->Get(AI_MATKEY_UVWSRC(aiType, 0), uvChannel);
+
                         nlohmann::json texNode;
                         texNode["type"] = (int)luthType;
                         texNode["uuid"] = texUUID.ToString();
-                        texNode["uv"] = 0;
+                        texNode["uv"] = (uvChannel <= 0) ? 0 : 1;
                         texNode["useTexture"] = true;
                         matJson["textures"].push_back(texNode);
                     }
@@ -744,9 +885,13 @@ namespace Luth
         TryAddTexture(aiTextureType_DIFFUSE, MapType::Diffuse);
         TryAddTexture(aiTextureType_BASE_COLOR, MapType::Diffuse);
         TryAddTexture(aiTextureType_NORMALS, MapType::Normal);
+        // metalRoughIndex samples MapType::Metalness only; glTF's combined map arrives under either
+        // METALNESS or DIFFUSE_ROUGHNESS (same file), so both target Metalness and the dedupe keeps one.
         TryAddTexture(aiTextureType_METALNESS, MapType::Metalness);
-        TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Roughness);
+        TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Metalness);
         TryAddTexture(aiTextureType_EMISSIVE, MapType::Emissive);
+        TryAddTexture(aiTextureType_AMBIENT_OCCLUSION, MapType::Occlusion);
+        TryAddTexture(aiTextureType_LIGHTMAP, MapType::Occlusion);
 
         // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
         // uniform channel. Default to white when only a resolved emissive texture is present, so glTF
@@ -919,8 +1064,13 @@ namespace Luth
             }
         }
 
-        // 4. Process Geometry
-        ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
+        // 4. Process Geometry — skinned keeps the baked/flattened path (verts in skeleton space,
+        // bone-driven); static reconstructs the node graph with un-baked meshes + cameras + lights.
+        if (isSkinned)
+            ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
+        else
+            BuildStaticSceneGraph(scene, axisCorrection, settings.ImportCameras, settings.ImportLights, modelData);
+
         modelData.Materials = ctx.MaterialUUIDs;
 
         return AssetSerializer::SerializeModel(destination, modelData);

@@ -10,6 +10,7 @@
 namespace Luth
 {
     class Entity;
+    class Model;
 
     // Owns the EnTT registry, the root-entity list, the hierarchy version counter, and the
     // HoldAsset shared_ptr cache that keeps in-use assets pinned across AssetManager Trim cycles.
@@ -26,7 +27,12 @@ namespace Luth
         void Clear();
         void ClearPreservingAssets();
         Entity DuplicateEntity(Entity original, bool skipParentAddition = false);
-        
+
+        // Build a scene-entity tree from a loaded Model. Static models reconstruct the V4 node graph
+        // (local transforms + cameras + lights); skinned models get root + meshes + bone hierarchy.
+        // Returns the root entity (engine-side so a runtime load path can reuse it — no editor deps).
+        Entity InstantiateModel(const std::shared_ptr<Model>& model, Entity parent);
+
         void ReorderEntity(Entity entity, Entity target, bool after);
 
         entt::registry& Registry() { return m_Registry; }

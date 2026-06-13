@@ -87,6 +87,20 @@ namespace Luth
         CacheModelInfo();
     }
 
+    std::vector<Mat4> Model::ComputeNodeWorldTransforms() const
+    {
+        std::vector<Mat4> world(m_Nodes.size());
+        for (size_t i = 0; i < m_Nodes.size(); ++i) {
+            const auto& n = m_Nodes[i];
+            Mat4 local = Math::Translate(Mat4(1.0f), n.Translation)
+                       * Math::ToMat4(n.Rotation)
+                       * Math::Scale(Mat4(1.0f), n.Scale);
+            // Nodes are topological — a parent's world matrix is finalized before its children read it.
+            world[i] = (n.ParentIndex >= 0) ? world[n.ParentIndex] * local : local;
+        }
+        return world;
+    }
+
     ModelInfo Model::GetModelInfo() const
     {
         ModelInfo info;

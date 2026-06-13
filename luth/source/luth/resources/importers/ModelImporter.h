@@ -38,6 +38,10 @@ namespace Luth
         // Disable to kip clip extraction entirely.
         bool ExtractClipsAsSeparateAssets = true;
 
+        // Scene-graph extras (static models): import source cameras / lights as entities.
+        bool ImportCameras = true;
+        bool ImportLights  = true;
+
         // Physics shape sourcing. None (default) → ShapeCache returns null for asset-backed colliders referencing
         // this model and warns once per UUID. Auto → ShapeCache builds JPH::ConvexHullShape / JPH::MeshShape on
         // demand from Model::m_MeshesData. Per-mesh override + actual on-disk shape cooking are deferred to a future effort.
@@ -55,6 +59,11 @@ namespace Luth
         Skeleton SkeletonData;
         std::vector<UUID> AnimationClipUUIDs;
         bool IsSkinned = false;
+
+        // V4 scene graph — populated for static models only (skinned models stay empty).
+        std::vector<ModelNode>   Nodes;
+        std::vector<ModelCamera> Cameras;
+        std::vector<ModelLight>  Lights;
     };
 
     class ModelImporter : public AssetImporter

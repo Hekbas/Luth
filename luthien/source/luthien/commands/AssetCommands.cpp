@@ -51,51 +51,13 @@ namespace Luth
         auto model = AssetManager::GetAsset<Model>(m_ModelUUID);
         if (!model) return;
 
-        Entity root = m_Scene->CreateEntity(model->GetName());
+        // Entity construction lives engine-side (Scene::InstantiateModel); the command only resolves
+        // the parent, snapshots the resulting subtree for undo, and tracks the root UUID.
+        Entity parent = m_ParentUUID.IsValid() ? m_Scene->FindEntityByUUID(m_ParentUUID) : Entity{};
+        Entity root = m_Scene->InstantiateModel(model, parent);
+        if (!root.IsValid()) return;
+
         m_RootUUID = root.GetComponent<ID>().Value;
-
-        if (m_ParentUUID.IsValid()) {
-            Entity parent = m_Scene->FindEntityByUUID(m_ParentUUID);
-            if (parent.IsValid()) root.SetParent(parent);
-        }
-
-        if (model->IsSkinned())
-            root.AddComponent<Animation>(m_ModelUUID);
-
-        const auto& meshes = model->GetMeshes();
-        for (size_t i = 0; i < meshes.size(); i++) {
-            Entity child = m_Scene->CreateEntity(model->GetCachedModelInfo().Meshes[i].Name);
-            child.SetParent(root);
-            auto& mr = child.AddComponent<MeshRenderer>();
-            mr.ModelUUID = m_ModelUUID;
-            mr.MeshIndex = (u32)i;
-            mr.isSkinned = model->IsSkinned();
-            u32 materialIdx = model->GetCachedModelInfo().Meshes[i].MaterialIndex;
-            const auto& materials = model->GetMaterials();
-            if (materialIdx < materials.size()) {
-                mr.MaterialUUID = materials[materialIdx];
-                if (mr.MaterialUUID.IsValid())
-                    AssetManager::LoadAsync(mr.MaterialUUID);
-            }
-        }
-
-        if (model->IsSkinned() && !model->GetSkeleton().IsEmpty()) {
-            const auto& skeleton = model->GetSkeleton();
-            u32 boneCount = skeleton.BoneCount();
-            std::vector<Entity> boneEntities(boneCount);
-
-            for (u32 i = 0; i < boneCount; i++) {
-                const auto& bone = skeleton.Bones[i];
-                Entity boneEntity = m_Scene->CreateEntity(bone.Name);
-                boneEntities[i] = boneEntity;
-
-                if (bone.ParentIndex >= 0 && bone.ParentIndex < (i32)boneCount)
-                    boneEntity.SetParent(boneEntities[bone.ParentIndex]);
-                else
-                    boneEntity.SetParent(root);
-            }
-        }
-
         m_SubtreeSnapshot = CommandUtil::SerializeEntitySubtree(root);
         m_FirstExecution = false;
     }

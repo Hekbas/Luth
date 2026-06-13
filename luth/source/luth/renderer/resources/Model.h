@@ -81,6 +81,36 @@ namespace Luth
         std::vector<AnimationInfo> Animations;
     };
 
+    // V4 scene-graph import (static models only; skinned models reconstruct hierarchy from the
+    // skeleton instead). Nodes are topological (parent before child); transforms are LOCAL — the
+    // instantiated entity tree composes world transforms. MeshIndices reference the Model's meshes;
+    // CameraIndex/LightIndex address the Cameras/Lights arrays (-1 = none).
+    struct ModelNode {
+        std::string Name;
+        i32 ParentIndex = -1;
+        Vec3 Translation = Vec3(0.0f);
+        Quat Rotation    = Quat(1.0f, 0.0f, 0.0f, 0.0f);
+        Vec3 Scale       = Vec3(1.0f);
+        std::vector<u32> MeshIndices;
+        i32 CameraIndex = -1;
+        i32 LightIndex  = -1;
+    };
+
+    struct ModelCamera {
+        f32 FovYDeg    = 45.0f;    // vertical, degrees
+        f32 NearClip   = 0.01f;
+        f32 FarClip    = 1000.0f;
+        f32 Aspect     = 16.0f / 9.0f;
+        i32 Orthographic = 0;      // Assimp is perspective-only; kept for forward-compat
+    };
+
+    struct ModelLight {
+        i32  Type      = 0;        // 0 = directional, 1 = point (spot is mapped to point on import)
+        Vec3 Color     = Vec3(1.0f);
+        f32  Intensity = 1.0f;
+        f32  Range     = 350.0f;   // point only
+    };
+
     class Model : public Asset
     {
     public:
@@ -118,6 +148,19 @@ namespace Luth
         const std::vector<UUID>& GetAnimationClipUUIDs() const { return m_AnimationClipUUIDs; }
         std::vector<UUID>& GetAnimationClipUUIDs() { return m_AnimationClipUUIDs; }
 
+        // V4 scene graph (static models). Empty for skinned models — gate reads via HasNodeTree().
+        void SetSceneGraph(std::vector<ModelNode> nodes, std::vector<ModelCamera> cameras,
+            std::vector<ModelLight> lights) {
+            m_Nodes = std::move(nodes); m_Cameras = std::move(cameras); m_Lights = std::move(lights);
+        }
+        bool HasNodeTree() const { return !m_Nodes.empty(); }
+        const std::vector<ModelNode>&   GetNodes()   const { return m_Nodes; }
+        const std::vector<ModelCamera>& GetCameras() const { return m_Cameras; }
+        const std::vector<ModelLight>&  GetLights()  const { return m_Lights; }
+
+        // Per-node world matrices (parent-composed; nodes are topological). Empty when no node tree.
+        std::vector<Mat4> ComputeNodeWorldTransforms() const;
+
         void Serialize(nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
 
@@ -139,5 +182,9 @@ namespace Luth
 
         Skeleton m_Skeleton;
         std::vector<UUID> m_AnimationClipUUIDs;
+
+        std::vector<ModelNode>   m_Nodes;
+        std::vector<ModelCamera> m_Cameras;
+        std::vector<ModelLight>  m_Lights;
     };
 }
