@@ -117,15 +117,17 @@ namespace Luth
                   { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
             };
 
+            // Two roots so a .slang can `import material;` from common/ — mirrors GLSL's "common/…" includes.
             std::string searchDir = FileSystem::EngineAssetsPath("shaders").string();
-            const char* searchPaths[] = { searchDir.c_str() };
+            std::string commonDir = FileSystem::EngineAssetsPath("shaders/common").string();
+            const char* searchPaths[] = { searchDir.c_str(), commonDir.c_str() };
 
             slang::SessionDesc desc{};
             desc.targets = &target;
             desc.targetCount = 1;
             desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
             desc.searchPaths = searchPaths;
-            desc.searchPathCount = 1;
+            desc.searchPathCount = 2;
             desc.compilerOptionEntries = opts;
             desc.compilerOptionEntryCount = static_cast<u32>(std::size(opts));
 
