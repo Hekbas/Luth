@@ -346,6 +346,10 @@ SLANG_INT_VECTOR_OPS(uint)
 SLANG_INT_VECTOR_OPS(uint8_t)
 SLANG_INT_VECTOR_OPS(uint16_t)
 SLANG_INT_VECTOR_OPS(uint64_t)
+#if SLANG_INTPTR_TYPE_IS_DISTINCT
+SLANG_INT_VECTOR_OPS(intptr_t)
+SLANG_INT_VECTOR_OPS(uintptr_t)
+#endif
 
 SLANG_FLOAT_VECTOR_OPS(float)
 SLANG_FLOAT_VECTOR_OPS(double)
@@ -367,6 +371,10 @@ SLANG_VECTOR_INT_NEG_OP(uint)
 SLANG_VECTOR_INT_NEG_OP(uint8_t)
 SLANG_VECTOR_INT_NEG_OP(uint16_t)
 SLANG_VECTOR_INT_NEG_OP(uint64_t)
+#if SLANG_INTPTR_TYPE_IS_DISTINCT
+SLANG_VECTOR_INT_NEG_OP(intptr_t)
+SLANG_VECTOR_INT_NEG_OP(uintptr_t)
+#endif
 
 #define SLANG_FLOAT_VECTOR_MOD(T)                                               \
     template<int N>                                                             \
@@ -392,6 +400,7 @@ template<typename T, int ROWS, int COLS>
 struct Matrix
 {
     Vector<T, COLS> rows[ROWS];
+    const Vector<T, COLS>& operator[](size_t index) const { return rows[index]; }
     Vector<T, COLS>& operator[](size_t index) { return rows[index]; }
     Matrix() = default;
     Matrix(T scalar)
@@ -581,6 +590,17 @@ struct Matrix
         return result;                                                                        \
     }
 
+#define SLANG_MATRIX_BINARY_COMPARE_OP(T, op)                                                    \
+    template<int R, int C>                                                                       \
+    Matrix<bool, R, C> operator op(const Matrix<T, R, C>& thisVal, const Matrix<T, R, C>& other) \
+    {                                                                                            \
+        Matrix<bool, R, C> result;                                                               \
+        for (int i = 0; i < R; i++)                                                              \
+            for (int j = 0; j < C; j++)                                                          \
+                result.rows[i][j] = thisVal.rows[i][j] op other.rows[i][j];                      \
+        return result;                                                                           \
+    }
+
 #define SLANG_MATRIX_UNARY_OP(T, op)                            \
     template<int R, int C>                                      \
     Matrix<T, R, C> operator op(const Matrix<T, R, C>& thisVal) \
@@ -591,25 +611,38 @@ struct Matrix
                 result[i].rows[i][j] = op thisVal.rows[i][j];   \
         return result;                                          \
     }
-#define SLANG_INT_MATRIX_OPS(T)   \
-    SLANG_MATRIX_BINARY_OP(T, +)  \
-    SLANG_MATRIX_BINARY_OP(T, -)  \
-    SLANG_MATRIX_BINARY_OP(T, *)  \
-    SLANG_MATRIX_BINARY_OP(T, /)  \
-    SLANG_MATRIX_BINARY_OP(T, &)  \
-    SLANG_MATRIX_BINARY_OP(T, |)  \
-    SLANG_MATRIX_BINARY_OP(T, &&) \
-    SLANG_MATRIX_BINARY_OP(T, ||) \
-    SLANG_MATRIX_BINARY_OP(T, ^)  \
-    SLANG_MATRIX_BINARY_OP(T, %)  \
-    SLANG_MATRIX_UNARY_OP(T, !)   \
+
+#define SLANG_INT_MATRIX_OPS(T)           \
+    SLANG_MATRIX_BINARY_OP(T, +)          \
+    SLANG_MATRIX_BINARY_OP(T, -)          \
+    SLANG_MATRIX_BINARY_OP(T, *)          \
+    SLANG_MATRIX_BINARY_OP(T, /)          \
+    SLANG_MATRIX_BINARY_OP(T, &)          \
+    SLANG_MATRIX_BINARY_OP(T, |)          \
+    SLANG_MATRIX_BINARY_OP(T, &&)         \
+    SLANG_MATRIX_BINARY_OP(T, ||)         \
+    SLANG_MATRIX_BINARY_OP(T, ^)          \
+    SLANG_MATRIX_BINARY_OP(T, %)          \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, >)  \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, <)  \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, >=) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, <=) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, ==) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, !=) \
+    SLANG_MATRIX_UNARY_OP(T, !)           \
     SLANG_MATRIX_UNARY_OP(T, ~)
-#define SLANG_FLOAT_MATRIX_OPS(T) \
-    SLANG_MATRIX_BINARY_OP(T, +)  \
-    SLANG_MATRIX_BINARY_OP(T, -)  \
-    SLANG_MATRIX_BINARY_OP(T, *)  \
-    SLANG_MATRIX_BINARY_OP(T, /)  \
-    SLANG_MATRIX_UNARY_OP(T, -)
+#define SLANG_FLOAT_MATRIX_OPS(T)         \
+    SLANG_MATRIX_BINARY_OP(T, +)          \
+    SLANG_MATRIX_BINARY_OP(T, -)          \
+    SLANG_MATRIX_BINARY_OP(T, *)          \
+    SLANG_MATRIX_BINARY_OP(T, /)          \
+    SLANG_MATRIX_UNARY_OP(T, -)           \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, >)  \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, <)  \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, >=) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, <=) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, ==) \
+    SLANG_MATRIX_BINARY_COMPARE_OP(T, !=)
 SLANG_INT_MATRIX_OPS(int)
 SLANG_INT_MATRIX_OPS(int8_t)
 SLANG_INT_MATRIX_OPS(int16_t)
@@ -618,6 +651,10 @@ SLANG_INT_MATRIX_OPS(uint)
 SLANG_INT_MATRIX_OPS(uint8_t)
 SLANG_INT_MATRIX_OPS(uint16_t)
 SLANG_INT_MATRIX_OPS(uint64_t)
+#if SLANG_INTPTR_TYPE_IS_DISTINCT
+SLANG_INT_MATRIX_OPS(intptr_t)
+SLANG_INT_MATRIX_OPS(uintptr_t)
+#endif
 
 SLANG_FLOAT_MATRIX_OPS(float)
 SLANG_FLOAT_MATRIX_OPS(double)
@@ -640,6 +677,10 @@ SLANG_MATRIX_INT_NEG_OP(uint)
 SLANG_MATRIX_INT_NEG_OP(uint8_t)
 SLANG_MATRIX_INT_NEG_OP(uint16_t)
 SLANG_MATRIX_INT_NEG_OP(uint64_t)
+#if SLANG_INTPTR_TYPE_IS_DISTINCT
+SLANG_MATRIX_INT_NEG_OP(intptr_t)
+SLANG_MATRIX_INT_NEG_OP(uintptr_t)
+#endif
 
 #define SLANG_FLOAT_MATRIX_MOD(T)                                                             \
     template<int R, int C>                                                                    \

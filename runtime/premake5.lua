@@ -52,7 +52,13 @@ project "Runtime"
 
    postbuildcommands
    {
-      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}"
+      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}",
+      -- Slang in-process compiler (slang-spike, coexists with shaderc). slang-compiler.dll is the
+      -- post-rename real compiler; it LoadLibrary's its siblings on demand, so stage all four.
+      "{COPY} " .. LibraryDir["vulkan"] .. "/slang-compiler.dll %{cfg.targetdir}",
+      "{COPY} " .. LibraryDir["vulkan"] .. "/slang-glslang.dll %{cfg.targetdir}",
+      "{COPY} " .. LibraryDir["vulkan"] .. "/slang-glsl-module.dll %{cfg.targetdir}",
+      "{COPY} " .. LibraryDir["vulkan"] .. "/slang-rt.dll %{cfg.targetdir}"
    }
 
    -- Stage the optional Aftermath DLL next to Luthien.exe so the runtime loads it by name (mirrors the
