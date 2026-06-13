@@ -160,4 +160,16 @@ namespace Luth
 
         return { module.cbegin(), module.cend() };
     }
+
+    ShaderCompiler::StagedSpirv ShaderCompiler::CompileStaged(const fs::path& sourcePath, bool optimize)
+    {
+        // .slang stage lives in the source attribute, not the extension — recover it via reflection. GLSL
+        // keeps the cheap extension inference. Either way the importer gets {spirv, stage} from one call.
+        if (sourcePath.extension() == ".slang")
+        {
+            SlangCompiler::CompileOutput r = SlangCompiler::CompileReflectStage(sourcePath, "main");
+            return { std::move(r.spirv), r.stage };
+        }
+        return { Compile(sourcePath, optimize), InferStage(sourcePath) };
+    }
 }

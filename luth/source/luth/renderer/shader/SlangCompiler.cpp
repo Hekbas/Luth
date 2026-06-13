@@ -48,6 +48,23 @@ namespace Luth
             }
         }
 
+        ShaderStage FromSlangStage(SlangStage s)
+        {
+            switch (s)
+            {
+                case SLANG_STAGE_VERTEX:         return ShaderStage::Vertex;
+                case SLANG_STAGE_FRAGMENT:       return ShaderStage::Fragment;
+                case SLANG_STAGE_COMPUTE:        return ShaderStage::Compute;
+                case SLANG_STAGE_RAY_GENERATION: return ShaderStage::Raygen;
+                case SLANG_STAGE_MISS:           return ShaderStage::Miss;
+                case SLANG_STAGE_CLOSEST_HIT:    return ShaderStage::ClosestHit;
+                case SLANG_STAGE_ANY_HIT:        return ShaderStage::AnyHit;
+                case SLANG_STAGE_INTERSECTION:   return ShaderStage::Intersection;
+                case SLANG_STAGE_CALLABLE:       return ShaderStage::Callable;
+                default:                         return ShaderStage::Unknown;
+            }
+        }
+
         void LogDiag(slang::IBlob* d, const fs::path& ctx)
         {
             if (d && d->getBufferSize() > 0)
@@ -114,6 +131,34 @@ namespace Luth
 
             return SLANG_SUCCEEDED(global->createSession(desc, out.writeRef())) && out;
         }
+
+        // Shared front half of every compile: global session + source read + a fresh per-compile session
+        // + module load. Returns the module (owned by outSession, which the caller must keep alive) or
+        // nullptr on failure (already logged). Keeps the three public entry points from triplicating it.
+        slang::IModule* PrepareModule(const fs::path& src, Slang::ComPtr<slang::ISession>& outSession)
+        {
+            slang::IGlobalSession* global = GetGlobalSession();
+            if (!global) return nullptr;
+
+            std::string source = ReadFile(src);
+            if (source.empty())
+            {
+                LH_CORE_ERROR("SlangCompiler: cannot read source '{}'", src.string());
+                return nullptr;
+            }
+            if (!MakeSession(global, outSession))
+            {
+                LH_CORE_ERROR("SlangCompiler: createSession failed for '{}'", src.string());
+                return nullptr;
+            }
+
+            Slang::ComPtr<slang::IBlob> diag;
+            std::string moduleName = src.stem().string();
+            slang::IModule* module = outSession->loadModuleFromSourceString(
+                moduleName.c_str(), src.string().c_str(), source.c_str(), diag.writeRef());
+            if (!module) { LogDiag(diag, src); return nullptr; }   // LogDiag only on failure (the diag is the error)
+            return module;
+        }
     }
 
     bool SlangCompiler::Available()
@@ -123,29 +168,11 @@ namespace Luth
 
     std::vector<u32> SlangCompiler::Compile(const fs::path& sourcePath, const char* entryPoint, ShaderStage stage)
     {
-        slang::IGlobalSession* global = GetGlobalSession();
-        if (!global) return {};
-
-        std::string source = ReadFile(sourcePath);
-        if (source.empty())
-        {
-            LH_CORE_ERROR("SlangCompiler: cannot read source '{}'", sourcePath.string());
-            return {};
-        }
-
         Slang::ComPtr<slang::ISession> session;
-        if (!MakeSession(global, session))
-        {
-            LH_CORE_ERROR("SlangCompiler: createSession failed for '{}'", sourcePath.string());
-            return {};
-        }
+        slang::IModule* module = PrepareModule(sourcePath, session);
+        if (!module) return {};
 
         Slang::ComPtr<slang::IBlob> diag;
-        std::string moduleName = sourcePath.stem().string();
-        slang::IModule* module = session->loadModuleFromSourceString(
-            moduleName.c_str(), sourcePath.string().c_str(), source.c_str(), diag.writeRef());
-        if (!module) { LogDiag(diag, sourcePath); return {}; }   // LogDiag only on failure (the diag is the error)
-
         // Entry point: with a known stage use findAndCheckEntryPoint (works without a [shader] attr);
         // otherwise the function's own [shader("...")] attribute supplies the stage.
         Slang::ComPtr<slang::IEntryPoint> ep;
@@ -193,29 +220,65 @@ namespace Luth
         return BlobToWords(spirv);
     }
 
+    SlangCompiler::CompileOutput SlangCompiler::CompileReflectStage(const fs::path& sourcePath, const char* entryPoint)
+    {
+        CompileOutput out;
+
+        Slang::ComPtr<slang::ISession> session;
+        slang::IModule* module = PrepareModule(sourcePath, session);
+        if (!module) return out;
+
+        // No such entry → not a single-'main' shader (a multi-entry probe, or a module). Skip quietly so
+        // the importer can treat it as "not a single-stage asset" rather than a compile error.
+        Slang::ComPtr<slang::IEntryPoint> ep;
+        if (SLANG_FAILED(module->findEntryPointByName(entryPoint, ep.writeRef())) || !ep)
+            return out;
+
+        slang::IComponentType* parts[] = { module, ep.get() };
+        Slang::ComPtr<slang::IBlob> diag;
+        Slang::ComPtr<slang::IComponentType> composed;
+        if (SLANG_FAILED(session->createCompositeComponentType(parts, 2, composed.writeRef(), diag.writeRef())) || !composed)
+        {
+            LogDiag(diag, sourcePath);
+            return out;
+        }
+
+        Slang::ComPtr<slang::IComponentType> linked;
+        diag = nullptr;
+        if (SLANG_FAILED(composed->link(linked.writeRef(), diag.writeRef())) || !linked)
+        {
+            LogDiag(diag, sourcePath);
+            return out;
+        }
+
+        // Stage comes from the [shader("...")] attribute, surfaced through the linked program's reflection.
+        diag = nullptr;
+        if (slang::ProgramLayout* layout = linked->getLayout(0, diag.writeRef()))
+            if (layout->getEntryPointCount() >= 1)
+                out.stage = FromSlangStage(layout->getEntryPointByIndex(0)->getStage());
+
+        Slang::ComPtr<slang::IBlob> spirv;
+        diag = nullptr;
+        if (SLANG_FAILED(linked->getEntryPointCode(0, 0, spirv.writeRef(), diag.writeRef())) || !spirv)
+        {
+            LogDiag(diag, sourcePath);
+            return out;
+        }
+        out.spirv = BlobToWords(spirv);
+        return out;
+    }
+
     std::vector<std::vector<u32>> SlangCompiler::CompileModuleEntries(
         const fs::path& sourcePath, const std::vector<EntryReq>& entries)
     {
         std::vector<std::vector<u32>> result;
-        slang::IGlobalSession* global = GetGlobalSession();
-        if (!global || entries.empty()) return result;
-
-        std::string source = ReadFile(sourcePath);
-        if (source.empty())
-        {
-            LH_CORE_ERROR("SlangCompiler: cannot read source '{}'", sourcePath.string());
-            return result;
-        }
+        if (entries.empty()) return result;
 
         Slang::ComPtr<slang::ISession> session;
-        if (!MakeSession(global, session)) return result;
+        slang::IModule* module = PrepareModule(sourcePath, session);
+        if (!module) return result;
 
         Slang::ComPtr<slang::IBlob> diag;
-        std::string moduleName = sourcePath.stem().string();
-        slang::IModule* module = session->loadModuleFromSourceString(
-            moduleName.c_str(), sourcePath.string().c_str(), source.c_str(), diag.writeRef());
-        if (!module) { LogDiag(diag, sourcePath); return result; }   // LogDiag only on failure
-
         // Compose EVERY entry into one program so link-time specialization spans the stages — the exact
         // shape Phase 2's shared IMaterial eval needs. getEntryPointCode below emits each stage from it.
         std::vector<Slang::ComPtr<slang::IEntryPoint>> eps;

@@ -7,29 +7,25 @@ namespace Luth
 {
     bool ShaderImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
-        ShaderStage stage = ShaderCompiler::InferStage(source);
-        if (stage == ShaderStage::Unknown)
-        {
-            LH_CORE_ERROR("ShaderImporter: unsupported shader extension for '{0}'", source.string());
-            return false;
-        }
-
         if (!fs::exists(source))
         {
             LH_CORE_ERROR("ShaderImporter: source not found: {0}", source.string());
             return false;
         }
 
-        auto spirv = ShaderCompiler::Compile(source);
-        if (spirv.empty())
+        // One call covers both languages: GLSL stage from the extension, .slang stage from reflection.
+        ShaderCompiler::StagedSpirv compiled = ShaderCompiler::CompileStaged(source);
+        if (compiled.spirv.empty() || compiled.stage == ShaderStage::Unknown)
         {
-            LH_CORE_ERROR("ShaderImporter: compilation failed for '{0}'", source.string());
+            // A real compile error is already logged by the compiler; a .slang module with no single 'main'
+            // entry (e.g. a multi-stage probe) simply isn't a single-stage asset. Nothing to serialize.
+            LH_CORE_TRACE("ShaderImporter: no single-stage SPIR-V for '{0}' — skipped", source.string());
             return false;
         }
 
         ShaderAssetData data;
-        data.Stage = stage;
-        data.SpirV = std::move(spirv);
+        data.Stage = compiled.stage;
+        data.SpirV = std::move(compiled.spirv);
         data.SourcePath = source.string();
 
         return AssetSerializer::SerializeShader(destination, data);

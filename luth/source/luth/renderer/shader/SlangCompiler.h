@@ -23,6 +23,14 @@ namespace Luth
                                         const char* entryPoint = "main",
                                         ShaderStage stage = ShaderStage::Unknown);
 
+        // Compile + recover the entry's pipeline stage from the linked program's reflection (free — the
+        // link already happened). The asset importer needs this because a .slang stage lives in the
+        // [shader("...")] attribute, not the extension that GLSL stages infer from. A missing entry or an
+        // unreflectable stage yields an empty result so the importer skips quietly instead of erroring.
+        struct CompileOutput { std::vector<u32> spirv; ShaderStage stage = ShaderStage::Unknown; };
+        static CompileOutput CompileReflectStage(const std::filesystem::path& sourcePath,
+                                                 const char* entryPoint = "main");
+
         // Link-time-specialization probe (#156 item 6 / slang#9578): compose ALL the named entry points
         // into ONE linked program, then emit SPIR-V per entry — the "one body, link-specialized per
         // stage" shape. Returns one blob per request, in order; a failed entry yields an empty blob.
