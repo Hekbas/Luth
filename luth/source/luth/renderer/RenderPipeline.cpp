@@ -142,6 +142,9 @@ namespace Luth
             // Transparency runs OUTSIDE the || chain (overlays precedent): it must also see
             // pbr.vert / pbr_skinned.vert (handled = true by Geometry) to invalidate its variants.
             const bool transparencyHandled = m_Transparency.OnShaderReloaded(name, spv);
+            // SlangParity gate runs OUTSIDE the || chain: it re-scans restir_gi_initial.slang, which
+            // RestirGi consumes first (short-circuiting the chain), and it rebuilds no pipeline of its own.
+            m_SlangParity.OnShaderReloaded(name, spv);
             const bool handled = m_Lighting.OnShaderReloaded(name, spv, geoLayouts)
                               || m_Geometry.OnShaderReloaded(name, spv, geoLayouts)
                               || m_GTAO.OnShaderReloaded(name, spv)
@@ -150,7 +153,6 @@ namespace Luth
                               || m_Rt.OnShaderReloaded(name, spv)
                               || m_Restir.OnShaderReloaded(name, spv)
                               || m_RestirGi.OnShaderReloaded(name, spv)
-                              || m_SlangParity.OnShaderReloaded(name, spv)
                               || m_PathTrace.OnShaderReloaded(name, spv)
                               || m_Reflections.OnShaderReloaded(name, spv)
                               || m_Denoise->OnShaderReloaded(name, spv)
@@ -343,7 +345,6 @@ namespace Luth
         // reflections / volumetric RT fog shadows. The RT sun-shadow trace below stays runRtShadows-only.
         const bool needTlas = runRtShadows || m_Restir.IsEnabled() || m_RestirGi.IsEnabled()
                             || m_PathTrace.IsEnabled() || m_Reflections.IsEnabled()
-                            || m_SlangParity.IsEnabled()
                             || (volumetricEnabled && m_Volumetric.IsRtShadowsEnabled());
         if (needTlas)
             m_Rt.AddTlasBuildPass(rg);
@@ -425,11 +426,6 @@ namespace Luth
         // demodulated GI image; restirParams.y gates the remodulation in pbr.frag. Invalid when
         // disabled / no TLAS.
         RG::ResourceHandle giDIHandle = m_RestirGi.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
-
-        // Slang Phase-0 spike A/B (#156, default-OFF): dispatches the GLSL + Slang variants of the
-        // hot-path shader + a diff reduce, after the TLAS build (needTlas gate includes it). Self-
-        // contained engine-owned outputs (SetHasSideEffect keeps it past the culler).
-        m_SlangParity.AddPass(rg);
 
         // Denoise the demodulated GI (second SVGF instance, DenoiserChannel::Gi). Same transparent-
         // filter contract as DI: consumes the GI handle, returns the denoised handle GeometryPass reads
