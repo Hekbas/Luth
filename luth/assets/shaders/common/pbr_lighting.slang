@@ -1,0 +1,186 @@
+// Shared forward lighting for PBR raster consumers — CSM cascade sampling, the clustered point-light loop,
+// and split-sum IBL ambient. Twin of pbr_lighting.glsl (deleted once pbr + transparent convert).
+// Set 3 here is bindings 0-3 only; the opaque-depth-coupled screen-space inputs stay with the consumer.
+// see arch/rendering-pipeline.md
+import globals;        // ubo
+import restir_common;  // DirectionalLightData / PointLightData (shared std430 layout) + Luminance
+import brdf;           // EvalBRDFTimesNdotL
+
+// Set 0 b1-b3: IBL (b0 = GlobalUniforms via globals).
+[[vk::binding(1, 0)]] SamplerCube u_IrradianceMap;
+[[vk::binding(2, 0)]] SamplerCube u_PrefilteredMap;
+[[vk::binding(3, 0)]] Sampler2D   u_BrdfLUT;
+
+// Set 3 b0-b3: light SSBO (byte-loaded header+array) + cluster grid + light-index list + CSM shadow array.
+[[vk::binding(0, 3)]] ByteAddressBuffer       g_Lights;
+[[vk::binding(1, 3)]] StructuredBuffer<uint2> g_ClusterGrid;   // (offset, count) into the index list
+[[vk::binding(2, 3)]] StructuredBuffer<uint>  g_LightIndex;
+[[vk::binding(3, 3)]] Sampler2DArrayShadow    u_ShadowMap;
+
+public static const uint k_ClusterTilesX  = 16u;
+public static const uint k_ClusterTilesY  =  9u;
+public static const uint k_ClusterSlicesZ = 48u;
+
+// LightBuffer header = DirectionalLightData(32) + count(4) + pad[3](12); points[] (32 B each) at offset 48.
+public DirectionalLightData LoadDirLight()
+{
+    DirectionalLightData d;
+    d.direction = asfloat(g_Lights.Load3(0));
+    d.intensity = asfloat(g_Lights.Load(12));
+    d.color     = asfloat(g_Lights.Load3(16));
+    d._pad      = 0.0;
+    return d;
+}
+public PointLightData LoadPoint(uint j)
+{
+    uint b = 48u + j * 32u;
+    PointLightData p;
+    p.position  = asfloat(g_Lights.Load3(b + 0u));
+    p.range     = asfloat(g_Lights.Load(b + 12u));
+    p.color     = asfloat(g_Lights.Load3(b + 16u));
+    p.intensity = asfloat(g_Lights.Load(b + 28u));
+    return p;
+}
+
+public uint ComputeClusterID(float4 fragCoord, float2 viewportPx, float nearZ, float farZ)
+{
+    float linDepth = (nearZ * farZ) / (farZ - fragCoord.z * (farZ - nearZ));   // Olsson log slice
+    uint  slice = uint(floor(log(max(linDepth, nearZ) / nearZ) / log(farZ / nearZ) * float(k_ClusterSlicesZ)));
+    slice = clamp(slice, 0u, k_ClusterSlicesZ - 1u);
+    uint2 tile = uint2(fragCoord.xy / (viewportPx / float2(k_ClusterTilesX, k_ClusterTilesY)));
+    tile.x = min(tile.x, k_ClusterTilesX - 1u);
+    tile.y = min(tile.y, k_ClusterTilesY - 1u);
+    return slice * k_ClusterTilesX * k_ClusterTilesY + tile.y * k_ClusterTilesX + tile.x;
+}
+
+// Fresnel-Schlick with roughness (IBL — rough surfaces reduce reflections).
+public float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+{
+    return F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// ── CSM PCF shadow ──
+public struct CascadeProj { public float3 proj; public bool inside; }
+
+CascadeProj ProjectInCascade(float3 worldPos, int c, float2 texelSize, float depthBias)
+{
+    float4 lsPos = mul(ubo.lightSpaceMatrix[c], float4(worldPos, 1.0));
+    float3 proj  = lsPos.xyz / lsPos.w;
+    proj.xy      = proj.xy * 0.5 + 0.5;
+    float2 xyLo  = float2(2.0 * texelSize);   // inset matches the 3×3 PCF footprint
+    float2 xyHi  = float2(1.0) - xyLo;
+    bool insideXY = all(proj.xy >= xyLo) && all(proj.xy <= xyHi);
+    bool insideZ  = (proj.z >= max(depthBias, 0.0)) && (proj.z <= 1.0);
+    CascadeProj r; r.proj = proj; r.inside = insideXY && insideZ;
+    return r;
+}
+
+// 3×3 PCF; slope-scaled depth bias. shadowMap is a comparison sampler → SampleCmp returns the PCF result.
+float SamplePCF(float3 proj, int cascade, float depthBias, float NdotL, float2 texelSize)
+{
+    float slopeFactor = clamp(tan(acos(NdotL)), 1.0, 10.0);
+    proj.z -= depthBias * slopeFactor;
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            shadow += u_ShadowMap.SampleCmp(float3(proj.xy + float2(x, y) * texelSize, float(cascade)), proj.z);
+    return shadow / 9.0;
+}
+
+public struct ShadowResult { public float shadow; public int cascade; }
+
+public ShadowResult ComputeShadowCSM(float3 worldPos, float3 N)
+{
+    ShadowResult res;
+    if (ubo.shadowBias.x < 0.0) { res.shadow = 1.0; res.cascade = -1; return res; }   // shadows disabled
+
+    DirectionalLightData dl = LoadDirLight();
+    float NdotL = max(dot(N, normalize(-dl.direction)), 0.0);
+    uint sw, sh, selems; u_ShadowMap.GetDimensions(sw, sh, selems);
+    float2 texelSize = 1.0 / float2(sw, sh);
+    float viewZ = abs(mul(ubo.view, float4(worldPos, 1.0)).z);
+
+    int primary = 3;
+    for (int i = 0; i < 3; ++i)
+        if (viewZ <= ubo.cascadeSplitsViewZ[i]) { primary = i; break; }
+
+    int    chosen = -1;
+    float3 projChosen = float3(0.0);
+    for (int i = primary; i < 4; ++i)
+    {
+        float  nBias  = ubo.shadowNormalBias[i] * ubo.cascadeTexelSize[i] * (1.0 - NdotL);
+        CascadeProj p = ProjectInCascade(worldPos + N * nBias, i, texelSize, ubo.shadowBias[i]);
+        if (p.inside) { chosen = i; projChosen = p.proj; break; }
+    }
+    if (chosen < 0) { res.shadow = 1.0; res.cascade = -1; return res; }
+
+    float sA = SamplePCF(projChosen, chosen, ubo.shadowBias[chosen], NdotL, texelSize);
+
+    // Blend into the next cascade near the far edge of this slice's viewZ range.
+    float blendStart = 1.0 - ubo.cascadeBlendWidth;
+    if (chosen == primary && chosen < 3)
+    {
+        float nearSplit = (chosen == 0) ? 0.0 : ubo.cascadeSplitsViewZ[chosen - 1];
+        float farSplit  = ubo.cascadeSplitsViewZ[chosen];
+        float t         = (viewZ - nearSplit) / max(farSplit - nearSplit, 1e-4);
+        float blend     = smoothstep(blendStart, 1.0, t);
+        if (blend > 0.0)
+        {
+            int   next      = chosen + 1;
+            float nBiasNext = ubo.shadowNormalBias[next] * ubo.cascadeTexelSize[next] * (1.0 - NdotL);
+            CascadeProj pN  = ProjectInCascade(worldPos + N * nBiasNext, next, texelSize, ubo.shadowBias[next]);
+            if (pN.inside)
+            {
+                float sB = SamplePCF(pN.proj, next, ubo.shadowBias[next], NdotL, texelSize);
+                res.shadow = lerp(sA, sB, blend); res.cascade = chosen; return res;
+            }
+        }
+    }
+    res.shadow = sA; res.cascade = chosen;
+    return res;
+}
+
+// Unshadowed Forward+ cluster loop — the point-light path for transparents / ReSTIR-disabled surfaces.
+public float3 EvalClusteredPointLights(float4 fragCoord, float3 worldPos, float3 V, float3 N,
+                                       float3 albedo, float metallic, float roughness)
+{
+    float3 Lo        = float3(0.0);
+    uint   clusterID = ComputeClusterID(fragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
+    uint2  oc        = g_ClusterGrid[clusterID];
+    for (uint k = 0u; k < oc.y; ++k)
+    {
+        PointLightData pl = LoadPoint(g_LightIndex[oc.x + k]);
+        float3 toLight = pl.position - worldPos;
+        float  dist    = length(toLight);
+        float  atten   = 1.0 / max(dist * dist, 0.0001);
+        float  rolloff = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
+        float3 ptRadiance = pl.color * pl.intensity * atten * rolloff;
+        if (dot(ptRadiance, ptRadiance) > 0.0001)
+            Lo += EvalBRDFTimesNdotL(normalize(toLight), ptRadiance, V, N, albedo, metallic, roughness);
+    }
+    return Lo;
+}
+
+// Split-sum IBL ambient. envBRDF + specularIBL returned so the consumer's RT-reflection composite can swap
+// specularIBL out for traced radiance above the roughness cutoff.
+public struct IblResult { public float3 ambient; public float3 envBRDF; public float3 specularIBL; }
+
+public IblResult EvalIblAmbient(float3 N, float3 V, float3 albedo, float metallic, float roughness, float ao, float iblIntensity)
+{
+    float3 F0 = lerp(float3(0.04), albedo, metallic);
+    float3 F  = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    float3 kD = (1.0 - F) * (1.0 - metallic);
+
+    float3 diffuseIBL = u_IrradianceMap.Sample(N).rgb * albedo;
+
+    const float MAX_REFLECTION_LOD = 4.0;
+    float3 R = reflect(-V, N);
+    float3 prefilteredColor = u_PrefilteredMap.SampleLevel(R, roughness * MAX_REFLECTION_LOD).rgb;
+    float2 brdf = u_BrdfLUT.Sample(float2(max(dot(N, V), 0.0), roughness)).rg;
+
+    IblResult r;
+    r.envBRDF     = F * brdf.x + brdf.y;
+    r.specularIBL = prefilteredColor * r.envBRDF;
+    r.ambient     = (kD * diffuseIBL + r.specularIBL) * ao * iblIntensity;
+    return r;
+}
