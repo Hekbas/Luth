@@ -99,9 +99,9 @@ namespace Luth
 
     void TransparencySubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_transparent.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_transparent.slang"))
             m_TransparentFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_oit_store.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_oit_store.slang"))
             m_OitStoreFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
             m_FullscreenVertSpv = sh->GetSpirV();
@@ -199,27 +199,27 @@ namespace Luth
     bool TransparencySubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         auto invalidateSorted = [this]() {
-            if (auto sh = ShaderLibrary::Get("pbr_transparent.frag"))
+            if (auto sh = ShaderLibrary::Get("pbr_transparent.slang"))
             {
                 m_SortedPm.DeferredInvalidateShader(sh->Handle);
                 m_SortedSkinnedPm.DeferredInvalidateShader(sh->Handle);
             }
         };
         auto invalidateOit = [this]() {
-            if (auto sh = ShaderLibrary::Get("pbr_oit_store.frag"))
+            if (auto sh = ShaderLibrary::Get("pbr_oit_store.slang"))
             {
                 m_OitPm.DeferredInvalidateShader(sh->Handle);
                 m_OitSkinnedPm.DeferredInvalidateShader(sh->Handle);
             }
         };
 
-        if (name == "pbr_transparent.frag")
+        if (name == "pbr_transparent.slang")
         {
             m_TransparentFragSpv = spv;
             invalidateSorted();
             return true;
         }
-        if (name == "pbr_oit_store.frag")
+        if (name == "pbr_oit_store.slang")
         {
             m_OitStoreFragSpv = spv;
             invalidateOit();
@@ -438,7 +438,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "OITStore", "SceneColor", false,
                     { "pbr_oit_store", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, false, true });
 
-                auto shader = ShaderLibrary::Get("pbr_oit_store.frag");
+                auto shader = ShaderLibrary::Get("pbr_oit_store.slang");
                 if (!shader || draws.empty()) { sys.GetFrameDebugger().EndCapturePass(); return; }
                 const UUID fragUUID = shader->Handle;
 
@@ -654,7 +654,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "TransparentPass", "SceneColor", false,
                     { "pbr_transparent", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, true });
 
-                auto shader = ShaderLibrary::Get("pbr_transparent.frag");
+                auto shader = ShaderLibrary::Get("pbr_transparent.slang");
                 if (!shader || data.count == 0) { sys.GetFrameDebugger().EndCapturePass(); return; }
                 const UUID fragUUID = shader->Handle;
 
