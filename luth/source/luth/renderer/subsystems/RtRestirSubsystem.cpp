@@ -152,7 +152,7 @@ namespace Luth
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_initial.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_initial.slang"))
             m_InitialSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_temporal.comp"))
             m_TemporalSpv = sh->GetSpirV();
@@ -211,7 +211,7 @@ namespace Luth
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
-        const bool isInitial  = (name == "restir_initial.comp");
+        const bool isInitial  = (name == "restir_initial.slang");
         const bool isTemporal = (name == "restir_temporal.comp");
         const bool isSpatial  = (name == "restir_spatial.comp");
         const bool isShade    = (name == "restir_shade.comp");
