@@ -28,6 +28,38 @@ namespace Luth
         };
         static_assert(sizeof(SpikePC) == 72, "SpikePC must match slang_spike_gi.{comp,slang} push_constant");
 
+        // Minimal SPIR-V walk for the bindless-codegen regression signals (slang#10525): count the
+        // NonUniform decorations and verify the capabilities that make them valid. No full parse, no dep.
+        struct SpirvScan { u32 nonUniform = 0; bool caps = false; };
+        SpirvScan ScanBindlessSpirv(const std::vector<u32>& spv)
+        {
+            SpirvScan r{};
+            if (spv.size() < 5 || spv[0] != 0x07230203u) return r;   // SPIR-V magic word
+            bool nonUni = false, runtimeArr = false, psb = false, rayQuery = false;
+            for (size_t i = 5; i < spv.size(); )                     // skip the 5-word header
+            {
+                const u32 word = spv[i];
+                const u32 wc   = word >> 16;
+                const u32 op   = word & 0xFFFFu;
+                if (wc == 0 || i + wc > spv.size()) break;           // malformed — stop walking
+                if (op == 17u && wc >= 2u)                           // OpCapability
+                {
+                    switch (spv[i + 1])
+                    {
+                        case 5301u: nonUni     = true; break;        // ShaderNonUniform
+                        case 5302u: runtimeArr = true; break;        // RuntimeDescriptorArray
+                        case 5347u: psb        = true; break;        // PhysicalStorageBufferAddresses
+                        case 4472u: rayQuery   = true; break;        // RayQueryKHR
+                    }
+                }
+                else if (op == 71u && wc >= 3u && spv[i + 2] == 5300u) ++r.nonUniform;   // OpDecorate NonUniform
+                else if (op == 72u && wc >= 4u && spv[i + 3] == 5300u) ++r.nonUniform;   // OpMemberDecorate NonUniform
+                i += wc;
+            }
+            r.caps = nonUni && runtimeArr && psb && rayQuery;
+            return r;
+        }
+
         void TransitionToGeneral(VkImage img)
         {
             VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
@@ -84,6 +116,7 @@ namespace Luth
             return false;
         }
         LH_CORE_INFO("SlangParity: Slang gi.slang -> {} SPIR-V words", m_SlangSpv.size());
+        CheckSlangSpirv();   // the deterministic gate — runs regardless of whether the A/B can dispatch
 
         // Set 2 (pass-local) — single binding: the per-variant output storage image.
         VkDescriptorSetLayoutBinding outBind{};
@@ -148,6 +181,26 @@ namespace Luth
         return m_InitOk;
     }
 
+    // Scan the compiled Slang SPIR-V for the bindless-codegen signals slang#10525-class bugs break — the
+    // NonUniform decorations on the bindless texture accesses and the caps that make them valid. Sets the
+    // verdict; logs once per check (INFO on pass, WARN on regression). Deterministic — no GPU, no frame.
+    void SlangParityGuard::CheckSlangSpirv()
+    {
+        SpirvScan scan = ScanBindlessSpirv(m_SlangSpv);
+        SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
+        s.spirvChecked    = true;
+        s.nonUniformCount = scan.nonUniform;
+        s.capsOk          = scan.caps;
+        s.spirvPass       = scan.caps && scan.nonUniform > 0;
+
+        if (s.spirvPass)
+            LH_CORE_INFO("SlangParity: Slang bindless SPIR-V OK — {} NonUniform decorations, caps present",
+                         scan.nonUniform);
+        else
+            LH_CORE_WARN("SlangParity: SPIR-V REGRESSION — caps {}, {} NonUniform decorations (slang#10525?)",
+                         scan.caps ? "present" : "MISSING", scan.nonUniform);
+    }
+
     void SlangParityGuard::DestroyResources()
     {
         m_ImgGlsl.reset();
@@ -204,6 +257,7 @@ namespace Luth
         if (name == "slang_spike_gi.slang")
         {
             m_SlangSpv = spv;
+            CheckSlangSpirv();   // re-run the gate against the hot-reloaded SPIR-V
             defer(m_SlangPipeline);
             m_SlangPipeline = std::make_unique<VKComputePipeline>(m_SlangSpv, spikeLayouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
@@ -258,15 +312,12 @@ namespace Luth
         std::memcpy(vals, mapped, sizeof(vals));
         VulkanAllocator::Unmap(m_DiffAlloc);
 
+        // Diagnostic only — the gate is CheckSlangSpirv(), not these pixels (see SlangParitySettings).
         SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
         s.lastMaxAbsDiff  = std::bit_cast<f32>(vals[0]);
         s.lastDifferingPx = vals[1];
         s.lastMaxUlp      = vals[2];
         s.lastCoveredPx   = vals[3];
-
-        if ((m_LogThrottle++ & 63u) == 0u)
-            LH_CORE_INFO("SlangSpike A/B: covered={} differing={} maxUlp={} maxAbsDiff={:.6f}",
-                         s.lastCoveredPx, s.lastDifferingPx, s.lastMaxUlp, s.lastMaxAbsDiff);
     }
 
     void SlangParityGuard::AddPass(RG::RenderGraph& rg)

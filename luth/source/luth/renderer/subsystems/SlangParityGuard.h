@@ -15,13 +15,15 @@ namespace Luth
     class RenderPipeline;
     class VKTexture;
 
-    // Bindless-SPIR-V parity regression guard (default-OFF). Builds TWO compute pipelines from the SAME
-    // descriptor layouts + push constant — one from slang_spike_gi.comp (libshaderc) and one from
-    // slang_spike_gi.slang (in-process Slang) — dispatches both into separate RGBA32F images, then a
-    // diff reducer into a host-visible SSBO. The only variable is the compiler, so the readback proves
-    // the Slang bindless rayQuery path stays byte-for-byte equal to GLSL. One RG compute pass after the
-    // GI passes (TLAS / geom-table / bindless all live); SetHasSideEffect keeps it past the dead-pass
-    // culler despite engine-owned outputs. Mirrors RtRestirGiSubsystem's 5-set wiring.
+    // Bindless-SPIR-V regression guard. The gate is CheckSlangSpirv() — a deterministic scan of the
+    // compiled slang_spike_gi.slang for the NonUniform decorations + bindless/rayQuery/BDA capabilities
+    // that slang#10525-class regressions break (run at init + on .slang reload). The runtime A/B is a
+    // default-OFF visual diagnostic: it builds TWO compute pipelines from the SAME layouts + push constant
+    // (slang_spike_gi.comp via libshaderc, slang_spike_gi.slang via Slang), dispatches both into RGBA32F
+    // images + a diff reducer, and reads the result back — but a ~1-ULP camera-ray difference flips
+    // silhouette hits (flickers under TAA jitter), so the pixel diff is informational, never a verdict.
+    // One RG compute pass after the GI passes; SetHasSideEffect keeps it past the culler. Mirrors
+    // RtRestirGiSubsystem's 5-set wiring.
     class SlangParityGuard
     {
     public:
@@ -42,6 +44,7 @@ namespace Luth
         // pipelines, create layouts/pool/sets. Deferred to the first enabled AddPass so a disabled guard
         // costs nothing at runtime. Returns false (and logs once) on Slang failure.
         bool EnsureInitialized();
+        void CheckSlangSpirv();   // deterministic SPIR-V regression gate — scans m_SlangSpv, sets the verdict
         void EnsureResources(u32 width, u32 height);
         void DestroyResources();
         void ReadbackDiff();   // map the host-visible diff buffer into the settings readout (1 frame stale)
@@ -72,6 +75,5 @@ namespace Luth
 
         u32 m_Width = 0, m_Height = 0;
         u64 m_LastRunFrame = ~0ull;   // multi-view guard — A/B runs on the first view only
-        u32 m_LogThrottle  = 0;
     };
 }
