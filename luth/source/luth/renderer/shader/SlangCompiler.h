@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/shader/Shader.h"
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace Luth
@@ -37,6 +38,19 @@ namespace Luth
         struct EntryReq { const char* name; ShaderStage stage; };
         static std::vector<std::vector<u32>> CompileModuleEntries(
             const std::filesystem::path& sourcePath, const std::vector<EntryReq>& entries);
+
+        // Reflect a named struct's std140/std430 field layout from a .slang module: per-field byte offset
+        // (Uniform category) in declaration order + total size. Feeds MaterialLayoutGuard's cross-check
+        // against the C++ mirror. ok=false means the module/type couldn't be reflected (treat as skip, not
+        // a layout mismatch) — diagnostics logged. No entry point needed; reflects module-scope types.
+        struct StructLayout
+        {
+            struct Field { std::string name; size_t offset; };
+            bool                ok   = false;
+            size_t              size = 0;
+            std::vector<Field>  fields;
+        };
+        static StructLayout ReflectStructLayout(const std::filesystem::path& sourcePath, const char* typeName);
 
         // True once the global session creates successfully (prebuilt DLLs loaded + core module found).
         // First call pays the slang-compiler.dll load; safe to probe behind the spike toggle.
