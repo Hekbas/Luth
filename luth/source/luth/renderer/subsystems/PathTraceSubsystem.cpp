@@ -68,11 +68,11 @@ namespace Luth
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/path_trace.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/path_trace.slang"))
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_CORE_ERROR("PathTraceSubsystem: failed to load path_trace.comp SPIR-V");
+            LH_CORE_ERROR("PathTraceSubsystem: failed to load path_trace.slang SPIR-V");
             return;
         }
 
@@ -104,7 +104,7 @@ namespace Luth
     bool PathTraceSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
-        if (name != "path_trace.comp") return false;
+        if (name != "path_trace.slang") return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),

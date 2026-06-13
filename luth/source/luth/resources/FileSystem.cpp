@@ -205,7 +205,14 @@ namespace Luth
             [](unsigned char c) { return std::tolower(c); });
 
         auto it = extensionMap.find(ext);
-        return (it != extensionMap.end()) ? it->second : AssetType::None;
+        AssetType type = (it != extensionMap.end()) ? it->second : AssetType::None;
+
+        // common/*.slang are import-only modules (like common/*.glsl includes) — compiling a no-entry
+        // module standalone collides in Slang's cache; consumers resolve the import from disk. Skip it.
+        if (type == AssetType::Shader && ext == ".slang" && path.parent_path().filename() == "common")
+            return AssetType::None;
+
+        return type;
     }
 
     void FileSystem::CreateDirectories(const fs::path& path) {

@@ -176,13 +176,13 @@ namespace Luth
         vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &shadowLayoutInfo, nullptr, &m_ShadowPassSetLayout);
 
         // Load the sun-shadow compute SPV. ShaderLibrary::LoadEngine routes through the standard asset
-        // path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives rt_sun_shadows.comp
+        // path (with hot-reload watching) so RtSubsystem::OnShaderReloaded receives rt_sun_shadows.slang
         // when it changes on disk.
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_sun_shadows.slang"))
             m_ShadowSpv = sh->GetSpirV();
         if (m_ShadowSpv.empty())
         {
-            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.comp SPIR-V");
+            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.slang SPIR-V");
         }
         else
         {
@@ -319,7 +319,7 @@ namespace Luth
 
     bool RtSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
-        if (name != "rt_sun_shadows.comp") return false;
+        if (name != "rt_sun_shadows.slang") return false;
         m_ShadowSpv = spv;
 
         // Defer-destroy the old pipeline — in-flight cmd buffers may still reference it.
