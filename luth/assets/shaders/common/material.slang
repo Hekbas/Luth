@@ -91,6 +91,11 @@ public float3 ApplyNormalMap<F : ITexFetch>(GPUMaterialData m, float2 uv0, float
 }
 
 // ── RT geometry-table deref ──────────────────────────────────────────────────────────────────────
+// TLAS visibility masks — mirror TlasBuilder.cpp's instance masks. Shadow-class rays cull to SOLID (glass
+// never blocks light); world-class rays trace ALL and commit glass as a surface. see arch/rendering-pipeline.md
+public static const uint GT_VIS_SOLID = 0x01u;
+public static const uint GT_VIS_ALL   = 0x03u;
+
 // Raw BDA pointers (buffer_reference2 equiv). Mirrors TlasBuilder's GPUGeometryEntry — 24 B, static_assert'd C++-side.
 public struct GtGeomEntry
 {
