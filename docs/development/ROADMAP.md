@@ -114,6 +114,7 @@
 | v3.1.5 | `restir-di-specular` | ReSTIR DI gains specular: combined diffuse+spec RIS target (initial/temporal/spatial), demodulated F0-free specular from the shade pass, a dedicated 4th SVGF channel (surface-motion reproject), and pbr.frag F0-remodulation under `restirParams.z`; fixes metals/specular getting ~nothing from point lights | 2026-06-11 |
 | v3.1.6 | `model-import-fidelity` | Importer fidelity: faithful DCC node graph → entity tree (Model V4, un-baked static meshes), camera + light import, render-mode/cutout/cull/occlusion/UV1 from Assimp, engine-side `Scene::InstantiateModel`; fixes a node-rotation decompose-conjugate inversion; sRGB attempt reverted (editor not sRGB-aware) | 2026-06-12 |
 | v3.2.0 | `slang-spike` | Opens the `slang-material` series — Phase-0 gate GO: in-process `SlangCompiler` (Slang 2026.1) coexisting with libshaderc, one rayQuery+BDA+nonuniform-bindless shader ported, in-engine A/B bit-identical, link-spec valid across 2 stages; slang#10525/#9578 clear; default-off harness merged as the regression guard | 2026-06-13 |
+| v3.2.1 | `slang-toolchain` | `.slang` through the asset pipeline (stage via Slang reflection) + ShaderWatcher hot-reload, coexisting with GLSL; spike promoted to a SlangParityGuard whose gate is a deterministic SPIR-V NonUniform/caps scan, with the pixel A/B kept default-off as a diagnostic; multi-entry link probe retired | 2026-06-13 |
 
 ---
 
@@ -206,13 +207,13 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 | Phase | Effort | Size | Notes |
 |---|---|---|---|
 | 0 ✅ | `slang-spike` | M | Phase-0 gate GO — in-process compiler + rayQuery/BDA/bindless A/B + link-spec, all green — shipped v3.2.0 |
-| 1 | `slang-toolchain` | M | Full `.slang` asset-pipeline dispatch + ShaderWatcher `.slang` hot-reload + bindless SPIR-V regression guard (promote the spike harness) |
+| 1 ✅ | `slang-toolchain` | M | `.slang` asset-pipeline dispatch (stage via reflection) + ShaderWatcher hot-reload + SlangParityGuard (deterministic SPIR-V NonUniform/caps gate; pixel A/B = diagnostic) — shipped v3.2.1 |
 | 2 | `slang-imaterial` | L | `MaterialInputs` + one generic Slang eval; convert `pbr.frag` + RT hit; retire the struct triplet; two-tier eval — the keystone |
 | 3 | packed-texture routing | S–M | Import-side ORM / spec-gloss / separate / inverted → `MaterialInputs` (the original pain) |
 | 4 | composable effect layer | L | Link-specialized effect stack |
 | 5 | node editor → bounded surface | XL | Blender-like UX emitting into `IMaterial` |
 
-> Next: Phase 1 (`slang-toolchain`). `gpu-particles` (#57) stays parallelizable — slot it independently.
+> Next: Phase 2 (`slang-imaterial`). `gpu-particles` (#57) stays parallelizable — slot it independently.
 
 ### Gameplay enablement
 
