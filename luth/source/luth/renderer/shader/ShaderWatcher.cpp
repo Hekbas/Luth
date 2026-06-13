@@ -11,7 +11,7 @@ namespace Luth
             if (status != FileWatcher::FileStatus::Modified) return;
 
             std::string ext = changedFile.extension().string();
-            if (ext != ".vert" && ext != ".frag" && ext != ".comp") return;
+            if (ext != ".vert" && ext != ".frag" && ext != ".comp" && ext != ".slang") return;
 
             std::string fileName = changedFile.filename().string();
             for (const auto& [name, shader] : ShaderLibrary::GetAll())
