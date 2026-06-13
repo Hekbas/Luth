@@ -155,11 +155,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_scatter.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_scatter.slang"))
                 m_InjectScatterSpv = sh->GetSpirV();
             if (m_InjectScatterSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.comp!");
+                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.slang!");
                 return;
             }
             // Cutout 5-set layout: Set 3 Material + Set 4 bindless feed geom_table's RT alpha-test.
@@ -635,7 +635,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "volumetric_inject_scatter.comp" && m_InjectScatterDescLayout)
+        if (name == "volumetric_inject_scatter.slang" && m_InjectScatterDescLayout)
         {
             m_InjectScatterSpv = spv;
             deferComp(m_InjectScatterPipeline);
