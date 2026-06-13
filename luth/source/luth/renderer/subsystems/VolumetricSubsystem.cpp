@@ -148,7 +148,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectScatterDescLayout);
 
-            // Empty Set 2 placeholder — geom_table.glsl pins Material to Set 3 + bindless to Set 4, but the
+            // Empty Set 2 placeholder — material_bindings_rt.slang pins Material to Set 3 + bindless to Set 4, but the
             // scatter pipeline has no pass-local Set 2. A 0-binding layout fills the gap; it's never bound.
             VkDescriptorSetLayoutCreateInfo emptyCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             vkCreateDescriptorSetLayout(device, &emptyCI, nullptr, &m_EmptySet2Layout);
@@ -162,7 +162,7 @@ namespace Luth
                 LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.slang!");
                 return;
             }
-            // Cutout 5-set layout: Set 3 Material + Set 4 bindless feed geom_table's RT alpha-test.
+            // Cutout 5-set layout: Set 3 Material + Set 4 bindless feed material_bindings_rt.slang's RT alpha-test.
             m_InjectScatterPipeline = std::make_unique<VKComputePipeline>(
                 m_InjectScatterSpv,
                 std::vector<VkDescriptorSetLayout>{
@@ -1485,7 +1485,7 @@ namespace Luth
 
                 m_InjectScatterPipeline->Bind(cmd);
                 // Sets 0-1 (global, scatter state) then Sets 3-4 (Material, bindless) — two binds straddle
-                // the empty Set 2. Set 3/4 are statically referenced by geom_table.glsl, so they bind every
+                // the empty Set 2. Set 3/4 are statically referenced by material_bindings_rt.slang, so they bind every
                 // dispatch even when RT fog is off (validation requires bound sets for static references).
                 VkDescriptorSet sets01[2] = {
                     vr->globalDescriptorSet[slot],

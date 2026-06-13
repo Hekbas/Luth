@@ -75,8 +75,8 @@ namespace Luth
         // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
         Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
     };
-    // std430 stride must stay in lockstep with the GLSL mirrors (pbr.frag, slim_gbuffer.frag,
-    // common/geom_table.glsl::GtMaterial) — a desync silently corrupts every material index > 0.
+    // std430 layout must stay byte-identical to material.slang's GPUMaterialData — MaterialLayoutGuard
+    // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
     static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
 
     class Material : public Asset

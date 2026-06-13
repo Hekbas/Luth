@@ -302,7 +302,7 @@ namespace Luth
 
         // Set 0 = Global (TLAS b6 + UBO b0), Set 1 = Light SSBO (PBR's Set 3 remapped to Set 1; the
         // shader's `set = 1` matches), Set 2 = pass-local (depth + normal + mask), Set 3 = Material SSBO +
-        // Set 4 = bindless textures for geom_table.glsl's cutout alpha-test. The geom-table BDA rides a
+        // Set 4 = bindless textures for material_bindings_rt.slang's cutout alpha-test. The geom-table BDA rides a
         // push constant; all other RT-shadow params still come from GlobalUniforms.rtShadowParams.
         std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),

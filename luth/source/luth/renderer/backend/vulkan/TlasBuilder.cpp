@@ -82,7 +82,7 @@ namespace Luth
             u32             materialSlot;  // index into the Material SSBO
             u32             vertexStride;  // bytes: sizeof(Vertex)=52 or sizeof(SkinnedVertex)=84
         };
-        static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match common/geom_table.glsl GtGeomEntry (24 B)");
+        static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match common/material.slang GtGeomEntry (24 B)");
 
         struct ResolvedMesh
         {
@@ -248,7 +248,7 @@ namespace Luth
             // Transparent/Fade pack with the GLASS mask only — shadow-class rays cull to SOLID (glass
             // never blocks light), world-class rays (GI bounce / reflections / PT) trace SOLID|GLASS and
             // auto-confirm glass as a surface: emissive glass feeds the GI bounce and shows in reflections
-            // (unblended approximation). Masks mirror common/geom_table.glsl's GT_VIS_*. HashInstances
+            // (unblended approximation). Masks mirror common/material.slang's GT_VIS_*. HashInstances
             // folds RenderMode, so a runtime mode flip re-masks via the rebuild. see arch/rendering-pipeline.md
             constexpr u32 kVisSolid = 0x01;
             constexpr u32 kVisGlass = 0x02;

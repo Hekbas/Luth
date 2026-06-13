@@ -166,7 +166,7 @@ namespace Luth
         std::vector<u32>                   m_InjectDensitySpv;
 
         // Inject scatter. The scatter pipeline carries the cutout 5-set layout [global, scatter, EMPTY,
-        // Material, bindless]: geom_table.glsl hardcodes Set 3/4, but scatter has no pass-local Set 2, so
+        // Material, bindless]: material_bindings_rt.slang hardcodes Set 3/4, but scatter has no pass-local Set 2, so
         // an empty layout fills index 2 (never bound — the shader doesn't reference it).
         VkDescriptorSetLayout              m_InjectScatterDescLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout              m_EmptySet2Layout         = VK_NULL_HANDLE;

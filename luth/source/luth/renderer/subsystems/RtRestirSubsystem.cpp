@@ -167,7 +167,7 @@ namespace Luth
         }
 
         // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. The initial pass adds
-        // Set 3 (Material SSBO) + Set 4 (bindless) for the cutout alpha-test (geom_table.glsl); the
+        // Set 3 (Material SSBO) + Set 4 (bindless) for the cutout alpha-test (material_bindings_rt.slang); the
         // temporal/spatial/shade passes trace no rays, so they keep the 3-set layout.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
