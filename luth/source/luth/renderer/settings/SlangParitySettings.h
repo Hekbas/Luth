@@ -6,9 +6,9 @@ namespace Luth
 {
     // Slang Phase-0 spike A/B harness (#156). `enabled` (default OFF) gates the whole harness — when off
     // nothing loads slang-compiler.dll and the RG culls the pass, so it is zero-cost. The `last*` fields
-    // are written each frame by SlangSpikeSubsystem from the GPU diff readback and shown read-only in the
+    // are written each frame by SlangParityGuard from the GPU diff readback and shown read-only in the
     // RenderPanel; the editor never reaches the subsystem directly. see spike #156
-    struct SlangSpikeSettings
+    struct SlangParitySettings
     {
         bool enabled = false;
 

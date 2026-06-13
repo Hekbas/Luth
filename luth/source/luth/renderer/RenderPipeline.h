@@ -26,7 +26,7 @@
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirSubsystem.h"
 #include "luth/renderer/subsystems/RtRestirGiSubsystem.h"
-#include "luth/renderer/subsystems/SlangSpikeSubsystem.h"
+#include "luth/renderer/subsystems/SlangParityGuard.h"
 #include "luth/renderer/subsystems/PathTraceSubsystem.h"
 #include "luth/renderer/subsystems/ReflectionsSubsystem.h"
 #include "luth/renderer/subsystems/SkinningSubsystem.h"
@@ -530,7 +530,7 @@ namespace Luth
         RtSubsystem             m_Rt;
         RtRestirSubsystem       m_Restir;
         RtRestirGiSubsystem     m_RestirGi;
-        SlangSpikeSubsystem     m_SlangSpike;   // Phase-0 Slang A/B spike (#156, default-OFF)
+        SlangParityGuard        m_SlangParity;   // GLSL vs Slang bindless-SPIR-V parity guard (default-OFF)
         PathTraceSubsystem      m_PathTrace;
         ReflectionsSubsystem    m_Reflections;
         SkinningSubsystem       m_Skinning;
@@ -548,8 +548,8 @@ namespace Luth
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         RtRestirGiSubsystem&           GetRestirGi()             { return m_RestirGi; }
         const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
-        SlangSpikeSubsystem&           GetSlangSpike()           { return m_SlangSpike; }
-        const SlangSpikeSubsystem&     GetSlangSpike()     const { return m_SlangSpike; }
+        SlangParityGuard&              GetSlangParity()          { return m_SlangParity; }
+        const SlangParityGuard&        GetSlangParity()    const { return m_SlangParity; }
         PathTraceSubsystem&            GetPathTrace()            { return m_PathTrace; }
         const PathTraceSubsystem&      GetPathTrace()      const { return m_PathTrace; }
         ReflectionsSubsystem&          GetReflections()          { return m_Reflections; }

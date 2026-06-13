@@ -1,12 +1,12 @@
 #include "luthpch.h"
-#include "luth/renderer/subsystems/SlangSpikeSubsystem.h"
+#include "luth/renderer/subsystems/SlangParityGuard.h"
 #include "luth/renderer/subsystems/RtSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/shader/SlangCompiler.h"
 #include "luth/renderer/material/MaterialSystem.h"
-#include "luth/renderer/settings/SlangSpikeSettings.h"
+#include "luth/renderer/settings/SlangParitySettings.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -52,17 +52,17 @@ namespace Luth
         }
     }
 
-    bool SlangSpikeSubsystem::IsEnabled() const
+    bool SlangParityGuard::IsEnabled() const
     {
-        return m_Pipeline && m_Pipeline->GetSystem().GetSlangSpikeSettings().enabled;
+        return m_Pipeline && m_Pipeline->GetSystem().GetSlangParitySettings().enabled;
     }
 
-    void SlangSpikeSubsystem::Init(RenderPipeline& pipeline)
+    void SlangParityGuard::Init(RenderPipeline& pipeline)
     {
         m_Pipeline = &pipeline;   // lazy: the Slang compile + pipeline build defer to the first enable
     }
 
-    bool SlangSpikeSubsystem::EnsureInitialized()
+    bool SlangParityGuard::EnsureInitialized()
     {
         if (m_Initialized) return m_InitOk;
         m_Initialized = true;
@@ -156,7 +156,7 @@ namespace Luth
     // Compose the compute + fragment entries of slang_spike_link.slang into ONE linked program and emit
     // each (CompileModuleEntries). PASS = both stages produce SPIR-V that loads as a VkShaderModule; the
     // validation layer (Debug) vets the modules. Offline spirv-val corroborates in the writeup. slang#9578.
-    void SlangSpikeSubsystem::RunLinkSpecCheck()
+    void SlangParityGuard::RunLinkSpecCheck()
     {
         const fs::path linkPath = FileSystem::EngineAssetsPath("shaders") / "slang_spike_link.slang";
         const std::vector<SlangCompiler::EntryReq> entries = {
@@ -183,7 +183,7 @@ namespace Luth
                      ok ? "PASS" : "FAIL");
     }
 
-    void SlangSpikeSubsystem::DestroyResources()
+    void SlangParityGuard::DestroyResources()
     {
         m_ImgGlsl.reset();
         m_ImgSlang.reset();
@@ -193,7 +193,7 @@ namespace Luth
         m_Width = m_Height = 0;
     }
 
-    void SlangSpikeSubsystem::Shutdown()
+    void SlangParityGuard::Shutdown()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
         m_GlslPipeline.reset();
@@ -212,7 +212,7 @@ namespace Luth
         m_Pipeline    = nullptr;
     }
 
-    bool SlangSpikeSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
+    bool SlangParityGuard::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         if (!m_InitOk) return false;
         VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpikePC) };
@@ -245,7 +245,7 @@ namespace Luth
         return false;
     }
 
-    void SlangSpikeSubsystem::EnsureResources(u32 width, u32 height)
+    void SlangParityGuard::EnsureResources(u32 width, u32 height)
     {
         if (m_ImgGlsl && m_Width == width && m_Height == height) return;
         if (m_ImgGlsl) { vkDeviceWaitIdle(VulkanContext::Get().GetDevice()); DestroyResources(); }   // resize — rare, stall ok
@@ -277,7 +277,7 @@ namespace Luth
         m_Height = height;
     }
 
-    void SlangSpikeSubsystem::ReadbackDiff()
+    void SlangParityGuard::ReadbackDiff()
     {
         if (!m_DiffBuf) return;
         u32 vals[4] = { 0, 0, 0, 0 };
@@ -285,7 +285,7 @@ namespace Luth
         std::memcpy(vals, mapped, sizeof(vals));
         VulkanAllocator::Unmap(m_DiffAlloc);
 
-        SlangSpikeSettings& s = m_Pipeline->GetSystem().GetSlangSpikeSettings();
+        SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
         s.lastMaxAbsDiff  = std::bit_cast<f32>(vals[0]);
         s.lastDifferingPx = vals[1];
         s.lastMaxUlp      = vals[2];
@@ -296,7 +296,7 @@ namespace Luth
                          s.lastCoveredPx, s.lastDifferingPx, s.lastMaxUlp, s.lastMaxAbsDiff);
     }
 
-    void SlangSpikeSubsystem::AddPass(RG::RenderGraph& rg)
+    void SlangParityGuard::AddPass(RG::RenderGraph& rg)
     {
         if (!IsEnabled() || !EnsureInitialized()) return;   // first enable lazily loads + builds Slang
         if (!m_GlslPipeline || !m_SlangPipeline || !m_DiffPipeline) return;
@@ -318,7 +318,7 @@ namespace Luth
 
         struct SpikeData {};
         rg.AddComputePass<SpikeData>(
-            "SlangSpikeAB",
+            "SlangParityAB",
             RG::QueueFamily::AsyncCompute,
             [](SpikeData&, RG::RenderPassBuilder& builder) {
                 builder.SetHasSideEffect();   // engine-owned outputs (images + host SSBO) — keep past culling

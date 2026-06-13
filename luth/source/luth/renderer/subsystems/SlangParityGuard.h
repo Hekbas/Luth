@@ -22,7 +22,7 @@ namespace Luth
     // pixel parity at runtime. One RG compute pass after the GI passes (TLAS / geom-table / bindless all
     // live); SetHasSideEffect keeps it past the dead-pass culler despite engine-owned outputs. Mirrors
     // RtRestirGiSubsystem's 5-set wiring. see spike #156
-    class SlangSpikeSubsystem
+    class SlangParityGuard
     {
     public:
         void Init(RenderPipeline& pipeline);
@@ -34,7 +34,7 @@ namespace Luth
         // (multi-view guard); no-op when disabled, before a TLAS exists, or if Slang failed to compile.
         void AddPass(RG::RenderGraph& rg);
 
-        // Backed by SlangSpikeSettings::enabled on the RenderingSystem; also gates the TLAS build.
+        // Backed by SlangParitySettings::enabled on the RenderingSystem; also gates the TLAS build.
         bool IsEnabled() const;
 
     private:
