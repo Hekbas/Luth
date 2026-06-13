@@ -66,7 +66,7 @@ namespace Luth
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
         m_PBRVertSpv                 = loadSpv("shaders/pbr.vert");
-        m_PBRFragSpv                 = loadSpv("shaders/pbr.frag");
+        m_PBRFragSpv                 = loadSpv("shaders/pbr.slang");
         m_PBRSkinnedVertSpv          = loadSpv("shaders/pbr_skinned.vert");
         m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.vert");
         m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.vert");
@@ -420,7 +420,7 @@ namespace Luth
         };
 
         if      (name == "pbr.vert")                   m_PBRVertSpv                 = spv;
-        else if (name == "pbr.frag")                   m_PBRFragSpv                 = spv;
+        else if (name == "pbr.slang")                  m_PBRFragSpv                 = spv;
         else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv          = spv;
         else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv        = spv;
         else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv = spv;
@@ -454,7 +454,7 @@ namespace Luth
         else
         {
             // pbr.* — invalidate the pipeline manager cache, rebuild the manager.
-            const bool isPBR = (name == "pbr.vert" || name == "pbr.frag");
+            const bool isPBR = (name == "pbr.vert" || name == "pbr.slang");
             if (isPBR) {
                 UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
                 m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);

@@ -17,6 +17,8 @@ import brdf;           // EvalBRDFTimesNdotL
 [[vk::binding(2, 3)]] StructuredBuffer<uint>  g_LightIndex;
 [[vk::binding(3, 3)]] Sampler2DArrayShadow    u_ShadowMap;
 
+public static const float GI_PI = 3.14159265358979;   // remodulation constant shared with the consumer
+
 public static const uint k_ClusterTilesX  = 16u;
 public static const uint k_ClusterTilesY  =  9u;
 public static const uint k_ClusterSlicesZ = 48u;
