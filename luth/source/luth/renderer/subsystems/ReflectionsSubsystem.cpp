@@ -73,11 +73,11 @@ namespace Luth
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_SetLayout);
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_reflections.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/rt_reflections.slang"))
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_CORE_ERROR("ReflectionsSubsystem: failed to load rt_reflections.comp SPIR-V");
+            LH_CORE_ERROR("ReflectionsSubsystem: failed to load rt_reflections.slang SPIR-V");
             return;
         }
 
@@ -111,7 +111,7 @@ namespace Luth
     bool ReflectionsSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
-        if (name != "rt_reflections.comp") return false;
+        if (name != "rt_reflections.slang") return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
