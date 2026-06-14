@@ -9,7 +9,9 @@ project "imguizmo"
    files
    {
       "source/imguizmo/ImGuizmo.h",
-      "source/imguizmo/ImGuizmo.cpp"
+      "source/imguizmo/ImGuizmo.cpp",
+      "source/imguizmo/GraphEditor.h",
+      "source/imguizmo/GraphEditor.cpp"
    }
 
    includedirs
