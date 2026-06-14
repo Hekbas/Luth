@@ -86,6 +86,22 @@ namespace Luth
         InitCullPipeline();
     }
 
+    const std::vector<u32>& GeometrySubsystem::ResolveFragSpv(const UUID& fragShaderUUID)
+    {
+        if (!fragShaderUUID.IsValid()) return m_PBRFragSpv;
+
+        auto it = m_GraphFragSpv.find(fragShaderUUID);
+        if (it != m_GraphFragSpv.end()) return it->second;
+
+        // Generated graph shaders register in ShaderLibrary (keyed by name) — match on the asset Handle.
+        for (const auto& [name, sh] : ShaderLibrary::GetAll())
+        {
+            if (sh && sh->Handle == fragShaderUUID && !sh->GetSpirV().empty())
+                return m_GraphFragSpv.emplace(fragShaderUUID, sh->GetSpirV()).first->second;
+        }
+        return m_PBRFragSpv;  // not yet registered/loaded — stock this frame, retried next
+    }
+
     void GeometrySubsystem::InitObjectSSBO()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -1172,25 +1188,31 @@ namespace Luth
                 {
                     if (draws.empty()) return;
 
-                    Material::CullMode currentCull = Material::CullMode::Back;
+                    // Sentinel cull never matches a real CullMode, so the first draw always binds.
+                    Material::CullMode currentCull = static_cast<Material::CullMode>(0xFF);
                     bool currentSkinned = false;
-                    auto* pipeline = m_GeoPipelineManager.GetOrCreate(
-                        pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv, m_PBRFragSpv);
-                    if (!pipeline) return;
-                    pipeline->Bind(cmd);
+                    UUID currentFrag = UUID::Invalid();
+                    VKPipeline* pipeline = nullptr;
 
                     for (const auto& dc : draws)
                     {
-                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned)
+                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned || dc.fragShaderUUID != currentFrag)
                         {
                             currentCull    = dc.cullMode;
                             currentSkinned = dc.isSkinned;
-                            VKPipeline* newPipeline = currentSkinned
-                                ? m_GeoSkinnedPipelineManager.GetOrCreate(pbrUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, m_PBRFragSpv)
-                                : m_GeoPipelineManager.GetOrCreate       (pbrUUID, mode, currentCull, polyMode, m_PBRVertSpv,        m_PBRFragSpv);
-                            if (!newPipeline) continue;
-                            newPipeline->Bind(cmd);
+                            currentFrag    = dc.fragShaderUUID;
+
+                            // Default materials key on pbrUUID (shared stock frag); a graph material keys on
+                            // its own frag UUID so PipelineManager caches one pipeline per distinct graph.
+                            const UUID keyUUID = dc.fragShaderUUID.IsValid() ? dc.fragShaderUUID : pbrUUID;
+                            const std::vector<u32>& fragSpv = ResolveFragSpv(dc.fragShaderUUID);
+                            pipeline = currentSkinned
+                                ? m_GeoSkinnedPipelineManager.GetOrCreate(keyUUID, mode, currentCull, polyMode, m_PBRSkinnedVertSpv, fragSpv)
+                                : m_GeoPipelineManager.GetOrCreate       (keyUUID, mode, currentCull, polyMode, m_PBRVertSpv,        fragSpv);
+                            if (!pipeline) continue;
+                            pipeline->Bind(cmd);
                         }
+                        if (!pipeline) continue;
 
                         auto mesh = dc.model->GetMesh(dc.meshIndex);
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());

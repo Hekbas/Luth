@@ -53,6 +53,7 @@ namespace Luth
                         dc.materialSlot = slotIt->second;
                     mode     = material->GetRenderMode();
                     cullMode = material->GetCullMode();
+                    dc.fragShaderUUID = material->GetGraphShaderUUID();
                 }
             }
             dc.cullMode = cullMode;

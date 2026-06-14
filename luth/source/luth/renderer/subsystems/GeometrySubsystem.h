@@ -95,6 +95,10 @@ namespace Luth
         void BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
         void BuildSlimGBufferPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
 
+        // Maps a node-graph material's fragment-shader UUID to its SPIR-V (cached). Invalid → the stock
+        // m_PBRFragSpv; an unresolved UUID also falls back to stock so a not-yet-loaded graph never stalls.
+        const std::vector<u32>& ResolveFragSpv(const UUID& fragShaderUUID);
+
         RenderPipeline* m_Pipeline = nullptr;
 
         // Set 5 — GPUObjectData SSBO descriptor (graphics).
@@ -147,5 +151,9 @@ namespace Luth
         std::vector<u32> m_PBRVertSpv;
         std::vector<u32> m_PBRFragSpv;
         std::vector<u32> m_PBRSkinnedVertSpv;
+
+        // Per-material node-graph fragment SPIR-V, keyed by the material's graph-shader UUID. Populated
+        // lazily from ShaderLibrary in ResolveFragSpv; the stock pbr fragment is never stored here.
+        std::unordered_map<UUID, std::vector<u32>, UUIDHash> m_GraphFragSpv;
     };
 }

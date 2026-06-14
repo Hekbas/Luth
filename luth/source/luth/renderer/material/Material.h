@@ -95,6 +95,11 @@ namespace Luth
              return AssetManager::GetAsset<Shader>(m_ShaderUUID);
         }
 
+        // Per-material fragment shader emitted by the node graph (MaterialGraphCodegen). Invalid = the
+        // geometry subsystem's stock pbr fragment; the vertex stage stays shared (pbr.vert) either way.
+        UUID GetGraphShaderUUID() const { return m_GraphShaderUUID; }
+        void SetGraphShaderUUID(const UUID& uuid) { m_GraphShaderUUID = uuid; }
+
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
         
@@ -230,6 +235,7 @@ namespace Luth
         void InitializeStorage();
 
         UUID m_ShaderUUID;
+        UUID m_GraphShaderUUID = UUID::Invalid();   // node-graph fragment override; invalid = stock pbr
         std::vector<uint8_t> m_UniformStorage;
         // Temporary storage for deserialization if shader is not loaded yet
         nlohmann::json m_CachedUniformJSON;

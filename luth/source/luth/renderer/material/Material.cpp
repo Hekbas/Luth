@@ -64,6 +64,8 @@ namespace Luth
     void Material::Serialize(nlohmann::json& json) const
     {
         json["shader"] = m_ShaderUUID.ToString();
+        if (m_GraphShaderUUID.IsValid())
+            json["graph_shader"] = m_GraphShaderUUID.ToString();   // only present when the material carries a graph
 
         json["render_mode"] = static_cast<int>(m_RenderMode);
         json["alpha_cutoff"] = m_AlphaCutoff;
@@ -129,7 +131,9 @@ namespace Luth
     void Material::Deserialize(const nlohmann::json& json)
     {
         m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
-        
+        m_GraphShaderUUID = json.contains("graph_shader")
+            ? UUID::FromString(json["graph_shader"].get<std::string>()) : UUID::Invalid();
+
         if (json.contains("uniforms"))
             m_CachedUniformJSON = json["uniforms"];
 
