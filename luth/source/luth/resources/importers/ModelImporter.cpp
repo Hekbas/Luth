@@ -975,6 +975,64 @@ namespace Luth
             }
         }
 
+        // Spec-gloss workflow: a material with a specular(-glossiness) map and no metal-rough is converted
+        // to metal-rough (+ baseColor) so the decode reads canonical channels. Lossy by nature; see history.
+        bool hasMetalRough = false;
+        for (const auto& t : matJson["textures"])
+            if (t["type"].get<int>() == (int)MapType::Metalness) { hasMetalRough = true; break; }
+
+        if (!hasMetalRough && aiMat->GetTextureCount(aiTextureType_SPECULAR) > 0)
+        {
+            Resolved spec = ResolveSlot(aiTextureType_SPECULAR, MapType::Metalness);
+            if (spec.uuid.IsValid())
+            {
+                TextureBaker::SpecGlossInputs sgIn;
+                sgIn.specGlossSrc = spec.path; sgIn.specGlossUuid = spec.uuid;
+                if (diffuse.uuid.IsValid()) { sgIn.diffuseSrc = diffuse.path; sgIn.diffuseUuid = diffuse.uuid; }
+
+                aiColor4D dc;
+                if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, dc) == AI_SUCCESS) {
+                    sgIn.diffuseFactor[0] = dc.r; sgIn.diffuseFactor[1] = dc.g;
+                    sgIn.diffuseFactor[2] = dc.b; sgIn.diffuseFactor[3] = dc.a;
+                }
+                aiColor3D sc;
+                if (aiMat->Get(AI_MATKEY_COLOR_SPECULAR, sc) == AI_SUCCESS) {
+                    sgIn.specularFactor[0] = sc.r; sgIn.specularFactor[1] = sc.g; sgIn.specularFactor[2] = sc.b;
+                }
+                aiMat->Get(AI_MATKEY_GLOSSINESS_FACTOR, sgIn.glossinessFactor);
+
+                TextureBaker::SpecGlossResult res =
+                    TextureBaker::BakeSpecGlossToMetalRough(ctx.TextureDir, matName, sgIn);
+                if (res.metalRough.IsValid())
+                {
+                    Resolved mr; mr.uuid = res.metalRough; mr.uv = spec.uv;
+                    AddNode(MapType::Metalness, mr);
+
+                    if (res.baseColor.IsValid())
+                    {
+                        // The converted baseColor folds the diffuse factor in, so swap the raw diffuse node
+                        // for it and neutralize the scalar color (the decode multiplies color * baseColor).
+                        auto& arr = matJson["textures"];
+                        for (auto it = arr.begin(); it != arr.end(); ++it)
+                            if ((*it)["type"].get<int>() == (int)MapType::Diffuse) { arr.erase(it); break; }
+                        Resolved bc; bc.uuid = res.baseColor; bc.uv = diffuse.uv;
+                        AddNode(MapType::Diffuse, bc);
+                        matJson["color"] = { 1.0f, 1.0f, 1.0f, 1.0f };
+                    }
+                    LH_CORE_INFO("ModelImporter: '{0}' converted spec-gloss to metal-rough", matName);
+                }
+                else
+                {
+                    float gloss = 1.0f;
+                    aiMat->Get(AI_MATKEY_GLOSSINESS_FACTOR, gloss);
+                    matJson["roughness"] = 1.0f - gloss;
+                    LH_CORE_WARN("ModelImporter: '{0}' spec-gloss bake failed; roughness from gloss factor", matName);
+                    s_LastImportReport.Degraded.push_back({ matName, matPath,
+                        "spec-gloss bake failed: roughness from factor, metallic from factor" });
+                }
+            }
+        }
+
         // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
         // uniform channel. Default to white when only a resolved emissive texture is present, so glTF
         // assets that leave the factor at default but ship a texture still emit.

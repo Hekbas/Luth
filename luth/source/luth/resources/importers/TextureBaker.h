@@ -20,5 +20,24 @@ namespace Luth
         UUID BakeMetalRough(const fs::path& outDir, const std::string& baseName,
                             const fs::path& roughnessSrc, const UUID& roughnessUuid,
                             const fs::path& metalnessSrc, const UUID& metalnessUuid);
+
+        // Inputs for a specular-glossiness to metal-rough conversion. The specular(-glossiness) map is
+        // required (RGB = specular color, A = glossiness); diffuse may be a texture or just a factor.
+        struct SpecGlossInputs
+        {
+            fs::path diffuseSrc;   UUID diffuseUuid;     // optional: empty path -> use diffuseFactor only
+            fs::path specGlossSrc; UUID specGlossUuid;   // required
+            float diffuseFactor[4]  = { 1.0f, 1.0f, 1.0f, 1.0f };
+            float specularFactor[3] = { 1.0f, 1.0f, 1.0f };
+            float glossinessFactor  = 1.0f;
+        };
+
+        struct SpecGlossResult { UUID baseColor = UUID::Invalid(); UUID metalRough = UUID::Invalid(); };
+
+        // Convert specular-glossiness to metal-rough via the Khronos metallic-solve (glTF appendix): writes
+        // a baseColor map and a metalRough map (G = roughness = 1 - gloss, B = solved metallic), folding all
+        // factors in so the material's scalar color stays neutral. Lossy by nature; invalid UUIDs on failure.
+        SpecGlossResult BakeSpecGlossToMetalRough(const fs::path& outDir, const std::string& baseName,
+                                                  const SpecGlossInputs& in);
     }
 }
