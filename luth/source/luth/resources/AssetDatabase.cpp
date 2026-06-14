@@ -55,6 +55,15 @@ namespace Luth
             AssetType type = FileSystem::ClassifyFileType(path);
             if (type == AssetType::None) continue;
 
+            // Slang modules under common/ + registry/ are pulled in via the compiler's search path, never as
+            // standalone shader assets — skip them so the scan never mints a meta + fails to compile an
+            // entry-less module (e.g. mat_graph_registry, material_bindings_*).
+            if (path.extension() == ".slang")
+            {
+                const std::string parent = path.parent_path().filename().string();
+                if (parent == "common" || parent == "registry") continue;
+            }
+
             UUID uuid = UUID::Invalid();
             fs::path metaPath = path;
             metaPath += ".meta";
