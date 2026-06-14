@@ -211,11 +211,11 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 | 0 ✅ | `slang-spike` | M | Phase-0 gate GO — in-process compiler + rayQuery/BDA/bindless A/B + link-spec, all green — shipped v3.2.0 |
 | 1 ✅ | `slang-toolchain` | M | `.slang` asset-pipeline dispatch (stage via reflection) + ShaderWatcher hot-reload + SlangParityGuard (deterministic SPIR-V NonUniform/caps gate; pixel A/B = diagnostic) — shipped v3.2.1 |
 | 2 ✅ | `slang-imaterial` | L | bounded `material.slang` + two-tier generic eval shared by all 9 consumers; production seam deleted — shipped v3.2.2; hardening follow-ups (layout drift-guard + spike/geom_table retirement) shipped v3.2.3 |
-| 3 | packed-texture routing | S–M | Import-side ORM / spec-gloss / separate / inverted → `MaterialInputs` (the original pain) |
+| 3 ✅ | packed-texture routing | L | Import-side remap into the bounded channels: ORM aliasing, separate-map + spec-gloss derived-texture bake, DirectX-normal green-flip, TextureRole auto-detect + editor override; zero GPU-struct change, raster==RT by construction; shipped v3.2.4 |
 | 4 | composable effect layer | L | Link-specialized effect stack |
 | 5 | node editor → bounded surface | XL | Blender-like UX emitting into `IMaterial` |
 
-> Next: Phase 3 (packed-texture routing). `gpu-particles` (#57) stays parallelizable.
+> Next: Phase 4 (composable effect layer). `gpu-particles` (#57) stays parallelizable.
 
 ### Gameplay enablement
 

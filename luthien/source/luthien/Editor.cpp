@@ -540,13 +540,17 @@ namespace Luth
         // it floats independently and is not tied to any dock node.
         EditorSettingsWindow::Draw();
 
-        // Check if a model import completed with unresolved textures
+        // Check if a model import completed with unresolved or reduced-fidelity textures
         {
             static fs::path s_LastReportedModel;
             const ImportReport& report = ModelImporter::GetLastImportReport();
-            if (report.HasUnresolved() && report.ModelPath != s_LastReportedModel) {
+            if (report.ModelPath != s_LastReportedModel && (report.HasUnresolved() || report.HasDegraded())) {
                 s_LastReportedModel = report.ModelPath;
-                TextureRemapDialog::Open(report);
+                if (report.HasDegraded())
+                    LH_CORE_WARN("Import: {0} texture(s) routed at reduced fidelity (see warnings above)",
+                                 report.Degraded.size());
+                if (report.HasUnresolved())
+                    TextureRemapDialog::Open(report);
             }
         }
 
