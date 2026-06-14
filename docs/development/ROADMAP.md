@@ -119,6 +119,7 @@
 | v3.2.3 | `slang-material-cleanup` | Closes the `slang-imaterial` follow-ups: an init-time `MaterialLayoutGuard` cross-checks `GPUMaterialData`/`GlobalUniforms` field offsets against their `.slang` twins via Slang reflection; full Phase-0 spike retirement — `SlangParityGuard` is now a gate-only SPIR-V scan on production `restir_gi_initial.slang`, deleting the pixel A/B + `geom_table.glsl` | 2026-06-14 |
 | v3.2.4 | `packed-texture-routing` | Import-side remap into the bounded channels: ORM aliasing, separate-map + spec-gloss derived-texture bake, DirectX-normal green-flip, TextureRole auto-detect + editor override; zero GPU-struct change, raster==RT by construction | 2026-06-14 |
 | v3.2.5 | `material-node-editor` | Blender-style channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry megakernel dispatch (raster==RT); 9-node vocab, live recompile, undo; effect-layers / transparent / constants-as-data deferred | 2026-06-14 |
+| v3.2.6 | `graph-param-buffer` | Graph constants routed to a per-material `gMatParams` buffer (binding 1 on the shared material set, both tiers) + structure-hash-keyed variants; value edits become data (no recompile), structurally-identical materials share one shader + variant, killing the recompile hitch + 16-cap + per-edit pipeline leak | 2026-06-14 |
 
 ---
 
@@ -217,7 +218,7 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 | 4 | composable effect layer | L | Link-specialized stackable effects; the node editor emits into it (no longer blocks 5) |
 | 5 ✅ | node editor → bounded surface | XL | Channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry dispatch (raster==RT); done before Phase 4 — shipped v3.2.5 |
 
-> Next: `constants→per-material-data` (kills recompile-on-edit + the RT-recompile hitch + the 16-variant cap + the per-edit pipeline leak), then Phase 4 (effect layer) / transparent-graph / node breadth. `gpu-particles` (#57) stays parallelizable.
+> Shipped: `graph-param-buffer` (v3.2.6) — constants→per-material-data + structure-hash-keyed variants (recompile-on-edit, the RT-recompile hitch, the 16-variant cap, and the per-edit pipeline leak all gone). Next: Phase 4 (effect layer) / transparent-graph / node breadth. `gpu-particles` (#57) stays parallelizable.
 
 ### Gameplay enablement
 
