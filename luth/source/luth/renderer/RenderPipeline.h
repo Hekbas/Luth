@@ -548,8 +548,6 @@ namespace Luth
         const RtRestirSubsystem&       GetRestir()         const { return m_Restir; }
         RtRestirGiSubsystem&           GetRestirGi()             { return m_RestirGi; }
         const RtRestirGiSubsystem&     GetRestirGi()       const { return m_RestirGi; }
-        SlangParityGuard&              GetSlangParity()          { return m_SlangParity; }
-        const SlangParityGuard&        GetSlangParity()    const { return m_SlangParity; }
         PathTraceSubsystem&            GetPathTrace()            { return m_PathTrace; }
         const PathTraceSubsystem&      GetPathTrace()      const { return m_PathTrace; }
         ReflectionsSubsystem&          GetReflections()          { return m_Reflections; }

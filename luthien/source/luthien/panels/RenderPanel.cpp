@@ -315,31 +315,19 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // Bindless-SPIR-V regression guard. The verdict is a deterministic scan of the compiled Slang
-            // SPIR-V (NonUniform decorations + bindless/rayQuery capabilities — slang#10525). The pixel A/B
-            // below is a default-OFF visual diagnostic only: per-frame + view/TAA-dependent, never a gate.
+            // Bindless-SPIR-V codegen regression gate: a deterministic scan of the compiled
+            // restir_gi_initial.slang SPIR-V (NonUniform decorations + bindless/rayQuery/BDA caps —
+            // slang#10525). Runs at init + on that shader's hot-reload; read-only here.
             if (UI::BeginCollapsingHeader("Slang Parity Guard", true)) {
                 auto& sp = m_RS->GetSlangParitySettings();
                 if (!sp.spirvChecked) {
-                    ImGui::TextDisabled("SPIR-V guard : enable to run");
+                    ImGui::TextDisabled("SPIR-V guard : not run");
                 } else {
                     const ImVec4 col = sp.spirvPass ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f) : ImVec4(0.90f, 0.40f, 0.40f, 1.0f);
                     ImGui::TextColored(col, "SPIR-V guard : %s", sp.spirvPass ? "PASS" : "FAIL");
                     ImGui::Text("NonUniform   : %u", sp.nonUniformCount);
                     ImGui::Text("bindless caps: %s", sp.capsOk ? "present" : "MISSING");
                 }
-                ImGui::Separator();
-                if (UI::BeginProperties("SlangParityProps")) {
-                    UI::Property("A/B diagnostic", sp.enabled);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Dispatch the GLSL + Slang variants of the rayQuery hot-path shader\nand diff them on the GPU (needs a TLAS). Visual only — view/TAA-dependent, does NOT gate. Costs a frame; default off.");
-                    UI::EndProperties();
-                }
-                ImGui::TextDisabled("pixel diff (informational):");
-                ImGui::Text("covered px : %u", sp.lastCoveredPx);
-                ImGui::Text("differing  : %u", sp.lastDifferingPx);
-                ImGui::Text("max |diff| : %.6f", sp.lastMaxAbsDiff);
-                ImGui::Text("max ULP    : %u", sp.lastMaxUlp);
                 UI::EndCollapsingHeader();
             }
 

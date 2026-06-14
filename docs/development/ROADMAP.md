@@ -116,6 +116,7 @@
 | v3.2.0 | `slang-spike` | Opens the `slang-material` series — Phase-0 gate GO: in-process `SlangCompiler` (Slang 2026.1) coexisting with libshaderc, one rayQuery+BDA+nonuniform-bindless shader ported, in-engine A/B bit-identical, link-spec valid across 2 stages; slang#10525/#9578 clear; default-off harness merged as the regression guard | 2026-06-13 |
 | v3.2.1 | `slang-toolchain` | `.slang` through the asset pipeline (stage via Slang reflection) + ShaderWatcher hot-reload, coexisting with GLSL; spike promoted to a SlangParityGuard whose gate is a deterministic SPIR-V NonUniform/caps scan, with the pixel A/B kept default-off as a diagnostic; multi-entry link probe retired | 2026-06-13 |
 | v3.2.2 | `slang-imaterial` | Bounded `material.slang` + one generic two-tier eval (RasterFetch/RayFetch) shared by all 9 raster/RT/transparent/volumetric consumers; production GLSL seam deleted; fixed a Slang global-session concurrency crash (fresh session per compile); drift-guard + spike retirement deferred | 2026-06-14 |
+| v3.2.3 | `slang-material-cleanup` | Closes the `slang-imaterial` follow-ups: an init-time `MaterialLayoutGuard` cross-checks `GPUMaterialData`/`GlobalUniforms` field offsets against their `.slang` twins via Slang reflection; full Phase-0 spike retirement — `SlangParityGuard` is now a gate-only SPIR-V scan on production `restir_gi_initial.slang`, deleting the pixel A/B + `geom_table.glsl` | 2026-06-14 |
 
 ---
 
@@ -209,12 +210,12 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 |---|---|---|---|
 | 0 ✅ | `slang-spike` | M | Phase-0 gate GO — in-process compiler + rayQuery/BDA/bindless A/B + link-spec, all green — shipped v3.2.0 |
 | 1 ✅ | `slang-toolchain` | M | `.slang` asset-pipeline dispatch (stage via reflection) + ShaderWatcher hot-reload + SlangParityGuard (deterministic SPIR-V NonUniform/caps gate; pixel A/B = diagnostic) — shipped v3.2.1 |
-| 2 ✅ | `slang-imaterial` | L | bounded `material.slang` + two-tier generic eval shared by all 9 consumers; production seam deleted — shipped v3.2.2 (drift-guard + spike/geom_table retirement deferred) |
+| 2 ✅ | `slang-imaterial` | L | bounded `material.slang` + two-tier generic eval shared by all 9 consumers; production seam deleted — shipped v3.2.2; hardening follow-ups (layout drift-guard + spike/geom_table retirement) shipped v3.2.3 |
 | 3 | packed-texture routing | S–M | Import-side ORM / spec-gloss / separate / inverted → `MaterialInputs` (the original pain) |
 | 4 | composable effect layer | L | Link-specialized effect stack |
 | 5 | node editor → bounded surface | XL | Blender-like UX emitting into `IMaterial` |
 
-> Next: the `slang-imaterial` follow-up (drift-guard, parity-on-material, spike/geom_table retirement), then Phase 3 (packed-texture routing). `gpu-particles` (#57) stays parallelizable.
+> Next: Phase 3 (packed-texture routing). `gpu-particles` (#57) stays parallelizable.
 
 ### Gameplay enablement
 

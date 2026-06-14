@@ -24,7 +24,7 @@ namespace Luth
     //   - Persistent empty TLAS at Init (Set 0 binding 6 never null — rt_sun_shadows.comp reads
     //     it statically and PARTIALLY_BOUND is conservatively interpreted by validation).
     //   - Sun-shadow pass: rt_sun_shadows.comp (rayQuery-in-compute) on VKComputePipeline, cutout
-    //     alpha-tested via geom_table.glsl (Set 3 Material + Set 4 bindless). No SBT/miss surface.
+    //     alpha-tested via material_bindings_rt.slang (Set 3 Material + Set 4 bindless). No SBT/miss surface.
     //   - AddRtSunShadowsPass on AsyncCompute (writes per-view R8 shadow mask). Consumed by
     //     pbr.frag (Set 3 binding 4) when ShadowingMode::RtShadows is active.
     class RtSubsystem

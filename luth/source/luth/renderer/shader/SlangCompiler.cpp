@@ -338,4 +338,47 @@ namespace Luth
         }
         return result;
     }
+
+    SlangCompiler::StructLayout SlangCompiler::ReflectStructLayout(const fs::path& sourcePath, const char* typeName)
+    {
+        StructLayout out;
+
+        Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
+        Slang::ComPtr<slang::ISession> session;
+        slang::IModule* module = PrepareModule(sourcePath, global, session);
+        if (!module) return out;
+
+        // A bare module's program layout exposes its public type decls — no entry point / link needed.
+        Slang::ComPtr<slang::IBlob> diag;
+        slang::ProgramLayout* layout = module->getLayout(0, diag.writeRef());
+        if (!layout) { LogDiag(diag, sourcePath); return out; }
+
+        slang::TypeReflection* type = layout->findTypeByName(typeName);
+        if (!type)
+        {
+            LH_CORE_WARN("SlangCompiler: type '{}' not found in '{}'", typeName, sourcePath.filename().string());
+            return out;
+        }
+        slang::TypeLayoutReflection* tl = layout->getTypeLayout(type, slang::LayoutRules::Default);
+        if (!tl)
+        {
+            LH_CORE_WARN("SlangCompiler: no layout for '{}' in '{}'", typeName, sourcePath.filename().string());
+            return out;
+        }
+
+        // Default ParameterCategory = Uniform → byte offsets/size matching the std140/std430 GPU view.
+        out.size = tl->getSize();
+        unsigned n = tl->getFieldCount();
+        out.fields.reserve(n);
+        for (unsigned i = 0; i < n; ++i)
+        {
+            if (slang::VariableLayoutReflection* f = tl->getFieldByIndex(i))
+            {
+                const char* fname = f->getName();
+                out.fields.push_back({ fname ? fname : "", f->getOffset() });
+            }
+        }
+        out.ok = true;
+        return out;
+    }
 }
