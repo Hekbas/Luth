@@ -59,6 +59,9 @@ namespace Luth
         PackUV(MapType::Normal,    18);
         PackUV(MapType::Metalness, 20);
         PackUV(MapType::Occlusion, 22);
+
+        // bits 8-15: RT graph eval variant (0 = stock decode; raster uses a per-material shader instead).
+        m_GPUData.flags |= (m_GraphVariant & 0xFFu) << 8;
     }
 
     void Material::Serialize(nlohmann::json& json) const

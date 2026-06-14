@@ -30,6 +30,11 @@ public float2 SelectUV(uint flags, uint shift, float2 uv0, float2 uv1)
     return (((flags >> shift) & 0x3u) == 0u) ? uv0 : uv1;
 }
 
+// bits 8-15: node-graph eval variant (0 = stock channel decode). The RT megakernel's FetchHitSurface
+// dispatches on this through EvalGraphVariant; raster binds a per-material shader, so it never reads it.
+public static const uint GRAPH_VARIANT_SHIFT = 8u;
+public uint GraphVariant(uint flags) { return (flags >> GRAPH_VARIANT_SHIFT) & 0xFFu; }
+
 // Bounded surface (Filament model, no escape hatch) — derivative/screen-space ops excluded by construction.
 public struct MaterialInputs
 {
