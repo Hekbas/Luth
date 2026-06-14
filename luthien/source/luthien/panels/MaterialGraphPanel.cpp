@@ -59,6 +59,72 @@ namespace Luth
             g.links.push_back({ 3, 0, 4, 0 });   // Multiply.out-> Output.BaseColor
             return g;
         }
+
+        u32 NextNodeId(const MaterialGraph& g)
+        {
+            u32 maxId = 0;
+            for (const auto& n : g.nodes) maxId = std::max(maxId, n.id);
+            return maxId + 1;
+        }
+
+        MatNode MakeNode(MatNodeType type, u32 id, Vec2 pos)
+        {
+            MatNode n;
+            n.id = id; n.type = type; n.tex = 0; n.pos = pos;
+            switch (type)
+            {
+                case MatNodeType::ConstFloat: n.value = Vec4(0.5f); break;
+                case MatNodeType::ConstColor: n.value = Vec4(1.0f); break;
+                case MatNodeType::Remap:      n.value = Vec4(0.0f, 1.0f, 0.0f, 1.0f); break;
+                default:                      n.value = Vec4(0.0f); break;
+            }
+            return n;
+        }
+
+        void DeleteNode(MaterialGraph& g, size_t index)
+        {
+            if (index >= g.nodes.size()) return;
+            const u32 id = g.nodes[index].id;
+            g.links.erase(std::remove_if(g.links.begin(), g.links.end(),
+                [&](const MatLink& l) { return l.fromNode == id || l.toNode == id; }), g.links.end());
+            g.nodes.erase(g.nodes.begin() + index);
+        }
+
+        // Draws the selected node's editable parameters; returns true when an edit settles (release / combo
+        // change) so the shader is re-emitted. Const/Remap values bake into the generated Slang, so they
+        // recompile on release rather than per drag-frame.
+        bool DrawNodeParams(MatNode& n)
+        {
+            bool recodegen = false;
+            switch (n.type)
+            {
+                case MatNodeType::ConstFloat:
+                    ImGui::DragFloat("Value", &n.value.x, 0.01f);
+                    recodegen = ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                case MatNodeType::ConstColor:
+                    ImGui::ColorEdit4("Color", &n.value.x, ImGuiColorEditFlags_AlphaBar);
+                    recodegen = ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                case MatNodeType::Remap:
+                    ImGui::DragFloat("In Min",  &n.value.x, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("In Max",  &n.value.y, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Out Min", &n.value.z, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Out Max", &n.value.w, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                case MatNodeType::TextureSample:
+                {
+                    static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
+                    int t = (n.tex < 9) ? (int)n.tex : 0;
+                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; recodegen = true; }
+                    break;
+                }
+                default:
+                    ImGui::TextDisabled("No parameters.");
+                    break;
+            }
+            return recodegen;
+        }
     }
 
     // ── GraphDelegate ──────────────────────────────────────────────────────────────────────────────
@@ -141,9 +207,10 @@ namespace Luth
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);
     }
 
-    void MaterialGraphPanel::GraphDelegate::RightClick(GraphEditor::NodeIndex, GraphEditor::SlotIndex, GraphEditor::SlotIndex)
+    void MaterialGraphPanel::GraphDelegate::RightClick(GraphEditor::NodeIndex nodeIndex, GraphEditor::SlotIndex, GraphEditor::SlotIndex)
     {
-        // Node-add palette / per-node context menu lands in the interactive-authoring follow-up.
+        rightClickedNode = nodeIndex;   // the panel opens the add/delete popup after Show
+        openMenu = true;
     }
 
     const size_t MaterialGraphPanel::GraphDelegate::GetTemplateCount() { return kTypeCount; }
@@ -252,15 +319,82 @@ namespace Luth
         ImGui::SameLine();
         if (ImGui::SmallButton("Recompile")) MaterialGraphCodegen::GenerateAndCompile(*material);
 
-        m_Delegate.Bind(&material->GetGraphMutable());
+        MaterialGraph& graph = material->GetGraphMutable();
+        bool recodegen = false;
+
+        // Left: parameters for the selected node. Right: the graph canvas.
+        ImGui::BeginChild("##ParamPane", ImVec2(210.0f, 0.0f), true);
+        {
+            int selNode = -1;
+            for (size_t i = 0; i < m_Delegate.selected.size(); ++i)
+                if (m_Delegate.selected[i]) { selNode = (int)i; break; }
+
+            if (selNode >= 0 && selNode < (int)graph.nodes.size())
+            {
+                MatNode& n = graph.nodes[selNode];
+                ImGui::TextUnformatted(kTypes[(int)n.type].name);
+                ImGui::Separator();
+                if (DrawNodeParams(n)) recodegen = true;
+                if (n.type != MatNodeType::Output)
+                {
+                    ImGui::Separator();
+                    if (ImGui::Button("Delete Node"))
+                    {
+                        DeleteNode(graph, (size_t)selNode);
+                        m_Delegate.selected.clear();
+                        recodegen = true;
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("Select a node to edit it,\nor right-click the canvas\nto add one.");
+            }
+        }
+        ImGui::EndChild();
+        ImGui::SameLine();
+
+        // GraphEditor draws into the remaining window region (matches the working direct-call site).
+        m_Delegate.Bind(&graph);
         GraphEditor::Show(m_Delegate, m_Options, m_View, true, nullptr);
 
-        if (m_Delegate.structuralChange)
+        if (m_Delegate.openMenu) { ImGui::OpenPopup("##GraphCtx"); m_Delegate.openMenu = false; }
+        if (ImGui::BeginPopup("##GraphCtx"))
+        {
+            if (ImGui::BeginMenu("Add Node"))
+            {
+                for (int t = 0; t < (int)kTypeCount; ++t)
+                {
+                    if ((MatNodeType)t == MatNodeType::Output) continue;   // single terminal — ships with the graph
+                    if (ImGui::MenuItem(kTypes[t].name))
+                    {
+                        const float c = (graph.nodes.size() % 6) * 26.0f;
+                        graph.nodes.push_back(MakeNode((MatNodeType)t, NextNodeId(graph), Vec2(60.0f + c, 60.0f + c)));
+                        recodegen = true;
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (m_Delegate.rightClickedNode < graph.nodes.size()
+                && graph.nodes[m_Delegate.rightClickedNode].type != MatNodeType::Output)
+            {
+                ImGui::Separator();
+                if (ImGui::MenuItem("Delete Node"))
+                {
+                    DeleteNode(graph, m_Delegate.rightClickedNode);
+                    m_Delegate.selected.clear();
+                    recodegen = true;
+                }
+            }
+            ImGui::EndPopup();
+        }
+
+        if (m_Delegate.structuralChange) { recodegen = true; m_Delegate.structuralChange = false; }
+        if (m_Delegate.moved)            { material->MarkDirty(); m_Delegate.moved = false; }
+        if (recodegen)
         {
             MaterialGraphCodegen::GenerateAndCompile(*material);
             material->MarkDirty();
-            m_Delegate.structuralChange = false;
         }
-        if (m_Delegate.moved) { material->MarkDirty(); m_Delegate.moved = false; }
     }
 }

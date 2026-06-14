@@ -33,6 +33,8 @@ namespace Luth
             std::vector<bool> selected;
             bool structuralChange = false;   // link add/remove -> re-codegen
             bool moved = false;              // node drag -> save (position only)
+            bool openMenu = false;           // right-click -> open the canvas context menu
+            GraphEditor::NodeIndex rightClickedNode = 0;
 
             void Bind(MaterialGraph* g);
 
