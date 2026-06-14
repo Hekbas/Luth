@@ -218,7 +218,27 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 | 4 | composable effect layer | L | Link-specialized stackable effects; the node editor emits into it (no longer blocks 5) |
 | 5 ✅ | node editor → bounded surface | XL | Channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry dispatch (raster==RT); done before Phase 4 — shipped v3.2.5 |
 
-> Shipped: `graph-param-buffer` (v3.2.6) — constants→per-material-data + structure-hash-keyed variants (recompile-on-edit, the RT-recompile hitch, the 16-variant cap, and the per-edit pipeline leak all gone). Next: Phase 4 (effect layer) / transparent-graph / node breadth. `gpu-particles` (#57) stays parallelizable.
+> ✅ `graph-param-buffer` (v3.2.6) — constants→per-material-data + structure-hash-keyed variants (recompile-on-edit, the RT-recompile hitch, the 16-variant cap, and the per-edit pipeline leak all gone).
+
+### Materials arc (M1–M5)
+
+Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone**: a tunable in an effect unit (M3) or shading model (M4) must be a *parameter*, not a baked constant, or it reintroduces the anti-pattern `graph-param-buffer` just removed, so M2 precedes M3/M4. M1–M3 close `slang-material` (#157); M4–M5 open follow-on series. `gpu-particles` ([#57](https://github.com/Hekbas/Luth/issues/57)) stays parallelizable throughout. One effort per conversation, plan-mode each.
+
+| Arc | Effort | Size | Notes |
+|---|---|---|---|
+| M1 authoring | `transparent-graph` | M | Graph works in the transparent/OIT raster pass (today binds stock → raster/RT-inconsistent). Parity fix. |
+| M1 authoring | `graph-normal-preview` | S–M | Honor `mi.normal` in the shade body (graphed normal maps — currently inert) + graph-aware sphere preview. |
+| M1 authoring | `node-breadth` | M | Noise / UV transforms / math breadth / fresnel / new inputs (vertex color, world pos, time, view dir) + custom-Slang escape node. |
+| M1 authoring | `node-ux` | S | Search, comments/frames, group-to-subgraph, granular undo. |
+| M2 params ⭐ | `exposed-parameters` | M | Named scalar/vector/tex/bool params, inspector-editable + grouped; the graph references them by name (already data in `gMatParams`). |
+| M2 params ⭐ | `static-switches` | M | Compile-time bool/enum params → structural variants (the static-switch axis; folds into the structure hash). |
+| M3 composition | `effect-layer` | L | Phase 4 — link-specialized stackable effect substrate; the node editor emits into it. |
+| M3 composition | `triplanar` / `detail-maps` / `parallax-occlusion` / `decals` | M–L | Surface-detail units emitted from the node editor. |
+| M4 shading | `clear-coat` + `anisotropy` | M | Lacquer / gold / brushed metal. Extend `MaterialInputs` + `brdf.slang`, raster==RT. |
+| M4 shading | `sheen-cloth` | M | Estevez17 — fabric, banners, robes. |
+| M4 shading | `subsurface-skin` | L | Jimenez15 / Burley — skin, wax, candles, marble. |
+| M4 shading | `hair` | L | Marschner03 / Karis16 — needs hair geometry/cards (= the deferred `character-shading`). |
+| M5 texturing | `virtual-texturing` + sRGB-authoring revisit | XL | Streaming-scale texturing; revisit the v3.1.6 sRGB-authoring revert. Long-tail. |
 
 ### Gameplay enablement
 
