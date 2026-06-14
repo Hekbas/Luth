@@ -15,5 +15,9 @@ namespace Luth
     namespace MaterialGraphCodegen
     {
         UUID GenerateAndCompile(Material& material);
+
+        // Recompute the material's cached graph constants from node values — no compile, no variant change.
+        // The value-edit path: a Const/Remap value change is data, lowered into gMatParams the next frame.
+        void RefreshParams(Material& material);
     }
 }

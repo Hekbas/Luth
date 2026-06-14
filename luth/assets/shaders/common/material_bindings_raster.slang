@@ -5,10 +5,14 @@ import material;
 
 [[vk::binding(0, 1)]] Sampler2D                         gTextures[];
 [[vk::binding(0, 2)]] StructuredBuffer<GPUMaterialData> gMaterials;
+[[vk::binding(1, 2)]] StructuredBuffer<float4>          gMatParams;   // per-material graph constants (data, not codegen literals)
 
 public struct RasterFetch : ITexFetch
 {
+    public uint paramBase;       // = materialIndex * MAT_GRAPH_STRIDE; __init zeroes it (stock decode never reads it)
+    public __init() { paramBase = 0; }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].Sample(uv); }
+    public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
 }
 
 // Material SSBO accessor — the buffer stays module-internal; the fragment reads its material through this.

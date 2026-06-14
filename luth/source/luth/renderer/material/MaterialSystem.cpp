@@ -108,9 +108,11 @@ namespace Luth
         jobCtx->GpuCache.CurrentTag = static_cast<u32>(gameFrame);
 
         constexpr u64 regionBytes = static_cast<u64>(MAX_MATERIALS) * MATERIAL_SIZE;
+        constexpr u64 paramBytes  = static_cast<u64>(MAX_MATERIALS) * MAT_GRAPH_STRIDE * sizeof(Vec4);
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
-        Memory::GPUSubRegion region = heap.Allocate(jobCtx->GpuCache, regionBytes, 16);
-        if (!region.buffer) return;
+        Memory::GPUSubRegion region      = heap.Allocate(jobCtx->GpuCache, regionBytes, 16);
+        Memory::GPUSubRegion paramRegion = heap.Allocate(jobCtx->GpuCache, paramBytes, 16);
+        if (!region.buffer || !paramRegion.buffer) return;
 
         // Lock spans slot iteration (~25us at MAX_MATERIALS=16384). Borderline for V1
         // strictly, but contention is zero today: Register/Unregister also assert game
@@ -125,32 +127,44 @@ namespace Luth
                 // Refresh GPU data each frame to pick up newly-loaded bindless texture indices.
                 m_Slots[i].material->UpdateGPUData();
                 const GPUMaterialData& data = m_Slots[i].material->GetGPUData();
-                u8* dst = static_cast<u8*>(region.mappedPtr) + (i * MATERIAL_SIZE);
-                memcpy(dst, &data, MATERIAL_SIZE);
+                memcpy(static_cast<u8*>(region.mappedPtr) + (i * MATERIAL_SIZE), &data, MATERIAL_SIZE);
+
+                // Graph constants fill the parallel param region at the same slot (paramBase = i*MAT_GRAPH_STRIDE).
+                // The region is fresh each frame, so write every graph material; non-graph slots stay untouched.
+                const auto& params = m_Slots[i].material->GetGraphParams();
+                if (!params.empty())
+                {
+                    const u64 n = params.size() < MAT_GRAPH_STRIDE ? params.size() : MAT_GRAPH_STRIDE;
+                    memcpy(static_cast<u8*>(paramRegion.mappedPtr) + (static_cast<u64>(i) * MAT_GRAPH_STRIDE * sizeof(Vec4)),
+                           params.data(), n * sizeof(Vec4));
+                }
                 m_Slots[i].material->ClearGpuDirty();
             }
         }
 
         heap.FlushRegion(region);
+        heap.FlushRegion(paramRegion);
 
-        // Write the GAME-frame's Set 2 slot. Render stage K-1 reads slot (K-1)%N
-        // — distinct slots, race-free, no UAB needed.
+        // Write the GAME-frame's slot (binding 0 = material SSBO, binding 1 = param buffer). Render stage K-1
+        // reads slot (K-1)%N — distinct slots, race-free. Both written every frame (binding 1 never unbound).
         const u32 slot = static_cast<u32>(gameFrame) % MAX_FRAMES_IN_FLIGHT;
 
-        VkDescriptorBufferInfo bi{};
-        bi.buffer = region.buffer;
-        bi.offset = region.offset;
-        bi.range  = region.size;
+        VkDescriptorBufferInfo bi[2]{};
+        bi[0].buffer = region.buffer;       bi[0].offset = region.offset;       bi[0].range = region.size;
+        bi[1].buffer = paramRegion.buffer;  bi[1].offset = paramRegion.offset;  bi[1].range = paramRegion.size;
 
-        VkWriteDescriptorSet write{};
-        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet          = m_DescriptorSets[slot];
-        write.dstBinding      = 0;
-        write.dstArrayElement = 0;
-        write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo     = &bi;
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &write, 0, nullptr);
+        VkWriteDescriptorSet writes[2]{};
+        for (u32 b = 0; b < 2; ++b)
+        {
+            writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[b].dstSet          = m_DescriptorSets[slot];
+            writes[b].dstBinding      = b;
+            writes[b].dstArrayElement = 0;
+            writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[b].descriptorCount = 1;
+            writes[b].pBufferInfo     = &bi[b];
+        }
+        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
     }
 
     VkDescriptorSet MaterialSystem::GetDescriptorSet(u32 slot)
@@ -167,32 +181,36 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // invariant: Set 2 needs UAB even though slots are cycled. The K%N write at
-        // game-stage K can fire while render-stage K's cmd buffer (which binds the
-        // same slot, recording in parallel) is still in the pending state.
-        VkDescriptorSetLayoutBinding binding{};
-        binding.binding         = 0;
-        binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        binding.descriptorCount = 1;
-        binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+        // binding 0 = material SSBO, binding 1 = graph-param buffer (gMatParams), both rewritten per game stage.
+        // invariant: UAB even though slots cycle — the K%N write can fire while render-stage K's cmd buffer (same
+        // slot) is still pending. The one set binds at Set 2 (raster) and Set 3 (RT megakernels).
+        VkDescriptorSetLayoutBinding bindings[2]{};
+        for (u32 b = 0; b < 2; ++b)
+        {
+            bindings[b].binding         = b;
+            bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            bindings[b].descriptorCount = 1;
+            bindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+        }
 
-        VkDescriptorBindingFlags bindingFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorBindingFlags bindingFlags[2] = {
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        bindingFlagsCI.bindingCount  = 1;
-        bindingFlagsCI.pBindingFlags = &bindingFlags;
+        bindingFlagsCI.bindingCount  = 2;
+        bindingFlagsCI.pBindingFlags = bindingFlags;
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.pNext        = &bindingFlagsCI;
         layoutInfo.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings    = &binding;
+        layoutInfo.bindingCount = 2;
+        layoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 
-        // Pool sized for MAX_FRAMES_IN_FLIGHT sets; UPDATE_AFTER_BIND pairs the layout flag.
+        // Pool sized for 2 storage buffers per set (material SSBO + param buffer) across N slots.
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+        poolSize.descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;

@@ -5,11 +5,15 @@ import material;
 import mat_graph_registry;   // EvalGraphVariant — engine default (stock) or the project's generated override
 
 [[vk::binding(0, 3)]] StructuredBuffer<GPUMaterialData> gMaterials;
+[[vk::binding(1, 3)]] StructuredBuffer<float4>          gMatParams;   // shares MaterialSystem's set (binding 1) — same buffer raster sees at set 2
 [[vk::binding(0, 4)]] Sampler2D                         gTextures[];
 
 public struct RayFetch : ITexFetch
 {
+    public uint paramBase;       // = materialSlot * MAT_GRAPH_STRIDE; set per hit before EvalGraphVariant
+    public __init() { paramBase = 0; }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, 0.0); }
+    public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
 }
 
 // RT analog of EvalPbrSurface: gather geometry, decode channels (LOD 0), perturb + face the normal.
@@ -19,6 +23,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     HitGeometry g = GatherHitGeometry(geomTable, customIndex, primIndex, bary, o2w, rayDir);
     GPUMaterialData m = gMaterials[g.materialSlot];
     RayFetch rf;
+    rf.paramBase = g.materialSlot * MAT_GRAPH_STRIDE;
     MaterialInputs mi = EvalGraphVariant<RayFetch>(GraphVariant(m.flags), m, g.uv0, g.uv1, rf);
 
     float3 N = g.ns;

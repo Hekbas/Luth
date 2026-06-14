@@ -90,40 +90,43 @@ namespace Luth
             g.nodes.erase(g.nodes.begin() + index);
         }
 
-        // Draws the selected node's editable parameters; returns true when an edit settles (release / combo
-        // change) so the shader is re-emitted. Const/Remap values bake into the generated Slang, so they
-        // recompile on release rather than per drag-frame.
-        bool DrawNodeParams(MatNode& n)
+        // A settled node-param edit, split by downstream cost: a Const/Remap VALUE change is pure data (refresh
+        // gMatParams, no recompile); a TextureSample slot change is STRUCTURE (re-emit the per-material shader).
+        struct NodeEdit { bool value = false; bool structure = false; };
+
+        // Draws the selected node's editable parameters; flags settled edits (release / combo change). Const
+        // values now flow to per-material data, so they no longer recompile — only structural edits re-emit.
+        NodeEdit DrawNodeParams(MatNode& n)
         {
-            bool recodegen = false;
+            NodeEdit e;
             switch (n.type)
             {
                 case MatNodeType::ConstFloat:
                     ImGui::DragFloat("Value", &n.value.x, 0.01f);
-                    recodegen = ImGui::IsItemDeactivatedAfterEdit();
+                    e.value = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 case MatNodeType::ConstColor:
                     ImGui::ColorEdit4("Color", &n.value.x, ImGuiColorEditFlags_AlphaBar);
-                    recodegen = ImGui::IsItemDeactivatedAfterEdit();
+                    e.value = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 case MatNodeType::Remap:
-                    ImGui::DragFloat("In Min",  &n.value.x, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
-                    ImGui::DragFloat("In Max",  &n.value.y, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
-                    ImGui::DragFloat("Out Min", &n.value.z, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
-                    ImGui::DragFloat("Out Max", &n.value.w, 0.01f); recodegen |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("In Min",  &n.value.x, 0.01f); e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("In Max",  &n.value.y, 0.01f); e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Out Min", &n.value.z, 0.01f); e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Out Max", &n.value.w, 0.01f); e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 case MatNodeType::TextureSample:
                 {
                     static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
                     int t = (n.tex < 9) ? (int)n.tex : 0;
-                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; recodegen = true; }
+                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; e.structure = true; }
                     break;
                 }
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;
             }
-            return recodegen;
+            return e;
         }
     }
 
@@ -320,7 +323,8 @@ namespace Luth
         if (ImGui::SmallButton("Recompile")) MaterialGraphCodegen::GenerateAndCompile(*material);
 
         MaterialGraph& graph = material->GetGraphMutable();
-        bool recodegen = false;
+        bool recodegen = false;   // structural edit -> re-emit the shader
+        bool valueEdit = false;   // Const/Remap value -> per-material data only (no recompile)
 
         // Left: parameters for the selected node. Right: the graph canvas.
         ImGui::BeginChild("##ParamPane", ImVec2(210.0f, 0.0f), true);
@@ -334,7 +338,9 @@ namespace Luth
                 MatNode& n = graph.nodes[selNode];
                 ImGui::TextUnformatted(kTypes[(int)n.type].name);
                 ImGui::Separator();
-                if (DrawNodeParams(n)) recodegen = true;
+                NodeEdit edit = DrawNodeParams(n);
+                if (edit.structure) recodegen = true;
+                if (edit.value)     valueEdit = true;
                 if (n.type != MatNodeType::Output)
                 {
                     ImGui::Separator();
@@ -394,6 +400,12 @@ namespace Luth
         if (recodegen)
         {
             MaterialGraphCodegen::GenerateAndCompile(*material);
+            material->MarkDirty();
+        }
+        else if (valueEdit)
+        {
+            // Value-only edit: lower the constants into per-material data; the generated shader is untouched.
+            MaterialGraphCodegen::RefreshParams(*material);
             material->MarkDirty();
         }
     }
