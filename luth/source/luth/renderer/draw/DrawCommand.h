@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/UUID.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Model.h"
 
@@ -21,6 +22,7 @@ namespace Luth
         u32 entityIndex = 0;
         entt::entity entity = entt::null;
         Material::CullMode cullMode = Material::CullMode::Back;
+        UUID fragShaderUUID = UUID::Invalid();  // node-graph frag override; invalid = stock pbr fragment
         bool isSkinned = false;
         u32 boneOffset = 0;
         u32 gpuObjectIndex = 0;  // 0-based index into GPUObjectData SSBO / IndirectBuffer

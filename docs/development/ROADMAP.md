@@ -117,6 +117,8 @@
 | v3.2.1 | `slang-toolchain` | `.slang` through the asset pipeline (stage via Slang reflection) + ShaderWatcher hot-reload, coexisting with GLSL; spike promoted to a SlangParityGuard whose gate is a deterministic SPIR-V NonUniform/caps scan, with the pixel A/B kept default-off as a diagnostic; multi-entry link probe retired | 2026-06-13 |
 | v3.2.2 | `slang-imaterial` | Bounded `material.slang` + one generic two-tier eval (RasterFetch/RayFetch) shared by all 9 raster/RT/transparent/volumetric consumers; production GLSL seam deleted; fixed a Slang global-session concurrency crash (fresh session per compile); drift-guard + spike retirement deferred | 2026-06-14 |
 | v3.2.3 | `slang-material-cleanup` | Closes the `slang-imaterial` follow-ups: an init-time `MaterialLayoutGuard` cross-checks `GPUMaterialData`/`GlobalUniforms` field offsets against their `.slang` twins via Slang reflection; full Phase-0 spike retirement — `SlangParityGuard` is now a gate-only SPIR-V scan on production `restir_gi_initial.slang`, deleting the pixel A/B + `geom_table.glsl` | 2026-06-14 |
+| v3.2.4 | `packed-texture-routing` | Import-side remap into the bounded channels: ORM aliasing, separate-map + spec-gloss derived-texture bake, DirectX-normal green-flip, TextureRole auto-detect + editor override; zero GPU-struct change, raster==RT by construction | 2026-06-14 |
+| v3.2.5 | `material-node-editor` | Blender-style channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry megakernel dispatch (raster==RT); 9-node vocab, live recompile, undo; effect-layers / transparent / constants-as-data deferred | 2026-06-14 |
 
 ---
 
@@ -212,10 +214,10 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 | 1 ✅ | `slang-toolchain` | M | `.slang` asset-pipeline dispatch (stage via reflection) + ShaderWatcher hot-reload + SlangParityGuard (deterministic SPIR-V NonUniform/caps gate; pixel A/B = diagnostic) — shipped v3.2.1 |
 | 2 ✅ | `slang-imaterial` | L | bounded `material.slang` + two-tier generic eval shared by all 9 consumers; production seam deleted — shipped v3.2.2; hardening follow-ups (layout drift-guard + spike/geom_table retirement) shipped v3.2.3 |
 | 3 ✅ | packed-texture routing | L | Import-side remap into the bounded channels: ORM aliasing, separate-map + spec-gloss derived-texture bake, DirectX-normal green-flip, TextureRole auto-detect + editor override; zero GPU-struct change, raster==RT by construction; shipped v3.2.4 |
-| 4 | composable effect layer | L | Link-specialized effect stack |
-| 5 | node editor → bounded surface | XL | Blender-like UX emitting into `IMaterial` |
+| 4 | composable effect layer | L | Link-specialized stackable effects; the node editor emits into it (no longer blocks 5) |
+| 5 ✅ | node editor → bounded surface | XL | Channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry dispatch (raster==RT); done before Phase 4 — shipped v3.2.5 |
 
-> Next: Phase 4 (composable effect layer). `gpu-particles` (#57) stays parallelizable.
+> Next: `constants→per-material-data` (kills recompile-on-edit + the RT-recompile hitch + the 16-variant cap + the per-edit pipeline leak), then Phase 4 (effect layer) / transparent-graph / node breadth. `gpu-particles` (#57) stays parallelizable.
 
 ### Gameplay enablement
 

@@ -115,17 +115,27 @@ namespace Luth
                   { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
             };
 
-            // Import roots: the primary's own dir (loadModule finds it by name) + common/ for shared modules.
-            std::string srcDirStr = srcDir.string();
-            std::string commonDir = FileSystem::EngineAssetsPath("shaders/common").string();
-            const char* searchPaths[] = { srcDirStr.c_str(), commonDir.c_str() };
+            // Import roots: the project's generated dir FIRST (its mat_graph_registry override shadows the
+            // engine default), then the primary's own dir (loadModule finds it by name) + common/ for shared
+            // modules, then registry/ LAST for the default mat_graph_registry. registry/ is deliberately NOT
+            // common/: Slang resolves an import relative to the importing module's folder before the search
+            // paths, so a default beside material_bindings_rt would always win over the project override.
+            std::string genDir      = FileSystem::HasProject() ? FileSystem::ProjectPath("Library/Generated/shaders").string() : std::string();
+            std::string srcDirStr   = srcDir.string();
+            std::string commonDir   = FileSystem::EngineAssetsPath("shaders/common").string();
+            std::string registryDir = FileSystem::EngineAssetsPath("shaders/registry").string();
+            std::vector<const char*> searchPaths;
+            if (!genDir.empty()) searchPaths.push_back(genDir.c_str());
+            searchPaths.push_back(srcDirStr.c_str());
+            searchPaths.push_back(commonDir.c_str());
+            searchPaths.push_back(registryDir.c_str());
 
             slang::SessionDesc desc{};
             desc.targets = &target;
             desc.targetCount = 1;
             desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
-            desc.searchPaths = searchPaths;
-            desc.searchPathCount = 2;
+            desc.searchPaths = searchPaths.data();
+            desc.searchPathCount = static_cast<SlangInt>(searchPaths.size());
             desc.compilerOptionEntries = opts;
             desc.compilerOptionEntryCount = static_cast<u32>(std::size(opts));
 

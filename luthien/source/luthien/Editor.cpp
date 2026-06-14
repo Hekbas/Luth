@@ -36,6 +36,7 @@
 #include "luthien/panels/FrameDebuggerPanel.h"
 #include "luthien/panels/HistoryPanel.h"
 #include "luthien/panels/ConsolePanel.h"
+#include "luthien/panels/MaterialGraphPanel.h"
 #include "luthien/panels/EditorSettingsWindow.h"
 #include "luthien/panels/TextureRemapDialog.h"
 #include "luth/resources/importers/ModelImporter.h"
@@ -210,6 +211,7 @@ namespace Luth
         AddPanel(new FrameDebuggerPanel());
         AddPanel(new HistoryPanel());
         AddPanel(new ConsolePanel());
+        AddPanel(new MaterialGraphPanel());
 
         ComponentDrawers::RegisterComponentDrawers();
 

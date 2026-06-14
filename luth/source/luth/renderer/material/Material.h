@@ -6,6 +6,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/shader/Shader.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/material/MaterialGraph.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>
@@ -94,6 +95,23 @@ namespace Luth
         std::shared_ptr<Shader> GetShader() const {
              return AssetManager::GetAsset<Shader>(m_ShaderUUID);
         }
+
+        // Per-material fragment shader emitted by the node graph (MaterialGraphCodegen). Invalid = the
+        // geometry subsystem's stock pbr fragment; the vertex stage stays shared (pbr.vert) either way.
+        UUID GetGraphShaderUUID() const { return m_GraphShaderUUID; }
+        void SetGraphShaderUUID(const UUID& uuid) { m_GraphShaderUUID = uuid; }
+
+        // RT eval-variant index (0 = stock). MaterialGraphCodegen assigns it so the RT megakernel's shared
+        // EvalGraphVariant dispatch selects this material's graph eval; packed into GPUMaterialData flags 8-15.
+        u32  GetGraphVariant() const { return m_GraphVariant; }
+        void SetGraphVariant(u32 v) { m_GraphVariant = v; }
+
+        // Node-graph authoring source (channel routing). MaterialGraphCodegen lowers it to the fragment
+        // shader whose UUID lands in m_GraphShaderUUID. Empty graph = plain (non-graph) material.
+        const MaterialGraph& GetGraph() const { return m_Graph; }
+        MaterialGraph&       GetGraphMutable() { return m_Graph; }
+        void SetGraph(MaterialGraph graph) { m_Graph = std::move(graph); }
+        bool HasGraph() const { return !m_Graph.Empty(); }
 
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
@@ -230,6 +248,9 @@ namespace Luth
         void InitializeStorage();
 
         UUID m_ShaderUUID;
+        UUID m_GraphShaderUUID = UUID::Invalid();   // node-graph fragment override; invalid = stock pbr
+        MaterialGraph m_Graph;                      // authoring source; empty = plain material
+        u32 m_GraphVariant = 0;                     // RT eval-variant (0 = stock); packed into flags 8-15
         std::vector<uint8_t> m_UniformStorage;
         // Temporary storage for deserialization if shader is not loaded yet
         nlohmann::json m_CachedUniformJSON;

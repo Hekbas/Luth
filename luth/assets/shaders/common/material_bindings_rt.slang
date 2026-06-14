@@ -2,6 +2,7 @@
 // policy + the FetchHitSurface / alpha-test wrappers that need those globals. Pairs with material.slang.
 // Hand-pinned sets — slang#8063 forbids auto-binding the variable-count bindless heap. see arch/rendering-pipeline.md
 import material;
+import mat_graph_registry;   // EvalGraphVariant — engine default (stock) or the project's generated override
 
 [[vk::binding(0, 3)]] StructuredBuffer<GPUMaterialData> gMaterials;
 [[vk::binding(0, 4)]] Sampler2D                         gTextures[];
@@ -18,7 +19,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     HitGeometry g = GatherHitGeometry(geomTable, customIndex, primIndex, bary, o2w, rayDir);
     GPUMaterialData m = gMaterials[g.materialSlot];
     RayFetch rf;
-    MaterialInputs mi = EvalMaterialChannels<RayFetch>(m, g.uv0, g.uv1, rf);
+    MaterialInputs mi = EvalGraphVariant<RayFetch>(GraphVariant(m.flags), m, g.uv0, g.uv1, rf);
 
     float3 N = g.ns;
     if ((m.flags & FLAG_HAS_NORMAL) != 0u && g.hasTangent)
