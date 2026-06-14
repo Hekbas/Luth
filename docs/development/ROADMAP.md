@@ -236,6 +236,7 @@ Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone
 | M3 composition | `effect-layer` | L | Phase 4 — link-specialized stackable effect substrate; the node editor emits into it. |
 | M3 composition | `triplanar` / `detail-maps` / `parallax-occlusion` / `decals` | M–L | Surface-detail units emitted from the node editor. |
 | M4 shading | `clear-coat` + `anisotropy` | M | Lacquer / gold / brushed metal. Extend `MaterialInputs` + `brdf.slang`, raster==RT. |
+| M4 shading | `dielectric-transmission` | L | Glass / refraction / colored-interior absorption — IOR + Fresnel + GGX BTDF + Beer-Lambert. Lights up PT + rt-reflections (today both commit transparent as opaque — `gl_RayFlagsOpaqueEXT`); extends `MaterialInputs` + `brdf.slang`. Stochastic-alpha-in-PT is a cheap separable partial. |
 | M4 shading | `sheen-cloth` | M | Estevez17 — fabric, banners, robes. |
 | M4 shading | `subsurface-skin` | L | Jimenez15 / Burley — skin, wax, candles, marble. |
 | M4 shading | `hair` | L | Marschner03 / Karis16 — needs hair geometry/cards (= the deferred `character-shading`). |
