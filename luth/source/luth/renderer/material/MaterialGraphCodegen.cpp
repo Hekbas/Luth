@@ -230,6 +230,36 @@ namespace Luth
             return ss.str();
         }
 
+        // The per-material preview consumer: graph decode + a Lambert+ambient mini-shade for the editor
+        // thumbnail/inspector. Self-contained (PreviewFetch + per-call UBO + bindless) — no MaterialSystem set.
+        std::string EmitPreviewConsumer(const std::string& moduleName, const std::string& fnName)
+        {
+            std::ostringstream ss;
+            ss << "import material;\n";
+            ss << "import material_bindings_preview;\n";
+            ss << "import " << moduleName << ";\n\n";
+            ss << "struct FOut { float4 color : SV_Target0; }\n\n";
+            ss << "[shader(\"fragment\")]\n";
+            ss << "FOut main(PreviewVaryings v)\n{\n";
+            ss << "    GPUMaterialData m = gPreview.m;\n";
+            ss << "    PreviewFetch pf;\n";
+            ss << "    MaterialInputs mi = " << fnName << "<PreviewFetch>(m, v.uv0, v.uv1, pf);\n";
+            ss << "    float3 N = normalize(v.normal);\n";
+            ss << "    if (any(mi.normal != float3(0.0, 0.0, 1.0)) && length(v.tangent) > 1e-6)\n";
+            ss << "    {\n";
+            ss << "        float3 T = normalize(v.tangent - dot(v.tangent, N) * N);\n";
+            ss << "        N = ApplyTangentNormal(mi.normal, T, cross(N, T), N);\n";
+            ss << "    }\n";
+            ss << "    const float3 L = normalize(float3(0.5, 1.0, 0.7));\n";
+            ss << "    float3 base = mi.baseColor.rgb;\n";
+            ss << "    float diffuse = max(dot(N, L), 0.0);\n";
+            ss << "    FOut o;\n";
+            ss << "    o.color = float4(base * 0.25 + diffuse * base * 0.75 + mi.emissive, 1.0);\n";
+            ss << "    return o;\n";
+            ss << "}\n";
+            return ss.str();
+        }
+
         // The project variant registry — a switch over every distinct structure's EvalGraph_<hash>, shadowing
         // the engine-default mat_graph_registry on the Slang search path. material_bindings_rt imports it so
         // the shared RT megakernel can decode any graph material. entries are {variantIndex, structure-hash hex}.
@@ -249,7 +279,7 @@ namespace Luth
 
         constexpr u32 kMaxGraphVariants = 16;   // RT megakernel switch-arm cap — now counts distinct STRUCTURES
 
-        struct StructInfo { u32 variant; UUID shaderUUID; std::string canonSrc; };
+        struct StructInfo { u32 variant; UUID shaderUUID; UUID previewUUID; std::string canonSrc; };
         std::unordered_map<u64, StructInfo> s_Structures;   // structure hash -> shared variant + compiled shader
 
         // FNV-1a over the canonical (value-free, ID-free) module source — the structure key. Materials with the
@@ -321,6 +351,7 @@ namespace Luth
         {
             const StructInfo& si = it->second;
             material.SetGraphShaderUUID(si.shaderUUID);
+            material.SetGraphPreviewShaderUUID(si.previewUUID);
             material.SetGraphVariant(si.variant);
             material.UpdateGPUData();
             return si.shaderUUID;
@@ -354,6 +385,24 @@ namespace Luth
         if (!shader) return UUID::Invalid();
         ShaderLibrary::Register(consBase, shader);     // ResolveFragSpv matches on the Handle below
 
+        // Preview consumer (editor thumbnail/inspector). Non-fatal: on failure the material still renders
+        // in the viewport; only the editor preview falls back to the stock Lambert shader.
+        const std::string prevBase = "thumbnail_graph_" + hashHex;
+        const fs::path    prevPath = genDir / (prevBase + ".slang");
+        UUID previewUUID = UUID::Invalid();
+        if (WriteShaderFile(prevPath, EmitPreviewConsumer(modBase, fnName)))
+        {
+            SlangCompiler::CompileOutput pout = SlangCompiler::CompileReflectStage(prevPath);
+            if (!pout.spirv.empty())
+                if (auto psh = Shader::Create(pout.stage, pout.spirv, prevPath))
+                {
+                    ShaderLibrary::Register(prevBase, psh);
+                    previewUUID = psh->Handle;
+                }
+        }
+        if (!previewUUID.IsValid())
+            LH_CORE_WARN("MaterialGraphCodegen: '{}' preview consumer failed — editor preview stays stock", prevBase);
+
         // New structure -> assign an RT eval variant (capped on distinct structures). Beyond the cap the
         // material renders correctly in raster (per-structure shader) but stays stock in RT.
         u32 variant = 0;
@@ -362,8 +411,9 @@ namespace Luth
         else
             LH_CORE_WARN("MaterialGraphCodegen: RT variant cap ({}) reached — '{}' renders stock in RT", kMaxGraphVariants, consBase);
 
-        s_Structures[structHash] = StructInfo{ variant, shader->Handle, canonSrc };
+        s_Structures[structHash] = StructInfo{ variant, shader->Handle, previewUUID, canonSrc };
         material.SetGraphShaderUUID(shader->Handle);
+        material.SetGraphPreviewShaderUUID(previewUUID);
         material.SetGraphVariant(variant);
         material.UpdateGPUData();   // pack the variant into flags 8-15 for the per-frame material SSBO upload
 

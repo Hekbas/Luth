@@ -106,6 +106,11 @@ namespace Luth
         UUID GetGraphShaderUUID() const { return m_GraphShaderUUID; }
         void SetGraphShaderUUID(const UUID& uuid) { m_GraphShaderUUID = uuid; }
 
+        // Generated Lambert-over-graph fragment for the editor thumbnail/inspector preview (PreviewFetch
+        // tier — self-contained UBO). Invalid = the preview falls back to the stock Lambert shader.
+        UUID GetGraphPreviewShaderUUID() const { return m_GraphPreviewShaderUUID; }
+        void SetGraphPreviewShaderUUID(const UUID& uuid) { m_GraphPreviewShaderUUID = uuid; }
+
         // RT eval-variant index (0 = stock). MaterialGraphCodegen assigns it so the RT megakernel's shared
         // EvalGraphVariant dispatch selects this material's graph eval; packed into GPUMaterialData flags 8-15.
         u32  GetGraphVariant() const { return m_GraphVariant; }
@@ -259,6 +264,7 @@ namespace Luth
 
         UUID m_ShaderUUID;
         UUID m_GraphShaderUUID = UUID::Invalid();   // node-graph fragment override; invalid = stock pbr
+        UUID m_GraphPreviewShaderUUID = UUID::Invalid();  // editor preview consumer; invalid = stock Lambert
         MaterialGraph m_Graph;                      // authoring source; empty = plain material
         u32 m_GraphVariant = 0;                     // RT eval-variant (0 = stock); packed into flags 8-15
         std::vector<Vec4> m_GraphParams;            // codegen-ordered graph constants (gMatParams upload source)
