@@ -20,13 +20,6 @@ namespace Luth
 {
     namespace
     {
-        // Slang identifiers / module names can't contain '-'; UUID::ToString emits them.
-        std::string SanitizeIdent(std::string s)
-        {
-            for (char& c : s) if (c == '-') c = '_';
-            return s;
-        }
-
         // fetch.Sample(...) for a TextureSample node's map slot. Maps carrying a per-map UV-index bit follow
         // it; the rest sample UV0 — mirrors EvalMaterialChannels in material.slang.
         std::string TexSampleExpr(u32 tex)
@@ -236,9 +229,9 @@ namespace Luth
             return ss.str();
         }
 
-        // The project variant registry — a switch over every graph material's EvalGraph_<safe>, shadowing
+        // The project variant registry — a switch over every distinct structure's EvalGraph_<hash>, shadowing
         // the engine-default mat_graph_registry on the Slang search path. material_bindings_rt imports it so
-        // the shared RT megakernel can decode any graph material. entries are {variantIndex, sanitized-uuid}.
+        // the shared RT megakernel can decode any graph material. entries are {variantIndex, structure-hash hex}.
         std::string EmitAggregator(const std::vector<std::pair<u32, std::string>>& entries)
         {
             std::ostringstream ss;
@@ -253,8 +246,25 @@ namespace Luth
             return ss.str();
         }
 
-        constexpr u32 kMaxGraphVariants = 16;                  // RT megakernel switch-arm cap (occupancy guard)
-        std::unordered_map<UUID, u32, UUIDHash> s_Variants;    // material UUID -> RT eval variant (1-based)
+        constexpr u32 kMaxGraphVariants = 16;   // RT megakernel switch-arm cap — now counts distinct STRUCTURES
+
+        struct StructInfo { u32 variant; UUID shaderUUID; std::string canonSrc; };
+        std::unordered_map<u64, StructInfo> s_Structures;   // structure hash -> shared variant + compiled shader
+
+        // FNV-1a over the canonical (value-free, ID-free) module source — the structure key. Materials with the
+        // same graph shape hash equal and share one shader + variant; their constants differ only in gMatParams.
+        u64 Fnv1a(const std::string& s)
+        {
+            u64 h = 1469598103934665603ull;
+            for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+            return h;
+        }
+
+        std::string HexU64(u64 v)
+        {
+            std::ostringstream o; o << std::hex << std::setw(16) << std::setfill('0') << v;
+            return o.str();
+        }
 
         // Recompile the RT megakernels against the regenerated registry. Must run on the main thread —
         // shader reload fires pipeline rebuilds, which is not fiber-safe. One-time per graph edit.
@@ -287,27 +297,42 @@ namespace Luth
             return UUID::Invalid();
         }
 
-        const std::string safe     = SanitizeIdent(material.Handle.ToString());
-        const std::string modBase  = "mat_graph_" + safe;
-        const std::string consBase = "pbr_graph_" + safe;
-        const std::string fnName   = "EvalGraph_" + safe;
-
-        fs::path genDir = FileSystem::ProjectPath("Library/Generated/shaders");
-        std::error_code ec; fs::create_directories(genDir, ec);
-
-        const fs::path modPath  = genDir / (modBase  + ".slang");
-        const fs::path consPath = genDir / (consBase + ".slang");
-
         // Value-node count is hard-bounded by the per-material gMatParams stride — beyond it, fetch.Param(k)
         // would read into the next material's region. Fail loud (renders stock) rather than corrupt.
         Lowerer low(material.GetGraph());
         if (low.paramCount > MAT_GRAPH_STRIDE)
         {
             LH_CORE_ERROR("MaterialGraphCodegen: '{}' has {} graph constants (> MAT_GRAPH_STRIDE {}) — renders stock",
-                          consBase, low.paramCount, MAT_GRAPH_STRIDE);
+                          material.Handle.ToString(), low.paramCount, MAT_GRAPH_STRIDE);
             return UUID::Invalid();
         }
         material.SetGraphParams(BuildParams(material.GetGraph()));
+
+        // Structure key: the canonical module source under a fixed fn name — value-free + ID-free. Structurally
+        // identical materials hash equal and share the compiled shader + RT variant; their constants live in data.
+        const std::string canonSrc   = low.Run("EvalGraph");
+        const u64         structHash = Fnv1a(canonSrc);
+
+        // Hash hit: this structure was already compiled — reuse its shader + variant, skip codegen and the RT
+        // reload entirely. The source memcmp rules out a (vanishingly rare) hash collision before reusing.
+        if (auto it = s_Structures.find(structHash); it != s_Structures.end() && it->second.canonSrc == canonSrc)
+        {
+            const StructInfo& si = it->second;
+            material.SetGraphShaderUUID(si.shaderUUID);
+            material.SetGraphVariant(si.variant);
+            material.UpdateGPUData();
+            return si.shaderUUID;
+        }
+
+        const std::string hashHex  = HexU64(structHash);
+        const std::string modBase  = "mat_graph_" + hashHex;
+        const std::string consBase = "pbr_graph_" + hashHex;
+        const std::string fnName   = "EvalGraph_" + hashHex;
+
+        fs::path genDir = FileSystem::ProjectPath("Library/Generated/shaders");
+        std::error_code ec; fs::create_directories(genDir, ec);
+        const fs::path modPath  = genDir / (modBase  + ".slang");
+        const fs::path consPath = genDir / (consBase + ".slang");
 
         if (!WriteShaderFile(modPath, low.Run(fnName))
          || !WriteShaderFile(consPath, EmitConsumer(modBase, fnName)))
@@ -325,28 +350,28 @@ namespace Luth
 
         std::shared_ptr<Shader> shader = Shader::Create(out.stage, out.spirv, consPath);
         if (!shader) return UUID::Invalid();
-
         ShaderLibrary::Register(consBase, shader);     // ResolveFragSpv matches on the Handle below
-        material.SetGraphShaderUUID(shader->Handle);
 
-        // Assign an RT eval variant (capped). Beyond the cap the material renders correctly in raster but
-        // stays stock in RT. Then regenerate the project registry + recompile the RT megakernels so the
-        // shared megakernel decodes this graph too.
+        // New structure -> assign an RT eval variant (capped on distinct structures). Beyond the cap the
+        // material renders correctly in raster (per-structure shader) but stays stock in RT.
         u32 variant = 0;
-        if (auto it = s_Variants.find(material.Handle); it != s_Variants.end())
-            variant = it->second;
-        else if (s_Variants.size() < kMaxGraphVariants)
-            variant = s_Variants[material.Handle] = static_cast<u32>(s_Variants.size()) + 1;
+        if (s_Structures.size() < kMaxGraphVariants)
+            variant = static_cast<u32>(s_Structures.size()) + 1;
         else
             LH_CORE_WARN("MaterialGraphCodegen: RT variant cap ({}) reached — '{}' renders stock in RT", kMaxGraphVariants, consBase);
 
+        s_Structures[structHash] = StructInfo{ variant, shader->Handle, canonSrc };
+        material.SetGraphShaderUUID(shader->Handle);
         material.SetGraphVariant(variant);
         material.UpdateGPUData();   // pack the variant into flags 8-15 for the per-frame material SSBO upload
 
+        // Regenerate the project registry + recompile the RT megakernels so the shared megakernel decodes this
+        // new structure. Only fires on a brand-new structure — value edits and clones hash-hit above.
         if (variant != 0)
         {
             std::vector<std::pair<u32, std::string>> entries;
-            for (const auto& [uuid, v] : s_Variants) entries.emplace_back(v, SanitizeIdent(uuid.ToString()));
+            for (const auto& [hash, si] : s_Structures)
+                if (si.variant != 0) entries.emplace_back(si.variant, HexU64(hash));
             WriteShaderFile(genDir / "mat_graph_registry.slang", EmitAggregator(entries));
             ScheduleRtReload();
         }
