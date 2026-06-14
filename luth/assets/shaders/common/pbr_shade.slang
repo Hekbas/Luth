@@ -76,6 +76,9 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     float3 N = ((m.flags & FLAG_HAS_NORMAL) != 0u)
              ? ApplyNormalMap<RasterFetch>(m, i.uv0, i.uv1, i.T, i.B, i.N, rf)
              : normalize(i.normal);
+    // A graph driving Output.normal overrides the map/vertex normal (tangent space; identity (0,0,1) = no-op).
+    if (any(mi.normal != float3(0.0, 0.0, 1.0)))
+        N = ApplyTangentNormal(mi.normal, i.T, i.B, i.N);
     if (!frontFacing) N = -N;
 
     float4 albedo    = mi.baseColor;

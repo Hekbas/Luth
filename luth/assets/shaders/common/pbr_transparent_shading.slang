@@ -60,6 +60,8 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     float3 nrm = ((m.flags & FLAG_HAS_NORMAL) != 0u)
                ? ApplyNormalMap<RasterFetch>(m, uv0, uv1, T, B, N, rf)
                : normalize(N);
+    if (any(mi.normal != float3(0.0, 0.0, 1.0)))
+        nrm = ApplyTangentNormal(mi.normal, T, B, N);
     if (!frontFacing) nrm = -nrm;
 
     // ShadeMode debug overrides — parity with pbr (alpha 1.0).

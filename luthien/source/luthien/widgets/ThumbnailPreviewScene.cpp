@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <unordered_map>
 
 namespace Luth::UI::ThumbnailPreviewScene
 {
@@ -98,6 +99,35 @@ namespace Luth::UI::ThumbnailPreviewScene
         // identity or its texture-map UUID set changes.
         UUID                  s_LastInspectorMaterialHandle = UUID::Invalid();
         size_t                s_LastInspectorMaterialTexHash = 0;
+
+        // ── Graph-aware preview ─────────────────────────────────────────────
+        // A graph material previews through its generated Lambert-over-graph fragment (one pipeline per
+        // structure, keyed by the material's preview-shader UUID) reading a self-contained per-call UBO —
+        // the preview submits off the frame loop, so it can't bind MaterialSystem's transient Set 2.
+        std::vector<u32>      s_GraphVertSpv;
+        VkDescriptorSetLayout s_PreviewUboLayout = VK_NULL_HANDLE;
+        VkDescriptorPool      s_PreviewUboPool   = VK_NULL_HANDLE;
+        std::unordered_map<UUID, std::unique_ptr<VKPipeline>, UUIDHash> s_GraphPipelines;
+        std::unordered_map<UUID, std::vector<u32>, UUIDHash>           s_PreviewSpvCache;
+
+        // CPU mirror of material_bindings_preview's PreviewMaterialUBO (std140 == std430 for this struct).
+        struct PreviewMaterialUBOData
+        {
+            GPUMaterialData m;
+            Vec4 params[MAT_GRAPH_STRIDE];
+        };
+
+        // One host-visible UBO + its static descriptor set (set 0). Per inspector ring slot (synced by the
+        // slot's timeline wait) + one for the synchronous bake.
+        struct PreviewUbo
+        {
+            VkBuffer        buf    = VK_NULL_HANDLE;
+            VmaAllocation   alloc  = nullptr;
+            void*           mapped = nullptr;
+            VkDescriptorSet set    = VK_NULL_HANDLE;
+        };
+        PreviewUbo                                 s_BakeUbo;
+        std::array<PreviewUbo, kInspectorRingSize> s_InspectorUbos{};
 
         bool VulkanActive()
         {
@@ -202,7 +232,147 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             s_PipelineStatic  = BuildPipeline(vert, frag, kStaticVertexStride);
             s_PipelineSkinned = BuildPipeline(vert, frag, kSkinnedVertexStride);
+            // Graph-preview vertex (adds tangent + UV1); per-material frags pair with it lazily.
+            LoadShader("shaders/thumbnail_graph.vert", s_GraphVertSpv);
             return s_PipelineStatic && s_PipelineSkinned;
+        }
+
+        // Maps a material's preview-shader UUID to its generated SPIR-V (ShaderLibrary scan, cached) —
+        // mirrors GeometrySubsystem::ResolveFragSpv. Empty until codegen registers the consumer.
+        const std::vector<u32>& ResolvePreviewSpv(const UUID& uuid)
+        {
+            static const std::vector<u32> kEmpty;
+            if (!uuid.IsValid()) return kEmpty;
+            auto it = s_PreviewSpvCache.find(uuid);
+            if (it != s_PreviewSpvCache.end()) return it->second;
+            for (const auto& [name, sh] : ShaderLibrary::GetAll())
+                if (sh && sh->Handle == uuid && !sh->GetSpirV().empty())
+                    return s_PreviewSpvCache.emplace(uuid, sh->GetSpirV()).first->second;
+            return kEmpty;
+        }
+
+        // Lambert-over-graph pipeline: graph vert (5 attrs) + the per-material frag, two-set layout
+        // { preview UBO @0, bindless @1 }, vertex-only mat4 push. Static stride (material previews
+        // render the static sphere — no skinned graph variant needed).
+        std::unique_ptr<VKPipeline> BuildGraphPipeline(const std::vector<u32>& frag)
+        {
+            PipelineConfig cfg;
+            cfg.colorFormats   = { VK_FORMAT_R8G8B8A8_UNORM };
+            cfg.depthFormat    = VK_FORMAT_D32_SFLOAT;
+            cfg.depthTest      = true;
+            cfg.depthWrite     = true;
+            cfg.depthCompareOp = VK_COMPARE_OP_LESS;
+            cfg.blendEnabled   = false;
+            cfg.cullMode       = VK_CULL_MODE_BACK_BIT;
+            cfg.frontFace      = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            cfg.topology       = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            cfg.polygonMode    = VK_POLYGON_MODE_FILL;
+
+            VkVertexInputBindingDescription bind{};
+            bind.binding   = 0;
+            bind.stride    = kStaticVertexStride;
+            bind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+            cfg.bindingDescriptions = { bind };
+
+            auto attr = [](u32 loc, VkFormat fmt, u32 off) {
+                VkVertexInputAttributeDescription a{};
+                a.location = loc; a.binding = 0; a.format = fmt; a.offset = off;
+                return a;
+            };
+            cfg.attributeDescriptions = {
+                attr(0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, Position)),
+                attr(1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, Normal)),
+                attr(2, VK_FORMAT_R32G32_SFLOAT,    offsetof(Vertex, TexCoord0)),
+                attr(3, VK_FORMAT_R32G32_SFLOAT,    offsetof(Vertex, TexCoord1)),
+                attr(4, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, Tangent)),
+            };
+
+            VkPushConstantRange pc{};
+            pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+            pc.offset     = 0;
+            pc.size       = sizeof(Mat4);
+            cfg.pushConstantRanges = { pc };
+
+            return std::make_unique<VKPipeline>(cfg, s_GraphVertSpv, frag,
+                std::vector<VkDescriptorSetLayout>{ s_PreviewUboLayout,
+                                                    VulkanContext::Get().GetBindlessSet().GetLayout() });
+        }
+
+        // Cached graph pipeline for a preview UUID; nullptr until codegen registers + the vert is loaded.
+        VKPipeline* GetOrBuildGraphPipeline(const UUID& previewUUID)
+        {
+            if (!previewUUID.IsValid() || s_GraphVertSpv.empty() || s_PreviewUboLayout == VK_NULL_HANDLE) return nullptr;
+            auto it = s_GraphPipelines.find(previewUUID);
+            if (it != s_GraphPipelines.end()) return it->second.get();
+            const std::vector<u32>& frag = ResolvePreviewSpv(previewUUID);
+            if (frag.empty()) return nullptr;   // not yet registered — Lambert this frame, retried next
+            auto pipe = BuildGraphPipeline(frag);
+            VKPipeline* raw = pipe.get();
+            s_GraphPipelines.emplace(previewUUID, std::move(pipe));
+            return raw;
+        }
+
+        void FillPreviewUbo(PreviewUbo& ubo, const Material* mat)
+        {
+            PreviewMaterialUBOData data{};
+            data.m = mat->GetGPUData();
+            const auto& gp = mat->GetGraphParams();
+            for (size_t k = 0; k < gp.size() && k < MAT_GRAPH_STRIDE; ++k) data.params[k] = gp[k];
+            std::memcpy(ubo.mapped, &data, sizeof(data));
+        }
+
+        // UBO layout + pool + one host-visible UBO/descriptor per ring slot + the bake. Static across the
+        // session; only the buffer contents change per call (per-slot sync rides the ring's timeline wait).
+        bool CreatePreviewResources()
+        {
+            VkDevice device = VulkanContext::Get().GetDevice();
+
+            VkDescriptorSetLayoutBinding b{};
+            b.binding         = 0;
+            b.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            b.descriptorCount = 1;
+            b.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+            VkDescriptorSetLayoutCreateInfo lci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            lci.bindingCount = 1;
+            lci.pBindings    = &b;
+            if (vkCreateDescriptorSetLayout(device, &lci, nullptr, &s_PreviewUboLayout) != VK_SUCCESS)
+                return false;
+
+            const u32 count = 1 + kInspectorRingSize;
+            VkDescriptorPoolSize ps{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, count };
+            VkDescriptorPoolCreateInfo pci{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            pci.maxSets       = count;
+            pci.poolSizeCount = 1;
+            pci.pPoolSizes    = &ps;
+            if (vkCreateDescriptorPool(device, &pci, nullptr, &s_PreviewUboPool) != VK_SUCCESS)
+                return false;
+
+            auto makeUbo = [&](PreviewUbo& u) -> bool {
+                VkBufferCreateInfo bi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+                bi.size  = sizeof(PreviewMaterialUBOData);
+                bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                u.alloc = VulkanAllocator::AllocateBuffer(bi, VMA_MEMORY_USAGE_CPU_ONLY, u.buf);
+                if (!u.alloc) return false;
+                u.mapped = VulkanAllocator::Map(u.alloc);
+                if (!u.mapped) return false;
+                VkDescriptorSetAllocateInfo ai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+                ai.descriptorPool     = s_PreviewUboPool;
+                ai.descriptorSetCount = 1;
+                ai.pSetLayouts        = &s_PreviewUboLayout;
+                if (vkAllocateDescriptorSets(device, &ai, &u.set) != VK_SUCCESS) return false;
+                VkDescriptorBufferInfo dbi{ u.buf, 0, sizeof(PreviewMaterialUBOData) };
+                VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                w.dstSet          = u.set;
+                w.dstBinding      = 0;
+                w.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                w.descriptorCount = 1;
+                w.pBufferInfo     = &dbi;
+                vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+                return true;
+            };
+            if (!makeUbo(s_BakeUbo)) return false;
+            for (auto& u : s_InspectorUbos) if (!makeUbo(u)) return false;
+            return true;
         }
 
         bool CreateTargets()
@@ -255,6 +425,9 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!CreateTargets())           { Shutdown(); return false; }
         if (!CreateStaging())           { Shutdown(); return false; }
         if (!CreateWhiteTexture())      { Shutdown(); return false; }
+        // Non-fatal: on failure material graph previews fall back to the stock Lambert shader.
+        if (!CreatePreviewResources())
+            LH_CORE_WARN("Thumbnail: graph-preview resources failed — material previews stay Lambert");
 
         s_Initialized = true;
         return true;
@@ -277,6 +450,9 @@ namespace Luth::UI::ThumbnailPreviewScene
 
         s_PipelineStatic.reset();   // ~VKPipeline destroys VkPipeline + layout
         s_PipelineSkinned.reset();
+        s_GraphPipelines.clear();   // each ~VKPipeline destroys its pipeline + layout
+        s_PreviewSpvCache.clear();
+        s_GraphVertSpv.clear();
         s_ColorRT.reset();          // ~VKTexture pushes image deletion to fenced queue
         s_DepthRT.reset();
 
@@ -300,9 +476,20 @@ namespace Luth::UI::ThumbnailPreviewScene
         s_SphereModel.reset();
 
         if (device != VK_NULL_HANDLE) {
-            // Pool destroy frees the allocated cmd buffers.
+            auto freeUbo = [&](PreviewUbo& u) {
+                if (u.mapped) { VulkanAllocator::Unmap(u.alloc); u.mapped = nullptr; }
+                if (u.alloc)  { VulkanAllocator::FreeBuffer(u.buf, u.alloc); u.buf = VK_NULL_HANDLE; u.alloc = nullptr; }
+                u.set = VK_NULL_HANDLE;
+            };
+            freeUbo(s_BakeUbo);
+            for (auto& u : s_InspectorUbos) freeUbo(u);
+            // Pool destroy frees the preview UBO sets + the inspector cmd buffers.
+            if (s_PreviewUboPool   != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, s_PreviewUboPool, nullptr);
+            if (s_PreviewUboLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, s_PreviewUboLayout, nullptr);
             if (s_InspectorCmdPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, s_InspectorCmdPool, nullptr);
         }
+        s_PreviewUboPool   = VK_NULL_HANDLE;
+        s_PreviewUboLayout = VK_NULL_HANDLE;
         s_InspectorCmdPool = VK_NULL_HANDLE;
         s_InspectorTimeline.Shutdown();
 
@@ -338,7 +525,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     // Shared mesh-bake body. Public BakeMesh / BakeMaterial differ only by
     // which model + albedo they pass — the GPU work is identical.
-    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex);
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex, const Material* mat);
 
     Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model)
     {
@@ -346,7 +533,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         // Mesh bakes have no per-asset texture — sample slot 0 (1x1 white) so
         // shader texture × albedo collapses to the flat tint.
         return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f),
-                                ResolveBindlessIndex(s_WhiteTexture));
+                                ResolveBindlessIndex(s_WhiteTexture), nullptr);
     }
 
     Image::LoadResult8 BakeMaterial(const std::shared_ptr<Material>& material)
@@ -364,8 +551,9 @@ namespace Luth::UI::ThumbnailPreviewScene
         UploadContext::Get().DrainPendingBinds();
 
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
+        material->UpdateGPUData();   // refresh m_GPUData (bindless indices + flags) before the preview UBO fill
         return BakeMeshInternal(s_SphereModel, material->GetColor(),
-                                ResolveBindlessIndex(albedo));
+                                ResolveBindlessIndex(albedo), material.get());
     }
 
     // One sub-mesh draw plus the node-tree world matrix that places it (identity if no node tree).
@@ -411,7 +599,49 @@ namespace Luth::UI::ThumbnailPreviewScene
         }
     }
 
-    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex)
+    // Records the preview draws: a graph material binds its per-material Lambert-over-graph pipeline + the
+    // given per-call UBO (set 0) + bindless (set 1); a non-graph / unresolved material uses the stock Lambert
+    // pipeline (bindless @0). Per-draw node-world matrix folds into viewProj either way.
+    static void RecordPreviewDraws(VkCommandBuffer cmd, const std::shared_ptr<Model>& model, const Material* mat,
+                                   const std::vector<ThumbDraw>& draws, PushConstants pc, PreviewUbo& ubo)
+    {
+        VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
+        const Mat4 baseViewProj = pc.viewProj;
+        VkDeviceSize offsets[] = { 0 };
+
+        VKPipeline* graphPipe = (mat && mat->GetGraphPreviewShaderUUID().IsValid())
+                              ? GetOrBuildGraphPipeline(mat->GetGraphPreviewShaderUUID()) : nullptr;
+
+        if (graphPipe) {
+            FillPreviewUbo(ubo, mat);
+            graphPipe->Bind(cmd);
+            VkDescriptorSet sets[] = { ubo.set, bindlessSet };
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                graphPipe->GetLayout(), 0, 2, sets, 0, nullptr);
+            for (const auto& d : draws) {
+                Mat4 mvp = baseViewProj * d.model;
+                vkCmdPushConstants(cmd, graphPipe->GetLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4), &mvp);
+                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
+                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+            }
+        } else {
+            VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get() : s_PipelineStatic.get();
+            pipeline->Bind(cmd);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
+            for (const auto& d : draws) {
+                pc.viewProj = baseViewProj * d.model;
+                vkCmdPushConstants(cmd, pipeline->GetLayout(),
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
+                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+            }
+        }
+    }
+
+    static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex, const Material* mat)
     {
         Image::LoadResult8 out;
         if (!s_Initialized || !model) return out;
@@ -501,27 +731,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             sc.extent = { kSize, kSize };
             vkCmdSetScissor(cmd, 0, 1, &sc);
 
-            VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
-                                                       : s_PipelineStatic.get();
-            pipeline->Bind(cmd);
-
-            // Bind the engine-wide bindless set; shader samples globalTextures[diffuseIndex].
-            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
-
-            // Per-draw push: fold each sub-mesh's node-world matrix into viewProj (no shader change).
-            const Mat4 baseViewProj = pc.viewProj;
-            VkDeviceSize offsets[] = { 0 };
-            for (const auto& d : draws) {
-                pc.viewProj = baseViewProj * d.model;
-                vkCmdPushConstants(cmd, pipeline->GetLayout(),
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, sizeof(pc), &pc);
-                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
-                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
-            }
+            RecordPreviewDraws(cmd, model, mat, draws, pc, s_BakeUbo);
 
             vkCmdEndRendering(cmd);
 
@@ -656,7 +866,8 @@ namespace Luth::UI::ThumbnailPreviewScene
                                             Vec4 albedo,
                                             const ThumbnailPreviewScene::OrbitCamera& orb,
                                             u32 diffuseIndex,
-                                            Vec4 emissive)
+                                            Vec4 emissive,
+                                            const Material* mat)
         {
             if (!s_Initialized || !model) return s_LastGoodInspectorTex;
             if (!EnsureInspectorRing())   return s_LastGoodInspectorTex;
@@ -743,24 +954,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             sc.extent = { kInspectorSize, kInspectorSize };
             vkCmdSetScissor(cmd, 0, 1, &sc);
 
-            VKPipeline* pipeline = model->IsSkinned() ? s_PipelineSkinned.get()
-                                                      : s_PipelineStatic.get();
-            pipeline->Bind(cmd);
-            VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pipeline->GetLayout(), 0, 1, &bindlessSet, 0, nullptr);
-            // Per-draw push: fold each sub-mesh's node-world matrix into viewProj (no shader change).
-            const Mat4 baseViewProj = pc.viewProj;
-            VkDeviceSize offsets[] = { 0 };
-            for (const auto& d : draws) {
-                pc.viewProj = baseViewProj * d.model;
-                vkCmdPushConstants(cmd, pipeline->GetLayout(),
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, sizeof(pc), &pc);
-                vkCmdBindVertexBuffers(cmd, 0, 1, &d.vb, offsets);
-                vkCmdBindIndexBuffer(cmd, d.ib, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
-            }
+            RecordPreviewDraws(cmd, model, mat, draws, pc, s_InspectorUbos[slotIdx]);
 
             vkCmdEndRendering(cmd);
 
@@ -812,7 +1006,7 @@ namespace Luth::UI::ThumbnailPreviewScene
     {
         if (!s_Initialized || !model) return (ImTextureID)0;
         return RenderInspectorInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f), cam,
-                                       ResolveBindlessIndex(s_WhiteTexture), Vec4(0.0f));
+                                       ResolveBindlessIndex(s_WhiteTexture), Vec4(0.0f), nullptr);
     }
 
     ImTextureID RenderMaterialInspector(const std::shared_ptr<Material>& material, const OrbitCamera& cam)
@@ -845,9 +1039,11 @@ namespace Luth::UI::ThumbnailPreviewScene
         }
 
         std::shared_ptr<Texture> albedo = material->GetTextureByType(MapType::Diffuse);
+        material->UpdateGPUData();   // refresh m_GPUData (bindless indices + flags) before the preview UBO fill
         return RenderInspectorInternal(s_SphereModel, material->GetColor(), cam,
                                        ResolveBindlessIndex(albedo),
-                                       Vec4(material->GetEmissiveColor(), material->GetEmissiveStrength()));
+                                       Vec4(material->GetEmissiveColor(), material->GetEmissiveStrength()),
+                                       material.get());
     }
 
     u32 GetInspectorSize() { return kInspectorSize; }
