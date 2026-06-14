@@ -43,7 +43,7 @@ public static const uint MAT_GRAPH_STRIDE = 16u;
 public struct MaterialInputs
 {
     public float4 baseColor;   // straight alpha (color.a × diffuse.a); RT ignores .a
-    public float3 normal;      // world shading normal (caller applies basis/facing)
+    public float3 normal;      // tangent-space normal, [-1,1], identity (0,0,1); caller applies the TBN + facing
     public float  metallic;
     public float  roughness;   // clamped [0.04, 1] — zero roughness → NaN in GGX
     public float  occlusion;   // baked AO map term (screen-space AO is the caller's business)
@@ -59,8 +59,8 @@ public interface ITexFetch
     float4 Param(uint slot);
 }
 
-// Channel decode — bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. The world
-// normal is left to the caller (ApplyNormalMap + per-tier basis/facing); .normal is a placeholder here.
+// Channel decode — bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. Leaves .normal
+// at identity (0,0,1); the caller applies the normal map / graph tangent normal through the TBN + facing.
 public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1, F fetch)
 {
     MaterialInputs mi;
@@ -94,12 +94,19 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     return mi;
 }
 
-// Normal-map perturb as an explicit column combo (layout-independent); caller guards HAS_NORMAL + tangent.
+// Tangent-space normal → world via the surface basis (explicit column combo, layout-independent).
+// Identity (0,0,1) returns N exactly, so a flat/unperturbed tangent normal is a no-op.
+public float3 ApplyTangentNormal(float3 tn, float3 T, float3 B, float3 N)
+{
+    return normalize(T * tn.x + B * tn.y + N * tn.z);
+}
+
+// Normal-map perturb (decode + basis); caller guards HAS_NORMAL + tangent.
 public float3 ApplyNormalMap<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1,
                                             float3 T, float3 B, float3 N, F fetch)
 {
     float3 tn = fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).rgb * 2.0 - 1.0;
-    return normalize(T * tn.x + B * tn.y + N * tn.z);
+    return ApplyTangentNormal(tn, T, B, N);
 }
 
 // Affine remap with (inMin, inMax, outMin, outMax) packed in p — a Remap graph node lowers to this over a
