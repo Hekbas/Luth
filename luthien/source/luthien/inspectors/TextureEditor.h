@@ -20,5 +20,6 @@ namespace Luth
         int  m_MinFilter = 0;
         int  m_MagFilter = 0;
         bool m_GenerateMipmaps = true;
+        int  m_Role = 0;            // TextureRole: channel layout / import transform
     };
 }
