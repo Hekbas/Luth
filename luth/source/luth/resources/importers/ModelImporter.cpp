@@ -6,6 +6,7 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/TextureResolver.h"
+#include "luth/resources/importers/TextureBaker.h"
 #include "luth/resources/importers/ImportReport.h"
 #include "luth/resources/importers/AnimationClipImporter.h"
 #include "luth/renderer/material/Material.h"
@@ -18,6 +19,8 @@
 #include <assimp/GltfMaterial.h>
 #include <fstream>
 #include <queue>
+#include <algorithm>
+#include <cctype>
 
 namespace Luth
 {
@@ -45,6 +48,7 @@ namespace Luth
         s.ImportCameras                = j.value("import_cameras", true);
         s.ImportLights                 = j.value("import_lights", true);
         s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
+        s.AutoDetectTextureRoles       = j.value("auto_detect_texture_roles", true);
         return s;
     }
 
@@ -61,7 +65,8 @@ namespace Luth
             { "extract_clips_as_separate_assets", ExtractClipsAsSeparateAssets },
             { "import_cameras",                  ImportCameras },
             { "import_lights",                   ImportLights },
-            { "physics_bake",                    static_cast<int>(PhysicsBake) }
+            { "physics_bake",                    static_cast<int>(PhysicsBake) },
+            { "auto_detect_texture_roles",       AutoDetectTextureRoles }
         };
     }
 
@@ -691,19 +696,38 @@ namespace Luth
         walk(scene->mRootNode, -1);
     }
 
-    static MapType AssimpToLuthMapType(aiTextureType type)
+    // Lowercased filename stem, used to refine a texture's role beyond what the Assimp semantic type says.
+    static std::string StemLower(const fs::path& p)
     {
-        switch (type) {
-            case aiTextureType_DIFFUSE:             return MapType::Diffuse;
-            case aiTextureType_BASE_COLOR:          return MapType::Diffuse;
-            case aiTextureType_NORMALS:             return MapType::Normal;
-            case aiTextureType_NORMAL_CAMERA:       return MapType::Normal;
-            case aiTextureType_METALNESS:           return MapType::Metalness;
-            case aiTextureType_DIFFUSE_ROUGHNESS:   return MapType::Roughness;
-            case aiTextureType_EMISSIVE:            return MapType::Emissive;
-            case aiTextureType_AMBIENT:             return MapType::Occlusion;
-            default:                                return MapType::Diffuse;
-        }
+        std::string s = p.stem().string();
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return s;
+    }
+
+    static bool StemHasAny(const std::string& stem, std::initializer_list<const char*> needles)
+    {
+        for (const char* n : needles)
+            if (stem.find(n) != std::string::npos) return true;
+        return false;
+    }
+
+    // ORM / ARM / RMA packs carry occlusion in R, roughness in G, metallic in B, already canonical for the
+    // decode, so they alias into both the occlusion and metalRough slots with no pixel transform.
+    static bool IsOrmStem(const fs::path& p) { return StemHasAny(StemLower(p), { "_orm", "_arm", "_rma" }); }
+
+    // DirectX normals (-Y green) need a flip; not reliably filename-detectable, so default to GL and let a
+    // _dx suffix or the texture inspector override decide.
+    static TextureRole InferNormalRole(const fs::path& p)
+    {
+        return StemHasAny(StemLower(p), { "_dx", "_directx" }) ? TextureRole::NormalDX : TextureRole::NormalGL;
+    }
+
+    // A metalRough/ORM-bound map is canonical unless its green channel is authored as glossiness.
+    static TextureRole InferMetalRoughRole(const fs::path& p)
+    {
+        return StemHasAny(StemLower(p), { "_gloss", "_glossiness" })
+             ? TextureRole::GlossToRoughness : TextureRole::LinearData;
     }
 
     // --- Importer Logic ---
@@ -715,6 +739,7 @@ namespace Luth
         const aiScene* Scene;
         std::unordered_map<std::string, UUID> TexturePathToUUID;
         std::vector<UUID> MaterialUUIDs;
+        bool AutoDetectRoles = true;
     };
 
     static void ProcessTextures(ImportContext& ctx)
@@ -824,74 +849,131 @@ namespace Luth
         if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS)  matJson["metalness"] = floatVal;
         if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) matJson["roughness"] = floatVal;
 
-        // Textures
+        // Textures: resolve each Assimp slot to a UUID + source path, classify a TextureRole, then route
+        // into the bounded material slots. Packed layouts (ORM alias, separate metal+rough bake) land here
+        // so material.slang's fixed-swizzle decode always reads canonical channels with no shader change.
         matJson["textures"] = nlohmann::json::array();
 
-        auto TryAddTexture = [&](aiTextureType aiType, MapType luthType) {
-            // Skip if this slot is already filled — glTF exposes metal-rough under both METALNESS and
-            // DIFFUSE_ROUGHNESS (same file), and occlusion under AMBIENT_OCCLUSION and LIGHTMAP.
-            for (const auto& existing : matJson["textures"])
-                if (existing["type"].get<int>() == (int)luthType) return;
+        struct Resolved { UUID uuid = UUID::Invalid(); fs::path path; int uv = 0; };
 
-            if (aiMat->GetTextureCount(aiType) > 0) {
-                aiString path;
-                if (aiMat->GetTexture(aiType, 0, &path) == AI_SUCCESS) {
-                    std::string pathStr = path.C_Str();
-                    UUID texUUID = UUID::Invalid();
+        auto ResolveSlot = [&](aiTextureType aiType, MapType reportType) -> Resolved {
+            if (aiMat->GetTextureCount(aiType) == 0) return {};
+            aiString path;
+            if (aiMat->GetTexture(aiType, 0, &path) != AI_SUCCESS) return {};
+            std::string pathStr = path.C_Str();
 
-                    // 1. Check embedded textures ("*0", "*1", ...)
-                    if (ctx.TexturePathToUUID.count(pathStr)) {
-                        texUUID = ctx.TexturePathToUUID[pathStr];
-                    }
-                    else {
-                        // 2. Multi-strategy filesystem search
-                        ResolveResult result = ResolveTexturePath(ctx.SourcePath.parent_path(), pathStr);
-                        if (!result.ResolvedPath.empty()) {
-                            texUUID = AssetDatabase::GetUUID(result.ResolvedPath);
-                            if (!texUUID.IsValid()) {
-                                texUUID = MetaFile::Create(result.ResolvedPath, AssetType::Texture);
-                                AssetDatabase::RegisterAsset(result.ResolvedPath, texUUID, AssetType::Texture);
-                            }
-                            if (result.Strategy != "direct") {
-                                LH_CORE_INFO("ModelImporter: Found texture via '{}' strategy: {} -> {}",
-                                    result.Strategy, pathStr, result.ResolvedPath.filename().string());
-                            }
-                        }
-                        else {
-                            // LH_CORE_WARN("ModelImporter: Could not find texture '{}' for material '{}' ({})",
-                            //     pathStr, matName, Material::ToString(luthType));
-                            s_LastImportReport.Unresolved.push_back({
-                                matName, matPath, pathStr, luthType
-                            });
-                        }
-                    }
-
-                    if (texUUID.IsValid()) {
-                        // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
-                        int uvChannel = 0;
-                        aiMat->Get(AI_MATKEY_UVWSRC(aiType, 0), uvChannel);
-
-                        nlohmann::json texNode;
-                        texNode["type"] = (int)luthType;
-                        texNode["uuid"] = texUUID.ToString();
-                        texNode["uv"] = (uvChannel <= 0) ? 0 : 1;
-                        texNode["useTexture"] = true;
-                        matJson["textures"].push_back(texNode);
-                    }
-                }
+            Resolved t;
+            if (ctx.TexturePathToUUID.count(pathStr)) {
+                t.uuid = ctx.TexturePathToUUID[pathStr];           // embedded ("*0", "*1", ...)
+                t.path = AssetDatabase::GetMetadata(t.uuid).Path;
             }
+            else {
+                ResolveResult r = ResolveTexturePath(ctx.SourcePath.parent_path(), pathStr);
+                if (r.ResolvedPath.empty()) {
+                    s_LastImportReport.Unresolved.push_back({ matName, matPath, pathStr, reportType });
+                    return {};
+                }
+                t.uuid = AssetDatabase::GetUUID(r.ResolvedPath);
+                if (!t.uuid.IsValid()) {
+                    t.uuid = MetaFile::Create(r.ResolvedPath, AssetType::Texture);
+                    AssetDatabase::RegisterAsset(r.ResolvedPath, t.uuid, AssetType::Texture);
+                }
+                t.path = r.ResolvedPath;
+                if (r.Strategy != "direct")
+                    LH_CORE_INFO("ModelImporter: Found texture via '{0}' strategy: {1} -> {2}",
+                        r.Strategy, pathStr, r.ResolvedPath.filename().string());
+            }
+            // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
+            int uvChannel = 0;
+            aiMat->Get(AI_MATKEY_UVWSRC(aiType, 0), uvChannel);
+            t.uv = (uvChannel <= 0) ? 0 : 1;
+            return t;
         };
 
-        TryAddTexture(aiTextureType_DIFFUSE, MapType::Diffuse);
-        TryAddTexture(aiTextureType_BASE_COLOR, MapType::Diffuse);
-        TryAddTexture(aiTextureType_NORMALS, MapType::Normal);
-        // metalRoughIndex samples MapType::Metalness only; glTF's combined map arrives under either
-        // METALNESS or DIFFUSE_ROUGHNESS (same file), so both target Metalness and the dedupe keeps one.
-        TryAddTexture(aiTextureType_METALNESS, MapType::Metalness);
-        TryAddTexture(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Metalness);
-        TryAddTexture(aiTextureType_EMISSIVE, MapType::Emissive);
-        TryAddTexture(aiTextureType_AMBIENT_OCCLUSION, MapType::Occlusion);
-        TryAddTexture(aiTextureType_LIGHTMAP, MapType::Occlusion);
+        auto AddNode = [&](MapType luthType, const Resolved& t) {
+            if (!t.uuid.IsValid()) return;
+            for (const auto& existing : matJson["textures"])       // one texture per canonical slot
+                if (existing["type"].get<int>() == (int)luthType) return;
+            nlohmann::json node;
+            node["type"] = (int)luthType;
+            node["uuid"] = t.uuid.ToString();
+            node["uv"] = t.uv;
+            node["useTexture"] = true;
+            matJson["textures"].push_back(node);
+        };
+
+        // Stamp the inferred role into the texture's .meta unless auto-detect is off or a role is already
+        // set. On a fresh stamp, drop any stale artifact so the next load reimports with the transform.
+        auto StampRole = [&](const Resolved& t, TextureRole role) {
+            if (!ctx.AutoDetectRoles || !t.uuid.IsValid() || t.path.empty()) return;
+            fs::path metaPath = t.path.string() + ".meta";
+            MetaFile meta(t.uuid);
+            meta.Load(metaPath);
+            auto& ts = meta.GetTypeSettings();
+            if (ts.contains("role")) return;                       // never clobber a prior / user-set role
+            ts["role"] = (int)role;
+            meta.Save(metaPath);
+            fs::path artifact = AssetDatabase::GetArtifactPath(t.uuid);
+            if (fs::exists(artifact)) fs::remove(artifact);
+        };
+
+        // Base color / normal / emissive: straight one-to-one routing.
+        Resolved diffuse = ResolveSlot(aiTextureType_BASE_COLOR, MapType::Diffuse);
+        if (!diffuse.uuid.IsValid()) diffuse = ResolveSlot(aiTextureType_DIFFUSE, MapType::Diffuse);
+        StampRole(diffuse, TextureRole::Color);
+        AddNode(MapType::Diffuse, diffuse);
+
+        Resolved normal = ResolveSlot(aiTextureType_NORMALS, MapType::Normal);
+        if (!normal.uuid.IsValid()) normal = ResolveSlot(aiTextureType_NORMAL_CAMERA, MapType::Normal);
+        StampRole(normal, InferNormalRole(normal.path));
+        AddNode(MapType::Normal, normal);
+
+        Resolved emissive = ResolveSlot(aiTextureType_EMISSIVE, MapType::Emissive);
+        StampRole(emissive, TextureRole::Color);
+        AddNode(MapType::Emissive, emissive);
+
+        // Occlusion: a dedicated AO map; an ORM metalRough may also alias into this slot below.
+        Resolved occlusion = ResolveSlot(aiTextureType_AMBIENT_OCCLUSION, MapType::Occlusion);
+        if (!occlusion.uuid.IsValid()) occlusion = ResolveSlot(aiTextureType_LIGHTMAP, MapType::Occlusion);
+        StampRole(occlusion, TextureRole::LinearData);
+        AddNode(MapType::Occlusion, occlusion);
+
+        // Metal-rough: the crux. glTF reports the combined map under METALNESS and/or DIFFUSE_ROUGHNESS
+        // (same file). Separate single-channel files are baked into one packed map; an ORM pack aliases
+        // into the occlusion slot too (its R channel feeds the occlusion read).
+        {
+            Resolved metal = ResolveSlot(aiTextureType_METALNESS, MapType::Metalness);
+            Resolved rough = ResolveSlot(aiTextureType_DIFFUSE_ROUGHNESS, MapType::Metalness);
+            bool sameFile = metal.uuid.IsValid() && rough.uuid.IsValid() && metal.uuid == rough.uuid;
+
+            auto routeCombined = [&](const Resolved& mr) {
+                StampRole(mr, InferMetalRoughRole(mr.path));
+                AddNode(MapType::Metalness, mr);
+                if (!occlusion.uuid.IsValid() && IsOrmStem(mr.path))
+                    AddNode(MapType::Occlusion, mr);
+            };
+
+            if (metal.uuid.IsValid() && (sameFile || !rough.uuid.IsValid()))
+                routeCombined(metal);
+            else if (rough.uuid.IsValid() && !metal.uuid.IsValid())
+                routeCombined(rough);
+            else if (metal.uuid.IsValid() && rough.uuid.IsValid())  // separate files -> bake one packed map
+            {
+                UUID baked = TextureBaker::BakeMetalRough(ctx.TextureDir, matName,
+                                                          rough.path, rough.uuid, metal.path, metal.uuid);
+                if (baked.IsValid()) {
+                    Resolved t; t.uuid = baked; t.uv = rough.uv;
+                    AddNode(MapType::Metalness, t);
+                }
+                else {
+                    StampRole(rough, TextureRole::LinearData);
+                    AddNode(MapType::Metalness, rough);
+                    LH_CORE_WARN("ModelImporter: '{0}' metal+rough bake failed; routed roughness only", matName);
+                    s_LastImportReport.Degraded.push_back({ matName, matPath,
+                        "separate metal+rough bake failed: roughness routed, metallic from factor" });
+                }
+            }
+        }
 
         // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
         // uniform channel. Default to white when only a resolved emissive texture is present, so glTF
@@ -945,6 +1027,7 @@ namespace Luth
         ctx.SourcePath = source;
         ctx.TextureDir = source.parent_path() / (source.stem().string() + "_Textures");
         ctx.MaterialDir = source.parent_path() / (source.stem().string() + "_Materials");
+        ctx.AutoDetectRoles = settings.AutoDetectTextureRoles;
 
         Assimp::Importer importer;
         importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);

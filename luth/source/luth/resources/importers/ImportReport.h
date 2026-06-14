@@ -23,12 +23,23 @@ namespace Luth
         fs::path    UserProvidedPath;
     };
 
+    // A texture layout the importer routed to a reduced-fidelity fallback (e.g. a separate metal+rough
+    // bake that failed). Non-fatal: surfaced so the user knows fidelity dropped and can supply a fix.
+    struct DegradedTexture
+    {
+        std::string MaterialName;
+        fs::path    MaterialPath;
+        std::string Reason;
+    };
+
     struct ImportReport
     {
         fs::path ModelPath;
         std::vector<UnresolvedTexture> Unresolved;
+        std::vector<DegradedTexture> Degraded;
 
         bool HasUnresolved() const { return !Unresolved.empty(); }
-        void Clear() { ModelPath.clear(); Unresolved.clear(); }
+        bool HasDegraded()   const { return !Degraded.empty(); }
+        void Clear() { ModelPath.clear(); Unresolved.clear(); Degraded.clear(); }
     };
 }
