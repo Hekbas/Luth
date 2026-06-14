@@ -66,6 +66,18 @@ namespace Luth
         json["shader"] = m_ShaderUUID.ToString();
         if (m_GraphShaderUUID.IsValid())
             json["graph_shader"] = m_GraphShaderUUID.ToString();   // only present when the material carries a graph
+        if (HasGraph())
+        {
+            nlohmann::json g;
+            for (const auto& n : m_Graph.nodes)
+                g["nodes"].push_back({ {"id", n.id}, {"type", static_cast<int>(n.type)},
+                    {"value", { n.value.x, n.value.y, n.value.z, n.value.w }},
+                    {"tex", n.tex}, {"pos", { n.pos.x, n.pos.y }} });
+            for (const auto& l : m_Graph.links)
+                g["links"].push_back({ {"from", l.fromNode}, {"fromSlot", l.fromSlot},
+                    {"to", l.toNode}, {"toSlot", l.toSlot} });
+            json["graph"] = std::move(g);
+        }
 
         json["render_mode"] = static_cast<int>(m_RenderMode);
         json["alpha_cutoff"] = m_AlphaCutoff;
@@ -133,6 +145,35 @@ namespace Luth
         m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
         m_GraphShaderUUID = json.contains("graph_shader")
             ? UUID::FromString(json["graph_shader"].get<std::string>()) : UUID::Invalid();
+
+        m_Graph = {};
+        if (json.contains("graph") && json["graph"].is_object())
+        {
+            const auto& g = json["graph"];
+            if (g.contains("nodes"))
+                for (const auto& n : g["nodes"])
+                {
+                    MatNode node;
+                    node.id   = n.value("id", 0u);
+                    node.type = static_cast<MatNodeType>(n.value("type", 0));
+                    if (n.contains("value") && n["value"].is_array() && n["value"].size() == 4)
+                        node.value = Vec4(n["value"][0], n["value"][1], n["value"][2], n["value"][3]);
+                    node.tex  = n.value("tex", 0u);
+                    if (n.contains("pos") && n["pos"].is_array() && n["pos"].size() == 2)
+                        node.pos = Vec2(n["pos"][0], n["pos"][1]);
+                    m_Graph.nodes.push_back(node);
+                }
+            if (g.contains("links"))
+                for (const auto& l : g["links"])
+                {
+                    MatLink link;
+                    link.fromNode = l.value("from", 0u);
+                    link.fromSlot = static_cast<u8>(l.value("fromSlot", 0));
+                    link.toNode   = l.value("to", 0u);
+                    link.toSlot   = static_cast<u8>(l.value("toSlot", 0));
+                    m_Graph.links.push_back(link);
+                }
+        }
 
         if (json.contains("uniforms"))
             m_CachedUniformJSON = json["uniforms"];

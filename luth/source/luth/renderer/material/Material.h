@@ -6,6 +6,7 @@
 #include "luth/resources/AssetManager.h"
 #include "luth/renderer/shader/Shader.h"
 #include "luth/renderer/resources/Texture.h"
+#include "luth/renderer/material/MaterialGraph.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>
@@ -99,6 +100,13 @@ namespace Luth
         // geometry subsystem's stock pbr fragment; the vertex stage stays shared (pbr.vert) either way.
         UUID GetGraphShaderUUID() const { return m_GraphShaderUUID; }
         void SetGraphShaderUUID(const UUID& uuid) { m_GraphShaderUUID = uuid; }
+
+        // Node-graph authoring source (channel routing). MaterialGraphCodegen lowers it to the fragment
+        // shader whose UUID lands in m_GraphShaderUUID. Empty graph = plain (non-graph) material.
+        const MaterialGraph& GetGraph() const { return m_Graph; }
+        MaterialGraph&       GetGraphMutable() { return m_Graph; }
+        void SetGraph(MaterialGraph graph) { m_Graph = std::move(graph); }
+        bool HasGraph() const { return !m_Graph.Empty(); }
 
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
@@ -236,6 +244,7 @@ namespace Luth
 
         UUID m_ShaderUUID;
         UUID m_GraphShaderUUID = UUID::Invalid();   // node-graph fragment override; invalid = stock pbr
+        MaterialGraph m_Graph;                      // authoring source; empty = plain material
         std::vector<uint8_t> m_UniformStorage;
         // Temporary storage for deserialization if shader is not loaded yet
         nlohmann::json m_CachedUniformJSON;
