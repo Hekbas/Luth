@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Luth
@@ -155,5 +156,9 @@ namespace Luth
         // Per-material node-graph fragment SPIR-V, keyed by the material's graph-shader UUID. Populated
         // lazily from ShaderLibrary in ResolveFragSpv; the stock pbr fragment is never stored here.
         std::unordered_map<UUID, std::vector<u32>, UUIDHash> m_GraphFragSpv;
+
+        // Materials whose graph has been lowered + compiled this run (once-guard for the lazy codegen
+        // trigger in EnsureMaterialRegistered). An editor edit clears a material's entry to re-emit.
+        std::unordered_set<UUID, UUIDHash> m_GraphCompiled;
     };
 }

@@ -6,6 +6,7 @@
 #include "luth/renderer/FrameDebugger.h"
 #include "luth/scene/systems/RenderingSystem.h"
 #include "luth/renderer/material/Material.h"
+#include "luth/renderer/material/MaterialGraphCodegen.h"
 #include "luth/renderer/material/MaterialSystem.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/resources/Buffer.h"
@@ -486,6 +487,12 @@ namespace Luth
 
     u32 GeometrySubsystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
     {
+        // Lazily lower a graph material to its generated fragment shader on first encounter. This runs in
+        // the game-stage snapshot capture (off the render-recording path); the once-guard makes the Slang
+        // compile a one-time cost. An editor edit clears the guard entry to force a re-emit.
+        if (material->HasGraph() && m_GraphCompiled.insert(material->Handle).second)
+            MaterialGraphCodegen::GenerateAndCompile(*material);
+
         auto it = m_MaterialSlotMap.find(material->Handle);
         if (it != m_MaterialSlotMap.end()) return it->second;
 
