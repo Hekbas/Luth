@@ -266,16 +266,17 @@ namespace Luth
             return o.str();
         }
 
-        // Recompile the RT megakernels against the regenerated registry. Must run on the main thread —
-        // shader reload fires pipeline rebuilds, which is not fiber-safe. One-time per graph edit.
-        void ScheduleRtReload()
+        // Reload every shared consumer of the variant registry (RT megakernels + the two raster
+        // transparent shaders) against the regenerated version. Main-thread only — not fiber-safe.
+        void ScheduleGraphConsumerReload()
         {
             MainThreadPump::Post([]() {
-                const char* kRtConsumers[] = {
+                const char* kGraphConsumers[] = {
                     "restir_gi_initial.slang", "restir_initial.slang", "rt_reflections.slang",
-                    "rt_sun_shadows.slang", "path_trace.slang", "volumetric_inject_scatter.slang"
+                    "rt_sun_shadows.slang", "path_trace.slang", "volumetric_inject_scatter.slang",
+                    "pbr_transparent.slang", "pbr_oit_store.slang"
                 };
-                for (const char* n : kRtConsumers) ShaderLibrary::Reload(n);
+                for (const char* n : kGraphConsumers) ShaderLibrary::Reload(n);
             });
         }
 
@@ -373,7 +374,7 @@ namespace Luth
             for (const auto& [hash, si] : s_Structures)
                 if (si.variant != 0) entries.emplace_back(si.variant, HexU64(hash));
             WriteShaderFile(genDir / "mat_graph_registry.slang", EmitAggregator(entries));
-            ScheduleRtReload();
+            ScheduleGraphConsumerReload();
         }
 
         LH_CORE_INFO("MaterialGraphCodegen: '{}' compiled (variant {}, {} SPIR-V words)", consBase, variant, out.spirv.size());

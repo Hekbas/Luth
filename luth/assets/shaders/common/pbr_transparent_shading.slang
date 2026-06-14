@@ -5,6 +5,7 @@
 import globals;
 import material;
 import material_bindings_raster;  // GetMaterial + RasterFetch + RtConfirmAlphaCandidates (Set 1/2)
+import mat_graph_registry;        // EvalGraphVariant — stock decode (variant 0) or the project's graph override
 import pbr_lighting;              // ComputeShadowCSM / EvalClusteredPointLights / EvalIblAmbient / LoadDirLight + GI_PI
 import brdf;                      // EvalBRDFTimesNdotL
 import restir_common;            // DirectionalLightData
@@ -48,9 +49,12 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
                                           float3 T, float3 B, float3 N, bool frontFacing,
                                           float3 worldPos, float4 fragCoord)
 {
+    // Decode through the shared variant registry so a node-graph material renders its routing here
+    // exactly as the RT hit does (material_bindings_rt twin); variant 0 = stock channel decode.
     GPUMaterialData m = GetMaterial(materialIndex);
     RasterFetch rf;
-    MaterialInputs mi = EvalMaterialChannels<RasterFetch>(m, uv0, uv1, rf);
+    rf.paramBase = materialIndex * MAT_GRAPH_STRIDE;
+    MaterialInputs mi = EvalGraphVariant<RasterFetch>(GraphVariant(m.flags), m, uv0, uv1, rf);
     if (mi.baseColor.a < m.alphaCutoff) discard;
 
     float3 nrm = ((m.flags & FLAG_HAS_NORMAL) != 0u)
