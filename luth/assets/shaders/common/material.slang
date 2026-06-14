@@ -35,6 +35,10 @@ public float2 SelectUV(uint flags, uint shift, float2 uv0, float2 uv1)
 public static const uint GRAPH_VARIANT_SHIFT = 8u;
 public uint GraphVariant(uint flags) { return (flags >> GRAPH_VARIANT_SHIFT) & 0xFFu; }
 
+// Per-material graph-param stride (float4 slots/material). invariant: matches C++ Material.h MAT_GRAPH_STRIDE
+// — the fetch policy's paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams, so drift cross-corrupts.
+public static const uint MAT_GRAPH_STRIDE = 16u;
+
 // Bounded surface (Filament model, no escape hatch) — derivative/screen-space ops excluded by construction.
 public struct MaterialInputs
 {
@@ -50,6 +54,9 @@ public struct MaterialInputs
 public interface ITexFetch
 {
     float4 Sample(uint index, float2 uv);
+    // Per-material graph constant, paramBase-relative slot. Stock decode never calls it; generated
+    // EvalGraph bodies read their canonical const slots through it (gMatParams, bound per tier).
+    float4 Param(uint slot);
 }
 
 // Channel decode — bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. The world
@@ -93,6 +100,16 @@ public float3 ApplyNormalMap<F : ITexFetch>(GPUMaterialData m, float2 uv0, float
 {
     float3 tn = fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).rgb * 2.0 - 1.0;
     return normalize(T * tn.x + B * tn.y + N * tn.z);
+}
+
+// Affine remap with (inMin, inMax, outMin, outMax) packed in p — a Remap graph node lowers to this over a
+// per-material param, so editing its range is data, not a recompile. Degenerate range collapses to 0 scale.
+public float4 RemapApply(float4 v, float4 p)
+{
+    float denom = p.y - p.x;
+    float scale = (abs(denom) < 1.0e-6) ? 0.0 : (p.w - p.z) / denom;
+    float bias  = p.z - p.x * scale;
+    return v * scale + float4(bias);
 }
 
 // ── RT geometry-table deref ──────────────────────────────────────────────────────────────────────

@@ -48,7 +48,7 @@ namespace Luth
     // flags layout (u32):
     //   bits 0-7   : HAS_* per map (NORMAL=0, METALROUGH=1, OCCLUSION=2, DIFFUSE=3,
     //                EMISSIVE=4, ALPHA=5, SPECULAR=6, THICKNESS=7)
-    //   bits 8-15  : reserved
+    //   bits 8-15  : node-graph eval variant (0 = stock decode; RT megakernel dispatch)
     //   bits 16-23 : UV index per map (2 bits each — DIFFUSE@16, NORMAL@18,
     //                METALROUGH@20, OCCLUSION@22)
     //   bits 24-31 : reserved
@@ -79,6 +79,11 @@ namespace Luth
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData — MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
     static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
+
+    // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE
+    // — shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
+    inline constexpr u32 MAT_GRAPH_STRIDE = 16;
+    static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> — Vec4 must be 16 B std430");
 
     class Material : public Asset
     {
@@ -112,6 +117,11 @@ namespace Luth
         MaterialGraph&       GetGraphMutable() { return m_Graph; }
         void SetGraph(MaterialGraph graph) { m_Graph = std::move(graph); }
         bool HasGraph() const { return !m_Graph.Empty(); }
+
+        // Cached graph constants in canonical codegen order — the float4 the generated EvalGraph reads via
+        // fetch.Param(k). Rebuilt off-frame on edit, memcpy'd into gMatParams each frame; empty for non-graph.
+        const std::vector<Vec4>& GetGraphParams() const { return m_GraphParams; }
+        void SetGraphParams(std::vector<Vec4> params) { m_GraphParams = std::move(params); }
 
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
@@ -251,6 +261,7 @@ namespace Luth
         UUID m_GraphShaderUUID = UUID::Invalid();   // node-graph fragment override; invalid = stock pbr
         MaterialGraph m_Graph;                      // authoring source; empty = plain material
         u32 m_GraphVariant = 0;                     // RT eval-variant (0 = stock); packed into flags 8-15
+        std::vector<Vec4> m_GraphParams;            // codegen-ordered graph constants (gMatParams upload source)
         std::vector<uint8_t> m_UniformStorage;
         // Temporary storage for deserialization if shader is not loaded yet
         nlohmann::json m_CachedUniformJSON;
