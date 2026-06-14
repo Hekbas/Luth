@@ -115,17 +115,22 @@ namespace Luth
                   { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
             };
 
-            // Import roots: the primary's own dir (loadModule finds it by name) + common/ for shared modules.
+            // Import roots: the project's generated dir FIRST (its mat_graph_registry shadows the engine
+            // default), then the primary's own dir (loadModule finds it by name) + common/ for shared modules.
+            std::string genDir    = FileSystem::HasProject() ? FileSystem::ProjectPath("Library/Generated/shaders").string() : std::string();
             std::string srcDirStr = srcDir.string();
             std::string commonDir = FileSystem::EngineAssetsPath("shaders/common").string();
-            const char* searchPaths[] = { srcDirStr.c_str(), commonDir.c_str() };
+            std::vector<const char*> searchPaths;
+            if (!genDir.empty()) searchPaths.push_back(genDir.c_str());
+            searchPaths.push_back(srcDirStr.c_str());
+            searchPaths.push_back(commonDir.c_str());
 
             slang::SessionDesc desc{};
             desc.targets = &target;
             desc.targetCount = 1;
             desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
-            desc.searchPaths = searchPaths;
-            desc.searchPathCount = 2;
+            desc.searchPaths = searchPaths.data();
+            desc.searchPathCount = static_cast<SlangInt>(searchPaths.size());
             desc.compilerOptionEntries = opts;
             desc.compilerOptionEntryCount = static_cast<u32>(std::size(opts));
 

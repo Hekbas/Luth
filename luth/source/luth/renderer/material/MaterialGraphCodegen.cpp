@@ -6,6 +6,7 @@
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/MainThreadPump.h"
 
 #include <fstream>
 #include <sstream>
@@ -150,14 +151,14 @@ namespace Luth
                 body << "    float4 n" << nodeId << " = " << NodeRhs(n) << ";\n";
             }
 
-            std::string Run()
+            std::string Run(const std::string& fnName)
             {
                 const MatNode* out = nullptr;
                 for (const auto& n : g.nodes) if (n.type == MatNodeType::Output) { out = &n; break; }
 
                 std::ostringstream ss;
                 ss << "import material;\n\n";
-                ss << "public MaterialInputs EvalGraph<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1, F fetch)\n{\n";
+                ss << "public MaterialInputs " << fnName << "<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1, F fetch)\n{\n";
                 ss << "    MaterialInputs mi = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
 
                 if (out)
@@ -188,8 +189,8 @@ namespace Luth
             }
         };
 
-        // The per-material consumer: pbr.slang with the decode swapped to the graph's EvalGraph.
-        std::string EmitConsumer(const std::string& moduleName)
+        // The per-material consumer: pbr.slang with the decode swapped to the graph's EvalGraph_<safe>.
+        std::string EmitConsumer(const std::string& moduleName, const std::string& fnName)
         {
             std::ostringstream ss;
             ss << "import globals;\n";
@@ -201,10 +202,43 @@ namespace Luth
             ss << "FOut main(VIn i, bool frontFacing : SV_IsFrontFace, float4 fragCoord : SV_Position)\n{\n";
             ss << "    GPUMaterialData m = GetMaterial(i.materialIndex);\n";
             ss << "    RasterFetch rf;\n";
-            ss << "    MaterialInputs mi = EvalGraph<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
+            ss << "    MaterialInputs mi = " << fnName << "<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
             ss << "    return PbrShadeSurface(mi, m, i, frontFacing, fragCoord);\n";
             ss << "}\n";
             return ss.str();
+        }
+
+        // The project variant registry — a switch over every graph material's EvalGraph_<safe>, shadowing
+        // the engine-default mat_graph_registry on the Slang search path. material_bindings_rt imports it so
+        // the shared RT megakernel can decode any graph material. entries are {variantIndex, sanitized-uuid}.
+        std::string EmitAggregator(const std::vector<std::pair<u32, std::string>>& entries)
+        {
+            std::ostringstream ss;
+            ss << "import material;\n";
+            for (const auto& [v, safe] : entries) ss << "import mat_graph_" << safe << ";\n";
+            ss << "\npublic MaterialInputs EvalGraphVariant<F : ITexFetch>(uint variant, GPUMaterialData m, float2 uv0, float2 uv1, F fetch)\n{\n";
+            ss << "    switch (variant)\n    {\n";
+            for (const auto& [v, safe] : entries)
+                ss << "        case " << v << ": return EvalGraph_" << safe << "<F>(m, uv0, uv1, fetch);\n";
+            ss << "        default: return EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
+            ss << "    }\n}\n";
+            return ss.str();
+        }
+
+        constexpr u32 kMaxGraphVariants = 16;                  // RT megakernel switch-arm cap (occupancy guard)
+        std::unordered_map<UUID, u32, UUIDHash> s_Variants;    // material UUID -> RT eval variant (1-based)
+
+        // Recompile the RT megakernels against the regenerated registry. Must run on the main thread —
+        // shader reload fires pipeline rebuilds, which is not fiber-safe. One-time per graph edit.
+        void ScheduleRtReload()
+        {
+            MainThreadPump::Post([]() {
+                const char* kRtConsumers[] = {
+                    "restir_gi_initial.slang", "restir_initial.slang", "rt_reflections.slang",
+                    "rt_sun_shadows.slang", "path_trace.slang", "volumetric_inject_scatter.slang"
+                };
+                for (const char* n : kRtConsumers) ShaderLibrary::Reload(n);
+            });
         }
 
         bool WriteShaderFile(const fs::path& path, const std::string& content)
@@ -228,6 +262,7 @@ namespace Luth
         const std::string safe     = SanitizeIdent(material.Handle.ToString());
         const std::string modBase  = "mat_graph_" + safe;
         const std::string consBase = "pbr_graph_" + safe;
+        const std::string fnName   = "EvalGraph_" + safe;
 
         fs::path genDir = FileSystem::ProjectPath("Library/Generated/shaders");
         std::error_code ec; fs::create_directories(genDir, ec);
@@ -235,8 +270,8 @@ namespace Luth
         const fs::path modPath  = genDir / (modBase  + ".slang");
         const fs::path consPath = genDir / (consBase + ".slang");
 
-        if (!WriteShaderFile(modPath, Lowerer(material.GetGraph()).Run())
-         || !WriteShaderFile(consPath, EmitConsumer(modBase)))
+        if (!WriteShaderFile(modPath, Lowerer(material.GetGraph()).Run(fnName))
+         || !WriteShaderFile(consPath, EmitConsumer(modBase, fnName)))
         {
             LH_CORE_ERROR("MaterialGraphCodegen: failed writing generated shaders to '{}'", genDir.string());
             return UUID::Invalid();
@@ -254,7 +289,30 @@ namespace Luth
 
         ShaderLibrary::Register(consBase, shader);     // ResolveFragSpv matches on the Handle below
         material.SetGraphShaderUUID(shader->Handle);
-        LH_CORE_INFO("MaterialGraphCodegen: '{}' compiled ({} SPIR-V words)", consBase, out.spirv.size());
+
+        // Assign an RT eval variant (capped). Beyond the cap the material renders correctly in raster but
+        // stays stock in RT. Then regenerate the project registry + recompile the RT megakernels so the
+        // shared megakernel decodes this graph too.
+        u32 variant = 0;
+        if (auto it = s_Variants.find(material.Handle); it != s_Variants.end())
+            variant = it->second;
+        else if (s_Variants.size() < kMaxGraphVariants)
+            variant = s_Variants[material.Handle] = static_cast<u32>(s_Variants.size()) + 1;
+        else
+            LH_CORE_WARN("MaterialGraphCodegen: RT variant cap ({}) reached — '{}' renders stock in RT", kMaxGraphVariants, consBase);
+
+        material.SetGraphVariant(variant);
+        material.UpdateGPUData();   // pack the variant into flags 8-15 for the per-frame material SSBO upload
+
+        if (variant != 0)
+        {
+            std::vector<std::pair<u32, std::string>> entries;
+            for (const auto& [uuid, v] : s_Variants) entries.emplace_back(v, SanitizeIdent(uuid.ToString()));
+            WriteShaderFile(genDir / "mat_graph_registry.slang", EmitAggregator(entries));
+            ScheduleRtReload();
+        }
+
+        LH_CORE_INFO("MaterialGraphCodegen: '{}' compiled (variant {}, {} SPIR-V words)", consBase, variant, out.spirv.size());
         return shader->Handle;
     }
 }
