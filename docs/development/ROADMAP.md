@@ -120,6 +120,7 @@
 | v3.2.4 | `packed-texture-routing` | Import-side remap into the bounded channels: ORM aliasing, separate-map + spec-gloss derived-texture bake, DirectX-normal green-flip, TextureRole auto-detect + editor override; zero GPU-struct change, raster==RT by construction | 2026-06-14 |
 | v3.2.5 | `material-node-editor` | Blender-style channel-routing node graph → generated per-material Slang; raster per-material pipeline + RT variant-registry megakernel dispatch (raster==RT); 9-node vocab, live recompile, undo; effect-layers / transparent / constants-as-data deferred | 2026-06-14 |
 | v3.2.6 | `graph-param-buffer` | Graph constants routed to a per-material `gMatParams` buffer (binding 1 on the shared material set, both tiers) + structure-hash-keyed variants; value edits become data (no recompile), structurally-identical materials share one shader + variant, killing the recompile hitch + 16-cap + per-edit pipeline leak | 2026-06-14 |
+| v3.2.7 | `transparent-graph` | Node-graph materials decode through the shared variant registry in the raster transparent pass (sorted + OIT), closing the raster≠RT gap; one decode-seam swap + the two transparent shaders join the registry-reload set | 2026-06-14 |
 
 ---
 
@@ -226,7 +227,7 @@ Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone
 
 | Arc | Effort | Size | Notes |
 |---|---|---|---|
-| M1 authoring | `transparent-graph` | M | Graph works in the transparent/OIT raster pass (today binds stock → raster/RT-inconsistent). Parity fix. |
+| M1 authoring | `transparent-graph` ✅ | M | Transparent/OIT raster decode routed through the variant registry (raster==RT), same path the RT hit uses — shipped v3.2.7. |
 | M1 authoring | `graph-normal-preview` | S–M | Honor `mi.normal` in the shade body (graphed normal maps — currently inert) + graph-aware sphere preview. |
 | M1 authoring | `node-breadth` | M | Noise / UV transforms / math breadth / fresnel / new inputs (vertex color, world pos, time, view dir) + custom-Slang escape node. |
 | M1 authoring | `node-ux` | S | Search, comments/frames, group-to-subgraph, granular undo. |
