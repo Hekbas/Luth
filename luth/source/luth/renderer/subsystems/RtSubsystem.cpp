@@ -513,14 +513,18 @@ namespace Luth
                 // 1. Per-skinned-mesh compute-skin into deformed-VBs.
                 m_Pipeline->GetSkinning().DispatchAllSkinned(cmd, snapshot);
 
-                // 2. Compute-write → AS-build-read global barrier per NVIDIA RTX guidance (one
-                // global UAV barrier before AS work, not per-resource). Covers every skinned
-                // mesh's deformed-VB at once.
+                // 2. Compute-write barrier (one global UAV barrier per NVIDIA RTX guidance, covering
+                // every skinned mesh's deformed-VB at once). The skinning SHADER_WRITE must reach two
+                // dst readers: the AS-build vertex-input read of positions, AND the rayQuery-in-compute
+                // trace reads of normal/tangent/UV — the skinned geometry-table vertexBDA points at
+                // this buffer, so GatherHitGeometry/AlphaTestUV deref it at COMPUTE_SHADER. Both later
+                // passes share this AsyncCompute primary, so the single barrier suffices.
                 VkMemoryBarrier2 mem{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                 mem.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-                mem.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-                mem.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // build reads vertex input as SHADER_READ, not AS_READ
+                mem.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
+                                  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                mem.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // AS-build vertex read + trace BDA read
                 VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
                 dep.memoryBarrierCount = 1;
                 dep.pMemoryBarriers    = &mem;

@@ -72,15 +72,16 @@ namespace Luth
         }
 
         // GPU geometry-table entry — one per packed TLAS instance, indexed by instanceCustomIndex.
-        // Mirrors the GeomEntry buffer_reference struct in restir_gi_initial.comp (std430, 24 B).
-        // BDAs point at the ORIGINAL (full-layout) vertex/index buffers — UVs live there for both
-        // static (52 B) and skinned (84 B) verts; the deformed positions-only VB is BLAS-only.
+        // Mirrors the GtGeomEntry buffer_reference struct in common/material.slang (std430, 24 B).
+        // Static meshes point vertexBDA at the original VB; skinned meshes point it at the per-mesh
+        // deformed vertex buffer — both the 52 B Vertex layout — so ray hits read post-skin
+        // normals/tangents/UVs, not bind pose. Stride is sizeof(Vertex) for both.
         struct GPUGeometryEntry
         {
-            VkDeviceAddress vertexBDA;     // original VB device address
+            VkDeviceAddress vertexBDA;     // VB (static) or deformed vertex buffer (skinned)
             VkDeviceAddress indexBDA;      // uint32 index buffer device address
             u32             materialSlot;  // index into the Material SSBO
-            u32             vertexStride;  // bytes: sizeof(Vertex)=52 or sizeof(SkinnedVertex)=84
+            u32             vertexStride;  // bytes: sizeof(Vertex) = 52 (both tiers)
         };
         static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match common/material.slang GtGeomEntry (24 B)");
 
@@ -181,7 +182,7 @@ namespace Luth
             geom.geometry.triangles.sType                = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
             geom.geometry.triangles.vertexFormat         = VK_FORMAT_R32G32B32_SFLOAT;
             geom.geometry.triangles.vertexData.deviceAddress = e.blas->GetDeformedBda();
-            geom.geometry.triangles.vertexStride         = sizeof(Vec3);
+            geom.geometry.triangles.vertexStride         = sizeof(Vertex);
             geom.geometry.triangles.maxVertex            = vertCount - 1;
             geom.geometry.triangles.indexType            = VK_INDEX_TYPE_UINT32;
             geom.geometry.triangles.indexData.deviceAddress = ib ? ib->GetDeviceAddress() : 0;
@@ -280,16 +281,24 @@ namespace Luth
             vkInst.accelerationStructureReference         = r.blas->GetDeviceAddress();
             packed.push_back(vkInst);
 
-            // Original full-layout VB/IB (UVs at +24 for both static + skinned) — NOT the BLAS's
-            // positions-only deformed VB. Skinned secondary hits read bind-pose attributes (known
-            // approximation; the hit POINT rides the deformed TLAS, only n_s/UV are bind-pose).
-            auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(r.mesh->GetVertexBuffer());
+            // Skinned meshes source attributes from the deformed vertex buffer (post-skin pos/normal/
+            // tangent + passthrough UVs, interleaved Vertex layout) so ray hits shade with the same
+            // deformed basis raster sees; static meshes read the original VB. Both are the 52 B Vertex
+            // layout, so GatherHitGeometry reads either unchanged.
             auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
             GPUGeometryEntry ge{};
-            ge.vertexBDA    = vb ? vb->GetDeviceAddress() : 0;
+            if (r.blas->IsSkinned())
+            {
+                ge.vertexBDA = r.blas->GetDeformedBda();
+            }
+            else
+            {
+                auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(r.mesh->GetVertexBuffer());
+                ge.vertexBDA = vb ? vb->GetDeviceAddress() : 0;
+            }
             ge.indexBDA     = ib ? ib->GetDeviceAddress() : 0;
             ge.materialSlot = matSlot;
-            ge.vertexStride = r.mesh->IsSkinned() ? sizeof(SkinnedVertex) : sizeof(Vertex);
+            ge.vertexStride = sizeof(Vertex);
             geomEntries.push_back(ge);
         }
 

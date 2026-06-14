@@ -14,9 +14,10 @@ namespace Luth
 
     // RAII wrapper for a single VkAccelerationStructureKHR + its persistent backing VkBuffer.
     // Used for both BLAS (per-mesh, owned by Mesh) and TLAS (per-frame, owned by RtSubsystem).
-    // For skinned BLAS it additionally owns the per-mesh "skin input" buffer (tight-packed
-    // position + bone IDs + weights, fed to the skinning compute) and the per-frame
-    // "deformed positions" buffer (compute output, AS-build input on refit).
+    // For skinned BLAS it additionally owns the per-mesh "skin input" buffer (bind-pose pos/normal/
+    // tangent/uv + bone IDs + weights, fed to the skinning compute) and the persistent "deformed
+    // vertex" buffer (compute output in the interleaved Vertex layout — AS-build input on refit AND
+    // the RT geometry-table source, so ray hits read post-skin normals/tangents, not bind pose).
     // Dtor pushes every owned VkBuffer + AS handle into VulkanContext::PushDeletion so they
     // retire N+2 frames out — safe against in-flight cmd buffers referencing the AS in a
     // build / traceRays call.
@@ -85,16 +86,20 @@ namespace Luth
         bool            m_IsSkinned        = false;
     };
 
-    // Compute-side skin input. Matches GLSL `SkinInput` in skinning.comp (std430: vec4 pos at 0,
-    // ivec4 boneIDs at 16, vec4 boneWeights at 32; total 48 bytes, 16-byte aligned). Position uses
-    // vec4 to dodge the std430 vec3-padded-to-vec4 trap — .w is unused (set to 1.0 at extraction so
-    // the shader can multiply boneMatrix * pos directly). Keep field order locked to GLSL.
+    // Compute-side skin input. Matches GLSL `SkinInput` in skinning.comp (std430, all 16-byte slots:
+    // pos@0, normal@16, tangent@32, uv@48, boneIDs@64, boneWeights@80; 96 bytes). vec4s dodge the
+    // std430 vec3-padded-to-vec4 trap; pos.w=1.0 lets the shader multiply boneMatrix*pos directly,
+    // normal/tangent.w are unused, uv packs (uv0.xy, uv1.zw). The compute skins pos/normal/tangent
+    // and passes uv through into the interleaved deformed Vertex. Keep field order locked to GLSL.
     struct SkinComputeInput
     {
         Vec4  Position;    // .xyz = position, .w = 1.0
+        Vec4  Normal;      // .xyz = normal,   .w unused
+        Vec4  Tangent;     // .xyz = tangent,  .w unused
+        Vec4  UV;          // .xy = uv0, .zw = uv1
         IVec4 BoneIDs;
         Vec4  BoneWeights;
     };
-    static_assert(sizeof(SkinComputeInput) == 48,
+    static_assert(sizeof(SkinComputeInput) == 96,
         "SkinComputeInput layout must stay locked to GLSL std430 layout in skinning.comp");
 }
