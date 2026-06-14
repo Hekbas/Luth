@@ -31,12 +31,27 @@ namespace Luth
         LinearMipmapLinear, NearestMipmapNearest
     };
 
+    // How a source texture's channels map onto the canonical material decode (material.slang fixed
+    // swizzles: metalRough .g/.b, occlusion .r, normal *2-1). Drives an import-time pixel transform so
+    // the artifact always carries canonical bytes. A future sRGB pass can branch sRGB-vs-UNORM off this
+    // (Color is sRGB, data roles are UNORM). Default Color leaves pixels untouched.
+    enum class TextureRole : u8 {
+        Color = 0,         // albedo / emissive / color, no transform
+        NormalGL,          // tangent-space normal +Y (OpenGL), no transform
+        NormalDX,          // tangent-space normal -Y (DirectX): green flipped to +Y at import
+        LinearData,        // single-channel linear (AO / roughness / metallic), no transform
+        GlossToRoughness   // perceptual gloss in the roughness channel: inverted to roughness at import
+    };
+
     struct TextureSettings
     {
         bool GenerateMipmaps = true;
         TextureWrapMode WrapMode = TextureWrapMode::Repeat;
         TextureFilterMode MinFilter = TextureFilterMode::Linear;
         TextureFilterMode MagFilter = TextureFilterMode::Linear;
+        // Import-time only: the role's pixel transform bakes into the artifact, so it is not echoed in
+        // TextureHeader (no runtime/GPU need). The editor reads it back from the .meta sidecar.
+        TextureRole Role = TextureRole::Color;
     };
 
     class Texture : public Asset
