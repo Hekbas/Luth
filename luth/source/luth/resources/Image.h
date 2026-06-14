@@ -53,6 +53,9 @@ namespace Luth::Image
     // PNG encode (in-memory) for ThumbnailGenerator's IO write path.
     std::vector<u8> EncodePngToMemory(const u8* pixels, u32 w, u32 h, u32 channels);
 
+    // PNG encode straight to disk, for import-time texture bakes (TextureBaker). Returns false on failure.
+    bool SavePng(const fs::path& path, const u8* pixels, u32 w, u32 h, u32 channels);
+
     // Resize wrapper for ThumbnailGenerator's downscale.
     bool Resize(const u8* src, u32 srcW, u32 srcH,
                 u8* dst, u32 dstW, u32 dstH, u32 channels);
