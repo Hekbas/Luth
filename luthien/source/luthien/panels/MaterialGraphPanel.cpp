@@ -7,7 +7,9 @@
 #include "luth/resources/AssetDatabase.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <string>
 
 namespace Luth
 {
@@ -127,6 +129,43 @@ namespace Luth
                     break;
             }
             return e;
+        }
+
+        // Case-insensitive substring match for the node-search filter.
+        bool NameMatches(const char* name, const char* filter)
+        {
+            if (!filter || !filter[0]) return true;
+            std::string n = name, f = filter;
+            std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+            std::transform(f.begin(), f.end(), f.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+            return n.find(f) != std::string::npos;
+        }
+
+        // Filtered node palette: a search box + the matching non-terminal types. Adds the picked type at
+        // `pos` (Enter adds the first match). Returns true if a node was added.
+        bool DrawNodePalette(MaterialGraph& g, char* filter, size_t filterCap, Vec2 pos)
+        {
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputTextWithHint("##nodefilter", "search...", filter, filterCap);
+            bool added = false;
+            int  firstMatch = -1;
+            for (int t = 0; t < (int)kTypeCount; ++t)
+            {
+                if ((MatNodeType)t == MatNodeType::Output) continue;
+                if (!NameMatches(kTypes[t].name, filter)) continue;
+                if (firstMatch < 0) firstMatch = t;
+                if (ImGui::MenuItem(kTypes[t].name))
+                {
+                    g.nodes.push_back(MakeNode((MatNodeType)t, NextNodeId(g), pos));
+                    added = true;
+                }
+            }
+            if (firstMatch >= 0 && ImGui::IsKeyPressed(ImGuiKey_Enter))
+            {
+                g.nodes.push_back(MakeNode((MatNodeType)firstMatch, NextNodeId(g), pos));
+                added = true;
+            }
+            return added;
         }
     }
 
@@ -391,6 +430,26 @@ namespace Luth
                     m_Delegate.selected.clear();
                     recodegen = true;
                 }
+            }
+            ImGui::EndPopup();
+        }
+
+        // Space over the canvas opens a searchable quick-add (type to filter, Enter adds the first match).
+        static char s_NodeFilter[32] = {};
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !ImGui::IsAnyItemActive()
+            && ImGui::IsKeyPressed(ImGuiKey_Space))
+        {
+            s_NodeFilter[0] = '\0';
+            ImGui::OpenPopup("##QuickAdd");
+        }
+        if (ImGui::BeginPopup("##QuickAdd"))
+        {
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            const float c = (graph.nodes.size() % 6) * 26.0f;
+            if (DrawNodePalette(graph, s_NodeFilter, sizeof(s_NodeFilter), Vec2(60.0f + c, 60.0f + c)))
+            {
+                recodegen = true;
+                ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
         }
