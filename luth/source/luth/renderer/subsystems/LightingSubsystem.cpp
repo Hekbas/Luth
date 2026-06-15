@@ -733,21 +733,10 @@ namespace Luth
 
         if (!m_ShadowSkinnedVertSpv.empty())
         {
-            BufferLayout skinned = {
-                { ShaderDataType::Float3, "a_Position"    },
-                { ShaderDataType::Float3, "a_Normal"      },
-                { ShaderDataType::Float2, "a_TexCoord0"   },
-                { ShaderDataType::Float2, "a_TexCoord1"   },
-                { ShaderDataType::Float3, "a_Tangent"     },
-                { ShaderDataType::Int4,   "a_BoneIDs"     },
-                { ShaderDataType::Float4, "a_BoneWeights" }
-            };
-            auto skinnedBindings = skinned.GetBindingDescriptions();
-            auto skinnedAttribs  = skinned.GetAttributeDescriptions();
-
+            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
             PipelineConfig skinnedConfig = shadowConfig;
-            skinnedConfig.bindingDescriptions   = skinnedBindings;
-            skinnedConfig.attributeDescriptions = skinnedAttribs;
+            skinnedConfig.bindingDescriptions.clear();
+            skinnedConfig.attributeDescriptions.clear();
 
             m_ShadowSkinnedPipeline = std::make_unique<VKPipeline>(
                 skinnedConfig, m_ShadowSkinnedVertSpv, m_ShadowFragSpv, geoLayouts);
@@ -892,9 +881,13 @@ namespace Luth
                             }
                         }
 
-                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                        VkDeviceSize offsets[] = { 0 };
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        if (!dc.isSkinned)
+                        {
+                            VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                            VkDeviceSize offsets[] = { 0 };
+                            vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        }
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                         // Per-view region layout: [camera | C0 | C1 | C2 | C3]. View N starts at

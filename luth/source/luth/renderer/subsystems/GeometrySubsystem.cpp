@@ -35,17 +35,6 @@ namespace Luth
                 { ShaderDataType::Float3, "a_Tangent"   }
             };
         }
-        BufferLayout MakeSkinnedVertexLayout() {
-            return BufferLayout{
-                { ShaderDataType::Float3, "a_Position"    },
-                { ShaderDataType::Float3, "a_Normal"      },
-                { ShaderDataType::Float2, "a_TexCoord0"   },
-                { ShaderDataType::Float2, "a_TexCoord1"   },
-                { ShaderDataType::Float3, "a_Tangent"     },
-                { ShaderDataType::Int4,   "a_BoneIDs"     },
-                { ShaderDataType::Float4, "a_BoneWeights" }
-            };
-        }
         // Position-only attribute with full PBR vertex stride — depth-prepass and shadow
         // pipelines reuse the PBR vertex buffer but only consume a_Position.
         std::pair<std::vector<VkVertexInputBindingDescription>, std::vector<VkVertexInputAttributeDescription>>
@@ -256,19 +245,15 @@ namespace Luth
                 return config;
             });
 
-        auto skinnedLayout = MakeSkinnedVertexLayout();
-        auto skinnedBindingDescs = skinnedLayout.GetBindingDescriptions();
-        auto skinnedAttribDescs  = skinnedLayout.GetAttributeDescriptions();
-
+        // Skinned variant: empty vertex input — the deformable VS fetch pos/normal/tangent/uv from the
+        // deformed buffer by gl_VertexIndex, so no VB is bound. see arch/rendering-pipeline.md
         m_GeoSkinnedPipelineManager.Init(geoLayouts,
-            [skinnedBindingDescs, skinnedAttribDescs](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
+            [](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
             {
                 PipelineConfig config;
                 config.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
                 config.depthFormat  = VK_FORMAT_D32_SFLOAT;
                 config.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-                config.bindingDescriptions   = skinnedBindingDescs;
-                config.attributeDescriptions = skinnedAttribDescs;
                 config.polygonMode    = polygonMode;
                 config.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
@@ -320,10 +305,7 @@ namespace Luth
 
         if (!m_DepthPrepassSkinnedVertSpv.empty() && !shadowFragSpv.empty())
         {
-            auto skinned = MakeSkinnedVertexLayout();
-            auto skinnedBindings = skinned.GetBindingDescriptions();
-            auto skinnedAttribs  = skinned.GetAttributeDescriptions();
-
+            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
             PipelineConfig cfg;
             cfg.colorFormats = {};
             cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
@@ -333,8 +315,6 @@ namespace Luth
             cfg.blendEnabled = false;
             cfg.cullMode     = VK_CULL_MODE_BACK_BIT;
             cfg.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-            cfg.bindingDescriptions   = skinnedBindings;
-            cfg.attributeDescriptions = skinnedAttribs;
 
             m_DepthPrepassSkinnedPipeline = std::make_unique<VKPipeline>(
                 cfg, m_DepthPrepassSkinnedVertSpv, shadowFragSpv, geoLayouts);
@@ -391,14 +371,14 @@ namespace Luth
         }
         if (!m_SlimGBufferSkinnedVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
         {
-            auto skinned = MakeSkinnedVertexLayout();
-            auto skinnedBindings = skinned.GetBindingDescriptions();
-            auto skinnedAttribs  = skinned.GetAttributeDescriptions();
+            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
+            std::vector<VkVertexInputBindingDescription>   noBindings;
+            std::vector<VkVertexInputAttributeDescription> noAttribs;
             m_SlimGBufferSkinnedPipeline = std::make_unique<VKPipeline>(
-                makeConfig(skinnedBindings, skinnedAttribs),
+                makeConfig(noBindings, noAttribs),
                 m_SlimGBufferSkinnedVertSpv, m_SlimGBufferFragSpv, geoLayouts);
             m_SlimGBufferCutoutSkinnedPipeline = std::make_unique<VKPipeline>(
-                makeCutoutConfig(skinnedBindings, skinnedAttribs),
+                makeCutoutConfig(noBindings, noAttribs),
                 m_SlimGBufferSkinnedVertSpv, m_SlimGBufferFragSpv, geoLayouts);
         }
     }
@@ -820,9 +800,13 @@ namespace Luth
                         }
                     }
 
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    if (!dc.isSkinned)
+                    {
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    }
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                     const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
@@ -976,9 +960,13 @@ namespace Luth
                         }
                     }
 
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    if (!dc.isSkinned)
+                    {
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    }
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                     const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
@@ -1030,9 +1018,13 @@ namespace Luth
                                 p->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
 
-                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                        VkDeviceSize offsets[] = { 0 };
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        if (!dc.isSkinned)
+                        {
+                            VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                            VkDeviceSize offsets[] = { 0 };
+                            vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        }
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                         const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
@@ -1249,9 +1241,13 @@ namespace Luth
                         auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                         if (!vb || !ib) continue;
 
-                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                        VkDeviceSize offsets[] = { 0 };
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        if (!dc.isSkinned)
+                        {
+                            VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                            VkDeviceSize offsets[] = { 0 };
+                            vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                        }
                         vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                         // GPU cull sets instanceCount=0 for culled draws. gl_BaseInstance =
