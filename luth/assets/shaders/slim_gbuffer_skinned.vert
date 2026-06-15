@@ -1,9 +1,10 @@
 #version 460
+#extension GL_EXT_buffer_reference        : require
+#extension GL_EXT_buffer_reference_uvec2  : require
 
-// Slim G-buffer vertex shader (skinned). Computes current AND previous clip positions
-// from CURRENT model + CURRENT bones, vs PREVIOUS model + PREVIOUS bones. BoneMatrices
-// SSBO is dual-region (current at [0,N), previous at [N,2N)) so a single Set 4 binding
-// serves both clips — see arch/rendering-pipeline.md (BoneMatrixBuffer dual-buffer).
+// Slim G-buffer vertex shader (skinned). Reads the deformation seam: CURRENT clip from the CURR
+// deformed region (+ TBN), PREVIOUS clip from the PREV region — the double-buffered deformed buffer
+// replaces the dual-region bone skin for motion vectors. see arch/multi-queue.md
 
 layout(location = 0) in vec3  a_Position;
 layout(location = 1) in vec3  a_Normal;
@@ -69,51 +70,40 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
-// Linear Blend Skinning against a chosen bone offset (current = boneOffset,
-// previous = prevBoneOffset). Identity fallback matches pbr_skinned.vert.
-mat4 SkinAt(uint baseOffset)
-{
-    mat4 m = mat4(0.0);
-    for (int i = 0; i < 4; ++i)
-    {
-        if (a_BoneIDs[i] >= 0)
-            m += a_BoneWeights[i] * bones[baseOffset + a_BoneIDs[i]];
-    }
-    if (m[0][0] == 0.0 && m[1][1] == 0.0 && m[2][2] == 0.0)
-        m = mat4(1.0);
-    return m;
-}
+// Deformation seam — post-skin object-space vertex (interleaved Vertex, 13 floats/vert). CURR holds
+// this frame's skin (pos/normal/uv/tangent); PREV holds last frame's positions for motion vectors.
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer DeformedBuf {
+    float verts[];
+};
 
 void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
 
-    mat4 skinCurr = SkinAt(obj.boneOffset);
-    mat4 skinPrev = SkinAt(obj.prevBoneOffset);
+    DeformedBuf dbCurr = DeformedBuf(obj.deformedBdaCurr);
+    DeformedBuf dbPrev = DeformedBuf(obj.deformedBdaPrev);
+    uint b = uint(gl_VertexIndex) * 13u;
+    vec3 dPos     = vec3(dbCurr.verts[b +  0u], dbCurr.verts[b +  1u], dbCurr.verts[b +  2u]);
+    vec3 dNrm     = vec3(dbCurr.verts[b +  3u], dbCurr.verts[b +  4u], dbCurr.verts[b +  5u]);
+    vec2 dUV0     = vec2(dbCurr.verts[b +  6u], dbCurr.verts[b +  7u]);
+    vec2 dUV1     = vec2(dbCurr.verts[b +  8u], dbCurr.verts[b +  9u]);
+    vec3 dTan     = vec3(dbCurr.verts[b + 10u], dbCurr.verts[b + 11u], dbCurr.verts[b + 12u]);
+    vec3 dPosPrev = vec3(dbPrev.verts[b +  0u], dbPrev.verts[b +  1u], dbPrev.verts[b +  2u]);
 
-    vec4 modelPos     = vec4(a_Position, 1.0);
-    vec4 skinnedCurr  = skinCurr * modelPos;
-    vec4 skinnedPrev  = skinPrev * modelPos;
+    v_TexCoord0 = dUV0;
+    v_TexCoord1 = dUV1;
 
-    v_TexCoord0 = a_TexCoord0;
-    v_TexCoord1 = a_TexCoord1;
-
-    // TBN built against the current skin matrix (slim_gbuffer.frag samples the current
-    // normal map; previous-frame TBN isn't needed for motion vectors).
-    mat3 skinNorm  = mat3(skinCurr);
-    vec3 skinNorm3 = normalize(skinNorm * a_Normal);
-    vec3 skinTan3  = normalize(skinNorm * a_Tangent);
-
+    // TBN against the current deformed normal/tangent (matches the RT hit basis + pbr_skinned).
     mat3 normalMatrix = mat3(transpose(inverse(obj.model)));
-    vec3 N = normalize(normalMatrix * skinNorm3);
-    vec3 T = normalize(mat3(obj.model) * skinTan3);
+    vec3 N = normalize(normalMatrix * dNrm);
+    vec3 T = normalize(mat3(obj.model) * dTan);
     T = normalize(T - dot(T, N) * N);
     vec3 B = cross(N, T);
     v_TBN = mat3(T, B, N);
 
     v_MaterialIndex = obj.materialIndex;
 
-    v_CurrClip  = ubo.viewProjection     * obj.model     * skinnedCurr;
-    v_PrevClip  = ubo.prevViewProjection * obj.prevModel * skinnedPrev;
+    v_CurrClip  = ubo.viewProjection     * obj.model     * vec4(dPos,     1.0);
+    v_PrevClip  = ubo.prevViewProjection * obj.prevModel * vec4(dPosPrev, 1.0);
     gl_Position = v_CurrClip;
 }

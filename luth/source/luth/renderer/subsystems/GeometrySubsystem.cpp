@@ -549,10 +549,9 @@ namespace Luth
             // Resolve previous-frame model from the render-side cache. Newly-spawned entities
             // (cache miss) fall back to current model → zero motion for one frame.
             entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
-            if (auto pmIt = m_PrevModelByEntity.find(entity); pmIt != m_PrevModelByEntity.end())
-                obj.prevModel = pmIt->second;
-            else
-                obj.prevModel = obj.model;
+            auto pmIt = m_PrevModelByEntity.find(entity);
+            const bool firstFrame = (pmIt == m_PrevModelByEntity.end());
+            obj.prevModel = firstFrame ? obj.model : pmIt->second;
 
             const auto& aabb   = meshesData[meshSnap.meshIndex].BindPoseAABB;
             obj.boundingSphere = Vec4(aabb.Center(), Math::Length(aabb.Extents()));
@@ -585,7 +584,9 @@ namespace Luth
             if (blas && blas->IsSkinned())
             {
                 obj.deformedBdaCurr = blas->GetDeformedBdaCurr(frameAbs);
-                obj.deformedBdaPrev = blas->GetDeformedBdaPrev(frameAbs);
+                // Seed prev=curr on the entity's first frame (prev region still zero-filled) so motion
+                // is zero — matches the prevModel cache-miss fallback above.
+                obj.deformedBdaPrev = firstFrame ? obj.deformedBdaCurr : blas->GetDeformedBdaPrev(frameAbs);
             }
             else
             {

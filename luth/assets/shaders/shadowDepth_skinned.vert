@@ -1,4 +1,6 @@
 #version 460
+#extension GL_EXT_buffer_reference        : require
+#extension GL_EXT_buffer_reference_uvec2  : require
 
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
@@ -55,6 +57,11 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
+// Deformation seam — post-skin object-space position (interleaved Vertex, 13 floats/vert).
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer DeformedBuf {
+    float verts[];
+};
+
 // CPU pushes the cascade index per ShadowPass.Ci invocation.
 layout(push_constant) uniform PushConstants {
     uint cascadeIndex;
@@ -64,15 +71,9 @@ void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
 
-    // Linear Blend Skinning (LBS)
-    mat4 skinMatrix = mat4(0.0);
-    for (int i = 0; i < 4; i++) {
-        if (a_BoneIDs[i] >= 0)
-            skinMatrix += a_BoneWeights[i] * bones[obj.boneOffset + a_BoneIDs[i]];
-    }
-    if (skinMatrix[0][0] == 0.0 && skinMatrix[1][1] == 0.0 && skinMatrix[2][2] == 0.0)
-        skinMatrix = mat4(1.0);
+    DeformedBuf db = DeformedBuf(obj.deformedBdaCurr);
+    uint b = uint(gl_VertexIndex) * 13u;
+    vec3 dPos = vec3(db.verts[b + 0u], db.verts[b + 1u], db.verts[b + 2u]);
 
-    vec4 skinnedPos = skinMatrix * vec4(a_Position, 1.0);
-    gl_Position = ubo.lightSpaceMatrix[pc.cascadeIndex] * obj.model * skinnedPos;
+    gl_Position = ubo.lightSpaceMatrix[pc.cascadeIndex] * obj.model * vec4(dPos, 1.0);
 }

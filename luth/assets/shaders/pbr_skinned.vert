@@ -1,4 +1,6 @@
 #version 460
+#extension GL_EXT_buffer_reference        : require
+#extension GL_EXT_buffer_reference_uvec2  : require
 
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
@@ -65,36 +67,36 @@ layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {
     GPUObjectData objects[];
 };
 
+// Deformation seam — the post-skin object-space vertex (interleaved Vertex, 13 floats: pos, normal,
+// uv0, uv1, tangent), the same buffer the RT BLAS + geometry table read. Fetched by gl_VertexIndex.
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer DeformedBuf {
+    float verts[];
+};
+
 void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
 
-    // Linear Blend Skinning.
-    mat4 skinMatrix = mat4(0.0);
-    for (int i = 0; i < 4; i++) {
-        if (a_BoneIDs[i] >= 0)
-            skinMatrix += a_BoneWeights[i] * bones[obj.boneOffset + a_BoneIDs[i]];
-    }
-    // No-bones sentinel: zero diagonal → identity (vertex stays in bind pose).
-    if (skinMatrix[0][0] == 0.0 && skinMatrix[1][1] == 0.0 && skinMatrix[2][2] == 0.0)
-        skinMatrix = mat4(1.0);
+    // Read the deformation seam instead of skinning here — raster == RT by shared source.
+    DeformedBuf db = DeformedBuf(obj.deformedBdaCurr);
+    uint b = uint(gl_VertexIndex) * 13u;
+    vec3 dPos = vec3(db.verts[b +  0u], db.verts[b +  1u], db.verts[b +  2u]);
+    vec3 dNrm = vec3(db.verts[b +  3u], db.verts[b +  4u], db.verts[b +  5u]);
+    vec2 dUV0 = vec2(db.verts[b +  6u], db.verts[b +  7u]);
+    vec2 dUV1 = vec2(db.verts[b +  8u], db.verts[b +  9u]);
+    vec3 dTan = vec3(db.verts[b + 10u], db.verts[b + 11u], db.verts[b + 12u]);
 
-    vec4 skinnedPos = skinMatrix * vec4(a_Position, 1.0);
-    mat3 skinNormalMat = mat3(skinMatrix);
-    vec3 skinnedNormal = normalize(skinNormalMat * a_Normal);
-    vec3 skinnedTangent = normalize(skinNormalMat * a_Tangent);
-
-    vec4 worldPos = obj.model * skinnedPos;
+    vec4 worldPos = obj.model * vec4(dPos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_TexCoord0 = a_TexCoord0;
-    v_TexCoord1 = a_TexCoord1;
+    v_TexCoord0 = dUV0;
+    v_TexCoord1 = dUV1;
 
     // Inverse-transpose preserves orientation under non-uniform scale.
     mat3 normalMatrix = mat3(transpose(inverse(obj.model)));
-    v_Normal = normalize(normalMatrix * skinnedNormal);
+    v_Normal = normalize(normalMatrix * dNrm);
 
     // TBN, Gram-Schmidt re-orthogonalized.
-    vec3 T = normalize(mat3(obj.model) * skinnedTangent);
+    vec3 T = normalize(mat3(obj.model) * dTan);
     vec3 N = v_Normal;
     T = normalize(T - dot(T, N) * N);
     vec3 B = cross(N, T);
