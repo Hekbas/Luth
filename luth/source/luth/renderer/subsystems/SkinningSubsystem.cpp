@@ -73,15 +73,15 @@ namespace Luth
         return true;
     }
 
-    void SkinningSubsystem::Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset) const
+    void SkinningSubsystem::Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset, u32 frameAbs) const
     {
         const auto& blas = mesh.GetBlas();
         if (!blas || !blas->IsSkinned()) return;
-        if (blas->GetSkinInputBda() == 0 || blas->GetDeformedBda() == 0) return;
+        if (blas->GetSkinInputBda() == 0 || blas->GetDeformedBdaCurr(frameAbs) == 0) return;
 
         SkinPC pc{};
         pc.inputBda    = blas->GetSkinInputBda();
-        pc.deformedBda = blas->GetDeformedBda();
+        pc.deformedBda = blas->GetDeformedBdaCurr(frameAbs);  // write the CURRENT region
         pc.vertexCount = blas->GetVertexCount();
         pc.boneOffset  = boneOffset;
 
@@ -96,6 +96,7 @@ namespace Luth
     {
         if (!m_ComputePipeline) return;
 
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         bool boundPipeline = false;
         for (const auto& inst : snapshot.meshes)
         {
@@ -111,8 +112,7 @@ namespace Luth
             if (!boundPipeline)
             {
                 m_ComputePipeline->Bind(cmd);
-                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex())
-                                 % MAX_FRAMES_IN_FLIGHT;
+                const u32 slot = frameAbs % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet boneSet = BoneMatrixBuffer::GetDescriptorSet(slot);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                         m_ComputePipeline->GetLayout(),
@@ -120,7 +120,7 @@ namespace Luth
                 boundPipeline = true;
             }
 
-            Dispatch(cmd, *mesh, inst.boneOffset);
+            Dispatch(cmd, *mesh, inst.boneOffset, frameAbs);
         }
     }
 

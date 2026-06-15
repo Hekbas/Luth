@@ -34,9 +34,15 @@ namespace Luth
         VkDeviceAddress            GetDeviceAddress() const { return m_DeviceAddress; }
         bool                       IsSkinned()        const { return m_IsSkinned; }
 
-        // Skinned-only — null/0 for static BLAS.
+        // Skinned-only — null/0 for static BLAS. The deformed buffer is double-buffered (curr/prev
+        // regions of m_DeformedRegionBytes each) so raster motion vectors can read the previous frame's
+        // positions; the region alternates by frame parity — region 0 == CURR on frame 0, matching the
+        // initial build at offset 0. Skinning writes + AS-build/geom-table read the CURR region.
         VkDeviceAddress GetSkinInputBda()    const { return m_SkinInputBda; }
-        VkDeviceAddress GetDeformedBda()     const { return m_DeformedBda; }
+        VkDeviceAddress GetDeformedBdaCurr(u32 frameAbs) const
+            { return m_DeformedBda + static_cast<VkDeviceAddress>(frameAbs & 1u) * m_DeformedRegionBytes; }
+        VkDeviceAddress GetDeformedBdaPrev(u32 frameAbs) const
+            { return m_DeformedBda + static_cast<VkDeviceAddress>(~frameAbs & 1u) * m_DeformedRegionBytes; }
         u32             GetVertexCount()     const { return m_VertexCount; }
         u64             GetUpdateScratchSize() const { return m_UpdateScratchSize; }
 
@@ -80,6 +86,7 @@ namespace Luth
         VkBuffer        m_DeformedBuffer   = VK_NULL_HANDLE;
         VmaAllocation   m_DeformedAlloc    = nullptr;
         VkDeviceAddress m_DeformedBda      = 0;
+        VkDeviceSize    m_DeformedRegionBytes = 0;  // per-region size; buffer is 2x this (curr + prev)
         u32             m_VertexCount      = 0;
         u32             m_PrimitiveCount   = 0;
         u64             m_UpdateScratchSize = 0;

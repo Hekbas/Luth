@@ -44,7 +44,7 @@ namespace Luth
         // snapshot.meshes filtering on isSkinned + non-null skinned BLAS, pushes per-mesh constants, and
         // dispatches one workgroup-per-64-verts. AddDeformPass emits the deformed-buffer barrier after.
         void DispatchAllSkinned(VkCommandBuffer cmd, const RenderSnapshot& snapshot) const;
-        void Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset) const;
+        void Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset, u32 frameAbs) const;
 
         RenderPipeline* m_Pipeline = nullptr;
 

@@ -255,10 +255,13 @@ namespace Luth
 
         // Deformed vertices — interleaved Vertex layout (52 B: pos/normal/uv0/uv1/tangent) so the RT
         // geometry table reads post-skin normals/tangents byte-identical to a static VB; the AS build
-        // reads positions at offset 0. Zero-filled before the initial build (VMA leaves device memory
-        // uninitialized; recycled NaN/Inf would TDR the BVH builder). Cross-queue: graphics initial
-        // build, then compute write + read per frame. see arch/multi-queue.md
-        const VkDeviceSize deformedSize = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
+        // reads positions at offset 0. Double-buffered (curr/prev regions) so raster motion vectors can
+        // read the previous frame's positions — region alternates by frame parity, region 0 == CURR on
+        // frame 0. Zero-filled before the initial build (VMA leaves memory uninitialized; recycled
+        // NaN/Inf would TDR the BVH builder). see arch/multi-queue.md
+        const VkDeviceSize deformedRegionBytes = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
+        const VkDeviceSize deformedSize        = 2 * deformedRegionBytes;
+        result->m_DeformedRegionBytes = deformedRegionBytes;
         {
             VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             ci.size        = deformedSize;

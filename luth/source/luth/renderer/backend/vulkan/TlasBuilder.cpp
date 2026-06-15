@@ -106,7 +106,7 @@ namespace Luth
 
     void TlasBuilder::RefitSkinnedBLASes(VkCommandBuffer cmd,
                                          std::span<const MeshDrawSnapshot> instances,
-                                         u32 /*frameAbs*/)
+                                         u32 frameAbs)
     {
         auto& ctx = VulkanContext::Get();
         const auto& rt = ctx.GetRtFn();
@@ -181,7 +181,7 @@ namespace Luth
             geom.geometryType                            = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
             geom.geometry.triangles.sType                = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
             geom.geometry.triangles.vertexFormat         = VK_FORMAT_R32G32B32_SFLOAT;
-            geom.geometry.triangles.vertexData.deviceAddress = e.blas->GetDeformedBda();
+            geom.geometry.triangles.vertexData.deviceAddress = e.blas->GetDeformedBdaCurr(frameAbs);
             geom.geometry.triangles.vertexStride         = sizeof(Vertex);
             geom.geometry.triangles.maxVertex            = vertCount - 1;
             geom.geometry.triangles.indexType            = VK_INDEX_TYPE_UINT32;
@@ -289,7 +289,7 @@ namespace Luth
             GPUGeometryEntry ge{};
             if (r.blas->IsSkinned())
             {
-                ge.vertexBDA = r.blas->GetDeformedBda();
+                ge.vertexBDA = r.blas->GetDeformedBdaCurr(frameAbs);
             }
             else
             {
