@@ -27,17 +27,6 @@ namespace Luth
                 { ShaderDataType::Float3, "a_Tangent"   }
             };
         }
-        BufferLayout MakeSkinnedVertexLayout() {
-            return BufferLayout{
-                { ShaderDataType::Float3, "a_Position"    },
-                { ShaderDataType::Float3, "a_Normal"      },
-                { ShaderDataType::Float2, "a_TexCoord0"   },
-                { ShaderDataType::Float2, "a_TexCoord1"   },
-                { ShaderDataType::Float3, "a_Tangent"     },
-                { ShaderDataType::Int4,   "a_BoneIDs"     },
-                { ShaderDataType::Float4, "a_BoneWeights" }
-            };
-        }
     }
 
     void TransparencySubsystem::Init(RenderPipeline& pipeline)
@@ -122,9 +111,12 @@ namespace Luth
         // Sorted variants mirror GeometrySubsystem's Transparent/Fade arm: GeometryPass attachments
         // (sceneColor + entityID + depth), depth-test-no-write LESS_OR_EQUAL, standard alpha blend.
         // OIT store variants drop ALL color attachments (PPLL writes via Set 6 storage) and blending.
-        auto makeFactory = [pcRange](BufferLayout layout, bool oitStore) {
-            auto bindingDescs = layout.GetBindingDescriptions();
-            auto attribDescs  = layout.GetAttributeDescriptions();
+        // emptyInput: the skinned variants fetch the deformed buffer by gl_VertexIndex (no bound VB).
+        auto makeFactory = [pcRange](BufferLayout layout, bool oitStore, bool emptyInput = false) {
+            auto bindingDescs = emptyInput ? std::vector<VkVertexInputBindingDescription>{}
+                                           : layout.GetBindingDescriptions();
+            auto attribDescs  = emptyInput ? std::vector<VkVertexInputAttributeDescription>{}
+                                           : layout.GetAttributeDescriptions();
             return [bindingDescs, attribDescs, pcRange, oitStore](Material::RenderMode, Material::CullMode cullMode,
                                                                   VkPolygonMode polygonMode) -> PipelineConfig
             {
@@ -152,9 +144,9 @@ namespace Luth
         };
 
         m_SortedPm.Init(layouts, makeFactory(MakePBRVertexLayout(), false));
-        m_SortedSkinnedPm.Init(layouts, makeFactory(MakeSkinnedVertexLayout(), false));
+        m_SortedSkinnedPm.Init(layouts, makeFactory(BufferLayout{}, false, true));
         m_OitPm.Init(layouts, makeFactory(MakePBRVertexLayout(), true));
-        m_OitSkinnedPm.Init(layouts, makeFactory(MakeSkinnedVertexLayout(), true));
+        m_OitSkinnedPm.Init(layouts, makeFactory(BufferLayout{}, true, true));
 
         BuildResolvePipeline();
     }
@@ -504,9 +496,13 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                     if (!vb || !ib) continue;
 
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    if (!dc.isSkinned)
+                    {
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    }
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                     const u32 viewBaseRegion = m_Pipeline->GetCurrentView()->viewIndex * RenderPipeline::k_IndirectRegionsPerView;
@@ -721,9 +717,13 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                     if (!vb || !ib) continue;
 
-                    VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
-                    VkDeviceSize offsets[] = { 0 };
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    if (!dc.isSkinned)
+                    {
+                        VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                        VkDeviceSize offsets[] = { 0 };
+                        vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                    }
                     vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
                     // GPU cull zeroed instanceCount for off-frustum draws; the indirect slot is keyed
