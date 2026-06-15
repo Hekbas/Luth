@@ -16,6 +16,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
 #include "luth/core/FrameData.h"
 #include "luth/core/RenderSnapshot.h"
 #include "luth/jobs/JobSystem.h"
@@ -576,6 +577,21 @@ namespace Luth
             // Address the dual-buffer SSBO's previous-bones region for skinned motion vectors.
             // Don't-care for non-skinned draws (their shaders never read bones[]).
             obj.prevBoneOffset = meshSnap.boneOffset + BoneMatrixBuffer::PREV_BLOCK_OFFSET;
+
+            // Deformed-vertex buffer BDAs for the deformable raster path (skinned only). CURR holds
+            // this frame's skin; PREV is last frame's, for motion vectors. Rigid meshes get 0 — their
+            // VS reads the bound vertex buffer instead.
+            const auto& blas = mesh->GetBlas();
+            if (blas && blas->IsSkinned())
+            {
+                obj.deformedBdaCurr = blas->GetDeformedBdaCurr(frameAbs);
+                obj.deformedBdaPrev = blas->GetDeformedBdaPrev(frameAbs);
+            }
+            else
+            {
+                obj.deformedBdaCurr = 0;
+                obj.deformedBdaPrev = 0;
+            }
 
             VkDrawIndexedIndirectCommand baseCmd{};
             baseCmd.indexCount    = obj.indexCount;
