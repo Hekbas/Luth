@@ -77,6 +77,9 @@ void main()
 {
     GPUObjectData obj = objects[gl_BaseInstance];
 
+    // Guard: deformed buffer not ready (skinned BLAS still loading) — clip off-screen, no null deref.
+    if (obj.deformedBdaCurr == uvec2(0u)) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
+
     // Read the deformation seam instead of skinning here — raster == RT by shared source.
     DeformedBuf db = DeformedBuf(obj.deformedBdaCurr);
     uint b = uint(gl_VertexIndex) * 13u;
