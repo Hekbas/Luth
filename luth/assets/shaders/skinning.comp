@@ -1,16 +1,17 @@
 #version 460
-#extension GL_EXT_buffer_reference  : require
-#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference     : require
+#extension GL_EXT_buffer_reference2    : require
+#extension GL_EXT_scalar_block_layout  : require
 
 // Per-vertex compute skinning for the RT BLAS refit and the RT geometry table (and, post
-// deformation-seam, the raster vertex source). Reads skin inputs (pos/normal/tangent/uv + 4 bone
-// IDs + weights) via buffer-reference BDA; reads bone matrices from the engine-shared
-// BoneMatrixBuffer SSBO at set 0 binding 0; writes a deformed vertex in the interleaved Vertex
-// layout to an output buffer-reference BDA the BLAS update-build and geometry table both consume.
+// deformation-seam, the raster vertex source). Reads the source SkinnedVertex VB directly via a
+// scalar buffer-reference BDA; reads bone matrices from the engine-shared BoneMatrixBuffer SSBO at
+// set 0 binding 0; writes a deformed vertex in the interleaved Vertex layout to an output
+// buffer-reference BDA the BLAS update-build and geometry table both consume.
 //
-// CONTRACT: SkinInput layout MUST match VKAccelerationStructure::SkinComputeInput (std430, 16-byte
-// slots): vec4 pos@0 (.xyz bind pose, .w=1.0), vec4 normal@16, vec4 tangent@32, vec4 uv@48
-// (uv0.xy, uv1.zw), ivec4 boneIDs@64 (negative = "no bone"), vec4 boneWeights@80. sizeof = 96.
+// CONTRACT: the input layout MUST match Model.h::SkinnedVertex (scalar/tight, 84 B): vec3 pos@0,
+// vec3 normal@12, vec2 uv0@24, vec2 uv1@32, vec3 tangent@40, ivec4 boneIDs@52 (negative = "no
+// bone"), vec4 boneWeights@68 — locked by static_assert in VulkanAccelerationStructure.cpp.
 //
 // CONTRACT: the deformed output MUST match the Vertex layout material.slang::GatherHitGeometry reads
 // — 13 floats/vert: pos@0-2, normal@3-5, uv0@6-7, uv1@8-9, tangent@10-12. Normal/tangent use
@@ -22,19 +23,20 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-struct SkinInput
+struct SkinnedVertex
 {
-    vec4  position;     // .xyz bind-pose pos, .w = 1.0
-    vec4  normal;       // .xyz bind-pose normal
-    vec4  tangent;      // .xyz bind-pose tangent
-    vec4  uv;           // .xy = uv0, .zw = uv1
-    ivec4 boneIDs;
-    vec4  boneWeights;
+    vec3  position;     // @0   bind-pose pos
+    vec3  normal;       // @12  bind-pose normal
+    vec2  uv0;          // @24
+    vec2  uv1;          // @32
+    vec3  tangent;      // @40  bind-pose tangent
+    ivec4 boneIDs;      // @52  negative = "no bone"
+    vec4  boneWeights;  // @68
 };
 
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InputBuf
+layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer InputBuf
 {
-    SkinInput verts[];
+    SkinnedVertex verts[];
 };
 
 layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer DeformedBuf
@@ -60,7 +62,7 @@ void main()
     const uint vid = gl_GlobalInvocationID.x;
     if (vid >= pc.vertexCount) return;
 
-    const SkinInput v = pc.inputBuf.verts[vid];
+    const SkinnedVertex v = pc.inputBuf.verts[vid];
 
     // Blended skin matrix (LBS) — identical construction to pbr_skinned.vert so the deformed vertex
     // matches the raster vertex bit-for-bit once raster reads this buffer.
@@ -75,10 +77,10 @@ void main()
     if (skin[0][0] == 0.0 && skin[1][1] == 0.0 && skin[2][2] == 0.0)
         skin = mat4(1.0);
 
-    const vec3 outPos = (skin * v.position).xyz;
+    const vec3 outPos = (skin * vec4(v.position, 1.0)).xyz;
     const mat3 skin3  = mat3(skin);
-    const vec3 outNrm = normalize(skin3 * v.normal.xyz);
-    const vec3 outTan = normalize(skin3 * v.tangent.xyz);
+    const vec3 outNrm = normalize(skin3 * v.normal);
+    const vec3 outTan = normalize(skin3 * v.tangent);
 
     const uint base = vid * 13u;            // 13 floats per interleaved Vertex
     pc.deformedBuf.verts[base +  0u] = outPos.x;
@@ -87,10 +89,10 @@ void main()
     pc.deformedBuf.verts[base +  3u] = outNrm.x;
     pc.deformedBuf.verts[base +  4u] = outNrm.y;
     pc.deformedBuf.verts[base +  5u] = outNrm.z;
-    pc.deformedBuf.verts[base +  6u] = v.uv.x;   // uv0
-    pc.deformedBuf.verts[base +  7u] = v.uv.y;
-    pc.deformedBuf.verts[base +  8u] = v.uv.z;   // uv1
-    pc.deformedBuf.verts[base +  9u] = v.uv.w;
+    pc.deformedBuf.verts[base +  6u] = v.uv0.x;
+    pc.deformedBuf.verts[base +  7u] = v.uv0.y;
+    pc.deformedBuf.verts[base +  8u] = v.uv1.x;
+    pc.deformedBuf.verts[base +  9u] = v.uv1.y;
     pc.deformedBuf.verts[base + 10u] = outTan.x;
     pc.deformedBuf.verts[base + 11u] = outTan.y;
     pc.deformedBuf.verts[base + 12u] = outTan.z;

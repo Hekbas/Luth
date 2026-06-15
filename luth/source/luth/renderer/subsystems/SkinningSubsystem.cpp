@@ -4,6 +4,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
+#include "luth/renderer/backend/vulkan/VulkanBuffer.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/resources/Model.h"
@@ -77,10 +78,15 @@ namespace Luth
     {
         const auto& blas = mesh.GetBlas();
         if (!blas || !blas->IsSkinned()) return;
-        if (blas->GetSkinInputBda() == 0 || blas->GetDeformedBdaCurr(frameAbs) == 0) return;
+        if (blas->GetDeformedBdaCurr(frameAbs) == 0) return;
+
+        // The compute reads the source SkinnedVertex VB directly (scalar buffer_reference) — its
+        // upload fence is waited at BLAS-build time, so it is resident before the first dispatch.
+        auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh.GetVertexBuffer());
+        if (!vb) return;
 
         SkinPC pc{};
-        pc.inputBda    = blas->GetSkinInputBda();
+        pc.inputBda    = vb->GetDeviceAddress();
         pc.deformedBda = blas->GetDeformedBdaCurr(frameAbs);  // write the CURRENT region
         pc.vertexCount = blas->GetVertexCount();
         pc.boneOffset  = boneOffset;

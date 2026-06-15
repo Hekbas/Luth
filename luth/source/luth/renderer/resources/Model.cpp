@@ -77,7 +77,7 @@ namespace Luth
             // each frame's MODE_UPDATE refit is cheap. Built unconditionally on Vulkan backends;
             // factory returns null on non-Vulkan backends (graceful — TLAS skips meshes with no BLAS).
             if (data.IsSkinned)
-                mesh->SetBlas(VKAccelerationStructure::CreateSkinnedBLAS(*mesh, data.SkinnedVertices));
+                mesh->SetBlas(VKAccelerationStructure::CreateSkinnedBLAS(*mesh));
             else
                 mesh->SetBlas(VKAccelerationStructure::CreateStaticBLAS(*mesh));
 
