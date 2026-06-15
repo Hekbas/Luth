@@ -2,14 +2,6 @@
 #extension GL_EXT_buffer_reference        : require
 #extension GL_EXT_buffer_reference_uvec2  : require
 
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec2 a_TexCoord0;
-layout(location = 3) in vec2 a_TexCoord1;
-layout(location = 4) in vec3 a_Tangent;
-layout(location = 5) in ivec4 a_BoneIDs;
-layout(location = 6) in vec4 a_BoneWeights;
-
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord0;
@@ -41,12 +33,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float farZ;
 } ubo;
 
-// Set 4: Bone Matrices SSBO
-layout(std430, set = 4, binding = 0) readonly buffer BoneMatrices {
-    mat4 bones[];
-};
-
-// Set 5: Per-object data SSBO (std430, 176 bytes per entry)
+// Set 5: Per-object data SSBO (std430, 192 bytes per entry)
 struct GPUObjectData {
     mat4  model;          // 64B
     mat4  prevModel;      // 64B — frame N-1's worldMatrix

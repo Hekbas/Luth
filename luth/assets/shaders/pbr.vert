@@ -37,7 +37,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float farZ;
 } ubo;
 
-// Set 5: Per-object data SSBO (std430, 176 bytes per entry)
+// Set 5: Per-object data SSBO (std430, 192 bytes per entry)
 struct GPUObjectData {
     mat4  model;          // 64B
     mat4  prevModel;      // 64B — frame N-1's worldMatrix
