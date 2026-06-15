@@ -13,7 +13,7 @@ namespace Luth
 {
     // Per-draw data structures used across the renderer. DrawCommand is the CPU-side entry
     // assembled by DrawListBuilder. ObjectPushConstants packs the small per-draw values pushed
-    // at each Bind. GPUObjectData is the SSBO layout (std430, 112B) consumed by gpu_cull.comp
+    // at each Bind. GPUObjectData is the SSBO layout (std430, 192B) consumed by gpu_cull.comp
     // and the PBR vertex shader, so its layout must stay in lockstep with the GLSL counterpart.
     struct DrawCommand {
         Mat4 modelMatrix;

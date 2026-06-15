@@ -859,6 +859,8 @@ namespace Luth
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                         if (!vb || !ib) continue;
+                        // Skinned needs its empty-input pipeline; skip if absent — the static path binds no VB.
+                        if (dc.isSkinned && !m_ShadowSkinnedPipeline) continue;
 
                         if (dc.isSkinned != currentSkinned)
                         {
