@@ -8,6 +8,9 @@
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
+#include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/RenderSnapshot.h"
@@ -119,5 +122,48 @@ namespace Luth
 
             Dispatch(cmd, *mesh, inst.boneOffset);
         }
+    }
+
+    void SkinningSubsystem::AddDeformPass(RG::RenderGraph& rg)
+    {
+        struct DeformData {};
+        rg.AddComputePass<DeformData>(
+            "Deform",
+            [](DeformData&, RG::RenderPassBuilder& builder) {
+                // Per-mesh deformed buffers are persistent VMA allocations outside the RG; the hand-
+                // rolled barrier below carries visibility to the raster vertex fetch (RG buffer-read
+                // states have no VERTEX_SHADER variant). SetHasSideEffect keeps the pass uncullable.
+                builder.SetHasSideEffect();
+            },
+            [this](DeformData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                auto* rs = SystemRegistry::GetSystem<RenderingSystem>();
+                if (!rs) return;
+                const RenderSnapshot& snapshot = rs->GetActiveSnapshot();
+
+                // Skin every view (NOT multi-view-guarded): the deformed buffer is scene-global, but the
+                // cross-view semaphore waits at EARLY_FRAGMENT_TESTS, which would not gate view 2's
+                // VERTEX_SHADER fetch of a view-1-only write. Re-skinning per view is idempotent + cheap,
+                // and view 2's gA already waits on view 1, so it adds no new serialization.
+                DispatchAllSkinned(cmd, snapshot);
+
+                // One global compute-write barrier over every mesh's deformed buffer. dst spans the
+                // raster vertex fetch (VERTEX_SHADER) + fragment TBN reads, the BLAS-build vertex read,
+                // and the rayQuery-in-compute trace reads. Same-queue raster (gA) is gated here; cross-
+                // queue consumers (refit + RT on async-compute, GeometryPass on gB) ride the gA→compute
+                // →gB timeline semaphores. see arch/multi-queue.md
+                VkMemoryBarrier2 mem{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+                mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                mem.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+                mem.dstStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+                                  | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                                  | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
+                                  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                mem.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dep.memoryBarrierCount = 1;
+                dep.pMemoryBarriers    = &mem;
+                vkCmdPipelineBarrier2(cmd, &dep);
+            });
     }
 }

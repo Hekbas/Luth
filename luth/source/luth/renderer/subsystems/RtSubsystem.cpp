@@ -510,27 +510,12 @@ namespace Luth
                 if (!rs) return;
                 const RenderSnapshot& snapshot = rs->GetActiveSnapshot();
 
-                // 1. Per-skinned-mesh compute-skin into deformed-VBs.
-                m_Pipeline->GetSkinning().DispatchAllSkinned(cmd, snapshot);
+                // Skinning now runs in SkinningSubsystem::AddDeformPass at frame start (graphics queue);
+                // the deformed buffers are ready for both raster and this refit. The gA→compute timeline
+                // semaphore makes the deform writes visible to this async-compute refit — no inline
+                // compute-write barrier here. see arch/multi-queue.md
 
-                // 2. Compute-write barrier (one global UAV barrier per NVIDIA RTX guidance, covering
-                // every skinned mesh's deformed-VB at once). The skinning SHADER_WRITE must reach two
-                // dst readers: the AS-build vertex-input read of positions, AND the rayQuery-in-compute
-                // trace reads of normal/tangent/UV — the skinned geometry-table vertexBDA points at
-                // this buffer, so GatherHitGeometry/AlphaTestUV deref it at COMPUTE_SHADER. Both later
-                // passes share this AsyncCompute primary, so the single barrier suffices.
-                VkMemoryBarrier2 mem{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-                mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                mem.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-                mem.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
-                                  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                mem.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // AS-build vertex read + trace BDA read
-                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-                dep.memoryBarrierCount = 1;
-                dep.pMemoryBarriers    = &mem;
-                vkCmdPipelineBarrier2(cmd, &dep);
-
-                // 3. Batched skinned-BLAS refits — one vkCmdBuildAccelerationStructuresKHR call
+                // Batched skinned-BLAS refits — one vkCmdBuildAccelerationStructuresKHR call
                 // with N infos sharing one tagged scratch (per-mesh sub-regions, no overlap).
                 TlasBuilder::RefitSkinnedBLASes(cmd, snapshot.meshes, static_cast<u32>(frameAbs));
 
