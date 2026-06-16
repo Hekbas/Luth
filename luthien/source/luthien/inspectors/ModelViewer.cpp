@@ -84,6 +84,9 @@ namespace Luth
                 UI::Property("Import Normals", m_Settings.ImportNormals);
                 UI::Property("Import Tangents", m_Settings.ImportTangents);
                 UI::Property("Optimize Mesh", m_Settings.OptimizeMesh);
+                UI::Property("Mark Deformable", m_Settings.MarkDeformable);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Route this model's STATIC meshes through the GPU deform seam so global\nwind bends them, RT-correct. Ignored for skinned. Needs Apply (reimport).");
 
                 ImGui::Separator();
                 ImGui::TextDisabled("Skinning");
