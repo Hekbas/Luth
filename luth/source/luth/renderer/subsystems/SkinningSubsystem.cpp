@@ -221,8 +221,9 @@ namespace Luth
             Vec3 objDir = (inst.windDirOverride && !inst.windOverrideIsWorld)
                 ? inst.windOverrideDir
                 : invLin * (inst.windDirOverride ? inst.windOverrideDir : worldDir);
+            // Upper bound rejects inf from a singular (zero-scale) model matrix; nan fails both compares.
             const f32 olen = Math::Length(objDir);
-            objDir = (olen > 1e-5f) ? objDir * (1.0f / olen) : Vec3(0.0f);
+            objDir = (olen > 1e-5f && olen < 1e18f) ? objDir * (1.0f / olen) : Vec3(0.0f);
 
             // Per-entity response folds into the global field; windRespond == false → bind pose.
             const f32 strength = inst.windRespond ? (gStrength * inst.windStrengthMul) : 0.0f;
