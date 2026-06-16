@@ -260,8 +260,9 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // Procedural vertex wind (D3) — global object-space deform on static meshes marked
-            // "deformable" at import; RT-correct (the BLAS reads the deformed buffer). Per-entity = D4.
+            // Procedural vertex wind — the global wind FIELD (world-space) deforming static meshes marked
+            // "deformable" at import; RT-correct (the BLAS reads the deformed buffer). Per-entity response
+            // layers on top via the Wind component.
             if (UI::BeginCollapsingHeader("Wind", true)) {
                 auto& w = m_RS->GetWindSettings();
                 if (UI::BeginProperties("WindProps")) {
@@ -270,7 +271,7 @@ namespace Luth
                         ImGui::SetTooltip("Global wind on static wind-deformable meshes.\nOff = bind pose (the deform compute writes the un-bent vertex).");
                     UI::Property("Direction", w.direction, 0.05f);
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Sway direction in the mesh's object space (normalized at use).");
+                        ImGui::SetTooltip("Sway direction in WORLD space (transformed into each mesh's object space at dispatch).");
                     UI::Property("Strength", w.strength, 0.01f, 0.0f, 4.0f);
                     UI::Property("Main Bend Scale", w.mainBendScale, 0.01f, 0.0f, 2.0f);
                     if (ImGui::IsItemHovered())
@@ -279,6 +280,14 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Per-vertex shimmer along the normal (leaf flutter / cloth folds).");
                     UI::Property("Frequency", w.frequency, 0.05f, 0.0f, 10.0f);
+                    UI::Property("Gust Strength", w.gustStrength, 0.01f, 0.0f, 2.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Low-frequency amplitude pulse on the main bend (0 = steady wind).");
+                    UI::Property("Gust Frequency", w.gustFrequency, 0.01f, 0.0f, 4.0f);
+                    UI::Property("Turbulence", w.turbulenceAmplitude, 0.005f, 0.0f, 1.0f);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("In-shader noise octaves on the detail bend (chaotic flutter).");
+                    UI::Property("Turbulence Frequency", w.turbulenceFrequency, 0.01f, 0.0f, 6.0f);
                     UI::EndProperties();
                 }
                 UI::EndCollapsingHeader();

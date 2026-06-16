@@ -33,24 +33,29 @@ namespace Luth
         };
         static_assert(sizeof(SkinPC) == 24, "SkinPC must match skinning.comp push_constant layout");
 
-        // deform.comp push constants — 52 B of data; the uint64 BDAs force 8-align, so sizeof == 56
-        // (the trailing pad is unread by the 52 B shader block, which lives within the 56 B range).
+        // deform.comp push constants — 72 B; the uint64 BDAs force 8-align (14 trailing 4-byte fields
+        // → 72 is exactly 8-aligned, no pad). windXYZ is the per-instance OBJECT-space wind direction
+        // (the global world-space dir transformed by inverse(mat3(world)) on the CPU).
         struct DeformPC
         {
             VkDeviceAddress inputBda;      //  0 — source Vertex VB (52 B)
             VkDeviceAddress deformedBda;   //  8 — write the CURRENT region
             u32             vertexCount;   // 16
             f32             time;          // 20
-            f32             windX;         // 24
+            f32             windX;         // 24 — object-space dir (CPU-resolved per instance)
             f32             windY;         // 28
             f32             windZ;         // 32
             f32             strength;      // 36
             f32             mainBendScale; // 40
             f32             detailScale;   // 44
             f32             frequency;     // 48
-            f32             _pad;          // 52 — pad to the 8-aligned struct size
+            f32             phaseOffset;   // 52 — per-entity de-sync
+            f32             gustStrength;  // 56
+            f32             gustFrequency; // 60
+            f32             turbAmplitude; // 64
+            f32             turbFrequency; // 68
         };
-        static_assert(sizeof(DeformPC) == 56, "DeformPC must cover deform.comp's push range");
+        static_assert(sizeof(DeformPC) == 72, "DeformPC must cover deform.comp's push range");
 
         constexpr u32 LOCAL_SIZE_X = 64;
     }
@@ -183,10 +188,12 @@ namespace Luth
         if (!m_DeformPipeline) return;
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-        // Safe-normalize the wind direction once; a zero vector → no main bend (detail still applies).
-        const f32  dlen     = Math::Length(wind.direction);
-        const Vec3 dir      = (dlen > 1e-5f) ? wind.direction * (1.0f / dlen) : Vec3(0.0f);
-        const f32  strength = wind.enabled ? wind.strength : 0.0f;
+        // Global wind FIELD. The world-space direction is transformed into each mesh's object space
+        // inside the loop (so rotated instances bend the same world direction); a zero vector → no main
+        // bend (detail still applies). Per-entity response (Component::Wind) folds in below.
+        const f32  wlen      = Math::Length(wind.direction);
+        const Vec3 worldDir  = (wlen > 1e-5f) ? wind.direction * (1.0f / wlen) : Vec3(0.0f);
+        const f32  gStrength = wind.enabled ? wind.strength : 0.0f;
 
         bool boundPipeline = false;
         for (const auto& inst : snapshot.meshes)
@@ -205,18 +212,30 @@ namespace Luth
             // meshes records zero commands.
             if (!boundPipeline) { m_DeformPipeline->Bind(cmd); boundPipeline = true; }
 
+            // World→object: a wind direction is a contravariant flow vector, so transform by the plain
+            // inverse of the linear part (NOT the inverse-transpose normal matrix). Singular → no bend.
+            const Mat3 invLin = Math::Inverse(Mat3(inst.worldMatrix));
+            Vec3 objDir = invLin * worldDir;
+            const f32  olen = Math::Length(objDir);
+            objDir = (olen > 1e-5f) ? objDir * (1.0f / olen) : Vec3(0.0f);
+
             DeformPC pc{};
             pc.inputBda      = vb->GetDeviceAddress();             // source Vertex VB (52 B)
             pc.deformedBda   = blas->GetDeformedBdaCurr(frameAbs); // write the CURRENT region
             pc.vertexCount   = blas->GetVertexCount();
             pc.time          = time;
-            pc.windX         = dir.x;
-            pc.windY         = dir.y;
-            pc.windZ         = dir.z;
-            pc.strength      = strength;
+            pc.windX         = objDir.x;
+            pc.windY         = objDir.y;
+            pc.windZ         = objDir.z;
+            pc.strength      = gStrength;
             pc.mainBendScale = wind.mainBendScale;
             pc.detailScale   = wind.detailScale;
             pc.frequency     = wind.frequency;
+            pc.phaseOffset   = 0.0f;
+            pc.gustStrength  = wind.gustStrength;
+            pc.gustFrequency = wind.gustFrequency;
+            pc.turbAmplitude = wind.turbulenceAmplitude;
+            pc.turbFrequency = wind.turbulenceFrequency;
 
             vkCmdPushConstants(cmd, m_DeformPipeline->GetLayout(),
                                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC), &pc);
