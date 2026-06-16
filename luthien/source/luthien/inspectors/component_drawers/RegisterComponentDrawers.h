@@ -18,6 +18,7 @@ namespace Luth::ComponentDrawers
     void RegisterDirectionalLight();
     void RegisterPointLight();
     void RegisterFogVolume();
+    void RegisterWind();
     void RegisterCollider();
     void RegisterRigidBody();
     void RegisterCharacterController();

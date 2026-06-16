@@ -267,6 +267,20 @@ namespace Luth
             j["fogVolume"]       = fj;
         }
 
+        if (entity.HasComponent<Wind>()) {
+            const auto& w = entity.GetComponent<Wind>();
+            json wj;
+            wj["enabled"]              = w.enabled;
+            wj["strengthMultiplier"]   = w.strengthMultiplier;
+            wj["phaseOffset"]          = w.phaseOffset;
+            wj["gustMultiplier"]       = w.gustMultiplier;
+            wj["detailMultiplier"]     = w.detailMultiplier;
+            wj["useDirectionOverride"] = w.useDirectionOverride;
+            wj["directionOverride"]    = SerializeVec3(w.directionOverride);
+            wj["overrideIsWorldSpace"] = w.overrideIsWorldSpace;
+            j["wind"]                  = wj;
+        }
+
         if (entity.HasComponent<Collider>()) {
             const auto& c = entity.GetComponent<Collider>();
             json cj;
@@ -667,6 +681,22 @@ namespace Luth
                 fv.falloffEnd     = fj.value("falloffEnd",     1.0f);
                 fv.affectsAmbient = fj.value("affectsAmbient", true);
                 entity.AddComponent<FogVolume>(fv);
+            }
+
+            // Wind — per-entity response to the global field (additive; absent → full global response).
+            if (ej.contains("wind")) {
+                const auto& wj = ej["wind"];
+                Wind w;
+                w.enabled              = wj.value("enabled", true);
+                w.strengthMultiplier   = wj.value("strengthMultiplier", 1.0f);
+                w.phaseOffset          = wj.value("phaseOffset", 0.0f);
+                w.gustMultiplier       = wj.value("gustMultiplier", 1.0f);
+                w.detailMultiplier     = wj.value("detailMultiplier", 1.0f);
+                w.useDirectionOverride = wj.value("useDirectionOverride", false);
+                w.directionOverride    = DeserializeVec3(wj.value("directionOverride", json::array()),
+                                                         Vec3(1.0f, 0.0f, 0.0f));
+                w.overrideIsWorldSpace = wj.value("overrideIsWorldSpace", true);
+                entity.AddComponent<Wind>(w);
             }
 
             // Collider / RigidBody — both populate a local first, then AddComponent copy-emplaces the
