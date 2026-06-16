@@ -127,7 +127,7 @@ namespace Luth
         u64 totalScratch = 0;
         for (const auto& inst : instances)
         {
-            if (!inst.isSkinned) continue;
+            if (!inst.isSkinned && !inst.isDeformable) continue;
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || !r.blas->IsDeformable()) continue;
             const u64 sz = AlignUp(r.blas->GetUpdateScratchSize(), scratchAlign);

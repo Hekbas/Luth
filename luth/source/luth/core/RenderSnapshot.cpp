@@ -56,6 +56,7 @@ namespace Luth
                 dst->materialUUID = mr.MaterialUUID;
                 dst->meshIndex    = mr.MeshIndex;
                 dst->isSkinned    = meshesData[mr.MeshIndex].IsSkinned;
+                dst->isDeformable = meshesData[mr.MeshIndex].IsDeformable;
                 dst->entity       = static_cast<u32>(entity);
 
                 // Animation lives on this entity OR its direct parent. Without the parent

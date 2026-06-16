@@ -32,6 +32,7 @@ namespace Luth
         u32  meshIndex   = 0;
         u32  boneOffset  = 0;        // Pre-resolved from Animation / Parent chain
         bool isSkinned   = false;
+        bool isDeformable = false;   // static wind-deformable (reads the deformed buffer like skinned)
         u32  entity      = 0;        // entt::entity underlying value — cast at the use site
     };
 

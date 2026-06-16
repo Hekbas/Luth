@@ -25,6 +25,8 @@ namespace Luth
         Material::CullMode cullMode = Material::CullMode::Back;
         UUID fragShaderUUID = UUID::Invalid();  // node-graph frag override; invalid = stock pbr fragment
         bool isSkinned = false;
+        bool isDeformable = false;   // static wind-deformable — routes through the deformed pipeline
+        bool isDeformed = false;     // = isSkinned || isDeformable: reads the deformed buffer (NOT selectionMask)
         u32 boneOffset = 0;
         u32 gpuObjectIndex = 0;  // 0-based index into GPUObjectData SSBO / IndirectBuffer
     };

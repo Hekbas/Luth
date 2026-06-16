@@ -16,6 +16,8 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/RenderSnapshot.h"
 #include "luth/core/FrameData.h"
+#include "luth/core/time/Time.h"
+#include "luth/core/types/LuthMath.h"
 
 namespace Luth
 {
@@ -30,6 +32,26 @@ namespace Luth
             u32             boneOffset;   // 20
         };
         static_assert(sizeof(SkinPC) == 24, "SkinPC must match skinning.comp push_constant layout");
+
+        // deform.comp push constants — 52 B of data; the uint64 BDAs force 8-align, so sizeof == 56
+        // (the trailing pad is unread by the 52 B shader block, which lives within the 56 B range).
+        struct DeformPC
+        {
+            VkDeviceAddress inputBda;      //  0 — source Vertex VB (52 B)
+            VkDeviceAddress deformedBda;   //  8 — write the CURRENT region
+            u32             vertexCount;   // 16
+            f32             time;          // 20
+            f32             windX;         // 24
+            f32             windY;         // 28
+            f32             windZ;         // 32
+            f32             strength;      // 36
+            f32             mainBendScale; // 40
+            f32             detailScale;   // 44
+            f32             frequency;     // 48
+            f32             _pad;          // 52 — pad to the 8-aligned struct size
+        };
+        static_assert(sizeof(DeformPC) == 56, "DeformPC must cover deform.comp's push range");
+
         constexpr u32 LOCAL_SIZE_X = 64;
     }
 
@@ -51,27 +73,52 @@ namespace Luth
             m_Spv,
             std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
             std::vector<VkPushConstantRange>{ pcRange });
+
+        // deform.comp — static wind-deformable. No bones / no descriptor set; all inputs ride DeformPC.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/deform.comp"))
+            m_DeformSpv = sh->GetSpirV();
+        if (!m_DeformSpv.empty())
+        {
+            VkPushConstantRange dpc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC) };
+            m_DeformPipeline = std::make_unique<VKComputePipeline>(
+                m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
+        }
+        else
+            LH_CORE_ERROR("SkinningSubsystem: failed to load shaders/deform.comp");
     }
 
     void SkinningSubsystem::Shutdown()
     {
         m_ComputePipeline.reset();
         m_Spv.clear();
+        m_DeformPipeline.reset();
+        m_DeformSpv.clear();
         m_Pipeline = nullptr;
     }
 
     bool SkinningSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
-        if (name != "skinning.comp") return false;
-        m_Spv = spv;
-
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SkinPC) };
-        m_ComputePipeline = std::make_unique<VKComputePipeline>(
-            m_Spv,
-            std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
-            std::vector<VkPushConstantRange>{ pcRange });
-        LH_CORE_INFO("SkinningSubsystem: pipeline rebuilt after shader reload");
-        return true;
+        if (name == "skinning.comp")
+        {
+            m_Spv = spv;
+            VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SkinPC) };
+            m_ComputePipeline = std::make_unique<VKComputePipeline>(
+                m_Spv,
+                std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
+                std::vector<VkPushConstantRange>{ pcRange });
+            LH_CORE_INFO("SkinningSubsystem: skinning.comp rebuilt after shader reload");
+            return true;
+        }
+        if (name == "deform.comp")
+        {
+            m_DeformSpv = spv;
+            VkPushConstantRange dpc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC) };
+            m_DeformPipeline = std::make_unique<VKComputePipeline>(
+                m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
+            LH_CORE_INFO("SkinningSubsystem: deform.comp rebuilt after shader reload");
+            return true;
+        }
+        return false;
     }
 
     void SkinningSubsystem::Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset, u32 frameAbs) const
@@ -130,6 +177,54 @@ namespace Luth
         }
     }
 
+    void SkinningSubsystem::DispatchAllDeformable(VkCommandBuffer cmd, const RenderSnapshot& snapshot,
+                                                  const WindSettings& wind, f32 time) const
+    {
+        if (!m_DeformPipeline) return;
+
+        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+        // Safe-normalize the wind direction once; a zero vector → no main bend (detail still applies).
+        const f32  dlen     = Math::Length(wind.direction);
+        const Vec3 dir      = (dlen > 1e-5f) ? wind.direction * (1.0f / dlen) : Vec3(0.0f);
+        const f32  strength = wind.enabled ? wind.strength : 0.0f;
+
+        bool boundPipeline = false;
+        for (const auto& inst : snapshot.meshes)
+        {
+            if (!inst.isDeformable || inst.isSkinned) continue;   // skinned deforms via skinning.comp
+            auto model = Luth::AssetManager::GetAsset<Model>(inst.modelUUID);
+            if (!model) continue;
+            auto mesh = model->GetMesh(inst.meshIndex);
+            if (!mesh) continue;
+            const auto& blas = mesh->GetBlas();
+            if (!blas || !blas->IsDeformable() || blas->GetDeformedBdaCurr(frameAbs) == 0) continue;
+            auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+            if (!vb) continue;
+
+            // Lazy bind — no descriptor set (deform.comp has no Set 0). A snapshot with zero deformable
+            // meshes records zero commands.
+            if (!boundPipeline) { m_DeformPipeline->Bind(cmd); boundPipeline = true; }
+
+            DeformPC pc{};
+            pc.inputBda      = vb->GetDeviceAddress();             // source Vertex VB (52 B)
+            pc.deformedBda   = blas->GetDeformedBdaCurr(frameAbs); // write the CURRENT region
+            pc.vertexCount   = blas->GetVertexCount();
+            pc.time          = time;
+            pc.windX         = dir.x;
+            pc.windY         = dir.y;
+            pc.windZ         = dir.z;
+            pc.strength      = strength;
+            pc.mainBendScale = wind.mainBendScale;
+            pc.detailScale   = wind.detailScale;
+            pc.frequency     = wind.frequency;
+
+            vkCmdPushConstants(cmd, m_DeformPipeline->GetLayout(),
+                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC), &pc);
+            const u32 groups = (pc.vertexCount + LOCAL_SIZE_X - 1) / LOCAL_SIZE_X;
+            vkCmdDispatch(cmd, groups, 1, 1);
+        }
+    }
+
     void SkinningSubsystem::AddDeformPass(RG::RenderGraph& rg)
     {
         struct DeformData {};
@@ -152,6 +247,7 @@ namespace Luth
                 // VERTEX_SHADER fetch of a view-1-only write. Re-skinning per view is idempotent + cheap,
                 // and view 2's gA already waits on view 1, so it adds no new serialization.
                 DispatchAllSkinned(cmd, snapshot);
+                DispatchAllDeformable(cmd, snapshot, rs->GetWindSettings(), Time::GetTime());
 
                 // One global compute-write barrier over every mesh's deformed buffer. dst spans the
                 // raster vertex fetch (VERTEX_SHADER) + fragment TBN reads, the BLAS-build vertex read,

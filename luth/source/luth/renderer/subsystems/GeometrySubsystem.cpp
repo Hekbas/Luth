@@ -527,7 +527,7 @@ namespace Luth
             // BLAS (+ deformed buffer) is ready, else the deformable VS derefs a null address and
             // faults the device. Transient (one frame) for a still-loading model.
             auto blas = mesh->GetBlas();
-            if (meshSnap.isSkinned && (!blas || !blas->IsDeformable() || blas->GetDeformedBdaCurr(frameAbs) == 0))
+            if ((meshSnap.isSkinned || meshSnap.isDeformable) && (!blas || !blas->IsDeformable() || blas->GetDeformedBdaCurr(frameAbs) == 0))
                 continue;
 
             GPUObjectData& obj = objectData[count];
@@ -782,12 +782,12 @@ namespace Luth
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
-                    // Skinned needs its empty-input pipeline; skip if absent — the static path binds no VB.
-                    if (dc.isSkinned && !m_DepthPrepassSkinnedPipeline) continue;
+                    // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                    if (dc.isDeformed && !m_DepthPrepassSkinnedPipeline) continue;
 
-                    if (dc.isSkinned != currentSkinned)
+                    if (dc.isDeformed != currentSkinned)
                     {
-                        currentSkinned = dc.isSkinned;
+                        currentSkinned = dc.isDeformed;
                         if (currentSkinned && m_DepthPrepassSkinnedPipeline)
                         {
                             m_DepthPrepassSkinnedPipeline->Bind(cmd);
@@ -803,7 +803,7 @@ namespace Luth
                     }
 
                     // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
-                    if (!dc.isSkinned)
+                    if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                         VkDeviceSize offsets[] = { 0 };
@@ -944,12 +944,12 @@ namespace Luth
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
-                    // Skinned needs its empty-input pipeline; skip if absent — the static path binds no VB.
-                    if (dc.isSkinned && !m_SlimGBufferSkinnedPipeline) continue;
+                    // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                    if (dc.isDeformed && !m_SlimGBufferSkinnedPipeline) continue;
 
-                    if (dc.isSkinned != currentSkinned)
+                    if (dc.isDeformed != currentSkinned)
                     {
-                        currentSkinned = dc.isSkinned;
+                        currentSkinned = dc.isDeformed;
                         if (currentSkinned && m_SlimGBufferSkinnedPipeline)
                         {
                             m_SlimGBufferSkinnedPipeline->Bind(cmd);
@@ -965,7 +965,7 @@ namespace Luth
                     }
 
                     // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
-                    if (!dc.isSkinned)
+                    if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                         VkDeviceSize offsets[] = { 0 };
@@ -1010,12 +1010,12 @@ namespace Luth
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                         if (!vb || !ib) continue;
-                        // Skinned needs its empty-input pipeline; skip if absent — the static path binds no VB.
-                        if (dc.isSkinned && !m_SlimGBufferCutoutSkinnedPipeline) continue;
+                        // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                        if (dc.isDeformed && !m_SlimGBufferCutoutSkinnedPipeline) continue;
 
-                        if (dc.isSkinned != currentSkinned)
+                        if (dc.isDeformed != currentSkinned)
                         {
-                            currentSkinned = dc.isSkinned;
+                            currentSkinned = dc.isDeformed;
                             VKPipeline* p = (currentSkinned && m_SlimGBufferCutoutSkinnedPipeline)
                                 ? m_SlimGBufferCutoutSkinnedPipeline.get()
                                 : m_SlimGBufferCutoutPipeline.get();
@@ -1025,7 +1025,7 @@ namespace Luth
                         }
 
                         // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
-                        if (!dc.isSkinned)
+                        if (!dc.isDeformed)
                         {
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                             VkDeviceSize offsets[] = { 0 };
@@ -1224,10 +1224,10 @@ namespace Luth
 
                     for (const auto& dc : draws)
                     {
-                        if (dc.cullMode != currentCull || dc.isSkinned != currentSkinned || dc.fragShaderUUID != currentFrag)
+                        if (dc.cullMode != currentCull || dc.isDeformed != currentSkinned || dc.fragShaderUUID != currentFrag)
                         {
                             currentCull    = dc.cullMode;
-                            currentSkinned = dc.isSkinned;
+                            currentSkinned = dc.isDeformed;
                             currentFrag    = dc.fragShaderUUID;
 
                             // Default materials key on pbrUUID (shared stock frag); a graph material keys on
@@ -1248,7 +1248,7 @@ namespace Luth
                         if (!vb || !ib) continue;
 
                         // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
-                        if (!dc.isSkinned)
+                        if (!dc.isDeformed)
                         {
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                             VkDeviceSize offsets[] = { 0 };
