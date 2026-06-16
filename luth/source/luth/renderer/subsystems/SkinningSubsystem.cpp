@@ -215,9 +215,17 @@ namespace Luth
             // World→object: a wind direction is a contravariant flow vector, so transform by the plain
             // inverse of the linear part (NOT the inverse-transpose normal matrix). Singular → no bend.
             const Mat3 invLin = Math::Inverse(Mat3(inst.worldMatrix));
-            Vec3 objDir = invLin * worldDir;
-            const f32  olen = Math::Length(objDir);
+
+            // Per-entity direction: an override (world- or object-space) else the global world field.
+            // World-space sources are pulled into the mesh's object space; an object-space override rides raw.
+            Vec3 objDir = (inst.windDirOverride && !inst.windOverrideIsWorld)
+                ? inst.windOverrideDir
+                : invLin * (inst.windDirOverride ? inst.windOverrideDir : worldDir);
+            const f32 olen = Math::Length(objDir);
             objDir = (olen > 1e-5f) ? objDir * (1.0f / olen) : Vec3(0.0f);
+
+            // Per-entity response folds into the global field; windRespond == false → bind pose.
+            const f32 strength = inst.windRespond ? (gStrength * inst.windStrengthMul) : 0.0f;
 
             DeformPC pc{};
             pc.inputBda      = vb->GetDeviceAddress();             // source Vertex VB (52 B)
@@ -227,14 +235,14 @@ namespace Luth
             pc.windX         = objDir.x;
             pc.windY         = objDir.y;
             pc.windZ         = objDir.z;
-            pc.strength      = gStrength;
+            pc.strength      = strength;
             pc.mainBendScale = wind.mainBendScale;
-            pc.detailScale   = wind.detailScale;
+            pc.detailScale   = wind.detailScale * inst.windDetailMul;
             pc.frequency     = wind.frequency;
-            pc.phaseOffset   = 0.0f;
-            pc.gustStrength  = wind.gustStrength;
+            pc.phaseOffset   = inst.windPhaseOffset;
+            pc.gustStrength  = wind.gustStrength * inst.windGustMul;
             pc.gustFrequency = wind.gustFrequency;
-            pc.turbAmplitude = wind.turbulenceAmplitude;
+            pc.turbAmplitude = wind.turbulenceAmplitude * inst.windDetailMul;
             pc.turbFrequency = wind.turbulenceFrequency;
 
             vkCmdPushConstants(cmd, m_DeformPipeline->GetLayout(),

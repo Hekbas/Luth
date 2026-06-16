@@ -59,6 +59,21 @@ namespace Luth
                 dst->isDeformable = meshesData[mr.MeshIndex].IsDeformable;
                 dst->entity       = static_cast<u32>(entity);
 
+                // Per-entity wind response. Captured unconditionally; the deform dispatch's
+                // !isDeformable filter makes Wind on a non-deformable mesh a silent no-op. Defaults
+                // already encode "no component," so absence needs no else branch.
+                if (auto* w = registry.try_get<Component::Wind>(entity))
+                {
+                    dst->windRespond         = w->enabled;
+                    dst->windStrengthMul     = w->strengthMultiplier;
+                    dst->windPhaseOffset     = w->phaseOffset;
+                    dst->windGustMul         = w->gustMultiplier;
+                    dst->windDetailMul       = w->detailMultiplier;
+                    dst->windDirOverride     = w->useDirectionOverride;
+                    dst->windOverrideDir     = w->directionOverride;
+                    dst->windOverrideIsWorld = w->overrideIsWorldSpace;
+                }
+
                 // Animation lives on this entity OR its direct parent. Without the parent
                 // fallback, child meshes read boneOffset=0 and render a frozen pose.
                 if (dst->isSkinned)
