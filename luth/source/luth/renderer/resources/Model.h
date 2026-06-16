@@ -43,6 +43,7 @@ namespace Luth
         uint32_t MaterialIndex = 0;
         std::string Name;
         bool IsSkinned = false;
+        bool IsDeformable = false;   // static wind-deformable opt-in (per-asset import setting)
         AABB BindPoseAABB;
     };
 

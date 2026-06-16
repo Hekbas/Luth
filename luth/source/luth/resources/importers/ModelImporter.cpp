@@ -40,6 +40,7 @@ namespace Luth
         s.ImportNormals                = j.value("import_normals", true);
         s.ImportTangents               = j.value("import_tangents", false);
         s.OptimizeMesh                 = j.value("optimize_mesh", true);
+        s.MarkDeformable               = j.value("mark_deformable", false);
         s.ScaleFactor                  = j.value("scale_factor", 1.0f);
         s.UpAxis                       = j.value("up_axis", -1);
         s.BakeAxisConversion           = j.value("bake_axis_conversion", true);
@@ -58,6 +59,7 @@ namespace Luth
             { "import_normals",                  ImportNormals },
             { "import_tangents",                 ImportTangents },
             { "optimize_mesh",                   OptimizeMesh },
+            { "mark_deformable",                 MarkDeformable },
             { "scale_factor",                    ScaleFactor },
             { "up_axis",                         UpAxis },
             { "bake_axis_conversion",            BakeAxisConversion },
@@ -1211,6 +1213,11 @@ namespace Luth
             ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
         else
             BuildStaticSceneGraph(scene, axisCorrection, settings.ImportCameras, settings.ImportLights, modelData);
+
+        // Wind-deformable opt-in applies to STATIC meshes only (skinned meshes deform via skinning).
+        if (settings.MarkDeformable)
+            for (auto& m : modelData.Meshes)
+                if (!m.IsSkinned) m.IsDeformable = true;
 
         modelData.Materials = ctx.MaterialUUIDs;
 
