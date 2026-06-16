@@ -77,7 +77,7 @@ namespace Luth
     void SkinningSubsystem::Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset, u32 frameAbs) const
     {
         const auto& blas = mesh.GetBlas();
-        if (!blas || !blas->IsSkinned()) return;
+        if (!blas || !blas->IsDeformable()) return;
         if (blas->GetDeformedBdaCurr(frameAbs) == 0) return;
 
         // The compute reads the source SkinnedVertex VB directly (scalar buffer_reference) — its
@@ -112,7 +112,7 @@ namespace Luth
             auto mesh = model->GetMesh(inst.meshIndex);
             if (!mesh) continue;
             const auto& blas = mesh->GetBlas();
-            if (!blas || !blas->IsSkinned()) continue;
+            if (!blas || !blas->IsDeformable()) continue;
 
             // Lazy bind so a snapshot with zero skinned meshes records zero compute commands.
             if (!boundPipeline)

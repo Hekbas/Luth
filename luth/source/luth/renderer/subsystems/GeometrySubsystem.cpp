@@ -527,7 +527,7 @@ namespace Luth
             // BLAS (+ deformed buffer) is ready, else the deformable VS derefs a null address and
             // faults the device. Transient (one frame) for a still-loading model.
             auto blas = mesh->GetBlas();
-            if (meshSnap.isSkinned && (!blas || !blas->IsSkinned() || blas->GetDeformedBdaCurr(frameAbs) == 0))
+            if (meshSnap.isSkinned && (!blas || !blas->IsDeformable() || blas->GetDeformedBdaCurr(frameAbs) == 0))
                 continue;
 
             GPUObjectData& obj = objectData[count];
@@ -567,7 +567,7 @@ namespace Luth
             // Deformed-vertex buffer BDAs for the deformable raster path (skinned only). CURR holds
             // this frame's skin; PREV is last frame's, for motion vectors. Rigid meshes get 0 — their
             // VS reads the bound vertex buffer instead. (Skinned-but-unready meshes were skipped above.)
-            if (blas && blas->IsSkinned())
+            if (blas && blas->IsDeformable())
             {
                 obj.deformedBdaCurr = blas->GetDeformedBdaCurr(frameAbs);
                 // Seed prev=curr on the entity's first frame (prev region still zero-filled) so motion

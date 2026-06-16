@@ -196,7 +196,7 @@ namespace Luth
         return result;
     }
 
-    std::shared_ptr<VKAccelerationStructure> VKAccelerationStructure::CreateSkinnedBLAS(const Mesh& mesh)
+    std::shared_ptr<VKAccelerationStructure> VKAccelerationStructure::CreateDeformableBLAS(const Mesh& mesh)
     {
         auto& ctx = VulkanContext::Get();
         VkDevice device = ctx.GetDevice();
@@ -206,7 +206,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_CORE_ERROR("CreateSkinnedBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_CORE_ERROR("CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -214,7 +214,7 @@ namespace Luth
         if (vertCount == 0 || indexCount == 0) return nullptr;
 
         auto result = std::make_shared<VKAccelerationStructure>();
-        result->m_IsSkinned    = true;
+        result->m_IsDeformable = true;
         result->m_VertexCount  = vertCount;
         result->m_PrimitiveCount = indexCount / 3;
 
@@ -349,7 +349,7 @@ namespace Luth
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_CORE_TRACE("Skinned BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
+        LH_CORE_TRACE("Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
                       vertCount, result->m_PrimitiveCount, sizes.accelerationStructureSize,
                       sizes.updateScratchSize);
         return result;

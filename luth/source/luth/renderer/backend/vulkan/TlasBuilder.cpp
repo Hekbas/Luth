@@ -129,7 +129,7 @@ namespace Luth
         {
             if (!inst.isSkinned) continue;
             ResolvedMesh r = Resolve(inst);
-            if (!r.blas || !r.blas->IsSkinned()) continue;
+            if (!r.blas || !r.blas->IsDeformable()) continue;
             const u64 sz = AlignUp(r.blas->GetUpdateScratchSize(), scratchAlign);
             entries.push_back({ r.blas, r.mesh, totalScratch, sz });
             totalScratch += sz;
@@ -287,7 +287,7 @@ namespace Luth
             // layout, so GatherHitGeometry reads either unchanged.
             auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
             GPUGeometryEntry ge{};
-            if (r.blas->IsSkinned())
+            if (r.blas->IsDeformable())
             {
                 ge.vertexBDA = r.blas->GetDeformedBdaCurr(frameAbs);
             }
