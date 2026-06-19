@@ -4,6 +4,7 @@
 #include "luth/memory/MemoryTracker.h"
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/jobs/JobSystem.h"
 #include <vector>
 #include <array>
@@ -40,6 +41,7 @@ namespace Luth
         GPUMemoryStats m_GPUStats{};
         Memory::GPUTaggedPageAllocator::Stats m_GpuHeapStats{};
         float m_GPUFrameTimeMs = 0.0f;
+        bool m_BarrierRedundantOnly = false;         // barrier inspector filter
 
         float m_GameStageMs   = 0.0f;
         float m_RenderStageMs = 0.0f;

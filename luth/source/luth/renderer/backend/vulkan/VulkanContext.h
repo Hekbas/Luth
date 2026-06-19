@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include "luth/renderer/backend/vulkan/VulkanDescriptors.h"
+#include "luth/renderer/backend/vulkan/GpuTracy.h"
 #include "luth/renderer/rendergraph/RenderResourceCache.h"
 
 // Forward declare VMA types to avoid including the huge header here
@@ -64,6 +65,8 @@ namespace Luth
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
+        // True iff pipelineStatisticsQuery + inheritedQueries were both available and enabled at device creation.
+        bool SupportsPipelineStats() const { return m_PipelineStatsSupported; }
         const RtFunctions& GetRtFn() const { return m_RtFn; }
         const CheckpointFunctions& GetCheckpointFn() const { return m_CheckpointFn; }
         const DebugUtilsFunctions& GetDebugUtilsFn() const { return m_DebugUtilsFn; }
@@ -84,6 +87,10 @@ namespace Luth
         u32 GetTransferFamily() const { return m_TransferFamily; }
         bool IsAsyncCompute()   const { return m_ComputeIsAsync;  }
         bool IsAsyncTransfer()  const { return m_TransferIsAsync; }
+
+        // Tracy GPU profiling contexts — one per queue; compute aliases graphics when not async-compute.
+        GpuTracyCtx GetGraphicsTracyCtx() const { return m_GraphicsTracyCtx; }
+        GpuTracyCtx GetComputeTracyCtx()  const { return m_ComputeTracyCtx; }
 
         // Deduped {graphics, compute, transfer} family list for VK_SHARING_MODE_CONCURRENT resource creation.
         // Single-family layouts collapse to size 1 — callers should fall back to EXCLUSIVE in that case.
@@ -143,6 +150,8 @@ namespace Luth
         void LoadCheckpointFunctions();
         void LoadDebugUtilsFunctions();
         void InitAllocator();
+        void InitGpuProfilerContexts();
+        void ShutdownGpuProfilerContexts();
 
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
         // Default: on in Debug, off in Release/Dist. Override per-config or via the LUTH_VALIDATION env.
@@ -168,6 +177,7 @@ namespace Luth
         CheckpointFunctions m_CheckpointFn{};
         DebugUtilsFunctions m_DebugUtilsFn{};
         bool m_CheckpointsAvailable = false;
+        bool m_PipelineStatsSupported = false;  // pipelineStatisticsQuery + inheritedQueries both enabled
         
         // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
         // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its
@@ -175,6 +185,8 @@ namespace Luth
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
         VkQueue m_ComputeQueue  = VK_NULL_HANDLE;
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
+        GpuTracyCtx m_GraphicsTracyCtx = nullptr;  // graphics-queue Tracy GPU context
+        GpuTracyCtx m_ComputeTracyCtx  = nullptr;  // async-compute context; aliases graphics on single-family GPUs
         std::mutex m_QueueMutex;
         std::mutex m_ComputeQueueMutex;
         std::mutex m_TransferQueueMutex;

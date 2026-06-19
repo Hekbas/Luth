@@ -13,6 +13,8 @@ namespace Luth
                                 const std::unordered_map<entt::entity, u32>& entityToSSBOIndex,
                                 DrawList& out)
     {
+        LH_PROFILE_FUNCTION();
+
         out.Clear();
 
         for (const MeshDrawSnapshot& meshSnap : snapshot.meshes)

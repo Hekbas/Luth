@@ -402,6 +402,8 @@ namespace Luth
         entt::entity entity,
         const std::shared_ptr<Model>& model)
     {
+        LH_PROFILE_FUNCTION();
+
         u32 boneCount = skeleton.BoneCount();
         std::vector<Mat4> globalTransforms(boneCount);
         std::vector<Mat4> skinMatrices(boneCount);
@@ -485,6 +487,8 @@ namespace Luth
         f32 timeSeconds,
         std::vector<BonePose>& outPoses)
     {
+        LH_PROFILE_FUNCTION();
+
         u32 boneCount = skeleton.BoneCount();
         outPoses.resize(boneCount);
 
@@ -515,6 +519,8 @@ namespace Luth
         std::vector<BonePose>& result,
         const std::vector<bool>& boneMask)
     {
+        LH_PROFILE_FUNCTION();
+
         u32 count = (u32)std::min(a.size(), b.size());
         result.resize(count);
 
@@ -538,6 +544,8 @@ namespace Luth
         const std::vector<BonePose>& poses,
         std::vector<Mat4>& outLocal)
     {
+        LH_PROFILE_FUNCTION();
+
         outLocal.resize(poses.size());
         for (u32 i = 0; i < (u32)poses.size(); i++)
             outLocal[i] = ComposeTransform(poses[i].Position, poses[i].Rotation, poses[i].Scale);
@@ -550,6 +558,8 @@ namespace Luth
         const Skeleton& skeleton,
         Animation& anim)
     {
+        LH_PROFILE_FUNCTION();
+
         auto& ctrl = registry.get<AnimationController>(entity);
         u32 boneCount = skeleton.BoneCount();
 

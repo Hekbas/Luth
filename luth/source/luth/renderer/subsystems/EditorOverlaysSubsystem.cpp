@@ -43,6 +43,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
         auto loadSpv = [](const char* relPath) -> std::vector<u32> {
@@ -69,6 +70,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::CreateLayouts()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Outline: 3 combined image samplers (mask, selection depth, scene depth).
@@ -139,6 +141,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         BuildSelectionPipelines(geoLayouts);
         BuildOutlinePipeline();
         BuildGridPipeline();
@@ -146,6 +149,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::BuildSelectionPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         // Selection mask uses Sets 0-4 (no Set 5 / no GPUObject SSBO — uses ObjectPushConstants).
         std::vector<VkDescriptorSetLayout> layouts(geoLayouts.begin(),
                                                    geoLayouts.begin() + std::min<size_t>(5, geoLayouts.size()));
@@ -196,6 +200,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::BuildOutlinePipeline()
     {
+        LH_PROFILE_FUNCTION();
         if (m_FullscreenVertSpv.empty() || m_OutlineFragSpv.empty() || m_OutlineDescSetLayout == VK_NULL_HANDLE) return;
 
         std::vector<VkDescriptorSetLayout> layouts = { m_OutlineDescSetLayout };
@@ -218,6 +223,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::BuildGridPipeline()
     {
+        LH_PROFILE_FUNCTION();
         if (m_FullscreenVertSpv.empty() || m_GridFragSpv.empty() || m_GridDescSetLayout == VK_NULL_HANDLE) return;
 
         std::vector<VkDescriptorSetLayout> layouts = { m_GridDescSetLayout };
@@ -240,6 +246,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_GridPipeline.reset();
         m_OutlinePipeline.reset();
@@ -254,6 +261,7 @@ namespace Luth
     bool EditorOverlaysSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
                                                     const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -285,6 +293,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::WriteOutlineView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.outlineDescSet == VK_NULL_HANDLE || m_OutlineSampler == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -327,6 +336,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::WriteGridView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.gridDescSet[0] == VK_NULL_HANDLE || m_GridDepthSampler == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -355,6 +365,7 @@ namespace Luth
 
     void EditorOverlaysSubsystem::CollectSelectedHandles(const std::vector<Entity>& selected, std::unordered_set<entt::entity>& outHandles) const
     {
+        LH_PROFILE_FUNCTION();
         for (const auto& entity : selected)
         {
             if (!entity || !entity.IsValid()) continue;
@@ -370,6 +381,7 @@ namespace Luth
 
     SelectionMaskOutput EditorOverlaysSubsystem::AddSelectionMaskPass(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         struct SelectionMaskPassData {
             RG::ResourceHandle maskTex;
             RG::ResourceHandle depthTex;
@@ -530,6 +542,7 @@ namespace Luth
     RG::ResourceHandle EditorOverlaysSubsystem::AddOutlinePass(
         RG::RenderGraph& rg, RG::ResourceHandle ldrOutput, SelectionMaskOutput maskOutput, RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         const auto* view = m_Pipeline->GetCurrentView();
         if (!m_OutlinePipeline || !view->targets->GetLDROutput()) return ldrOutput;
 
@@ -604,6 +617,7 @@ namespace Luth
 
     RG::ResourceHandle EditorOverlaysSubsystem::AddGridPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_GridPipeline) return sceneColor;
 
         struct GridPassData {

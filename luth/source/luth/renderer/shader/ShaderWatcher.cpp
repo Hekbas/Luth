@@ -57,6 +57,7 @@ namespace Luth
         {
             LH_CORE_INFO("Shader file changed — reloading '{}'", name);
             ShaderLibrary::Reload(name);
+            LH_PROFILE_MESSAGE(("Shader reloaded: " + name).c_str());
         }
         m_Pending.clear();
     }

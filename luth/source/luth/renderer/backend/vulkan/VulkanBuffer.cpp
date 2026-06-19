@@ -13,6 +13,8 @@ namespace Luth
 
     VKVertexBuffer::VKVertexBuffer(uint32_t size)
     {
+        LH_PROFILE_FUNCTION();
+
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = size;
@@ -69,6 +71,8 @@ namespace Luth
     VKIndexBuffer::VKIndexBuffer(const uint32_t* indices, uint32_t count)
         : m_Count(count)
     {
+        LH_PROFILE_FUNCTION();
+
         VkDeviceSize size = sizeof(uint32_t) * count;
 
         VkBufferCreateInfo bufferInfo = {};
@@ -109,6 +113,8 @@ namespace Luth
 
     VKUniformBuffer::VKUniformBuffer(uint32_t size)
     {
+        LH_PROFILE_FUNCTION();
+
         VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         bufferInfo.size = size;
         bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;

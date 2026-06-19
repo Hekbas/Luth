@@ -18,6 +18,15 @@
     #define LH_PROFILE_FREE(ptr)            TracyFree(ptr)
     #define LH_PROFILE_THREAD(name)         tracy::SetThreadName(name)
 
+    // Numeric time-series plots + discrete events. GPU zone macros live in renderer/backend/vulkan/GpuTracy.h.
+    #define LH_PROFILE_PLOT(name, val)         TracyPlot(name, val)
+    #define LH_PLOT_FORMAT_NUMBER              tracy::PlotFormatType::Number
+    #define LH_PLOT_FORMAT_MEMORY              tracy::PlotFormatType::Memory
+    #define LH_PLOT_FORMAT_PERCENTAGE          tracy::PlotFormatType::Percentage
+    #define LH_PROFILE_PLOT_CONFIG(name, fmt, step, fill, color) TracyPlotConfig(name, fmt, step, fill, color)
+    #define LH_PROFILE_MESSAGE(txt)            TracyMessage(txt, strlen(txt))
+    #define LH_PROFILE_MESSAGE_COLOR(txt, col) TracyMessageC(txt, strlen(txt), col)
+
     // No-op when TRACY_FIBERS is not defined, so call sites stay clean.
     #if defined(TRACY_FIBERS)
         #define LH_PROFILE_FIBER_ENTER(name)    TracyFiberEnter(name)
@@ -36,6 +45,13 @@
     #define LH_PROFILE_ALLOC(ptr, size)
     #define LH_PROFILE_FREE(ptr)
     #define LH_PROFILE_THREAD(name)
+    #define LH_PROFILE_PLOT(name, val)
+    #define LH_PLOT_FORMAT_NUMBER              0
+    #define LH_PLOT_FORMAT_MEMORY              0
+    #define LH_PLOT_FORMAT_PERCENTAGE          0
+    #define LH_PROFILE_PLOT_CONFIG(name, fmt, step, fill, color)
+    #define LH_PROFILE_MESSAGE(txt)
+    #define LH_PROFILE_MESSAGE_COLOR(txt, col)
     #define LH_PROFILE_FIBER_ENTER(name)
     #define LH_PROFILE_FIBER_LEAVE
 #endif

@@ -39,6 +39,7 @@ namespace Luth
 
     void ReflectionsSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -98,6 +99,7 @@ namespace Luth
 
     void ReflectionsSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_ReflPipeline.reset();
         if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
@@ -110,6 +112,7 @@ namespace Luth
 
     bool ReflectionsSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
         if (name != "rt_reflections.slang") return false;
 
@@ -131,6 +134,7 @@ namespace Luth
 
     void ReflectionsSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.reflDescSet == VK_NULL_HANDLE || !vr.reflRadiance) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimRoughness()) return;
 
@@ -174,6 +178,7 @@ namespace Luth
                                                        RG::ResourceHandle slimNormal,
                                                        RG::ResourceHandle slimRoughness)
     {
+        LH_PROFILE_FUNCTION();
         if (!IsEnabled() || !m_ReflPipeline) return {};
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || !preflightVr->reflRadiance || preflightVr->reflDescSet == VK_NULL_HANDLE) return {};

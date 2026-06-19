@@ -12,6 +12,7 @@ namespace Luth
 {
     bool AssetSerializer::SerializeTexture(const fs::path& path, const TextureAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -36,6 +37,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializeTexture(const fs::path& path, TextureAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 
@@ -234,6 +236,7 @@ namespace Luth
 
     bool AssetSerializer::SerializeModel(const fs::path& path, const ModelAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -299,6 +302,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializeModel(const fs::path& path, ModelAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 
@@ -368,6 +372,7 @@ namespace Luth
 
     bool AssetSerializer::SerializeMaterial(const fs::path& path, const MaterialAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -385,6 +390,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializeMaterial(const fs::path& path, MaterialAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 
@@ -403,6 +409,7 @@ namespace Luth
 
     bool AssetSerializer::SerializePhysicsMaterial(const fs::path& path, const PhysicsMaterialAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -420,6 +427,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializePhysicsMaterial(const fs::path& path, PhysicsMaterialAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 
@@ -438,6 +446,7 @@ namespace Luth
 
     bool AssetSerializer::SerializeShader(const fs::path& path, const ShaderAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -458,6 +467,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializeShader(const fs::path& path, ShaderAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 
@@ -481,6 +491,7 @@ namespace Luth
 
     bool AssetSerializer::SerializeAnimation(const fs::path& path, const AnimationAssetData& data)
     {
+        LH_PROFILE_FUNCTION();
         std::ofstream out(path, std::ios::binary);
         if (!out.is_open()) return false;
 
@@ -495,6 +506,7 @@ namespace Luth
 
     bool AssetSerializer::DeserializeAnimation(const fs::path& path, AnimationAssetData& outData)
     {
+        LH_PROFILE_FUNCTION();
         std::ifstream in(path, std::ios::binary);
         if (!in.is_open()) return false;
 

@@ -57,6 +57,7 @@ namespace Luth
 
     void RenderPipeline::Initialize(u32 viewportWidth, u32 viewportHeight)
     {
+        LH_PROFILE_FUNCTION();
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         m_System.GetSceneTargets().Allocate(viewportWidth, viewportHeight);
@@ -186,12 +187,13 @@ namespace Luth
         // Capacity covers worst-case current frame (5 cull + 4 shadow cascades +
         // geometry + selection + skybox + 3 bloom + grid + post-process + outline
         // + ImGui ≈ 19 passes) with headroom for future passes (GTAO etc.).
-        m_GPUTimers.Init(64);
+        m_GPUTimers.Init(256);   // headroom over the current ~70-pass RT graph; see ReadResults overflow warn
         RegisterNamedTextures();
     }
 
     void RenderPipeline::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
 
         m_ShaderWatcher.Stop();
@@ -249,6 +251,7 @@ namespace Luth
 
     void RenderPipeline::ExecuteMinimal()
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
         RG::RenderGraph rg(m_System.GetFrameAllocator());
         AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
@@ -258,6 +261,7 @@ namespace Luth
 
     bool RenderPipeline::Execute(const RenderView& view, QueueRecorders recorders)
     {
+        LH_PROFILE_FUNCTION();
         VkCommandBuffer primaryCmd = recorders.gA;
         auto& s = m_System;
         m_CurrentView          = &view;
@@ -553,14 +557,18 @@ namespace Luth
         // Capture render graph snapshot for Frame Debugger panel
         m_GraphSnapshot = CaptureSnapshot(rg);
 
-        // Read GPU timing from completed frames and fill snapshot
+        // Read GPU timing + pipeline stats from completed frames and fill snapshot. ReadStats must run
+        // BEFORE ReadResults — they share the frame counter that ReadResults advances.
         std::vector<float> gpuTimes;
+        std::vector<RG::GpuPipelineStats> gpuStats;
         u32 nonCulledCount = 0;
         for (auto& p : m_GraphSnapshot.passes)
             if (!p.culled) nonCulledCount++;
 
+        m_GPUTimers.ReadStats(nonCulledCount, gpuStats);
         m_GPUTimers.ReadResults(nonCulledCount, gpuTimes);
         float totalMs = 0.0f;
+        RG::GpuPipelineStats total{};
         u32 timerIdx = 0;
         for (auto& p : m_GraphSnapshot.passes)
         {
@@ -570,9 +578,21 @@ namespace Luth
                 p.gpuTimeMs = gpuTimes[timerIdx];
                 if (gpuTimes[timerIdx] > 0.0f) totalMs += gpuTimes[timerIdx];
             }
+            if (timerIdx < (u32)gpuStats.size() && gpuStats[timerIdx].valid)
+            {
+                p.stats = gpuStats[timerIdx];
+                total.inputVertices   += p.stats.inputVertices;
+                total.inputPrimitives += p.stats.inputPrimitives;
+                total.vsInvocations   += p.stats.vsInvocations;
+                total.clipInvocations += p.stats.clipInvocations;
+                total.clipPrimitives  += p.stats.clipPrimitives;
+                total.fsInvocations   += p.stats.fsInvocations;
+                total.valid = true;
+            }
             timerIdx++;
         }
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
+        m_GraphSnapshot.totalStats = total;
 
         // Wire the archive sink for this capture. The sink copies each
         // tracked RT after the pass that writes it. Gate on the per-view
@@ -736,6 +756,7 @@ namespace Luth
 
     RG::RenderGraphSnapshot RenderPipeline::CaptureSnapshot(const RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
 
         RG::RenderGraphSnapshot snapshot;
@@ -798,6 +819,10 @@ namespace Luth
 
             snapshot.passes.push_back(std::move(ps));
         }
+
+        // Barrier inspector — fill from the solved graph when capture is on (off by default).
+        if (RG::RenderGraph::BarrierCapture())
+            rg.CaptureBarrierRecords(snapshot);
 
         // Compute geometry stats from the current DrawList (built before pass dispatch)
         u32 totalDraws = (u32)(m_System.GetDrawList().opaque.size() + m_System.GetDrawList().cutout.size() + m_System.GetDrawList().transparent.size());

@@ -29,6 +29,8 @@
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/memory/TaggedPageAllocator.h"
+#include "luth/memory/GPUTaggedPageAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/core/time/Timer.h"
 
@@ -38,6 +40,63 @@
 
 namespace Luth
 {
+    namespace
+    {
+#if defined(TRACY_ENABLE)
+        // Tracy stores the plot-name POINTER, not a copy — names must be process-stable string literals,
+        // never runtime-built strings. Indexed by Memory::Category.
+        const char* const kMemPlotNames[] = {
+            "Mem General", "Mem Rendering", "Mem Scene", "Mem Jobs", "Mem Resources",
+            "Mem Editor", "Mem FrameLinear", "Mem FrameTagged", "Mem GPU",
+        };
+        static_assert(sizeof(kMemPlotNames) / sizeof(kMemPlotNames[0]) == (size_t)Memory::Category::Count,
+                      "kMemPlotNames out of sync with Memory::Category");
+
+        void ConfigureProfilingPlots()
+        {
+            for (const char* n : kMemPlotNames)
+                LH_PROFILE_PLOT_CONFIG(n, LH_PLOT_FORMAT_MEMORY, true, true, 0);
+            LH_PROFILE_PLOT_CONFIG("Mem Total",          LH_PLOT_FORMAT_MEMORY, true, true, 0);
+            LH_PROFILE_PLOT_CONFIG("GPU Mem Used",        LH_PLOT_FORMAT_MEMORY, true, true, 0);
+            LH_PROFILE_PLOT_CONFIG("GPU Heap In-Flight",  LH_PLOT_FORMAT_MEMORY, true, true, 0);
+        }
+#endif
+
+        // Once-per-frame Tracy plots of stats the engine already collects. Engine-side so runtime
+        // (non-editor) builds plot too; compiles away without TRACY_ENABLE.
+        void EmitFrameProfilingPlots()
+        {
+        #if defined(TRACY_ENABLE)
+            static bool configured = false;
+            if (!configured) { ConfigureProfilingPlots(); configured = true; }
+
+            const JobSystem::Stats js = JobSystem::GetStats();
+            LH_PROFILE_PLOT("Jobs/Frame",        (i64)js.JobsExecuted);
+            LH_PROFILE_PLOT("Steal Attempts",    (i64)js.StealAttempts);
+            LH_PROFILE_PLOT("Steal Successes",   (i64)js.StealSuccesses);
+            LH_PROFILE_PLOT("Fiber Yields",      (i64)js.FiberYields);
+            LH_PROFILE_PLOT("Fibers In Use",     (i64)js.TotalFibers - (i64)js.FreeFibers);
+            LH_PROFILE_PLOT("Peak Fibers",       (i64)js.PeakFibers);
+            LH_PROFILE_PLOT("High Queue Depth",  (i64)js.HighQueueSize);
+            LH_PROFILE_PLOT("Game Stage (ms)",   (double)js.GameStageMs);
+            LH_PROFILE_PLOT("Render Stage (ms)", (double)js.RenderStageMs);
+
+            const Memory::MemoryTracker::Snapshot mem = Memory::MemoryTracker::GetSnapshot();
+            LH_PROFILE_PLOT("Mem Total", (i64)mem.TotalCurrent);
+            for (u32 i = 0; i < (u32)Memory::Category::Count; ++i)
+                LH_PROFILE_PLOT(kMemPlotNames[i], (i64)mem.Categories[i].Current);
+
+            // VMA stats walk allocations — throttle so the per-frame cost stays negligible.
+            static u32 frame = 0;
+            if ((frame++ % 8) == 0)
+            {
+                LH_PROFILE_PLOT("GPU Mem Used", (i64)VulkanAllocator::GetStats().UsedBytes);
+                LH_PROFILE_PLOT("GPU Heap In-Flight", (i64)Memory::GPUTaggedPageAllocator::Get().GetStats().BytesInFlight);
+            }
+        #endif
+        }
+    }
+
     // ── Engine Root Discovery ──
 
     static fs::path DiscoverEngineRoot()
@@ -342,6 +401,7 @@ namespace Luth
 
             // ── Step 7: Advance Frame ──
             m_FrameData.Advance();
+            EmitFrameProfilingPlots();   // plot the frame's accumulated counters before they reset
             JobSystem::ResetFrameStats();
         }
 

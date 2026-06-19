@@ -8,6 +8,7 @@ namespace Luth::MaterialLayoutGuard
     bool Validate(const std::filesystem::path& slangPath, const char* typeName,
                   std::span<const CppField> cppFields, size_t cppSize)
     {
+        LH_PROFILE_FUNCTION();
         SlangCompiler::StructLayout sl = SlangCompiler::ReflectStructLayout(slangPath, typeName);
         if (!sl.ok)
         {

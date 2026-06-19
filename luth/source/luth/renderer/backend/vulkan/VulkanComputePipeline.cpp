@@ -10,6 +10,8 @@ namespace Luth
                                          const std::vector<VkDescriptorSetLayout>& layouts,
                                          const std::vector<VkPushConstantRange>& pushConstantRanges)
     {
+        LH_PROFILE_FUNCTION();
+
         m_Device = VulkanContext::Get().GetDevice();
 
         // Shader module

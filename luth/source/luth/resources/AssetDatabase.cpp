@@ -31,6 +31,7 @@ namespace Luth
 
     void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
     {
+        LH_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(s_Mutex);
 
         s_EngineAssetsRoot = engineAssetsRoot;
@@ -111,6 +112,7 @@ namespace Luth
 
     void AssetDatabase::LoadProject(const std::filesystem::path& projectAssetsRoot)
     {
+        LH_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(s_Mutex);
 
         s_ProjectRoot = fs::absolute(projectAssetsRoot).parent_path();
@@ -134,15 +136,18 @@ namespace Luth
         std::vector<fs::path> metaFiles;
         std::vector<fs::path> assetFiles;
 
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(projectAssetsRoot))
         {
-            if (!entry.is_regular_file()) continue;
+            LH_PROFILE_SCOPE("ScanFiles");
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(projectAssetsRoot))
+            {
+                if (!entry.is_regular_file()) continue;
 
-            const auto& path = entry.path();
-            if (path.extension() == ".meta")
-                metaFiles.push_back(path);
-            else
-                assetFiles.push_back(path);
+                const auto& path = entry.path();
+                if (path.extension() == ".meta")
+                    metaFiles.push_back(path);
+                else
+                    assetFiles.push_back(path);
+            }
         }
 
         u32 projectAssetCount = 0;
@@ -211,6 +216,7 @@ namespace Luth
 
     void AssetDatabase::UnloadProject()
     {
+        LH_PROFILE_FUNCTION();
         StopWatching();
 
         std::lock_guard<std::mutex> lock(s_Mutex);
@@ -455,6 +461,7 @@ namespace Luth
 
     void AssetDatabase::IngestFile(const fs::path& sourcePath, const fs::path& destDir)
     {
+        LH_PROFILE_FUNCTION();
         try {
             if (!fs::exists(sourcePath)) {
                 LH_CORE_ERROR("IngestFile: source not found: {0}", sourcePath.string());
@@ -584,6 +591,7 @@ namespace Luth
 
     void AssetDatabase::ProcessPendingChanges()
     {
+        LH_PROFILE_FUNCTION();
         std::vector<std::pair<fs::path, FileWatcher::FileStatus>> batch;
         {
             std::lock_guard<std::mutex> lock(s_PendingMutex);

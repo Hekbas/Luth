@@ -23,6 +23,7 @@ namespace Luth
     void UploadContext::Shutdown()
     {
         if (!s_Instance) return;
+        LH_PROFILE_FUNCTION();
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -47,6 +48,8 @@ namespace Luth
 
     void UploadContext::CreateResources()
     {
+        LH_PROFILE_FUNCTION();
+
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Transfer ring on the DMA-capable family (aliased to graphics on single-family GPUs). UploadBuffer +
@@ -99,6 +102,8 @@ namespace Luth
 
     VkCommandBuffer UploadContext::BeginTransferRingSlot()
     {
+        LH_PROFILE_FUNCTION();
+
         const u32 slot = m_SubmitIndex % RING_SIZE;
         const u64 oldFence = m_RingFenceValues[slot];
 
@@ -121,6 +126,8 @@ namespace Luth
 
     VkCommandBuffer UploadContext::BeginBlitRingSlot()
     {
+        LH_PROFILE_FUNCTION();
+
         const u32 slot = m_BlitSubmitIndex % RING_SIZE;
         const u64 oldFence = m_BlitRingFenceValues[slot];
         if (oldFence > 0 && m_UploadTimeline.GetValue() < oldFence)
@@ -139,6 +146,8 @@ namespace Luth
 
     u64 UploadContext::AllocateStaging(u64 size, u64 alignment, void** outMappedPtr, VkBuffer& outBuffer, u64& outOffset)
     {
+        LH_PROFILE_FUNCTION();
+
         LH_CORE_ASSERT(size <= STAGING_SIZE, "AllocateStaging: size exceeds ring capacity");
 
         u64 alignedHead = (m_StagingHead + (alignment - 1)) & ~(alignment - 1);

@@ -49,12 +49,14 @@ namespace Luth
 
     void SlangParityGuard::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         RunGate();   // RtRestirGiSubsystem::Init already compiled the watched shader (cached) before us
     }
 
     void SlangParityGuard::RunGate()
     {
+        LH_PROFILE_FUNCTION();
         // SPIR-V is free from the ShaderLibrary cache — the watched shader is a production consumer that a
         // subsystem already loaded; LoadEngine returns the cached artifact, no recompile.
         if (auto sh = ShaderLibrary::LoadEngine(kGatePath))
@@ -73,6 +75,7 @@ namespace Luth
     // verdict; logs once per check (INFO on pass, WARN on regression). Deterministic — no GPU, no frame.
     void SlangParityGuard::CheckSlangSpirv()
     {
+        LH_PROFILE_FUNCTION();
         SpirvScan scan = ScanBindlessSpirv(m_GateSpv);
         SlangParitySettings& s = m_Pipeline->GetSystem().GetSlangParitySettings();
         s.spirvChecked    = true;
@@ -90,6 +93,7 @@ namespace Luth
 
     bool SlangParityGuard::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (name != kGateName) return false;
         m_GateSpv = spv;
         CheckSlangSpirv();   // re-run the gate against the hot-reloaded SPIR-V
@@ -98,6 +102,7 @@ namespace Luth
 
     void SlangParityGuard::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         m_GateSpv.clear();
         m_Pipeline = nullptr;
     }

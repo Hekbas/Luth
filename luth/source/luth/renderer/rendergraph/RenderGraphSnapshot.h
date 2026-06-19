@@ -17,6 +17,33 @@ namespace Luth::RG
         std::string name;
     };
 
+    // Per-pass GPU pipeline statistics — graphics passes only (async-compute queues can't run graphics
+    // stat queries). valid=false when stats capture is off or the pass recorded none.
+    struct GpuPipelineStats
+    {
+        u64  inputVertices   = 0;
+        u64  inputPrimitives = 0;
+        u64  vsInvocations   = 0;
+        u64  clipInvocations = 0;
+        u64  clipPrimitives  = 0;
+        u64  fsInvocations   = 0;   // overdraw proxy
+        bool valid = false;
+    };
+
+    // One barrier the RG solver emitted, captured from the compiled graph for the inspector. redundant =
+    // before==after (no layout transition — e.g. a WAW/RAW memory barrier, not necessarily wasteful).
+    struct BarrierRecord
+    {
+        std::string resource;
+        std::string before;
+        std::string after;
+        std::string reason;        // BarrierReason (Waw / Final / ...)
+        u32  passIndex = 0;
+        bool isImage   = true;
+        bool isPost    = false;    // post-pass barrier (e.g. final/Present) vs pre-pass
+        bool redundant = false;
+    };
+
     struct PassSnapshot
     {
         std::string name;
@@ -41,6 +68,13 @@ namespace Luth::RG
         u32 drawCalls = 0;
         u32 indices   = 0;
 
+        // GPU pipeline statistics (graphics passes only; valid when stats capture was on)
+        GpuPipelineStats stats;
+
+        // Solved-barrier counts (populated when barrier capture is on)
+        u32 numImageBarriers  = 0;
+        u32 numBufferBarriers = 0;
+
         // Primary output resource index (first color write) for auto-preview
         int primaryOutputIndex = -1;    // Index into resources[] (0-based)
     };
@@ -60,5 +94,12 @@ namespace Luth::RG
         std::vector<PassSnapshot>     passes;
         std::vector<ResourceSnapshot> resources;
         float totalGpuTimeMs = 0.0f;
+        GpuPipelineStats totalStats;   // summed over graphics passes (valid when stats capture is on)
+
+        // Solved barriers (populated when barrier capture is on; empty otherwise)
+        std::vector<BarrierRecord> barriers;
+        u32 numImageBarriers     = 0;
+        u32 numBufferBarriers    = 0;
+        u32 numRedundantBarriers = 0;
     };
 }

@@ -30,6 +30,7 @@ namespace Luth
 
     void PostProcessSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -163,6 +164,7 @@ namespace Luth
 
     void PostProcessSubsystem::BuildPipelines()
     {
+        LH_PROFILE_FUNCTION();
         std::vector<VkDescriptorSetLayout> ppLayouts = { m_DescSetLayout };
 
         if (!m_BloomExtractFragSpv.empty())
@@ -240,6 +242,7 @@ namespace Luth
 
     void PostProcessSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_TaaResolvePipeline.reset();
         m_SlimVizPipeline.reset();
@@ -255,6 +258,7 @@ namespace Luth
 
     bool PostProcessSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -281,6 +285,7 @@ namespace Luth
 
     void PostProcessSubsystem::UpdateUBO()
     {
+        LH_PROFILE_FUNCTION();
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->compositeDescSet[0] == VK_NULL_HANDLE) return;
 
@@ -346,6 +351,7 @@ namespace Luth
 
     void PostProcessSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.compositeDescSet[0] == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -439,6 +445,7 @@ namespace Luth
 
     RG::ResourceHandle PostProcessSubsystem::AddBloomPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneColor)
     {
+        LH_PROFILE_FUNCTION();
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!m_BloomExtractPipeline || !m_BloomBlurPipeline || !vr->bloomA || !vr->bloomB)
             return {};
@@ -602,6 +609,7 @@ namespace Luth
 
     RG::ResourceHandle PostProcessSubsystem::AddCompositePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle bloomResult)
     {
+        LH_PROFILE_FUNCTION();
         const auto* view = m_Pipeline->GetCurrentView();
         if (!m_PostProcessPipeline || !view->targets->GetLDROutput())
             return sceneColor;
@@ -670,6 +678,7 @@ namespace Luth
     RG::ResourceHandle PostProcessSubsystem::AddSlimVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
                                                             const SlimGBufferOutput& slimGB, u32 mode, float scale)
     {
+        LH_PROFILE_FUNCTION();
         const auto* view = m_Pipeline->GetCurrentView();
         if (!m_SlimVizPipeline || !view->targets->GetLDROutput())
             return ldrInput;
@@ -738,6 +747,7 @@ namespace Luth
 
     void PostProcessSubsystem::WriteTaaResolveView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         // Bindings 0/1/3 are stable per-view-resize — write once across all cycled slots.
         // Binding 2 (history-prev sampler) cycles per-frame in WriteTaaResolvePerFrame.
         // Binding 4 (UBO) is declared in the layout but unused by the current shader.
@@ -784,6 +794,7 @@ namespace Luth
 
     void PostProcessSubsystem::UpdateBloomCompositeInput(ViewResources& vr, FrameTargets& targets, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         const u32 slot = frameAbs % MAX_FRAMES_IN_FLIGHT;
         if (vr.bloomExtractDescSet[slot] == VK_NULL_HANDLE || vr.compositeDescSet[slot] == VK_NULL_HANDLE)
             return;
@@ -838,6 +849,7 @@ namespace Luth
 
     void PostProcessSubsystem::WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         // Binding 2 = history-prev sampler. Parity-pick: even frame reads HistA + writes HistB;
         // odd frame reads HistB + writes HistA. The write target is bound as a color attachment
         // via the RG (not in this descriptor set), so we only rebind the READ side here.
@@ -866,6 +878,7 @@ namespace Luth
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
         RG::ResourceHandle motion, RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!m_TaaResolvePipeline || !vr || !vr->taaHistoryA || !vr->taaHistoryB)
             return sceneColor;

@@ -50,6 +50,7 @@ namespace Luth
 
     void GeometrySubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
         auto loadSpv = [](const char* relPath) -> std::vector<u32> {
@@ -79,6 +80,7 @@ namespace Luth
 
     const std::vector<u32>& GeometrySubsystem::ResolveFragSpv(const UUID& fragShaderUUID)
     {
+        LH_PROFILE_FUNCTION();
         if (!fragShaderUUID.IsValid()) return m_PBRFragSpv;
 
         auto it = m_GraphFragSpv.find(fragShaderUUID);
@@ -95,6 +97,7 @@ namespace Luth
 
     void GeometrySubsystem::InitObjectSSBO()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Set 5 layout: binding 0 = ObjectSSBO. BuildGPUObjectBuffer rewrites binding 0
@@ -135,6 +138,7 @@ namespace Luth
 
     void GeometrySubsystem::InitCullPipeline()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Cull descriptor layout: binding 0 = ObjectSSBO (read), binding 1 = IndirectBuffer (write).
@@ -198,6 +202,7 @@ namespace Luth
 
     void GeometrySubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         BuildPBRPipelines(geoLayouts);
         BuildDepthPrepassPipelines(geoLayouts);
         BuildSlimGBufferPipelines(geoLayouts);
@@ -205,6 +210,7 @@ namespace Luth
 
     void GeometrySubsystem::BuildPBRPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         auto pbrLayout = MakePBRVertexLayout();
         auto bindingDescs = pbrLayout.GetBindingDescriptions();
         auto attribDescs  = pbrLayout.GetAttributeDescriptions();
@@ -282,6 +288,7 @@ namespace Luth
 
     void GeometrySubsystem::BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         auto [posOnlyBindings, posOnlyAttribs] = MakePositionOnlyWithFullStride();
         const auto& shadowFragSpv = m_Pipeline->GetLighting().GetShadowFragSpv();
 
@@ -323,6 +330,7 @@ namespace Luth
 
     void GeometrySubsystem::BuildSlimGBufferPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         // 4 color attachments mirror SlimGBufferOutput. depthFormat lets the pipeline test against
         // prepass depth via EQUAL — no depth writes (DepthPrepass owns the buffer for this frame).
         auto makeConfig = [&](auto bindings, auto attribs) {
@@ -385,6 +393,7 @@ namespace Luth
 
     void GeometrySubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         m_SlimGBufferCutoutSkinnedPipeline.reset();
@@ -408,6 +417,7 @@ namespace Luth
     bool GeometrySubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
                                               const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -468,6 +478,7 @@ namespace Luth
 
     u32 GeometrySubsystem::EnsureMaterialRegistered(std::shared_ptr<Material> material)
     {
+        LH_PROFILE_FUNCTION();
         // Lazily lower a graph material to its generated fragment shader on first encounter. This runs in
         // the game-stage snapshot capture (off the render-recording path); the once-guard makes the Slang
         // compile a one-time cost. An editor edit clears the guard entry to force a re-emit.
@@ -484,6 +495,7 @@ namespace Luth
 
     void GeometrySubsystem::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
     {
+        LH_PROFILE_FUNCTION();
         // Allocate fresh regions from the GPU tagged heap. Tag = absolute render-frame index;
         // descriptor slot = same index modulo MAX_FRAMES_IN_FLIGHT (per-frame storage rotation).
         // FreeTag(N-2) reclaims regions once the GPU retires the consuming submission.
@@ -650,6 +662,7 @@ namespace Luth
                                          const std::array<Vec4, 6>& frustumPlanes, u32 destOffset,
                                          const char* passName)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_CullPipeline || m_GPUObjectCount == 0) return;
 
         struct CullPassData {
@@ -707,6 +720,7 @@ namespace Luth
 
     RG::ResourceHandle GeometrySubsystem::AddDepthPrepass(RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle)
     {
+        LH_PROFILE_FUNCTION();
         struct DepthPrepassData {
             RG::ResourceHandle depthTex;
             RG::BufferHandle   indirectBuf;
@@ -843,6 +857,7 @@ namespace Luth
                                                             RG::BufferHandle indirectBufferHandle,
                                                             RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         struct SlimGBufferData {
             RG::ResourceHandle normalTex;
             RG::ResourceHandle roughnessTex;
@@ -1073,6 +1088,7 @@ namespace Luth
                                                       RG::ResourceHandle reflHandle,
                                                       RG::ResourceHandle diSpecHandle)
     {
+        LH_PROFILE_FUNCTION();
         struct GeometryPassData {
             RG::ResourceHandle outputTex;
             RG::ResourceHandle entityIDTex;

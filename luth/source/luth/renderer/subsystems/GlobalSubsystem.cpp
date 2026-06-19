@@ -16,6 +16,7 @@ namespace Luth
 {
     void GlobalSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -96,6 +97,7 @@ namespace Luth
 
     void GlobalSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         if (m_GlobalSetLayout)
         {
             vkDestroyDescriptorSetLayout(VulkanContext::Get().GetDevice(), m_GlobalSetLayout, nullptr);
@@ -112,6 +114,7 @@ namespace Luth
     void GlobalSubsystem::UpdateUBO(const CameraParams& camera, const CascadeData& cascades,
                                     const DirectionalLightShadowParams& shadowParams)
     {
+        LH_PROFILE_FUNCTION();
         m_FrameCascades     = cascades;
         m_FrameShadowParams = shadowParams;
 
@@ -323,6 +326,7 @@ namespace Luth
 
     void GlobalSubsystem::WriteView(ViewResources& vr, const GlobalViewWriteContext& ctx)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();

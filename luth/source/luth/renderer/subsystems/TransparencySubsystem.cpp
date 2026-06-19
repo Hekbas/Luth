@@ -31,6 +31,7 @@ namespace Luth
 
     void TransparencySubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -88,6 +89,7 @@ namespace Luth
 
     void TransparencySubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_transparent.slang"))
             m_TransparentFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_oit_store.slang"))
@@ -153,6 +155,7 @@ namespace Luth
 
     void TransparencySubsystem::BuildResolvePipeline()
     {
+        LH_PROFILE_FUNCTION();
         // Under-composite blend: shader outputs (C, T); final = C + background * T.
         PipelineConfig cfg{};
         cfg.colorFormats        = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
@@ -170,6 +173,7 @@ namespace Luth
 
     void TransparencySubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         m_SortedPm.Shutdown();
         m_SortedSkinnedPm.Shutdown();
         m_OitPm.Shutdown();
@@ -190,6 +194,7 @@ namespace Luth
 
     bool TransparencySubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         auto invalidateSorted = [this]() {
             if (auto sh = ShaderLibrary::Get("pbr_transparent.slang"))
             {
@@ -238,6 +243,7 @@ namespace Luth
 
     void TransparencySubsystem::WritePerFrame(ViewResources& vr, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         if (m_TransparentSetLayout == VK_NULL_HANDLE) return;
         if (!vr.volInScatterHistA || !vr.volInScatterHistB) return;
 
@@ -265,6 +271,7 @@ namespace Luth
 
     void TransparencySubsystem::WriteOitView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (m_TransparentSetLayout == VK_NULL_HANDLE) return;
         if (!vr.oitHeads || vr.oitNodes.buffer == VK_NULL_HANDLE) return;
 
@@ -326,6 +333,7 @@ namespace Luth
                                                         RG::ResourceHandle fogResolved,
                                                         RG::BufferHandle indirectBufferHandle)
     {
+        LH_PROFILE_FUNCTION();
         auto& sys = m_Pipeline->GetSystem();
         if (sys.GetDrawList().transparent.empty())
             return sceneColor;
@@ -341,6 +349,7 @@ namespace Luth
                                                             RG::ResourceHandle fogResolved,
                                                             RG::BufferHandle indirectBufferHandle)
     {
+        LH_PROFILE_FUNCTION();
         auto& sys = m_Pipeline->GetSystem();
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || !vr->oitHeads || vr->oitNodes.buffer == VK_NULL_HANDLE || !m_ResolvePipeline)
@@ -591,6 +600,7 @@ namespace Luth
                                                             RG::ResourceHandle fogResolved,
                                                             RG::BufferHandle indirectBufferHandle)
     {
+        LH_PROFILE_FUNCTION();
         auto& sys = m_Pipeline->GetSystem();
         const auto& draws = sys.GetDrawList().transparent;
         const u32 n = static_cast<u32>(draws.size());

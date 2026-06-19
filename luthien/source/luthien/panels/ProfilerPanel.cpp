@@ -5,6 +5,9 @@
 #include "luthien/EditorSnapshot.h"
 #include "luth/core/time/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/GPUTimerPool.h"
+#include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -18,6 +21,17 @@
 
 namespace
 {
+    // Compact count: 1234567 -> "1.23M", 4567 -> "4.6K".
+    std::string FormatCount(Luth::u64 n)
+    {
+        char buf[32];
+        if      (n >= 1000000000ull) snprintf(buf, sizeof(buf), "%.2fB", (double)n / 1e9);
+        else if (n >= 1000000ull)    snprintf(buf, sizeof(buf), "%.2fM", (double)n / 1e6);
+        else if (n >= 1000ull)       snprintf(buf, sizeof(buf), "%.1fK", (double)n / 1e3);
+        else                         snprintf(buf, sizeof(buf), "%llu", (unsigned long long)n);
+        return buf;
+    }
+
     void ColoredProgressBar(float ratio, const ImVec2& size, const char* overlay)
     {
         ImVec4 color;
@@ -660,6 +674,130 @@ namespace Luth
                     UI::InfoRow("Large one-shots", "%u", m_GpuHeapStats.LargeOneShots);
                     UI::InfoRow("In flight",       "%.2f MB", inFlightMB);
                     UI::EndInfoTable();
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // ── GPU Pipeline Stats (graphics passes only; runtime-toggled, off by default) ──
+            if (UI::BeginCollapsingHeader("GPU Pipeline Stats"))
+            {
+                if (!VulkanContext::Get().SupportsPipelineStats())
+                {
+                    ImGui::TextColored(ImVec4(0.80f, 0.60f, 0.20f, 1.0f), "Unsupported on this GPU");
+                }
+                else
+                {
+                    bool enabled = GPUTimerPool::StatsEnabled();
+                    if (ImGui::Checkbox("Capture (graphics passes)", &enabled))
+                        GPUTimerPool::SetStatsEnabled(enabled);
+
+                    auto rs = enabled ? SystemRegistry::GetSystem<RenderingSystem>() : nullptr;
+                    if (rs && rs->GetGraphSnapshot().totalStats.valid)
+                    {
+                        const auto& snap = rs->GetGraphSnapshot();
+                        const auto& t = snap.totalStats;
+                        const u64 culled  = t.inputPrimitives > t.clipPrimitives ? t.inputPrimitives - t.clipPrimitives : 0;
+                        const float cullP = t.inputPrimitives ? 100.0f * (float)culled / (float)t.inputPrimitives : 0.0f;
+                        ImGui::Text("Triangles %s    Culled %.0f%%    Shaded %s frag",
+                            FormatCount(t.inputPrimitives).c_str(), cullP, FormatCount(t.fsInvocations).c_str());
+
+                        // Per-pass overdraw = FS invocations / the pass's own target pixels. Color-coded so a
+                        // pass burning fragments (transparency stacks, fullscreen overlap) lights up red.
+                        if (ImGui::BeginTable("##ppstats", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_ScrollY, ImVec2(0, 220)))
+                        {
+                            ImGui::TableSetupColumn("Pass",     ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Tris",     ImGuiTableColumnFlags_WidthFixed, 60);
+                            ImGui::TableSetupColumn("Shaded",   ImGuiTableColumnFlags_WidthFixed, 60);
+                            ImGui::TableSetupColumn("Overdraw", ImGuiTableColumnFlags_WidthFixed, 116);
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableHeadersRow();
+                            for (const auto& p : snap.passes)
+                            {
+                                if (!p.stats.valid) continue;
+                                u64 px = 0;
+                                if (p.primaryOutputIndex >= 0 && (size_t)p.primaryOutputIndex < snap.resources.size())
+                                    px = (u64)snap.resources[p.primaryOutputIndex].width * snap.resources[p.primaryOutputIndex].height;
+
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(p.name.c_str());
+                                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(FormatCount(p.stats.inputPrimitives).c_str());
+                                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(FormatCount(p.stats.fsInvocations).c_str());
+                                ImGui::TableSetColumnIndex(3);
+                                if (px)
+                                {
+                                    const float od = (float)p.stats.fsInvocations / (float)px;
+                                    const ImVec4 c = od <= 1.5f ? ImVec4(0.30f, 0.80f, 0.35f, 1.0f)
+                                                   : od <= 3.0f ? ImVec4(0.90f, 0.80f, 0.25f, 1.0f)
+                                                                : ImVec4(0.90f, 0.32f, 0.32f, 1.0f);
+                                    char lbl[16]; snprintf(lbl, sizeof(lbl), "%.2fx", od);
+                                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, c);
+                                    ImGui::ProgressBar(std::min(od / 4.0f, 1.0f), ImVec2(-1, 0), lbl);
+                                    ImGui::PopStyleColor();
+                                }
+                                else ImGui::TextDisabled("-");
+                            }
+                            ImGui::EndTable();
+                        }
+                    }
+                    else if (enabled)
+                    {
+                        ImGui::TextDisabled("Capturing... (2-frame latency)");
+                    }
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // ── GPU Barriers (solved by the render graph; runtime-toggled, off by default) ──
+            if (UI::BeginCollapsingHeader("GPU Barriers"))
+            {
+                bool bcap = RG::RenderGraph::BarrierCapture();
+                if (ImGui::Checkbox("Capture barriers", &bcap))
+                    RG::RenderGraph::SetBarrierCapture(bcap);
+
+                if (bcap)
+                {
+                    if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
+                    {
+                        const auto& snap = rs->GetGraphSnapshot();
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Redundant only", &m_BarrierRedundantOnly);
+                        ImGui::Text("img %u   buf %u   redundant %u",
+                            snap.numImageBarriers, snap.numBufferBarriers, snap.numRedundantBarriers);
+
+                        if (ImGui::BeginTable("##barriers", 5,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                            ImGuiTableFlags_Resizable, ImVec2(0, 240)))
+                        {
+                            ImGui::TableSetupColumn("Resource",   ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Type",       ImGuiTableColumnFlags_WidthFixed, 38);
+                            ImGui::TableSetupColumn("Transition", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Reason",     ImGuiTableColumnFlags_WidthFixed, 56);
+                            ImGui::TableSetupColumn("Pass",       ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableHeadersRow();
+
+                            for (const auto& b : snap.barriers)
+                            {
+                                if (m_BarrierRedundantOnly && !b.redundant) continue;
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(b.resource.c_str());
+                                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(b.isImage ? "img" : "buf");
+
+                                ImGui::TableSetColumnIndex(2);
+                                char trans[96];
+                                snprintf(trans, sizeof(trans), "%s -> %s", b.before.c_str(), b.after.c_str());
+                                if (b.redundant) ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "%s", trans);
+                                else             ImGui::TextUnformatted(trans);
+
+                                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(b.reason.c_str());
+                                ImGui::TableSetColumnIndex(4);
+                                ImGui::TextUnformatted(b.passIndex < snap.passes.size()
+                                    ? snap.passes[b.passIndex].name.c_str() : "?");
+                            }
+                            ImGui::EndTable();
+                        }
+                    }
                 }
                 UI::EndCollapsingHeader();
             }

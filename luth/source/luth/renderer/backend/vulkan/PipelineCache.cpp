@@ -11,6 +11,8 @@ namespace Luth
 
     void PipelineCache::Init()
     {
+        LH_PROFILE_FUNCTION();
+
         VkDevice device = VulkanContext::Get().GetDevice();
 
         VkPipelineCacheCreateInfo createInfo{};
@@ -30,6 +32,8 @@ namespace Luth
 
     void PipelineCache::LoadFromProject()
     {
+        LH_PROFILE_FUNCTION();
+
         if (s_Cache == VK_NULL_HANDLE) return;
         if (!FileSystem::HasProject()) return;
 
@@ -76,6 +80,8 @@ namespace Luth
 
     void PipelineCache::SaveToProject()
     {
+        LH_PROFILE_FUNCTION();
+
         if (s_Cache == VK_NULL_HANDLE) return;
         if (!FileSystem::HasProject()) return;
 

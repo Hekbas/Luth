@@ -6,6 +6,7 @@
 #include "luth/renderer/backend/vulkan/CommandAllocatorPool.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/GpuTracy.h"
 
 namespace Luth
 {
@@ -89,6 +90,16 @@ namespace Luth
     void Renderer::EndPrimaryCmdAndSubmit(QueueRecorders recorders, u64 frameIndex, u32 viewSlot,
                                           bool hasComputeWork, bool isLastView)
     {
+    #if defined(TRACY_ENABLE)
+        // Tracy GPU collect — append the readback to the still-open primaries. Graphics ctx on gB (always
+        // submitted, last graphics submit); compute ctx on the compute primary only when it carries work and is
+        // a distinct async context (else it aliases graphics and is collected via gB).
+        auto& vkCtx = VulkanContext::Get();
+        LH_PROFILE_GPU_COLLECT(vkCtx.GetGraphicsTracyCtx(), recorders.gB);
+        if (hasComputeWork && vkCtx.GetComputeTracyCtx() != vkCtx.GetGraphicsTracyCtx())
+            LH_PROFILE_GPU_COLLECT(vkCtx.GetComputeTracyCtx(), recorders.compute);
+    #endif
+
         // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present. End all
         // three primaries (empty compute/gB are valid no-op submits) and forward to the backend's per-view 3-submit
         // topology. SubmitView skips the compute submit when hasComputeWork is false; gB always submits.

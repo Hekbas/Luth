@@ -45,6 +45,7 @@ namespace Luth
 
     void VolumetricSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -584,6 +585,7 @@ namespace Luth
 
     void VolumetricSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InjectDensityPipeline.reset();
         m_InjectScatterPipeline.reset();
@@ -617,6 +619,7 @@ namespace Luth
 
     bool VolumetricSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -726,6 +729,7 @@ namespace Luth
 
     Memory::GPUSubRegion VolumetricSubsystem::UploadFogVolumeSSBO(const GatheredFogVolumes& volumes)
     {
+        LH_PROFILE_FUNCTION();
         Memory::GPUSubRegion region{};
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return region;
@@ -753,6 +757,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteInjectDensityView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         // Stable across frames: b0 (volDensity storage write), b2 (3D noise sampler).
         // b1 (FogVolume SSBO) rewrites per frame in WriteInjectDensityPerFrame.
         if (m_InjectDensityDescLayout == VK_NULL_HANDLE) return;
@@ -804,6 +809,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteInjectDensityPerFrame(const Memory::GPUSubRegion& fogVolumeRegion)
     {
+        LH_PROFILE_FUNCTION();
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
@@ -823,6 +829,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteInjectScatterView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         // Stable across frames: b0 (volDensity sampler3D, read), b1 (volInScatter storage write),
         // b5 (shadow array sampler). SSBOs b2-b4 rewrite per frame in WriteInjectScatterPerFrame.
         // RG transitions volDensity to SHADER_READ_ONLY before this pass runs (it's a Read here).
@@ -892,6 +899,7 @@ namespace Luth
                                                          const Memory::GPUSubRegion& clusterGridRegion,
                                                          const Memory::GPUSubRegion& lightIndexRegion)
     {
+        LH_PROFILE_FUNCTION();
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
@@ -919,6 +927,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteIntegrateView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         // Both b0 (density sampler) and b1 (in-scatter storage R/W = scratch atlas) are stable.
         // Integrate works in-place over volInScatter every frame.
         if (m_IntegrateDescLayout == VK_NULL_HANDLE) return;
@@ -964,6 +973,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteResolveView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         // Only b0 (scratch sampler) is stable. b1 (prev resolved sampler) + b2 (curr resolved
         // storage) parity-rewrite per frame to ping-pong HistA / HistB.
         if (m_ResolveDescLayout == VK_NULL_HANDLE) return;
@@ -996,6 +1006,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteResolvePerFrame(ViewResources& vr, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         if (m_ResolveDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volInScatterHistA || !vr.volInScatterHistB) return;
 
@@ -1036,6 +1047,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteCompositeView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         // b0 (sceneDepth) + b2 (blueNoise) are stable per-view. b1 (in-scatter sampler) rewrites
         // each frame in WriteCompositePerFrame to follow integrate's ping-pong parity.
         if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
@@ -1089,6 +1101,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteCompositePerFrame(ViewResources& vr, FrameTargets& /*targets*/, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         if (m_CompositeDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volInScatterHistA || !vr.volInScatterHistB) return;
 
@@ -1119,6 +1132,7 @@ namespace Luth
                                                               RG::ResourceHandle sceneDepth,
                                                               RG::ResourceHandle resolvedInScatter)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_CompositePipeline) return sceneColor;
 
         struct CompositeData {
@@ -1190,6 +1204,7 @@ namespace Luth
 
     RG::ResourceHandle VolumetricSubsystem::AddIntegratePass(RG::RenderGraph& rg, InjectOutputs injectOut)
     {
+        LH_PROFILE_FUNCTION();
         struct IntegrateData
         {
             RG::ResourceHandle density;
@@ -1252,6 +1267,7 @@ namespace Luth
     RG::ResourceHandle VolumetricSubsystem::AddResolvePass(RG::RenderGraph& rg,
                                                            RG::ResourceHandle scratchInScatter)
     {
+        LH_PROFILE_FUNCTION();
         struct ResolveData
         {
             RG::ResourceHandle scratch;   // reads post-integrate this frame
@@ -1333,6 +1349,7 @@ namespace Luth
 
     RG::ResourceHandle VolumetricSubsystem::AddInjectDensityPass(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         struct DensityData
         {
             RG::ResourceHandle density;
@@ -1409,6 +1426,7 @@ namespace Luth
         RG::ResourceHandle density,
         const RG::ResourceHandle (&shadowHandles)[k_ShadowCascadeCount])
     {
+        LH_PROFILE_FUNCTION();
         struct ScatterData
         {
             RG::ResourceHandle density;
@@ -1521,6 +1539,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteVizView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         // Stable: b0 (sceneDepth sampler), b1 (volDensity sampler). b2 (volInScatter) follows
         // ping-pong parity, rewritten in WriteVizPerFrame.
         if (m_VizDescLayout == VK_NULL_HANDLE) return;
@@ -1566,6 +1585,7 @@ namespace Luth
 
     void VolumetricSubsystem::WriteVizPerFrame(ViewResources& vr, u32 frameAbs)
     {
+        LH_PROFILE_FUNCTION();
         if (m_VizDescLayout == VK_NULL_HANDLE) return;
         if (!vr.volInScatterHistA || !vr.volInScatterHistB) return;
 
@@ -1598,6 +1618,7 @@ namespace Luth
                                                        RG::ResourceHandle sceneDepth,
                                                        u32 mode)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_VizPipeline) return ldrInput;
 
         struct VizData {

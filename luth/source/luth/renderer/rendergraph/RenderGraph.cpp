@@ -1,9 +1,11 @@
 #include "luthpch.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/GpuTracy.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/GpuCheckpoint.h"
@@ -644,6 +646,57 @@ namespace Luth::RG
         }
     }
 
+    // ── Barrier inspector capture ──
+    static std::atomic<bool> s_BarrierCapture{ false };
+    void RenderGraph::SetBarrierCapture(bool e) { s_BarrierCapture.store(e, std::memory_order_relaxed); }
+    bool RenderGraph::BarrierCapture()          { return s_BarrierCapture.load(std::memory_order_relaxed); }
+
+    void RenderGraph::CaptureBarrierRecords(RenderGraphSnapshot& snap) const
+    {
+        for (u32 i = 0; i < (u32)m_Passes.size(); ++i)
+        {
+            const PassNode& p = m_Passes[i];
+
+            auto pushImage = [&](const Barrier& b, bool isPost)
+            {
+                BarrierRecord r;
+                r.resource  = (b.resource.index > 0 && b.resource.index <= m_Resources.size())
+                            ? m_Resources[b.resource.index - 1].desc.name : "?";
+                r.before    = ToString(b.before);
+                r.after     = ToString(b.after);
+                r.reason    = ToString(b.reason);
+                r.passIndex = i;
+                r.isImage   = true;
+                r.isPost    = isPost;
+                r.redundant = (b.before == b.after);
+                snap.numImageBarriers++;
+                if (r.redundant) snap.numRedundantBarriers++;
+                if (i < snap.passes.size()) snap.passes[i].numImageBarriers++;
+                snap.barriers.push_back(std::move(r));
+            };
+
+            for (const Barrier& b : p.preBarriers)  pushImage(b, false);
+            for (const Barrier& b : p.postBarriers) pushImage(b, true);
+
+            for (const BufferBarrier& b : p.bufferPreBarriers)
+            {
+                BarrierRecord r;
+                r.resource  = (b.resource.index > 0 && b.resource.index <= m_Buffers.size())
+                            ? m_Buffers[b.resource.index - 1].desc.name : "?";
+                r.before    = ToString(b.before);
+                r.after     = ToString(b.after);
+                r.reason    = ToString(b.reason);
+                r.passIndex = i;
+                r.isImage   = false;
+                r.redundant = (b.before == b.after);
+                snap.numBufferBarriers++;
+                if (r.redundant) snap.numRedundantBarriers++;
+                if (i < snap.passes.size()) snap.passes[i].numBufferBarriers++;
+                snap.barriers.push_back(std::move(r));
+            }
+        }
+    }
+
     static const char* QueueName(QueueFamily q)
     {
         return q == QueueFamily::AsyncCompute ? "compute" : "graphics";
@@ -788,7 +841,7 @@ namespace Luth::RG
                 JobSystem::Execute([](JobSystem::JobArgs args) {
                     RenderPassJob* j = (RenderPassJob*)args.data;
                     RenderPassJob::Execute(j);
-                }, &state.job, &perPassCounter, "RGPassRecord");
+                }, &state.job, &perPassCounter, pass.name.c_str());
                 JobSystem::WaitForCounter(&perPassCounter);
             }
             else
@@ -796,7 +849,7 @@ namespace Luth::RG
                 JobSystem::Execute([](JobSystem::JobArgs args) {
                     RenderPassJob* j = (RenderPassJob*)args.data;
                     RenderPassJob::Execute(j);
-                }, &state.job, &recordCounter, "RGPassRecord");
+                }, &state.job, &recordCounter, pass.name.c_str());
             }
         }
 
@@ -854,6 +907,12 @@ namespace Luth::RG
                 PFN_vkCmdEndDebugUtilsLabelEXT end;
                 ~PassLabelScope() { if (end) end(cmd); }
             } passLabelScope{ primaryCmd, dbgFn.vkCmdBeginDebugUtilsLabelEXT ? dbgFn.vkCmdEndDebugUtilsLabelEXT : nullptr };
+
+            // Per-pass GPU zone — brackets the same region as the debug-utils label. AsyncCompute passes record
+            // into the compute-queue Tracy context; graphics into the graphics-queue context (collected per frame).
+            LH_PROFILE_GPU_ZONE_TRANSIENT(___tracyGpuPass,
+                (pass.queueFamily == QueueFamily::AsyncCompute) ? vkCtx.GetComputeTracyCtx() : vkCtx.GetGraphicsTracyCtx(),
+                primaryCmd, pass.name.c_str());
 
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during
             // SolveBarriers carry b.crossQueueSrc — in that case the src stage / access become TOP_OF_PIPE / NONE
@@ -1004,10 +1063,16 @@ namespace Luth::RG
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, true);
 
+                // Pipeline-stats query (graphics only) brackets the render pass from OUTSIDE it, spanning
+                // the secondary via inheritedQueries. Gated by the runtime toggle; off costs nothing.
+                const bool doStats = timers && timers->StatsSupported() && GPUTimerPool::StatsEnabled();
+                if (doStats) timers->BeginStats(primaryCmd, timerPassIdx);
+
                 DynamicRendering::BeginRendering(primaryCmd, rpInfo);
                 vkCmdExecuteCommands(primaryCmd, 1, &state.job.CommandBuffer);
                 DynamicRendering::EndRendering(primaryCmd);
 
+                if (doStats) timers->EndStats(primaryCmd, timerPassIdx);
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd, pass.queueFamily);

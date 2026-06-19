@@ -76,6 +76,7 @@ namespace Luth
         s_Instance->InitAllocator();
         s_Instance->m_BindlessSet.Init(s_Instance->m_Device);
         s_Instance->m_ResourceCache.Init();
+        s_Instance->InitGpuProfilerContexts();  // Tracy GPU contexts — needs the device + queues
         // Init last — needs the device, graphics queue, and VMA allocator. Consumed
         // immediately by VKVertexBuffer/VKIndexBuffer ctors during RenderingSystem startup.
         UploadContext::Init();
@@ -93,6 +94,7 @@ namespace Luth
         s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
         VulkanAllocator::Shutdown();
+        s_Instance->ShutdownGpuProfilerContexts();  // destroys the Tracy query pools while the device is alive
         vkDestroyCommandPool(s_Instance->m_Device, s_Instance->m_CommandPool, nullptr);
         vkDestroyDevice(s_Instance->m_Device, nullptr);
 
@@ -112,6 +114,57 @@ namespace Luth
     {
         LH_CORE_ASSERT(s_Instance, "VulkanContext not initialized!");
         return *s_Instance;
+    }
+
+#if defined(TRACY_ENABLE)
+    // The transient pool + buffer exist only so TracyVkContext can submit+wait a calibration timestamp;
+    // both are freed immediately after. Init is single-threaded, so the raw queue use needs no mutex.
+    static GpuTracyCtx CreateTracyCtxForQueue(VkDevice device, VkPhysicalDevice physDev, VkQueue queue,
+                                              u32 family, const char* name)
+    {
+        VkCommandPoolCreateInfo poolCI{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        poolCI.queueFamilyIndex = family;
+        poolCI.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        VkCommandPool pool = VK_NULL_HANDLE;
+        vkCreateCommandPool(device, &poolCI, nullptr, &pool);
+
+        VkCommandBufferAllocateInfo cbAI{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        cbAI.commandPool        = pool;
+        cbAI.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cbAI.commandBufferCount = 1;
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(device, &cbAI, &cmd);
+
+        GpuTracyCtx ctx = LH_PROFILE_GPU_CONTEXT(physDev, device, queue, cmd);
+        LH_PROFILE_GPU_CONTEXT_NAME(ctx, name, (u16)strlen(name));
+
+        vkDestroyCommandPool(device, pool, nullptr);
+        return ctx;
+    }
+#endif
+
+    void VulkanContext::InitGpuProfilerContexts()
+    {
+    #if defined(TRACY_ENABLE)
+        m_GraphicsTracyCtx = CreateTracyCtxForQueue(m_Device, m_PhysicalDevice, m_GraphicsQueue,
+                                                    m_GraphicsFamily, "GPU Graphics");
+        // Single-family GPUs share one queue: route compute-pass zones to the graphics context.
+        m_ComputeTracyCtx = m_ComputeIsAsync
+            ? CreateTracyCtxForQueue(m_Device, m_PhysicalDevice, m_ComputeQueue, m_ComputeFamily, "GPU Compute")
+            : m_GraphicsTracyCtx;
+    #endif
+    }
+
+    void VulkanContext::ShutdownGpuProfilerContexts()
+    {
+    #if defined(TRACY_ENABLE)
+        if (m_ComputeTracyCtx && m_ComputeTracyCtx != m_GraphicsTracyCtx)
+            LH_PROFILE_GPU_DESTROY(m_ComputeTracyCtx);
+        if (m_GraphicsTracyCtx)
+            LH_PROFILE_GPU_DESTROY(m_GraphicsTracyCtx);
+        m_ComputeTracyCtx  = nullptr;
+        m_GraphicsTracyCtx = nullptr;
+    #endif
     }
 
     void VulkanContext::ResolveValidationConfig()
@@ -536,6 +589,12 @@ namespace Luth
         deviceFeatures.samplerAnisotropy = VK_TRUE;
         deviceFeatures.fillModeNonSolid = VK_TRUE;
         deviceFeatures.independentBlend = VK_TRUE;
+        // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler — enabled
+        // only when supported; spanning secondary cmd buffers also needs inheritedQueries. GPUTimerPool gates
+        // collection on SupportsPipelineStats(), so an unsupported GPU degrades cleanly to timing-only.
+        deviceFeatures.pipelineStatisticsQuery = avail2.features.pipelineStatisticsQuery;
+        deviceFeatures.inheritedQueries        = avail2.features.inheritedQueries;
+        m_PipelineStatsSupported = avail2.features.pipelineStatisticsQuery && avail2.features.inheritedQueries;
 
         // Vulkan 1.1 Features (Shader Draw Parameters for gl_BaseInstance)
         VkPhysicalDeviceVulkan11Features features11{};
@@ -925,6 +984,8 @@ namespace Luth
         static std::atomic<bool> s_Dumped{ false };
         bool expected = false;
         if (!s_Dumped.compare_exchange_strong(expected, true)) return;
+
+        LH_PROFILE_MESSAGE_COLOR(originLabel ? originLabel : "VK_ERROR_DEVICE_LOST", 0xFF4040);
 
         // Aftermath crash dump first — the richest post-mortem signal (no-op without the SDK). The
         // checkpoint dump below is a fallback only: the markers are often wiped by the GPU reset, so

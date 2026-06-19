@@ -24,6 +24,7 @@ namespace Luth
 {
     void LightingSubsystem::Init(RenderPipeline& pipeline, const fs::path& hdrPath)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -180,12 +181,14 @@ namespace Luth
 
     void LightingSubsystem::BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         BuildShadowPipelines(geoLayouts);
         BuildSkyboxPipeline(geoLayouts);
     }
 
     void LightingSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         m_SkyboxPipeline.reset();
@@ -238,6 +241,7 @@ namespace Luth
 
     void LightingSubsystem::ReloadSkybox(const fs::path& hdrPath, const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDeviceWaitIdle(device);
 
@@ -254,6 +258,7 @@ namespace Luth
     bool LightingSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
                                              const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         auto deferGfx = [](std::unique_ptr<VKPipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -336,6 +341,7 @@ namespace Luth
 
     void LightingSubsystem::WriteShadowView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_ShadowMap || vr.lightDescSet[0] == VK_NULL_HANDLE) return;
 
         auto vkShadowTex = std::static_pointer_cast<VKTexture>(m_ShadowMap);
@@ -486,6 +492,7 @@ namespace Luth
     // m_LastLightSSBORegion is cached for AddLightAssignPass's b0 binding.
     Memory::GPUSubRegion LightingSubsystem::UploadLightSSBO(const GatheredLights& lights)
     {
+        LH_PROFILE_FUNCTION();
         Memory::GPUSubRegion region{};
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return region;
@@ -516,6 +523,7 @@ namespace Luth
                                              const Memory::GPUSubRegion& clusterGridRegion,
                                              const Memory::GPUSubRegion& lightIndexRegion)
     {
+        LH_PROFILE_FUNCTION();
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
 
@@ -545,6 +553,7 @@ namespace Luth
     // ---- Internal: shadow map + Set 3 layout/pool/set ----
     void LightingSubsystem::CreateShadowResources(VkDevice device)
     {
+        LH_PROFILE_FUNCTION();
         // Shadow map: k_ShadowResolution^2, D32_Float, k_ShadowCascadeCount-layer 2D array.
         m_ShadowMap = std::make_shared<VKTexture>(
             k_ShadowResolution, k_ShadowResolution, TextureFormat::D32_Float,
@@ -690,6 +699,7 @@ namespace Luth
     // ---- Internal: IBL precompute (irradiance + prefiltered + BRDF LUT + skybox VB/SPVs) ----
     void LightingSubsystem::LoadIBL(const fs::path& hdrPath)
     {
+        LH_PROFILE_FUNCTION();
         IBLResult ibl = IBL::Precompute(hdrPath);
         m_IrradianceMap  = ibl.irradianceMap;
         m_PrefilteredMap = ibl.prefilteredMap;
@@ -704,6 +714,7 @@ namespace Luth
     // ---- Internal: build shadow + skybox pipelines ----
     void LightingSubsystem::BuildShadowPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         // 4-byte VERTEX push constant carries cascadeIndex.
         VkPushConstantRange shadowCascadePC{};
         shadowCascadePC.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -745,6 +756,7 @@ namespace Luth
 
     void LightingSubsystem::BuildSkyboxPipeline(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
+        LH_PROFILE_FUNCTION();
         if (m_SkyboxVertSpv.empty() || m_SkyboxFragSpv.empty()) return;
 
         BufferLayout skyboxLayout = { { ShaderDataType::Float3, "a_Position" } };
@@ -769,6 +781,7 @@ namespace Luth
     RG::ResourceHandle LightingSubsystem::AddShadowPass(
         RG::RenderGraph& rg, RG::BufferHandle indirectBufferHandle, u32 cascadeIndex)
     {
+        LH_PROFILE_FUNCTION();
         struct ShadowPassData {
             RG::ResourceHandle shadowTex;
             RG::BufferHandle   indirectBuf;
@@ -931,6 +944,7 @@ namespace Luth
     RG::ResourceHandle LightingSubsystem::AddSkyboxPass(
         RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         struct SkyboxPassData {
             RG::ResourceHandle colorTex;
             RG::ResourceHandle depthTex;
@@ -1001,6 +1015,7 @@ namespace Luth
     // without re-importing (see arch/rendering-pipeline.md re-import hazard).
     LightingSubsystem::ClusterBuildOutputs LightingSubsystem::AddClusterBuildPass(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         ClusterBuildOutputs out{};
         if (!m_ClusterBuildPipeline) return out;
 
@@ -1127,6 +1142,7 @@ namespace Luth
     LightingSubsystem::LightAssignOutputs LightingSubsystem::AddLightAssignPass(RG::RenderGraph& rg,
                                                                                 ClusterBuildOutputs cb)
     {
+        LH_PROFILE_FUNCTION();
         LightAssignOutputs out{};
         if (!m_LightAssignPipeline || !m_LastLightSSBORegion.buffer) return out;
 
@@ -1253,6 +1269,7 @@ namespace Luth
     // AllocateViewResources after FrameTargets exists.
     void LightingSubsystem::WriteClusterVizView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.clusterVizDescSet == VK_NULL_HANDLE || m_ClusterVizDepthSampler == VK_NULL_HANDLE) return;
 
         auto vkScnDepth = std::static_pointer_cast<VKTexture>(targets.GetSceneDepth());
@@ -1279,6 +1296,7 @@ namespace Luth
                                                             RG::ResourceHandle ldrInput,
                                                             RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_ClusterVizPipeline) return ldrInput;
 
         struct ClusterVizData {

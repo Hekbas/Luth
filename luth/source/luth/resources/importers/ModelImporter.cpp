@@ -1099,7 +1099,11 @@ namespace Luth
         if (settings.ImportTangents) flags |= aiProcess_CalcTangentSpace;
         if (settings.OptimizeMesh)   flags |= aiProcess_OptimizeMeshes;
 
-        const aiScene* scene = importer.ReadFile(source.string(), flags);
+        const aiScene* scene;
+        {
+            LH_PROFILE_SCOPE("ParseScene");
+            scene = importer.ReadFile(source.string(), flags);
+        }
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             LH_CORE_ERROR("ModelImporter: Failed to load model {0} : {1}", source.string(), importer.GetErrorString());
@@ -1112,9 +1116,12 @@ namespace Luth
         ProcessTextures(ctx);
 
         // 2. Process Materials
-        ctx.MaterialUUIDs.resize(scene->mNumMaterials);
-        for (unsigned int i = 0; i < scene->mNumMaterials; i++) {
-            ctx.MaterialUUIDs[i] = ProcessMaterial(ctx, scene->mMaterials[i], i);
+        {
+            LH_PROFILE_SCOPE("ProcessMaterials");
+            ctx.MaterialUUIDs.resize(scene->mNumMaterials);
+            for (unsigned int i = 0; i < scene->mNumMaterials; i++) {
+                ctx.MaterialUUIDs[i] = ProcessMaterial(ctx, scene->mMaterials[i], i);
+            }
         }
 
         if (s_LastImportReport.HasUnresolved()) {
@@ -1209,10 +1216,13 @@ namespace Luth
 
         // 4. Process Geometry — skinned keeps the baked/flattened path (verts in skeleton space,
         // bone-driven); static reconstructs the node graph with un-baked meshes + cameras + lights.
-        if (isSkinned)
-            ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
-        else
-            BuildStaticSceneGraph(scene, axisCorrection, settings.ImportCameras, settings.ImportLights, modelData);
+        {
+            LH_PROFILE_SCOPE("ProcessGeometry");
+            if (isSkinned)
+                ProcessNode(scene->mRootNode, scene, axisCorrection, modelData.Meshes, isSkinned, modelData.SkeletonData);
+            else
+                BuildStaticSceneGraph(scene, axisCorrection, settings.ImportCameras, settings.ImportLights, modelData);
+        }
 
         // Wind-deformable opt-in applies to STATIC meshes only (skinned meshes deform via skinning).
         if (settings.MarkDeformable)
@@ -1221,6 +1231,9 @@ namespace Luth
 
         modelData.Materials = ctx.MaterialUUIDs;
 
-        return AssetSerializer::SerializeModel(destination, modelData);
+        {
+            LH_PROFILE_SCOPE("SerializeModel");
+            return AssetSerializer::SerializeModel(destination, modelData);
+        }
     }
 }

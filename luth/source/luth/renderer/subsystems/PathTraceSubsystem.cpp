@@ -48,6 +48,7 @@ namespace Luth
 
     void PathTraceSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -93,6 +94,7 @@ namespace Luth
 
     void PathTraceSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_PtPipeline.reset();
         if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
@@ -103,6 +105,7 @@ namespace Luth
 
     bool PathTraceSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
         if (name != "path_trace.slang") return false;
 
@@ -124,6 +127,7 @@ namespace Luth
 
     void PathTraceSubsystem::WriteView(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.ptDescSet == VK_NULL_HANDLE || !vr.ptAccum || !vr.ptColor) return;
 
         VkDescriptorImageInfo accumInfo{};
@@ -152,6 +156,7 @@ namespace Luth
 
     u64 PathTraceSubsystem::ComputeResetHash() const
     {
+        LH_PROFILE_FUNCTION();
         auto mix  = [](u64 h, u64 v) { return (h ^ v) * 0x100000001b3ull; };
         auto mixF = [&](u64 h, f32 f) { u32 b; std::memcpy(&b, &f, 4); return mix(h, static_cast<u64>(b)); };
 
@@ -209,6 +214,7 @@ namespace Luth
 
     RG::ResourceHandle PathTraceSubsystem::AddPasses(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         if (!IsEnabled() || !m_PtPipeline) return {};
         ViewResources* vr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!vr || !vr->ptAccum || !vr->ptColor || vr->ptDescSet == VK_NULL_HANDLE) return {};

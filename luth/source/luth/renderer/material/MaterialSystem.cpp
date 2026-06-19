@@ -64,6 +64,7 @@ namespace Luth
 
     u32 MaterialSystem::RegisterMaterial(std::shared_ptr<Material> material)
     {
+        LH_PROFILE_FUNCTION();
         // Slot mutation must run on the game stage; concurrent Render(N-1)
         // reads the slot map without locking.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
@@ -84,6 +85,7 @@ namespace Luth
 
     void MaterialSystem::UnregisterMaterial(u32 index)
     {
+        LH_PROFILE_FUNCTION();
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::UnregisterMaterial must run on the game stage");
         SpinLockGuard lock(m_Lock);
@@ -96,6 +98,7 @@ namespace Luth
 
     void MaterialSystem::Update(VkCommandBuffer cmd)
     {
+        LH_PROFILE_FUNCTION();
         (void)cmd;
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::Update must run on the game stage");
@@ -179,6 +182,7 @@ namespace Luth
 
     void MaterialSystem::CreateDescriptors()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // binding 0 = material SSBO, binding 1 = graph-param buffer (gMatParams), both rewritten per game stage.

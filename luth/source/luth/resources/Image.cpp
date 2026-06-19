@@ -26,6 +26,7 @@ namespace Luth::Image
 
     LoadResult8 Load(const fs::path& path)
     {
+        LH_PROFILE_FUNCTION();
         LoadResult8 out;
         int w = 0, h = 0, c = 0;
         stbi_uc* data = stbi_load(path.string().c_str(), &w, &h, &c, 4);
@@ -40,6 +41,7 @@ namespace Luth::Image
 
     LoadResult8 LoadFromMemory(const void* data, size_t size)
     {
+        LH_PROFILE_FUNCTION();
         LoadResult8 out;
         if (!data || size == 0) return out;
         int w = 0, h = 0, c = 0;
@@ -57,6 +59,7 @@ namespace Luth::Image
 
     LoadResultF LoadHDR(const fs::path& path)
     {
+        LH_PROFILE_FUNCTION();
         LoadResultF out;
         int w = 0, h = 0, c = 0;
         f32* data = stbi_loadf(path.string().c_str(), &w, &h, &c, 4);
@@ -101,6 +104,7 @@ namespace Luth::Image
 
     std::vector<u8> EncodePngToMemory(const u8* pixels, u32 w, u32 h, u32 channels)
     {
+        LH_PROFILE_FUNCTION();
         std::vector<u8> out;
         if (!pixels || w == 0 || h == 0 || channels == 0) return out;
         auto writer = [](void* userCtx, void* data, int sz) {
@@ -119,6 +123,7 @@ namespace Luth::Image
 
     bool SavePng(const fs::path& path, const u8* pixels, u32 w, u32 h, u32 channels)
     {
+        LH_PROFILE_FUNCTION();
         if (!pixels || w == 0 || h == 0 || channels == 0) return false;
         return stbi_write_png(path.string().c_str(),
                               static_cast<int>(w), static_cast<int>(h),
@@ -129,6 +134,7 @@ namespace Luth::Image
     bool Resize(const u8* src, u32 srcW, u32 srcH,
                 u8* dst, u32 dstW, u32 dstH, u32 channels)
     {
+        LH_PROFILE_FUNCTION();
         if (!src || !dst || srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0)
             return false;
         const int rc = stbir_resize_uint8(

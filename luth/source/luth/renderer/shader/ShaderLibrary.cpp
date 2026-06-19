@@ -49,6 +49,7 @@ namespace Luth
 
     std::shared_ptr<Shader> ShaderLibrary::LoadEngine(const std::string& engineRelPath)
     {
+        LH_PROFILE_FUNCTION();
         fs::path abs = FileSystem::EngineAssetsPath(engineRelPath);
         std::string key = abs.filename().string();
 

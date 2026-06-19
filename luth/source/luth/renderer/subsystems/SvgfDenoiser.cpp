@@ -104,6 +104,7 @@ namespace Luth
 
     void SvgfDenoiser::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -228,6 +229,7 @@ namespace Luth
 
     void SvgfDenoiser::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_PassthroughPipeline.reset();
         m_ReprojectPipeline.reset();
@@ -252,6 +254,7 @@ namespace Luth
 
     bool SvgfDenoiser::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_Pipeline) return false;
 
         // Defer the old pipeline's destruction — an in-flight frame may still bind it; PushDeletion
@@ -309,6 +312,7 @@ namespace Luth
 
     void SvgfDenoiser::AllocateViewSets(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.descPool == VK_NULL_HANDLE) return;
         VkDevice device = VulkanContext::Get().GetDevice();
         ChannelRefs c = Resolve(m_Channel, vr);
@@ -380,6 +384,7 @@ namespace Luth
 
     void SvgfDenoiser::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         ChannelRefs c = Resolve(m_Channel, vr);
         auto viewOf = [](const std::shared_ptr<Texture>& t) {
@@ -519,6 +524,7 @@ namespace Luth
 
     RG::ResourceHandle SvgfDenoiser::AddPasses(RG::RenderGraph& rg, const DenoiseInputs& in)
     {
+        LH_PROFILE_FUNCTION();
         // Invalid input → ReSTIR produced no DI this frame; return invalid so the GeometryPass skips
         // the read and pbr.frag runs its own light loop.
         if (!in.di.IsValid()) return {};
@@ -543,6 +549,7 @@ namespace Luth
 
     RG::ResourceHandle SvgfDenoiser::AddDenoiseChain(RG::RenderGraph& rg, const DenoiseInputs& in)
     {
+        LH_PROFILE_FUNCTION();
         const SvgfSettings& s = Settings();
 
         SvgfReprojectPC rpc{};
@@ -738,6 +745,7 @@ namespace Luth
 
     RG::ResourceHandle SvgfDenoiser::AddPassthroughPass(RG::RenderGraph& rg, const DenoiseInputs& in)
     {
+        LH_PROFILE_FUNCTION();
         struct PassData {
             RG::ResourceHandle di;
             RG::ResourceHandle out;

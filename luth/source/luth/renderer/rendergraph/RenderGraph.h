@@ -20,6 +20,7 @@ namespace Luth { class GPUTimerPool; }
 namespace Luth::RG
 {
     class RenderGraph;
+    struct RenderGraphSnapshot;
     class IArchiveSink;
 
     // ── Pass Builder — declares resource reads/writes during setup ──
@@ -289,6 +290,13 @@ namespace Luth::RG
         // Serialize the compiled graph for offline inspection (.dot GraphViz / .json schema). Call after Compile().
         std::string DumpGraphDot()  const;
         std::string DumpGraphJson() const;
+
+        // Fill snap.barriers + per-pass/total counts from the compiled graph (the solver already stored
+        // every barrier per pass). Off by default — gated by BarrierCapture() so the small string-building
+        // cost is paid only with the inspector open.
+        void CaptureBarrierRecords(RenderGraphSnapshot& snap) const;
+        static void SetBarrierCapture(bool e);
+        static bool BarrierCapture();
 
         // State → (stage, access) for barrier emission; public for headless emission tests. see arch/rendering-pipeline.md
         static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state);
