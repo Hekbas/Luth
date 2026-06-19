@@ -187,7 +187,7 @@ namespace Luth
         // Capacity covers worst-case current frame (5 cull + 4 shadow cascades +
         // geometry + selection + skybox + 3 bloom + grid + post-process + outline
         // + ImGui ≈ 19 passes) with headroom for future passes (GTAO etc.).
-        m_GPUTimers.Init(64);
+        m_GPUTimers.Init(256);   // headroom over the current ~70-pass RT graph; see ReadResults overflow warn
         RegisterNamedTextures();
     }
 

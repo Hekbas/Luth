@@ -113,6 +113,16 @@ namespace Luth
 
         if (queryCount == 0 || passCount > m_MaxPasses)
         {
+            if (passCount > m_MaxPasses)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    LH_CORE_WARN("GPUTimerPool: pass count {} exceeds maxPasses {} — raise GPUTimerPool::Init(). "
+                                 "GPU per-pass timing + pipeline stats are off until then.", passCount, m_MaxPasses);
+                    warned = true;
+                }
+            }
             outTimesMs.resize(passCount, -1.0f);
             m_FrameCounter++;
             return;
