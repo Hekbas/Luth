@@ -20,11 +20,9 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Cache submodules
-      uses: actions/cache@v4
-      with:
-        path: luth/extern/source
-        key: submodules-${{ hashFiles('.gitmodules') }}
+    # No submodule cache: checkout already fetches submodules, and caching
+    # luth/extern/source by .gitmodules hash clobbered vendored in-tree deps
+    # (e.g. imguizmo) with stale copies, reverting committed fixes.
 
     - name: Run premake
       shell: cmd
