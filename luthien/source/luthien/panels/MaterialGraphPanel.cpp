@@ -314,6 +314,7 @@ namespace Luth
 
     void MaterialGraphPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
+        LH_PROFILE_FUNCTION();
         // ImGui::Begin must always pair with End() — even on early-out or a throw. The guard keeps the
         // window stack balanced so a mid-draw exception is logged by the panel error boundary instead of
         // tripping ImGui's "Missing End()" assert on the next frame.

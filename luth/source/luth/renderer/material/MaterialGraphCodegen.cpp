@@ -322,6 +322,7 @@ namespace Luth
 
     UUID MaterialGraphCodegen::GenerateAndCompile(Material& material)
     {
+        LH_PROFILE_FUNCTION();
         if (!material.HasGraph()) return UUID::Invalid();
         if (!FileSystem::HasProject())
         {
