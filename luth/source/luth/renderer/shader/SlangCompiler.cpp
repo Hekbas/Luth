@@ -150,6 +150,7 @@ namespace Luth
                                       Slang::ComPtr<slang::IGlobalSession>& outGlobal,
                                       Slang::ComPtr<slang::ISession>& outSession)
         {
+            LH_PROFILE_FUNCTION();
             if (!CreateGlobal(outGlobal)) return nullptr;
 
             std::string source = ReadFile(src);
@@ -181,6 +182,7 @@ namespace Luth
 
     std::vector<u32> SlangCompiler::Compile(const fs::path& sourcePath, const char* entryPoint, ShaderStage stage)
     {
+        LH_PROFILE_FUNCTION();
         Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
         Slang::ComPtr<slang::ISession> session;
         slang::IModule* module = PrepareModule(sourcePath, global, session);
@@ -236,6 +238,7 @@ namespace Luth
 
     SlangCompiler::CompileOutput SlangCompiler::CompileReflectStage(const fs::path& sourcePath, const char* entryPoint)
     {
+        LH_PROFILE_FUNCTION();
         CompileOutput out;
 
         Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below
@@ -286,6 +289,7 @@ namespace Luth
     std::vector<std::vector<u32>> SlangCompiler::CompileModuleEntries(
         const fs::path& sourcePath, const std::vector<EntryReq>& entries)
     {
+        LH_PROFILE_FUNCTION();
         std::vector<std::vector<u32>> result;
         if (entries.empty()) return result;
 
@@ -351,6 +355,7 @@ namespace Luth
 
     SlangCompiler::StructLayout SlangCompiler::ReflectStructLayout(const fs::path& sourcePath, const char* typeName)
     {
+        LH_PROFILE_FUNCTION();
         StructLayout out;
 
         Slang::ComPtr<slang::IGlobalSession> global;   // must outlive `session` below

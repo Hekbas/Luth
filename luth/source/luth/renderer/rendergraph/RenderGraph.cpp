@@ -789,7 +789,7 @@ namespace Luth::RG
                 JobSystem::Execute([](JobSystem::JobArgs args) {
                     RenderPassJob* j = (RenderPassJob*)args.data;
                     RenderPassJob::Execute(j);
-                }, &state.job, &perPassCounter, "RGPassRecord");
+                }, &state.job, &perPassCounter, pass.name.c_str());
                 JobSystem::WaitForCounter(&perPassCounter);
             }
             else
@@ -797,7 +797,7 @@ namespace Luth::RG
                 JobSystem::Execute([](JobSystem::JobArgs args) {
                     RenderPassJob* j = (RenderPassJob*)args.data;
                     RenderPassJob::Execute(j);
-                }, &state.job, &recordCounter, "RGPassRecord");
+                }, &state.job, &recordCounter, pass.name.c_str());
             }
         }
 

@@ -129,6 +129,7 @@ namespace Luth
 
     void RtSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
         // Persistent empty TLAS — backs GetTlas() before the first per-frame TlasBuildPass runs.
@@ -238,6 +239,7 @@ namespace Luth
 
     void RtSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         // Persistent empty TLAS — push to deletion queue so it retires after the last in-flight
         // frame stops referencing it via Set 0 binding 6 (PushDeletion drains N+2 frames out).
         if (m_PersistentEmptyTlas != VK_NULL_HANDLE)
@@ -297,6 +299,7 @@ namespace Luth
 
     void RtSubsystem::BuildShadowPipeline()
     {
+        LH_PROFILE_FUNCTION();
         if (m_ShadowSpv.empty()) return;
         if (!m_Pipeline) return;
 
@@ -319,6 +322,7 @@ namespace Luth
 
     bool RtSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (name != "rt_sun_shadows.slang") return false;
         m_ShadowSpv = spv;
 
@@ -335,6 +339,7 @@ namespace Luth
 
     void RtSubsystem::WriteShadowPassView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (m_ShadowPassSetLayout == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !vr.sunShadowMask) return;
 
@@ -394,6 +399,7 @@ namespace Luth
                                                         RG::ResourceHandle sceneDepth,
                                                         RG::ResourceHandle slimNormal)
     {
+        LH_PROFILE_FUNCTION();
         // Pre-flight: pipeline must exist (shaders loaded). Mask must exist (view allocated).
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!m_SunShadowsPipeline || !preflightVr || !preflightVr->sunShadowMask)
@@ -485,6 +491,7 @@ namespace Luth
 
     void RtSubsystem::AddTlasBuildPass(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         struct TlasBuildData {};
         rg.AddComputePass<TlasBuildData>(
             "TlasBuild",

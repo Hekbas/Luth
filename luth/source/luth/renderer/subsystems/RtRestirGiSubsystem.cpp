@@ -70,6 +70,7 @@ namespace Luth
 
     void RtRestirGiSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -214,6 +215,7 @@ namespace Luth
 
     void RtRestirGiSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InitialPipeline.reset();
         m_TemporalPipeline.reset();
@@ -237,6 +239,7 @@ namespace Luth
 
     bool RtRestirGiSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
         // Reservoir debug-viz graphics pipeline (its own frag + the shared fullscreen vert). Rebuilt
@@ -321,6 +324,7 @@ namespace Luth
 
     void RtRestirGiSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.restirGiDescSet[0] == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion() || !vr.restirGiDI) return;
         if (!vr.restirGiSpatial.buffer) return;
@@ -409,6 +413,7 @@ namespace Luth
 
     void RtRestirGiSubsystem::WriteReservoirBindings(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (!vr.restirGiReservoir[0].buffer || !vr.restirGiReservoir[1].buffer) return;
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -445,6 +450,7 @@ namespace Luth
                                                       RG::ResourceHandle slimNormal,
                                                       RG::ResourceHandle slimMotion)
     {
+        LH_PROFILE_FUNCTION();
         const RestirGiSettings& settings = m_Pipeline->GetSystem().GetRestirGiSettings();
         if (!settings.enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
 
@@ -715,6 +721,7 @@ namespace Luth
 
     void RtRestirGiSubsystem::WriteReservoirVizView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.giReservoirVizDescSet == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !vr.restirGiSpatial.buffer) return;
 
@@ -740,6 +747,7 @@ namespace Luth
                                                                RG::ResourceHandle ldrInput,
                                                                RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         if (!m_ReservoirVizPipeline) return ldrInput;
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || preflightVr->giReservoirVizDescSet == VK_NULL_HANDLE

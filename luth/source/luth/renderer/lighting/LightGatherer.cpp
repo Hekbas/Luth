@@ -9,6 +9,8 @@ namespace Luth
                                GatheredLights& outLights,
                                DirectionalLightShadowParams& outShadow) const
     {
+        LH_PROFILE_FUNCTION();
+
         if (snapshot.directionalLight.present)
         {
             const auto& dl = snapshot.directionalLight;

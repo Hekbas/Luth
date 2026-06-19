@@ -66,6 +66,7 @@ namespace Luth
 
     void Material::Serialize(nlohmann::json& json) const
     {
+        LH_PROFILE_FUNCTION();
         json["shader"] = m_ShaderUUID.ToString();
         if (m_GraphShaderUUID.IsValid())
             json["graph_shader"] = m_GraphShaderUUID.ToString();   // only present when the material carries a graph
@@ -145,6 +146,7 @@ namespace Luth
 
     void Material::Deserialize(const nlohmann::json& json)
     {
+        LH_PROFILE_FUNCTION();
         m_ShaderUUID = UUID::FromString(json["shader"].get<std::string>());
         m_GraphShaderUUID = json.contains("graph_shader")
             ? UUID::FromString(json["graph_shader"].get<std::string>()) : UUID::Invalid();
@@ -245,6 +247,7 @@ namespace Luth
 
     void Material::InitializeStorage()
     {
+        LH_PROFILE_FUNCTION();
         auto shader = GetShader();
         if (!shader) return;
 
@@ -294,6 +297,7 @@ namespace Luth
 
     bool Material::SetUniformData(const std::string& name, const void* data, uint32_t size)
     {
+        LH_PROFILE_FUNCTION();
         if (m_UniformStorage.empty()) InitializeStorage();
         if (m_UniformStorage.empty()) return false;
 
@@ -320,6 +324,7 @@ namespace Luth
 
     bool Material::GetUniformData(const std::string& name, void* outData, uint32_t size) const
     {
+        LH_PROFILE_FUNCTION();
         if (m_UniformStorage.empty()) return false;
         auto shader = GetShader();
         if (!shader) return false;

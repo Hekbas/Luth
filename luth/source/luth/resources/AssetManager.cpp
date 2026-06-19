@@ -49,8 +49,9 @@ namespace Luth
 
     void AssetManager::LoadAsync(UUID handle)
     {
+        LH_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(s_AssetMutex);
-        
+
         // Check if already loaded or currently loading
         if (s_Assets.find(handle) != s_Assets.end()) return;
         if (s_LoadingAssets.find(handle) != s_LoadingAssets.end()) return;
@@ -73,6 +74,8 @@ namespace Luth
 
     std::shared_ptr<Asset> AssetManager::LoadImmediate(UUID handle)
     {
+        LH_PROFILE_FUNCTION();
+
         // Check cache first
         if (auto asset = GetAsset<Asset>(handle)) return asset;
 
@@ -118,6 +121,8 @@ namespace Luth
 
     void AssetManager::Import(UUID handle)
     {
+        LH_PROFILE_FUNCTION();
+
         const auto& info = AssetDatabase::GetMetadata(handle);
         if (info.Path.empty()) return;
 
@@ -159,6 +164,7 @@ namespace Luth
 
     u32 AssetManager::Trim(bool force)
     {
+        LH_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(s_AssetMutex);
         f32 currentTime = Time::GetTime();
         const f32 timeout = 5.0f;
@@ -182,6 +188,8 @@ namespace Luth
 
     void AssetManager::ImportDirty()
     {
+        LH_PROFILE_FUNCTION();
+
         const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
         if (dirtyAssets.empty()) return;
 
@@ -201,6 +209,7 @@ namespace Luth
 
     std::unique_ptr<AssetData> AssetManager::DeserializeArtifact(AssetType type, const fs::path& artifactPath)
     {
+        LH_PROFILE_FUNCTION();
         if (type == AssetType::Texture) {
             auto d = std::make_unique<TextureAssetData>();
             if (AssetSerializer::DeserializeTexture(artifactPath, *d)) return d;
@@ -230,6 +239,7 @@ namespace Luth
 
     std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData* data, const fs::path& sourcePath)
     {
+        LH_PROFILE_FUNCTION();
         if (type == AssetType::Texture) {
             auto* d = static_cast<TextureAssetData*>(data);
             return Texture::Create(d->Width, d->Height, d->Format, d->Pixels.data(), d->Settings);

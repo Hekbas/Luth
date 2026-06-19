@@ -19,6 +19,7 @@ namespace Luth
 {
     void GTAOSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -149,6 +150,7 @@ namespace Luth
 
     void GTAOSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_PrefilterPipeline.reset();
         m_MainPipeline.reset();
@@ -165,6 +167,7 @@ namespace Luth
 
     bool GTAOSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -204,6 +207,7 @@ namespace Luth
 
     void GTAOSubsystem::UpdateUBO()
     {
+        LH_PROFILE_FUNCTION();
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         if (!vr || vr->globalDescriptorSet[0] == VK_NULL_HANDLE) return;
 
@@ -277,6 +281,7 @@ namespace Luth
 
     void GTAOSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.gtaoPrefilterDescSet == VK_NULL_HANDLE) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
@@ -396,6 +401,7 @@ namespace Luth
 
     RG::ResourceHandle GTAOSubsystem::AddPrefilterPass(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth)
     {
+        LH_PROFILE_FUNCTION();
         struct GTAOPrefilterData {
             RG::ResourceHandle sceneDepth;
             RG::ResourceHandle linearDepth;
@@ -468,6 +474,7 @@ namespace Luth
 
     RG::ResourceHandle GTAOSubsystem::AddMainPass(RG::RenderGraph& rg, RG::ResourceHandle linearDepth)
     {
+        LH_PROFILE_FUNCTION();
         struct GTAOMainData {
             RG::ResourceHandle linearDepth;
             RG::ResourceHandle rawAO;
@@ -540,6 +547,7 @@ namespace Luth
 
     RG::ResourceHandle GTAOSubsystem::AddDenoisePass(RG::RenderGraph& rg, RG::ResourceHandle rawAO, RG::ResourceHandle linearDepth)
     {
+        LH_PROFILE_FUNCTION();
         struct GTAODenoiseData {
             RG::ResourceHandle rawAO;
             RG::ResourceHandle linearDepth;

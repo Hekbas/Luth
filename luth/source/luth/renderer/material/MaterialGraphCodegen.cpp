@@ -437,6 +437,7 @@ namespace Luth
     // The generated shader is unchanged (structure is identical), so the edit lands purely as gMatParams data.
     void MaterialGraphCodegen::RefreshParams(Material& material)
     {
+        LH_PROFILE_FUNCTION();
         material.SetGraphParams(material.HasGraph() ? BuildParams(material.GetGraph()) : std::vector<Vec4>{});
     }
 }

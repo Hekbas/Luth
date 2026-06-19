@@ -66,6 +66,8 @@ namespace Luth
 
         void DrawFogVolumeGizmos(Scene* scene)
         {
+            LH_PROFILE_FUNCTION();
+
             if (!scene) return;
             auto& reg  = scene->Registry();
             auto  view = reg.view<Component::FogVolume, Component::WorldTransform>();
@@ -359,6 +361,8 @@ namespace Luth
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
+        LH_PROFILE_FUNCTION();
+
         // Guard against unsigned underflow from negative float→u32 casts at startup
         if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {

@@ -57,6 +57,7 @@ namespace Luth
 
     void RenderPipeline::Initialize(u32 viewportWidth, u32 viewportHeight)
     {
+        LH_PROFILE_FUNCTION();
         if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
         m_System.GetSceneTargets().Allocate(viewportWidth, viewportHeight);
@@ -192,6 +193,7 @@ namespace Luth
 
     void RenderPipeline::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
 
         m_ShaderWatcher.Stop();
@@ -249,6 +251,7 @@ namespace Luth
 
     void RenderPipeline::ExecuteMinimal()
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
         RG::RenderGraph rg(m_System.GetFrameAllocator());
         AddImGuiPass(rg, RG::ResourceHandle{}); // invalid → ImGuiPass skips the optional Read
@@ -258,6 +261,7 @@ namespace Luth
 
     bool RenderPipeline::Execute(const RenderView& view, QueueRecorders recorders)
     {
+        LH_PROFILE_FUNCTION();
         VkCommandBuffer primaryCmd = recorders.gA;
         auto& s = m_System;
         m_CurrentView          = &view;
@@ -736,6 +740,7 @@ namespace Luth
 
     RG::RenderGraphSnapshot RenderPipeline::CaptureSnapshot(const RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         auto& s = m_System;
 
         RG::RenderGraphSnapshot snapshot;

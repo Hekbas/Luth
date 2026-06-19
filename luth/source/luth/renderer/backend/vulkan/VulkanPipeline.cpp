@@ -29,6 +29,8 @@ namespace Luth
 
     VkShaderModule VKPipeline::CreateShaderModule(const std::vector<u32>& code)
     {
+        LH_PROFILE_FUNCTION();
+
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         createInfo.codeSize = code.size() * sizeof(u32);
@@ -47,6 +49,8 @@ namespace Luth
                                     const std::vector<u32>& fragCode,
                                     const std::vector<VkDescriptorSetLayout>& layouts)
     {
+        LH_PROFILE_FUNCTION();
+
         VkShaderModule vertShader = CreateShaderModule(vertCode);
         VkShaderModule fragShader = CreateShaderModule(fragCode);
 

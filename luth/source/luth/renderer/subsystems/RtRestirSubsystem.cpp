@@ -70,6 +70,7 @@ namespace Luth
 
     void RtRestirSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -191,6 +192,7 @@ namespace Luth
 
     void RtRestirSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         VkDevice device = VulkanContext::Get().GetDevice();
         m_InitialPipeline.reset();
         m_TemporalPipeline.reset();
@@ -209,6 +211,7 @@ namespace Luth
 
     bool RtRestirSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
         const bool isInitial  = (name == "restir_initial.slang");
@@ -265,6 +268,7 @@ namespace Luth
 
     void RtRestirSubsystem::WriteView(ViewResources& vr, FrameTargets& targets)
     {
+        LH_PROFILE_FUNCTION();
         if (vr.restirDescSet[0] == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion()
             || !targets.GetSlimRoughness() || !vr.restirDI || !vr.restirDISpec) return;
@@ -381,6 +385,7 @@ namespace Luth
 
     void RtRestirSubsystem::WriteReservoirBindings(ViewResources& vr)
     {
+        LH_PROFILE_FUNCTION();
         if (!vr.restirReservoir[0].buffer || !vr.restirReservoir[1].buffer) return;
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -419,6 +424,7 @@ namespace Luth
                                                     RG::ResourceHandle slimMotion,
                                                     RG::ResourceHandle slimRoughness)
     {
+        LH_PROFILE_FUNCTION();
         const RestirSettings& settings = m_Pipeline->GetSystem().GetRestirSettings();
         if (!settings.enabled || !m_InitialPipeline || !m_TemporalPipeline || !m_SpatialPipeline || !m_ShadePipeline) return {};
 

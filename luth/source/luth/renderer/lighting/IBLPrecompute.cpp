@@ -72,6 +72,8 @@ namespace Luth
     {
         IBLResult Precompute(const std::filesystem::path& hdrPath)
         {
+            LH_PROFILE_FUNCTION();
+
             IBLResult result;
             VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -117,6 +119,7 @@ namespace Luth
                 auto hdrStaging = std::make_shared<VKTexture>((u32)hdrW, (u32)hdrH, TextureFormat::RGBA32F,
                     1, 0, 1, VkImageUsageFlags(0));
                 {
+                    LH_PROFILE_SCOPE("UploadHDR");
                     VkDeviceSize imageSize = (VkDeviceSize)hdrW * hdrH * 4 * sizeof(float);
                     VkBuffer stagingBuffer;
                     VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
@@ -157,6 +160,7 @@ namespace Luth
 
                 // ---- 4. Equirect → Cubemap conversion ----
                 {
+                    LH_PROFILE_SCOPE("EquirectToCubemap");
                     auto sh = ShaderLibrary::LoadEngine("shaders/equirect_to_cubemap.comp");
                     auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
@@ -296,6 +300,7 @@ namespace Luth
 
                 // ---- 5. Irradiance convolution (32x32 cubemap) ----
                 {
+                    LH_PROFILE_SCOPE("IrradianceConvolve");
                     const u32 irrSize = 32;
                     result.irradianceMap = std::make_shared<VKTexture>(irrSize, irrSize, TextureFormat::RGBA16F, 6,
                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1, VK_IMAGE_USAGE_STORAGE_BIT);
@@ -385,6 +390,7 @@ namespace Luth
 
                 // ---- 6. Pre-filtered environment map (128x128, 5 mip levels) ----
                 {
+                    LH_PROFILE_SCOPE("PrefilterEnv");
                     const u32 pfSize = 128;
                     const u32 pfMips = 5;
                     result.prefilteredMap = std::make_shared<VKTexture>(pfSize, pfSize, TextureFormat::RGBA16F, 6,
@@ -491,6 +497,7 @@ namespace Luth
 
                 // ---- 7. BRDF LUT (512x512, RG16F) ----
                 {
+                    LH_PROFILE_SCOPE("BRDFLut");
                     const u32 lutSize = 512;
                     result.brdfLut = std::make_shared<VKTexture>(lutSize, lutSize, TextureFormat::RG16F, 1, 0, 1,
                         VK_IMAGE_USAGE_STORAGE_BIT);

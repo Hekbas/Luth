@@ -11,6 +11,8 @@ namespace Luth
 {
     void VulkanBackend::Init(void* windowHandle)
     {
+        LH_PROFILE_FUNCTION();
+
         VulkanContext::Init(windowHandle);
         PipelineCache::Init();
         m_Swapchain = std::make_unique<VulkanSwapchain>(windowHandle);
@@ -37,6 +39,8 @@ namespace Luth
 
     void VulkanBackend::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
+
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
 
         // Heap pages are device-mapped — shut them down while the device is still alive.
@@ -60,6 +64,8 @@ namespace Luth
 
     bool VulkanBackend::AcquireImage(u64 frameIndex)
     {
+        LH_PROFILE_FUNCTION();
+
         m_CurrentFrameIndex = frameIndex % MAX_FRAMES_IN_FLIGHT;
 
         // Update Context Frame Index for Deletion Queue
@@ -134,6 +140,8 @@ namespace Luth
     void VulkanBackend::SubmitView(u64 frameIndex, u32 viewSlot, QueueRecorders recorders,
                                    bool hasComputeWork, bool isLastView)
     {
+        LH_PROFILE_FUNCTION();
+
         if (m_AcquiredImageIndex == UINT32_MAX) return;
         LH_CORE_ASSERT(viewSlot < MAX_VIEWS_PER_FRAME, "viewSlot exceeds MAX_VIEWS_PER_FRAME");
 
@@ -313,6 +321,8 @@ namespace Luth
 
     void VulkanBackend::OnResize(u32 width, u32 height)
     {
+        LH_PROFILE_FUNCTION();
+
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         m_Swapchain->Recreate(width, height);
 
@@ -332,6 +342,8 @@ namespace Luth
 
     void VulkanBackend::CreateSyncObjects()
     {
+        LH_PROFILE_FUNCTION();
+
         u32 imageCount = m_Swapchain->GetImageCount();
 
         // imageAvailable: ring of (imageCount + 1) semaphores.
@@ -371,6 +383,8 @@ namespace Luth
 
     void VulkanBackend::DestroySyncObjects()
     {
+        LH_PROFILE_FUNCTION();
+
         VkDevice device = VulkanContext::Get().GetDevice();
         for (u32 i = 0; i < m_ImageAvailableSemCount; i++)
             vkDestroySemaphore(device, m_ImageAvailableSemaphores[i], nullptr);
@@ -384,6 +398,8 @@ namespace Luth
 
     void VulkanBackend::CreateFrameCommandBuffers()
     {
+        LH_PROFILE_FUNCTION();
+
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -420,6 +436,8 @@ namespace Luth
 
     void VulkanBackend::CreateComputeFrameCommandBuffers()
     {
+        LH_PROFILE_FUNCTION();
+
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

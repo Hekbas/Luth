@@ -10,6 +10,8 @@ namespace Luth
     void CascadeBuilder::ComputeSplits(float nearZ, float farZ, float lambda,
                                        float outFar[k_ShadowCascadeCount]) const
     {
+        LH_PROFILE_FUNCTION();
+
         // Engel "Practical Split": lambda * Clog + (1-lambda) * Cuniform.
         const float ratio = farZ / std::max(nearZ, 1e-4f);
         for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
@@ -28,6 +30,8 @@ namespace Luth
                                              bool stabilize,
                                              float& outWorldHalfExtent) const
     {
+        LH_PROFILE_FUNCTION();
+
         // 8 corners of the sub-frustum slice [nearD, farD] in view space, then world space.
         const float hN = nearD * tanHalfFovY;
         const float wN = hN * aspect;
@@ -86,6 +90,8 @@ namespace Luth
                                const DirectionalLightShadowParams& params,
                                CascadeData& out) const
     {
+        LH_PROFILE_FUNCTION();
+
         // FOV / aspect recovered from the unflipped perspective projection.
         // projection[1][1] = 1/tan(fovY/2); projection[0][0] = 1/(aspect*tan(fovY/2)).
         const Mat4& proj = camera.projection;

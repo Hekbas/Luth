@@ -12,6 +12,8 @@ namespace Luth
 
     void BindlessDescriptorSet::Init(VkDevice device)
     {
+        LH_PROFILE_FUNCTION();
+
         m_Device = device;
 
         // 1. Layout — two bindings on the same set. Both partial-bound + UAB so writes can
@@ -106,6 +108,8 @@ namespace Luth
 
     void BindlessDescriptorSet::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
+
         VulkanAllocator::FreeImage(m_NullImage, m_NullAllocation);
         vkDestroyImageView(m_Device, m_NullImageView, nullptr);
         vkDestroySampler(m_Device, m_NullSampler, nullptr);
@@ -122,6 +126,8 @@ namespace Luth
 
     void BindlessDescriptorSet::CreateCanonicalSamplers()
     {
+        LH_PROFILE_FUNCTION();
+
         const float maxAniso = VulkanContext::Get().GetPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
 
         auto MakeSampler = [&](VkFilter filt, VkSamplerMipmapMode mip, VkSamplerAddressMode addr, bool aniso) -> VkSampler {
@@ -175,6 +181,8 @@ namespace Luth
 
     void BindlessDescriptorSet::CreateNullTexture()
     {
+        LH_PROFILE_FUNCTION();
+
         u32 white = 0xFFFFFFFF;
         
         VkImageCreateInfo imageInfo{};
@@ -240,6 +248,7 @@ namespace Luth
     u32 BindlessDescriptorSet::BindTexture(VkImageView view, VkSampler sampler)
     {
         std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
 
         if (m_FreeIndices.empty()) {
             LH_CORE_ERROR("Bindless descriptor set full!");
@@ -276,6 +285,7 @@ namespace Luth
             return;
 
         std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
 
         // Replace with null texture to be safe
         VkDescriptorImageInfo imageInfo{};
@@ -300,6 +310,7 @@ namespace Luth
     u32 BindlessDescriptorSet::BindSampler(VkSampler sampler)
     {
         std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
 
         if (m_FreeSamplerIndices.empty())
         {
@@ -321,6 +332,7 @@ namespace Luth
             return;
 
         std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
         // Restore the LinearRepeatAnisoMip canonical as the safe fallback — partial-bound covers
         // the "never sampled" case, but a defined value beats an unspecified one for renderdoc.
         WriteSamplerSlot(index, m_CanonicalSamplers[(u32)CanonicalSampler::LinearRepeatAnisoMip]);

@@ -6,6 +6,8 @@ namespace Luth
 {
     void FogVolumeGatherer::Gather(const RenderSnapshot& snapshot, GatheredFogVolumes& out) const
     {
+        LH_PROFILE_FUNCTION();
+
         const u32 count = static_cast<u32>(snapshot.fogVolumes.size());
         out.volumes.resize(count);
         for (u32 i = 0; i < count; ++i)

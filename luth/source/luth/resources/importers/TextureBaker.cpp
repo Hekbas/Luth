@@ -24,6 +24,7 @@ namespace Luth::TextureBaker
     // further import transform (LinearData for data maps, Color for the converted baseColor).
     static UUID RegisterBaked(const fs::path& outPath, TextureRole role, const std::vector<UUID>& deps)
     {
+        LH_PROFILE_FUNCTION();
         UUID uuid = AssetDatabase::GetUUID(outPath);
         if (!uuid.IsValid()) uuid = MetaFile::Create(outPath, AssetType::Texture);
 
@@ -62,6 +63,7 @@ namespace Luth::TextureBaker
                         const fs::path& roughnessSrc, const UUID& roughnessUuid,
                         const fs::path& metalnessSrc, const UUID& metalnessUuid)
     {
+        LH_PROFILE_FUNCTION();
         Image::LoadResult8 rough = Image::Load(roughnessSrc);
         Image::LoadResult8 metal = Image::Load(metalnessSrc);
         if (!rough.valid || !metal.valid) {
@@ -98,6 +100,7 @@ namespace Luth::TextureBaker
     SpecGlossResult BakeSpecGlossToMetalRough(const fs::path& outDir, const std::string& baseName,
                                               const SpecGlossInputs& in)
     {
+        LH_PROFILE_FUNCTION();
         SpecGlossResult result;
         Image::LoadResult8 sg = Image::Load(in.specGlossSrc);
         if (!sg.valid) {

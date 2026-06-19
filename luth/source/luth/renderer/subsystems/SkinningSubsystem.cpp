@@ -62,6 +62,7 @@ namespace Luth
 
     void SkinningSubsystem::Init(RenderPipeline& pipeline)
     {
+        LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/skinning.comp"))
@@ -94,6 +95,7 @@ namespace Luth
 
     void SkinningSubsystem::Shutdown()
     {
+        LH_PROFILE_FUNCTION();
         m_ComputePipeline.reset();
         m_Spv.clear();
         m_DeformPipeline.reset();
@@ -103,6 +105,7 @@ namespace Luth
 
     bool SkinningSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
+        LH_PROFILE_FUNCTION();
         if (name == "skinning.comp")
         {
             m_Spv = spv;
@@ -128,6 +131,7 @@ namespace Luth
 
     void SkinningSubsystem::Dispatch(VkCommandBuffer cmd, const Mesh& mesh, u32 boneOffset, u32 frameAbs) const
     {
+        LH_PROFILE_FUNCTION();
         const auto& blas = mesh.GetBlas();
         if (!blas || !blas->IsDeformable()) return;
         if (blas->GetDeformedBdaCurr(frameAbs) == 0) return;
@@ -152,6 +156,7 @@ namespace Luth
 
     void SkinningSubsystem::DispatchAllSkinned(VkCommandBuffer cmd, const RenderSnapshot& snapshot) const
     {
+        LH_PROFILE_FUNCTION();
         if (!m_ComputePipeline) return;
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -185,6 +190,7 @@ namespace Luth
     void SkinningSubsystem::DispatchAllDeformable(VkCommandBuffer cmd, const RenderSnapshot& snapshot,
                                                   const WindSettings& wind, f32 time) const
     {
+        LH_PROFILE_FUNCTION();
         if (!m_DeformPipeline) return;
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -255,6 +261,7 @@ namespace Luth
 
     void SkinningSubsystem::AddDeformPass(RG::RenderGraph& rg)
     {
+        LH_PROFILE_FUNCTION();
         struct DeformData {};
         rg.AddComputePass<DeformData>(
             "Deform",

@@ -65,6 +65,7 @@ namespace Luth
     {
         // Perform initial scan if needed
         if (!m_InitialScanComplete) {
+            LH_PROFILE_SCOPE("InitialScan");
             std::lock_guard lock(m_Mutex);
             for (const auto& watchPath : m_WatchPaths) {
                 if (!fs::exists(watchPath)) continue;
@@ -88,6 +89,7 @@ namespace Luth
         while (m_Running) {
             std::this_thread::sleep_for(std::chrono::duration<float>(m_Interval));
 
+            LH_PROFILE_SCOPE("PollScan");
             std::lock_guard lock(m_Mutex);
             for (const auto& watchPath : m_WatchPaths) {
                 if (!fs::exists(watchPath)) continue;
