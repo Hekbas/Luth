@@ -52,6 +52,7 @@ namespace Luth
 
     void VulkanSwapchain::Recreate(u32 width, u32 height)
     {
+        LH_PROFILE_MESSAGE(("Swapchain recreate " + std::to_string(width) + "x" + std::to_string(height)).c_str());
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         Cleanup();
         CreateSwapchain(width, height);

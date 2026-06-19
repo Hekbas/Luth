@@ -979,6 +979,8 @@ namespace Luth
         bool expected = false;
         if (!s_Dumped.compare_exchange_strong(expected, true)) return;
 
+        LH_PROFILE_MESSAGE_COLOR(originLabel ? originLabel : "VK_ERROR_DEVICE_LOST", 0xFF4040);
+
         // Aftermath crash dump first — the richest post-mortem signal (no-op without the SDK). The
         // checkpoint dump below is a fallback only: the markers are often wiped by the GPU reset, so
         // "no checkpoints recorded" is expected, not informative. see arch/gpu-crash-debugging.md
