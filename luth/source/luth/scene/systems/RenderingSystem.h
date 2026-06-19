@@ -22,6 +22,7 @@
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luth/renderer/settings/PathTraceSettings.h"
 #include "luth/renderer/settings/ReflectionsSettings.h"
+#include "luth/renderer/settings/WindSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -190,6 +191,9 @@ namespace Luth
         RestirSettings& GetRestirSettings() { return m_RestirSettings; }
         const RestirSettings& GetRestirSettings() const { return m_RestirSettings; }
 
+        WindSettings& GetWindSettings() { return m_WindSettings; }
+        const WindSettings& GetWindSettings() const { return m_WindSettings; }
+
         RestirGiSettings& GetRestirGiSettings() { return m_RestirGiSettings; }
         const RestirGiSettings& GetRestirGiSettings() const { return m_RestirGiSettings; }
 
@@ -347,6 +351,7 @@ namespace Luth
         SvgfSettings         m_SvgfDiSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };  // #154 ReSTIR-DI specular
         PathTraceSettings    m_PathTraceSettings;
         ReflectionsSettings  m_ReflectionsSettings;
+        WindSettings         m_WindSettings;
         RenderMode           m_RenderMode   = RenderMode::Raster;
         ShadeMode            m_ShadeMode    = ShadeMode::Lit;
         bool                m_GridVisible  = true;

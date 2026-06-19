@@ -37,7 +37,7 @@ layout(set = 0, binding = 0) uniform GlobalUniforms {
     float farZ;
 } ubo;
 
-// Set 5: Per-object data SSBO (std430, 176 bytes per entry)
+// Set 5: Per-object data SSBO (std430, 192 bytes per entry)
 struct GPUObjectData {
     mat4  model;          // 64B
     mat4  prevModel;      // 64B — frame N-1's worldMatrix
@@ -50,6 +50,8 @@ struct GPUObjectData {
     uint  firstIndex;     // 4B
     int   vertexOffset;   // 4B
     uint  prevBoneOffset; // 4B — prev-frame bones region (dual-region BoneMatrixBuffer)
+    uvec2 deformedBdaCurr;
+    uvec2 deformedBdaPrev;
 };
 
 layout(std430, set = 5, binding = 0) readonly buffer ObjectBuffer {

@@ -35,23 +35,40 @@ namespace Luth
         }
     }
 
+    // The deformed vertex buffer is the interleaved Vertex layout, written field-by-field as 13
+    // hardcoded floats in skinning.comp and read at the same offsets by material.slang's geometry
+    // table — lock the layout so a Vertex field reorder/resize can't silently desync the shaders.
+    static_assert(sizeof(Vertex)              == 52, "deformed-vertex ABI: Vertex must stay 13 tight floats");
+    static_assert(offsetof(Vertex, Position)  == 0,  "deformed-vertex ABI: pos @ float 0");
+    static_assert(offsetof(Vertex, Normal)    == 12, "deformed-vertex ABI: normal @ float 3");
+    static_assert(offsetof(Vertex, TexCoord0) == 24, "deformed-vertex ABI: uv0 @ float 6");
+    static_assert(offsetof(Vertex, TexCoord1) == 32, "deformed-vertex ABI: uv1 @ float 8");
+    static_assert(offsetof(Vertex, Tangent)   == 40, "deformed-vertex ABI: tangent @ float 10");
+
+    // skinning.comp reads the source SkinnedVertex VB directly via scalar buffer_reference — lock the
+    // tight 84 B layout so a field reorder/resize can't silently desync the compute's input fetch.
+    static_assert(sizeof(SkinnedVertex)                == 84, "skin-input ABI: SkinnedVertex must stay tight 84 B");
+    static_assert(offsetof(SkinnedVertex, Position)    == 0,  "skin-input ABI: pos @ 0");
+    static_assert(offsetof(SkinnedVertex, Normal)      == 12, "skin-input ABI: normal @ 12");
+    static_assert(offsetof(SkinnedVertex, TexCoord0)   == 24, "skin-input ABI: uv0 @ 24");
+    static_assert(offsetof(SkinnedVertex, TexCoord1)   == 32, "skin-input ABI: uv1 @ 32");
+    static_assert(offsetof(SkinnedVertex, Tangent)     == 40, "skin-input ABI: tangent @ 40");
+    static_assert(offsetof(SkinnedVertex, BoneIDs)     == 52, "skin-input ABI: boneIDs @ 52");
+    static_assert(offsetof(SkinnedVertex, BoneWeights) == 68, "skin-input ABI: weights @ 68");
+
     VKAccelerationStructure::~VKAccelerationStructure()
     {
-        if (m_Handle == VK_NULL_HANDLE && m_SkinInputBuffer == VK_NULL_HANDLE
-            && m_DeformedBuffer == VK_NULL_HANDLE) return;
+        if (m_Handle == VK_NULL_HANDLE && m_DeformedBuffer == VK_NULL_HANDLE) return;
         auto handle      = m_Handle;
         auto storage     = m_StorageBuffer;
         auto storageAlloc= m_StorageAlloc;
-        auto skin        = m_SkinInputBuffer;
-        auto skinAlloc   = m_SkinInputAlloc;
         auto deformed    = m_DeformedBuffer;
         auto deformedAlloc = m_DeformedAlloc;
-        VulkanContext::Get().PushDeletion([handle, storage, storageAlloc, skin, skinAlloc, deformed, deformedAlloc]() {
+        VulkanContext::Get().PushDeletion([handle, storage, storageAlloc, deformed, deformedAlloc]() {
             auto& ctx = VulkanContext::Get();
             if (handle != VK_NULL_HANDLE)
                 ctx.GetRtFn().vkDestroyAccelerationStructureKHR(ctx.GetDevice(), handle, nullptr);
             if (storage != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(storage,  storageAlloc);
-            if (skin    != VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(skin,     skinAlloc);
             if (deformed!= VK_NULL_HANDLE) VulkanAllocator::FreeBuffer(deformed, deformedAlloc);
         });
     }
@@ -179,70 +196,37 @@ namespace Luth
         return result;
     }
 
-    std::shared_ptr<VKAccelerationStructure> VKAccelerationStructure::CreateSkinnedBLAS(
-        const Mesh& mesh, std::span<const SkinnedVertex> skinnedVerts)
+    std::shared_ptr<VKAccelerationStructure> VKAccelerationStructure::CreateDeformableBLAS(const Mesh& mesh)
     {
         auto& ctx = VulkanContext::Get();
         VkDevice device = ctx.GetDevice();
         const auto& rt  = ctx.GetRtFn();
 
+        auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh.GetVertexBuffer());
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
-        if (!ib)
+        if (!vb || !ib)
         {
-            LH_CORE_ERROR("CreateSkinnedBLAS: non-Vulkan IB on mesh — skipping BLAS");
+            LH_CORE_ERROR("CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
         const u32 indexCount = ib->GetCount();
         if (vertCount == 0 || indexCount == 0) return nullptr;
-        if (skinnedVerts.size() != vertCount)
-        {
-            LH_CORE_ERROR("CreateSkinnedBLAS: vert count mismatch ({} vs {})",
-                          skinnedVerts.size(), vertCount);
-            return nullptr;
-        }
 
         auto result = std::make_shared<VKAccelerationStructure>();
-        result->m_IsSkinned    = true;
+        result->m_IsDeformable = true;
         result->m_VertexCount  = vertCount;
         result->m_PrimitiveCount = indexCount / 3;
 
-        // Skin-input: tight-packed pos+boneIDs+weights. Compute reads via BDA + scalar layout.
-        // Cross-queue: uploaded on transfer queue, read on AsyncCompute every frame. EXCLUSIVE
-        // sharing here would be a spec violation (cross-queue without QFOT) and TDRs on NVIDIA;
-        // CONCURRENT matches the universal CPU→GPU data-path policy in arch/multi-queue.md.
-        const VkDeviceSize skinInputSize = static_cast<VkDeviceSize>(vertCount) * sizeof(SkinComputeInput);
-        {
-            VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            ci.size        = skinInputSize;
-            ci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-                           | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            ctx.ApplyConcurrentSharing(ci);
-            result->m_SkinInputAlloc = VulkanAllocator::AllocateBuffer(
-                ci, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_SkinInputBuffer);
-            VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            addrInfo.buffer = result->m_SkinInputBuffer;
-            result->m_SkinInputBda = vkGetBufferDeviceAddress(device, &addrInfo);
-        }
-
-        // Extract on CPU then upload through UploadContext (transfer ring).
-        std::vector<SkinComputeInput> skinInput(vertCount);
-        for (u32 i = 0; i < vertCount; ++i)
-        {
-            // .w = 1.0 lets the shader skip the vec3→vec4 promotion inside the bone-matrix multiply.
-            skinInput[i].Position    = Vec4(skinnedVerts[i].Position, 1.0f);
-            skinInput[i].BoneIDs     = skinnedVerts[i].BoneIDs;
-            skinInput[i].BoneWeights = skinnedVerts[i].BoneWeights;
-        }
-        const u64 skinUploadFence = UploadContext::Get().UploadBuffer(
-            skinInput.data(), skinInputSize, result->m_SkinInputBuffer, 0);
-
-        // Deformed positions — vec3/vert; compute writes, AS build reads. Zero-filled before the initial
-        // build (VMA leaves device memory uninitialized; recycled NaN/Inf would TDR the BVH builder).
-        // Cross-queue: graphics initial build, then compute write+read per frame. see arch/multi-queue.md
-        const VkDeviceSize deformedSize = static_cast<VkDeviceSize>(vertCount) * sizeof(Vec3);
+        // Deformed vertices — interleaved Vertex layout (52 B: pos/normal/uv0/uv1/tangent) so the RT
+        // geometry table reads post-skin normals/tangents byte-identical to a static VB; the AS build
+        // reads positions at offset 0. Double-buffered (curr/prev regions) so raster motion vectors can
+        // read the previous frame's positions — region alternates by frame parity, region 0 == CURR on
+        // frame 0. Zero-filled before the initial build (VMA leaves memory uninitialized; recycled
+        // NaN/Inf would TDR the BVH builder). see arch/multi-queue.md
+        const VkDeviceSize deformedRegionBytes = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
+        const VkDeviceSize deformedSize        = 2 * deformedRegionBytes;
+        result->m_DeformedRegionBytes = deformedRegionBytes;
         {
             VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             ci.size        = deformedSize;
@@ -259,17 +243,19 @@ namespace Luth
             result->m_DeformedBda = vkGetBufferDeviceAddress(device, &addrInfo);
         }
 
-        // Wait for IB + skin-input uploads before recording the initial AS build.
-        const u64 fence = std::max<u64>(ib->GetUploadFence(), skinUploadFence);
+        // Wait for VB + IB uploads before the initial build — the per-frame skinning compute reads
+        // the VB directly, so it must be resident before this mesh goes live.
+        const u64 fence = std::max<u64>(ib->GetUploadFence(), vb->GetUploadFence());
         if (fence > 0) UploadContext::Get().WaitForUpload(fence);
 
-        // Geometry desc reads from deformed positions buffer (NOT the source SkinnedVertex VB).
-        // The initial build sees zero positions; the first per-frame Refit overwrites with real ones.
+        // Geometry desc reads positions (offset 0) from the deformed vertex buffer (NOT the source
+        // SkinnedVertex VB). The initial build sees zero positions; the first per-frame Refit
+        // overwrites with real ones.
         VkAccelerationStructureGeometryTrianglesDataKHR tri{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
         tri.vertexFormat                = VK_FORMAT_R32G32B32_SFLOAT;
         tri.vertexData.deviceAddress    = result->m_DeformedBda;
-        tri.vertexStride                = sizeof(Vec3);
+        tri.vertexStride                = sizeof(Vertex);
         tri.maxVertex                   = vertCount - 1;
         tri.indexType                   = VK_INDEX_TYPE_UINT32;
         tri.indexData.deviceAddress     = ib->GetDeviceAddress();
@@ -363,7 +349,7 @@ namespace Luth
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_CORE_TRACE("Skinned BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
+        LH_CORE_TRACE("Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
                       vertCount, result->m_PrimitiveCount, sizes.accelerationStructureSize,
                       sizes.updateScratchSize);
         return result;
@@ -378,7 +364,7 @@ namespace Luth
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
         tri.vertexFormat                = VK_FORMAT_R32G32B32_SFLOAT;
         tri.vertexData.deviceAddress    = m_DeformedBda;
-        tri.vertexStride                = sizeof(Vec3);
+        tri.vertexStride                = sizeof(Vertex);
         tri.maxVertex                   = m_VertexCount - 1;
         tri.indexType                   = VK_INDEX_TYPE_UINT32;
         // Refit must use the SAME index buffer as the original build. The Mesh's IB device address

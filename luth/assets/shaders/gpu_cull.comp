@@ -14,6 +14,8 @@ struct GPUObjectData {
     uint  firstIndex;
     int   vertexOffset;
     uint  prevBoneOffset; // prev-frame bones region (dual-region BoneMatrixBuffer)
+    uvec2 deformedBdaCurr;
+    uvec2 deformedBdaPrev;
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer ObjectBuffer {

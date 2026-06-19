@@ -93,8 +93,16 @@ namespace Luth
 
         if (!artifactReady) return nullptr;
 
-        // 2. Load Data from Artifact
+        // 2. Load Data from Artifact. A present-but-incompatible artifact (an older schema after a
+        // format-version bump) fails to deserialize — regenerate it once from source so a schema bump
+        // self-heals instead of silently failing every load until the artifact cache is wiped.
         auto data = DeserializeArtifact(info.Type, artifactPath);
+        if (!data && s_Importers.find(info.Type) != s_Importers.end())
+        {
+            LH_CORE_WARN("AssetManager: artifact incompatible (schema bump?) — reimporting {0}", info.Path.string());
+            if (s_Importers[info.Type]->Import(info.Path, artifactPath))
+                data = DeserializeArtifact(info.Type, artifactPath);
+        }
         if (!data) return nullptr;
 
         // 3. Create Asset (Main Thread)

@@ -274,6 +274,11 @@ namespace Luth
         RG::BufferHandle hObjectBuf   = rg.ImportBuffer(objDesc, (void*)objectRegion.buffer,   RG::ResourceState::Undefined);
         RG::BufferHandle hIndirectBuf = rg.ImportBuffer(indDesc, (void*)indirectRegion.buffer, RG::ResourceState::Undefined);
 
+        // Deform — per-frame compute skinning into each mesh's deformed buffer, as the FIRST graphics
+        // pass so raster geometry (gA) reads the current-frame deformation. Decoupled from needTlas:
+        // raster always needs it, even when no RT consumer builds a TLAS this frame.
+        m_Skinning.AddDeformPass(rg);
+
         // Frustum cull — 5 dispatches per view (camera + 4 cascades). Each view owns a
         // disjoint range within the indirect region.
         {

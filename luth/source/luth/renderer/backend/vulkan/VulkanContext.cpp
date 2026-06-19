@@ -475,6 +475,7 @@ namespace Luth
                      && avail12.shaderSampledImageArrayNonUniformIndexing
                      && avail12.timelineSemaphore
                      && avail12.bufferDeviceAddress
+                     && avail12.scalarBlockLayout
                      && avail13.dynamicRendering
                      && avail13.synchronization2
                      && availAs.accelerationStructure
@@ -488,7 +489,7 @@ namespace Luth
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
                 "runtimeDescriptorArray={} shaderSampledImageArrayNonUniformIndexing={} timelineSemaphore={} "
-                "bufferDeviceAddress={} dynamicRendering={} synchronization2={} "
+                "bufferDeviceAddress={} scalarBlockLayout={} dynamicRendering={} synchronization2={} "
                 "accelerationStructure={} asUpdateAfterBind={} rayTracingPipeline={} rayQuery={}",
                 (bool)avail11.shaderDrawParameters,
                 (bool)avail12.descriptorBindingPartiallyBound,
@@ -500,6 +501,7 @@ namespace Luth
                 (bool)avail12.shaderSampledImageArrayNonUniformIndexing,
                 (bool)avail12.timelineSemaphore,
                 (bool)avail12.bufferDeviceAddress,
+                (bool)avail12.scalarBlockLayout,
                 (bool)avail13.dynamicRendering,
                 (bool)avail13.synchronization2,
                 (bool)availAs.accelerationStructure,
@@ -562,6 +564,10 @@ namespace Luth
         // BDA: vkGetBufferDeviceAddress + GLSL buffer_reference. VMA needs the matching
         // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT — see VulkanAllocator::Init.
         features12.bufferDeviceAddress = VK_TRUE;
+
+        // scalarBlockLayout: skinning.comp reads the tight 84 B SkinnedVertex VB directly via a scalar
+        // buffer_reference (no padded skin-input copy).
+        features12.scalarBlockLayout = VK_TRUE;
 
         // Vulkan 1.3 Features (Dynamic Rendering, Synchronization2)
         VkPhysicalDeviceVulkan13Features features13{};

@@ -42,6 +42,7 @@ namespace Luth
         u32 IndexCount;
         u32 MaterialIndex;
         u32 IsSkinned;    // bool as u32 for alignment
+        u32 IsDeformable; // V5+: static wind-deformable opt-in (bool as u32)
         // Followed by:
         // - Vertex Data (VertexCount * sizeof(Vertex) or sizeof(SkinnedVertex))
         // - Index Data (IndexCount * sizeof(u32))

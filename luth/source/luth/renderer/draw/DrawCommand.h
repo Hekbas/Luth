@@ -7,12 +7,13 @@
 
 #include <entt/entt.hpp>
 #include <memory>
+#include <cstddef>
 
 namespace Luth
 {
     // Per-draw data structures used across the renderer. DrawCommand is the CPU-side entry
     // assembled by DrawListBuilder. ObjectPushConstants packs the small per-draw values pushed
-    // at each Bind. GPUObjectData is the SSBO layout (std430, 112B) consumed by gpu_cull.comp
+    // at each Bind. GPUObjectData is the SSBO layout (std430, 192B) consumed by gpu_cull.comp
     // and the PBR vertex shader, so its layout must stay in lockstep with the GLSL counterpart.
     struct DrawCommand {
         Mat4 modelMatrix;
@@ -24,6 +25,8 @@ namespace Luth
         Material::CullMode cullMode = Material::CullMode::Back;
         UUID fragShaderUUID = UUID::Invalid();  // node-graph frag override; invalid = stock pbr fragment
         bool isSkinned = false;
+        bool isDeformable = false;   // static wind-deformable — routes through the deformed pipeline
+        bool isDeformed = false;     // = isSkinned || isDeformable: reads the deformed buffer (NOT selectionMask)
         u32 boneOffset = 0;
         u32 gpuObjectIndex = 0;  // 0-based index into GPUObjectData SSBO / IndirectBuffer
     };
@@ -36,7 +39,7 @@ namespace Luth
         u32 boneOffset;         // 4 bytes — base index into BoneMatrices SSBO (0 for static)
     };
 
-    // Per-object data uploaded to GPU SSBO each frame (std430 layout, 176 bytes)
+    // Per-object data uploaded to GPU SSBO each frame (std430 layout, 192 bytes)
     struct GPUObjectData {
         Mat4 model;          // 64B
         Mat4 prevModel;      // 64B — frame N-1's worldMatrix (motion vectors)
@@ -49,6 +52,9 @@ namespace Luth
         u32 firstIndex;           // 4B
         i32 vertexOffset;         // 4B
         u32 prevBoneOffset;       // 4B — offset into BoneMatrixBuffer's prev-bones region
+        u64 deformedBdaCurr;      // 8B — CURR-region deformed-vertex buffer address (0 for rigid)
+        u64 deformedBdaPrev;      // 8B — PREV-region (motion); GLSL mirrors read both as uvec2
     };
-    static_assert(sizeof(GPUObjectData) == 176, "GPUObjectData std430 layout must stay in lockstep with the GLSL block");
+    static_assert(sizeof(GPUObjectData) == 192, "GPUObjectData std430 layout must stay in lockstep with the GLSL block");
+    static_assert(offsetof(GPUObjectData, deformedBdaCurr) == 176, "deformed BDAs must sit at offset 176 (8-aligned, no pad)");
 }

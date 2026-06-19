@@ -238,7 +238,7 @@ namespace Luth
         if (!out.is_open()) return false;
 
         AssetHeader header;
-        header.Version = 4; // V4: scene-graph nodes + cameras + lights (was V3 clips-by-UUID)
+        header.Version = 5; // V5: per-mesh IsDeformable (was V4 scene-graph nodes + cameras + lights)
         header.Type = AssetType::Model;
         out.write((const char*)&header, sizeof(AssetHeader));
 
@@ -263,6 +263,7 @@ namespace Luth
 
             MeshHeader meshHeader;
             meshHeader.IsSkinned = mesh.IsSkinned ? 1 : 0;
+            meshHeader.IsDeformable = mesh.IsDeformable ? 1 : 0;
             meshHeader.IndexCount = (u32)mesh.Indices.size();
             meshHeader.MaterialIndex = mesh.MaterialIndex;
 
@@ -305,9 +306,9 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Model) return false;
 
-        // V4 schema: scene-graph nodes + cameras + lights. Older artifacts are rejected so they get
-        // re-imported under the new schema on first load (mirrors the Shader V1->V2 reject pattern).
-        if (header.Version != 4) return false;
+        // V5 schema: per-mesh IsDeformable. Older artifacts are rejected so they get re-imported under
+        // the new schema on first load (mirrors the Shader V1->V2 reject pattern).
+        if (header.Version != 5) return false;
 
         ModelHeader modelHeader;
         in.read((char*)&modelHeader, sizeof(ModelHeader));
@@ -329,6 +330,7 @@ namespace Luth
             in.read((char*)&meshHeader, sizeof(MeshHeader));
             mesh.MaterialIndex = meshHeader.MaterialIndex;
             mesh.IsSkinned = (meshHeader.IsSkinned != 0);
+            mesh.IsDeformable = (meshHeader.IsDeformable != 0);
 
             if (mesh.IsSkinned) {
                 mesh.SkinnedVertices.resize(meshHeader.VertexCount);

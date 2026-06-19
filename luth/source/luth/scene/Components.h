@@ -11,3 +11,4 @@
 #include "luth/scene/components/Animation.h"
 #include "luth/scene/components/Physics.h"
 #include "luth/scene/components/FogVolume.h"
+#include "luth/scene/components/Wind.h"

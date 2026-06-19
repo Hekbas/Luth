@@ -4,19 +4,18 @@
 #include "VulkanAllocator.h"
 
 #include <memory>
-#include <span>
 #include <vulkan/vulkan.h>
 
 namespace Luth
 {
     class Mesh;
-    struct SkinnedVertex;
 
     // RAII wrapper for a single VkAccelerationStructureKHR + its persistent backing VkBuffer.
     // Used for both BLAS (per-mesh, owned by Mesh) and TLAS (per-frame, owned by RtSubsystem).
-    // For skinned BLAS it additionally owns the per-mesh "skin input" buffer (tight-packed
-    // position + bone IDs + weights, fed to the skinning compute) and the per-frame
-    // "deformed positions" buffer (compute output, AS-build input on refit).
+    // For a DEFORMABLE BLAS (skinned or static wind-deformable) it additionally owns the persistent
+    // "deformed vertex" buffer (per-frame compute output in the interleaved Vertex layout — AS-build
+    // input on refit AND the RT geometry-table source, so ray hits read post-deform normals/tangents,
+    // not bind pose). The deform compute (skinning.comp / deform.comp) reads the source VB directly.
     // Dtor pushes every owned VkBuffer + AS handle into VulkanContext::PushDeletion so they
     // retire N+2 frames out — safe against in-flight cmd buffers referencing the AS in a
     // build / traceRays call.
@@ -31,11 +30,16 @@ namespace Luth
 
         VkAccelerationStructureKHR GetHandle()        const { return m_Handle; }
         VkDeviceAddress            GetDeviceAddress() const { return m_DeviceAddress; }
-        bool                       IsSkinned()        const { return m_IsSkinned; }
+        bool                       IsDeformable()     const { return m_IsDeformable; }
 
-        // Skinned-only — null/0 for static BLAS.
-        VkDeviceAddress GetSkinInputBda()    const { return m_SkinInputBda; }
-        VkDeviceAddress GetDeformedBda()     const { return m_DeformedBda; }
+        // Deformable-only — null/0 for a static (non-deformable) BLAS. The deformed buffer is double-
+        // buffered (curr/prev regions of m_DeformedRegionBytes each) so raster motion vectors can read
+        // the previous frame's positions; the region alternates by frame parity — region 0 == CURR on
+        // frame 0, matching the initial build at offset 0. The deform writes + AS-build/geom-table read CURR.
+        VkDeviceAddress GetDeformedBdaCurr(u32 frameAbs) const
+            { return m_DeformedBda + static_cast<VkDeviceAddress>(frameAbs & 1u) * m_DeformedRegionBytes; }
+        VkDeviceAddress GetDeformedBdaPrev(u32 frameAbs) const
+            { return m_DeformedBda + static_cast<VkDeviceAddress>(~frameAbs & 1u) * m_DeformedRegionBytes; }
         u32             GetVertexCount()     const { return m_VertexCount; }
         u64             GetUpdateScratchSize() const { return m_UpdateScratchSize; }
 
@@ -48,18 +52,16 @@ namespace Luth
         // graphics-queue draws' implicit serialize does NOT cover this build path.
         static std::shared_ptr<VKAccelerationStructure> CreateStaticBLAS(const Mesh& mesh);
 
-        // Per-mesh skinned BLAS factory. Allocates a tight-packed skin-input buffer (pos + boneIDs
-        // + weights per vertex) and a persistent deformed-positions buffer. Builds the AS over the
-        // (zero-init) deformed buffer with ALLOW_UPDATE | PREFER_FAST_TRACE — the first per-frame
-        // skinning compute + Refit fills the real positions before any consumer reads the BLAS.
-        // skinnedVerts must be the same data already in the source VB (caller owns the lifetime).
-        static std::shared_ptr<VKAccelerationStructure> CreateSkinnedBLAS(
-            const Mesh& mesh,
-            std::span<const SkinnedVertex> skinnedVerts);
+        // Per-mesh DEFORMABLE BLAS factory (skinned OR static wind-deformable). Allocates a persistent
+        // double-buffered deformed-positions buffer and builds the AS over its (zero-init) curr region
+        // with ALLOW_UPDATE | PREFER_FAST_TRACE — the first per-frame deform compute + Refit fills the
+        // real positions before any consumer reads the BLAS. The deform compute reads the mesh's source
+        // VB directly; this waits on the VB + IB upload fences before the initial build.
+        static std::shared_ptr<VKAccelerationStructure> CreateDeformableBLAS(const Mesh& mesh);
 
         // In-place refit (MODE_UPDATE_KHR). Requires the BLAS was originally built with
         // ALLOW_UPDATE_BIT_KHR + same primitiveCount/geometry layout/vertex format/index format.
-        // The deformed positions buffer must already be populated by the skinning compute on `cmd`
+        // The deformed positions buffer must already be populated by the deform compute on `cmd`
         // (or a prior submission); caller is responsible for the ComputeWrite → AS-build barrier
         // (render graph emits this when both passes share resource handles).
         // scratchBda must be at least GetUpdateScratchSize() bytes, aligned to the
@@ -72,29 +74,14 @@ namespace Luth
         VmaAllocation              m_StorageAlloc    = nullptr;
         VkDeviceAddress            m_DeviceAddress   = 0;
 
-        // Skinned-only.
-        VkBuffer        m_SkinInputBuffer  = VK_NULL_HANDLE;
-        VmaAllocation   m_SkinInputAlloc   = nullptr;
-        VkDeviceAddress m_SkinInputBda     = 0;
+        // Deformable-only.
         VkBuffer        m_DeformedBuffer   = VK_NULL_HANDLE;
         VmaAllocation   m_DeformedAlloc    = nullptr;
         VkDeviceAddress m_DeformedBda      = 0;
+        VkDeviceSize    m_DeformedRegionBytes = 0;  // per-region size; buffer is 2x this (curr + prev)
         u32             m_VertexCount      = 0;
         u32             m_PrimitiveCount   = 0;
         u64             m_UpdateScratchSize = 0;
-        bool            m_IsSkinned        = false;
+        bool            m_IsDeformable     = false;
     };
-
-    // Compute-side skin input. Matches GLSL `SkinInput` in skinning.comp (std430: vec4 pos at 0,
-    // ivec4 boneIDs at 16, vec4 boneWeights at 32; total 48 bytes, 16-byte aligned). Position uses
-    // vec4 to dodge the std430 vec3-padded-to-vec4 trap — .w is unused (set to 1.0 at extraction so
-    // the shader can multiply boneMatrix * pos directly). Keep field order locked to GLSL.
-    struct SkinComputeInput
-    {
-        Vec4  Position;    // .xyz = position, .w = 1.0
-        IVec4 BoneIDs;
-        Vec4  BoneWeights;
-    };
-    static_assert(sizeof(SkinComputeInput) == 48,
-        "SkinComputeInput layout must stay locked to GLSL std430 layout in skinning.comp");
 }

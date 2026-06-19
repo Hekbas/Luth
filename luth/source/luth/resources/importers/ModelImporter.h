@@ -20,6 +20,9 @@ namespace Luth
         bool ImportNormals    = true;
         bool ImportTangents   = false;
         bool OptimizeMesh     = true;
+        // Wind-deformable: route this model's STATIC meshes through the GPU deform seam (per-frame
+        // deform compute + refittable BLAS) so global wind bends them, RT-correct. Ignored for skinned.
+        bool MarkDeformable   = false;
         float ScaleFactor     = 1.0f;
 
         // Axis

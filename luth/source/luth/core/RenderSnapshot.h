@@ -32,7 +32,18 @@ namespace Luth
         u32  meshIndex   = 0;
         u32  boneOffset  = 0;        // Pre-resolved from Animation / Parent chain
         bool isSkinned   = false;
+        bool isDeformable = false;   // static wind-deformable (reads the deformed buffer like skinned)
         u32  entity      = 0;        // entt::entity underlying value — cast at the use site
+
+        // Per-entity wind response (Component::Wind). Defaults == "no component" → full global response.
+        bool windRespond        = true;
+        f32  windStrengthMul    = 1.0f;
+        f32  windPhaseOffset    = 0.0f;
+        f32  windGustMul        = 1.0f;
+        f32  windDetailMul      = 1.0f;
+        bool windDirOverride    = false;
+        Vec3 windOverrideDir    = Vec3(1.0f, 0.0f, 0.0f);
+        bool windOverrideIsWorld = true;
     };
 
     // ── Lighting snapshots ──

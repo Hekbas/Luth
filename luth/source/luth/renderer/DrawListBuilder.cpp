@@ -63,6 +63,8 @@ namespace Luth
                 dc.isSkinned  = true;
                 dc.boneOffset = meshSnap.boneOffset;
             }
+            dc.isDeformable = meshSnap.isDeformable;
+            dc.isDeformed   = dc.isSkinned || dc.isDeformable;
 
             switch (mode)
             {

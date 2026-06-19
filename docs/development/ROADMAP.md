@@ -122,6 +122,7 @@
 | v3.2.6 | `graph-param-buffer` | Graph constants routed to a per-material `gMatParams` buffer (binding 1 on the shared material set, both tiers) + structure-hash-keyed variants; value edits become data (no recompile), structurally-identical materials share one shader + variant, killing the recompile hitch + 16-cap + per-edit pipeline leak | 2026-06-14 |
 | v3.2.7 | `transparent-graph` | Node-graph materials decode through the shared variant registry in the raster transparent pass (sorted + OIT), closing the raster≠RT gap; one decode-seam swap + the two transparent shaders join the registry-reload set | 2026-06-14 |
 | v3.2.8 | `material-authoring` | M1-authoring closeout: graphed `mi.normal` honored raster==RT (tangent-space convention + `ApplyTangentNormal`), lightweight graph-aware material preview (self-contained `PreviewFetch` UBO + per-structure Lambert-over-graph consumer), searchable node quick-add; granular per-node undo deferred | 2026-06-14 |
+| v3.3.0 | `vertex-deformation` | GPU deformation seam (#161, D1–D4): one graphics-queue compute pass writes a per-asset deformed buffer that raster + the RT BLAS/geometry-table share (raster==RT structural); skinned→static-deformable generalization; procedural wind = global field (gusts/turbulence/world-space dir) + per-entity `Component::Wind`; empty-descriptor `deform.comp`, last-writer-wins per-asset | 2026-06-19 |
 
 ---
 
