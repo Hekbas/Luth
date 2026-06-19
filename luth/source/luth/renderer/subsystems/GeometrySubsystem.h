@@ -48,6 +48,10 @@ namespace Luth
         void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
+        // Perf observability: meshes skipped last build because the per-frame GPU object cap
+        // (k_MaxGPUObjects) was hit — a silent draw-drop. >0 means raise the cap or add culling/LOD.
+        static u32 GetDroppedObjectCount();
+
         // Render-graph contributions.
         void AddCullPass(RG::RenderGraph& rg,
                          RG::BufferHandle objectBuffer, RG::BufferHandle indirectBuffer,

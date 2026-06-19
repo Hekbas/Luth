@@ -1,4 +1,5 @@
 #include "luthpch.h"
+#include <chrono>
 #include "VulkanRayTracingPipeline.h"
 #include "VulkanContext.h"
 #include "PipelineCache.h"
@@ -79,8 +80,10 @@ namespace Luth
         pi.maxPipelineRayRecursionDepth = maxRecursionDepth;
         pi.layout                       = m_PipelineLayout;
 
+        const auto pcStart = std::chrono::high_resolution_clock::now();
         VkResult res = ctx.GetRtFn().vkCreateRayTracingPipelinesKHR(
             m_Device, VK_NULL_HANDLE, PipelineCache::Get(), 1, &pi, nullptr, &m_Pipeline);
+        PipelineCache::RecordCompile(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - pcStart).count());
         if (res != VK_SUCCESS)
         {
             LH_CORE_CRITICAL("VKRayTracingPipeline: vkCreateRayTracingPipelinesKHR failed ({})", (int)res);

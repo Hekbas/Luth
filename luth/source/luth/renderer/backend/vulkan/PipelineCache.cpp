@@ -1,4 +1,5 @@
 #include "luthpch.h"
+#include <atomic>
 #include "PipelineCache.h"
 #include "VulkanContext.h"
 #include "luth/resources/FileSystem.h"
@@ -114,5 +115,34 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDestroyPipelineCache(device, s_Cache, nullptr);
         s_Cache = VK_NULL_HANDLE;
+    }
+
+    // ── Compile-time instrumentation ──
+    // Reset each frame by App's profiling plots (ConsumeFrameStats). Recorded from pipeline ctors
+    // that may run on worker fibers during graph recording, so all access is atomic.
+    static std::atomic<u32> s_CompileCount{ 0 };
+    static std::atomic<u64> s_CompileTotalNs{ 0 };
+    static std::atomic<u64> s_CompileMaxNs{ 0 };
+
+    void PipelineCache::RecordCompile(f64 ms)
+    {
+        const u64 ns = static_cast<u64>(ms * 1.0e6);
+        s_CompileCount.fetch_add(1, std::memory_order_relaxed);
+        s_CompileTotalNs.fetch_add(ns, std::memory_order_relaxed);
+        for (u64 prev = s_CompileMaxNs.load(std::memory_order_relaxed);
+             ns > prev && !s_CompileMaxNs.compare_exchange_weak(prev, ns, std::memory_order_relaxed); ) {}
+
+        // A >1ms create is a cold miss worth flagging on the Tracy timeline (runtime stutter).
+        if (ms > 1.0)
+            LH_PROFILE_MESSAGE_COLOR(("PSO compile " + std::to_string(ms) + " ms").c_str(), 0xFFFF8000);
+    }
+
+    PipelineCache::CompileStats PipelineCache::ConsumeFrameStats()
+    {
+        CompileStats s;
+        s.count   = s_CompileCount.exchange(0, std::memory_order_relaxed);
+        s.totalMs = static_cast<f64>(s_CompileTotalNs.exchange(0, std::memory_order_relaxed)) / 1.0e6;
+        s.maxMs   = static_cast<f64>(s_CompileMaxNs.exchange(0, std::memory_order_relaxed)) / 1.0e6;
+        return s;
     }
 }

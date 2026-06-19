@@ -1,4 +1,5 @@
 #include "luthpch.h"
+#include <atomic>
 #include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/renderer/subsystems/LightingSubsystem.h"
 #include "luth/renderer/RenderPipeline.h"
@@ -493,6 +494,10 @@ namespace Luth
         return slot;
     }
 
+    // Perf observability: meshes dropped last build because the GPU object cap was hit.
+    static std::atomic<u32> s_DroppedObjects{ 0 };
+    u32 GeometrySubsystem::GetDroppedObjectCount() { return s_DroppedObjects.load(std::memory_order_relaxed); }
+
     void GeometrySubsystem::BuildGPUObjectBuffer(const RenderSnapshot& snapshot)
     {
         LH_PROFILE_FUNCTION();
@@ -518,6 +523,7 @@ namespace Luth
         auto* objectData   = static_cast<GPUObjectData*>(m_ObjectRegion.mappedPtr);
         auto* indirectCmds = static_cast<VkDrawIndexedIndirectCommand*>(m_IndirectRegion.mappedPtr);
         u32   count        = 0;
+        u32   dropped      = 0;   // meshes skipped due to the k_MaxGPUObjects cap (observability)
 
         // Rebuild entity lookup. Index 0 = null sentinel; valid entities start at 1
         // (the geometry pass writes (entityID + 1) so 0 means "background").
@@ -527,7 +533,7 @@ namespace Luth
 
         for (const MeshDrawSnapshot& meshSnap : snapshot.meshes)
         {
-            if (count >= RenderPipeline::k_MaxGPUObjects) break;
+            if (count >= RenderPipeline::k_MaxGPUObjects) { ++dropped; continue; }
 
             auto model = AssetManager::GetAsset<Model>(meshSnap.modelUUID);
             if (!model) continue;
@@ -604,6 +610,16 @@ namespace Luth
         }
 
         m_GPUObjectCount = count;
+
+        s_DroppedObjects.store(dropped, std::memory_order_relaxed);
+        if (dropped > 0)
+        {
+            static std::atomic<bool> warned{ false };
+            bool expected = false;
+            if (warned.compare_exchange_strong(expected, true))
+                LH_CORE_WARN("GPU object cap ({}) exceeded — up to {} draws dropped. Raise k_MaxGPUObjects or add culling/LOD.",
+                             (u32)RenderPipeline::k_MaxGPUObjects, dropped);
+        }
 
         // Atomic-replace the prev-model cache from this frame's snapshot. Reads the ungated
         // snapshot list so entities with transient asset-load issues keep their prev-frame
