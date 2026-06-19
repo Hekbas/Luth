@@ -41,7 +41,6 @@ namespace Luth
         GPUMemoryStats m_GPUStats{};
         Memory::GPUTaggedPageAllocator::Stats m_GpuHeapStats{};
         float m_GPUFrameTimeMs = 0.0f;
-        RG::GpuPipelineStats m_GpuPipelineStats{};   // summed graphics-pass stats (valid when capture on)
         bool m_BarrierRedundantOnly = false;         // barrier inspector filter
 
         float m_GameStageMs   = 0.0f;

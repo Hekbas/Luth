@@ -21,6 +21,17 @@
 
 namespace
 {
+    // Compact count: 1234567 -> "1.23M", 4567 -> "4.6K".
+    std::string FormatCount(Luth::u64 n)
+    {
+        char buf[32];
+        if      (n >= 1000000000ull) snprintf(buf, sizeof(buf), "%.2fB", (double)n / 1e9);
+        else if (n >= 1000000ull)    snprintf(buf, sizeof(buf), "%.2fM", (double)n / 1e6);
+        else if (n >= 1000ull)       snprintf(buf, sizeof(buf), "%.1fK", (double)n / 1e3);
+        else                         snprintf(buf, sizeof(buf), "%llu", (unsigned long long)n);
+        return buf;
+    }
+
     void ColoredProgressBar(float ratio, const ImVec2& size, const char* overlay)
     {
         ImVec4 color;
@@ -104,13 +115,9 @@ namespace Luth
                     m_WorkerStateHistory[i][m_WorkerHistoryHead] = stats.PerThreadState[i];
                 m_WorkerHistoryHead = (m_WorkerHistoryHead + 1) % WORKER_HISTORY_FRAMES;
 
-                // GPU frame time + pipeline stats from render graph snapshot
+                // GPU frame time from render graph snapshot
                 if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
-                {
-                    const auto& snap = rs->GetGraphSnapshot();
-                    m_GPUFrameTimeMs   = snap.totalGpuTimeMs;
-                    m_GpuPipelineStats = snap.totalStats;
-                }
+                    m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
 
                 // Forward+ stat: active point-light count from the latest LightGatherer output.
                 if (auto ls = SystemRegistry::GetSystem<LightingSystem>())
@@ -684,15 +691,53 @@ namespace Luth
                     if (ImGui::Checkbox("Capture (graphics passes)", &enabled))
                         GPUTimerPool::SetStatsEnabled(enabled);
 
-                    const auto& st = m_GpuPipelineStats;
-                    if (enabled && st.valid)
+                    auto rs = enabled ? SystemRegistry::GetSystem<RenderingSystem>() : nullptr;
+                    if (rs && rs->GetGraphSnapshot().totalStats.valid)
                     {
-                        if (UI::BeginInfoTable("GPUStats")) {
-                            UI::InfoRow("VS invocations",   "%llu", (unsigned long long)st.vsInvocations);
-                            UI::InfoRow("Input primitives", "%llu", (unsigned long long)st.inputPrimitives);
-                            UI::InfoRow("Clip primitives",  "%llu", (unsigned long long)st.clipPrimitives);
-                            UI::InfoRow("FS invocations",   "%llu", (unsigned long long)st.fsInvocations);
-                            UI::EndInfoTable();
+                        const auto& snap = rs->GetGraphSnapshot();
+                        const auto& t = snap.totalStats;
+                        const u64 culled  = t.inputPrimitives > t.clipPrimitives ? t.inputPrimitives - t.clipPrimitives : 0;
+                        const float cullP = t.inputPrimitives ? 100.0f * (float)culled / (float)t.inputPrimitives : 0.0f;
+                        ImGui::Text("Triangles %s    Culled %.0f%%    Shaded %s frag",
+                            FormatCount(t.inputPrimitives).c_str(), cullP, FormatCount(t.fsInvocations).c_str());
+
+                        // Per-pass overdraw = FS invocations / the pass's own target pixels. Color-coded so a
+                        // pass burning fragments (transparency stacks, fullscreen overlap) lights up red.
+                        if (ImGui::BeginTable("##ppstats", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_ScrollY, ImVec2(0, 220)))
+                        {
+                            ImGui::TableSetupColumn("Pass",     ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Tris",     ImGuiTableColumnFlags_WidthFixed, 60);
+                            ImGui::TableSetupColumn("Shaded",   ImGuiTableColumnFlags_WidthFixed, 60);
+                            ImGui::TableSetupColumn("Overdraw", ImGuiTableColumnFlags_WidthFixed, 116);
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableHeadersRow();
+                            for (const auto& p : snap.passes)
+                            {
+                                if (!p.stats.valid) continue;
+                                u64 px = 0;
+                                if (p.primaryOutputIndex >= 0 && (size_t)p.primaryOutputIndex < snap.resources.size())
+                                    px = (u64)snap.resources[p.primaryOutputIndex].width * snap.resources[p.primaryOutputIndex].height;
+
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(p.name.c_str());
+                                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(FormatCount(p.stats.inputPrimitives).c_str());
+                                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(FormatCount(p.stats.fsInvocations).c_str());
+                                ImGui::TableSetColumnIndex(3);
+                                if (px)
+                                {
+                                    const float od = (float)p.stats.fsInvocations / (float)px;
+                                    const ImVec4 c = od <= 1.5f ? ImVec4(0.30f, 0.80f, 0.35f, 1.0f)
+                                                   : od <= 3.0f ? ImVec4(0.90f, 0.80f, 0.25f, 1.0f)
+                                                                : ImVec4(0.90f, 0.32f, 0.32f, 1.0f);
+                                    char lbl[16]; snprintf(lbl, sizeof(lbl), "%.2fx", od);
+                                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, c);
+                                    ImGui::ProgressBar(std::min(od / 4.0f, 1.0f), ImVec2(-1, 0), lbl);
+                                    ImGui::PopStyleColor();
+                                }
+                                else ImGui::TextDisabled("-");
+                            }
+                            ImGui::EndTable();
                         }
                     }
                     else if (enabled)
