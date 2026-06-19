@@ -589,6 +589,12 @@ namespace Luth
         deviceFeatures.samplerAnisotropy = VK_TRUE;
         deviceFeatures.fillModeNonSolid = VK_TRUE;
         deviceFeatures.independentBlend = VK_TRUE;
+        // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler — enabled
+        // only when supported; spanning secondary cmd buffers also needs inheritedQueries. GPUTimerPool gates
+        // collection on SupportsPipelineStats(), so an unsupported GPU degrades cleanly to timing-only.
+        deviceFeatures.pipelineStatisticsQuery = avail2.features.pipelineStatisticsQuery;
+        deviceFeatures.inheritedQueries        = avail2.features.inheritedQueries;
+        m_PipelineStatsSupported = avail2.features.pipelineStatisticsQuery && avail2.features.inheritedQueries;
 
         // Vulkan 1.1 Features (Shader Draw Parameters for gl_BaseInstance)
         VkPhysicalDeviceVulkan11Features features11{};

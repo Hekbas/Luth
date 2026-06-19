@@ -28,6 +28,22 @@ namespace Luth
             LH_CORE_ASSERT(result == VK_SUCCESS, "Failed to create GPU timer query pool");
         }
 
+        // Pipeline-statistics pool (graphics passes only) — one query per pass. Skipped on GPUs lacking
+        // pipelineStatisticsQuery + inheritedQueries; stats then stay unavailable but timing still works.
+        m_StatsSupported = ctx.SupportsPipelineStats();
+        if (m_StatsSupported)
+        {
+            VkQueryPoolCreateInfo statsInfo{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+            statsInfo.queryType          = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            statsInfo.queryCount         = maxPasses;
+            statsInfo.pipelineStatistics = k_StatsFlags;
+            for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                VkResult result = vkCreateQueryPool(device, &statsInfo, nullptr, &m_StatsPools[i]);
+                LH_CORE_ASSERT(result == VK_SUCCESS, "Failed to create GPU pipeline-stats query pool");
+            }
+        }
+
         m_FrameCounter = 0;
         m_Initialized = true;
         LH_CORE_INFO("GPUTimerPool initialized: {} max passes, {:.2f} ns/tick", maxPasses, m_TimestampPeriod);
@@ -45,6 +61,11 @@ namespace Luth
                 vkDestroyQueryPool(device, m_Pools[i], nullptr);
                 m_Pools[i] = VK_NULL_HANDLE;
             }
+            if (m_StatsPools[i] != VK_NULL_HANDLE)
+            {
+                vkDestroyQueryPool(device, m_StatsPools[i], nullptr);
+                m_StatsPools[i] = VK_NULL_HANDLE;
+            }
         }
         m_Initialized = false;
     }
@@ -55,6 +76,8 @@ namespace Luth
 
         u32 poolIndex = (u32)(m_FrameCounter % MAX_FRAMES_IN_FLIGHT);
         vkCmdResetQueryPool(cmd, m_Pools[poolIndex], 0, m_MaxPasses * 2);
+        if (m_StatsSupported)
+            vkCmdResetQueryPool(cmd, m_StatsPools[poolIndex], 0, m_MaxPasses);
     }
 
     void GPUTimerPool::WriteTimestamp(VkCommandBuffer cmd, u32 passIndex, bool isBegin)
@@ -125,5 +148,55 @@ namespace Luth
         }
 
         m_FrameCounter++;
+    }
+
+    void GPUTimerPool::BeginStats(VkCommandBuffer cmd, u32 passIndex)
+    {
+        if (!m_StatsSupported || passIndex >= m_MaxPasses) return;
+        u32 slot = (u32)(m_FrameCounter % MAX_FRAMES_IN_FLIGHT);
+        vkCmdBeginQuery(cmd, m_StatsPools[slot], passIndex, 0);
+    }
+
+    void GPUTimerPool::EndStats(VkCommandBuffer cmd, u32 passIndex)
+    {
+        if (!m_StatsSupported || passIndex >= m_MaxPasses) return;
+        u32 slot = (u32)(m_FrameCounter % MAX_FRAMES_IN_FLIGHT);
+        vkCmdEndQuery(cmd, m_StatsPools[slot], passIndex);
+    }
+
+    // Reads the N-2 slot using the current frame counter — caller MUST invoke this before ReadResults,
+    // which owns the counter increment. Per-query availability flags compute passes / disabled frames.
+    void GPUTimerPool::ReadStats(u32 passCount, std::vector<RG::GpuPipelineStats>& out)
+    {
+        out.assign(passCount, {});
+        if (!m_StatsSupported || !StatsEnabled()) return;
+        if (m_FrameCounter < MAX_FRAMES_IN_FLIGHT)  return;
+        if (passCount == 0 || passCount > m_MaxPasses) return;
+
+        u32 readSlot = (u32)((m_FrameCounter - 2) % MAX_FRAMES_IN_FLIGHT);
+        const u32 stride = k_StatsValues + 1;  // + availability word
+        std::vector<u64> raw(passCount * stride);
+        VkResult result = vkGetQueryPoolResults(
+            VulkanContext::Get().GetDevice(),
+            m_StatsPools[readSlot],
+            0, passCount,
+            raw.size() * sizeof(u64), raw.data(),
+            stride * sizeof(u64),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (result != VK_SUCCESS && result != VK_NOT_READY) return;
+
+        for (u32 i = 0; i < passCount; i++)
+        {
+            const u64* q = &raw[i * stride];
+            if (q[k_StatsValues] == 0) continue;  // unavailable → compute pass, or stats not recorded
+            RG::GpuPipelineStats& s = out[i];
+            s.inputVertices   = q[0];
+            s.inputPrimitives = q[1];
+            s.vsInvocations   = q[2];
+            s.clipInvocations = q[3];
+            s.clipPrimitives  = q[4];
+            s.fsInvocations   = q[5];
+            s.valid = true;
+        }
     }
 }

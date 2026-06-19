@@ -1011,10 +1011,16 @@ namespace Luth::RG
 
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, true);
 
+                // Pipeline-stats query (graphics only) brackets the render pass from OUTSIDE it, spanning
+                // the secondary via inheritedQueries. Gated by the runtime toggle; off costs nothing.
+                const bool doStats = timers && timers->StatsSupported() && GPUTimerPool::StatsEnabled();
+                if (doStats) timers->BeginStats(primaryCmd, timerPassIdx);
+
                 DynamicRendering::BeginRendering(primaryCmd, rpInfo);
                 vkCmdExecuteCommands(primaryCmd, 1, &state.job.CommandBuffer);
                 DynamicRendering::EndRendering(primaryCmd);
 
+                if (doStats) timers->EndStats(primaryCmd, timerPassIdx);
                 if (timers) timers->WriteTimestamp(primaryCmd, timerPassIdx, false);
 
                 if (m_ArchiveSink) m_ArchiveSink->OnPassExecuted((u32)i, *this, primaryCmd, pass.queueFamily);

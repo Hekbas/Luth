@@ -557,14 +557,18 @@ namespace Luth
         // Capture render graph snapshot for Frame Debugger panel
         m_GraphSnapshot = CaptureSnapshot(rg);
 
-        // Read GPU timing from completed frames and fill snapshot
+        // Read GPU timing + pipeline stats from completed frames and fill snapshot. ReadStats must run
+        // BEFORE ReadResults — they share the frame counter that ReadResults advances.
         std::vector<float> gpuTimes;
+        std::vector<RG::GpuPipelineStats> gpuStats;
         u32 nonCulledCount = 0;
         for (auto& p : m_GraphSnapshot.passes)
             if (!p.culled) nonCulledCount++;
 
+        m_GPUTimers.ReadStats(nonCulledCount, gpuStats);
         m_GPUTimers.ReadResults(nonCulledCount, gpuTimes);
         float totalMs = 0.0f;
+        RG::GpuPipelineStats total{};
         u32 timerIdx = 0;
         for (auto& p : m_GraphSnapshot.passes)
         {
@@ -574,9 +578,21 @@ namespace Luth
                 p.gpuTimeMs = gpuTimes[timerIdx];
                 if (gpuTimes[timerIdx] > 0.0f) totalMs += gpuTimes[timerIdx];
             }
+            if (timerIdx < (u32)gpuStats.size() && gpuStats[timerIdx].valid)
+            {
+                p.stats = gpuStats[timerIdx];
+                total.inputVertices   += p.stats.inputVertices;
+                total.inputPrimitives += p.stats.inputPrimitives;
+                total.vsInvocations   += p.stats.vsInvocations;
+                total.clipInvocations += p.stats.clipInvocations;
+                total.clipPrimitives  += p.stats.clipPrimitives;
+                total.fsInvocations   += p.stats.fsInvocations;
+                total.valid = true;
+            }
             timerIdx++;
         }
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
+        m_GraphSnapshot.totalStats = total;
 
         // Wire the archive sink for this capture. The sink copies each
         // tracked RT after the pass that writes it. Gate on the per-view

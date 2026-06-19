@@ -65,6 +65,8 @@ namespace Luth
         VkDevice GetDevice() const { return m_Device; }
         VmaAllocator GetAllocator() const { return m_Allocator; }
         const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
+        // True iff pipelineStatisticsQuery + inheritedQueries were both available and enabled at device creation.
+        bool SupportsPipelineStats() const { return m_PipelineStatsSupported; }
         const RtFunctions& GetRtFn() const { return m_RtFn; }
         const CheckpointFunctions& GetCheckpointFn() const { return m_CheckpointFn; }
         const DebugUtilsFunctions& GetDebugUtilsFn() const { return m_DebugUtilsFn; }
@@ -175,6 +177,7 @@ namespace Luth
         CheckpointFunctions m_CheckpointFn{};
         DebugUtilsFunctions m_DebugUtilsFn{};
         bool m_CheckpointsAvailable = false;
+        bool m_PipelineStatsSupported = false;  // pipelineStatisticsQuery + inheritedQueries both enabled
         
         // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
         // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its

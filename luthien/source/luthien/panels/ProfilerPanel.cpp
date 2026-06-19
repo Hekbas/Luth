@@ -5,6 +5,8 @@
 #include "luthien/EditorSnapshot.h"
 #include "luth/core/time/Time.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
+#include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/GPUTimerPool.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -101,9 +103,13 @@ namespace Luth
                     m_WorkerStateHistory[i][m_WorkerHistoryHead] = stats.PerThreadState[i];
                 m_WorkerHistoryHead = (m_WorkerHistoryHead + 1) % WORKER_HISTORY_FRAMES;
 
-                // GPU frame time from render graph snapshot
+                // GPU frame time + pipeline stats from render graph snapshot
                 if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
-                    m_GPUFrameTimeMs = rs->GetGraphSnapshot().totalGpuTimeMs;
+                {
+                    const auto& snap = rs->GetGraphSnapshot();
+                    m_GPUFrameTimeMs   = snap.totalGpuTimeMs;
+                    m_GpuPipelineStats = snap.totalStats;
+                }
 
                 // Forward+ stat: active point-light count from the latest LightGatherer output.
                 if (auto ls = SystemRegistry::GetSystem<LightingSystem>())
@@ -660,6 +666,38 @@ namespace Luth
                     UI::InfoRow("Large one-shots", "%u", m_GpuHeapStats.LargeOneShots);
                     UI::InfoRow("In flight",       "%.2f MB", inFlightMB);
                     UI::EndInfoTable();
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // ── GPU Pipeline Stats (graphics passes only; runtime-toggled, off by default) ──
+            if (UI::BeginCollapsingHeader("GPU Pipeline Stats"))
+            {
+                if (!VulkanContext::Get().SupportsPipelineStats())
+                {
+                    ImGui::TextColored(ImVec4(0.80f, 0.60f, 0.20f, 1.0f), "Unsupported on this GPU");
+                }
+                else
+                {
+                    bool enabled = GPUTimerPool::StatsEnabled();
+                    if (ImGui::Checkbox("Capture (graphics passes)", &enabled))
+                        GPUTimerPool::SetStatsEnabled(enabled);
+
+                    const auto& st = m_GpuPipelineStats;
+                    if (enabled && st.valid)
+                    {
+                        if (UI::BeginInfoTable("GPUStats")) {
+                            UI::InfoRow("VS invocations",   "%llu", (unsigned long long)st.vsInvocations);
+                            UI::InfoRow("Input primitives", "%llu", (unsigned long long)st.inputPrimitives);
+                            UI::InfoRow("Clip primitives",  "%llu", (unsigned long long)st.clipPrimitives);
+                            UI::InfoRow("FS invocations",   "%llu", (unsigned long long)st.fsInvocations);
+                            UI::EndInfoTable();
+                        }
+                    }
+                    else if (enabled)
+                    {
+                        ImGui::TextDisabled("Capturing... (2-frame latency)");
+                    }
                 }
                 UI::EndCollapsingHeader();
             }

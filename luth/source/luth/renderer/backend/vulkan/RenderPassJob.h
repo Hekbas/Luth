@@ -4,6 +4,8 @@
 #include "DynamicRendering.h"
 #include "luth/jobs/JobSystem.h"
 #include "CommandAllocatorPool.h"
+#include "VulkanContext.h"
+#include "GPUTimerPool.h"
 #include <functional>
 #include <span>
 
@@ -59,6 +61,10 @@ namespace Luth
             VkCommandBufferInheritanceInfo inheritanceInfo{};
             inheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
             inheritanceInfo.pNext = &renderingInheritanceInfo;
+            // A primary-side pipeline-stats query spans this secondary only if its inheritance echoes the
+            // counted stats (+ inheritedQueries). Harmless when no query is active (stats toggled off).
+            if (VulkanContext::Get().SupportsPipelineStats())
+                inheritanceInfo.pipelineStatistics = GPUTimerPool::k_StatsFlags;
             
             // 3. Begin Recording
             VkCommandBufferBeginInfo beginInfo{};
