@@ -4,6 +4,7 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/GpuTracy.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/renderer/backend/vulkan/GpuCheckpoint.h"
@@ -854,6 +855,12 @@ namespace Luth::RG
                 PFN_vkCmdEndDebugUtilsLabelEXT end;
                 ~PassLabelScope() { if (end) end(cmd); }
             } passLabelScope{ primaryCmd, dbgFn.vkCmdBeginDebugUtilsLabelEXT ? dbgFn.vkCmdEndDebugUtilsLabelEXT : nullptr };
+
+            // Per-pass GPU zone — brackets the same region as the debug-utils label. AsyncCompute passes record
+            // into the compute-queue Tracy context; graphics into the graphics-queue context (collected per frame).
+            LH_PROFILE_GPU_ZONE_TRANSIENT(___tracyGpuPass,
+                (pass.queueFamily == QueueFamily::AsyncCompute) ? vkCtx.GetComputeTracyCtx() : vkCtx.GetGraphicsTracyCtx(),
+                primaryCmd, pass.name.c_str());
 
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during
             // SolveBarriers carry b.crossQueueSrc — in that case the src stage / access become TOP_OF_PIPE / NONE

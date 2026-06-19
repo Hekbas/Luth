@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include "luth/renderer/backend/vulkan/VulkanDescriptors.h"
+#include "luth/renderer/backend/vulkan/GpuTracy.h"
 #include "luth/renderer/rendergraph/RenderResourceCache.h"
 
 // Forward declare VMA types to avoid including the huge header here
@@ -85,6 +86,10 @@ namespace Luth
         bool IsAsyncCompute()   const { return m_ComputeIsAsync;  }
         bool IsAsyncTransfer()  const { return m_TransferIsAsync; }
 
+        // Tracy GPU profiling contexts — one per queue; compute aliases graphics when not async-compute.
+        GpuTracyCtx GetGraphicsTracyCtx() const { return m_GraphicsTracyCtx; }
+        GpuTracyCtx GetComputeTracyCtx()  const { return m_ComputeTracyCtx; }
+
         // Deduped {graphics, compute, transfer} family list for VK_SHARING_MODE_CONCURRENT resource creation.
         // Single-family layouts collapse to size 1 — callers should fall back to EXCLUSIVE in that case.
         const std::vector<u32>& GetConcurrentFamilyIndices() const { return m_ConcurrentFamilyIndices; }
@@ -143,6 +148,8 @@ namespace Luth
         void LoadCheckpointFunctions();
         void LoadDebugUtilsFunctions();
         void InitAllocator();
+        void InitGpuProfilerContexts();
+        void ShutdownGpuProfilerContexts();
 
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
         // Default: on in Debug, off in Release/Dist. Override per-config or via the LUTH_VALIDATION env.
@@ -175,6 +182,8 @@ namespace Luth
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
         VkQueue m_ComputeQueue  = VK_NULL_HANDLE;
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
+        GpuTracyCtx m_GraphicsTracyCtx = nullptr;  // graphics-queue Tracy GPU context
+        GpuTracyCtx m_ComputeTracyCtx  = nullptr;  // async-compute context; aliases graphics on single-family GPUs
         std::mutex m_QueueMutex;
         std::mutex m_ComputeQueueMutex;
         std::mutex m_TransferQueueMutex;
