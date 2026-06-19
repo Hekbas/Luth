@@ -820,6 +820,10 @@ namespace Luth
             snapshot.passes.push_back(std::move(ps));
         }
 
+        // Barrier inspector — fill from the solved graph when capture is on (off by default).
+        if (RG::RenderGraph::BarrierCapture())
+            rg.CaptureBarrierRecords(snapshot);
+
         // Compute geometry stats from the current DrawList (built before pass dispatch)
         u32 totalDraws = (u32)(m_System.GetDrawList().opaque.size() + m_System.GetDrawList().cutout.size() + m_System.GetDrawList().transparent.size());
         u32 totalIndices = 0;

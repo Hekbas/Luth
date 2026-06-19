@@ -1,5 +1,6 @@
 #include "luthpch.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
+#include "luth/renderer/rendergraph/RenderGraphSnapshot.h"
 #include "luth/renderer/rendergraph/IArchiveSink.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
@@ -642,6 +643,57 @@ namespace Luth::RG
             case BarrierReason::Waw:   return "WAW";
             case BarrierReason::Final: return "FINAL";
             default:                   return "?";
+        }
+    }
+
+    // ── Barrier inspector capture ──
+    static std::atomic<bool> s_BarrierCapture{ false };
+    void RenderGraph::SetBarrierCapture(bool e) { s_BarrierCapture.store(e, std::memory_order_relaxed); }
+    bool RenderGraph::BarrierCapture()          { return s_BarrierCapture.load(std::memory_order_relaxed); }
+
+    void RenderGraph::CaptureBarrierRecords(RenderGraphSnapshot& snap) const
+    {
+        for (u32 i = 0; i < (u32)m_Passes.size(); ++i)
+        {
+            const PassNode& p = m_Passes[i];
+
+            auto pushImage = [&](const Barrier& b, bool isPost)
+            {
+                BarrierRecord r;
+                r.resource  = (b.resource.index > 0 && b.resource.index <= m_Resources.size())
+                            ? m_Resources[b.resource.index - 1].desc.name : "?";
+                r.before    = ToString(b.before);
+                r.after     = ToString(b.after);
+                r.reason    = ToString(b.reason);
+                r.passIndex = i;
+                r.isImage   = true;
+                r.isPost    = isPost;
+                r.redundant = (b.before == b.after);
+                snap.numImageBarriers++;
+                if (r.redundant) snap.numRedundantBarriers++;
+                if (i < snap.passes.size()) snap.passes[i].numImageBarriers++;
+                snap.barriers.push_back(std::move(r));
+            };
+
+            for (const Barrier& b : p.preBarriers)  pushImage(b, false);
+            for (const Barrier& b : p.postBarriers) pushImage(b, true);
+
+            for (const BufferBarrier& b : p.bufferPreBarriers)
+            {
+                BarrierRecord r;
+                r.resource  = (b.resource.index > 0 && b.resource.index <= m_Buffers.size())
+                            ? m_Buffers[b.resource.index - 1].desc.name : "?";
+                r.before    = ToString(b.before);
+                r.after     = ToString(b.after);
+                r.reason    = ToString(b.reason);
+                r.passIndex = i;
+                r.isImage   = false;
+                r.redundant = (b.before == b.after);
+                snap.numBufferBarriers++;
+                if (r.redundant) snap.numRedundantBarriers++;
+                if (i < snap.passes.size()) snap.passes[i].numBufferBarriers++;
+                snap.barriers.push_back(std::move(r));
+            }
         }
     }
 

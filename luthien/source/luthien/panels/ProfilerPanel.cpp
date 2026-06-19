@@ -7,6 +7,7 @@
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/GPUTimerPool.h"
+#include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/scene/systems/LightingSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
@@ -697,6 +698,60 @@ namespace Luth
                     else if (enabled)
                     {
                         ImGui::TextDisabled("Capturing... (2-frame latency)");
+                    }
+                }
+                UI::EndCollapsingHeader();
+            }
+
+            // ── GPU Barriers (solved by the render graph; runtime-toggled, off by default) ──
+            if (UI::BeginCollapsingHeader("GPU Barriers"))
+            {
+                bool bcap = RG::RenderGraph::BarrierCapture();
+                if (ImGui::Checkbox("Capture barriers", &bcap))
+                    RG::RenderGraph::SetBarrierCapture(bcap);
+
+                if (bcap)
+                {
+                    if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
+                    {
+                        const auto& snap = rs->GetGraphSnapshot();
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Redundant only", &m_BarrierRedundantOnly);
+                        ImGui::Text("img %u   buf %u   redundant %u",
+                            snap.numImageBarriers, snap.numBufferBarriers, snap.numRedundantBarriers);
+
+                        if (ImGui::BeginTable("##barriers", 5,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                            ImGuiTableFlags_Resizable, ImVec2(0, 240)))
+                        {
+                            ImGui::TableSetupColumn("Resource",   ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Type",       ImGuiTableColumnFlags_WidthFixed, 38);
+                            ImGui::TableSetupColumn("Transition", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Reason",     ImGuiTableColumnFlags_WidthFixed, 56);
+                            ImGui::TableSetupColumn("Pass",       ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableHeadersRow();
+
+                            for (const auto& b : snap.barriers)
+                            {
+                                if (m_BarrierRedundantOnly && !b.redundant) continue;
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(b.resource.c_str());
+                                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(b.isImage ? "img" : "buf");
+
+                                ImGui::TableSetColumnIndex(2);
+                                char trans[96];
+                                snprintf(trans, sizeof(trans), "%s -> %s", b.before.c_str(), b.after.c_str());
+                                if (b.redundant) ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "%s", trans);
+                                else             ImGui::TextUnformatted(trans);
+
+                                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(b.reason.c_str());
+                                ImGui::TableSetColumnIndex(4);
+                                ImGui::TextUnformatted(b.passIndex < snap.passes.size()
+                                    ? snap.passes[b.passIndex].name.c_str() : "?");
+                            }
+                            ImGui::EndTable();
+                        }
                     }
                 }
                 UI::EndCollapsingHeader();
