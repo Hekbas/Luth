@@ -4,8 +4,11 @@
 
 | Concern | Tool |
 |---------|------|
-| CPU profiling (live + deep capture) | Tracy |
-| GPU per-pass timing (Frame Debugger panel) | `GPUTimerPool` |
+| CPU profiling (live + deep capture) | Tracy — CPU zones at peer density, per-frame plots, event messages |
+| GPU per-pass timing | `GPUTimerPool` timestamps (Frame Debugger + Profiler panels) |
+| GPU↔CPU correlation | Tracy GPU zones — `TracyVkContext`, per-queue (graphics + async-compute) |
+| GPU pipeline statistics | `GPUTimerPool` pipeline-stats pool → Profiler panel per-pass overdraw |
+| Render-graph barrier inspection | Solved-barrier capture → Profiler panel barrier table |
 | Memory allocation profiling | Tracy memory zones (see [memory.md](memory.md)) |
 
 **Tracy is the primary profiler.** Fully integrated via the `LH_PROFILE_*` macro layer in [`Profiler.h`](../../../luth/source/luth/core/diagnostics/Profiler.h). The macros are a thin abstraction — swapping profiler backends would touch one file. No in-engine CPU profiler is maintained in parallel; building one would duplicate Tracy's flame-graph UI, fiber visualization, and GPU-CPU correlation for marginal gain.
@@ -46,30 +49,18 @@ Defined in [`luth/source/luth/core/diagnostics/Profiler.h`](../../../luth/source
 | `LH_PROFILE_THREAD(name)` | `tracy::SetThreadName` | Name an OS thread in Tracy |
 | `LH_PROFILE_FIBER_ENTER(name)` | `TracyFiberEnter` | Mark fiber resume (paired with leave) |
 | `LH_PROFILE_FIBER_LEAVE` | `TracyFiberLeave` | Mark fiber yield |
+| `LH_PROFILE_PLOT(name, val)` | `TracyPlot` | Numeric per-frame plot (scheduler / memory counters) |
+| `LH_PROFILE_PLOT_CONFIG(name, fmt, …)` | `TracyPlotConfig` | Plot format (bytes / percentage) |
+| `LH_PROFILE_MESSAGE(txt)` / `_COLOR` | `TracyMessage(C)` | Discrete event (hot-reload, swapchain recreate, device-lost) |
+| `LH_PROFILE_GPU_*` (`GpuTracy.h`) | `TracyVk*` | GPU context / per-pass zone / per-frame collect |
 
 ---
 
 ## CPU coverage
 
-Currently instrumented (~18 files):
+Comprehensive (peer density, `profiling-observability`). Every non-trivial per-frame / per-asset function is zoned across: render orchestration (`RenderPipeline` + all `subsystems/` + per-pass recording — the recording job is named per pass, so it reads cleanly in the fiber timeline), ECS systems, asset pipeline (importers, Slang compile/reflect), animation, material, shader, and the Vulkan backend. Per-frame `LH_PROFILE_PLOT` counters (scheduler health + memory categories + GPU memory) and `LH_PROFILE_MESSAGE` events emit from `App::Run` and their event sites.
 
-| Subsystem | Files |
-|-----------|-------|
-| App / Editor entry | `core/App.cpp`, `Editor.cpp` |
-| Job system | `jobs/JobSystem.cpp`, `jobs/IOThread.cpp` |
-| ECS systems | `scene/systems/{Transform,Camera,Animation,Lighting,Rendering}System.{h,cpp}` |
-| Renderer | `renderer/rendergraph/RenderGraph.cpp` (top-level execute) |
-| Vulkan backend | `VulkanContext.cpp`, `VulkanSwapchain.cpp`, `UploadContext.cpp` |
-| Asset pipeline | `AssetManager.cpp`, `ModelImporter.cpp`, `TextureImporter.cpp` |
-| Memory | `memory/MemoryMacros.h` (alloc/free events) |
-
-### Known gaps (filled in v2.8.2 `engine-consolidation`)
-
-- **Editor panels** — `Update`/`Render` entry points uninstrumented (`HierarchyPanel`, `InspectorPanel`, `ScenePanel`, `ProjectPanel`, `ConsolePanel`, `FrameDebuggerPanel`)
-- **RenderGraph individual passes** — only the top-level `RG::Execute` has a zone; per-pass record/execute is invisible in the flame graph
-- **Async I/O hot paths** — `IOThread::Submit` and async asset load callbacks need `LH_PROFILE_SCOPE`
-- **Material / shader hot-reload** — `ShaderWatcher::OnFileChanged`, Material rebuild path
-- **PickingSystem GPU readback** — wait + entity ID resolution
+The earlier "known gaps" (editor panels, per-pass record, async I/O, hot-reload, picking readback) are all filled.
 
 ### Style guidance
 
@@ -97,7 +88,21 @@ GPUTimerPool::ReadResults(u32 passCount, std::vector<float>& outTimesMs);
 - Manual insertion per pass — no automatic render-graph wiring (a future epic, deferred from v2.8.2).
 - Consumed by Frame Debugger panel for the per-pass timing column.
 
-GPU work that doesn't go through render-graph passes (compute uploads via `UploadContext`, async transfer queue) is currently not measured by `GPUTimerPool`. Tracy's GPU zones (via `TracyVkContext`) are not yet wired — a candidate for a future profiling-coverage pass.
+### GPU Tracy zones
+
+Per-pass GPU zones via `TracyVkContext` — one context per queue (graphics + async-compute; transfer skipped), created in `VulkanContext`, collected per frame in `Renderer::EndPrimaryCmdAndSubmit`. Macros live in `renderer/backend/vulkan/GpuTracy.h`. The whole RT/compute pipeline shows on Tracy's GPU timeline, CPU-correlated.
+
+### GPU pipeline statistics
+
+`GPUTimerPool` also owns a `VK_QUERY_TYPE_PIPELINE_STATISTICS` pool — **graphics passes only** (async-compute queues can't run graphics stat queries). The per-pass query spans the secondary command buffer via `inheritedQueries` (enabled at device creation when supported; degrades to timing-only otherwise). Surfaced in the Profiler panel as per-pass **overdraw** (FS invocations ÷ target pixels), color-coded. Runtime-toggled (`GPUTimerPool::SetStatsEnabled`), off by default. `Init(maxPasses)` must exceed the compiled pass count — `ReadResults` warns once if exceeded.
+
+### Barrier inspector
+
+`RenderGraph::CaptureBarrierRecords` reads the solver's per-pass barriers straight from the compiled graph — no command-stream interception, since Luth's RG solves barriers as data (`before`/`after`/`reason` per pass). Surfaced in the Profiler panel: resource, before→after, reason (RAW/WAW/FINAL), redundant (`before==after`) filter. Runtime-toggled (`RG::RenderGraph::SetBarrierCapture`), off by default.
+
+### Scheduler advisor — deferred
+
+A fiber-scheduler advisor (per-worker timeline, fiber grid, contention/affinity/starvation verdict) is the natural next step, but it instruments the V1–V6 job-system hot paths — deferred to its own researched effort ([#163](https://github.com/Hekbas/Luth/issues/163)). See [fiber-system.md](fiber-system.md).
 
 ---
 
