@@ -305,6 +305,11 @@ namespace Luth
         std::shared_ptr<Texture> svgfGiAtrous[2];
         VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        // Half-res GI: svgfGi* history + reservoirs allocate at half extent; the à-trous final writes
+        // svgfGiHalf, a bilateral upscale resolves it into the full-res svgfGiDenoised. giHalfCached
+        // drives EnsureViewResources realloc on a runtime toggle.
+        std::shared_ptr<Texture> svgfGiHalf;
+        u32 giHalfCached = ~0u;
 
         // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
         // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance

@@ -11,6 +11,7 @@ namespace Luth
     struct RestirGiSettings
     {
         bool enabled = true;
+        bool halfResolution = false;        // trace + denoise GI at half-res + bilateral upscale (perf)
         f32  secondaryAlbedo = 0.5f;        // S0 scaffold constant secondary albedo (S3: real material)
         f32  maxIndirect = 10.0f;           // firefly clamp on secondary-radiance luminance
         u32  temporalMCap = 8;              // history clamp multiplier (prev.M <= mCap * curr.M)
