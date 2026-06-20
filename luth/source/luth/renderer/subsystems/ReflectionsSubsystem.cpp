@@ -25,7 +25,9 @@ namespace Luth
             f32  maxRayDistance;
             f32  fireflyClamp;
             u32  envReady;          // 1 → IBL prefiltered env bound
-            u32  pad0; u32 pad1; u32 pad2;
+            i32  gbufferScale;      // 1 = full-res; 2 = half-res (G-buffer reads remap to full)
+            i32  dispatchW;         // reflection working (dispatch) resolution
+            i32  dispatchH;
             u64  geomTableBDA;      // secondary-hit material fetch (paired with the bound TLAS)
         };
         static_assert(sizeof(ReflPC) == 104, "ReflPC must match rt_reflections.comp push_constant");
@@ -184,6 +186,13 @@ namespace Luth
         if (!preflightVr || !preflightVr->reflRadiance || preflightVr->reflDescSet == VK_NULL_HANDLE) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
+        // Reflection working resolution (half when ReflectionsSettings::halfResolution) — derive from
+        // reflRadiance's extent (the alloc-time source of truth); G-buffer reads remap to full in-shader.
+        auto reflTex0 = std::static_pointer_cast<VKTexture>(preflightVr->reflRadiance);
+        const i32 reflW = reflTex0 ? static_cast<i32>(reflTex0->GetWidth())  : static_cast<i32>(preflightVr->width);
+        const i32 reflH = reflTex0 ? static_cast<i32>(reflTex0->GetHeight()) : static_cast<i32>(preflightVr->height);
+        const i32 reflScale = ((u32)reflW == preflightVr->width && (u32)reflH == preflightVr->height) ? 1 : 2;
+
         const ReflectionsSettings& s = m_Pipeline->GetSystem().GetReflectionsSettings();
         ReflPC pc{};
         pc.invViewProj     = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
@@ -192,6 +201,9 @@ namespace Luth
         pc.maxRayDistance  = s.maxRayDistance;
         pc.fireflyClamp    = s.fireflyClamp;
         pc.envReady        = m_Pipeline->GetLighting().IsIBLReady() ? 1u : 0u;
+        pc.gbufferScale    = reflScale;
+        pc.dispatchW       = reflW;
+        pc.dispatchH       = reflH;
         // Geometry-table BDA paired with the bound TLAS at preflight (same m_LastResult Set 0 b6 binds).
         pc.geomTableBDA    = m_Pipeline->GetRt().GetGeometryTableBDA();
 
@@ -257,8 +269,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_ReflPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ReflPC), &pc);
 
-                const u32 groupX = (v->width + 7) / 8;
-                const u32 groupY = (v->height + 7) / 8;
+                const u32 groupX = (static_cast<u32>(pc.dispatchW) + 7) / 8;
+                const u32 groupY = (static_cast<u32>(pc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
