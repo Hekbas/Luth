@@ -498,11 +498,11 @@ namespace Luth
         if (denoisedReflHandle.IsValid() && m_System.GetReflectionsSettings().halfResolution)
             denoisedReflHandle = m_Reflections.AddUpscalePass(rg, denoisedReflHandle, prepassDepth, slimGB.normal);
 
-        // GTAO chain runs every real-time frame so the Set 0 binding-4 sampler sees a valid
-        // SHADER_READ_ONLY layout (the `gtao.enabled` UBO flag disables only the modulation in pbr.frag).
-        // Skipped in PT — pbr.frag doesn't run there, so the layout guarantee is moot. ~0.3-1 ms at 1080p.
+        // GTAO chain — skipped in PT (pbr.frag doesn't run) and when disabled. When skipped, gtaoFinal keeps
+        // its VKTexture-ctor SHADER_READ_ONLY layout, so pbr's Set 0 b4 sampler binding stays valid; the
+        // gtao.enabled UBO flag zeroes the modulation, so the stale content is ignored. ~0.3-1 ms at 1080p.
         RG::ResourceHandle gtaoFinalAO{};
-        if (!ptEnabled)
+        if (!ptEnabled && m_System.GetPostProcessSettings().gtao.enabled)
         {
             RG::ResourceHandle gtaoLinearDepth = m_GTAO.AddPrefilterPass(rg, prepassDepth);
             RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
@@ -557,7 +557,12 @@ namespace Luth
         // HDR source for the post chain: the PT megakernel output replaces the raster sceneColor when PT
         // is active (the raster chain above is then dead-pass-culled). Grid is editor-overlay-only → off in PT.
         RG::ResourceHandle hdrForPost  = ptActive ? ptColorHandle : taaColor;
-        RG::ResourceHandle bloomResult = m_PostProcess.AddBloomPasses(rg, hdrForPost); // bloom reads PRE-grid color so grid lines don't bloom
+        // Bloom — skipped at strength 0 (the composite adds bloom × strength, so an absent/stale bloom texture
+        // contributes nothing; AddCompositePass already guards on an invalid bloom handle). Reads PRE-grid
+        // color so grid lines don't bloom.
+        RG::ResourceHandle bloomResult = (m_System.GetPostProcessSettings().bloomStrength > 0.0f)
+                                         ? m_PostProcess.AddBloomPasses(rg, hdrForPost)
+                                         : RG::ResourceHandle{};
         RG::ResourceHandle gridColor   = (view.drawGrid && !ptActive)
                                          ? m_EditorOverlays.AddGridPass(rg, hdrForPost, geoOutput.depth)
                                          : hdrForPost;
