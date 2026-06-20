@@ -374,6 +374,10 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("1-bounce indirect-diffuse GI via per-pixel path reservoirs.\nAdded on top of direct lighting. Requires a TLAS (RT).");
 
+                    UI::Property("Half Resolution", gi.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise GI at half resolution, then bilaterally upscale.\n~4x fewer rays + denoise pixels for the GI chain. Reallocates view resources on toggle.");
+
                     UI::Property("Max Indirect (firefly)", gi.maxIndirect, 0.5f, 0.0f, 100.0f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Luminance clamp on the secondary-hit radiance before reuse.\nLower kills fireflies harder; higher preserves bright bounces.");

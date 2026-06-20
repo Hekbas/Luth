@@ -44,6 +44,13 @@ namespace Luth
         RG::ResourceHandle AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth,
                                      RG::ResourceHandle slimNormal, RG::ResourceHandle slimMotion);
 
+        // Half-res GI bilateral upscale: reads the half-res denoised GI (svgfGiHalf) + full-res depth/normal
+        // guides, writes the full-res svgfGiDenoised. Only wired when RestirGiSettings::halfResolution.
+        VkDescriptorSetLayout GetUpscaleLayout() const { return m_UpscaleSetLayout; }
+        void WriteUpscaleView(ViewResources& vr, FrameTargets& targets);
+        RG::ResourceHandle AddUpscalePass(RG::RenderGraph& rg, RG::ResourceHandle giHalf,
+                                          RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal);
+
         VkSampler             GetSampler()   const { return m_Sampler; }
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
 
@@ -72,14 +79,17 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_TemporalPipeline;
         std::unique_ptr<VKComputePipeline> m_SpatialPipeline;
         std::unique_ptr<VKComputePipeline> m_ShadePipeline;
+        std::unique_ptr<VKComputePipeline> m_UpscalePipeline;   // half-res GI bilateral upscale → full
 
-        VkSampler             m_Sampler   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_SetLayout = VK_NULL_HANDLE;   // Set 2 (pass-local)
+        VkSampler             m_Sampler          = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_SetLayout        = VK_NULL_HANDLE;   // Set 2 (pass-local)
+        VkDescriptorSetLayout m_UpscaleSetLayout = VK_NULL_HANDLE;   // Set 1 for the upscale pass
 
         std::vector<u32> m_InitialSpv;
         std::vector<u32> m_TemporalSpv;
         std::vector<u32> m_SpatialSpv;
         std::vector<u32> m_ShadeSpv;
+        std::vector<u32> m_UpscaleSpv;
 
         // Reservoir debug-viz graphics pipeline (fullscreen.vert + restir_gi_reservoir_viz.frag).
         std::unique_ptr<VKPipeline> m_ReservoirVizPipeline;

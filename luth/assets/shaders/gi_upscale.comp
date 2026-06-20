@@ -1,0 +1,71 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common/globals.glsl"
+#include "common/svgf_common.glsl"
+
+// Joint-bilateral upscale of the half-res denoised GI into the full-res svgfGiDenoised. For each full-res
+// pixel: gather the 4 covering half-res taps, weight each by depth + normal edge-stops against the full-res
+// guide, with a depth-nearest fallback on total rejection (holds silhouettes against light leak). Only runs
+// in half-res GI mode; the full-res path writes svgfGiDenoised directly from the à-trous final level.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// set 0 = global UBO (nearZ/farZ for depth linearization).
+layout(set = 1, binding = 0) uniform sampler2D u_GiHalf;     // half-res denoised GI (demodulated E)
+layout(set = 1, binding = 1) uniform sampler2D u_Depth;      // full-res scene depth
+layout(set = 1, binding = 2) uniform sampler2D u_Normal;     // full-res slim oct normal
+layout(set = 1, binding = 3, rgba16f) uniform writeonly image2D u_Out;  // full-res svgfGiDenoised
+
+layout(push_constant) uniform PC {
+    int   fullW;
+    int   fullH;
+    int   halfW;
+    int   halfH;
+    float phiDepth;     // relative-depth edge-stop falloff
+    float phiNormal;    // normal edge-stop exponent
+} pc;
+
+void main() {
+    ivec2 fp = ivec2(gl_GlobalInvocationID.xy);
+    if (fp.x >= pc.fullW || fp.y >= pc.fullH) return;
+
+    float dC = texelFetch(u_Depth, fp, 0).r;
+    if (dC >= 1.0) { imageStore(u_Out, fp, vec4(0.0)); return; }   // sky → no GI
+    float zC = SvgfLinearizeDepth(dC);
+    vec3  nC = SvgfOctDecode(texelFetch(u_Normal, fp, 0).rg);
+
+    // Half-res sample footprint for this full pixel (bilinear 2x2 base).
+    vec2  hf = ((vec2(fp) + 0.5) / vec2(pc.fullW, pc.fullH)) * vec2(pc.halfW, pc.halfH) - 0.5;
+    ivec2 h0 = ivec2(floor(hf));
+    vec2  fr = hf - vec2(h0);
+    ivec2 off[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
+    float bw[4]  = float[4]((1.0 - fr.x) * (1.0 - fr.y), fr.x * (1.0 - fr.y),
+                            (1.0 - fr.x) * fr.y,         fr.x * fr.y);
+
+    vec3  acc   = vec3(0.0);
+    float sumw  = 0.0;
+    vec3  bestC = vec3(0.0);
+    float bestS = -1.0e30;   // depth-nearest fallback score (smallest |Δz| wins)
+    for (int i = 0; i < 4; ++i) {
+        ivec2 ht = clamp(h0 + off[i], ivec2(0), ivec2(pc.halfW - 1, pc.halfH - 1));
+        // The half tap's full-res guide texel (its center in full space) for the edge-stop weights.
+        ivec2 ft = clamp(ivec2(((vec2(ht) + 0.5) / vec2(pc.halfW, pc.halfH)) * vec2(pc.fullW, pc.fullH)),
+                         ivec2(0), ivec2(pc.fullW - 1, pc.fullH - 1));
+        float zT = SvgfLinearizeDepth(texelFetch(u_Depth, ft, 0).r);
+        vec3  nT = SvgfOctDecode(texelFetch(u_Normal, ft, 0).rg);
+        vec3  cT = texelFetch(u_GiHalf, ht, 0).rgb;
+
+        float wz = exp(-abs(zC - zT) / (pc.phiDepth * max(zC, 1e-3) + 1e-4));
+        float wn = pow(max(0.0, dot(nC, nT)), pc.phiNormal);
+        float w  = bw[i] * wz * wn;
+        acc  += w * cT;
+        sumw += w;
+
+        float s = -abs(zC - zT);
+        if (s > bestS) { bestS = s; bestC = cT; }
+    }
+
+    vec3 outC = (sumw > 1e-5) ? acc / sumw : bestC;   // nearest-depth tap on total edge rejection
+    imageStore(u_Out, fp, vec4(outC, 1.0));
+}

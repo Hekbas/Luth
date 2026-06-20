@@ -442,6 +442,10 @@ namespace Luth
         RG::ResourceHandle denoisedGiHandle = m_DenoiseGi->AddPasses(rg, DenoiseInputs{
             giDIHandle, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
+        // Half-res GI: AddPasses returns the half-res svgfGiHalf handle — bilaterally upscale it into the
+        // full-res svgfGiDenoised that GeometryPass / pbr Set 3 b6 consume. Full-res mode is a no-op.
+        if (denoisedGiHandle.IsValid() && m_System.GetRestirGiSettings().halfResolution)
+            denoisedGiHandle = m_RestirGi.AddUpscalePass(rg, denoisedGiHandle, prepassDepth, slimGB.normal);
 
         // RT specular reflections (rt-renderer D.1) — one GGX-VNDF ray/pixel from the slim G-buffer, then
         // a dedicated specular SVGF (3rd instance, DenoiserChannel::Reflections). The DenoiseInputs.motion

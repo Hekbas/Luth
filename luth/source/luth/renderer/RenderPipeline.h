@@ -310,6 +310,7 @@ namespace Luth
         // drives EnsureViewResources realloc on a runtime toggle.
         std::shared_ptr<Texture> svgfGiHalf;
         u32 giHalfCached = ~0u;
+        VkDescriptorSet giUpscaleDescSet = VK_NULL_HANDLE;   // half-res GI bilateral-upscale set (Set 1)
 
         // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
         // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance

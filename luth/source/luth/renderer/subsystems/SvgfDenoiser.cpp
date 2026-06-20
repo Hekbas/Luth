@@ -78,10 +78,18 @@ namespace Luth
                          &vr.svgfDiSpecPassthroughDescSet, vr.svgfDiSpecReprojectDescSet,
                          vr.svgfDiSpecMomentsDescSet, vr.svgfDiSpecAtrousDescSet };
             if (ch == DenoiserChannel::Gi)
+            {
+                // Half-res GI: the chain runs below full res, so the à-trous final + passthrough write the
+                // half svgfGiHalf (a bilateral upscale resolves it into the full svgfGiDenoised). Detect
+                // from the history extent vs the full-res denoised image — no setting plumbing needed.
+                const bool giHalf = vr.svgfGiHalf && vr.svgfGiColorHist[0] && vr.svgfGiDenoised
+                    && std::static_pointer_cast<VKTexture>(vr.svgfGiColorHist[0])->GetWidth()
+                       < std::static_pointer_cast<VKTexture>(vr.svgfGiDenoised)->GetWidth();
                 return { vr.svgfGiColorHist, vr.svgfGiMoments, vr.svgfGiGeom, vr.svgfGiAtrous,
-                         &vr.svgfGiDenoised, &vr.restirGiDI,
+                         giHalf ? &vr.svgfGiHalf : &vr.svgfGiDenoised, &vr.restirGiDI,
                          &vr.svgfGiPassthroughDescSet, vr.svgfGiReprojectDescSet,
                          vr.svgfGiMomentsDescSet, vr.svgfGiAtrousDescSet };
+            }
             return { vr.svgfColorHist, vr.svgfMoments, vr.svgfGeom, vr.svgfAtrous,
                      &vr.svgfDenoised, &vr.restirDI,
                      &vr.svgfPassthroughDescSet, vr.svgfReprojectDescSet,
