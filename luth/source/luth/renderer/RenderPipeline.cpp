@@ -283,50 +283,67 @@ namespace Luth
         // raster always needs it, even when no RT consumer builds a TLAS this frame.
         m_Skinning.AddDeformPass(rg);
 
-        // Frustum cull — 5 dispatches per view (camera + 4 cascades). Each view owns a
-        // disjoint range within the indirect region.
-        {
-            const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
-            Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
-            m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
+        // PathTrace replaces the entire real-time pipeline — its megakernel output feeds the post chain via
+        // hdrForPost below. These passes can't be dead-pass-culled in PT (GeometryPass is alive via its
+        // attachments; every RT/denoise/volumetric pass is alive via its external-resource writes — see
+        // CullDeadPasses), so PT must skip REGISTERING them. Only Deform + the lighting-set populate + TLAS +
+        // PathTrace + the post chain run in PT. ClusterBuild/LightAssign stay (cheap, keep lightDescSet valid).
+        // The TLAS-ready term makes ptEnabled imply ptActive below: a cold boot with PT pre-enabled renders
+        // one real-time frame (which builds the TLAS) before PT takes over — never a black frame / invalid
+        // geoOutput for the !ptActive overlays.
+        const bool ptEnabled = m_PathTrace.IsEnabled() && m_CurrentViewResources
+                            && m_Rt.GetTlas() != VK_NULL_HANDLE;
 
-            // CSM cascade cull — needed when ShadowPass runs (CSM mode OR volumetric on, since
-            // volumetric_inject_scatter samples cascades in both shadow modes).
-            const bool runCsmCascades = m_Global.GetShadowParams().castShadows
-                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
-                                         || view.camera.enableVolumetricFog);
-            if (runCsmCascades)
+        // Real-time geometry inputs — hoisted so the post chain + overlays can reference them; produced only
+        // on the real-time path (PT traces its own primary rays, so it needs none of these).
+        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount]{};
+        RG::ResourceHandle prepassDepth{};
+        SlimGBufferOutput  slimGB{};
+        if (!ptEnabled)
+        {
+            // Frustum cull — 5 dispatches per view (camera + 4 cascades). Each view owns a
+            // disjoint range within the indirect region.
             {
-                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                const u32 baseRegion = view.viewIndex * k_IndirectRegionsPerView;
+                Frustum camFrustum = CreateFrustumFromCamera(m_Global.GetCachedViewProj());
+                m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, camFrustum.planes, baseRegion * k_IndirectRegionStride, "FrustumCull.Cam");
+
+                // CSM cascade cull — needed when ShadowPass runs (CSM mode OR volumetric on, since
+                // volumetric_inject_scatter samples cascades in both shadow modes).
+                const bool runCsmCascades = m_Global.GetShadowParams().castShadows
+                                         && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                             || view.camera.enableVolumetricFog);
+                if (runCsmCascades)
                 {
-                    Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
-                    const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
-                    const std::string name = "FrustumCull.C" + std::to_string(i);
-                    m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                    for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                    {
+                        Frustum cascadeFrustum = CreateFrustumFromCamera(m_Global.GetCascades().lightSpaceMatrix[i]);
+                        const u32 destOffset = (baseRegion + 1 + i) * k_IndirectRegionStride;
+                        const std::string name = "FrustumCull.C" + std::to_string(i);
+                        m_Geometry.AddCullPass(rg, hObjectBuf, hIndirectBuf, cascadeFrustum.planes, destOffset, name.c_str());
+                    }
                 }
             }
+
+            // Shadow pass renders cascade depth — needed for CSM mode AND for volumetric god-rays
+            // in either shadow mode (volumetric scatter samples shadowMap at Set 1 b5).
+            const bool runCsmShadowPasses = m_Global.GetShadowParams().castShadows
+                                         && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
+                                             || view.camera.enableVolumetricFog);
+            if (runCsmShadowPasses)
+            {
+                for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
+                    shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
+            }
+
+            // Z-prepass produces SceneDepth before forward shading. The render
+            // graph can schedule it in parallel with the shadow cascades.
+            prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
+
+            // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
+            // with EQUAL test; feeds TAA + downstream RT denoise + RT reflections.
+            slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
         }
-
-        // Shadow pass renders cascade depth — needed for CSM mode AND for volumetric god-rays
-        // in either shadow mode (volumetric scatter samples shadowMap at Set 1 b5).
-        const bool runCsmShadowPasses = m_Global.GetShadowParams().castShadows
-                                     && ((m_Global.GetShadowParams().mode == ShadowingMode::RasterCSM)
-                                         || view.camera.enableVolumetricFog);
-        RG::ResourceHandle shadowHandles[k_ShadowCascadeCount]{};
-        if (runCsmShadowPasses)
-        {
-            for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
-                shadowHandles[i] = m_Lighting.AddShadowPass(rg, hIndirectBuf, i);
-        }
-
-        // Z-prepass produces SceneDepth before forward shading. The render
-        // graph can schedule it in parallel with the shadow cascades.
-        RG::ResourceHandle prepassDepth = m_Geometry.AddDepthPrepass(rg, hIndirectBuf);
-
-        // Slim G-buffer — opaque normal/roughness/motion/matID. Reads prepass depth
-        // with EQUAL test; feeds TAA + downstream RT denoise + RT reflections.
-        // Live ShadeMode toggle consumes slimGB downstream (in the AddSlimVizPass call below).
-        SlimGBufferOutput slimGB = m_Geometry.AddSlimGBufferPass(rg, hIndirectBuf, prepassDepth);
 
         // Forward+ cluster AABB builder + light-to-cluster assignment. Both async-compute; the
         // assign pass consumes the build pass's AABB + grid handles directly (no re-import — see
@@ -364,7 +381,7 @@ namespace Luth
         VolumetricSubsystem::InjectOutputs injectOut{};
         RG::ResourceHandle volInScatterHandle{};  // post-integrate scratch (viz mode 1 samples this)
         RG::ResourceHandle volResolvedHandle{};   // post-resolve (composite + viz sample)
-        if (volumetricEnabled && m_CurrentViewResources)
+        if (volumetricEnabled && m_CurrentViewResources && !ptEnabled)
         {
             const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
             Memory::GPUSubRegion fogVolumeRegion{};
@@ -393,7 +410,7 @@ namespace Luth
         // ReSTIR chain. When active, its HDR output (ptColor) feeds the post chain in place of the raster
         // sceneColor; every raster/RT-GI pass below produces handles nothing consumes, so the RG dead-pass
         // culls them. AsyncCompute, after the TLAS build (which the needTlas gate above keeps alive).
-        const bool usePathTrace = m_PathTrace.IsEnabled() && m_CurrentViewResources;
+        const bool usePathTrace = ptEnabled;   // m_PathTrace.IsEnabled() && m_CurrentViewResources
         RG::ResourceHandle ptColorHandle{};
         if (usePathTrace)
             ptColorHandle = m_PathTrace.AddPasses(rg);
@@ -406,7 +423,7 @@ namespace Luth
         // Threads prepassDepth + slimGB.normal so RG transitions them from DSA/COLOR_ATTACHMENT to
         // SHADER_READ_ONLY_OPTIMAL ahead of the raygen sample (descriptor declared that layout).
         RG::ResourceHandle rtShadowMaskHandle{};
-        if (runRtShadows)
+        if (runRtShadows && !ptEnabled)
             rtShadowMaskHandle = m_Rt.AddRtSunShadowsPass(rg, prepassDepth, slimGB.normal);
 
         // ReSTIR DI — shadowed direct lighting for point lights via per-pixel reservoir RIS + one
@@ -414,7 +431,9 @@ namespace Luth
         // slim normal, traces the same TLAS the sun-shadow pass uses. Returns an invalid handle when
         // disabled or before the TLAS exists — GeometryPass then skips the Read and pbr.frag's point
         // loop runs instead (the restirParams.x flag gates the consumption).
-        RtRestirSubsystem::Outputs restirOut = m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion, slimGB.roughness);
+        RtRestirSubsystem::Outputs restirOut = ptEnabled
+            ? RtRestirSubsystem::Outputs{}
+            : m_Restir.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion, slimGB.roughness);
         RG::ResourceHandle restirDIHandle = restirOut.di;
 
         // Denoise the demodulated DI (SVGF; swappable to NRD/RELAX). Transparent filter — consumes the
@@ -447,7 +466,9 @@ namespace Luth
         // ReSTIR GI — 1-bounce indirect diffuse via per-pixel reservoir resampling. Returns the
         // demodulated GI image; restirParams.y gates the remodulation in pbr.frag. Invalid when
         // disabled / no TLAS.
-        RG::ResourceHandle giDIHandle = m_RestirGi.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
+        RG::ResourceHandle giDIHandle = ptEnabled
+            ? RG::ResourceHandle{}
+            : m_RestirGi.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.motion);
 
         // Denoise the demodulated GI (second SVGF instance, DenoiserChannel::Gi). Same transparent-
         // filter contract as DI: consumes the GI handle, returns the denoised handle GeometryPass reads
@@ -466,7 +487,9 @@ namespace Luth
         // internally via hit-distance virtual reprojection; hitDist rides reflRadiance's alpha).
         // denoisedReflHandle feeds GeometryPass (the pbr.frag Set 3 b7 composite lands in S4). AsyncCompute,
         // after the TLAS build (needTlas gate includes Reflections).
-        RG::ResourceHandle reflHandle = m_Reflections.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.roughness);
+        RG::ResourceHandle reflHandle = ptEnabled
+            ? RG::ResourceHandle{}
+            : m_Reflections.AddPasses(rg, prepassDepth, slimGB.normal, slimGB.roughness);
         RG::ResourceHandle denoisedReflHandle = m_DenoiseRefl->AddPasses(rg, DenoiseInputs{
             reflHandle, prepassDepth, slimGB.normal, slimGB.roughness,
             slimGB.roughness, slimGB.materialID, {}, {} });
@@ -475,58 +498,62 @@ namespace Luth
         if (denoisedReflHandle.IsValid() && m_System.GetReflectionsSettings().halfResolution)
             denoisedReflHandle = m_Reflections.AddUpscalePass(rg, denoisedReflHandle, prepassDepth, slimGB.normal);
 
-        // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
-        // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the
-        // UBO is what disables the modulation inside pbr.frag). ~0.3-1 ms
-        // on a mid-range GPU at 1080p; can be gated later if a cheaper
-        // bypass path is worth the complexity.
-        RG::ResourceHandle gtaoLinearDepth = m_GTAO.AddPrefilterPass(rg, prepassDepth);
-        RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
-        RG::ResourceHandle gtaoFinalAO     = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
+        // GTAO chain runs every real-time frame so the Set 0 binding-4 sampler sees a valid
+        // SHADER_READ_ONLY layout (the `gtao.enabled` UBO flag disables only the modulation in pbr.frag).
+        // Skipped in PT — pbr.frag doesn't run there, so the layout guarantee is moot. ~0.3-1 ms at 1080p.
+        RG::ResourceHandle gtaoFinalAO{};
+        if (!ptEnabled)
+        {
+            RG::ResourceHandle gtaoLinearDepth = m_GTAO.AddPrefilterPass(rg, prepassDepth);
+            RG::ResourceHandle gtaoRawAO       = m_GTAO.AddMainPass(rg, gtaoLinearDepth);
+            gtaoFinalAO                        = m_GTAO.AddDenoisePass(rg, gtaoRawAO, gtaoLinearDepth);
+        }
 
-        auto geoOutput                 = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle, denoisedDiSpecHandle);
-        SelectionMaskOutput maskOutput = view.drawSelectionOutline
-                                         ? m_EditorOverlays.AddSelectionMaskPass(rg)
-                                         : SelectionMaskOutput{};
-        RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
-        // Volumetric composite — blends fog into sceneColor (alpha-blend equation) BEFORE bloom so
-        // bright in-scattered fog can bloom and the grid pass overlays unfogged grid lines.
-        // Skipped when the editor toggle is off — downstream uses skyboxColor unchanged.
-        RG::ResourceHandle fogColor    = (volumetricEnabled && m_CurrentViewResources)
-                                         ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
-                                         : skyboxColor;
-        // Transparent tier — after the fog composite so glass blends over the fogged background
-        // (its own fog is per-fragment at the glass depth, sampled from the resolved atlas inside
-        // pbr_transparent.frag). Skipped in PT mode: the raster chain is dead-pass-culled there.
-        RG::ResourceHandle transparentColor = fogColor;
-        if (!ptActive && m_CurrentViewResources)
+        // Real-time lit chain (geometry → skybox → fog composite → transparent → TAA). Skipped in PT — the
+        // megakernel output drives the post chain via hdrForPost below. geoOutput/maskOutput/taaColor hoisted
+        // for the overlays + post chain; default-invalid in PT (the overlays that read them are !ptActive too).
+        GeometryOutput      geoOutput{};
+        SelectionMaskOutput maskOutput{};
+        RG::ResourceHandle  taaColor{};
+        if (!ptEnabled)
         {
-            const u32 frameAbsT = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-            m_Transparency.WritePerFrame(*m_CurrentViewResources, frameAbsT);
-            transparentColor = m_Transparency.AddPasses(rg, fogColor, geoOutput.entityID, geoOutput.depth,
-                volumetricEnabled ? volResolvedHandle : RG::ResourceHandle{}, hIndirectBuf);
-        }
-        // TAA Resolve — Karis14 YCoCg-clip. Runs AFTER volumetric composite, BEFORE bloom + grid
-        // (HDR-domain TAA per Karis recipe). Bloom + grid + composite then consume the resolved
-        // color. Per-frame WriteTaaResolvePerFrame rebinds the parity-picked history-prev sampler;
-        // the resolve pass writes to the parity-picked history-curr (bound as color attachment).
-        const PostProcessSettings& pps = m_System.GetPostProcessSettings();
-        // PT does its own progressive AA via accumulation, so TAA is off in PT mode (both ping-pong on
-        // frameAbs parity — running them together would cross-contaminate the history).
-        const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources && !ptActive;
-        if (m_CurrentViewResources)
-        {
-            const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+            geoOutput  = m_Geometry.AddGeometryPass(rg, shadowHandles, hIndirectBuf, prepassDepth, gtaoFinalAO, rtShadowMaskHandle, denoisedDIHandle, denoisedGiHandle, denoisedReflHandle, denoisedDiSpecHandle);
+            maskOutput = view.drawSelectionOutline
+                         ? m_EditorOverlays.AddSelectionMaskPass(rg)
+                         : SelectionMaskOutput{};
+            RG::ResourceHandle skyboxColor = m_Lighting.AddSkyboxPass(rg, geoOutput.color, geoOutput.depth);
+            // Volumetric composite — blends fog into sceneColor (alpha-blend) BEFORE bloom so bright
+            // in-scattered fog can bloom + the grid overlays unfogged lines. Off → uses skyboxColor unchanged.
+            RG::ResourceHandle fogColor = (volumetricEnabled && m_CurrentViewResources)
+                                          ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
+                                          : skyboxColor;
+            // Transparent tier — after the fog composite so glass blends over the fogged background (its own
+            // fog is per-fragment at the glass depth, sampled from the resolved atlas inside pbr_transparent.frag).
+            RG::ResourceHandle transparentColor = fogColor;
+            if (m_CurrentViewResources)
+            {
+                const u32 frameAbsT = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
+                m_Transparency.WritePerFrame(*m_CurrentViewResources, frameAbsT);
+                transparentColor = m_Transparency.AddPasses(rg, fogColor, geoOutput.entityID, geoOutput.depth,
+                    volumetricEnabled ? volResolvedHandle : RG::ResourceHandle{}, hIndirectBuf);
+            }
+            // TAA Resolve — Karis14 YCoCg-clip, HDR-domain, after the fog composite + before bloom/grid.
+            // WriteTaaResolvePerFrame rebinds the parity-picked history-prev; the resolve writes history-curr.
+            const PostProcessSettings& pps = m_System.GetPostProcessSettings();
+            const bool taaEnabled = pps.taaEnabled && m_CurrentViewResources;
             if (taaEnabled)
-                m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources, frameAbs);
-            // Per-frame rebind of bloom-extract + composite binding 0 so downstream consumes the actual
-            // HDR source: the PT display image when PT is active, else the TAA chain output (taaHistoryCurr)
-            // when TAA is on, else SceneColor. Without this the bindings statically reference SceneColor.
-            m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets, frameAbs);
+                m_PostProcess.WriteTaaResolvePerFrame(*m_CurrentViewResources,
+                    static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()));
+            taaColor = taaEnabled
+                       ? m_PostProcess.AddTaaResolvePass(rg, transparentColor, slimGB.motion, prepassDepth)
+                       : transparentColor;
         }
-        RG::ResourceHandle taaColor    = taaEnabled
-                                         ? m_PostProcess.AddTaaResolvePass(rg, transparentColor, slimGB.motion, prepassDepth)
-                                         : transparentColor;
+        // Bloom/composite source rebind runs in BOTH paths: PT → the ptColor display image; else the TAA
+        // chain output (taaHistoryCurr) when TAA is on, else SceneColor. Without it the bindings statically
+        // reference SceneColor.
+        if (m_CurrentViewResources)
+            m_PostProcess.UpdateBloomCompositeInput(*m_CurrentViewResources, *view.targets,
+                static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()));
         // HDR source for the post chain: the PT megakernel output replaces the raster sceneColor when PT
         // is active (the raster chain above is then dead-pass-culled). Grid is editor-overlay-only → off in PT.
         RG::ResourceHandle hdrForPost  = ptActive ? ptColorHandle : taaColor;
