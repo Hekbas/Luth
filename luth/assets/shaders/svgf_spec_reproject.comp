@@ -34,6 +34,9 @@ layout(push_constant) uniform PC {
     float historyCap;
     float depthThreshold;
     float normalThreshold;
+    int   gbufferScale;     // unused — Reflections is full-res; present so the shared PC range matches
+    int   dispatchW;
+    int   dispatchH;
 } pc;
 
 void main() {

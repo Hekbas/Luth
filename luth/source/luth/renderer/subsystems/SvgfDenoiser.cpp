@@ -13,32 +13,43 @@
 namespace Luth
 {
     namespace {
-        // Mirrors svgf_reproject.comp's push_constant (5 floats = 20 B).
+        // gbufferScale/dispatchW/dispatchH let a channel run at a working resolution below the full
+        // G-buffer (half-res GI). scale==1 + dispatch==full is the identity path for full-res channels.
+        // Mirrors svgf_reproject.comp's push_constant (5 floats + 3 ints = 32 B).
         struct SvgfReprojectPC {
             f32 alphaColor;
             f32 alphaMoments;
             f32 historyCap;
             f32 depthThreshold;
             f32 normalThreshold;
+            i32 gbufferScale;
+            i32 dispatchW;
+            i32 dispatchH;
         };
-        static_assert(sizeof(SvgfReprojectPC) == 20, "SvgfReprojectPC must match svgf_reproject.comp push_constant");
+        static_assert(sizeof(SvgfReprojectPC) == 32, "SvgfReprojectPC must match svgf_reproject.comp push_constant");
 
-        // Mirrors svgf_moments.comp's push_constant (2 floats = 8 B).
+        // Mirrors svgf_moments.comp's push_constant (2 floats + 3 ints = 20 B).
         struct SvgfMomentsPC {
             f32 phiDepth;
             f32 phiNormal;
+            i32 gbufferScale;
+            i32 dispatchW;
+            i32 dispatchH;
         };
-        static_assert(sizeof(SvgfMomentsPC) == 8, "SvgfMomentsPC must match svgf_moments.comp push_constant");
+        static_assert(sizeof(SvgfMomentsPC) == 20, "SvgfMomentsPC must match svgf_moments.comp push_constant");
 
-        // Mirrors svgf_atrous.comp's push_constant (2 ints + 3 floats = 20 B).
+        // Mirrors svgf_atrous.comp's push_constant (2 ints + 3 floats + 3 ints = 32 B).
         struct SvgfAtrousPC {
             i32 stepSize;
             i32 writeFinal;
             f32 phiColor;
             f32 phiNormal;
             f32 phiDepth;
+            i32 gbufferScale;
+            i32 dispatchW;
+            i32 dispatchH;
         };
-        static_assert(sizeof(SvgfAtrousPC) == 20, "SvgfAtrousPC must match svgf_atrous.comp push_constant");
+        static_assert(sizeof(SvgfAtrousPC) == 32, "SvgfAtrousPC must match svgf_atrous.comp push_constant");
 
         // Channel-selected pointers into ViewResources — DI uses the svgf* fields, GI the svgfGi*
         // (flat parallel set, mirroring the S0 restirDI/restirGiDI split). All array fields are
@@ -552,16 +563,39 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         const SvgfSettings& s = Settings();
 
+        // Working resolution = the channel's history-texture extent. Half-res GI runs the whole chain
+        // below the full G-buffer; full-res channels keep chW/chH == full → scale 1 (identity remap).
+        ViewResources* vrTop = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        u32 chW = vrTop ? vrTop->width  : 0u;
+        u32 chH = vrTop ? vrTop->height : 0u;
+        if (vrTop)
+        {
+            ChannelRefs cr = Resolve(m_Channel, *vrTop);
+            if (cr.colorHist[0])
+            {
+                auto wt = std::static_pointer_cast<VKTexture>(cr.colorHist[0]);
+                chW = wt->GetWidth();
+                chH = wt->GetHeight();
+            }
+        }
+        const i32 gbufScale = (vrTop && chW == vrTop->width && chH == vrTop->height) ? 1 : 2;
+
         SvgfReprojectPC rpc{};
         rpc.alphaColor      = s.alphaColor;
         rpc.alphaMoments    = s.alphaMoments;
         rpc.historyCap      = static_cast<f32>(s.historyCap);
         rpc.depthThreshold  = s.depthThreshold;
         rpc.normalThreshold = s.normalThreshold;
+        rpc.gbufferScale    = gbufScale;
+        rpc.dispatchW       = static_cast<i32>(chW);
+        rpc.dispatchH       = static_cast<i32>(chH);
 
         SvgfMomentsPC mpc{};
-        mpc.phiDepth  = s.phiDepth;
-        mpc.phiNormal = s.phiNormal;
+        mpc.phiDepth     = s.phiDepth;
+        mpc.phiNormal    = s.phiNormal;
+        mpc.gbufferScale = gbufScale;
+        mpc.dispatchW    = static_cast<i32>(chW);
+        mpc.dispatchH    = static_cast<i32>(chH);
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
         const u32 fp       = frameAbs & 1u;                       // reproject/moments curr parity
@@ -625,8 +659,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_ReprojectPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfReprojectPC), &rpc);
 
-                const u32 gx = (vr->width + 7) / 8;
-                const u32 gy = (vr->height + 7) / 8;
+                const u32 gx = (static_cast<u32>(rpc.dispatchW) + 7) / 8;
+                const u32 gy = (static_cast<u32>(rpc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, gx, gy, 1);
             });
 
@@ -670,8 +704,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_MomentsPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfMomentsPC), &mpc);
 
-                const u32 gx = (vr->width + 7) / 8;
-                const u32 gy = (vr->height + 7) / 8;
+                const u32 gx = (static_cast<u32>(mpc.dispatchW) + 7) / 8;
+                const u32 gy = (static_cast<u32>(mpc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, gx, gy, 1);
             });
 
@@ -689,11 +723,14 @@ namespace Luth
             const i32  stepSize = 1 << i;
 
             SvgfAtrousPC apc{};
-            apc.stepSize   = stepSize;
-            apc.writeFinal = isFinal ? 1 : 0;
-            apc.phiColor   = s.phiColor;
-            apc.phiNormal  = s.phiNormal;
-            apc.phiDepth   = s.phiDepth;
+            apc.stepSize     = stepSize;
+            apc.writeFinal   = isFinal ? 1 : 0;
+            apc.phiColor     = s.phiColor;
+            apc.phiNormal    = s.phiNormal;
+            apc.phiDepth     = s.phiDepth;
+            apc.gbufferScale = gbufScale;
+            apc.dispatchW    = static_cast<i32>(chW);
+            apc.dispatchH    = static_cast<i32>(chH);
 
             struct AtrousData {
                 RG::ResourceHandle in, out, den;
@@ -734,8 +771,8 @@ namespace Luth
                     vkCmdPushConstants(cmd, m_AtrousPipeline->GetLayout(),
                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SvgfAtrousPC), &apc);
 
-                    const u32 gx = (vr->width + 7) / 8;
-                    const u32 gy = (vr->height + 7) / 8;
+                    const u32 gx = (static_cast<u32>(apc.dispatchW) + 7) / 8;
+                    const u32 gy = (static_cast<u32>(apc.dispatchH) + 7) / 8;
                     vkCmdDispatch(cmd, gx, gy, 1);
                 });
         }
@@ -783,8 +820,10 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     m_PassthroughPipeline->GetLayout(), 0, 1, sets, 0, nullptr);
 
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
+                auto outTex = (c.denoised && *c.denoised)
+                    ? std::static_pointer_cast<VKTexture>(*c.denoised) : nullptr;
+                const u32 groupX = ((outTex ? outTex->GetWidth()  : vr->width)  + 7) / 8;
+                const u32 groupY = ((outTex ? outTex->GetHeight() : vr->height) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
         return outHandle;
