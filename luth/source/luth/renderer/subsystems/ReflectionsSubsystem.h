@@ -21,9 +21,9 @@ namespace Luth
     // specular slot above a roughness cutoff. Supersedes SSR. Opaque-only (gl_RayFlagsOpaqueEXT).
     //
     // Mirrors PathTraceSubsystem's compute-RT shape (5-set bind, inline AS barrier dst=COMPUTE, geom-table
-    // BDA push constant) and RtRestirGiSubsystem's slim-G-buffer input pattern. S0 is the seam: one
-    // pipeline + pass-local Set 2 (b0 output, b1-b3 slim inputs) + a stub test-pattern shader, kept alive
-    // via SetHasSideEffect (no consumer until S4 composites it). see arch/rendering-pipeline.md
+    // BDA push constant) + RtRestirGiSubsystem's slim-G-buffer input + half-res bilateral upscale. The trace
+    // output is consumed by the specular denoiser (DenoiserChannel::Reflections), so the RG keeps it alive in
+    // normal mode and dead-pass-culls it when unconsumed (PathTrace). see arch/rendering-pipeline.md
     class ReflectionsSubsystem
     {
     public:

@@ -427,9 +427,13 @@ namespace Luth
         // Denoise the demodulated ReSTIR-DI specular (#154; 4th SVGF, DenoiserChannel::DiSpecular). Surface-
         // motion reproject (direct point-light specular is surface-attached, not a reflection's virtual
         // image). svgfDiSpecDenoised feeds pbr.frag Set 3 b8; restirParams.z gates + scales the composite.
-        RG::ResourceHandle denoisedDiSpecHandle = m_DenoiseDiSpec->AddPasses(rg, DenoiseInputs{
-            restirOut.spec, prepassDepth, slimGB.normal, slimGB.motion,
-            slimGB.roughness, slimGB.materialID, {}, {} });
+        // Gated on the specular toggle: with it off pbr.frag zeroes restirParams.z and never samples b8, so
+        // the whole denoise chain would otherwise run dead (~0.5 ms). Invalid handle → GeometryPass skips b8.
+        RG::ResourceHandle denoisedDiSpecHandle{};
+        if (m_System.GetRestirSettings().specular)
+            denoisedDiSpecHandle = m_DenoiseDiSpec->AddPasses(rg, DenoiseInputs{
+                restirOut.spec, prepassDepth, slimGB.normal, slimGB.motion,
+                slimGB.roughness, slimGB.materialID, {}, {} });
         // Half-res DI: AddPasses returns the half svgfDiHalf / svgfDiSpecHalf handles — bilaterally upscale
         // each into the full svgfDenoised / svgfDiSpecDenoised that GeometryPass / pbr Set 3 b5/b8 consume.
         if (m_System.GetRestirSettings().halfResolution)

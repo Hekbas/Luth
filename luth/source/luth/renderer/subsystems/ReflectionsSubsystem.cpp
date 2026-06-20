@@ -292,10 +292,10 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.refl = builder.WriteStorageImage(data.refl);
                 reflHandle = data.refl;
-
-                // No RG consumer until S4 composites it into pbr.frag — keep the pass from being
-                // dead-pass-culled so the seam runs + validates (NamedTexture "Reflections" inspects it).
-                builder.SetHasSideEffect();
+                // The specular denoiser reads reflHandle (its in.di), so the RG keeps this pass alive in
+                // normal mode and dead-pass-culls it when nothing consumes the chain — e.g. PathTrace mode,
+                // where GeometryPass + the denoiser are culled. No SetHasSideEffect (it would force the
+                // ~1 ms trace to run in PT).
             },
             [this, pc](ReflData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;
