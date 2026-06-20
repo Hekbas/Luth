@@ -466,6 +466,10 @@ namespace Luth
         RG::ResourceHandle denoisedReflHandle = m_DenoiseRefl->AddPasses(rg, DenoiseInputs{
             reflHandle, prepassDepth, slimGB.normal, slimGB.roughness,
             slimGB.roughness, slimGB.materialID, {}, {} });
+        // Half-res reflections: AddPasses returns the half svgfSpecHalf handle — bilaterally upscale it into
+        // the full-res svgfSpecDenoised that pbr.frag Set 3 b7 consumes. Full-res mode is a no-op.
+        if (denoisedReflHandle.IsValid() && m_System.GetReflectionsSettings().halfResolution)
+            denoisedReflHandle = m_Reflections.AddUpscalePass(rg, denoisedReflHandle, prepassDepth, slimGB.normal);
 
         // GTAO chain runs every frame so the Set 0 binding-4 sampler sees
         // a valid SHADER_READ_ONLY layout (the `gtao.enabled` flag in the

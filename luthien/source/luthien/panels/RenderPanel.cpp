@@ -580,6 +580,10 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Ray-traced specular reflections (supersedes SSR).\nComposited into the specular IBL below the roughness cutoff. Requires a TLAS (RT).");
 
+                    UI::Property("Half Resolution", rf.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise reflections at half resolution, then bilateral-upscale to full.\nLarge GPU win; may soften sharp mirror reflections.");
+
                     UI::Property("Roughness Fade Start", rf.roughnessFadeStart, 0.01f, 0.0f, 1.0f);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Full RT reflection at or below this roughness.");
