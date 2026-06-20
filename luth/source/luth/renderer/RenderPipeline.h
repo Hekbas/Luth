@@ -333,6 +333,9 @@ namespace Luth
         std::shared_ptr<Texture> svgfSpecAtrous[2];
         VkDescriptorSet svgfSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        // Half-res reflections: the à-trous final writes svgfSpecHalf; a bilateral upscale resolves it into
+        // the full-res svgfSpecDenoised. reflHalfCached drives realloc. Mirrors the svgfDiSpecHalf trio.
+        std::shared_ptr<Texture> svgfSpecHalf;
 
         // ReSTIR-DI specular SVGF (#154) — flat parallel to the spec fields above. A 4th SvgfDenoiser
         // instance (DenoiserChannel::DiSpecular) denoises restirDISpec via the SURFACE-MOTION reproject
@@ -371,6 +374,8 @@ namespace Luth
         // (D.1 S3) lands beside the GI SVGF fields above.
         std::shared_ptr<Texture> reflRadiance;
         VkDescriptorSet          reflDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet          reflUpscaleDescSet = VK_NULL_HANDLE;   // half-res reflection bilateral-upscale set
+        u32                      reflHalfCached = ~0u;                  // last-applied halfResolution; drives realloc
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

@@ -76,7 +76,8 @@ namespace Luth
                  vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality) ||
                  vr.oitLayersCached != m_System.GetTransparencySettings().avgLayersBudget ||
                  vr.giHalfCached != (m_System.GetRestirGiSettings().halfResolution ? 1u : 0u) ||
-                 vr.diHalfCached != (m_System.GetRestirSettings().halfResolution ? 1u : 0u))
+                 vr.diHalfCached != (m_System.GetRestirSettings().halfResolution ? 1u : 0u) ||
+                 vr.reflHalfCached != (m_System.GetReflectionsSettings().halfResolution ? 1u : 0u))
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -297,6 +298,13 @@ namespace Luth
         const u32  diH    = diHalf ? halfH : fullH;
         vr.diHalfCached   = diHalf ? 1u : 0u;
 
+        // Half-res reflections (ReflectionsSettings::halfResolution): reflRadiance trace output + svgfSpec*
+        // history allocate at half; svgfSpecDenoised stays full (the bilateral-upscale output).
+        const bool reflHalf = m_System.GetReflectionsSettings().halfResolution;
+        const u32  reflW    = reflHalf ? halfW : fullW;
+        const u32  reflH    = reflHalf ? halfH : fullH;
+        vr.reflHalfCached   = reflHalf ? 1u : 0u;
+
         vr.bloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
         vr.bloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
 
@@ -348,11 +356,12 @@ namespace Luth
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
-        // RT specular reflections (rt-renderer D.1) — viewport-sized RGBA16F. STORAGE for the trace's
-        // imageStore + SAMPLED (ctor) for pbr.frag's Set 3 b7 read. rgb = demodulated specular radiance,
-        // a = hitDist. Fully written each frame (reflection or env fallback) → no bootstrap clear.
+        // RT specular reflections (rt-renderer D.1) — reflection working res (half when halfResolution).
+        // STORAGE for the trace's imageStore + SAMPLED (ctor) for pbr.frag's Set 3 b7 read. rgb =
+        // demodulated specular radiance, a = hitDist. Fully written each frame (reflection or env fallback)
+        // → no bootstrap clear.
         vr.reflRadiance = std::make_shared<VKTexture>(
-            fullW, fullH, TextureFormat::RGBA16F,
+            reflW, reflH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
@@ -395,17 +404,21 @@ namespace Luth
         vr.svgfGiAtrous[0] = std::make_shared<VKTexture>(giW, giH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         vr.svgfGiAtrous[1] = std::make_shared<VKTexture>(giW, giH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
-        // Specular (RT-reflection) SVGF history (D.1) — flat parallel to the GI SVGF. svgfSpecGeom carries
-        // hitDist in its .a (vs GI's unused .a) for reflected-depth disocclusion. Bootstrap-cleared below.
+        // Specular (RT-reflection) SVGF history (D.1) — flat parallel to the GI SVGF. History + à-trous run
+        // at the reflection working res (half when halfResolution); svgfSpecDenoised stays FULL (the
+        // bilateral-upscale output). svgfSpecGeom carries hitDist in its .a (vs GI's unused .a) for
+        // reflected-depth disocclusion. svgfSpecHalf is the half à-trous final the upscale reads; written
+        // each frame → no clear. Cross-frame history below is bootstrap-cleared (at reflW/reflH).
         vr.svgfSpecDenoised = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfSpecHalf     = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         for (u32 i = 0; i < 2; ++i)
         {
-            vr.svgfSpecColorHist[i] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfSpecMoments[i]   = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfSpecGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfSpecColorHist[i] = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfSpecMoments[i]   = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfSpecGeom[i]      = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         }
-        vr.svgfSpecAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-        vr.svgfSpecAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfSpecAtrous[0] = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfSpecAtrous[1] = std::make_shared<VKTexture>(reflW, reflH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // ReSTIR-DI specular SVGF history (#154) — flat parallel to the reflection-spec SVGF above.
         // Bootstrap-cleared below (cross-frame temporal read).
@@ -670,6 +683,7 @@ namespace Luth
         vr.ptColor.reset();
         vr.reflRadiance.reset();
         vr.svgfSpecDenoised.reset();
+        vr.svgfSpecHalf.reset();
         for (u32 i = 0; i < 2; ++i)
         {
             vr.svgfSpecColorHist[i].reset();
