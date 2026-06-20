@@ -11,6 +11,7 @@ namespace Luth
     struct RestirSettings
     {
         bool enabled = true;
+        bool halfResolution = false;     // trace + denoise DI (diffuse + specular) half-res + bilateral upscale
         u32  candidateCount = 32;        // initial RIS candidates (M)
         u32  temporalMCap = 20;          // history clamp multiplier (prev.M <= mCap * curr.M)
         f32  temporalDepthThreshold = 0.05f;

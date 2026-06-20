@@ -73,10 +73,15 @@ namespace Luth
                          &vr.svgfSpecPassthroughDescSet, vr.svgfSpecReprojectDescSet,
                          vr.svgfSpecMomentsDescSet, vr.svgfSpecAtrousDescSet };
             if (ch == DenoiserChannel::DiSpecular)
+            {
+                const bool diSpecHalf = vr.svgfDiSpecHalf && vr.svgfDiSpecColorHist[0] && vr.svgfDiSpecDenoised
+                    && std::static_pointer_cast<VKTexture>(vr.svgfDiSpecColorHist[0])->GetWidth()
+                       < std::static_pointer_cast<VKTexture>(vr.svgfDiSpecDenoised)->GetWidth();
                 return { vr.svgfDiSpecColorHist, vr.svgfDiSpecMoments, vr.svgfDiSpecGeom, vr.svgfDiSpecAtrous,
-                         &vr.svgfDiSpecDenoised, &vr.restirDISpec,
+                         diSpecHalf ? &vr.svgfDiSpecHalf : &vr.svgfDiSpecDenoised, &vr.restirDISpec,
                          &vr.svgfDiSpecPassthroughDescSet, vr.svgfDiSpecReprojectDescSet,
                          vr.svgfDiSpecMomentsDescSet, vr.svgfDiSpecAtrousDescSet };
+            }
             if (ch == DenoiserChannel::Gi)
             {
                 // Half-res GI: the chain runs below full res, so the à-trous final + passthrough write the
@@ -90,8 +95,11 @@ namespace Luth
                          &vr.svgfGiPassthroughDescSet, vr.svgfGiReprojectDescSet,
                          vr.svgfGiMomentsDescSet, vr.svgfGiAtrousDescSet };
             }
+            const bool diHalf = vr.svgfDiHalf && vr.svgfColorHist[0] && vr.svgfDenoised
+                && std::static_pointer_cast<VKTexture>(vr.svgfColorHist[0])->GetWidth()
+                   < std::static_pointer_cast<VKTexture>(vr.svgfDenoised)->GetWidth();
             return { vr.svgfColorHist, vr.svgfMoments, vr.svgfGeom, vr.svgfAtrous,
-                     &vr.svgfDenoised, &vr.restirDI,
+                     diHalf ? &vr.svgfDiHalf : &vr.svgfDenoised, &vr.restirDI,
                      &vr.svgfPassthroughDescSet, vr.svgfReprojectDescSet,
                      vr.svgfMomentsDescSet, vr.svgfAtrousDescSet };
         }

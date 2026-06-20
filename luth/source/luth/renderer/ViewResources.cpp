@@ -75,7 +75,8 @@ namespace Luth
         else if (vr.width != newW || vr.height != newH ||
                  vr.volQualityCached != static_cast<u32>(m_System.GetVolumetricSettings().quality) ||
                  vr.oitLayersCached != m_System.GetTransparencySettings().avgLayersBudget ||
-                 vr.giHalfCached != (m_System.GetRestirGiSettings().halfResolution ? 1u : 0u))
+                 vr.giHalfCached != (m_System.GetRestirGiSettings().halfResolution ? 1u : 0u) ||
+                 vr.diHalfCached != (m_System.GetRestirSettings().halfResolution ? 1u : 0u))
         {
             const u32 halfW = std::max(newW / 2, 1u);
             const u32 halfH = std::max(newH / 2, 1u);
@@ -285,6 +286,13 @@ namespace Luth
         const u32  giH    = giHalf ? halfH : fullH;
         vr.giHalfCached   = giHalf ? 1u : 0u;
 
+        // Half-res DI (RestirSettings::halfResolution): both DI channels (diffuse + specular) trace +
+        // denoise at half; svgfDenoised + svgfDiSpecDenoised stay full (the bilateral-upscale outputs).
+        const bool diHalf = m_System.GetRestirSettings().halfResolution;
+        const u32  diW    = diHalf ? halfW : fullW;
+        const u32  diH    = diHalf ? halfH : fullH;
+        vr.diHalfCached   = diHalf ? 1u : 0u;
+
         vr.bloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
         vr.bloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
 
@@ -302,17 +310,17 @@ namespace Luth
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
-        // ReSTIR DI demodulated-irradiance image — viewport-sized RGBA16F. STORAGE for the shade
-        // pass's imageStore + SAMPLED (added by the ctor) for pbr.frag's Set 3 b5 read.
+        // ReSTIR DI demodulated-irradiance image — DI working res (half when halfResolution). STORAGE for
+        // the shade pass's imageStore + SAMPLED (ctor) for the denoiser input.
         vr.restirDI = std::make_shared<VKTexture>(
-            fullW, fullH, TextureFormat::RGBA16F,
+            diW, diH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
-        // ReSTIR-DI demodulated SPECULAR image (#154) — same shape as restirDI; shade's b8 imageStore +
+        // ReSTIR-DI demodulated SPECULAR image (#154) — same DI working res; shade's b8 imageStore +
         // SAMPLED (ctor) for the DiSpecular denoiser. Written each frame → no bootstrap clear.
         vr.restirDISpec = std::make_shared<VKTexture>(
-            fullW, fullH, TextureFormat::RGBA16F,
+            diW, diH, TextureFormat::RGBA16F,
             /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
             VK_IMAGE_USAGE_STORAGE_BIT);
 
@@ -357,15 +365,17 @@ namespace Luth
         // cleared with the volumetric history below.
         for (u32 i = 0; i < 2; ++i)
         {
-            vr.svgfColorHist[i] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfMoments[i]   = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfColorHist[i] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfMoments[i]   = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfGeom[i]      = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         }
 
         // À-trous ping-pong — same shape as the SVGF history. svgfAtrous[0] is the moments output (à-trous
         // level-0 input); the wavelet levels ping-pong [0]/[1]. Bootstrap-cleared to GENERAL below.
-        vr.svgfAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-        vr.svgfAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfAtrous[0] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfAtrous[1] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        // Half-res DI diffuse à-trous final (upscale input); svgfDenoised stays full. Written each frame.
+        vr.svgfDiHalf = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // GI SVGF — flat parallel set to the DI history above (S4). History + à-trous run at the GI
         // working res (half when halfResolution); svgfGiDenoised stays FULL (the bilateral-upscale
@@ -398,12 +408,14 @@ namespace Luth
         vr.svgfDiSpecDenoised = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         for (u32 i = 0; i < 2; ++i)
         {
-            vr.svgfDiSpecColorHist[i] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfDiSpecMoments[i]   = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-            vr.svgfDiSpecGeom[i]      = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfDiSpecColorHist[i] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfDiSpecMoments[i]   = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+            vr.svgfDiSpecGeom[i]      = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
         }
-        vr.svgfDiSpecAtrous[0] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
-        vr.svgfDiSpecAtrous[1] = std::make_shared<VKTexture>(fullW, fullH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfDiSpecAtrous[0] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        vr.svgfDiSpecAtrous[1] = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
+        // Half-res DI specular à-trous final (upscale input); svgfDiSpecDenoised stays full.
+        vr.svgfDiSpecHalf = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
         // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
@@ -418,7 +430,7 @@ namespace Luth
             }
             vr.restirReservoirTag[i] = m_Restir.NextReservoirTag();
             vr.restirReservoir[i] = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
-                vr.restirReservoirTag[i], static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
+                vr.restirReservoirTag[i], static_cast<u64>(diW) * static_cast<u64>(diH) * 32u, 16);
         }
 
         // ReSTIR spatial-reuse output — a SINGLE device-local buffer (no ping-pong). The spatial pass
@@ -431,7 +443,7 @@ namespace Luth
         }
         vr.restirSpatialTag = m_Restir.NextReservoirTag();
         vr.restirSpatial = Memory::GPUTaggedPageAllocator::Get().AllocateLargeTaggedDeviceLocal(
-            vr.restirSpatialTag, static_cast<u64>(fullW) * static_cast<u64>(fullH) * 32u, 16);
+            vr.restirSpatialTag, static_cast<u64>(diW) * static_cast<u64>(diH) * 32u, 16);
 
         // ReSTIR GI reservoir ping-pong — same lifecycle as the DI pair but 64 B/pixel (a GIReservoir
         // is a world-space path vertex). Tags from the GI subsystem's disjoint 0xFFFF8000 range.
@@ -640,6 +652,8 @@ namespace Luth
         vr.svgfAtrous[1].reset();
         vr.svgfGiDenoised.reset();
         vr.svgfGiHalf.reset();
+        vr.svgfDiHalf.reset();
+        vr.svgfDiSpecHalf.reset();
         for (u32 i = 0; i < 2; ++i)
         {
             vr.svgfGiColorHist[i].reset();

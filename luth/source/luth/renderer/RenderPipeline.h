@@ -311,6 +311,13 @@ namespace Luth
         std::shared_ptr<Texture> svgfGiHalf;
         u32 giHalfCached = ~0u;
         VkDescriptorSet giUpscaleDescSet = VK_NULL_HANDLE;   // half-res GI bilateral-upscale set (Set 1)
+        // Half-res DI (both channels): à-trous finals write svgfDiHalf / svgfDiSpecHalf; bilateral upscales
+        // resolve them into the full-res svgfDenoised / svgfDiSpecDenoised. diHalfCached drives realloc.
+        std::shared_ptr<Texture> svgfDiHalf;
+        std::shared_ptr<Texture> svgfDiSpecHalf;
+        u32 diHalfCached = ~0u;
+        VkDescriptorSet diUpscaleDescSet     = VK_NULL_HANDLE;   // half-res DI diffuse upscale set
+        VkDescriptorSet diSpecUpscaleDescSet = VK_NULL_HANDLE;   // half-res DI specular upscale set
 
         // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
         // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance
