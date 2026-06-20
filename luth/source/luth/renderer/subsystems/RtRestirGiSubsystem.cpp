@@ -216,7 +216,7 @@ namespace Luth
             if (!m_FullscreenVertSpv.empty() && !m_ReservoirVizFragSpv.empty())
             {
                 std::vector<VkDescriptorSetLayout> vlayouts = { m_ReservoirVizSetLayout };
-                VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };  // vec2 viewport + mCap + ageCap
+                VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 24 };  // vec2 viewport + vec2 reservoir + mCap + ageCap
                 PipelineConfig cfg;
                 cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
                 cfg.depthFormat        = VK_FORMAT_UNDEFINED;
@@ -298,7 +298,7 @@ namespace Luth
             if (m_ReservoirVizPipeline)
                 VulkanContext::Get().PushDeletion([p = m_ReservoirVizPipeline.release()]() { delete p; });
             std::vector<VkDescriptorSetLayout> vlayouts = { m_ReservoirVizSetLayout };
-            VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };
+            VkPushConstantRange vpc{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, 24 };
             PipelineConfig cfg;
             cfg.colorFormats       = { VK_FORMAT_R8G8B8A8_UNORM };
             cfg.depthFormat        = VK_FORMAT_UNDEFINED;
@@ -852,9 +852,12 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_ReservoirVizPipeline->GetLayout(), 0, 1, sets, 0, nullptr);
 
-                struct VizPC { float vx, vy, mCap, ageCap; } pc{};
+                struct VizPC { float vx, vy, resW, resH, mCap, ageCap; } pc{};
                 pc.vx     = static_cast<float>(vr->width);
                 pc.vy     = static_cast<float>(vr->height);
+                auto giTex = std::static_pointer_cast<VKTexture>(vr->restirGiDI);
+                pc.resW   = giTex ? static_cast<float>(giTex->GetWidth())  : static_cast<float>(vr->width);
+                pc.resH   = giTex ? static_cast<float>(giTex->GetHeight()) : static_cast<float>(vr->height);
                 pc.mCap   = static_cast<float>(s.temporalMCap * (s.spatialNeighbours + 1u) + 1u);
                 pc.ageCap = static_cast<float>(s.maxReservoirAge);
                 vkCmdPushConstants(cmd, m_ReservoirVizPipeline->GetLayout(),
