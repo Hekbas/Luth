@@ -22,11 +22,11 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 192;  // + DiSpecular SVGF ×7 (#154) + GI upscale
+    static constexpr u32 k_ViewPoolMaxSets              = 194;  // + DiSpecular SVGF ×7 (#154) + GI upscale + DI upscale ×2
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 227;  // + DiSpecular SVGF + restir Set 2 b8 (#154) + GI upscale b3
+    static constexpr u32 k_ViewPoolStorageImageCount    = 229;  // + DiSpecular SVGF + restir Set 2 b8 (#154) + GI upscale b3 + DI upscale ×2
     static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes ×3
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 289;  // + DiSpecular SVGF + restir Set 2 b7 (#154) + GI upscale b0-b2
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 295;  // + DiSpecular SVGF + restir Set 2 b7 (#154) + GI upscale b0-b2 + DI upscale ×2 b0-b2
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -100,6 +100,7 @@ namespace Luth
             m_RestirGi.WriteView(vr, targets);      // re-bind GI Set 2 depth/normal + reservoir + new GI image
             m_RestirGi.WriteReservoirVizView(vr, targets);  // re-bind GI reservoir-viz depth + spatial reservoir
             m_RestirGi.WriteUpscaleView(vr, targets);       // re-bind GI upscale half-input + full output
+            m_Restir.WriteUpscaleView(vr, targets);         // re-bind DI diffuse + specular upscale sets
             m_PathTrace.WriteView(vr);              // re-bind PT accumulator + display image (recreated on resize)
             m_Reflections.WriteView(vr, targets);   // re-bind reflection output + slim G-buffer samplers
             m_Denoise->WriteView(vr, targets);      // re-bind DI SVGF inputs + output to the new images
@@ -240,6 +241,8 @@ namespace Luth
         allocCycled(m_RestirGi.GetSetLayout(),           vr.restirGiDescSet,      "View.RestirGi");
         allocSingle(m_RestirGi.GetReservoirVizLayout(),  vr.giReservoirVizDescSet,"View.GiReservoirViz");
         allocSingle(m_RestirGi.GetUpscaleLayout(),       vr.giUpscaleDescSet,     "View.GiUpscale");
+        allocSingle(m_Restir.GetUpscaleLayout(),         vr.diUpscaleDescSet,     "View.DiUpscale");
+        allocSingle(m_Restir.GetUpscaleLayout(),         vr.diSpecUpscaleDescSet, "View.DiSpecUpscale");
         allocSingle(m_PathTrace.GetSetLayout(),          vr.ptDescSet,            "View.PathTrace");
         allocSingle(m_Reflections.GetSetLayout(),        vr.reflDescSet,          "View.Reflections");
         m_Denoise->AllocateViewSets(vr);
@@ -266,6 +269,7 @@ namespace Luth
         m_RestirGi.WriteView(vr, targets);
         m_RestirGi.WriteReservoirVizView(vr, targets);
         m_RestirGi.WriteUpscaleView(vr, targets);
+        m_Restir.WriteUpscaleView(vr, targets);
         m_PathTrace.WriteView(vr);
         m_Reflections.WriteView(vr, targets);
         m_Denoise->WriteView(vr, targets);

@@ -303,6 +303,10 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Spatiotemporal reservoir resampling for shadowed point lights.\nOff falls back to the unshadowed Forward+ cluster loop. Requires a TLAS (RT).");
 
+                    UI::Property("Half Resolution", rs.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise DI (diffuse + specular) at half resolution, then bilaterally upscale.\n~4x fewer rays + denoise pixels for the DI chain. Reallocates view resources on toggle.");
+
                     UI::Property("Specular", rs.specular);  // #154
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Demodulated point-light specular (metals/highlights) via a dedicated SVGF channel + combined RIS target.\nOff = diffuse-only DI.");

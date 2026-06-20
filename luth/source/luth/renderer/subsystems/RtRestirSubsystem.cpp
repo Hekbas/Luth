@@ -65,6 +65,16 @@ namespace Luth
             i32  dispatchH;
         };
         static_assert(sizeof(RestirSpatialPC) == 92, "RestirSpatialPC must match restir_spatial.comp push_constant");
+
+        struct UpscalePC {
+            i32 fullW;
+            i32 fullH;
+            i32 halfW;
+            i32 halfH;
+            f32 phiDepth;
+            f32 phiNormal;
+        };
+        static_assert(sizeof(UpscalePC) == 24, "UpscalePC must match bilateral_upscale.comp push_constant");
     }
 
     bool RtRestirSubsystem::IsEnabled() const
@@ -197,6 +207,31 @@ namespace Luth
             m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+
+        // Half-res DI bilateral-upscale pipeline (shared bilateral_upscale.comp). Set 0 = global UBO;
+        // Set 1 = b0 half-res signal sampler, b1 depth sampler, b2 normal sampler, b3 full-res storage.
+        {
+            VkDescriptorSetLayoutBinding ub[4]{};
+            ub[0].binding = 0; ub[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; ub[0].descriptorCount = 1; ub[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            ub[1].binding = 1; ub[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; ub[1].descriptorCount = 1; ub[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            ub[2].binding = 2; ub[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; ub[2].descriptorCount = 1; ub[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            ub[3].binding = 3; ub[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          ub[3].descriptorCount = 1; ub[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            VkDescriptorSetLayoutCreateInfo uci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            uci.bindingCount = 4; uci.pBindings = ub;
+            vkCreateDescriptorSetLayout(device, &uci, nullptr, &m_UpscaleSetLayout);
+
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
+            if (!m_UpscaleSpv.empty())
+            {
+                const std::vector<VkDescriptorSetLayout> ulayouts = {
+                    m_Pipeline->GetGlobal().GetSetLayout(),
+                    m_UpscaleSetLayout,
+                };
+                VkPushConstantRange upc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(UpscalePC) };
+                m_UpscalePipeline = std::make_unique<VKComputePipeline>(
+                    m_UpscaleSpv, ulayouts, std::vector<VkPushConstantRange>{ upc });
+            }
+        }
     }
 
     void RtRestirSubsystem::Shutdown()
@@ -207,14 +242,18 @@ namespace Luth
         m_TemporalPipeline.reset();
         m_SpatialPipeline.reset();
         m_ShadePipeline.reset();
-        if (m_Sampler)   vkDestroySampler(device, m_Sampler, nullptr);
-        if (m_SetLayout) vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
-        m_Sampler   = VK_NULL_HANDLE;
-        m_SetLayout = VK_NULL_HANDLE;
+        m_UpscalePipeline.reset();
+        if (m_Sampler)          vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_SetLayout)        vkDestroyDescriptorSetLayout(device, m_SetLayout, nullptr);
+        if (m_UpscaleSetLayout) vkDestroyDescriptorSetLayout(device, m_UpscaleSetLayout, nullptr);
+        m_Sampler          = VK_NULL_HANDLE;
+        m_SetLayout        = VK_NULL_HANDLE;
+        m_UpscaleSetLayout = VK_NULL_HANDLE;
         m_InitialSpv.clear();
         m_TemporalSpv.clear();
         m_SpatialSpv.clear();
         m_ShadeSpv.clear();
+        m_UpscaleSpv.clear();
         m_Pipeline = nullptr;
     }
 
@@ -222,6 +261,19 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
+
+        if (name == "bilateral_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
+        {
+            m_UpscaleSpv = spv;
+            if (auto* raw = m_UpscalePipeline.release(); raw)
+                VulkanContext::Get().PushDeletion([raw]() { delete raw; });
+            const std::vector<VkDescriptorSetLayout> ulayouts = {
+                m_Pipeline->GetGlobal().GetSetLayout(), m_UpscaleSetLayout };
+            VkPushConstantRange upc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(UpscalePC) };
+            m_UpscalePipeline = std::make_unique<VKComputePipeline>(
+                m_UpscaleSpv, ulayouts, std::vector<VkPushConstantRange>{ upc });
+            return true;
+        }
 
         const bool isInitial  = (name == "restir_initial.slang");
         const bool isTemporal = (name == "restir_temporal.comp");
@@ -732,5 +784,98 @@ namespace Luth
             });
 
         return { diHandle, specHandle };
+    }
+
+    void RtRestirSubsystem::WriteUpscaleView(ViewResources& vr, FrameTargets& targets)
+    {
+        LH_PROFILE_FUNCTION();
+        if (!targets.GetSceneDepth() || !targets.GetSlimNormal()) return;
+
+        VkDescriptorImageInfo depthInfo{ m_Sampler,
+            std::static_pointer_cast<VKTexture>(targets.GetSceneDepth())->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        VkDescriptorImageInfo normalInfo{ m_Sampler,
+            std::static_pointer_cast<VKTexture>(targets.GetSlimNormal())->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+        auto writeSet = [&](VkDescriptorSet set, const std::shared_ptr<Texture>& half, const std::shared_ptr<Texture>& full)
+        {
+            if (set == VK_NULL_HANDLE || !half || !full) return;
+            VkDescriptorImageInfo halfInfo{ m_Sampler, std::static_pointer_cast<VKTexture>(half)->GetImageView(), VK_IMAGE_LAYOUT_GENERAL };
+            VkDescriptorImageInfo outInfo{ VK_NULL_HANDLE, std::static_pointer_cast<VKTexture>(full)->GetImageView(), VK_IMAGE_LAYOUT_GENERAL };
+            VkWriteDescriptorSet w[4]{};
+            for (u32 i = 0; i < 4; ++i) { w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }; w[i].dstSet = set; w[i].dstBinding = i; w[i].descriptorCount = 1; }
+            w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[0].pImageInfo = &halfInfo;
+            w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[1].pImageInfo = &depthInfo;
+            w[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[2].pImageInfo = &normalInfo;
+            w[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          w[3].pImageInfo = &outInfo;
+            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 4, w, 0, nullptr);
+        };
+        writeSet(vr.diUpscaleDescSet,     vr.svgfDiHalf,     vr.svgfDenoised);
+        writeSet(vr.diSpecUpscaleDescSet, vr.svgfDiSpecHalf, vr.svgfDiSpecDenoised);
+    }
+
+    RG::ResourceHandle RtRestirSubsystem::AddUpscalePass(RG::RenderGraph& rg, RG::ResourceHandle half,
+                                                         RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal, bool specular)
+    {
+        LH_PROFILE_FUNCTION();
+        if (!m_UpscalePipeline || !half.IsValid()) return half;
+        ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
+        if (!preflightVr) return half;
+        const VkDescriptorSet descSet = specular ? preflightVr->diSpecUpscaleDescSet : preflightVr->diUpscaleDescSet;
+        const std::shared_ptr<Texture>& outShared = specular ? preflightVr->svgfDiSpecDenoised : preflightVr->svgfDenoised;
+        if (descSet == VK_NULL_HANDLE || !outShared) return half;
+
+        struct UpData { RG::ResourceHandle half, depth, normal, out; };
+        RG::ResourceHandle outHandle{};
+        rg.AddComputePass<UpData>(
+            specular ? "DiSpecUpscale" : "DiUpscale",
+            RG::QueueFamily::AsyncCompute,
+            [&, this, specular](UpData& data, RG::RenderPassBuilder& builder) {
+                data.half = builder.ReadStorageImageGeneral(half);  // svgfDiHalf/svgfDiSpecHalf stay GENERAL
+                if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
+                if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
+
+                ViewResources* vr = m_Pipeline->GetCurrentViewResources();
+                auto outTex = std::static_pointer_cast<VKTexture>(specular ? vr->svgfDiSpecDenoised : vr->svgfDenoised);
+                RG::TextureDesc desc;
+                desc.name   = specular ? "SvgfDiSpecDenoised" : "SvgfDenoised";
+                desc.width  = outTex->GetWidth();
+                desc.height = outTex->GetHeight();
+                desc.format = RG::TextureFormat::RGBA16_Float;
+                data.out = rg.ImportResource(desc, (void*)outTex->GetImage(), (void*)outTex->GetImageView(),
+                                             RG::ResourceState::Undefined);
+                data.out  = builder.WriteStorageImage(data.out);
+                outHandle = data.out;
+            },
+            [this, specular](UpData&, RG::RenderPassContext& ctx) {
+                VkCommandBuffer cmd = ctx.commandBuffer;
+                ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
+                if (!vr) return;
+                const VkDescriptorSet set = specular ? vr->diSpecUpscaleDescSet : vr->diUpscaleDescSet;
+                auto fullShared = specular ? vr->svgfDiSpecDenoised : vr->svgfDenoised;
+                auto halfShared = specular ? vr->svgfDiSpecHalf     : vr->svgfDiHalf;
+                if (set == VK_NULL_HANDLE || !fullShared || !halfShared) return;
+
+                const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
+                m_UpscalePipeline->Bind(cmd);
+                VkDescriptorSet sets[2] = { vr->globalDescriptorSet[slot], set };
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_UpscalePipeline->GetLayout(), 0, 2, sets, 0, nullptr);
+
+                auto full  = std::static_pointer_cast<VKTexture>(fullShared);
+                auto halfT = std::static_pointer_cast<VKTexture>(halfShared);
+                const RestirSettings& s = m_Pipeline->GetSystem().GetRestirSettings();
+                UpscalePC pc{};
+                pc.fullW = (i32)full->GetWidth();  pc.fullH = (i32)full->GetHeight();
+                pc.halfW = (i32)halfT->GetWidth(); pc.halfH = (i32)halfT->GetHeight();
+                pc.phiDepth  = s.spatialDepthThreshold;
+                pc.phiNormal = 32.0f;
+                vkCmdPushConstants(cmd, m_UpscalePipeline->GetLayout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(UpscalePC), &pc);
+
+                const u32 gx = (full->GetWidth()  + 7) / 8;
+                const u32 gy = (full->GetHeight() + 7) / 8;
+                vkCmdDispatch(cmd, gx, gy, 1);
+            });
+        return outHandle;
     }
 }

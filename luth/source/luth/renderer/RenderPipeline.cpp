@@ -430,6 +430,15 @@ namespace Luth
         RG::ResourceHandle denoisedDiSpecHandle = m_DenoiseDiSpec->AddPasses(rg, DenoiseInputs{
             restirOut.spec, prepassDepth, slimGB.normal, slimGB.motion,
             slimGB.roughness, slimGB.materialID, {}, {} });
+        // Half-res DI: AddPasses returns the half svgfDiHalf / svgfDiSpecHalf handles — bilaterally upscale
+        // each into the full svgfDenoised / svgfDiSpecDenoised that GeometryPass / pbr Set 3 b5/b8 consume.
+        if (m_System.GetRestirSettings().halfResolution)
+        {
+            if (denoisedDIHandle.IsValid())
+                denoisedDIHandle = m_Restir.AddUpscalePass(rg, denoisedDIHandle, prepassDepth, slimGB.normal, false);
+            if (denoisedDiSpecHandle.IsValid())
+                denoisedDiSpecHandle = m_Restir.AddUpscalePass(rg, denoisedDiSpecHandle, prepassDepth, slimGB.normal, true);
+        }
 
         // ReSTIR GI — 1-bounce indirect diffuse via per-pixel reservoir resampling. Returns the
         // demodulated GI image; restirParams.y gates the remodulation in pbr.frag. Invalid when
