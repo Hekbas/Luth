@@ -68,10 +68,18 @@ namespace Luth
         };
         ChannelRefs Resolve(DenoiserChannel ch, ViewResources& vr) {
             if (ch == DenoiserChannel::Reflections)
+            {
+                // Half-res reflections: à-trous final + passthrough write svgfSpecHalf (a bilateral upscale
+                // resolves it into the full svgfSpecDenoised). Detect from the history extent vs the full
+                // denoised image — mirrors the DiSpecular/Gi half detection, no setting plumbing.
+                const bool specHalf = vr.svgfSpecHalf && vr.svgfSpecColorHist[0] && vr.svgfSpecDenoised
+                    && std::static_pointer_cast<VKTexture>(vr.svgfSpecColorHist[0])->GetWidth()
+                       < std::static_pointer_cast<VKTexture>(vr.svgfSpecDenoised)->GetWidth();
                 return { vr.svgfSpecColorHist, vr.svgfSpecMoments, vr.svgfSpecGeom, vr.svgfSpecAtrous,
-                         &vr.svgfSpecDenoised, &vr.reflRadiance,
+                         specHalf ? &vr.svgfSpecHalf : &vr.svgfSpecDenoised, &vr.reflRadiance,
                          &vr.svgfSpecPassthroughDescSet, vr.svgfSpecReprojectDescSet,
                          vr.svgfSpecMomentsDescSet, vr.svgfSpecAtrousDescSet };
+            }
             if (ch == DenoiserChannel::DiSpecular)
             {
                 const bool diSpecHalf = vr.svgfDiSpecHalf && vr.svgfDiSpecColorHist[0] && vr.svgfDiSpecDenoised

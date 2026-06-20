@@ -34,23 +34,33 @@ layout(push_constant) uniform PC {
     float historyCap;
     float depthThreshold;
     float normalThreshold;
-    int   gbufferScale;     // unused — Reflections is full-res; present so the shared PC range matches
-    int   dispatchW;
+    int   gbufferScale;     // 1 = full-res; >1 = working res below the full G-buffer (half-res reflections)
+    int   dispatchW;        // working (dispatch) resolution — history/spec-in/output space
     int   dispatchH;
 } pc;
 
+// Map a working-res pixel to the full-res G-buffer texel (depth/normal/roughness live at full res).
+// gbufferScale==1 is the exact identity for full-res reflections.
+ivec2 SvgfGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
+
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
+    ivec2 gp    = SvgfGuide(pixel);
 
-    vec2  octN    = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec2  octN    = texelFetch(u_CurrNormal, gp, 0).rg;
     vec3  N       = SvgfOctDecode(octN);
-    float depth   = texelFetch(u_CurrDepth, pixel, 0).r;
+    float depth   = texelFetch(u_CurrDepth, gp, 0).r;
     float curLinZ = SvgfLinearizeDepth(depth);
     vec4  spec    = texelFetch(u_SpecIn, pixel, 0);
     float hitDist = max(spec.a, 0.0);
-    float rough   = texelFetch(u_CurrRough, pixel, 0).r;
+    float rough   = texelFetch(u_CurrRough, gp, 0).r;
 
     // Carry geometry + reflected hit-distance forward for next frame's disocclusion (all pixels).
     imageStore(outGeom, pixel, vec4(curLinZ, octN.x, octN.y, hitDist));
