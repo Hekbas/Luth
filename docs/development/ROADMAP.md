@@ -124,6 +124,7 @@
 | v3.2.8 | `material-authoring` | M1-authoring closeout: graphed `mi.normal` honored raster==RT (tangent-space convention + `ApplyTangentNormal`), lightweight graph-aware material preview (self-contained `PreviewFetch` UBO + per-structure Lambert-over-graph consumer), searchable node quick-add; granular per-node undo deferred | 2026-06-14 |
 | v3.3.0 | `vertex-deformation` | GPU deformation seam (#161, D1–D4): one graphics-queue compute pass writes a per-asset deformed buffer that raster + the RT BLAS/geometry-table share (raster==RT structural); skinned→static-deformable generalization; procedural wind = global field (gusts/turbulence/world-space dir) + per-entity `Component::Wind`; empty-descriptor `deform.comp`, last-writer-wins per-asset | 2026-06-19 |
 | v3.4.0 | `profiling-observability` | Comprehensive Tracy coverage (~300 CPU zones to peer density, per-queue GPU zones graphics+async-compute, per-frame plots, event messages) + in-editor GPU pipeline statistics (per-pass overdraw) + render-graph barrier inspector; scheduler advisor deferred to [#163](https://github.com/Hekbas/Luth/issues/163) (touches V1–V6 hot paths, research-first) | 2026-06-20 |
+| v3.5.0 | `engine-optimization` | GPU perf pass on the RT chain: half-res ReSTIR DI/GI/Reflections (trace + denoise at half, shared bilateral upscale, default-off toggles; ~17% GI), DiSpec/GTAO/bloom skip when off, PathTrace gates the realtime pipeline at registration; tracker [#164](https://github.com/Hekbas/Luth/issues/164) stays open | 2026-06-20 |
 
 ---
 
