@@ -28,20 +28,31 @@ layout(push_constant) uniform PC {
     float phiColor;     // luminance edge-stop sigma
     float phiNormal;    // normal edge-stop exponent
     float phiDepth;     // depth edge-stop scale
+    int   gbufferScale; // 1 = full-res; >1 = working res below the full G-buffer (half-res GI)
+    int   dispatchW;    // working (dispatch) resolution
+    int   dispatchH;
 } pc;
+
+// Map a working-res pixel to the full-res G-buffer texel. gbufferScale==1 is the exact identity.
+ivec2 SvgfGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 const float kKernel[3] = float[3](1.0, 2.0 / 3.0, 1.0 / 6.0);  // unnormalized 5-tap B-spline half
 
-float linZAt(ivec2 p) { return SvgfLinearizeDepth(texelFetch(u_Depth, p, 0).r); }
+float linZAt(ivec2 p) { return SvgfLinearizeDepth(texelFetch(u_Depth, SvgfGuide(p), 0).r); }
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec4  c    = imageLoad(u_AtrousIn, pixel);
     float lc   = SvgfLuminance(c.rgb);
-    float depth = texelFetch(u_Depth, pixel, 0).r;
+    float depth = texelFetch(u_Depth, SvgfGuide(pixel), 0).r;
 
     if (depth >= 1.0) {            // sky — passthrough
         imageStore(outAtrous, pixel, c);
@@ -50,7 +61,7 @@ void main() {
     }
 
     float lzc = SvgfLinearizeDepth(depth);
-    vec3  Nc  = SvgfOctDecode(texelFetch(u_Normal, pixel, 0).rg);
+    vec3  Nc  = SvgfOctDecode(texelFetch(u_Normal, SvgfGuide(pixel), 0).rg);
 
     // Central-difference linear-depth gradient (compute substitute for fwidth).
     float dzdx = 0.5 * (linZAt(min(pixel + ivec2(1, 0), size - 1)) - linZAt(max(pixel - ivec2(1, 0), ivec2(0))));
@@ -76,13 +87,13 @@ void main() {
         if (xx == 0 && yy == 0) continue;
         ivec2 q = pixel + ivec2(xx, yy) * pc.stepSize;
         if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
-        float dq = texelFetch(u_Depth, q, 0).r;
+        float dq = texelFetch(u_Depth, SvgfGuide(q), 0).r;
         if (dq >= 1.0) continue;
 
         vec4  cq  = imageLoad(u_AtrousIn, q);
         float lq  = SvgfLuminance(cq.rgb);
         float lzq = SvgfLinearizeDepth(dq);
-        vec3  Nq  = SvgfOctDecode(texelFetch(u_Normal, q, 0).rg);
+        vec3  Nq  = SvgfOctDecode(texelFetch(u_Normal, SvgfGuide(q), 0).rg);
 
         vec2  off = vec2(xx, yy) * float(pc.stepSize);
         float expectedDz = abs(dzdx * off.x + dzdy * off.y);

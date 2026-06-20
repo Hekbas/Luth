@@ -41,16 +41,28 @@ layout(push_constant) uniform PC {
     float historyCap;       // max history length — per-pixel alpha floor = 1/historyCap
     float depthThreshold;   // relative linear-depth disocclusion tolerance
     float normalThreshold;  // min dot(prevN, currN) to accept a tap
+    int   gbufferScale;     // 1 = full-res; >1 = working res below the full G-buffer (half-res GI)
+    int   dispatchW;        // working (dispatch) resolution — history/noisy/output space
+    int   dispatchH;
 } pc;
+
+// Map a working-res pixel to the full-res G-buffer texel (depth/normal/motion live at full res).
+// gbufferScale==1 is the exact identity for full-res channels.
+ivec2 SvgfGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
 
-    vec2  octN    = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec2  octN    = texelFetch(u_CurrNormal, SvgfGuide(pixel), 0).rg;
     vec3  N       = SvgfOctDecode(octN);
-    float depth   = texelFetch(u_CurrDepth, pixel, 0).r;
+    float depth   = texelFetch(u_CurrDepth, SvgfGuide(pixel), 0).r;
     float curLinZ = SvgfLinearizeDepth(depth);
 
     // Carry this pixel's geometry forward for next frame's disocclusion test (all pixels).
@@ -71,7 +83,7 @@ void main() {
 
     // Reproject (TAA convention: motion is an NDC delta; UV offset = motion * 0.5).
     vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
-    vec2 prevUV   = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
+    vec2 prevUV   = uv - texelFetch(u_Motion, SvgfGuide(pixel), 0).rg * 0.5;
     vec2 prevPixF = prevUV * vec2(size) - 0.5;   // center the 2x2 footprint on the sample
     ivec2 p0      = ivec2(floor(prevPixF));
     vec2  fr      = prevPixF - vec2(p0);

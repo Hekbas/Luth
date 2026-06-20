@@ -44,6 +44,14 @@ namespace Luth
         Outputs AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal,
                           RG::ResourceHandle slimMotion, RG::ResourceHandle slimRoughness);
 
+        // Half-res DI bilateral upscale (shared bilateral_upscale.comp). Reads the half-res denoised DI
+        // (svgfDiHalf / svgfDiSpecHalf) + full-res depth/normal, writes the full svgfDenoised /
+        // svgfDiSpecDenoised. specular picks the channel. Only wired when RestirSettings::halfResolution.
+        VkDescriptorSetLayout GetUpscaleLayout() const { return m_UpscaleSetLayout; }
+        void WriteUpscaleView(ViewResources& vr, FrameTargets& targets);
+        RG::ResourceHandle AddUpscalePass(RG::RenderGraph& rg, RG::ResourceHandle half,
+                                          RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal, bool specular);
+
         VkSampler             GetSampler()   const { return m_Sampler; }
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
 
@@ -65,14 +73,17 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_TemporalPipeline;
         std::unique_ptr<VKComputePipeline> m_SpatialPipeline;
         std::unique_ptr<VKComputePipeline> m_ShadePipeline;
+        std::unique_ptr<VKComputePipeline> m_UpscalePipeline;   // half-res DI bilateral upscale → full
 
-        VkSampler             m_Sampler   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout m_SetLayout = VK_NULL_HANDLE;   // Set 2 (pass-local)
+        VkSampler             m_Sampler          = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_SetLayout        = VK_NULL_HANDLE;   // Set 2 (pass-local)
+        VkDescriptorSetLayout m_UpscaleSetLayout = VK_NULL_HANDLE;   // Set 1 for the upscale pass
 
         std::vector<u32> m_InitialSpv;
         std::vector<u32> m_TemporalSpv;
         std::vector<u32> m_SpatialSpv;
         std::vector<u32> m_ShadeSpv;
+        std::vector<u32> m_UpscaleSpv;
 
         u32  m_NextTag = 0xFFFF0000u;  // reserved range for persistent reservoir allocations
     };

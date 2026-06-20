@@ -1,5 +1,6 @@
 #pragma once
 
+#include "luth/core/types/LuthTypes.h"
 #include <vulkan/vulkan.h>
 
 namespace Luth
@@ -23,6 +24,13 @@ namespace Luth
         static void SaveToProject();
 
         static VkPipelineCache Get() { return s_Cache; }
+
+        // Compile-time instrumentation (perf observability). Every VKPipeline /
+        // VKComputePipeline / VKRayTracingPipeline ctor records its vkCreate*Pipelines duration here;
+        // a non-zero per-frame count in steady state is a PSO-compile hitch (cold cache miss).
+        struct CompileStats { u32 count = 0; f64 totalMs = 0.0; f64 maxMs = 0.0; };
+        static void RecordCompile(f64 ms);
+        static CompileStats ConsumeFrameStats();   // returns + zeroes the per-frame accumulators
 
     private:
         static VkPipelineCache s_Cache;

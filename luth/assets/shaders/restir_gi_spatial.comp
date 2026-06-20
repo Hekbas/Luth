@@ -25,7 +25,17 @@ layout(push_constant) uniform PC {
     uint  frameSeed;
     float depthThreshold;     // relative linear-depth tolerance
     float normalThreshold;    // min dot(neighbourN, currN)
+    int   gbufferScale;       // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
+    int   dispatchW;          // GI working (dispatch) resolution
+    int   dispatchH;
 } pc;
+
+ivec2 GiGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 const uint GI_MAX_DOMAINS = 9u;   // canonical + up to 8 neighbours (BASIC denominator records)
 
@@ -35,15 +45,15 @@ float LinearizeDepth(float d) {
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
-    float depth = texelFetch(u_SceneDepth, pixel, 0).r;
+    float depth = texelFetch(u_SceneDepth, GiGuide(pixel), 0).r;
     GIReservoir canonical = inRes[flatIdx];
     if (depth >= 1.0) { outRes[flatIdx] = canonical; return; }   // sky → passthrough
 
-    vec2  octN     = texelFetch(u_SlimNormal, pixel, 0).rg;
+    vec2  octN     = texelFetch(u_SlimNormal, GiGuide(pixel), 0).rg;
     vec3  N        = OctDecode(octN);
     vec2  uv       = (vec2(pixel) + 0.5) / vec2(size);
     vec4  worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -85,9 +95,9 @@ void main() {
         ivec2 q = pixel + ivec2(round(cos(ang) * rad), round(sin(ang) * rad));
         if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y || (q.x == pixel.x && q.y == pixel.y)) continue;
 
-        float qDepth = texelFetch(u_SceneDepth, q, 0).r;
+        float qDepth = texelFetch(u_SceneDepth, GiGuide(q), 0).r;
         if (qDepth >= 1.0) continue;
-        vec3  qN = OctDecode(texelFetch(u_SlimNormal, q, 0).rg);
+        vec3  qN = OctDecode(texelFetch(u_SlimNormal, GiGuide(q), 0).rg);
         if (dot(qN, N) < pc.normalThreshold) continue;                       // normal reject
         float qLin = LinearizeDepth(qDepth);
         if (abs(qLin - linDepth) > pc.depthThreshold * linDepth) continue;   // depth reject

@@ -135,8 +135,10 @@ void main()
     }
 
     // --- Bloom composite ---
-    vec3 bloom = texture(u_BloomColor, uv).rgb;
-    color += bloom * pp.bloomStrength;
+    // Guarded: at strength 0 the bloom passes are skipped, so u_BloomColor may be stale/uninitialized
+    // (RGBA16F can hold NaN) — sampling it only when it contributes avoids NaN*0 poisoning the output.
+    if (pp.bloomStrength > 0.0)
+        color += texture(u_BloomColor, uv).rgb * pp.bloomStrength;
 
     // --- Exposure ---
     color *= pp.exposure;

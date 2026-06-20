@@ -26,6 +26,11 @@ namespace Luth
         // Returns the present VkResult so the caller can log; OUT_OF_DATE flags a deferred rebuild for next Acquire.
         VkResult Present(VkSemaphore waitSemaphore);
 
+        // Perf observability: last-frame CPU time spent in acquire / present. A large acquire
+        // time means the CPU is stalling on the presentation engine (vsync / present-bound).
+        static f64 GetLastAcquireMs();
+        static f64 GetLastPresentMs();
+
         VkFormat GetImageFormat() const { return m_ImageFormat; }
         VkExtent2D GetExtent() const { return m_Extent; }
         u32 GetImageCount() const { return (u32)m_Images.size(); }

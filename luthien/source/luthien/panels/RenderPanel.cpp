@@ -303,6 +303,10 @@ namespace Luth
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Spatiotemporal reservoir resampling for shadowed point lights.\nOff falls back to the unshadowed Forward+ cluster loop. Requires a TLAS (RT).");
 
+                    UI::Property("Half Resolution", rs.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise DI (diffuse + specular) at half resolution, then bilaterally upscale.\n~4x fewer rays + denoise pixels for the DI chain. Reallocates view resources on toggle.");
+
                     UI::Property("Specular", rs.specular);  // #154
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Demodulated point-light specular (metals/highlights) via a dedicated SVGF channel + combined RIS target.\nOff = diffuse-only DI.");
@@ -373,6 +377,10 @@ namespace Luth
                     UI::Property("Enabled", gi.enabled);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("1-bounce indirect-diffuse GI via per-pixel path reservoirs.\nAdded on top of direct lighting. Requires a TLAS (RT).");
+
+                    UI::Property("Half Resolution", gi.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise GI at half resolution, then bilaterally upscale.\n~4x fewer rays + denoise pixels for the GI chain. Reallocates view resources on toggle.");
 
                     UI::Property("Max Indirect (firefly)", gi.maxIndirect, 0.5f, 0.0f, 100.0f);
                     if (ImGui::IsItemHovered())
@@ -571,6 +579,10 @@ namespace Luth
                     UI::Property("Enabled", rf.enabled);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Ray-traced specular reflections (supersedes SSR).\nComposited into the specular IBL below the roughness cutoff. Requires a TLAS (RT).");
+
+                    UI::Property("Half Resolution", rf.halfResolution);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trace + denoise reflections at half resolution, then bilateral-upscale to full.\nLarge GPU win; may soften sharp mirror reflections.");
 
                     UI::Property("Roughness Fade Start", rf.roughnessFadeStart, 0.01f, 0.0f, 1.0f);
                     if (ImGui::IsItemHovered())

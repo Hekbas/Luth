@@ -23,11 +23,21 @@ layout(set = 1, binding = 4, rgba16f) uniform writeonly image2D outAtrous;  // c
 layout(push_constant) uniform PC {
     float phiDepth;    // relative-depth bilateral falloff for the spatial fallback
     float phiNormal;   // normal bilateral exponent
+    int   gbufferScale; // 1 = full-res; >1 = working res below the full G-buffer (half-res GI)
+    int   dispatchW;    // working (dispatch) resolution
+    int   dispatchH;
 } pc;
+
+ivec2 SvgfGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec4 ci      = imageLoad(u_ColorIn, pixel);
@@ -35,7 +45,7 @@ void main() {
     vec3 mom     = imageLoad(u_MomentsIn, pixel).rgb;  // mu1, mu2, histLen
     float histLen = mom.b;
 
-    float depth = texelFetch(u_Depth, pixel, 0).r;
+    float depth = texelFetch(u_Depth, SvgfGuide(pixel), 0).r;
     if (depth >= 1.0) {            // sky — passthrough, no variance
         imageStore(outAtrous, pixel, vec4(color, 0.0));
         return;
@@ -48,23 +58,23 @@ void main() {
     } else {
         // 7x7 depth/normal-bilateral filter of the moments; variance from the filtered moments.
         float linZc = SvgfLinearizeDepth(depth);
-        vec3  Nc    = SvgfOctDecode(texelFetch(u_Normal, pixel, 0).rg);
+        vec3  Nc    = SvgfOctDecode(texelFetch(u_Normal, SvgfGuide(pixel), 0).rg);
         // Central-difference linear-depth gradient (compute substitute for fwidth) — the depth weight
         // uses the expected change projected onto the window offset, matching svgf_atrous + Falcor.
-        float dzdx = 0.5 * (SvgfLinearizeDepth(texelFetch(u_Depth, min(pixel + ivec2(1,0), size - 1), 0).r)
-                          - SvgfLinearizeDepth(texelFetch(u_Depth, max(pixel - ivec2(1,0), ivec2(0)), 0).r));
-        float dzdy = 0.5 * (SvgfLinearizeDepth(texelFetch(u_Depth, min(pixel + ivec2(0,1), size - 1), 0).r)
-                          - SvgfLinearizeDepth(texelFetch(u_Depth, max(pixel - ivec2(0,1), ivec2(0)), 0).r));
+        float dzdx = 0.5 * (SvgfLinearizeDepth(texelFetch(u_Depth, SvgfGuide(min(pixel + ivec2(1,0), size - 1)), 0).r)
+                          - SvgfLinearizeDepth(texelFetch(u_Depth, SvgfGuide(max(pixel - ivec2(1,0), ivec2(0))), 0).r));
+        float dzdy = 0.5 * (SvgfLinearizeDepth(texelFetch(u_Depth, SvgfGuide(min(pixel + ivec2(0,1), size - 1)), 0).r)
+                          - SvgfLinearizeDepth(texelFetch(u_Depth, SvgfGuide(max(pixel - ivec2(0,1), ivec2(0))), 0).r));
         vec2  sumMom = vec2(0.0);
         float sumW   = 0.0;
         for (int yy = -3; yy <= 3; ++yy)
         for (int xx = -3; xx <= 3; ++xx) {
             ivec2 q = pixel + ivec2(xx, yy);
             if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
-            float dq = texelFetch(u_Depth, q, 0).r;
+            float dq = texelFetch(u_Depth, SvgfGuide(q), 0).r;
             if (dq >= 1.0) continue;
             float linZq = SvgfLinearizeDepth(dq);
-            vec3  Nq    = SvgfOctDecode(texelFetch(u_Normal, q, 0).rg);
+            vec3  Nq    = SvgfOctDecode(texelFetch(u_Normal, SvgfGuide(q), 0).rg);
             float expectedDz = abs(dzdx * float(xx) + dzdy * float(yy));
             float wz = exp(-abs(linZc - linZq) / (pc.phiDepth * expectedDz + 1e-4));
             float wn = pow(max(0.0, dot(Nc, Nq)), pc.phiNormal);

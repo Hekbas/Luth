@@ -1,4 +1,6 @@
 #include "luthpch.h"
+#include <chrono>
+#include <atomic>
 #include "VulkanSwapchain.h"
 #include "VulkanContext.h"
 #include "luth/core/diagnostics/Log.h"
@@ -182,6 +184,12 @@ namespace Luth
         }
     }
 
+    // Perf observability: CPU time in the last acquire / present (present-bound signal).
+    static std::atomic<f64> s_LastAcquireMs{ 0.0 };
+    static std::atomic<f64> s_LastPresentMs{ 0.0 };
+    f64 VulkanSwapchain::GetLastAcquireMs() { return s_LastAcquireMs.load(std::memory_order_relaxed); }
+    f64 VulkanSwapchain::GetLastPresentMs() { return s_LastPresentMs.load(std::memory_order_relaxed); }
+
     u32 VulkanSwapchain::AcquireNextImage(VkSemaphore signalSemaphore)
     {
         LH_PROFILE_FUNCTION();
@@ -197,7 +205,9 @@ namespace Luth
         }
 
         uint32_t imageIndex = 0;
+        const auto acqStart = std::chrono::high_resolution_clock::now();
         VkResult result = vkAcquireNextImageKHR(VulkanContext::Get().GetDevice(), m_Swapchain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &imageIndex);
+        s_LastAcquireMs.store(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - acqStart).count(), std::memory_order_relaxed);
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
@@ -230,7 +240,9 @@ namespace Luth
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &m_CurrentFrameIndex;
 
+        const auto presStart = std::chrono::high_resolution_clock::now();
         VkResult result = VulkanContext::Get().Present(presentInfo);
+        s_LastPresentMs.store(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - presStart).count(), std::memory_order_relaxed);
 
         // Defer rebuild — Present runs on the render fiber; vkDeviceWaitIdle would stall the worker (V2).
         // Acquire (main thread) consumes the flag. SUBOPTIMAL is benign (cosmetic scaling).

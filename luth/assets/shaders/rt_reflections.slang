@@ -28,10 +28,21 @@ struct PC
     float        maxRayDistance;
     float        fireflyClamp;
     uint         envReady;          // 1 → IBL prefiltered env bound
-    uint         _pad0, _pad1, _pad2;
+    int          gbufferScale;      // 1 = full-res; 2 = half-res (G-buffer reads remap to full)
+    int          dispatchW;         // reflection working (dispatch) resolution
+    int          dispatchH;
     GtGeomEntry* geomTable;
 };
 [[vk::push_constant]] PC pc;
+
+// Map a working-res pixel to the full-res G-buffer texel (depth/normal/roughness live at full res).
+int2 GbufCoord(int2 p)
+{
+    if (pc.gbufferScale == 1) return p;
+    float2 uv   = (float2(p) + 0.5) / float2(pc.dispatchW, pc.dispatchH);
+    int2   full = int2(ubo.viewportSize);
+    return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
+}
 
 // LightBuffer header = DirectionalLightData(32) + count(4) + pad[3](12); points[] (32 B each) at offset 48.
 DirectionalLightData LoadDirLight()
@@ -103,17 +114,18 @@ float3 ShadeHit(float3 xs, HitSurface hs, inout uint seed)
 void main(uint3 tid : SV_DispatchThreadID)
 {
     int2 pixel = int2(tid.xy);
-    int2 size  = int2(ubo.viewportSize);
+    int2 size  = int2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
+    int2 gp    = GbufCoord(pixel);
 
     // Every pixel is written (persistent image): sky / rough / below-horizon write zero, and pbr.frag's
     // reflWeight falls back to prefiltered-env IBL there.
-    float depth = u_SceneDepth.Load(int3(pixel, 0)).r;
+    float depth = u_SceneDepth.Load(int3(gp, 0)).r;
     if (depth >= 1.0)               { u_Refl[uint2(pixel)] = float4(0.0); return; }
-    float rough = u_SlimRoughness.Load(int3(pixel, 0)).r;
+    float rough = u_SlimRoughness.Load(int3(gp, 0)).r;
     if (rough > pc.roughnessCutoff) { u_Refl[uint2(pixel)] = float4(0.0); return; }
 
-    float3 N        = OctDecode(u_SlimNormal.Load(int3(pixel, 0)).rg);
+    float3 N        = OctDecode(u_SlimNormal.Load(int3(gp, 0)).rg);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
     float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;

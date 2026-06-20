@@ -35,7 +35,17 @@ layout(push_constant) uniform PC {
     uint  frameSeed;
     float depthThreshold;   // relative linear-depth tolerance for history validation
     float normalThreshold;  // min dot(prevN, currN)
+    int   gbufferScale;     // 1 = full-res; 2 = half-res DI (G-buffer reads remap to full)
+    int   dispatchW;        // DI working (dispatch) resolution
+    int   dispatchH;
 } pc;
+
+ivec2 GbufCoord(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 float LinearizeDepth(float d) {
     return (ubo.nearZ * ubo.farZ) / (ubo.farZ - d * (ubo.farZ - ubo.nearZ));
@@ -43,24 +53,24 @@ float LinearizeDepth(float d) {
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
-    float depth = texelFetch(u_CurrDepth, pixel, 0).r;
+    float depth = texelFetch(u_CurrDepth, GbufCoord(pixel), 0).r;
     if (depth >= 1.0) return;  // sky — leave the (empty) candidate untouched
 
     Reservoir r   = curr[flatIdx];  // this frame's RIS candidate (visibility folded by restir_initial)
-    vec2 octN     = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec2 octN     = texelFetch(u_CurrNormal, GbufCoord(pixel), 0).rg;
     vec3 N        = OctDecode(octN);
     vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
     vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec3 worldPos = worldH.xyz / worldH.w;
     vec3 V        = normalize(ubo.cameraPos - worldPos);            // #154 combined target
-    float rough   = texelFetch(u_SlimRoughness, pixel, 0).r;
+    float rough   = texelFetch(u_SlimRoughness, GbufCoord(pixel), 0).r;
 
     // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
-    vec2 prevUV = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
+    vec2 prevUV = uv - texelFetch(u_Motion, GbufCoord(pixel), 0).rg * 0.5;
 
     Reservoir pr; ReservoirReset(pr);
     bool valid = all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)));

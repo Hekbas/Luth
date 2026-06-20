@@ -24,10 +24,21 @@ struct PC
     uint         frameSeed;
     float        secondaryAlbedo;   // scaffold constant only
     float        maxIndirect;       // firefly clamp on L_o luminance
-    uint         _pad1;
+    int          gbufferScale;      // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
+    int          dispatchW;         // GI working (dispatch) resolution
+    int          dispatchH;
     GtGeomEntry* geomTable;         // 64-bit handle; 0 before the first real TLAS build
 };
 [[vk::push_constant]] PC pc;
+
+// Map a working-res pixel to the full-res G-buffer texel (depth/normal live at full res).
+int2 GiGuide(int2 p)
+{
+    if (pc.gbufferScale == 1) return p;
+    float2 uv   = (float2(p) + 0.5) / float2(pc.dispatchW, pc.dispatchH);
+    int2   full = int2(ubo.viewportSize);
+    return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
+}
 
 // LightBuffer header = DirectionalLightData(32) + count(4) + pad[3](12); points[] (32 B each) at offset 48.
 DirectionalLightData LoadDirLight()
@@ -66,17 +77,17 @@ float TraceVisibility(float3 origin, float3 dir, float tMin, float tMax)
 void main(uint3 tid : SV_DispatchThreadID)
 {
     int2 pixel = int2(tid.xy);
-    int2 size  = int2(ubo.viewportSize);
+    int2 size  = int2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
     GIReservoir r; GIReservoirReset(r);
 
-    float depth      = u_SceneDepth.Load(int3(pixel, 0)).r;
+    float depth      = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
     uint  lightCount = LoadPointCount();
     if (depth >= 1.0) { reservoirs[flatIdx] = r; return; }   // sky → empty sample
 
-    float2 octNv    = u_SlimNormal.Load(int3(pixel, 0)).rg;
+    float2 octNv    = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
     float3 Nv       = OctDecode(octNv);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
     float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));

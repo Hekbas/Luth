@@ -21,9 +21,9 @@ namespace Luth
     // specular slot above a roughness cutoff. Supersedes SSR. Opaque-only (gl_RayFlagsOpaqueEXT).
     //
     // Mirrors PathTraceSubsystem's compute-RT shape (5-set bind, inline AS barrier dst=COMPUTE, geom-table
-    // BDA push constant) and RtRestirGiSubsystem's slim-G-buffer input pattern. S0 is the seam: one
-    // pipeline + pass-local Set 2 (b0 output, b1-b3 slim inputs) + a stub test-pattern shader, kept alive
-    // via SetHasSideEffect (no consumer until S4 composites it). see arch/rendering-pipeline.md
+    // BDA push constant) + RtRestirGiSubsystem's slim-G-buffer input + half-res bilateral upscale. The trace
+    // output is consumed by the specular denoiser (DenoiserChannel::Reflections), so the RG keeps it alive in
+    // normal mode and dead-pass-culls it when unconsumed (PathTrace). see arch/rendering-pipeline.md
     class ReflectionsSubsystem
     {
     public:
@@ -46,6 +46,14 @@ namespace Luth
 
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
 
+        // Half-res reflections bilateral upscale (shared bilateral_upscale.comp): resolves the half-res
+        // svgfSpecHalf into the full-res svgfSpecDenoised, depth/normal-guided. Only wired when
+        // ReflectionsSettings::halfResolution. Mirrors RtRestirGiSubsystem's upscale.
+        VkDescriptorSetLayout GetUpscaleLayout() const { return m_UpscaleSetLayout; }
+        void WriteUpscaleView(ViewResources& vr, FrameTargets& targets);
+        RG::ResourceHandle AddUpscalePass(RG::RenderGraph& rg, RG::ResourceHandle reflHalf,
+                                          RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal);
+
         // ReflectionsSettings::enabled is the gate. Out-of-line: needs the RenderingSystem definition,
         // which can't be pulled into this header (RenderPipeline include cycle).
         bool IsEnabled() const;
@@ -57,5 +65,9 @@ namespace Luth
         VkDescriptorSetLayout              m_SetLayout = VK_NULL_HANDLE;  // Set 2 (pass-local)
         VkSampler                          m_Sampler   = VK_NULL_HANDLE;  // linear clamp — slim G-buffer reads
         std::vector<u32>                   m_Spv;
+
+        std::unique_ptr<VKComputePipeline> m_UpscalePipeline;             // half-res bilateral upscale
+        VkDescriptorSetLayout              m_UpscaleSetLayout = VK_NULL_HANDLE;  // Set 1 for the upscale pass
+        std::vector<u32>                   m_UpscaleSpv;
     };
 }

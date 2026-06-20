@@ -6,8 +6,8 @@
 // Debug viz — heat-maps the ReSTIR GI spatial-reuse reservoir over LDR. M (confidence / merged sample
 // count) drives the blue→green→yellow→red ramp; age (frames since the sample was refreshed) dims the
 // result, so a converged-but-stale region reads dim-red and a fresh-low-confidence region bright-blue.
-// Empty reservoirs (sky / no path sample) read near-black. Fullscreen triangle; flatIdx = y*W + x
-// matches the GI compute passes' indexing (gl_FragCoord pixel == reservoir pixel, both full-res).
+// Empty reservoirs (sky / no path sample) read near-black. Fullscreen triangle; the full-res overlay
+// pixel maps to the GI reservoir cell (the reservoir is half-res when half-res GI is enabled).
 
 layout(location = 0) in  vec2 v_TexCoord;
 layout(location = 0) out vec4 outColor;
@@ -16,7 +16,8 @@ layout(set = 0, binding = 0) uniform sampler2D u_SceneDepth;
 layout(std430, set = 0, binding = 1) readonly buffer ReservoirBuffer { GIReservoir reservoirs[]; };
 
 layout(push_constant) uniform PC {
-    vec2  viewportSize;
+    vec2  viewportSize;    // full-res overlay extent
+    vec2  reservoirSize;   // GI reservoir extent (half when half-res GI)
     float mCap;     // M heat-ramp saturates here
     float ageCap;   // age fully dims here
 } pc;
@@ -36,7 +37,10 @@ void main() {
     float depth = texelFetch(u_SceneDepth, px, 0).r;
     if (depth >= 1.0) { outColor = vec4(0.0, 0.0, 0.0, 0.85); return; }   // sky → dark overlay
 
-    uint flatIdx = uint(px.y) * uint(size.x) + uint(px.x);
+    // Map the full-res overlay pixel to the GI reservoir cell (half-res when half-res GI is on).
+    ivec2 res = ivec2(pc.reservoirSize);
+    ivec2 rp  = clamp(ivec2((vec2(px) + 0.5) / pc.viewportSize * pc.reservoirSize), ivec2(0), res - 1);
+    uint flatIdx = uint(rp.y) * uint(res.x) + uint(rp.x);
     GIReservoir r = reservoirs[flatIdx];
 
     vec3 col;

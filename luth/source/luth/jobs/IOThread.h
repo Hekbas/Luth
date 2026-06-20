@@ -43,6 +43,10 @@ namespace Luth
         // Submit a write request. Non-blocking, fire-and-forget.
         static void WriteFile(const std::string& path, std::vector<u8> data);
 
+        // Perf observability: running count of read callbacks dropped because all 64 callback
+        // slots were busy (the JobSystem fell behind). A rising value = a stalled/never-completing load.
+        static u32 GetDroppedCallbackCount();
+
     private:
         static void ThreadEntryPoint();
         static void FlushWrites();

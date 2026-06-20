@@ -86,6 +86,9 @@ namespace Luth
 
     static IOCallbackSlot s_CallbackSlots[MAX_IO_CALLBACKS];
     static std::atomic<u32> s_NextSlot = 0;
+    static std::atomic<u32> s_DroppedReads = 0;
+
+    u32 IOThread::GetDroppedCallbackCount() { return s_DroppedReads.load(std::memory_order_relaxed); }
 
     static IOCallbackSlot* AcquireSlot()
     {
@@ -174,6 +177,7 @@ namespace Luth
                 IOCallbackSlot* slot = AcquireSlot();
                 if (!slot)
                 {
+                    s_DroppedReads.fetch_add(1, std::memory_order_relaxed);
                     LH_CORE_ERROR("IOThread: All callback slots busy. Dropping callback for: {0}", req.Path);
                     continue;
                 }

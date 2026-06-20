@@ -26,6 +26,8 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/PipelineCache.h"
+#include "luth/renderer/backend/vulkan/VulkanSwapchain.h"
+#include "luth/renderer/subsystems/GeometrySubsystem.h"
 #include "luth/jobs/IOThread.h"
 #include "luth/memory/MemoryTracker.h"
 #include "luth/memory/TaggedPageAllocator.h"
@@ -80,6 +82,18 @@ namespace Luth
             LH_PROFILE_PLOT("High Queue Depth",  (i64)js.HighQueueSize);
             LH_PROFILE_PLOT("Game Stage (ms)",   (double)js.GameStageMs);
             LH_PROFILE_PLOT("Render Stage (ms)", (double)js.RenderStageMs);
+
+            // Bottleneck-triage plots: present stall, PSO-compile hitches, and the two silent
+            // draw/asset-drop counters.
+            LH_PROFILE_PLOT("Present Acquire (ms)", VulkanSwapchain::GetLastAcquireMs());
+            LH_PROFILE_PLOT("Present (ms)",         VulkanSwapchain::GetLastPresentMs());
+
+            const PipelineCache::CompileStats pso = PipelineCache::ConsumeFrameStats();
+            LH_PROFILE_PLOT("PSO Compiles/Frame", (i64)pso.count);
+            LH_PROFILE_PLOT("PSO Compile (ms)",   pso.totalMs);
+
+            LH_PROFILE_PLOT("GPU Objects Dropped",  (i64)GeometrySubsystem::GetDroppedObjectCount());
+            LH_PROFILE_PLOT("IO Callbacks Dropped", (i64)IOThread::GetDroppedCallbackCount());
 
             const Memory::MemoryTracker::Snapshot mem = Memory::MemoryTracker::GetSnapshot();
             LH_PROFILE_PLOT("Mem Total", (i64)mem.TotalCurrent);

@@ -305,6 +305,19 @@ namespace Luth
         std::shared_ptr<Texture> svgfGiAtrous[2];
         VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        // Half-res GI: svgfGi* history + reservoirs allocate at half extent; the à-trous final writes
+        // svgfGiHalf, a bilateral upscale resolves it into the full-res svgfGiDenoised. giHalfCached
+        // drives EnsureViewResources realloc on a runtime toggle.
+        std::shared_ptr<Texture> svgfGiHalf;
+        u32 giHalfCached = ~0u;
+        VkDescriptorSet giUpscaleDescSet = VK_NULL_HANDLE;   // half-res GI bilateral-upscale set (Set 1)
+        // Half-res DI (both channels): à-trous finals write svgfDiHalf / svgfDiSpecHalf; bilateral upscales
+        // resolve them into the full-res svgfDenoised / svgfDiSpecDenoised. diHalfCached drives realloc.
+        std::shared_ptr<Texture> svgfDiHalf;
+        std::shared_ptr<Texture> svgfDiSpecHalf;
+        u32 diHalfCached = ~0u;
+        VkDescriptorSet diUpscaleDescSet     = VK_NULL_HANDLE;   // half-res DI diffuse upscale set
+        VkDescriptorSet diSpecUpscaleDescSet = VK_NULL_HANDLE;   // half-res DI specular upscale set
 
         // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
         // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance
@@ -320,6 +333,9 @@ namespace Luth
         std::shared_ptr<Texture> svgfSpecAtrous[2];
         VkDescriptorSet svgfSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        // Half-res reflections: the à-trous final writes svgfSpecHalf; a bilateral upscale resolves it into
+        // the full-res svgfSpecDenoised. reflHalfCached drives realloc. Mirrors the svgfDiSpecHalf trio.
+        std::shared_ptr<Texture> svgfSpecHalf;
 
         // ReSTIR-DI specular SVGF (#154) — flat parallel to the spec fields above. A 4th SvgfDenoiser
         // instance (DenoiserChannel::DiSpecular) denoises restirDISpec via the SURFACE-MOTION reproject
@@ -358,6 +374,8 @@ namespace Luth
         // (D.1 S3) lands beside the GI SVGF fields above.
         std::shared_ptr<Texture> reflRadiance;
         VkDescriptorSet          reflDescSet = VK_NULL_HANDLE;
+        VkDescriptorSet          reflUpscaleDescSet = VK_NULL_HANDLE;   // half-res reflection bilateral-upscale set
+        u32                      reflHalfCached = ~0u;                  // last-applied halfResolution; drives realloc
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and

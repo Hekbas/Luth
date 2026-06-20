@@ -1,4 +1,5 @@
 #include "luthpch.h"
+#include <chrono>
 #include "VulkanComputePipeline.h"
 #include "VulkanContext.h"
 #include "PipelineCache.h"
@@ -51,7 +52,10 @@ namespace Luth
         pipelineInfo.stage.module = shaderModule;
         pipelineInfo.stage.pName  = "main";
 
-        if (vkCreateComputePipelines(m_Device, PipelineCache::Get(), 1, &pipelineInfo, nullptr, &m_Pipeline) != VK_SUCCESS)
+        const auto pcStart = std::chrono::high_resolution_clock::now();
+        VkResult pipeRes = vkCreateComputePipelines(m_Device, PipelineCache::Get(), 1, &pipelineInfo, nullptr, &m_Pipeline);
+        PipelineCache::RecordCompile(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - pcStart).count());
+        if (pipeRes != VK_SUCCESS)
         {
             LH_CORE_CRITICAL("VKComputePipeline: Failed to create compute pipeline!");
         }

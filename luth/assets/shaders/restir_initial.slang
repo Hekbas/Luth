@@ -20,9 +20,21 @@ struct PC
     float4x4     invViewProj;
     uint         candidateCount;   // M
     uint         frameSeed;
+    int          gbufferScale;      // 1 = full-res; 2 = half-res DI (G-buffer reads remap to full)
+    int          dispatchW;         // DI working (dispatch) resolution
+    int          dispatchH;
     GtGeomEntry* geomTable;
 };
 [[vk::push_constant]] PC pc;
+
+// Map a working-res pixel to the full-res G-buffer texel (depth/normal/roughness live at full res).
+int2 GbufCoord(int2 p)
+{
+    if (pc.gbufferScale == 1) return p;
+    float2 uv   = (float2(p) + 0.5) / float2(pc.dispatchW, pc.dispatchH);
+    int2   full = int2(ubo.viewportSize);
+    return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
+}
 
 uint LoadPointCount() { return g_Lights.Load(32); }
 PointLightData LoadPoint(uint j)
@@ -41,22 +53,22 @@ PointLightData LoadPoint(uint j)
 void main(uint3 tid : SV_DispatchThreadID)
 {
     int2 pixel = int2(tid.xy);
-    int2 size  = int2(ubo.viewportSize);
+    int2 size  = int2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
     Reservoir r; ReservoirReset(r);
 
-    float depth      = u_SceneDepth.Load(int3(pixel, 0)).r;
+    float depth      = u_SceneDepth.Load(int3(GbufCoord(pixel), 0)).r;
     uint  lightCount = LoadPointCount();
     if (depth >= 1.0 || lightCount == 0u) { reservoirs[flatIdx] = r; return; }   // sky / no lights
 
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
     float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;
-    float3 N        = OctDecode(u_SlimNormal.Load(int3(pixel, 0)).rg);
+    float3 N        = OctDecode(u_SlimNormal.Load(int3(GbufCoord(pixel), 0)).rg);
     float3 V        = normalize(ubo.cameraPos - worldPos);
-    float  rough    = u_SlimRoughness.Load(int3(pixel, 0)).r;
+    float  rough    = u_SlimRoughness.Load(int3(GbufCoord(pixel), 0)).r;
 
     uint  seed = PcgHash(flatIdx ^ pc.frameSeed);
     uint  M    = max(pc.candidateCount, 1u);
