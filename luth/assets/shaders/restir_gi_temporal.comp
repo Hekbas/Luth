@@ -29,19 +29,29 @@ layout(push_constant) uniform PC {
     uint  frameSeed;
     float depthThreshold;   // disocclusion tolerance — fraction of view distance
     float normalThreshold;  // min dot(prevN, currN)
+    int   gbufferScale;     // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
+    int   dispatchW;        // GI working (dispatch) resolution
+    int   dispatchH;
 } pc;
+
+ivec2 GiGuide(ivec2 p) {
+    if (pc.gbufferScale == 1) return p;
+    vec2  uv   = (vec2(p) + 0.5) / vec2(pc.dispatchW, pc.dispatchH);
+    ivec2 full = ivec2(ubo.viewportSize);
+    return clamp(ivec2(uv * vec2(full)), ivec2(0), full - 1);
+}
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size  = ivec2(ubo.viewportSize);
+    ivec2 size  = ivec2(pc.dispatchW, pc.dispatchH);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
-    float depth = texelFetch(u_CurrDepth, pixel, 0).r;
+    float depth = texelFetch(u_CurrDepth, GiGuide(pixel), 0).r;
     if (depth >= 1.0) return;  // sky — leave the (empty) candidate untouched
 
     GIReservoir r = curr[flatIdx];  // this frame's fresh candidate (from initial)
-    vec2 octN     = texelFetch(u_CurrNormal, pixel, 0).rg;
+    vec2 octN     = texelFetch(u_CurrNormal, GiGuide(pixel), 0).rg;
     vec3 N        = OctDecode(octN);
     vec2 uv       = (vec2(pixel) + 0.5) / vec2(size);
     vec4 worldH   = pc.invViewProj * vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -63,7 +73,7 @@ void main() {
     }
 
     // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
-    vec2 prevUV = uv - texelFetch(u_Motion, pixel, 0).rg * 0.5;
+    vec2 prevUV = uv - texelFetch(u_Motion, GiGuide(pixel), 0).rg * 0.5;
     if (all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)))) {
         ivec2 pPix = clamp(ivec2(prevUV * vec2(size)), ivec2(0), size - ivec2(1));
         GIReservoir pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];

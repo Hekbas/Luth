@@ -31,10 +31,12 @@ namespace Luth
             u32  frameSeed;
             f32  secondaryAlbedo;
             f32  maxIndirect;
-            u32  pad1;
-            u64  geomTableBDA;   // S3: BDA of the per-frame geometry table (secondary-hit material fetch)
+            i32  gbufferScale;   // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
+            i32  dispatchW;      // GI working (dispatch) resolution
+            i32  dispatchH;
+            u64  geomTableBDA;   // S3: geometry-table BDA; stays 8-aligned at offset 88
         };
-        static_assert(sizeof(GiPC) == 88, "GiPC must match restir_gi_initial.comp push_constant (shade reads the 80 B prefix)");
+        static_assert(sizeof(GiPC) == 96, "GiPC must match restir_gi_initial.slang push_constant (shade reads the 88 B prefix)");
 
         // Temporal-pass push constants — same 80 B footprint as GiPC (one shared pcRange), different
         // fields. mCap + maxReservoirAge bit-packed so invViewProj + 4 scalars fit 80 B.
@@ -44,8 +46,11 @@ namespace Luth
             u32  frameSeed;
             f32  depthThreshold;
             f32  normalThreshold;
+            i32  gbufferScale;
+            i32  dispatchW;
+            i32  dispatchH;
         };
-        static_assert(sizeof(GiTemporalPC) == 80, "GiTemporalPC must match restir_gi_temporal.comp push_constant");
+        static_assert(sizeof(GiTemporalPC) == 92, "GiTemporalPC must match restir_gi_temporal.comp push_constant");
 
         // Spatial-pass push constants — 80 B (shared pcRange). neighbours+radius bit-packed.
         struct GiSpatialPC {
@@ -54,8 +59,11 @@ namespace Luth
             u32  frameSeed;
             f32  depthThreshold;
             f32  normalThreshold;
+            i32  gbufferScale;
+            i32  dispatchW;
+            i32  dispatchH;
         };
-        static_assert(sizeof(GiSpatialPC) == 80, "GiSpatialPC must match restir_gi_spatial.comp push_constant");
+        static_assert(sizeof(GiSpatialPC) == 92, "GiSpatialPC must match restir_gi_spatial.comp push_constant");
     }
 
     bool RtRestirGiSubsystem::IsEnabled() const
@@ -474,11 +482,21 @@ namespace Luth
         // Build invViewProj + frameSeed once; initial/shade share GiPC, temporal uses GiTemporalPC
         // (same 80 B footprint / shared pcRange, different fields).
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
+        // GI working resolution (half when RestirGiSettings::halfResolution) — derive from restirGiDI's
+        // extent (the Commit-2 sizing source of truth). G-buffer reads remap to full res in-shader.
+        auto giTex0 = std::static_pointer_cast<VKTexture>(preflightVr->restirGiDI);
+        const i32 giW2    = giTex0 ? static_cast<i32>(giTex0->GetWidth())  : static_cast<i32>(preflightVr->width);
+        const i32 giH2    = giTex0 ? static_cast<i32>(giTex0->GetHeight()) : static_cast<i32>(preflightVr->height);
+        const i32 giScale = ((u32)giW2 == preflightVr->width && (u32)giH2 == preflightVr->height) ? 1 : 2;
+
         GiPC pc{};
         pc.invViewProj     = invVP;
         pc.frameSeed       = frameAbs;
         pc.secondaryAlbedo = settings.secondaryAlbedo;
         pc.maxIndirect     = settings.maxIndirect;
+        pc.gbufferScale    = giScale;
+        pc.dispatchW       = giW2;
+        pc.dispatchH       = giH2;
         // Geometry-table BDA read at preflight, paired with the same m_LastResult that GlobalSubsystem
         // binds to Set 0 b6 — so the table's instanceCustomIndex mapping matches the bound TLAS. Zero
         // until the first real TLAS build (only the empty TLAS exists → all rays miss → never deref'd).
@@ -490,6 +508,9 @@ namespace Luth
         tpc.frameSeed       = frameAbs;
         tpc.depthThreshold  = settings.temporalDepthThreshold;
         tpc.normalThreshold = settings.temporalNormalThreshold;
+        tpc.gbufferScale    = giScale;
+        tpc.dispatchW       = giW2;
+        tpc.dispatchH       = giH2;
 
         GiSpatialPC spc{};
         spc.invViewProj      = invVP;
@@ -497,6 +518,9 @@ namespace Luth
         spc.frameSeed        = frameAbs;
         spc.depthThreshold   = settings.spatialDepthThreshold;
         spc.normalThreshold  = settings.spatialNormalThreshold;
+        spc.gbufferScale     = giScale;
+        spc.dispatchW        = giW2;
+        spc.dispatchH        = giH2;
 
         // Initial pass — cosine-sampled 1-bounce path + single-light NEE, writes the CURR reservoir at
         // b2. The curr buffer is imported ONCE here; its handle threads into shade's ReadBuffer so the
@@ -553,8 +577,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_InitialPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiPC), &pc);
 
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
+                const u32 groupX = (static_cast<u32>(pc.dispatchW) + 7) / 8;
+                const u32 groupY = (static_cast<u32>(pc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
@@ -607,8 +631,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_TemporalPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiTemporalPC), &tpc);
 
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
+                const u32 groupX = (static_cast<u32>(tpc.dispatchW) + 7) / 8;
+                const u32 groupY = (static_cast<u32>(tpc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
@@ -658,8 +682,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_SpatialPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiSpatialPC), &spc);
 
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
+                const u32 groupX = (static_cast<u32>(spc.dispatchW) + 7) / 8;
+                const u32 groupY = (static_cast<u32>(spc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
@@ -711,8 +735,8 @@ namespace Luth
                 vkCmdPushConstants(cmd, m_ShadePipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GiPC), &pc);
 
-                const u32 groupX = (vr->width + 7) / 8;
-                const u32 groupY = (vr->height + 7) / 8;
+                const u32 groupX = (static_cast<u32>(pc.dispatchW) + 7) / 8;
+                const u32 groupY = (static_cast<u32>(pc.dispatchH) + 7) / 8;
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
