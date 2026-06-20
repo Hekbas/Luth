@@ -242,7 +242,7 @@ namespace Luth
             uci.bindingCount = 4; uci.pBindings = ub;
             vkCreateDescriptorSetLayout(device, &uci, nullptr, &m_UpscaleSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/gi_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
             if (!m_UpscaleSpv.empty())
             {
                 const std::vector<VkDescriptorSetLayout> ulayouts = {
@@ -312,7 +312,7 @@ namespace Luth
             return true;
         }
 
-        if (name == "gi_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
+        if (name == "bilateral_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
         {
             m_UpscaleSpv = spv;
             if (auto* raw = m_UpscalePipeline.release(); raw)

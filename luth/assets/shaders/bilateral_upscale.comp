@@ -4,18 +4,18 @@
 #include "common/globals.glsl"
 #include "common/svgf_common.glsl"
 
-// Joint-bilateral upscale of the half-res denoised GI into the full-res svgfGiDenoised. For each full-res
-// pixel: gather the 4 covering half-res taps, weight each by depth + normal edge-stops against the full-res
-// guide, with a depth-nearest fallback on total rejection (holds silhouettes against light leak). Only runs
-// in half-res GI mode; the full-res path writes svgfGiDenoised directly from the à-trous final level.
+// Joint-bilateral upscale of a half-res denoised signal (ReSTIR GI / DI) into its full-res image. For each
+// full-res pixel: gather the 4 covering half-res taps, weight each by depth + normal edge-stops against the
+// full-res guide, with a depth-nearest fallback on total rejection (holds silhouettes against light leak).
+// Only runs in half-res mode; the full-res path writes the denoised image directly from the à-trous final.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // set 0 = global UBO (nearZ/farZ for depth linearization).
-layout(set = 1, binding = 0) uniform sampler2D u_GiHalf;     // half-res denoised GI (demodulated E)
+layout(set = 1, binding = 0) uniform sampler2D u_Half;       // half-res denoised signal (demodulated E)
 layout(set = 1, binding = 1) uniform sampler2D u_Depth;      // full-res scene depth
 layout(set = 1, binding = 2) uniform sampler2D u_Normal;     // full-res slim oct normal
-layout(set = 1, binding = 3, rgba16f) uniform writeonly image2D u_Out;  // full-res svgfGiDenoised
+layout(set = 1, binding = 3, rgba16f) uniform writeonly image2D u_Out;  // full-res denoised output
 
 layout(push_constant) uniform PC {
     int   fullW;
@@ -54,7 +54,7 @@ void main() {
                          ivec2(0), ivec2(pc.fullW - 1, pc.fullH - 1));
         float zT = SvgfLinearizeDepth(texelFetch(u_Depth, ft, 0).r);
         vec3  nT = SvgfOctDecode(texelFetch(u_Normal, ft, 0).rg);
-        vec3  cT = texelFetch(u_GiHalf, ht, 0).rgb;
+        vec3  cT = texelFetch(u_Half, ht, 0).rgb;
 
         float wz = exp(-abs(zC - zT) / (pc.phiDepth * max(zC, 1e-3) + 1e-4));
         float wn = pow(max(0.0, dot(nC, nT)), pc.phiNormal);
