@@ -63,6 +63,8 @@ namespace Luth
             settings.showGrid            = j.value("showGrid", settings.showGrid);
             settings.showTriIndicatorOverlay = j.value("showTriIndicatorOverlay", settings.showTriIndicatorOverlay);
             settings.lastDebugMode       = (u8)j.value("lastDebugMode", (int)settings.lastDebugMode);
+            settings.renderPanelTab      = j.value("renderPanelTab", settings.renderPanelTab);
+            settings.renderDenoiserTab   = j.value("renderDenoiserTab", settings.renderDenoiserTab);
 
             LoadVec4(j, "outlineColor", settings.outlineColor);
             settings.outlineWidth         = j.value("outlineWidth", settings.outlineWidth);
@@ -146,6 +148,8 @@ namespace Luth
             j["showGrid"]            = settings.showGrid;
             j["showTriIndicatorOverlay"] = settings.showTriIndicatorOverlay;
             j["lastDebugMode"]       = (int)settings.lastDebugMode;
+            j["renderPanelTab"]      = settings.renderPanelTab;
+            j["renderDenoiserTab"]   = settings.renderDenoiserTab;
 
             j["outlineColor"]         = ToJson(settings.outlineColor);
             j["outlineWidth"]         = settings.outlineWidth;

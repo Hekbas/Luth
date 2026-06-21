@@ -26,14 +26,24 @@ namespace Luth
     private:
         static const char* FormatBytes(i64 bytes, char* buf, size_t bufSize);
 
+        // Pinned overview + CPU/Memory/GPU tab bodies (read the cached stats below).
+        void DrawOverview();
+        void DrawCpuTab();
+        void DrawMemoryTab();
+        void DrawGpuTab();
+
         std::vector<float> m_FrameTimeHistory;
         float m_UpdateTimer = 0.0f;
+        int   m_Tab = 0;   // 0 CPU, 1 Memory, 2 GPU
 
         float m_FPS = 0.0f;
         float m_FrameTime = 0.0f;
         float m_FrameTimeMin = 0.0f;
         float m_FrameTimeMax = 0.0f;
         float m_FrameTimeAvg = 0.0f;
+        float m_FrameTimeP95 = 0.0f;
+        float m_FrameTimeP99 = 0.0f;
+        float m_OnePercentLowFps = 0.0f;   // 1000 / p99 frame time
 
         Memory::MemoryTracker::Snapshot m_MemSnapshot{};
         std::vector<float> m_MemoryHistory;
