@@ -18,6 +18,7 @@
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/settings/RestirGiSettings.h"
 #include "luthien/widgets/ImGuiUtils.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/widgets/Widgets.h"
@@ -100,7 +101,7 @@ namespace Luth
                 // it ignores WindowPadding.x, so the absX values must include it.
                 const float windowPadX     = style.WindowPadding.x;
                 const float transportW     = (4 * btnSize) + (3 * gap);
-                const float renderModeW    = (4 * btnSize) + (3 * gap);
+                const float renderModeW    = (5 * btnSize) + (4 * gap);   // Wire/ShadedWire/Unlit/Lit + Path Trace
                 const float rightW         = renderModeW + groupGap + splitW + wideGap + splitW + gap + splitW + gap + iconBtnW;
                 const float transportStart = windowPadX + (toolbarWidth - transportW) * 0.5f;
                 const float rightStart     = windowPadX + (toolbarWidth - rightW);
@@ -178,10 +179,13 @@ namespace Luth
                     { ICON_FA_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
                     { ICON_FA_CIRCLE_HALF_STROKE, "Lit",                                       (int)ShadeMode::Lit },
                 };
-                const int curMode = (int)m_RenderingSystem->GetShadeMode();
+                const int  curMode    = (int)m_RenderingSystem->GetShadeMode();
+                const bool ptActive   = m_RenderingSystem->GetRenderMode() == RenderMode::PathTrace;
                 const ImVec4 activeCol = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+                // Wire/Unlit/Lit imply Raster; clicking one switches back from Path Trace. None highlight
+                // while Path Trace owns the view.
                 for (int i = 0; i < IM_ARRAYSIZE(kRenderModes); ++i) {
-                    const bool active  = (curMode == kRenderModes[i].mode);
+                    const bool active  = !ptActive && (curMode == kRenderModes[i].mode);
                     const bool enabled = (kRenderModes[i].mode != -1);
                     if (active) {
                         ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
@@ -189,83 +193,43 @@ namespace Luth
                     }
                     if (!enabled) ImGui::BeginDisabled();
                     ImGui::PushID(i);
-                    if (ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize }) && enabled)
+                    if (ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize }) && enabled) {
+                        m_RenderingSystem->SetRenderMode(RenderMode::Raster);
                         m_RenderingSystem->SetShadeMode((ShadeMode)kRenderModes[i].mode);
+                    }
                     ImGui::PopID();
                     if (!enabled) ImGui::EndDisabled();
                     if (active) ImGui::PopStyleColor(2);
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kRenderModes[i].tip);
-                    if (i + 1 < IM_ARRAYSIZE(kRenderModes)) ImGui::SameLine(0, gap);
+                    ImGui::SameLine(0, gap);
                 }
+
+                // Path Trace — a RenderMode (not a ShadeMode): swaps the realtime path for the reference tracer.
+                if (ptActive) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
+                }
+                if (ImGui::Button(ICON_FA_ATOM, { btnSize, btnSize }))
+                    m_RenderingSystem->SetRenderMode(ptActive ? RenderMode::Raster : RenderMode::PathTrace);
+                if (ptActive) ImGui::PopStyleColor(2);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Path Trace (ground-truth reference)");
 
                 ImGui::SameLine(0, groupGap);
 
-                // Debug split — icon toggles current<->lastDebugMode; chevron picks the mode.
+                // Debug split — icon toggles current<->lastDebugMode; chevron opens the searchable picker.
+                // Disabled under Path Trace (debug views are raster-only).
+                if (ptActive) ImGui::BeginDisabled();
                 {
-                    const bool dbgActive = (curMode == (int)ShadeMode::Normals)
-                                        || (curMode == (int)ShadeMode::EntityID)
-                                        || (curMode == (int)ShadeMode::Emission)
-                                        || (curMode >= (int)ShadeMode::SlimNormal && curMode <= (int)ShadeMode::SlimMaterialID)
-                                        || (curMode == (int)ShadeMode::ClustersDensity)
-                                        || (curMode == (int)ShadeMode::VolumetricDensity)
-                                        || (curMode == (int)ShadeMode::VolumetricInScatter)
-                                        || (curMode == (int)ShadeMode::RestirGiReservoir);
+                    // Debug-active = any mode that isn't one of the three primary shades (the render-mode
+                    // icons own Wire/Unlit/Lit). One negation instead of re-listing every debug value.
+                    const bool dbgActive = !(curMode == (int)ShadeMode::Lit
+                                          || curMode == (int)ShadeMode::Unlit
+                                          || curMode == (int)ShadeMode::Wireframe);
                     bool dbgState = dbgActive;
                     if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
-                        [&]() {
+                        [this]() {
                             ImGui::PushFont(Editor::GetMainFont());
-                            if (ImGui::RadioButton("Normals", curMode == (int)ShadeMode::Normals)) {
-                                settings.lastDebugMode = (u8)ShadeMode::Normals;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::Normals);
-                            }
-                            if (ImGui::RadioButton("EntityID", curMode == (int)ShadeMode::EntityID)) {
-                                settings.lastDebugMode = (u8)ShadeMode::EntityID;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::EntityID);
-                            }
-                            if (ImGui::RadioButton("Emission", curMode == (int)ShadeMode::Emission)) {
-                                settings.lastDebugMode = (u8)ShadeMode::Emission;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::Emission);
-                            }
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Slim G-buffer");
-                            if (ImGui::RadioButton("Slim Normal",       curMode == (int)ShadeMode::SlimNormal)) {
-                                settings.lastDebugMode = (u8)ShadeMode::SlimNormal;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::SlimNormal);
-                            }
-                            if (ImGui::RadioButton("Slim Roughness",    curMode == (int)ShadeMode::SlimRoughness)) {
-                                settings.lastDebugMode = (u8)ShadeMode::SlimRoughness;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::SlimRoughness);
-                            }
-                            if (ImGui::RadioButton("Slim Motion",       curMode == (int)ShadeMode::SlimMotion)) {
-                                settings.lastDebugMode = (u8)ShadeMode::SlimMotion;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::SlimMotion);
-                            }
-                            if (ImGui::RadioButton("Slim Material ID",  curMode == (int)ShadeMode::SlimMaterialID)) {
-                                settings.lastDebugMode = (u8)ShadeMode::SlimMaterialID;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::SlimMaterialID);
-                            }
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Forward+ Clusters");
-                            if (ImGui::RadioButton("Cluster Density",   curMode == (int)ShadeMode::ClustersDensity)) {
-                                settings.lastDebugMode = (u8)ShadeMode::ClustersDensity;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::ClustersDensity);
-                            }
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Volumetric Fog");
-                            if (ImGui::RadioButton("Vol Density",       curMode == (int)ShadeMode::VolumetricDensity)) {
-                                settings.lastDebugMode = (u8)ShadeMode::VolumetricDensity;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::VolumetricDensity);
-                            }
-                            if (ImGui::RadioButton("Vol In-Scatter",    curMode == (int)ShadeMode::VolumetricInScatter)) {
-                                settings.lastDebugMode = (u8)ShadeMode::VolumetricInScatter;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::VolumetricInScatter);
-                            }
-                            ImGui::Separator();
-                            ImGui::TextDisabled("ReSTIR GI");
-                            if (ImGui::RadioButton("GI Reservoir (M/age)", curMode == (int)ShadeMode::RestirGiReservoir)) {
-                                settings.lastDebugMode = (u8)ShadeMode::RestirGiReservoir;
-                                m_RenderingSystem->SetShadeMode(ShadeMode::RestirGiReservoir);
-                            }
+                            DrawDebugModePicker();
                             ImGui::PopFont();
                         }))
                     {
@@ -274,6 +238,7 @@ namespace Luth
                             : ShadeMode::Lit);
                     }
                 }
+                if (ptActive) ImGui::EndDisabled();
 
                 ImGui::SameLine(0, wideGap);
 
@@ -652,5 +617,64 @@ namespace Luth
         }
         ImGui::End();
         ImGui::PopFont();
+    }
+
+    void ScenePanel::DrawDebugModePicker()
+    {
+        // Descriptor table — adding a mode is one row here (+ its engine viz), not a hand-written
+        // radio + a manual active-range test. `gate` greys modes whose feature is off.
+        enum class Gate : u8 { None, VolFog, RestirGi, RestirDi, Gtao, Reflections };
+        struct Desc { const char* cat; const char* label; ShadeMode mode; Gate gate; };
+        static constexpr Desc kModes[] = {
+            { "Surface",         "Normals",          ShadeMode::Normals,             Gate::None },
+            { "Surface",         "Metallic",         ShadeMode::Metallic,            Gate::None },
+            { "Surface",         "Occlusion",        ShadeMode::Occlusion,           Gate::None },
+            { "Surface",         "Emission",         ShadeMode::Emission,            Gate::None },
+            { "Surface",         "Entity ID",        ShadeMode::EntityID,            Gate::None },
+            { "G-buffer (Slim)", "Slim Normal",      ShadeMode::SlimNormal,          Gate::None },
+            { "G-buffer (Slim)", "Slim Roughness",   ShadeMode::SlimRoughness,       Gate::None },
+            { "G-buffer (Slim)", "Slim Motion",      ShadeMode::SlimMotion,          Gate::None },
+            { "G-buffer (Slim)", "Slim Material ID", ShadeMode::SlimMaterialID,      Gate::None },
+            { "Lighting",        "Cluster Density",  ShadeMode::ClustersDensity,     Gate::None },
+            { "Lighting",        "Shadow Cascades",  ShadeMode::ShadowCascades,      Gate::None },
+            { "Lighting",        "Ambient Occlusion",ShadeMode::AmbientOcclusion,    Gate::Gtao },
+            { "GI / RT",         "GI Reservoir",     ShadeMode::RestirGiReservoir,   Gate::RestirGi },
+            { "GI / RT",         "GI Raw",           ShadeMode::GiRaw,               Gate::RestirGi },
+            { "GI / RT",         "DI Raw",           ShadeMode::DiRaw,               Gate::RestirDi },
+            { "GI / RT",         "RT Reflection Raw",ShadeMode::RtReflectionRaw,     Gate::Reflections },
+            { "Volumetrics",     "Vol Density",      ShadeMode::VolumetricDensity,   Gate::VolFog },
+            { "Volumetrics",     "Vol In-Scatter",   ShadeMode::VolumetricInScatter, Gate::VolFog },
+        };
+
+        auto& settings      = Editor::GetSettings();
+        const bool ptActive = m_RenderingSystem->GetRenderMode() == RenderMode::PathTrace;
+        const bool fogOn    = settings.enableVolumetricFog;
+        const bool giOn     = m_RenderingSystem->GetRestirGiSettings().enabled;
+        const bool diOn     = m_RenderingSystem->GetRestirSettings().enabled;
+        const bool gtaoOn   = m_RenderingSystem->GetPostProcessSettings().gtao.enabled;
+        const bool reflOn   = m_RenderingSystem->GetReflectionsSettings().enabled;
+
+        UI::CategoryItem items[IM_ARRAYSIZE(kModes)];
+        for (int i = 0; i < IM_ARRAYSIZE(kModes); ++i)
+        {
+            const Desc& d = kModes[i];
+            const char* reason = nullptr;
+            bool enabled = true;
+            if (ptActive)                                    { enabled = false; reason = "Disabled in Path-Trace mode"; }
+            else if (d.gate == Gate::VolFog      && !fogOn)  { enabled = false; reason = "Enable Volumetric Fog"; }
+            else if (d.gate == Gate::RestirGi    && !giOn)   { enabled = false; reason = "Enable ReSTIR GI"; }
+            else if (d.gate == Gate::RestirDi    && !diOn)   { enabled = false; reason = "Enable ReSTIR DI"; }
+            else if (d.gate == Gate::Gtao        && !gtaoOn) { enabled = false; reason = "Enable Ambient Occlusion (GTAO)"; }
+            else if (d.gate == Gate::Reflections && !reflOn) { enabled = false; reason = "Enable RT Reflections"; }
+            items[i] = { d.cat, d.label, (int)d.mode, enabled, reason };
+        }
+
+        int current = (int)m_RenderingSystem->GetShadeMode();
+        if (UI::CategoryList("DebugModes", items, IM_ARRAYSIZE(kModes), &current,
+                             m_DebugModeFilter, sizeof(m_DebugModeFilter)))
+        {
+            settings.lastDebugMode = (u8)current;
+            m_RenderingSystem->SetShadeMode((ShadeMode)current);
+        }
     }
 }

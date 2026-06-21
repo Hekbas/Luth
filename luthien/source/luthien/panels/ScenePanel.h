@@ -44,6 +44,9 @@ namespace Luth
         void SetShowControlsOverlay(bool show) { m_ShowControlsOverlay = show; }
 
     private:
+        // Searchable, categorized debug-view picker (Scene toolbar Debug split dropdown).
+        void DrawDebugModePicker();
+
         std::shared_ptr<Scene> m_Context;
         RenderingSystem* m_RenderingSystem = nullptr;
         EditorCamera m_EditorCamera;
@@ -53,5 +56,6 @@ namespace Luth
 
         Entity m_SelectedEntity;
         bool m_ShowControlsOverlay = true;
+        char m_DebugModeFilter[64] = {};   // persists the debug-picker search across popup reopens
     };
 }

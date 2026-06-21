@@ -4,7 +4,9 @@
 // Prefer per-widget includes when only one is needed.
 #include "luthien/widgets/AssetSlot.h"
 #include "luthien/widgets/ButtonGroup.h"
+#include "luthien/widgets/CategoryPopup.h"
 #include "luthien/widgets/CollapsingHeader.h"
+#include "luthien/widgets/FilterBox.h"
 #include "luthien/widgets/InfoTable.h"
 #include "luthien/widgets/InspectorHeader.h"
 #include "luthien/widgets/Properties.h"
