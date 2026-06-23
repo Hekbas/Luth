@@ -92,6 +92,13 @@ namespace Luth::JobSystem
         // render run concurrently in steady state so these can overlap.
         f32 GameStageMs;
         f32 RenderStageMs;
+
+        // Per-worker breakdown (index 0 = main thread). State nanos are CUMULATIVE/monotonic — the
+        // profiler diffs successive snapshots for a windowed occupancy %. Jobs/Steals are per-frame.
+        u64 PerThreadStateNanos[MAX_WORKER_THREADS][4];  // ns per WorkerState (Idle/Running/Stealing/Sleeping)
+        u32 PerThreadJobs[MAX_WORKER_THREADS];           // jobs executed this frame
+        u32 PerThreadSteals[MAX_WORKER_THREADS];         // successful steals this frame
+        u32 PerThreadQueued[MAX_WORKER_THREADS];         // current local deque depth
     };
 
     // ── Job Context — Fiber Local Storage (carried per-fiber, accessed via GetCurrentJobContext, stored in Win32 FLS) ──

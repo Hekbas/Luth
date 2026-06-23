@@ -7,7 +7,9 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/core/diagnostics/Profiler.h"
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <emmintrin.h> // _mm_pause
 #include <thread>
@@ -117,6 +119,14 @@ namespace Luth::JobSystem
         // last value on iterations where a stage was gated off.
         std::atomic<f32> LastGameStageMs = 0.0f;
         std::atomic<f32> LastRenderStageMs = 0.0f;
+
+        // Per-worker occupancy + counters. StateNanos bank the time spent in the state a worker is LEAVING
+        // on each SetWorkerState transition — written only by the owning worker, so no contention; monotonic
+        // (the profiler diffs successive snapshots for a window). Jobs/Steals reset per frame.
+        std::atomic<u64> WorkerStateNanos[MAX_WORKER_THREADS][4]{};
+        u64              WorkerLastTransitionNs[MAX_WORKER_THREADS]{};
+        std::atomic<u32> WorkerJobs[MAX_WORKER_THREADS]{};
+        std::atomic<u32> WorkerSteals[MAX_WORKER_THREADS]{};
     };
 
     static SchedulerData s_Data;
@@ -143,9 +153,25 @@ namespace Luth::JobSystem
         }
     }
 
-    // State + peak are observed only by the profiler panel — relaxed throughout.
+    // Monotonic nanosecond clock for per-worker occupancy accounting.
+    static u64 NowNs()
+    {
+        return (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    // State + peak observed by the profiler panel — relaxed throughout. Also banks time spent in the state
+    // being LEFT into this worker's occupancy bin (owner-only write; first transition is skipped via last==0).
     static void SetWorkerState(u32 index, WorkerState state)
     {
+        const u64 now  = NowNs();
+        const u64 last = s_Data.WorkerLastTransitionNs[index];
+        if (last != 0) {
+            const WorkerState prev = s_Data.WorkerStates[index].load(std::memory_order_relaxed);
+            s_Data.WorkerStateNanos[index][static_cast<u8>(prev)].fetch_add(now - last, std::memory_order_relaxed);
+        }
+        s_Data.WorkerLastTransitionNs[index] = now;
+
         s_Data.WorkerStates[index].store(state, std::memory_order_relaxed);
 
         // Peak holds the busiest state seen this frame; only overwrite if new state outranks current.
@@ -323,6 +349,7 @@ namespace Luth::JobSystem
                 DecrementCounter(jobPtr->CounterPtr);
 
             s_Data.FrameJobsExecuted.fetch_add(1, std::memory_order_relaxed);
+            s_Data.WorkerJobs[t_WorkerIndex].fetch_add(1, std::memory_order_relaxed);
         }
 
         self->IsFinished = true;
@@ -423,6 +450,7 @@ namespace Luth::JobSystem
                     {
                         SetWorkerState(workerIndex, WorkerState::Stealing);
                         s_Data.FrameStealSuccesses.fetch_add(1, std::memory_order_relaxed);
+                        s_Data.WorkerSteals[workerIndex].fetch_add(1, std::memory_order_relaxed);
                         foundJob = true;
                         break;
                     }
@@ -594,6 +622,12 @@ namespace Luth::JobSystem
         s_Data.FrameStealAttempts = 0;
         s_Data.FrameStealSuccesses = 0;
         s_Data.FrameFiberYields = 0;
+
+        // Per-worker per-frame counters (occupancy nanos are monotonic — not reset here).
+        for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i) {
+            s_Data.WorkerJobs[i].store(0, std::memory_order_relaxed);
+            s_Data.WorkerSteals[i].store(0, std::memory_order_relaxed);
+        }
 
         // Worker 0 is the main thread — always Running (drives the frame loop)
         s_Data.WorkerPeakStates[0].store(WorkerState::Running, std::memory_order_relaxed);
@@ -815,6 +849,16 @@ namespace Luth::JobSystem
 
         for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i)
             stats.PerThreadState[i] = s_Data.WorkerPeakStates[i].load(std::memory_order_relaxed);
+
+        // Per-worker occupancy nanos + counters + live deque depth (index 0 = main thread).
+        for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i) {
+            for (u32 s = 0; s < 4; ++s)
+                stats.PerThreadStateNanos[i][s] = s_Data.WorkerStateNanos[i][s].load(std::memory_order_relaxed);
+            stats.PerThreadJobs[i]   = s_Data.WorkerJobs[i].load(std::memory_order_relaxed);
+            stats.PerThreadSteals[i] = s_Data.WorkerSteals[i].load(std::memory_order_relaxed);
+            stats.PerThreadQueued[i] = (i < s_Data.Workers.size())
+                ? (u32)std::max<i64>(0, s_Data.Workers[i].LocalDeque->Size()) : 0u;
+        }
 
         stats.JobsExecuted   = s_Data.FrameJobsExecuted.load(std::memory_order_relaxed);
         stats.StealAttempts   = s_Data.FrameStealAttempts.load(std::memory_order_relaxed);
