@@ -104,9 +104,9 @@ namespace Luth::JobSystem
         // Stats
         std::atomic<u32> PeakFibers = 0;
 
-        // Per-worker state (separate from WorkerData to avoid breaking move semantics)
+        // Per-worker live state (separate from WorkerData to avoid breaking move semantics). Read by
+        // SetWorkerState to bank time into the state being left.
         std::atomic<WorkerState> WorkerStates[MAX_WORKER_THREADS]{};
-        std::atomic<WorkerState> WorkerPeakStates[MAX_WORKER_THREADS]{};
 
         // Per-frame stats counters (reset by ResetFrameStats). Read by ProfilerPanel
         // only — relaxed loads/stores throughout; no synchronization with workers.
@@ -142,17 +142,6 @@ namespace Luth::JobSystem
         return s_SchedulerNames[ctx->ThreadIndex];
     }
 
-    // Priority: Running(3) > Stealing(2) > Idle(1) > Sleeping(0)
-    static u8 WorkerStatePriority(WorkerState s)
-    {
-        switch (s) {
-            case WorkerState::Running:  return 3;
-            case WorkerState::Stealing: return 2;
-            case WorkerState::Idle:     return 1;
-            default:                    return 0;
-        }
-    }
-
     // Monotonic nanosecond clock for per-worker occupancy accounting.
     static u64 NowNs()
     {
@@ -160,8 +149,8 @@ namespace Luth::JobSystem
             std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
-    // State + peak observed by the profiler panel — relaxed throughout. Also banks time spent in the state
-    // being LEFT into this worker's occupancy bin (owner-only write; first transition is skipped via last==0).
+    // Worker state observed by the profiler — relaxed throughout. Banks time spent in the state being LEFT
+    // into this worker's occupancy bin (owner-only write; the first transition is skipped via last==0).
     static void SetWorkerState(u32 index, WorkerState state)
     {
         const u64 now  = NowNs();
@@ -173,14 +162,6 @@ namespace Luth::JobSystem
         s_Data.WorkerLastTransitionNs[index] = now;
 
         s_Data.WorkerStates[index].store(state, std::memory_order_relaxed);
-
-        // Peak holds the busiest state seen this frame; only overwrite if new state outranks current.
-        WorkerState current = s_Data.WorkerPeakStates[index].load(std::memory_order_relaxed);
-        while (WorkerStatePriority(state) > WorkerStatePriority(current))
-        {
-            if (s_Data.WorkerPeakStates[index].compare_exchange_weak(current, state, std::memory_order_relaxed))
-                break;
-        }
     }
 
     // ── Worker Thread ID ──
@@ -628,11 +609,6 @@ namespace Luth::JobSystem
             s_Data.WorkerJobs[i].store(0, std::memory_order_relaxed);
             s_Data.WorkerSteals[i].store(0, std::memory_order_relaxed);
         }
-
-        // Worker 0 is the main thread — always Running (drives the frame loop)
-        s_Data.WorkerPeakStates[0].store(WorkerState::Running, std::memory_order_relaxed);
-        for (u32 i = 1; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i)
-            s_Data.WorkerPeakStates[i].store(WorkerState::Sleeping, std::memory_order_relaxed);
     }
 
     void Execute(JobFunction function, void* data, Counter* counter, const char* name, Priority priority)
@@ -846,9 +822,6 @@ namespace Luth::JobSystem
         stats.FreeFibers  = s_Data.FreeFiberCount;
         stats.PeakFibers  = s_Data.PeakFibers.load(std::memory_order_relaxed);
         stats.HighQueueSize = s_Data.HighQueue.GetSize();
-
-        for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i)
-            stats.PerThreadState[i] = s_Data.WorkerPeakStates[i].load(std::memory_order_relaxed);
 
         // Per-worker occupancy nanos + counters + live deque depth (index 0 = main thread).
         for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i) {

@@ -79,7 +79,6 @@ namespace Luth::JobSystem
         u32 FreeFibers;
         u32 PeakFibers;
         u32 HighQueueSize;
-        WorkerState PerThreadState[MAX_WORKER_THREADS];
 
         // Per-frame aggregated counters (reset each frame)
         u32 JobsExecuted;
