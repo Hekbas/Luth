@@ -5,6 +5,7 @@
 #include "luthien/widgets/AssetSlot.h"
 #include "luthien/widgets/ButtonGroup.h"
 #include "luthien/widgets/CategoryPopup.h"
+#include "luthien/widgets/Charts.h"
 #include "luthien/widgets/CollapsingHeader.h"
 #include "luthien/widgets/FilterBox.h"
 #include "luthien/widgets/InfoTable.h"

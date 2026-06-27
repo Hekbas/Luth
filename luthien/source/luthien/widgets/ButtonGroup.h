@@ -6,8 +6,9 @@ namespace Luth::UI
 {
     // Fused row of N text-labeled buttons. Active idx is highlighted with
     // ImGuiCol_ButtonActive; clicking a different idx writes back through
-    // selectedIdx and returns true.
-    bool SegmentedButton(const char* groupId, const char* const* labels, int count, int* selectedIdx);
+    // selectedIdx and returns true. fillWidth stretches the row to equal-width
+    // buttons spanning the content region (tab-strip look).
+    bool SegmentedButton(const char* groupId, const char* const* labels, int count, int* selectedIdx, bool fillWidth = false);
 
     // Row of N square icon-only buttons (FrameHeight × FrameHeight) with 2px
     // spacing. Mirrors the active-state push pattern used by ScenePanel's gizmo
